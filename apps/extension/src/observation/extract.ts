@@ -28,6 +28,7 @@ import {
   entryLike,
   foldName,
   namedAccounts,
+  namePattern,
 } from "../page/account-list";
 import { entryElementRefusal, linkUrl, renderedControlText } from "../page/entry";
 import { linkRefusal, type OnSite } from "../login/entry";
@@ -110,7 +111,7 @@ const redactions: readonly (readonly [RegExp, string])[] = [
  * control/format/separator characters removed, private-looking parts redacted, and at
  * most 120 UTF-16 code units without splitting a surrogate pair.
  */
-function observedText(raw: string | null | undefined): string | undefined {
+export function observedText(raw: string | null | undefined): string | undefined {
   if (!raw) return undefined;
   // Format characters (zero-width spaces, soft hyphens) vanish before redaction so
   // they cannot split a digit run.
@@ -120,7 +121,7 @@ function observedText(raw: string | null | undefined): string | undefined {
 }
 
 /** At most 120 UTF-16 code units, without splitting a surrogate pair. */
-function bounded(text: string): string | undefined {
+export function bounded(text: string): string | undefined {
   if (text.length > maxText) {
     text = text.slice(0, maxText);
     if (/[\uD800-\uDBFF]$/u.test(text)) text = text.slice(0, -1);
@@ -138,7 +139,8 @@ function bounded(text: string): string | undefined {
  */
 const numberPart = String.raw`(?:\p{Number}+|\[number\])`;
 const numbers = new RegExp(`${numberPart}(?:[.,，．'\u2019]${numberPart})*`, "gu");
-const withoutNumbers = (text: string) => bounded(text.replace(numbers, "[number]")) ?? "[number]";
+export const withoutNumbers = (text: string) =>
+  bounded(text.replace(numbers, "[number]")) ?? "[number]";
 
 /**
  * Whether a control is on the page: `visible`, `faint` when it is rendered but
@@ -953,23 +955,8 @@ function withoutNames(
   names: readonly string[],
   hidden: readonly string[],
 ): ObservationResult {
-  const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
-  // Longest first, so a name inside a longer one never leaves part of the longer one.
-  const folded = [...new Set(names.map(foldName).filter(Boolean))].sort(
-    (left, right) => right.length - left.length,
-  );
-  // A name is a word of its own script: a Latin name may touch kana or kanji, as in
-  // "taro.yamadaさん", but not another Latin letter or digit, as in "another".
-  const word = /[\p{Script=Latin}\p{N}]/u;
-  const edge = "[\\p{Script=Latin}\\p{N}]";
-  const source = folded
-    .map(
-      (name) =>
-        `${word.test(name[0]!) ? `(?<!${edge})` : ""}@?${escape(name)}${
-          word.test(name.at(-1)!) ? `(?!${edge})` : ""
-        }`,
-    )
-    .join("|");
+  // The texts that name a username show at least one name, so the pattern is never empty.
+  const source = namePattern(names) ?? "(?!)";
   const holds = new RegExp(source, "iu");
   const pattern = new RegExp(source, "giu");
   const others = new Set(hidden.map(foldName).filter(Boolean));

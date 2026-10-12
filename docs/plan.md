@@ -85,19 +85,19 @@ password or passkey, in the Grok Bot computer's Chrome, on a production build of
 - Press a site's sign-in link on a page the site sent the visitor to before signing in,
   shown by a query value naming another path of the same site, such as pixiv's top page
   `https://www.pixiv.net/en/?return_to=%2Fbookmark_new_illust.php`, whose "Login" leads
-  to `https://accounts.pixiv.net/login`
-  ([ADR 0031](adr/0031-sign-in-entry-pages.md), accepted 2026-10-12). Generation on that
-  login page succeeds since build `e9144a6` (2026-10-12 07:24 UTC). The service stores,
-  syncs and lists a recipe with only `entry`, and the extension caches it, never as a
-  login (local tests only); ADR 0028's `chooser` builds on
-  that contract. The service generates that recipe from an entry request, a page sent
-  without slots, with the `entry` decision, its prompt line and plan checks (#336, local
-  tests with fake models only). The extension sends such pages ten seconds after
-  loading, presses a cached entry after the checks before the press, checks the page it
-  leads to and blocks the revision on the device when that page left the site, showed no
-  sign-in input or showed a sign-up form, logging `login.entry`; the entry path counts
-  as a recipe start in `offersGeneration` only (local tests and a synthetic browser test
-  only). Next, verification on pixiv in the owner's Chrome.
+  to `https://accounts.pixiv.net/login` ([ADR 0031](adr/0031-sign-in-entry-pages.md),
+  accepted 2026-10-12). Generation on that login page succeeds since build `e9144a6`
+  (2026-10-12 07:24 UTC). The service stores, syncs and lists a recipe with only
+  `entry`, and the extension caches it, never as a login (local tests only); ADR 0028's
+  `chooser` builds on that contract. The service generates that recipe from an entry
+  request, a page sent without slots, with the `entry` decision, its prompt line and
+  plan checks (#336, local tests with fake models only). The extension sends such pages
+  ten seconds after loading, presses a cached entry after the checks before the press,
+  checks the page it leads to and blocks the revision on the device when that page left
+  the site, showed no sign-in or identifier input (ADR 0016) or showed a sign-up form,
+  logging `login.entry`; the entry path counts as a recipe start in `offersGeneration`
+  only (local tests and a synthetic browser test only). Next, verification on pixiv in
+  the owner's Chrome.
 - [ADR 0029](adr/0029-local-sign-in-state.md) (accepted 2026-10-12): delivery 1 logs the
   local sign-in state of the page after a submission as `login.state`. Delivery 2's
   first part is implemented: evidence of a sign-in that a second reading a second later
@@ -128,12 +128,21 @@ password or passkey, in the Grok Bot computer's Chrome, on a production build of
   only). Not fixed: `generate` in `apps/extension/src/service/generation.ts` ignores a
   failed sync after generation, so a page could still find no recipe.
 - Redact the account's own username from every page observation sent to the service
-  (generation, its continuation after an `advance` step, and the judge): text that
-  matches a matching item's username exactly, ignoring case, becomes a placeholder. The
-  username is read locally as for the username shape
+  (generation, its continuation after an `advance` step, and the judge): each matching
+  item's username of three or more characters is hidden as `[account]` wherever it
+  shows as a whole text or as part of a longer one, ignoring case and width, under ADR
+  0028's rule for a listed name; a control whose locator holds one is left out, or the
+  page is refused (`username-shown`) when that would leave it incomplete; and a failed
+  username read refuses the page (`username-unread`). The username is read locally as
+  for the username shape
   ([ADR 0016](adr/0016-recipe-generation-trigger.md#username-shape)) and never sent. The
   page after an `advance` step, like any judged page, can show the identifier just
-  entered (continuation review, 2026-10-12). Not implemented yet.
+  entered (continuation review, 2026-10-12). Implemented (this change, local tests
+  only; [architecture](architecture.md#declarative-recipes-and-ai)). Not covered: an
+  email username's local part shown alone, a username in the origin (a personal
+  subdomain), and the usernames of items on a connection that could not answer. Sign-in
+  entry pages ([ADR 0031](adr/0031-sign-in-entry-pages.md)) are not covered either,
+  because that ADR reads nothing of the vault there beyond the URI match.
 - Choosing again after a logout on the passkey side: after a finished login in a tab,
   the login appearing again there asks for a choice for passwords, and the passkey half
   of that is not implemented yet
@@ -332,6 +341,32 @@ still open on 2026-10-11.
   one site ([ADR 0033](adr/0033-no-site-specific-features.md), owner 13:46 UTC). Until
   then, [ADR 0029](adr/0029-local-sign-in-state.md) treats the login as complete there
   and leaves the page to the person.
+- Re-verification asked while already signed in, such as a secret question before
+  profile settings open (ポイントインカム's `/my/my_profile_change.php`, seen on
+  2026-10-12) or a password asked again before a sensitive change: Pateat should answer
+  them too (owner, 2026-10-12 15:52 UTC). Pateat has no rule for these prompts today,
+  but it reacts to some of them as it does to a login (read from the code and ADRs on
+  2026-10-12, not yet seen on a real site):
+  - A passkey request that names its credentials is signed without asking when one
+    stored passkey matches or the site has a default, also while signed in
+    ([ADR 0021](adr/0021-account-choice-outside-settings.md)).
+  - Pateat logs in on a form that matches a recipe's first step in a tab without a
+    login attempt record of the origin. After this tab's login of the origin, or while
+    another tab of the site asks after a logout, the form is taken as a logout: with
+    one account to use, Pateat fills it without submitting, then asks. ADR 0021 lists
+    this as a known gap.
+  - On a site with a matching vault item, a password input on a path without a recipe,
+    in a tab without a login attempt record of the origin
+    ([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md)), is sent for recipe
+    generation like a login page ([ADR 0016](adr/0016-recipe-generation-trigger.md)),
+    and the returned recipe runs at once
+    ([ADR 0018](adr/0018-recipe-generation-route.md)).
+  - The owner also wants these prompts classified, with a permission for each class set
+    per site in a settings profile ([ADR 0024](adr/0024-settings-profiles.md)) (owner,
+    2026-10-12 15:54 UTC). Examples: allow logins but refuse re-verification after them,
+    such as before a money transfer or a change of registered details; allow personal
+    details. The classes and permissions are still to be designed and need the owner's
+    approval before an ADR.
 - The items under [later work](#initial-delivery-and-later-scope) and the ADRs' later
   sections, including synced vault policy
   ([ADR 0023](adr/0023-synced-vault-policy.md)), more settings profiles

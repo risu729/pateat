@@ -5,7 +5,9 @@ Status: accepted by the owner on 2026-10-11. Amends
 [ADR 0018](0018-recipe-generation-route.md), by the owner's account-switch decision
 of 2026-10-11 ([Pages where no recipe starts](#pages-where-no-recipe-starts)) and by
 the owner's username shape decision of 2026-10-11 ([Username shape](#username-shape)),
-by the owner's retry decision of 2026-10-12 (condition 4), and by
+by the owner's retry decision of 2026-10-12 (condition 4), by the owner's
+identifier-page decisions of 2026-10-12 ([Pages that ask for an identifier
+alone](#pages-that-ask-for-an-identifier-alone)), and by
 [ADR 0027](0027-per-account-login-routes.md) (implemented): each request also
 offers the matching items' allowed custom fields by name and position, with the Text
 shapes all of them agree on, read just before sending as for the username.
@@ -39,7 +41,9 @@ generation automatically when all of these hold:
    values. Only a page that is about to be sent reads the matching items' usernames,
    for their shape ([Username shape](#username-shape)).
 3. The page shows a visible `type="password"` input, or an input with
-   `autocomplete="username"` or `autocomplete="one-time-code"`.
+   `autocomplete="username"` or `autocomplete="one-time-code"`; or, since the amendment
+   below, it asks for an account identifier alone
+   ([Pages that ask for an identifier alone](#pages-that-ask-for-an-identifier-alone)).
 4. No generation was attempted for the same origin and path in the previous 10 minutes,
    whatever its outcome (a recipe, an abstention or a failure). The owner lifted the
    first rule of once in 24 hours on 2026-10-12, so a page can be tried again the same
@@ -128,6 +132,54 @@ page is observed and sent, and the recipe generated for it logs in to `my2@examp
 The extension offers such pages, and the service keeps one generated recipe per origin
 and start path ([API README](../../services/api/README.md#recipe-generation)).
 
+## Pages that ask for an identifier alone
+
+Amended by the owner on 2026-10-12, after Resend and Grafana Cloud were never sent:
+their first page asks for the email address or username alone, without a password input
+or `autocomplete="username"`. Two decision cards, both answered "send" (14:43 and 14:51
+UTC), add to condition 3 a page that shows a visible writable input that is:
+
+- an email input, by `type="email"` or `autocomplete="email"` (Resend), or
+- the page's only text-like input (`text`, `email`, `tel`, `number`, `url`), of type
+  `text` with no `autocomplete` other than `on` or `off`, when a whole word of its name,
+  id, placeholder, `aria-label` or label names an identifier: email, mail, user,
+  username, userid, login, loginid, account or id, or, anywhere in the text, メール,
+  ユーザー, ログイン or アカウント (Grafana Cloud's `name="login"` labelled "Email or
+  username"). Names split into words at case changes and punctuation first, so
+  `loginId` and `e-mail` match and `hidden` does not.
+
+Neither counts inside a form with a `new-password` input. A search box (`type="search"`,
+inside `<search>` or `role="search"`) and an input with a word of another kind of field
+(search, coupon, promo, tracking, order, newsletter, subscribe, zip or postal, or
+anywhere 検索, クーポン, 注文, 追跡, メルマガ, マガジン, 購読 or 郵便) neither count nor
+are counted as text-like inputs beside one, so a login field beside a site search box is
+still the page's only one. The word lists are local, as the passkey button words are,
+and name no site ([ADR 0033](0033-no-site-specific-features.md)). Conditions 1, 2 and 4
+still apply.
+
+Such a page is offered only once the content script's ten-second step wait ends. A list
+of accounts by email ([ADR 0028](0028-account-chooser-login-pages.md)) goes first. A
+sign-in entry to press ([ADR 0031](0031-sign-in-entry-pages.md)) goes first too, unless
+the identifier input is the page's only text-like input, so a newsletter email field
+does not hide a site's entry button. A list by short names only, or an email shown
+outside any list, is dropped for such a page, which is sent or logged instead. As for
+lists and entries, the page right after a submitted sign-in is not sent: the tab's next
+document of the origin is logged as `skipped` with `after-sign-in`, and a next path in
+the same document is not offered at all, since a profile or settings page that
+shows the account's email is no sign-in page. The first visit to such a site therefore
+starts generation after ten seconds; once a recipe exists, its first step starts the
+login at once.
+
+Known costs, accepted by the owner: on a site with a matching item, a newsletter field
+without one of the excluded words, a member-ID lookup page, or a checkout, contact or
+profile page with an email input can be sent (about $0.007 a page, at most once in the
+10-minute window of condition 4), and the AI abstains there. A landing page whose only
+text input is such a field also hides the site's sign-in entry, since a sole identifier
+input goes first. Not covered: an identifier input of type `text` beside another text
+input (a company code), words in other languages, and compounds not on the list. Since a
+later owner decision the same day, a sign-in entry whose press leads to such a page
+passes its check ([ADR 0031](0031-sign-in-entry-pages.md)).
+
 ## Username shape
 
 Amended by the owner on 2026-10-11. After a page's observation is built and checked,
@@ -155,6 +207,14 @@ custom-field review) are not matching items here either. When an enabled connect
 could not answer, an item's URI rules could not be evaluated, a username read fails, or
 a username is too long to shape (over 1,024 characters), no shape is sent. The username
 itself never leaves the extension.
+
+Note added on 2026-10-12 with the roadmap's redaction of the account's own username
+([architecture](../architecture.md#declarative-recipes-and-ai)): the same reads also
+hide each username from the page as `[account]` before it is sent. As an implementation
+consequence of the roadmap's "never sent", not a new decision, a username read that
+fails now sends no page at all, not only no shape, since a username that was not read
+cannot be hidden. An item whose username is empty or absent is flagged `empty` in the
+catalog and is not read, so it still does not count and blocks nothing.
 
 ## Consequences
 

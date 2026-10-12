@@ -251,12 +251,19 @@ export async function startLoginFixture(
     } else if (path === "/identifier" || path === "/identifier/again") {
       // An identifier page whose Next opens the password page as a new document (ADR 0018).
       // `?again` opens /identifier/again instead, which shows the identifier form again
-      // with an unknown-account error, as a site that did not know the account. Only that
-      // known flag is read, and the query is never written into the page.
+      // with an unknown-account error, as a site that did not know the account. `?email`
+      // marks the account input for an email address and `?login` names it only `login`,
+      // without `autocomplete` and with a label that names no identifier (ADR 0016). Only
+      // these known flags are read, and the query is never written into the page.
       const again = fixtureUrl.searchParams.has("again");
+      const account = fixtureUrl.searchParams.has("email")
+        ? '<input id="account" autocomplete="email">'
+        : fixtureUrl.searchParams.has("login")
+          ? '<input id="account" name="login">'
+          : '<input id="account" autocomplete="username">';
       response.end(
         html(
-          `<h1>Synthetic identifier page</h1>${path === "/identifier/again" ? '<p id="account-error">Unknown account</p>' : ""}<form><label>Username<input id="account" autocomplete="username"></label><button id="next" type="button">Next</button></form>`,
+          `<h1>Synthetic identifier page</h1>${path === "/identifier/again" ? '<p id="account-error">Unknown account</p>' : ""}<form><label>${fixtureUrl.searchParams.has("login") ? "Your handle" : "Username"}${account}</label><button id="next" type="button">Next</button></form>`,
           `document.getElementById('next').addEventListener('click', () => {
           sessionStorage.setItem('identityClicks', String(Number(sessionStorage.getItem('identityClicks') || 0) + 1));
           sessionStorage.setItem('identityMatched', String(document.getElementById('account').value === ${JSON.stringify(accountName)}));

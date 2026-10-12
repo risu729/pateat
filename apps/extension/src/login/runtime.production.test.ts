@@ -318,8 +318,11 @@ function harness(
     duplicateAccount?: boolean;
     /** Adds a login username field to the item. */
     username?: boolean;
-    /** Adds a login username field to the other item. */
-    otherUsername?: boolean;
+    /**
+     * Adds a login username field to the other item; `empty` when the item holds no value
+     * for it, as the catalog flags it.
+     */
+    otherUsername?: boolean | "empty";
     /** Recipe generation for pages without a recipe. */
     generation?: LoginGeneration;
     /** The item's passkey facts, read when a login starts (ADR 0027). */
@@ -425,6 +428,7 @@ function harness(
                           label: "Username",
                           name: null,
                           kind: "text" as const,
+                          ...(live.otherUsername === "empty" ? { empty: true as const } : {}),
                         },
                       ]
                     : []),
@@ -982,9 +986,10 @@ describe("production login document admission", () => {
   it("logs an exception that stops a login with its name and message", async () => {
     const report = vi.fn<(report: LoginReport) => void>();
     const h = harness({}, { report });
+    // The settings read before the next step fails once.
     fake.state.onExecute = async () => {
       fake.state.onExecute = undefined;
-      throw new SyntaxError("synthetic page answer");
+      h.store.handle.mockRejectedValueOnce(new SyntaxError("synthetic settings answer"));
     };
     expect(await h.hello()).toEqual({ ok: true });
     await vi.waitFor(() =>
@@ -1001,9 +1006,10 @@ describe("production login document admission", () => {
       recipeId: recipe.id,
       route: "password",
       state: expect.any(String),
-      stepIndex: 0,
+      stepIndex: 1,
       name: "SyntaxError",
-      message: "synthetic page answer",
+      message: "synthetic settings answer",
+      stack: expect.any(String),
     });
   });
   it("logs only the type of a thrown value that is not an Error", async () => {
@@ -1011,7 +1017,7 @@ describe("production login document admission", () => {
     const h = harness({}, { report });
     fake.state.onExecute = async () => {
       fake.state.onExecute = undefined;
-      throw "synthetic thrown text";
+      h.store.handle.mockRejectedValueOnce("synthetic thrown text");
     };
     expect(await h.hello()).toEqual({ ok: true });
     await vi.waitFor(() =>
@@ -1020,6 +1026,38 @@ describe("production login document admission", () => {
       ),
     );
     expect(JSON.stringify(report.mock.calls)).not.toContain("synthetic thrown text");
+  });
+  it("resumes a login whose submit replaced its document without logging an exception", async () => {
+    const report = vi.fn<(report: LoginReport) => void>();
+    const h = harness({}, { report });
+    const entries = () => report.mock.calls.map(([entry]) => entry);
+    // The click submits the form, and the page navigates before the result is observed.
+    fake.state.onExecute = async (message) => {
+      if ((message["operation"] as { step: LoginStep }).step.kind === "click")
+        fake.state.gone.add("synthetic-document");
+    };
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(fake.state.storage["pateat.login-attempts.v4"]).toMatchObject([
+        { state: "reconciling", stepIndex: 1 },
+      ]),
+    );
+    expect(entries()).toContainEqual(
+      expect.objectContaining({
+        type: "attempt",
+        state: "reconciling",
+        cause: "document-gone",
+        reason: "no-receiver",
+      }),
+    );
+    // The page it led to proves the sign-in.
+    expect(await h.hello({ documentId: "next-document" }, false)).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(fake.state.storage["pateat.login-attempts.v4"]).toMatchObject([
+        { state: "authenticated" },
+      ]),
+    );
+    expect(entries().filter((entry) => entry.type === "exception")).toEqual([]);
   });
   it("refuses a different content script instance in an already announced document", async () => {
     const h = harness();
@@ -4508,12 +4546,8 @@ describe("production login document admission", () => {
       expect(await sentShape({ [itemId]: "00001234", [otherItemId]: "00005678" })).toEqual(
         digits(8),
       );
-      // Different lengths, an unreadable username or an unchecked item send no shape.
+      // Different lengths or an unchecked item send no shape.
       expect(await sentShape({ [itemId]: "00001234", [otherItemId]: "0000123456" })).toBe(
-        undefined,
-      );
-      expect(await sentShape({ [itemId]: "00001234", [otherItemId]: undefined })).toBe(undefined);
-      expect(await sentShape({ [itemId]: "00001234", [otherItemId]: new Error("locked") })).toBe(
         undefined,
       );
       // Same length but other characters, or an email, is a different shape.
@@ -4554,6 +4588,239 @@ describe("production login document admission", () => {
         ),
       ).toEqual(digits(8));
       expect(read).toEqual([itemId]);
+    });
+
+    describe("the account's own usernames", () => {
+      const both = async () => ({
+        ok: true as const,
+        data: uriMatch({
+          candidates: [itemId, otherItemId].map((id) => ({
+            itemId: id,
+            matches: [{ uriIndex: 0, match: 0 }],
+          })),
+        }),
+      });
+      /** Synthetic usernames of the two matching items; other fields read as before. */
+      const usernames = (
+        h: ReturnType<typeof harness>,
+        values: Record<string, string | Error> = {
+          [itemId]: "Taro.Yamada",
+          [otherItemId]: "an",
+        },
+      ) =>
+        h.fields.mockImplementation(async ({ account, fieldId }) => {
+          if (fieldId !== "login.username") return "synthetic-secret";
+          const value = values[account.itemId];
+          if (value instanceof Error) throw value;
+          return value;
+        });
+      const shownPage = (path: string) =>
+        page(path, [
+          { id: "c1", role: "email", target: target("user"), label: "Email for taro.yamada" },
+          { id: "c2", role: "password", target: target("password"), label: "Password" },
+          { id: "c3", role: "button", target: target("login"), label: "Sign in" },
+          {
+            id: "c4",
+            role: "link",
+            target: { by: "text", value: "Not TARO.YAMADA?" },
+            label: "Not TARO.YAMADA?",
+          },
+          { id: "c5", role: "link", target: target("other"), label: "Use another account" },
+        ]);
+      const withHeadings = (shown: ReturnType<typeof page>, headings: string[]) => ({
+        ...shown,
+        observation: { ...shown.observation, title: "ｔａｒｏ．ｙａｍａｄａ - Example", headings },
+      });
+
+      it("hides them from a page sent for generation", async () => {
+        fake.state.extracted = {
+          login: withHeadings(shownPage("/signin"), ["Welcome back, @Taro.Yamada", "an"]),
+        };
+        const service = generation();
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris: both,
+          username: true,
+          otherUsername: true,
+          custom: [],
+          generation: service,
+        });
+        usernames(h);
+        h.recipes.recipe.mockResolvedValue(undefined);
+        h.recipes.starts.mockResolvedValue(startsOf([]));
+        expect(await h.signIn()).toEqual({ ok: false, reason: "generating" });
+        await vi.waitFor(() => expect(service.generate).toHaveBeenCalled());
+        const { observation } = service.generate.mock.calls[0]![0];
+        expect(observation.title).toBe("[account] - Example");
+        // A username shorter than three characters, such as "an", is not looked for.
+        expect(observation.headings).toEqual(["Welcome back, [account]", "an"]);
+        expect(observation.candidates.map((candidate) => [candidate.id, candidate.label])).toEqual([
+          ["c1", "Email for [account]"],
+          ["c2", "Password"],
+          ["c3", "Sign in"],
+          ["c5", "Use another account"],
+        ]);
+        expect(JSON.stringify(service.generate.mock.calls).toLowerCase()).not.toContain("taro");
+        // Each username is read once, for its shape and for hiding it.
+        expect(h.fields.mock.calls.map(([request]) => request.fieldId)).toEqual([
+          "login.username",
+          "login.username",
+        ]);
+      });
+
+      it.each([
+        ["a username that cannot be read", "username-unread", new Error("locked")],
+        ["a submit button that names a username", "username-shown", "hanako"],
+      ] as const)("sends no page with %s", async (_label, reason, other) => {
+        fake.state.extracted = {
+          login: page("/signin", [
+            { id: "c1", role: "email", target: target("user"), group: "f1" },
+            { id: "c2", role: "password", target: target("password"), group: "f1" },
+            {
+              id: "c3",
+              role: "button",
+              target: { by: "text", value: "Log in as taro.yamada" },
+              group: "f1",
+            },
+          ]),
+        };
+        const service = generation();
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris: both,
+          username: true,
+          otherUsername: true,
+          custom: [],
+          generation: service,
+          report,
+        });
+        usernames(h, { [itemId]: "taro.yamada", [otherItemId]: other });
+        h.recipes.recipe.mockResolvedValue(undefined);
+        h.recipes.starts.mockResolvedValue(startsOf([]));
+        expect(await h.signIn()).toEqual({ ok: false, reason: "generating" });
+        await vi.waitFor(() =>
+          expect(report).toHaveBeenCalledWith({
+            type: "generation",
+            tabId: 1,
+            origin,
+            outcome: "skipped",
+            reason,
+          }),
+        );
+        expect(service.generate).not.toHaveBeenCalled();
+        expect(JSON.stringify(report.mock.calls).toLowerCase()).not.toContain("taro");
+      });
+
+      it("reads no username of an item that holds none, and still sends the page", async () => {
+        fake.state.extracted = { login: withHeadings(shownPage("/signin"), ["Hi taro.yamada"]) };
+        const service = generation();
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris: both,
+          username: true,
+          otherUsername: "empty",
+          custom: [],
+          generation: service,
+        });
+        // The other item's username field is present with no value, which resolves as
+        // missing: reading it would fail, so it is never read.
+        usernames(h, { [itemId]: "taro.yamada" });
+        h.recipes.recipe.mockResolvedValue(undefined);
+        h.recipes.starts.mockResolvedValue(startsOf([]));
+        expect(await h.signIn()).toEqual({ ok: false, reason: "generating" });
+        await vi.waitFor(() => expect(service.generate).toHaveBeenCalled());
+        expect(service.generate.mock.calls[0]![0].observation.headings).toEqual(["Hi [account]"]);
+        expect(h.fields.mock.calls.map(([request]) => request.account.itemId)).toEqual([itemId]);
+      });
+
+      it("hides them, and the login's own, from the judged page", async () => {
+        let signedIn = false;
+        const matching = async () =>
+          signedIn ? { ok: true as const, data: uriMatch({ candidates: [] }) } : uris();
+        fake.state.extracted = {
+          "signed-in": page("/home", [
+            { id: "c1", role: "button", target: target("logout"), label: "Sign out taro.yamada" },
+            {
+              id: "c2",
+              role: "link",
+              target: { by: "text", value: "taro.yamada" },
+              label: "taro.yamada",
+            },
+          ]),
+        };
+        const service = generation({ judge: async () => ({ verdict: "signed-in" }) });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris: matching,
+          username: true,
+          generation: service,
+          report,
+        });
+        usernames(h, { [itemId]: "taro.yamada" });
+        h.recipes.recipe.mockResolvedValue(generated);
+        h.recipes.starts.mockResolvedValue(startsOf([generated.steps[0]!]));
+        fake.state.present = new Set(["user", "password", "login"]);
+        fake.state.onExecute = async (message) => {
+          if ((message["operation"] as { step: { kind: string } }).step.kind !== "click") return;
+          // The page after the sign-in matches no item by its URL; the login's own is hidden.
+          signedIn = true;
+          fake.state.present = new Set(["logout"]);
+          fake.state.observedPath = "/home";
+        };
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+          timeout: 6_000,
+        });
+        expect(service.judge).toHaveBeenCalledTimes(1);
+        const observation = service.judge.mock.calls[0]![3];
+        expect(observation.candidates).toEqual([
+          { id: "c1", role: "button", target: target("logout"), label: "Sign out [account]" },
+        ]);
+        expect(JSON.stringify(service.judge.mock.calls).toLowerCase()).not.toContain("taro");
+        expect(JSON.stringify(report.mock.calls).toLowerCase()).not.toContain("taro");
+      }, 10_000);
+
+      it("judges no page whose usernames cannot be read", async () => {
+        let signedIn = false;
+        fake.state.extracted = { "signed-in": homePage };
+        const service = generation({ judge: async () => ({ verdict: "signed-in" }) });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris,
+          username: true,
+          generation: service,
+          report,
+        });
+        h.fields.mockImplementation(async ({ fieldId }) => {
+          if (signedIn && fieldId === "login.username") throw new Error("locked");
+          return "synthetic-secret";
+        });
+        h.recipes.recipe.mockResolvedValue(generated);
+        h.recipes.starts.mockResolvedValue(startsOf([generated.steps[0]!]));
+        fake.state.present = new Set(["user", "password", "login"]);
+        fake.state.onExecute = async (message) => {
+          if ((message["operation"] as { step: { kind: string } }).step.kind !== "click") return;
+          signedIn = true;
+          fake.state.present = new Set(["logout"]);
+          fake.state.observedPath = "/home";
+        };
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(
+          () =>
+            expect(report).toHaveBeenCalledWith(
+              expect.objectContaining({
+                type: "judge",
+                verdict: "not-sent",
+                reason: "username-unread",
+              }),
+            ),
+          { timeout: 6_000 },
+        );
+        expect(service.judge).not.toHaveBeenCalled();
+      }, 10_000);
     });
 
     it("sends nothing when no vault item matches the page", async () => {
@@ -4855,6 +5122,37 @@ describe("production login document admission", () => {
           reason: "generating",
         });
         await vi.waitFor(() => expect(service.generate).toHaveBeenCalledTimes(1));
+      });
+
+      it("never sends the tab's next page as one asking for an identifier alone (ADR 0016)", async () => {
+        const { h, generations } = setup();
+        const identifierHello = (documentId: string) =>
+          h.login.handle(
+            {
+              version: 1,
+              type: "login.document.ready",
+              token: "synthetic-token",
+              signIn: { path: new URL(fake.state.pageUrl).pathname, identifier: true },
+            },
+            sender({ documentId }),
+          );
+        await h.login.handle(
+          { version: 1, type: "login.document.submitted", token: "synthetic-token" },
+          sender(),
+        );
+        expect(await h.hello({ documentId: "after-sign-in" }, false)).toMatchObject({
+          generate: true,
+        });
+        expect(await identifierHello("after-sign-in")).not.toEqual({
+          ok: false,
+          reason: "generating",
+        });
+        expect(generations()).toEqual([
+          { type: "generation", tabId: 1, origin, outcome: "skipped", reason: "after-sign-in" },
+        ]);
+        expect(await h.hello({ documentId: "later" }, false)).toMatchObject({ generate: true });
+        // The page after that one may be sent.
+        expect(await identifierHello("later")).toEqual({ ok: false, reason: "generating" });
       });
 
       it("sends a list that loads more than a minute after the submission", async () => {
@@ -9537,6 +9835,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       verdicts: Awaited<ReturnType<LoginGeneration["judge"]>>["verdict"][] = [],
       chosen = plain,
       before?: (h: ReturnType<typeof harness>) => Promise<unknown>,
+      live: Parameters<typeof harness>[1] = {},
     ) {
       vi.useFakeTimers();
       reports.mockClear();
@@ -9544,7 +9843,10 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       onClick({ login: { path: "/approve", present: [], extracted: described("/approve") } });
       const answers = ["challenge" as const, ...verdicts];
       const service = generation(async () => ({ verdict: answers.shift() ?? "unclear" }));
-      const h = harness({}, { passkeys: withPasskey, generation: service, report: reports });
+      const h = harness(
+        {},
+        { passkeys: withPasskey, generation: service, report: reports, ...live },
+      );
       h.recipes.recipe.mockResolvedValue(chosen);
       await before?.(h);
       expect(await h.hello()).toEqual({ ok: true });
@@ -9591,6 +9893,34 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       expect(reports).not.toHaveBeenCalledWith(
         expect.objectContaining({ type: "logout", watched: true }),
       );
+    });
+
+    it("hides the account's username from a watched page it judges", async () => {
+      const { h, service } = await watched(
+        ["signed-in"],
+        plain,
+        async (created) =>
+          created.fields.mockImplementation(async ({ fieldId }) =>
+            fieldId === "login.username" ? "taro.yamada" : "synthetic-secret",
+          ),
+        { username: true },
+      );
+      fake.state.pageUrl = `${origin}/home`;
+      fake.state.observedPath = "/home";
+      fake.state.present = new Set();
+      fake.state.extracted = {
+        "signed-in": observation("/home", [
+          { id: "c1", role: "link", target: target("help"), label: "Help for taro.yamada" },
+        ]),
+      };
+      await h.hello({ documentId: "document-home" }, false);
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(service.judge).toHaveBeenCalledTimes(2);
+      expect(service.judge.mock.calls[1]![3].candidates).toEqual([
+        { id: "c1", role: "link", target: target("help"), label: "Help for [account]" },
+      ]);
+      expect(JSON.stringify(service.judge.mock.calls)).not.toContain("taro");
+      expect(status()).toMatchObject([{ state: "authenticated" }]);
     });
 
     it("completes on the recipe's completion without asking the judge", async () => {
@@ -12136,6 +12466,94 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
     expect(
       fake.state.messages.find((entry) => entry.type === "login.extract") as unknown,
     ).toMatchObject({ page: "login", known: [target("email")] });
+  });
+
+  it("hides the account's username from the continuation's page and the judged page", async () => {
+    const shown = {
+      ...describedPage("/signin", [
+        { id: "c1", role: "password", target: target("password"), label: "Password for Taro" },
+        { id: "c2", role: "button", target: target("login"), label: "Log in" },
+        { id: "c3", role: "link", target: target("switch-taro"), label: "Switch account" },
+      ]),
+    };
+    shown.observation = { ...shown.observation, headings: ["Hi TARO"] } as typeof shown.observation;
+    inPlace(() => (fake.state.extracted = { login: shown }));
+    const judged = describedPage("/home", [
+      { id: "c1", role: "button", target: target("logout"), label: "Sign out ｔａｒｏ" },
+    ]);
+    const clicks = fake.state.onExecute!;
+    fake.state.onExecute = async (message, tabId) => {
+      await clicks(message, tabId);
+      if (fake.state.extracted["signed-in"] === homePage)
+        fake.state.extracted = { "signed-in": judged };
+    };
+    let h!: ReturnType<typeof harness>;
+    const service = generation(answering(() => h, continuedOn("/signin")));
+    h = start(service);
+    h.fields.mockImplementation(async ({ fieldId }) =>
+      fieldId === "login.username" ? "taro" : "synthetic-secret",
+    );
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(settled("authenticated"));
+    const request = service.generate.mock.calls[0]![0];
+    expect(request.observation).toMatchObject({
+      headings: ["Hi [account]"],
+      candidates: [
+        { id: "c1", label: "Password for [account]" },
+        { id: "c2", label: "Log in" },
+      ],
+    });
+    expect(request.observation.candidates).toHaveLength(2);
+    expect(service.judge.mock.calls[0]![3].candidates).toEqual([
+      { id: "c1", role: "button", target: target("logout"), label: "Sign out [account]" },
+    ]);
+    const sent = JSON.stringify([service.generate.mock.calls, service.judge.mock.calls]);
+    expect(sent.toLowerCase()).not.toContain("taro");
+    expect(sent).not.toContain("ｔａｒｏ");
+  });
+
+  it.each([
+    ["a username that cannot be read", "username-unread"],
+    ["a field locator that holds the username", "username-shown"],
+  ] as const)("sends no continuation page with %s", async (_label, reason) => {
+    inPlace(() => {
+      if (reason === "username-shown")
+        fake.state.extracted = {
+          login: describedPage("/signin", [
+            { id: "c1", role: "password", target: target("password-taro"), label: "Password" },
+            { id: "c2", role: "button", target: target("login"), label: "Log in" },
+          ]),
+        };
+    });
+    let continued = false;
+    const service = generation();
+    const reports: LoginReport[] = [];
+    const h = start(service, { report: reports });
+    h.fields.mockImplementation(async ({ fieldId }) => {
+      if (fieldId !== "login.username") return "synthetic-secret";
+      if (continued && reason === "username-unread") throw new Error("locked");
+      return "taro";
+    });
+    const clicks = fake.state.onExecute!;
+    fake.state.onExecute = async (message, tabId) => {
+      await clicks(message, tabId);
+      continued = true;
+    };
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(settled("reconciling", "unknown-submit"));
+    expect(service.generate).not.toHaveBeenCalled();
+    expect(reports.filter((entry) => entry.type === "generation")).toEqual([
+      {
+        type: "generation",
+        tabId: 1,
+        origin,
+        outcome: "skipped",
+        reason,
+        recipeId: emailFirst.id,
+        baseRevision: 1,
+      },
+    ]);
+    expect(JSON.stringify(reports).toLowerCase()).not.toContain("taro");
   });
 
   it("logs the continuation's page when it leaves the device, then the answer", async () => {

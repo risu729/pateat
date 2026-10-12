@@ -192,7 +192,7 @@ describe("local field references and permission boundaries", () => {
     });
   });
 
-  it("flags a login password or TOTP without a value as empty, without values", () => {
+  it("flags a login username, password or TOTP without a value as empty, without values", () => {
     const flags = (login: Record<string, unknown>) =>
       Object.fromEntries(
         snapshot({ ...localLoginView(), login: { ...localLoginView().login, ...login } })
@@ -210,8 +210,14 @@ describe("local field references and permission boundaries", () => {
     const totp = `otpauth://totp/Synthetic?secret=${rfcTotpSecrets.SHA1}`;
     expect(flags({ totp })).toEqual({});
     expect(flags({ password: "", totp })).toEqual({ "login.password": true });
-    // Only the password and TOTP carry the flag; an empty username is still listed plainly.
-    expect(flags({ username: "", totp })).toEqual({});
+    // An empty or absent username is flagged too, and still listed (ADR 0016).
+    expect(flags({ username: "", totp })).toEqual({ "login.username": true });
+    expect(flags({ username: null, totp })).toEqual({ "login.username": true });
+    const listed = snapshot({
+      ...localLoginView(),
+      login: { ...localLoginView().login, username: null },
+    });
+    expect(listed.list().map((field) => field.ref.fieldId)).toContain("login.username");
     // Other item types list no login fields to flag.
     expect(
       snapshot(localCardView())

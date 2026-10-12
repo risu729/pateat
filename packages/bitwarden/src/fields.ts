@@ -22,7 +22,7 @@ export interface LocalFieldMetadata {
   readonly kind: "text" | "hidden" | "boolean" | "linked" | "otp" | "unsupported";
   /** The built-in field a Linked field reads, when the provider defines it. */
   readonly linkedFieldId?: string;
-  /** Set on the login password or TOTP field when the item holds no value for it. */
+  /** Set on the login username, password or TOTP field when the item holds no value for it. */
   readonly empty?: true;
 }
 
@@ -200,8 +200,9 @@ export function createLocalFieldSnapshot(input: unknown): BitwardenResult<LocalF
     };
     add("notes", "Notes", "text");
     if (item.type === 1) {
-      add("login.username", "Username", "text");
-      // Value-free flags: which route and handlers a login may use (ADR 0027).
+      // Value-free flags: whether a username can be read at all (ADR 0016), and which route
+      // and handlers a login may use (ADR 0027).
+      add("login.username", "Username", "text", undefined, !item.login?.username);
       add("login.password", "Password", "hidden", undefined, !item.login?.password);
       add("login.totp-code", "Verification code", "otp", undefined, !item.login?.totp);
     }

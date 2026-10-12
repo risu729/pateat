@@ -131,6 +131,7 @@ import {
 } from "./choice-wire";
 import { customFieldOffers, type CustomFieldOffer } from "./generation-slots";
 import { emailUsername, namesUsername, type EntryMiss } from "../page/account-list";
+import { withoutUsernames } from "../observation/usernames";
 import {
   decideSignInState,
   reachedReturnTarget,
@@ -940,6 +941,8 @@ export type LoginReport = (
       name: string;
       /** Logged only when it is one of Pateat's own error codes. */
       message?: string;
+      /** Logged as the extension's own file positions only (ADR 0019). */
+      stack?: string;
     }
   | {
       type: "generation";
@@ -1065,8 +1068,9 @@ type PolicyChange = { cause: PolicyChangeCause; reason?: string };
  * click (`code-not-submitted`), no operation could be built (`no-operation`), the operation
  * no longer validated (`operation-invalid`), a field had no binding (`slot-unbound`), the
  * page did not answer or its answer failed its check (`no-answer`), a code page said it
- * submitted the code itself but no check confirmed it (`page-submitted`), or the page's
- * own reason (`ExecutionDetail`).
+ * submitted the code itself but no check confirmed it (`page-submitted`), the document
+ * could not be reached, as when a submit replaced it (`document-gone`), or the page's own
+ * reason (`ExecutionDetail`).
  */
 export type StopCause =
   | "elements-timeout"
@@ -1076,7 +1080,30 @@ export type StopCause =
   | "slot-unbound"
   | "no-answer"
   | "page-submitted"
+  | "document-gone"
   | ExecutionDetail;
+
+/**
+ * A message to a login document that went unanswered, mostly because the document is gone:
+ * a submit or a redirect replaced it, or its tab closed. Its replacement resumes the login.
+ * `reason` keeps what the browser said: no listener was left, or the page went into the
+ * back/forward cache (`no-receiver`), the listener did not answer, as when the document
+ * unloads while it handles the message or a content script fault leaves it unanswered
+ * (`port-closed`), or anything else (`send-failed`).
+ */
+class DocumentGone extends Error {
+  override name = "DocumentGone";
+  readonly reason: "no-receiver" | "port-closed" | "send-failed";
+  constructor(cause: unknown) {
+    super("document-gone");
+    const message = cause instanceof Error ? cause.message : "";
+    this.reason = /Receiving end does not exist|back\/forward cache/u.test(message)
+      ? "no-receiver"
+      : /message (?:port|channel) closed/u.test(message)
+        ? "port-closed"
+        : "send-failed";
+  }
+}
 
 export function createLoginRuntime(
   settings: SettingsRuntime,
@@ -1134,7 +1161,7 @@ export function createLoginRuntime(
     metadata: LoginAttemptMetadata,
     recipe: LoginRecipe | undefined,
     policy?: PolicyChange,
-    flags: { settled?: true; repeat?: true; stop?: StopCause } = {},
+    flags: { settled?: true; repeat?: true; stop?: StopCause; reason?: string } = {},
   ) => {
     const { stop, ...marks } = flags;
     // Handler steps sit inside the plan, so the plan names the handler a step belongs to.
@@ -1866,11 +1893,17 @@ export function createLoginRuntime(
     }
   }
   async function send(live: LiveDocument, message: Record<string, unknown>): Promise<unknown> {
-    return browser.tabs.sendMessage(
-      live.document.tabId,
-      { version: 1, token: live.token, ...message },
-      { documentId: live.document.documentId, frameId: live.document.frameId },
-    );
+    try {
+      return await browser.tabs.sendMessage(
+        live.document.tabId,
+        { version: 1, token: live.token, ...message },
+        { documentId: live.document.documentId, frameId: live.document.frameId },
+      );
+    } catch (error) {
+      // The browser rejects when no listener in the document answered: the document has no
+      // receiver anymore, or it unloaded before its answer.
+      throw new DocumentGone(error);
+    }
   }
   async function publish(live: LiveDocument, metadata?: LoginAttemptMetadata): Promise<void> {
     if (documents.get(frameKey(live.document)) !== live) return;
@@ -3124,6 +3157,32 @@ export function createLoginRuntime(
     });
     return false;
   }
+  /**
+   * The usernames hidden from a judged page: those of the items that match it, as for a
+   * page sent for generation, and the login's own account's even when it does not match
+   * the page's URL. `undefined` when one cannot be read.
+   */
+  async function judgedUsernames(run: Execution): Promise<string[] | undefined> {
+    const { connectionId, itemId } = run.metadata.account;
+    const scope = await generationSlotsFor(run.live).catch(() => undefined);
+    let reads = scope ? usernameReads(scope) : [];
+    if (
+      !scope?.items.some(
+        ({ connection, item }) => connection.id === connectionId && item.id === itemId,
+      )
+    ) {
+      const snapshot = await settings.handle({ version: 1, type: "settings.get" });
+      if (!snapshot.ok) return undefined;
+      const connection = snapshot.catalog.connections.find((entry) => entry.id === connectionId);
+      const item = connection?.items.find((entry) => entry.id === itemId);
+      if (!connection || !item) return undefined;
+      reads = [
+        ...reads,
+        ...usernameReads({ items: [{ connection, item }], settings: snapshot.snapshot.settings }),
+      ];
+    }
+    return readUsernames(run.live.document.origin, reads);
+  }
   async function learn(run: Execution, reading?: SignInReading): Promise<boolean> {
     const { recipe, metadata } = run;
     const { operationId } = metadata;
@@ -3184,6 +3243,13 @@ export function createLoginRuntime(
     if (!current(run)) return true;
     // A page that cannot be described completely is not sent and does not count.
     if (!observation) return notSent(unsent);
+    // A judged page can show the identifier just entered: the usernames of the items that
+    // match it, and the login's own, are hidden first.
+    const usernames = await judgedUsernames(run).catch(() => undefined);
+    const hidden = hideUsernames(observation, usernames);
+    if (!current(run)) return true;
+    if ("reason" in hidden) return notSent(hidden.reason);
+    observation = hidden.observation;
     const left = pagesLeft(run.metadata, operationId);
     await change(run, { type: "JUDGING", operationId });
     if (!current(run)) return true;
@@ -3545,7 +3611,17 @@ export function createLoginRuntime(
             field.count === offer.reference.count,
         ),
     );
-    const shape = await usernameShape(pageOrigin, scope);
+    const usernames = await readUsernames(pageOrigin, usernameReads(scope));
+    const shape = usernames && usernameShape(scope, usernames);
+    // The page after an `advance` step can show the identifier just entered.
+    const hidden = hideUsernames(observation, usernames);
+    if (!current(run)) return "moved";
+    // A username that could not be read now may be read on a later round; one that shows
+    // where it cannot be hidden shows again.
+    if ("reason" in hidden) {
+      unsent(hidden.reason);
+      return hidden.reason === "username-unread" ? "qualified" : refuse();
+    }
     const custom = await customSlots(pageOrigin, { ...scope, offers });
     if (!current(run)) return "moved";
     if (!slots.length && !custom.length) {
@@ -3564,7 +3640,7 @@ export function createLoginRuntime(
       .generate(
         {
           version: 1,
-          observation,
+          observation: hidden.observation,
           slots: [
             ...slots.map((slot) =>
               slot.id === "username" && shape ? { ...slot, valueShape: shape } : slot,
@@ -3817,17 +3893,27 @@ export function createLoginRuntime(
     } catch (error) {
       if (current(run) && !terminal(run.metadata)) {
         run.metadata = recoverLoginAttempt(run.metadata);
-        report(run.metadata.document, {
-          type: "exception",
-          tabId: run.metadata.document.tabId,
-          origin: run.metadata.document.origin,
-          recipeId: run.metadata.recipeId,
-          route: run.metadata.route,
-          state: run.metadata.state,
-          stepIndex: run.metadata.stepIndex,
-          name: error instanceof Error ? error.name : typeof error,
-          ...(error instanceof Error ? { message: error.message } : {}),
-        });
+        // A submit that replaced the document is how most logins go on: the next document
+        // resumes the attempt, so this is no exception (2026-10-12 logs).
+        if (error instanceof DocumentGone)
+          reportAttempt(run.metadata, run.recipe, undefined, {
+            stop: "document-gone",
+            // A fill-only login keeps `fill-only` as its reason.
+            ...(run.metadata.fillOnly ? {} : { reason: error.reason }),
+          });
+        else
+          report(run.metadata.document, {
+            type: "exception",
+            tabId: run.metadata.document.tabId,
+            origin: run.metadata.document.origin,
+            recipeId: run.metadata.recipeId,
+            route: run.metadata.route,
+            state: run.metadata.state,
+            stepIndex: run.metadata.stepIndex,
+            name: error instanceof Error ? error.name : typeof error,
+            ...(error instanceof Error ? { message: error.message } : {}),
+            ...(error instanceof Error && error.stack ? { stack: error.stack } : {}),
+          });
         await save(run).catch(() => undefined);
         await publish(run.live, run.metadata);
       }
@@ -4415,15 +4501,19 @@ export function createLoginRuntime(
     }
     return shape;
   }
-  /** The matching items' username reads: none for an item without one, or excluded. */
-  function usernameReads(scope: GenerationScope) {
+  /**
+   * The matching items' username reads: none for an item without one, with an empty one
+   * (the catalog's value-free `empty` flag) or whose username the user excluded.
+   */
+  function usernameReads(scope: Pick<GenerationScope, "items" | "settings">) {
     return scope.items.flatMap(({ connection, item }) => {
       const excluded = scope.settings.connections
         .find((entry) => entry.connectionId === connection.id)
         ?.excludedFields.some(
           (field) => field.itemId === item.id && field.fieldId === "login.username",
         );
-      return excluded || !item.fields.some((field) => field.id === "login.username")
+      return excluded ||
+        !item.fields.some((field) => field.id === "login.username" && field.empty !== true)
         ? []
         : [
             {
@@ -4563,11 +4653,72 @@ export function createLoginRuntime(
     }
   }
   /**
-   * The shape of the matching items' username: an item without a username, or whose
-   * username the user excluded, does not count.
+   * The shape the matching items' usernames share (ADR 0016), from the usernames
+   * {@link readUsernames} read for the page: an item without a username, or whose username
+   * the user excluded, does not count. A scope with items that could not be checked, or a
+   * username too long to shape, sends no shape.
    */
-  function usernameShape(pageOrigin: string, scope: GenerationScope) {
-    return sharedShape(pageOrigin, scope, usernameReads(scope));
+  function usernameShape(
+    scope: Pick<GenerationScope, "complete">,
+    usernames: readonly string[],
+  ): ValueShape | undefined {
+    if (!scope.complete) return undefined;
+    let shape: ValueShape | undefined;
+    for (const value of usernames) {
+      const itemShape = valueShapeOf({ source: "username", value });
+      // A value too long to shape cannot be compared.
+      if (!itemShape) return undefined;
+      if (shape && JSON.stringify(shape) !== JSON.stringify(itemShape)) return undefined;
+      shape = itemShape;
+    }
+    return shape;
+  }
+  /**
+   * Reads the given usernames one at a time, for the username's shape and for hiding them
+   * from the page sent to the service, and never for anything else: they are never sent
+   * or logged. An empty username does not count. `undefined` when one cannot be read, so
+   * the page is not sent: a username that was not read cannot be hidden.
+   */
+  async function readUsernames(
+    pageOrigin: string,
+    reads: ReturnType<typeof usernameReads>,
+  ): Promise<string[] | undefined> {
+    const usernames: string[] = [];
+    for (const { connection, itemId, fieldId } of reads) {
+      let value: string | undefined;
+      try {
+        // Serial reads through the shared vault host, as for a fill.
+        // eslint-disable-next-line no-await-in-loop
+        value = await fields({
+          account: { origin: pageOrigin, connectionId: connection.id, itemId },
+          connection,
+          fieldId,
+        });
+      } catch {
+        value = undefined;
+      }
+      if (value === undefined) {
+        usernames.fill("");
+        return undefined;
+      }
+      if (value) usernames.push(value);
+      value = "";
+    }
+    return usernames;
+  }
+  /**
+   * The page with the account's usernames hidden (`withoutUsernames`), or why it is not
+   * sent: `username-unread` when one could not be read, `username-shown` when one shows
+   * where it cannot be hidden. The usernames are dropped once it is built.
+   */
+  function hideUsernames(
+    observation: LoginObservation,
+    usernames: string[] | undefined,
+  ): { observation: LoginObservation } | { reason: string } {
+    if (!usernames) return { reason: "username-unread" };
+    const hidden = withoutUsernames(observation, usernames);
+    usernames.fill("");
+    return hidden.ok ? { observation: hidden.observation } : { reason: hidden.reason };
   }
   /**
    * The custom-field slots with the shapes their fields share (ADR 0027): only for Text
@@ -4682,14 +4833,22 @@ export function createLoginRuntime(
         await new Promise((resolve) => setTimeout(resolve, EXTRACT_RETRY_MS));
         if (documents.get(key) !== live) return;
       }
-      const shape = await usernameShape(live.document.origin, scope);
+      const usernames = await readUsernames(live.document.origin, usernameReads(scope));
+      const shape = usernames && usernameShape(scope, usernames);
+      // The account's own usernames never reach the service.
+      const hidden = hideUsernames(observation, usernames);
+      if (documents.get(key) !== live) return;
+      if ("reason" in hidden) {
+        skipGeneration(live, hidden.reason);
+        return;
+      }
       const custom = await customSlots(live.document.origin, scope);
       if (documents.get(key) !== live) return;
       const result = await generation
         .generate(
           {
             version: 1,
-            observation,
+            observation: hidden.observation,
             slots: [
               ...scope.slots.map((slot) =>
                 slot.id === "username" && shape ? { ...slot, valueShape: shape } : slot,
@@ -4931,7 +5090,7 @@ export function createLoginRuntime(
     sender: Sender,
     token: string,
     start?: { path: string },
-    signIn?: { path: string },
+    signIn?: { path: string; identifier?: true | undefined },
     shown?: { path: string },
     list?: ListOffer,
     entryHello?: Announced,
@@ -4979,7 +5138,7 @@ export function createLoginRuntime(
     helloKey: string,
     sequence: number,
     start?: { path: string },
-    signIn?: { path: string },
+    signIn?: { path: string; identifier?: true | undefined },
     shown?: { path: string },
     list?: ListOffer,
     entryHello?: Announced,
@@ -5024,7 +5183,7 @@ export function createLoginRuntime(
     helloKey: string,
     sequence: number,
     start?: { path: string },
-    signIn?: { path: string },
+    signIn?: { path: string; identifier?: true | undefined },
     shown?: { path: string },
     list?: ListOffer,
     entryHello?: Announced,
@@ -5567,6 +5726,12 @@ export function createLoginRuntime(
         // Logged for a list with an email or an offered entry only: short texts alone are
         // ordinary browsing.
         if (!listing.names || entryOffer) skipGeneration(live, "after-sign-in");
+        offer = false;
+      }
+      // Nor as a page that asks for an identifier alone (ADR 0016), such as a profile page
+      // with an email field.
+      if (offer && signIn?.identifier && afterSignIn.get(document.tabId) === document.documentId) {
+        skipGeneration(live, "after-sign-in");
         offer = false;
       }
       if (offer && (signIn?.path === live.path || listing)) {
@@ -6126,8 +6291,9 @@ export function createLoginRuntime(
   /**
    * When `live` is the page after the tab's unchecked entry press (a new top document, or
    * the pressed document at another URL), checks it (ADR 0031): it must be on the entry
-   * page's site (else `left-site`) and, within the step wait, show a sign-in input or a
-   * ready first step of a cached recipe (else `no-sign-in`), and no sign-up form (else
+   * page's site (else `left-site`) and, within the step wait, show a sign-in input, an
+   * input that asks for an account identifier alone (ADR 0016) or a ready first step of a
+   * cached recipe (else `no-sign-in`), and no sign-up form (else
    * `sign-up`). A page that blocks the press is refused (`entryRefused`). A page announced
    * later than the press's wait plus the step wait settles the press as `no-sign-in` but
    * is not refused itself, on any site. A page that could not be asked leaves the press to a later

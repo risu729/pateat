@@ -32,6 +32,17 @@ Implementation notes (2026-10-12), which leave the decision below as accepted:
   it counts against the tab's 10-minute limit. A page that comes after the wait settles
   the press as `no-sign-in` without being refused itself.
 
+Amended by the owner on 2026-10-12 (decision card answered "fix" at 15:30 UTC): the page
+after the press also passes when it asks for an account identifier alone, by the same
+email and identifier-word rules that send such a page for generation
+([ADR 0016](0016-recipe-generation-trigger.md#pages-that-ask-for-an-identifier-alone)),
+so an entry whose login page asks for the email address first (as Resend's does) is
+kept instead of blocked as `no-sign-in`. Known cost: a wrong link that leads to a page
+with an email input beside other inputs, such as a contact or newsletter form, or to a
+sign-up flow that asks for the email first, also passes, so that entry stays and is
+pressed again on later visits (at most once per tab in 10 minutes) while its next page's
+generation abstains; the owner revokes it in the web UI.
+
 Date: 2026-10-12
 
 ## Context
@@ -269,8 +280,11 @@ On that page:
 
 - it must be on the entry page's registrable domain (else `left-site`);
 - it must show a visible `type="password"` input, an input with
-  `autocomplete="username"` or `autocomplete="one-time-code"` (ADR 0016 condition 3), or
-  a ready first step of a cached recipe (else `no-sign-in`);
+  `autocomplete="username"` or `autocomplete="one-time-code"` (ADR 0016 condition 3), an
+  input that asks for an account identifier alone as ADR 0016's amendment of 2026-10-12
+  defines it (a writable email input, or the page's only text input named with an
+  identifier word),
+  or a ready first step of a cached recipe (else `no-sign-in`);
 - it must not show a visible `autocomplete="new-password"` input together with a second
   visible password input in the same form, nor two or more visible password inputs in
   one form (else `sign-up`).

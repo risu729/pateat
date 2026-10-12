@@ -4,6 +4,7 @@ import { browser } from "wxt/browser";
 import { accountText, showsOtherAccount, shownAccounts } from "../page/accounts";
 import { isButton, isScriptButton } from "../page/text";
 import { findTargets } from "../page/targets";
+import { identifierInput } from "../page/identifier-field";
 import { CODE_SETTLE_MS, visible, watchCodeSubmission } from "../page/code-submission";
 import { fillBaseline, inputValueMismatch, rejectsFill, unreadyForm } from "../page/fill-checks";
 import {
@@ -261,13 +262,23 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         offered = true;
         // A page that shows no sign-in input by now may list accounts (ADR 0028) or, when
         // its URL names another path of its site, hold the site's sign-in entry (ADR
-        // 0031). The page right after a submitted password form offers neither.
+        // 0031), or ask for an account identifier alone (ADR 0016). The page right after a
+        // submitted password form offers none of them.
         const bare = !cancelled && !starts.some(ready) && !showsSignIn() && !afterSubmitted();
         const accounts = bare ? listed() : undefined;
-        const offerEntry = bare && entryWanted && !entryOffered;
+        // A page asking for an account identifier alone is offered as a sign-in page (ADR
+        // 0016) unless it lists accounts by email; an entry goes first unless the input is
+        // the page's only text input, so a newsletter field does not hide it. A list by
+        // names only, or one announced only for the log, is dropped for it.
+        const identifier =
+          bare && !(accounts && !accounts.names && !accounts.missed)
+            ? identifierInput(document)
+            : undefined;
+        const offerEntry = bare && entryWanted && !entryOffered && identifier !== "sole";
         if (offerEntry) entryOffered = true;
         watch(starts);
-        if (accounts || offerEntry)
+        if (identifier && !offerEntry) void announce(false, "identifier").catch(() => undefined);
+        else if (accounts || offerEntry)
           void announce(false, false, accounts, offerEntry).catch(() => undefined);
       }, LOGIN_STEP_WAIT_MS);
     if ((!starts.length && !generate) || cancelled) {
@@ -388,7 +399,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   }
   async function announce(
     start: boolean,
-    signIn = false,
+    /** `identifier` for a page that asks for an account identifier alone (ADR 0016). */
+    signIn: boolean | "identifier" = false,
     list?: { path: string; names?: string[]; missed?: EntryMiss },
     entryPage = false,
   ): Promise<unknown> {
@@ -398,7 +410,14 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       type: "login.document.ready",
       token,
       ...(start ? { start: { path: location.pathname } } : {}),
-      ...(signIn ? { signIn: { path: location.pathname } } : {}),
+      ...(signIn
+        ? {
+            signIn: {
+              path: location.pathname,
+              ...(signIn === "identifier" ? { identifier: true as const } : {}),
+            },
+          }
+        : {}),
       ...(list ? { list } : {}),
       ...(entryPage ? { entry: { path: location.pathname } } : {}),
     });
@@ -575,12 +594,13 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       return false;
     }
     if (command.type === "login.entry.check") {
-      // The page after an entry press: polls until a sign-in input or a first step shows.
+      // The page after an entry press: polls until a sign-in input, an input that asks for
+      // an account identifier alone (ADR 0016), or a first step shows.
       void (async () => {
         const until = Date.now() + command.timeoutMs;
         for (;;) {
           if (cancelled) return { ok: false };
-          const signIn = showsSignIn();
+          const signIn = showsSignIn() || identifierInput(document) !== undefined;
           const start = command.starts.some(ready);
           if (signIn || start || Date.now() >= until)
             return { ok: true, signIn, start, signUp: showsSignUp(document) };
@@ -995,7 +1015,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   /**
    * A form with a password input submitted in this document: its next path here, and the
    * tab's next document if it is of the same origin, are not offered as a list of accounts
-   * (ADR 0028) or as a sign-in entry (ADR 0031). Nothing about the form or its values is
+   * (ADR 0028), as a sign-in entry (ADR 0031) or as a page asking for an identifier alone
+   * (ADR 0016). Nothing about the form or its values is
    * sent. Pateat's own submissions count too; their pages belong to a login anyway.
    */
   const onSubmit = (event: Event) => {
