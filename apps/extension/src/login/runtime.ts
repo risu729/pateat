@@ -1021,11 +1021,24 @@ export type StopCause =
   | ExecutionDetail;
 
 /**
- * A message to a login document that went unanswered because the document is gone: a
- * submit or a redirect replaced it, or its tab closed. Its replacement resumes the login.
+ * A message to a login document that went unanswered, mostly because the document is gone:
+ * a submit or a redirect replaced it, or its tab closed. Its replacement resumes the login.
+ * `reason` keeps what the browser said: no listener was left (`no-receiver`), the listener
+ * did not answer, as when the document unloads while it handles the message or a content
+ * script fault leaves it unanswered (`port-closed`), or anything else (`send-failed`).
  */
 class DocumentGone extends Error {
   override name = "DocumentGone";
+  readonly reason: "no-receiver" | "port-closed" | "send-failed";
+  constructor(cause: unknown) {
+    super("document-gone");
+    const message = cause instanceof Error ? cause.message : "";
+    this.reason = message.includes("Receiving end does not exist")
+      ? "no-receiver"
+      : /message (?:port|channel) closed/u.test(message)
+        ? "port-closed"
+        : "send-failed";
+  }
 }
 
 export function createLoginRuntime(
@@ -1084,7 +1097,7 @@ export function createLoginRuntime(
     metadata: LoginAttemptMetadata,
     recipe: LoginRecipe | undefined,
     policy?: PolicyChange,
-    flags: { settled?: true; repeat?: true; stop?: StopCause } = {},
+    flags: { settled?: true; repeat?: true; stop?: StopCause; reason?: string } = {},
   ) => {
     const { stop, ...marks } = flags;
     // Handler steps sit inside the plan, so the plan names the handler a step belongs to.
@@ -1819,10 +1832,10 @@ export function createLoginRuntime(
         { version: 1, token: live.token, ...message },
         { documentId: live.document.documentId, frameId: live.document.frameId },
       );
-    } catch {
-      // The browser rejects only when no listener in the document answered: the document
-      // has no receiver anymore, or it unloaded before its answer.
-      throw new DocumentGone();
+    } catch (error) {
+      // The browser rejects when no listener in the document answered: the document has no
+      // receiver anymore, or it unloaded before its answer.
+      throw new DocumentGone(error);
     }
   }
   async function publish(live: LiveDocument, metadata?: LoginAttemptMetadata): Promise<void> {
@@ -3685,7 +3698,10 @@ export function createLoginRuntime(
         // A submit that replaced the document is how most logins go on: the next document
         // resumes the attempt, so this is no exception (2026-10-12 logs).
         if (error instanceof DocumentGone)
-          reportAttempt(run.metadata, run.recipe, undefined, { stop: "document-gone" });
+          reportAttempt(run.metadata, run.recipe, undefined, {
+            stop: "document-gone",
+            reason: error.reason,
+          });
         else
           report(run.metadata.document, {
             type: "exception",

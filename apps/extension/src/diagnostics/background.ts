@@ -481,9 +481,12 @@ export function createDiagnosticsLog(options: {
             // A fill-only login after a logout ends by design without pressing anything.
             level: report.repeat
               ? "debug"
-              : report.state === "blocked" &&
-                  report.outcome === "cancelled" &&
-                  report.reason === "fill-only"
+              : (report.state === "blocked" &&
+                    report.outcome === "cancelled" &&
+                    report.reason === "fill-only") ||
+                  // A submit that replaced the document leaves no receiver; any other
+                  // unanswered message may be a fault, so it shows without debug logging.
+                  (report.cause === "document-gone" && report.reason !== "no-receiver")
                 ? "info"
                 : report.state === "blocked" || report.settled
                   ? "warn"

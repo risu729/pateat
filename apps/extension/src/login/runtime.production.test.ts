@@ -1039,7 +1039,12 @@ describe("production login document admission", () => {
       ]),
     );
     expect(entries()).toContainEqual(
-      expect.objectContaining({ type: "attempt", state: "reconciling", cause: "document-gone" }),
+      expect.objectContaining({
+        type: "attempt",
+        state: "reconciling",
+        cause: "document-gone",
+        reason: "no-receiver",
+      }),
     );
     // The page it led to proves the sign-in.
     expect(await h.hello({ documentId: "next-document" }, false)).toEqual({ ok: true });
