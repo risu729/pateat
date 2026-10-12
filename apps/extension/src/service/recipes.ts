@@ -6,6 +6,7 @@ import {
   serviceOriginSchema,
   storedLoginRecipeSchema,
   type LoginChooserRecipe,
+  type LoginEntryRecipe,
   type LoginRecipe,
 } from "@pateat/contracts";
 import * as v from "valibot";
@@ -29,7 +30,8 @@ export const MAX_RECIPE_CACHE_BYTES = 2 * 1024 * 1024;
 // The last-known-good copy of the owner's active recipes (ADR 0013). The cursor and
 // recipes are written together, so a failed write leaves the previous consistent copy.
 // Entry and chooser recipes (ADR 0031, ADR 0028) are cached with the rest; only a
-// chooser is looked up and starts a login, on its list's path.
+// chooser is looked up and starts a login, on its list's path, and `entries` lists an
+// origin's entry recipes.
 const cacheSchema = v.strictObject({
   version: v.literal(1),
   origin: serviceOriginSchema,
@@ -369,7 +371,8 @@ export function createRecipeSync(options: {
       if (!cache) return [];
       // Every variant starts on the recipe's start path (ADR 0027). A chooser recipe (ADR
       // 0028) starts where its list shows, once one of its buttons or a listed account
-      // does; an entry recipe (ADR 0031) is left out, since nothing starts it yet.
+      // does; an entry recipe (ADR 0031) is left out: the runtime counts its path as a
+      // start for generation through `entries` instead.
       return [
         ...loginRecipesForOrigin(cache.recipes, origin).map((recipe) => ({
           path: recipe.steps[0]!.path,
@@ -389,6 +392,15 @@ export function createRecipeSync(options: {
             : [],
         ),
       ];
+    },
+    async entries(origin: string) {
+      const connection = await service.connection().catch(() => undefined);
+      if (!connection) return [];
+      const cache = await load(connection);
+      if (!cache) return [];
+      return cache.recipes.filter(
+        (recipe): recipe is LoginEntryRecipe => "entry" in recipe && recipe.origin === origin,
+      );
     },
   };
 

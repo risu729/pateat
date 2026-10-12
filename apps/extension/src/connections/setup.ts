@@ -37,7 +37,6 @@ type Flow = {
   configuration: BitwardenConnectionConfiguration;
   password: string;
   hash?: string;
-  enabled?: boolean;
   intent: "enable" | "preserve";
   /** An explicit sync with a stored session; only such a flow may be aborted by forget. */
   sync?: boolean;
@@ -279,7 +278,6 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
         previous: prior.data,
         next: current.data,
         catalog,
-        ...(flow.enabled === undefined ? {} : { enabled: flow.enabled }),
         // Only a comparison with the very snapshot this adoption replaces counts.
         sameCustomFields:
           accepted.data.comparedSnapshotId !== undefined &&
@@ -584,14 +582,12 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
         configuration: BitwardenConnectionConfiguration,
         password: string,
         intent: "enable" | "preserve",
-        enabled?: boolean,
       ) {
         const current: Flow = {
           id: random(),
           configuration,
           password,
           intent,
-          ...(enabled === undefined ? {} : { enabled }),
           controller: new AbortController(),
           expiresAt: now() + 300000,
           timer: setTimeout(() => {
@@ -650,11 +646,13 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
               configuration,
               value.password,
               value.kind === "new" ? "enable" : value.autoUnlock,
-              value.kind === "new" ? value.enabled : undefined,
             );
             if (!(await permitted(current)))
               return alive(current) ? error("provider-permission-required") : error("cancelled");
-            if (value.kind === "new") await deps.registry.put(configuration);
+            if (value.kind === "new") {
+              await deps.policy.register(configuration.profile.connectionId, value.enabled);
+              await deps.registry.put(configuration);
+            }
             if (!alive(current)) return error("cancelled");
             const transport = deps.transportFor(configuration.profile);
             if (!transport.ok) return transport;

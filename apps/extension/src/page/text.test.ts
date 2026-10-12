@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { collapseText, isScriptButton, renderedText } from "./text";
+import { collapseText, isScriptButton, renderedText, shown } from "./text";
 
 afterEach(() => {
   document.body.innerHTML = "";
@@ -30,6 +30,39 @@ describe("renderedText", () => {
     for (let index = 0; index < 200_000; index += 1) children.append("a");
     document.getElementById("wide")!.append(children);
     expect(renderedText(root, 10)).toHaveLength(11);
+  });
+});
+
+describe("shown", () => {
+  it("counts an element with display: contents as shown when its parent is", () => {
+    // Cloudflare's saved profiles wrap each address in such a span (2026-10-12).
+    expect(
+      read(
+        '<button><span style="display: contents"><span style="display: block">a@example.com</span></span></button>',
+      ),
+    ).toBe("a@example.com");
+    document.body.innerHTML = `
+      <div id="hidden" style="display: none"><span id="inside" style="display: contents">a</span></div>
+      <span id="invisible" style="display: contents; visibility: hidden">b</span>
+      <span id="aria" aria-hidden="true" style="display: contents">c</span>
+      <span id="plain" style="display: contents">d</span>
+    `;
+    const by = (id: string) => document.getElementById(id)!;
+    expect(shown(by("inside"))).toBe(false);
+    expect(shown(by("invisible"))).toBe(false);
+    expect(shown(by("aria"))).toBe(false);
+    expect(shown(by("plain"))).toBe(true);
+    // Content its parent does not render.
+    document.body.innerHTML = `
+      <details><summary>s</summary><span id="closed" style="display: contents">a</span></details>
+      <div style="content-visibility: hidden"><span id="skipped" style="display: contents">b</span></div>
+      <div><span id="none" style="display: contents"><span style="display: none">c</span></span></div>
+      <details open><summary>s</summary><span id="open" style="display: contents">d</span></details>
+    `;
+    expect(shown(by("closed"))).toBe(false);
+    expect(shown(by("skipped"))).toBe(false);
+    expect(shown(by("none"))).toBe(false);
+    expect(shown(by("open"))).toBe(true);
   });
 });
 

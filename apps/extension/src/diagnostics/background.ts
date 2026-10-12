@@ -35,6 +35,13 @@ const QUIET_SYNC: ReadonlySet<RecipeSyncOutcome> = new Set([
  * already carries a login (ADR 0019).
  */
 const QUIET_REFUSALS: ReadonlySet<string> = new Set(["stale-document", "duplicate-document"]);
+/** Generation skips of ordinary browsing, logged at debug level (ADR 0019, ADR 0028). */
+const debugSkips: ReadonlySet<string> = new Set([
+  "no-vault-match",
+  "not-connected",
+  "not-a-list",
+  "no-listed-account",
+]);
 
 /** Unhandled errors share one rate-limit window of 20 a minute; its origin is not logged. */
 const ERROR_SOURCE = { tabId: -1, origin: "", perMinute: 20 };
@@ -359,12 +366,13 @@ export function createDiagnosticsLog(options: {
             takenOver: report.takenOver,
             page: report.page,
           },
-          // A login page without a matching vault item is common and not a problem; a
-          // request that failed is (ADR 0019).
+          // A login page without a matching vault item is common and not a problem, nor is
+          // a page that is no list of accounts or any page without the service; a request
+          // that failed is (ADR 0019).
           {
             source,
             level:
-              report.outcome === "skipped" && report.reason === "no-vault-match"
+              report.outcome === "skipped" && debugSkips.has(report.reason ?? "")
                 ? "debug"
                 : report.outcome === "failed"
                   ? "warn"
@@ -433,6 +441,36 @@ export function createDiagnosticsLog(options: {
             steps: report.steps,
           },
           { source },
+        );
+      else if (report.type === "entry")
+        void logger.log(
+          "login.entry",
+          {
+            origin: report.origin,
+            url: report.url,
+            recipe: report.recipeId,
+            revision: report.revision,
+            outcome: report.outcome,
+            reason: report.reason,
+            detail: report.detail,
+          },
+          // ADR 0019's levels: a press and the first refusal of each reason on a document
+          // are info, a page that names no path to return to (an entry page visited while
+          // signed in), a press another document's check holds, and a repeated refusal are
+          // debug. An entry that led nowhere is a problem, and its revision is now blocked
+          // (ADR 0031).
+          {
+            source,
+            level:
+              report.outcome === "blocked"
+                ? "warn"
+                : report.outcome === "refused" &&
+                    (report.repeat ||
+                      report.reason === "no-return-target" ||
+                      report.reason === "in-progress")
+                  ? "debug"
+                  : "info",
+          },
         );
       else
         void logger.log(

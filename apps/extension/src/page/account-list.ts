@@ -109,6 +109,71 @@ export function accountEntries(root: Document | Element): AccountEntry[] {
   );
 }
 
+/** Why a text with an `@` is not an entry of a list, for the log only (ADR 0028). */
+export const entryMisses = [
+  "aria-hidden",
+  "inert",
+  "hidden",
+  "not-rendered",
+  "page-chrome",
+  "inside-control",
+  "no-entry",
+  "unread-text",
+  "split-address",
+] as const;
+export type EntryMiss = (typeof entryMisses)[number];
+
+/**
+ * For a page on which {@link accountEntries} finds no entry: why its first shown text
+ * holding an email address is not one; else why a hidden one is not; else
+ * `split-address` when texts hold an `@` but no whole address, as when one is split
+ * across elements. `undefined` when no text holds an `@`. Only the reason leaves the
+ * page, never the text.
+ */
+export function accountEntryMiss(root: Document): EntryMiss | undefined {
+  if (!root.body) return undefined;
+  const walker = root.createTreeWalker(root.body, NodeFilter.SHOW_TEXT, {
+    acceptNode: (node) =>
+      /[@＠]/u.test(node.nodeValue ?? "") ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP,
+  });
+  let split = false;
+  let hidden: EntryMiss | undefined;
+  for (let index = 0; index < textNodeLimit; index += 1) {
+    const node = walker.nextNode();
+    if (!node) break;
+    const parent = node.parentElement;
+    if (!parent || ["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE"].includes(parent.tagName)) continue;
+    const accounts = shownAccounts(collapseText(node.nodeValue ?? ""));
+    if (!accounts.some((account) => account.includes("@"))) {
+      split = true;
+      continue;
+    }
+    // A hidden address counts only when no shown one tells more.
+    const unshown = parent.closest("[aria-hidden='true']")
+      ? "aria-hidden"
+      : parent.closest("[inert]")
+        ? "inert"
+        : parent.closest("[hidden]")
+          ? "hidden"
+          : !shown(parent)
+            ? "not-rendered"
+            : undefined;
+    if (unshown) {
+      hidden ??= unshown;
+      continue;
+    }
+    if (parent.closest(chromeSelector)) return "page-chrome";
+    let entry = false;
+    for (let current: HTMLElement | null = parent; current; current = current.parentElement) {
+      if (isEntry(current)) entry = true;
+      else if (control(current)) return "inside-control";
+    }
+    // An entry whose rendered text did not show the address.
+    return entry ? "unread-text" : "no-entry";
+  }
+  return hidden ?? (split ? "split-address" : undefined);
+}
+
 /** Splits an address at its last `@`, lowercased; `undefined` when it has none. */
 function parts(address: string): { local: string; domain: string } | undefined {
   const folded = address.normalize("NFKC").trim().toLowerCase();

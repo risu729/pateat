@@ -217,6 +217,8 @@ export function BitwardenSetup({
             ? "The new-device code was rejected. Enter a new code manually."
             : "Enter the new-device verification code from your email.",
         );
+      // Adding a connection already saved its policy entry, so the settings draft reloads.
+      onCatalogChanged();
       return;
     }
     setChallenge(undefined);

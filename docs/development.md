@@ -419,7 +419,13 @@ holds:
   `chooser-unavailable`;
 - `cause`: for a `cancelled` outcome, who cancelled it (`page-cancelled` or
   `settings-changed`); for the `assertion-failed` reason, the step that threw
-  (`account-lookup`, `passkey-lookup`, `signed-before-lookup`, `chooser` or `signing`).
+  (`account-lookup`, `passkey-lookup`, `signed-before-lookup`, `chooser` or `signing`);
+- `mediation`: for the `unsupported-mediation` reason, the request's mediation
+  (`conditional`, `required`, `silent`, `immediate` or `other`);
+- `duringLogin` when a delegated request came in while a Pateat login of the tab and
+  origin had not ended. The request then went to the browser or another passkey
+  provider, such as the Bitwarden extension, which may show its own prompt during that
+  login.
 
 For example, `siteDefault: 1` with `siteDefaultAccepted: 0` means the default item's
 passkey is not one the request accepts. No entry at all means the request never reached
@@ -454,6 +460,12 @@ in progress. A failed step leaves the connection listed so deletion can be retri
 Saved settings, recipes and their field-policy entries are not modified; anything that
 referred to the deleted connection resolves as an unavailable connection. This is how
 a connection left over by a failed first sign-in is removed.
+
+The add form's **Enable this connection in Pateat policy** choice becomes the
+connection's entry in **Vault access policy** when the connection is added, before
+its first sign-in. If that sign-in does not finish, **Sign in again** completes the
+setup and keeps the choice. Sign-ins never change the entry; the policy is edited on
+the settings page. Like other saved settings, the entry stays after Delete connection.
 
 Connecting retains the local unlock key and encrypted cache. Disabling automatic
 unlock removes the retained key; signing in again does not implicitly re-enable
@@ -541,7 +553,10 @@ approved choices enter with their owning features and compatibility checks; appr
 does not claim that they are installed. The owner subsequently approved the official
 OSS Bitwarden SDK for local cryptography with GPL compliance in
 [ADR 0005](adr/0005-bitwarden-local-crypto.md). Further major additions or
-replacements still require the owner's decision.
+replacements still require the owner's decision. On 2026-10-12 (14:31 UTC) the owner
+chose i18next with react-i18next for the extension's UI text, so that the language can
+be chosen in Pateat's settings rather than only following Chrome's
+([comparison](research/2026-10-12-extension-ui-translation.md)).
 The current manifests and lockfile describe what is installed. WXT + TypeScript +
 Valibot remain confirmed choices; existing Vitest, Playwright and build tools remain in
 use.
@@ -563,6 +578,7 @@ use.
 | Component tests | **Implemented:** Vitest Browser Mode with `vitest-browser-react` | M2 React migration |
 | Integration/accessibility | Existing Playwright; **implemented for settings:** `@axe-core/playwright` | M2 settings and executor fixtures |
 | Static checks | Existing Oxlint/Oxfmt and TypeScript with applicable React/JSX accessibility rules; **approved:** Knip | M2 React migration |
+| UI translation | **Approved (2026-10-12):** i18next with react-i18next, the language chosen in Pateat's settings; the manifest's `description` through a hand-written `_locales` file | Phase 3 Japanese for the extension |
 | Server configuration | Existing cf with cloudflare.config.ts and Vite | Retain verified build path |
 
 ### Integration conditions (pending candidates remain conditional)

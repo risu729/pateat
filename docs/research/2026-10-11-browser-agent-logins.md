@@ -174,14 +174,33 @@ entered the One-time PIN code, the Bitwarden email and the master password. Resu
   `login.refused` event for `https://www.smbc-card.com` with reason
   `connection-disabled` at 12:59:35 UTC. In Settings, **Vault access policy**, the
   connection "main" was not enabled, and every site default showed "Unavailable under
-  this draft policy: The vault connection is disabled." Why a connection added with the
-  policy box on was stored as disabled is a Pateat bug, followed up in the extension.
+  this draft policy: The vault connection is disabled." A connection added with the
+  policy box on was stored as disabled. The likely cause (inferred, not seen in that
+  log) is a first sign-in that did not finish, completed by **Sign in again**, which
+  lost the choice. The extension now keeps it on that path
+  ([development notes](../development.md)).
 - The Claude session turned **Enabled** on for "main" during a takeover. Opening the
   Vpass URL in that browser then logged in automatically within 30 seconds and reached
   the member page (`/memx/mypage/index.html`). The Bot itself had not retried at that
   point.
 - The owner reported at 13:45 UTC that the Bot said Pateat had also logged in to MyJCB.
-  That is the Bot's own report; nobody else checked the page.
+  Pateat's log from that computer (exported 14:20 UTC) confirms it: a passkey
+  assertion for `my.jcb.co.jp` at 13:45:17 UTC, then `authenticated` once the AI judge
+  answered `signed-in`.
+- The log also shows `runtime.updated` from `da61428` to `7e6c024` at 12:48 UTC, so the
+  replaced build was running from then on.
+- At about 14:15 UTC the owner opened 15 login pages there and reported none logged in.
+  The log shows:
+  - Vpass did log in again (`authenticated` at 14:14:47 UTC).
+  - MyJCB was refused with `logged-out` in that tab, because the tab had been logged out
+    earlier; Pateat does not submit there by design. After the extension was reloaded,
+    MyJCB logged in again with the passkey at 14:18:19 UTC.
+  - From 14:12 UTC every `service.sync` ended in `unexpected-response`. Recipes
+    generated for the opened pages were therefore never received, and those pages
+    ended in `recipe-not-found`. The likely cause (inferred) is that the service, by
+    then newer than `7e6c024`, also synced the entry and account-list recipe kinds that
+    build cannot read. Pateat keeps no compatibility before release, so the fix is to
+    update the build.
 
 So Pateat logs in on a Grok Bot computer, paired without WARP, with the Bot leaving the
 login form to the extension.
@@ -199,5 +218,6 @@ so each needs separate owner approval:
 3. On a dot's cloud computer during a takeover, check whether `chrome://extensions`
    or the Web Store opens. This only records what is possible; running Pateat there
    with a vault is the owner's tradeoff above.
-4. On the Grok Bot computer, have the Bot itself open the Vpass and MyJCB URLs again
-   and report the page it reaches, and check the result on screen.
+4. On the Grok Bot computer, update Pateat to current main, then have the Bot itself
+   open Vpass, MyJCB and the other pages of 14:15 UTC, and check that `service.sync`
+   ends in `synced` again.

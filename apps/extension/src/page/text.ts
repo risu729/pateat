@@ -15,20 +15,54 @@ const textless = new Set([
   "CANVAS",
 ]);
 
-/** Rendered: not hidden by CSS, a closed `<details>` or an attribute (opacity optional). */
+const visibility = (opacity: boolean) => ({
+  contentVisibilityAuto: true,
+  opacityProperty: opacity,
+  visibilityProperty: true,
+  // Chrome 120, the minimum version, knows only the older option names.
+  checkOpacity: opacity,
+  checkVisibilityCSS: true,
+});
+
+/**
+ * Rendered: not hidden by CSS, a closed `<details>` or an attribute (opacity optional).
+ * An element with `display: contents` has no box of its own, so `checkVisibility` is
+ * false for it although its children render in its place; it counts as shown when its
+ * parent is, the parent renders its content (not a closed `<details>` or
+ * `content-visibility: hidden`), and any child element renders too (Cloudflare's saved
+ * profiles wrap each address in one, 2026-10-12).
+ */
 export function shown(element: Element, opacity = true): element is HTMLElement {
+  if (
+    !(element instanceof HTMLElement) ||
+    !element.isConnected ||
+    element.closest("[hidden], [inert], [aria-hidden='true']")
+  )
+    return false;
+  if (element.checkVisibility(visibility(opacity))) return true;
+  const parent = element.parentElement;
+  const view = element.ownerDocument.defaultView;
+  const style = view?.getComputedStyle(element);
+  if (
+    !parent ||
+    !view ||
+    style?.display !== "contents" ||
+    // Its own text renders with its `visibility`, which its children also inherit.
+    style.visibility !== "visible" ||
+    (parent instanceof HTMLDetailsElement && !parent.open) ||
+    view.getComputedStyle(parent).contentVisibility === "hidden" ||
+    !shown(parent, opacity)
+  )
+    return false;
+  // Children are checked themselves; a nested `display: contents` one counts as rendered.
+  const children = [...element.children];
   return (
-    element instanceof HTMLElement &&
-    element.isConnected &&
-    !element.closest("[hidden], [inert], [aria-hidden='true']") &&
-    element.checkVisibility({
-      contentVisibilityAuto: true,
-      opacityProperty: opacity,
-      visibilityProperty: true,
-      // Chrome 120, the minimum version, knows only the older option names.
-      checkOpacity: opacity,
-      checkVisibilityCSS: true,
-    })
+    !children.length ||
+    children.some(
+      (child) =>
+        child.checkVisibility(visibility(opacity)) ||
+        view.getComputedStyle(child).display === "contents",
+    )
   );
 }
 

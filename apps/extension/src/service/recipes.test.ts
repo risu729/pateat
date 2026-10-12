@@ -748,6 +748,58 @@ describe("cached recipe lookup", () => {
     expect(await sync.recipes.starts(SITE)).toEqual([{ path: "/login", steps: [signin.steps[0]] }]);
   });
 
+  it("lists an origin's own entry recipes (ADR 0031), as the sync revises or revokes them", async () => {
+    const entry: StoredLoginRecipe = {
+      version: 1,
+      id: "bank-entry",
+      revision: 1,
+      origin: SITE,
+      entry: { path: "/", target: { by: "text", value: "Login" } },
+    };
+    // Another origin of the same site, and another site.
+    const www = { ...entry, id: "www-entry", origin: "https://www.bank.example" };
+    const other = { ...entry, id: "other-entry", origin: "https://other.example" };
+    const change = (value: StoredLoginRecipe, revision = value.revision) => ({
+      recipeId: value.id,
+      revision,
+      state: "active" as const,
+      recipe: { ...value, revision },
+    });
+    const { sync } = setup({
+      pages: [
+        page([change(entry), change(www), change(other)], 3),
+        page([change(entry, 2), revoked("www-entry", 2)], 5),
+      ],
+      stored,
+    });
+    expect(await sync.sync()).toBe("synced");
+    expect(await sync.recipes.entries(SITE)).toEqual([entry]);
+    expect(await sync.recipes.entries("https://www.bank.example")).toEqual([www]);
+    expect(await sync.recipes.entries("https://unknown.example")).toEqual([]);
+    expect(await sync.recipes.entries(SITE.replace("https:", "http:"))).toEqual([]);
+    // A newer revision replaces the cached one; a revoked recipe is no longer listed.
+    expect(await sync.sync()).toBe("synced");
+    expect(await sync.recipes.entries(SITE)).toEqual([{ ...entry, revision: 2 }]);
+    expect(await sync.recipes.entries("https://www.bank.example")).toEqual([]);
+    // Nothing is listed without a paired device or from another device's cache.
+    const cached = { ...stored, recipes: [...stored.recipes, entry] };
+    expect(await setup({ stored: cached }).sync.recipes.entries(SITE)).toEqual([entry]);
+    expect(
+      await setup({ stored: cached, connection: undefined }).sync.recipes.entries(SITE),
+    ).toEqual([]);
+    expect(
+      await setup({
+        stored: cached,
+        connection: {
+          origin: SERVICE,
+          deviceId: OTHER_DEVICE,
+          credential: CREDENTIAL,
+          rejected: false,
+        },
+      }).sync.recipes.entries(SITE),
+    ).toEqual([]);
+  });
+
   it("serves nothing without a paired device or for another device's cache", async () => {
     expect(
       await setup({ stored, connection: undefined }).sync.recipes.recipe(SITE, "/login"),

@@ -1,12 +1,15 @@
 import {
   devicePairResultSchema,
   recipeCompletionResultSchema,
+  entryGenerationResultSchema,
   recipeGenerationResultSchema,
   SYNC_PAGE_LIMIT,
   syncDeviceStateSchema,
   syncRecipeChangesSchema,
   syncSettingsStateSchema,
   type DevicePairResult,
+  type EntryGenerationRequest,
+  type EntryGenerationResult,
   type RecipeCompletionRequest,
   type RecipeCompletionResult,
   type RecipeGenerationRequest,
@@ -90,6 +93,15 @@ export interface ServiceTransport {
     credential: string,
     request: RecipeGenerationRequest,
   ): Promise<InferenceResult<RecipeGenerationResult>>;
+  /**
+   * `POST /v1/recipes/generate` without slots: a page without a login form, whose answer
+   * names its sign-in entry (ADR 0031).
+   */
+  generateEntry(
+    origin: string,
+    credential: string,
+    request: EntryGenerationRequest,
+  ): Promise<InferenceResult<EntryGenerationResult>>;
   /** `POST /v1/recipes/:recipeId/completion`: the page after a recipe's final submission. */
   judgeCompletion(
     origin: string,
@@ -359,6 +371,15 @@ export function createServiceTransport(
         "/v1/recipes/generate",
         request,
         recipeGenerationResultSchema,
+      );
+    },
+    generateEntry(origin, credential, request) {
+      return infer(
+        origin,
+        credential,
+        "/v1/recipes/generate",
+        request,
+        entryGenerationResultSchema,
       );
     },
     judgeCompletion(origin, credential, recipeId, request) {
