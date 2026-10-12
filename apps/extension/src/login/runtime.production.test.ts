@@ -14845,7 +14845,7 @@ describe("the start page's own passkey request (ADR 0034)", () => {
       const sent = executed().length;
       expect(await pick(h)).toMatchObject({ ok: false });
       expect(await choice(h)).toMatchObject({ ok: false });
-      await until(() => request.decided() !== undefined, 3_500);
+      await until(() => request.decided() !== undefined, 4_500);
       expect(request.decided()).toEqual({ kind: "delegate", reason: "no-login" });
       expect(executed()).toHaveLength(sent);
     });
@@ -14859,7 +14859,7 @@ describe("the start page's own passkey request (ADR 0034)", () => {
       expect(request.decided()).toBeUndefined();
       fake.state.onReconnect = async () => ({ ok: false });
       expect(await pick(h)).toEqual({ ok: false, reason: "not-started" });
-      await until(() => request.decided() !== undefined, 3_500);
+      await until(() => request.decided() !== undefined, 4_500);
       expect(request.decided()).toEqual({ kind: "delegate", reason: "no-login" });
     });
 

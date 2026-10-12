@@ -74,7 +74,8 @@ password when the item has one. The proposal reviewed with the owner is
    (ADR 0021 D): a document so asked, or filled by a login that only fills, keeps its
    request while the tab asks, and the login the popup pick starts answers it as in
    rule 3 when the picked item holds a discoverable passkey. A pick that starts no
-   login hands it on, unless the choice is offered again. That request is also withheld
+   login hands it on three seconds later, unless the choice is offered again by then.
+   That request is also withheld
    four minutes after it came, since the browser ends the message that carries it after
    five: a pick after that signs in with the password, and an item with only a passkey
    does not sign in until the page is loaded again.
