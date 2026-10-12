@@ -271,6 +271,8 @@ describe("declarative login boundaries", () => {
       { by: "name", value: "user[login]" },
       { by: "id", value: "a'b\"c" },
       { by: "test-id", value: "sign-in" },
+      { by: "autocomplete", value: "username" },
+      { by: "autocomplete", value: "current-password" },
       { by: "text", value: "ログイン" },
       { by: "text", value: "Sign in" },
     ])
@@ -280,6 +282,9 @@ describe("declarative login boundaries", () => {
       { by: "id", value: "会員" },
       { by: "id", value: "a\u0000" },
       { by: "test-id", value: "a$b" },
+      { by: "autocomplete", value: "new-password" },
+      { by: "autocomplete", value: "Username" },
+      { by: "autocomplete", value: "username webauthn" },
       { by: "text", value: "" },
       { by: "text", value: " Sign in" },
       { by: "text", value: "Sign  in" },

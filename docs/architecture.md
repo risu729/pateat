@@ -847,18 +847,25 @@ within one 24-element observation.
 
 A step names its element with an allowlisted locator, never CSS: an `id` or `name` (any
 ASCII except whitespace and control characters, as in `ctl00$Main$txtUserId` or
-`user[login]`), a `data-testid` (`[A-Za-z0-9_.:-]`), or, for a click or a state check
-only, a button's text: `{ "by": "text", "value": "ログイン" }` names the `<button>`
-whose rendered text (or, without any, its images' `alt`), the
-`<input type="submit|button">` whose value, or the `<input type="image">` whose `alt`
-equals the value after whitespace is collapsed (owner decision, 2026-10-11). Hidden
-buttons and hidden text inside a button do not count, and text over 120 characters gives
-no locator. A script button is a control only scripts make clickable: a script link, or
-another element with `role="button"`, but never a form control or anything inside an
-`<a href>`. A script link is an `<a>` without `href` that has an `onclick` attribute or
-`role="button"`, such as `<a id="login" onclick="document.loginForm.submit()">`, or an
-`<a href>` that runs a script instead of following the link: a `javascript:` URL (or a
-`data:` or `vbscript:` one, which Chrome never follows from a page), such as
+`user[login]`), a `data-testid` (`[A-Za-z0-9_.:-]`), an `autocomplete` token of an
+`<input>` with neither, or, for a click or a state check only, a button's text:
+`{ "by": "text", "value": "ログイン" }` names the `<button>` whose rendered text (or,
+without any, its images' `alt`), the `<input type="submit|button">` whose value, or the
+`<input type="image">` whose `alt` equals the value after whitespace is collapsed (owner
+decision, 2026-10-11). Hidden buttons and hidden text inside a button do not count, and
+text over 120 characters gives no locator. The `autocomplete` locator,
+`{ "by": "autocomplete", "value": "username" }`, names the one `<input>` whose
+`autocomplete` attribute holds that token, ignoring case and other tokens such as
+`webauthn`; the token is `username`, `email`, `current-password` or `one-time-code`,
+never `new-password`. The owner added it on 2026-10-12 for pixiv's login page, whose
+inputs carry only `autocomplete="username webauthn"` and
+`autocomplete="current-password webauthn"`. A script button is a control only scripts
+make clickable: a script link, or another element with `role="button"`, but never a form
+control or anything inside an `<a href>`. A script link is an `<a>` without `href` that
+has an `onclick` attribute or `role="button"`, such as
+`<a id="login" onclick="document.loginForm.submit()">`, or an `<a href>` that runs a
+script instead of following the link: a `javascript:` URL (or a `data:` or `vbscript:`
+one, which Chrome never follows from a page), such as
 `<a href="javascript:;" onclick="login()">ログイン</a>`, or an empty or fragment-only
 `href` on a link with an `onclick` attribute or `role="button"`, such as
 `<a id="login" href="#" onclick="document.loginForm.submit()">` (some pages' scripts add
