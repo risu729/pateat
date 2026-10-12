@@ -3,7 +3,8 @@
 Status: accepted by the owner on 2026-10-11 and amended the same day (see
 [Amendment: server information](#amendment-server-information)) and on 2026-10-12 (see
 [Amendment: logins that did not finish](#amendment-logins-that-did-not-finish) and
-[Amendment: sites shown in log downloads](#amendment-sites-shown-in-log-downloads)). The
+[Amendment: sites shown in log downloads](#amendment-sites-shown-in-log-downloads) and
+[Amendment: a page limit per level](#amendment-a-page-limit-per-level)). The
 diagnostics page, the logs, the Bitwarden server information, recent log lines and the
 Pateat service's record for the device are implemented.
 
@@ -184,3 +185,15 @@ purpose.
 - Origins of sites not set up when an entry was written stay pseudonymous
   (`origin:7d2b91aa`) either way, so the log still does not become a browsing history.
 - The bug report's recent log lines keep their `site-N` and `recipe-N` numbering.
+
+## Amendment: a page limit per level
+
+On 2026-10-12 a login on the owner's hotel site wrote 21 page events within a minute
+while debug logging was on: frame `tab-busy` refusals and repeated `reconciling`
+reports, all `debug`, used up the page's 20, and the 21st, an `info` judgement, was
+dropped. The owner could not tell from the log why the site was not filled.
+
+- `debug` page events now have an allowance of 20 per minute per tab and origin of
+  their own, so they never crowd out `info`, `warn` or `error` events of the same page.
+- A `log.dropped` entry for dropped `debug` events is `debug`; one for any other events
+  stays `warn`.

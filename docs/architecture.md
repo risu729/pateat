@@ -756,7 +756,7 @@ kind's check is left out and a string over 512 characters becomes `"[truncated]"
 | `recipe.judge` | debug for `sent`, else info | origin, recipe ID and revision, route; `sent` when the page goes out, then the verdict (`signed-in`, `rejected`, `challenge`, `unclear`, `retry`); for `unclear` and `retry`, the transport, service or model code (for example `already-judged`, `busy`, `timeout`); for a returned revision, whether this login took it over; `not-sent` when the page after an effect step is not sent to the judge, with why: the step's two pages were already sent (`page-limit`), a sign-in field of the route still shows on a sign-in path (`sign-in-shown`), the completion marker shows but does not prove the sign-in, as on another path than its own (`marker-shown`), a field in a shadow root (`shadow-field`), one that cannot be filled and is disabled or may be a sign-in field (`unfillable-field`: a password or email input, one with a `username`, `email`, `current-password`, `new-password` or `one-time-code` autocomplete token, or a short numeric field; other read-only, transparent or tiny fields, as a read-only date picker, are left out), one without a usable locator (`unlocated-field`), more than 48 fields (`too-many-fields`), nothing to describe (`no-candidates`), a refused path or a description that fails its schema (`unsupported-page`), an extractor that threw (`extract-error`), a response that fails its check (`invalid-page`), a cancelled login (`cancelled`), a page that changed meanwhile (`page-changed`) or could not be asked (`unreachable`) |
 | `passkey.request` | info | the passkey report described in [development](development.md#why-a-passkey-request-was-delegated) |
 | `error.unhandled` | error | `error` or `rejection`, class name, message only when it is a Pateat error code, up to five `file.js:line:column` positions inside the extension |
-| `log.dropped` | warn | origin, events dropped over the page limit |
+| `log.dropped` | warn; debug when only `debug` events were dropped | origin, events dropped over the page limit |
 | `log.debug` | info | when debug logging ends |
 
 Connection and item IDs become HMAC pseudonyms. An origin or RP ID is kept in full only
@@ -774,7 +774,9 @@ plan's refusal reason such as `connection-disabled`, or `account-changed`),
 was delivered) and `field-unavailable` (a vault field could not be read).
 
 Login, judgement, handler, recipe generation and passkey events are limited to 20 per
-minute per tab and origin, and unhandled errors to 20 per minute in all. The first event
+minute per tab and origin, and unhandled errors to 20 per minute in all. `debug` events
+have their own 20 per minute, so a page's debug detail never crowds out its other
+events. The first event
 dropped in a window is logged at once as `log.dropped` with `count: 1`; the rest are
 counted when the window ends and the next event or prune runs, so a worker that stops
 first loses only that remainder. `debug` entries are written only for 24 hours after
