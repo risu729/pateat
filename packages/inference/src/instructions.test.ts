@@ -105,6 +105,9 @@ describe("instructions sent to the model", () => {
         /never (?:name a button that|one that) registers, creates, adds or sets up/iu,
       );
     expect(completionInstructions).toContain(
+      "So is headerText, the page's header and navigation text.",
+    );
+    expect(completionInstructions).toContain(
       "code.source is authenticator-app only when the page says the code comes from an authenticator app.",
     );
     expect(generationInstructions).toContain("Abstain rather than guess.");

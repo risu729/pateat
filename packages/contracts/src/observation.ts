@@ -16,6 +16,13 @@ const observedText = v.pipe(
   v.maxLength(120),
   v.regex(/^[^\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+$/u),
 );
+/** The header and navigation text of a signed-in page (ADR 0029), up to 1,000 characters. */
+const observedHeaderText = v.pipe(
+  v.string(),
+  v.minLength(1),
+  v.maxLength(1000),
+  v.regex(/^[^\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+$/u),
+);
 const path = v.pipe(
   v.string(),
   v.check(
@@ -131,6 +138,11 @@ export const loginObservationSchema = v.pipe(
     language: v.picklist(["ja", "en", "mixed"]),
     title: v.optional(observedText),
     headings: v.optional(v.pipe(v.array(observedText), v.maxLength(8))),
+    /**
+     * The visible text of a signed-in page's header and navigation, redacted as the rest
+     * of that page, for the judge (ADR 0029); no other page carries it.
+     */
+    headerText: v.optional(observedHeaderText),
     // The extractor sets false when it dropped an element a recipe may need; such an
     // observation is rejected rather than relying on a model to guess the rest.
     // Text bounded to its length limit or redacted is not counted as dropped.

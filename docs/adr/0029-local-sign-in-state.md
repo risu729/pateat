@@ -3,8 +3,8 @@
 Status: accepted by the owner on 2026-10-12 (04:54 UTC). Delivery 1 (the local check,
 logged only, as `login.state`) is implemented. The owner started delivery 2 (acting on
 it) on 2026-10-12 at 06:58 UTC; its outcome table is implemented (completing on
-evidence first, the other rows on 2026-10-12 after 14:22 UTC). The header and
-navigation text for the judge and the list of learned markers are not implemented yet.
+evidence first, the other rows on 2026-10-12 after 14:22 UTC), and so is the header and
+navigation text for the judge. The list of learned markers is not implemented yet.
 Amended on 2026-10-12 (13:08 UTC, owner's choice) by
 [ADR 0027](0027-per-account-login-routes.md#watching-after-a-challenge): the pages of a
 login watched after `challenge` or an unknown result; see the end of the implementation
@@ -165,6 +165,13 @@ one. A row with no verdict, after the request failed or while it is still being 
 once the owner's lock has expired (until then a second request is answered `busy`),
 answers `judgement-unanswered`, and the login stays unknown. A watched login
 (below) never completes on an undecided answer.
+
+The header and navigation text (since 2026-10-12): the signed-in description carries
+`headerText`, the visible text of each outermost `header`, `nav`, banner and navigation
+landmark in document order, with email addresses, masked runs and every number hidden as
+on the rest of that page, the account's own usernames hidden as `[account]`, and cut at
+1,000 characters. The judge's instructions name it as untrusted page text. Login pages,
+lists of accounts and sign-in entry pages never carry it.
 
 Watched logins (owner, 2026-10-12 13:08 UTC,
 [ADR 0027](0027-per-account-login-routes.md#watching-after-a-challenge)): Evidence: on

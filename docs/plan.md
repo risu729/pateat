@@ -107,8 +107,9 @@ password or passkey, in the Grok Bot computer's Chrome, on a production build of
   to the fields rejects, a sign of another sign-in step the judge does not decide goes
   to the person, and no sign and no evidence asks the judge once and completes when it
   cannot decide, never on a path judged `challenge` or `rejected` before or whose
-  earlier request has no verdict (local tests only). Still to do: the header and
-  navigation text for the judge and the list of learned markers.
+  earlier request has no verdict (local tests only). The judged page also carries its
+  header and navigation text (`headerText`, up to 1,000 characters, local tests only).
+  Still to do: the list of learned markers.
 - SBI証券 after generation. Evidence, 2026-10-12, from the owner's Chrome and its local
   log: a recipe was generated at 13:54:41 UTC for `/login/entry` and a login started at
   once on the `passkey` route; the page's conditional passkey request was handed to

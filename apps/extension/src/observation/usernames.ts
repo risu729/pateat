@@ -2,15 +2,16 @@ import { fillRoles, loginObservationSchema, type LoginObservation } from "@patea
 import * as v from "valibot";
 import { escapePattern, foldName, latinEdge, latinWord, namePattern } from "../page/account-list";
 import { minUsernameLength } from "../page/sign-in-state";
-import { bounded, observedText, withoutNumbers } from "./extract";
+import { bounded, maxHeaderText, maxText, observedText, withoutNumbers } from "./extract";
 
 /** The placeholders observed text already shows in place of private parts. */
 const placeholders = /\[(?:email|masked|number|account)\]/gu;
 /**
- * Observed text is cut at 120 UTF-16 code units, then loses a split surrogate pair and a
- * trailing space; a text this long may have been cut.
+ * Observed text is cut at its limit in UTF-16 code units (120, or 1,000 for a header),
+ * then loses a split surrogate pair and a trailing space; a text this close to its limit
+ * may have been cut.
  */
-const cutLength = 118;
+const cutMargin = 2;
 
 /**
  * The forms a username takes in an observation: as it is, as a login page's text shows it
@@ -78,9 +79,9 @@ const lookedFor = (username: string) => [...foldName(username)].length >= minUse
  * 0029 reads one) shows where ADR 0028's rule for a name beside buttons finds it
  * ({@link namePattern}): as a whole text or inside a longer one, in any width or case,
  * with or without a leading `@`, and never inside a longer Latin word, so `ann` is not
- * found in `annual`. Each place in the title, the headings, the account texts and a
- * candidate's label, placeholder and description becomes `[account]`, and so does the
- * start of a name at the end of a text cut at its length limit.
+ * found in `annual`. Each place in the title, the headings, the header text, the account
+ * texts and a candidate's label, placeholder and description becomes `[account]`, and so
+ * does the start of a name at the end of a text cut at its length limit.
  *
  * A locator value cannot be hidden, since it must name the element as it is, so a button,
  * link or checkbox whose locator holds a username is left out, as ADR 0028 leaves out a
@@ -101,11 +102,12 @@ export function withoutUsernames(
   const cut = cutPattern(forms);
   const refused = { ok: false, reason: "username-shown" } as const;
   const shows = (text: string) => holds.test(text.normalize("NFKC"));
-  const hide = (text: string): string => {
+  const hide = (text: string, limit = maxText): string => {
     const normal = text.normalize("NFKC");
     let hidden = holds.test(normal) ? normal.replace(pattern, "[account]") : text;
-    if (text.length >= cutLength && cut?.test(hidden)) hidden = hidden.replace(cut, "[account]");
-    return hidden === text ? text : (bounded(hidden) ?? "[account]");
+    if (text.length >= limit - cutMargin && cut?.test(hidden))
+      hidden = hidden.replace(cut, "[account]");
+    return hidden === text ? text : (bounded(hidden, limit) ?? "[account]");
   };
   if (observation.path.split("/").some((segment) => shows(segment) || shows(decoded(segment))))
     return refused;
@@ -136,12 +138,13 @@ export function withoutUsernames(
       ...(description === undefined ? {} : { description: hide(description) }),
     });
   }
-  const { title, headings, accounts } = observation;
+  const { title, headings, headerText, accounts } = observation;
   const parsed = v.safeParse(loginObservationSchema, {
     ...observation,
     ...(title === undefined ? {} : { title: hide(title) }),
-    ...(headings === undefined ? {} : { headings: headings.map(hide) }),
-    ...(accounts === undefined ? {} : { accounts: accounts.map(hide) }),
+    ...(headings === undefined ? {} : { headings: headings.map((text) => hide(text)) }),
+    ...(headerText === undefined ? {} : { headerText: hide(headerText, maxHeaderText) }),
+    ...(accounts === undefined ? {} : { accounts: accounts.map((text) => hide(text)) }),
     candidates,
   });
   return parsed.success ? { ok: true, observation: parsed.output } : refused;
