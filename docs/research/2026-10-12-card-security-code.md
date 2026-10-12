@@ -54,8 +54,8 @@ design.
 | C. Ask once in the popup and remember, as account choice does ([ADR 0021](../adr/0021-account-choice-outside-settings.md)) | A second item reference in the binding, e.g. `{ "slot": "card-code", "itemId": "<card item UUID>", "itemName": "エポスカード", "field": "card.code" }` | No Bitwarden edit; synced like other item references ([ADR 0023](../adr/0023-synced-vault-policy.md)). Needs a card chooser and a binding shape change |
 | D. Match by brand or issuer | Nothing | Bitwarden cards have `brand` (`Visa`, `JCB`, …) but no issuer, so only the item name could hint at エポス. A wrong card spends a code attempt, and card sites lock accounts after a few. Only useful to preselect a choice in C |
 
-The service and the AI would see no card value in any option. As for other slots, the
-AI would receive field names (such as a custom field named `セキュリティコード` in option
+The service and the AI would see no card value in any option. As for other slots, the AI
+would receive field names (such as a custom field named `セキュリティコード` in option
 A) and never values; the service would store, at most, the card item's ID and name in
 the owner's binding.
 
