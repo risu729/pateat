@@ -66,6 +66,19 @@ export function createConnectionPolicy(options: {
     async protectedItems(connectionId) {
       return protectedItemIds(await options.settings.read(), connectionId);
     },
+    async register(connectionId, enabled) {
+      await options.settings.update(undefined, (snapshot) => {
+        if (!snapshot.settings.connections.some((entry) => entry.connectionId === connectionId))
+          snapshot.settings.connections.push({
+            connectionId,
+            enabled,
+            selection: { mode: "all", groupIds: [], itemIds: [] },
+            excludedItemIds: [],
+            excludedFields: [],
+          });
+        return snapshot;
+      });
+    },
     async adopt(input) {
       const captured = structuredClone(input);
       const accepted = captured.next.accepted;
@@ -78,7 +91,6 @@ export function createConnectionPolicy(options: {
           connection = createDefaultSettings({ connections: [captured.catalog] }).connections[0]!;
           snapshot.settings.connections.push(connection);
         }
-        if (captured.enabled !== undefined) connection.enabled = captured.enabled;
         const priorBinding = snapshot.fieldPolicies?.find((entry) => entry.connectionId === id);
         review = [...(priorBinding?.quarantinedItemIds ?? [])];
         const protectedItems = protectedItemIds(snapshot, id);
