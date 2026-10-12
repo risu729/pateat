@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import {
   createSettingsStore,
   parseLoginRecipe,
@@ -4366,6 +4366,50 @@ describe("production login document admission", () => {
           reason: "generating",
         });
         await vi.waitFor(() => expect(service.generate).toHaveBeenCalledTimes(1));
+      });
+
+      it("sends a list that loads more than a minute after the submission", async () => {
+        const { service, h, generations } = setup();
+        const at = Date.now();
+        const clock = vi.spyOn(Date, "now").mockReturnValue(at);
+        onTestFinished(() => clock.mockRestore());
+        await h.login.handle(
+          { version: 1, type: "login.document.submitted", token: "synthetic-token" },
+          sender(),
+        );
+        // A single-page app signed in and out in one document; the reload comes later.
+        clock.mockReturnValue(at + 61_000);
+        expect(await h.hello({ documentId: "reloaded" }, false)).toMatchObject({ generate: true });
+        expect(await listHello(h, undefined, { documentId: "reloaded" })).toEqual({
+          ok: false,
+          reason: "generating",
+        });
+        clock.mockRestore();
+        await vi.waitFor(() => expect(service.generate).toHaveBeenCalledTimes(1));
+        expect(generations()).not.toContainEqual(
+          expect.objectContaining({ outcome: "skipped", reason: "after-sign-in" }),
+        );
+      });
+
+      it.each([
+        ["just under a minute", 59_000],
+        ["after the clock went back", -1_000],
+      ])("still skips a list that loads %s", async (_, offset) => {
+        const { service, h, generations } = setup();
+        const at = Date.now();
+        const clock = vi.spyOn(Date, "now").mockReturnValue(at);
+        onTestFinished(() => clock.mockRestore());
+        await h.login.handle(
+          { version: 1, type: "login.document.submitted", token: "synthetic-token" },
+          sender(),
+        );
+        clock.mockReturnValue(at + offset);
+        expect(await h.hello({ documentId: "reloaded" }, false)).toMatchObject({ generate: true });
+        await listHello(h, undefined, { documentId: "reloaded" });
+        expect(generations()).toContainEqual(
+          expect.objectContaining({ outcome: "skipped", reason: "after-sign-in" }),
+        );
+        expect(service.generate).not.toHaveBeenCalled();
       });
     });
 

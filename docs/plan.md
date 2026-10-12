@@ -190,6 +190,14 @@ Chrome, on a production build of main.
 
 Once the fixes have settled:
 
+- First, before the work below that makes Pateat public: Japanese alongside English for
+  Pateat itself (owner, 2026-10-12 13:59 UTC): the README, the docs and the extension's
+  UI text. The service's pages, such as `/manage`, come later. Which library or
+  mechanism translates the extension's UI text is the owner's choice and has not been
+  made. Proposed, to confirm with the owner: "the docs" means the README and the
+  user-facing pages, including those the docs website below adds, while ADRs, this plan
+  and research notes stay in English as AGENTS.md asks for repository files; that rule
+  then needs an exception for the Japanese pages.
 - The docs website (VitePress 2, see
   [decisions still requiring evidence](#decisions-still-requiring-evidence)) with
   user-facing pages for installation, setup and permissions, plus the M6 operational
@@ -319,7 +327,11 @@ still open on 2026-10-11.
 - Moving from Bun to aube for monorepo support (owner, 2026-10-12 07:58 UTC): the
   [research note](research/2026-10-12-package-manager-aube.md) compares Bun 1.4.3, pnpm
   12 and aube 2.7.0 and records trial installs. The owner chose aube (08:25 UTC);
-  [ADR 0032](adr/0032-aube-package-manager.md) records the migration.
+  [ADR 0032](adr/0032-aube-package-manager.md) records the migration. The
+  [lockfile gaps note](research/2026-10-12-aube-lockfile-gaps.md) reproduces aube
+  2.7.0's `bun.lock` and `pnpm-lock.yaml` bugs (both fixed on aube main, unreleased) and
+  two remaining `bun.lock` gaps (peers written as dependencies, `lockfileVersion`
+  reset), as drafts for upstream reports (not filed).
 - Earlier research kept as dated notes:
   [identity provider screens](research/2026-10-11-identity-provider-screens.md) behind
   [ADR 0026](adr/0026-sign-in-through-identity-providers.md);
