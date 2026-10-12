@@ -3,8 +3,8 @@
 Status: accepted by the owner on 2026-10-12 (04:54 UTC). Delivery 1 (the local check,
 logged only, as `login.state`) is implemented. The owner started delivery 2 (acting on
 it) on 2026-10-12 at 06:58 UTC; its outcome table is implemented (completing on
-evidence first, the other rows on 2026-10-12 after 14:22 UTC), and so is the header and
-navigation text for the judge. The list of learned markers is not implemented yet.
+evidence first, the other rows on 2026-10-12 after 14:22 UTC), and so are the header and
+navigation text for the judge and the list of learned markers.
 Amended on 2026-10-12 (13:08 UTC, owner's choice) by
 [ADR 0027](0027-per-account-login-routes.md#watching-after-a-challenge): the pages of a
 login watched after `challenge` or an unknown result; see the end of the implementation
@@ -172,6 +172,19 @@ landmark in document order, with email addresses, masked runs and every number h
 on the rest of that page, the account's own usernames hidden as `[account]`, and cut at
 1,000 characters. The judge's instructions name it as untrusted page text. Login pages,
 lists of accounts and sign-in entry pages never carry it.
+
+The list of learned markers (since 2026-10-12): a recipe's `completion` is a list of up to
+four markers, each a locator with up to four `absent` elements and no path. After every
+effect step, in a watched login and in E1, a marker that shows once on any path while
+each of its `absent` elements is missing, even hidden, proves the sign-in, so the
+completion check and E1 read the same markers. A page the judge answers `signed-in` for
+adds its marker after the learned ones in the recipe's next revision, which a running
+login takes over; when the recipe has four, or the judge names one it has, nothing
+changes and the login completes. A marker is never an element the recipe's steps,
+passkey route or handlers use on any path, since it would then prove a sign-in on their
+pages. A marker learned on a step's own path keeps that path's fill fields as `absent`
+elements, which must now be missing on every path, so a site that keeps a hidden sign-in
+form on its signed-in pages does not complete on that marker.
 
 Watched logins (owner, 2026-10-12 13:08 UTC,
 [ADR 0027](0027-per-account-login-routes.md#watching-after-a-challenge)): Evidence: on

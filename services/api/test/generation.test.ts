@@ -264,7 +264,7 @@ describe("recipe generation", () => {
         status: "signed-in",
         change: {
           revision: 3,
-          recipe: { completion: { path: "/home", target: { by: "id", value: "logout" } } },
+          recipe: { completion: [{ target: { by: "id", value: "logout" } }] },
         },
       },
     });
@@ -1569,13 +1569,13 @@ describe("page judgement (ADR 0027)", () => {
       status: "signed-in",
       change: {
         revision: 2,
-        recipe: { completion: { path: "/home", target: { by: "id", value: "logout" } } },
+        recipe: { completion: [{ target: { by: "id", value: "logout" } }] },
       },
     });
     expect(sent).toHaveLength(2);
   });
 
-  it("judges a recipe that already has a completion without changing it on signed-in", async () => {
+  it("adds a later signed-in page's marker, up to four (ADR 0029)", async () => {
     const device = await owner();
     const change = await twoPageRecipe(device);
     replies.push(judgeReply({ decision: "signed-in", marker: "logout" }));
@@ -1583,17 +1583,35 @@ describe("page judgement (ADR 0027)", () => {
       status: "signed-in",
       change: { revision: 3 },
     });
-    const welcome = observation("/welcome", [element("account", "button", "Account")]);
-    replies.push(judgeReply({ decision: "signed-in", marker: "account" }));
-    expect((await complete(device, change.recipeId, 3, welcome)).body).toEqual({
+    const markers = ["account", "settings", "inbox"];
+    for (const [index, marker] of markers.entries()) {
+      const page = observation(`/${marker}`, [element(marker, "button", "Account")]);
+      replies.push(judgeReply({ decision: "signed-in", marker }));
+      // oxlint-disable-next-line no-await-in-loop -- Each marker lands in its own revision.
+      expect((await complete(device, change.recipeId, 3 + index, page)).body).toMatchObject({
+        status: "signed-in",
+        change: {
+          revision: 4 + index,
+          recipe: {
+            completion: ["logout", ...markers.slice(0, index + 1)].map((value) => ({
+              target: { by: "id", value },
+            })),
+          },
+        },
+      });
+    }
+    // With four, a later signed-in page changes nothing.
+    const fifth = observation("/fifth", [element("fifth", "button", "Account")]);
+    replies.push(judgeReply({ decision: "signed-in", marker: "fifth" }));
+    expect((await complete(device, change.recipeId, 6, fifth)).body).toEqual({
       version: 1,
       status: "signed-in",
     });
-    expect(sent).toHaveLength(4);
-    expect(await head(device, change.recipeId)).toBe(3);
+    expect(sent).toHaveLength(7);
+    expect(await head(device, change.recipeId)).toBe(6);
   });
 
-  it("does not judge a page that shows a route fill field or the completion marker", async () => {
+  it("does not judge a page that shows a route fill field or a signed-in marker", async () => {
     const device = await owner();
     const change = await twoPageRecipe(device);
     replies.push(judgeReply({ decision: "signed-in", marker: "logout" }));
@@ -1602,7 +1620,7 @@ describe("page judgement (ADR 0027)", () => {
     const before = await spend(device);
     const stored = await judgements(device);
     for (const page of [
-      // The completion marker proves the sign-in already.
+      // A marker proves the sign-in already, on any path.
       observation("/elsewhere", [element("logout", "button", "Sign out")]),
       // A route's fill field on another path than its step's.
       observation("/session", [
@@ -2223,7 +2241,7 @@ describe("password route variants (ADR 0027)", () => {
       change: {
         revision: 2,
         recipe: {
-          completion: { path: "/home", target: { by: "id", value: "logout" } },
+          completion: [{ target: { by: "id", value: "logout" } }],
           alternatives: [{ slots: ["contract-number", "password"] }],
         },
       },
@@ -2533,7 +2551,7 @@ describe("the passkey route (ADR 0027)", () => {
       change: {
         revision: 2,
         recipe: {
-          completion: { path: "/home", target: { by: "id", value: "logout" } },
+          completion: [{ target: { by: "id", value: "logout" } }],
           passkey: { path: "/login", target: passkeyButton.target },
         },
       },
@@ -2923,7 +2941,7 @@ describe("account lists and chooser branches (ADR 0028)", () => {
             path: "/login",
             afterAccount: {
               revision: 3,
-              completion: { path: "/home", target: { by: "id", value: "logout" } },
+              completion: [{ target: { by: "id", value: "logout" } }],
             },
           },
         },
@@ -2965,7 +2983,7 @@ describe("account lists and chooser branches (ADR 0028)", () => {
         afterAccount: {
           ...atTwo.chooser.afterAccount!,
           revision: 3,
-          completion: { path: "/home", target: { by: "id", value: "logout" } },
+          completion: [{ target: { by: "id", value: "logout" } }],
         },
       },
     };

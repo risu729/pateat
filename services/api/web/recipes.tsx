@@ -107,10 +107,10 @@ function RecipeDetails({ recipe }: { recipe: StoredLoginRecipe }) {
       <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1">
         <dt className="font-medium">Slots</dt>
         <dd>{recipeSlots(recipe).join(", ")}</dd>
-        <dt className="font-medium">Completion</dt>
+        <dt className="font-medium">Signed-in markers</dt>
         <dd>
           {recipe.completion
-            ? `${describeTarget(recipe.completion.target)} on ${recipe.completion.path}`
+            ? `${recipe.completion.map((marker) => describeTarget(marker.target)).join(", ")} on any page`
             : "Not learned yet; set from the page after the first sign-in"}
         </dd>
         <dt className="font-medium">Rejection</dt>

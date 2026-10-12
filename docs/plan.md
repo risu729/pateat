@@ -113,7 +113,8 @@ password or passkey, in the Grok Bot computer's Chrome, on a production build of
   characters before every number is hidden, which can shorten them, so the start of a
   username cut at the limit is no longer recognised as cut and is sent (review of the
   header text, 2026-10-12). The header text is cut once, after hiding.
-  Still to do: the list of learned markers.
+  The recipe's `completion` is a list of up to four signed-in markers without a path, and
+  a later page the judge answers `signed-in` for adds its marker (local tests only).
 - SBI証券 after generation. Evidence, 2026-10-12, from the owner's Chrome and its local
   log: a recipe was generated at 13:54:41 UTC for `/login/entry` and a login started at
   once on the `passkey` route; the page's conditional passkey request was handed to

@@ -91,8 +91,8 @@ export const generationUnavailableReasonSchema = v.picklist([
   /** The recipe's pages were judged 20 times this UTC day (ADR 0027). */
   "judgement-limit",
   /**
-   * The page still shows the route's fill fields, its passkey button on its path, or the
-   * completion marker (ADR 0027).
+   * The page still shows the route's fill fields, its passkey button on its path, or a
+   * signed-in marker (ADR 0027, ADR 0029).
    */
   "not-judgeable",
   "recipe-revoked",
@@ -279,7 +279,7 @@ export const entryGenerationResultSchema = v.pipe(
 /**
  * `POST /v1/recipes/:recipeId/completion`: a page shown after an effect step of the given
  * revision that no recipe check explained, judged at most once per revision and path so
- * the service can learn the recipe's completion or a handler (ADR 0018, ADR 0027).
+ * the service can learn a signed-in marker or a handler (ADR 0018, ADR 0027, ADR 0029).
  */
 export const recipeCompletionRequestSchema = v.strictObject({
   version: v.literal(1),
@@ -292,7 +292,10 @@ export const recipeCompletionRequestSchema = v.strictObject({
 });
 
 export const recipeCompletionResultSchema = v.variant("status", [
-  /** `change` is the recipe with its learned completion; absent when it already had one. */
+  /**
+   * `change` is the recipe with the page's marker added (ADR 0029); absent when the recipe
+   * has that marker or four already.
+   */
   v.strictObject({
     version: v.literal(1),
     status: v.literal("signed-in"),

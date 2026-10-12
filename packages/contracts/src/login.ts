@@ -77,7 +77,7 @@ export const loginAttributeTargetSchema = v.variant("by", [
  * `javascript:` URL, or an empty or fragment-only `href` with either), with whitespace
  * collapsed to single spaces and format characters removed. Native buttons are matched
  * first; such links only when no native button shows the text. It matches buttons only,
- * so fills never use it; a recipe's `accountSwitch` and completion target alone also
+ * so fills never use it; a recipe's `accountSwitch` and completion markers alone also
  * match another `<a href>` link by its rendered text (or an image-only link's `alt`)
  * when no button shows it.
  */
@@ -184,6 +184,8 @@ const recipeSlotList = v.pipe(
 const routeStepList = v.pipe(v.array(loginStepSchema), v.minLength(1), v.maxLength(32));
 /** At most 3 alternatives, so a password route has at most 4 variants (ADR 0027). */
 export const MAX_PASSWORD_ALTERNATIVES = 3;
+/** A recipe learns at most four signed-in markers (ADR 0029). */
+export const MAX_COMPLETION_MARKERS = 4;
 const stepEffects = (steps: readonly v.InferOutput<typeof loginStepSchema>[]) =>
   steps.filter(
     (step) => step.kind === "click" || (step.kind === "fill" && step.effect !== "prepare"),
@@ -200,6 +202,10 @@ const variantsOf = (recipe: {
   alternatives?: { slots: string[]; steps: v.InferOutput<typeof loginStepSchema>[] }[] | undefined;
 }) => [{ slots: recipe.slots, steps: recipe.steps }, ...(recipe.alternatives ?? [])];
 const targetKey = (target: v.InferOutput<typeof loginTargetSchema>) => JSON.stringify(target);
+/** The elements a recipe's markers name: each marker and the elements it needs missing. */
+const completionTargetCount = (
+  markers: readonly { absent?: readonly unknown[] | undefined }[] | undefined,
+) => (markers ?? []).reduce((count, marker) => count + 1 + (marker.absent?.length ?? 0), 0);
 /**
  * Every element a handler uses, in the order its steps use them: a `totp` handler's code
  * field, then its button. The handler is entered only when all of them show (ADR 0027).
@@ -249,29 +255,44 @@ export const loginRecipeSchema = v.pipe(
      * own item.
      */
     passkey: v.optional(v.strictObject({ path, target: loginTargetSchema })),
-    // A generated recipe has no completion until the page after its first sign-in is
-    // judged (ADR 0018); until then only the sign-in state of ADR 0029 completes a login.
+    /**
+     * The signed-in markers (ADR 0029): elements the judge picked on signed-in pages, in
+     * the order they were learned, each proving a sign-in on any path of the origin. A
+     * generated recipe has none until the page after its first sign-in is judged (ADR
+     * 0018); until then only the sign-in state of ADR 0029 completes a login. A later page
+     * the judge answers `signed-in` for adds its marker, up to four.
+     */
     completion: v.optional(
-      v.strictObject({
-        path,
-        target: loginTargetSchema,
-        /**
-         * Elements that must be missing as well, such as the sign-in fields of a page that
-         * signs in on its own path. A learned completion lists them, so a login page that
-         * still holds a hidden "Sign out" element never counts as signed in.
-         */
-        absent: v.optional(
-          v.pipe(
-            v.array(loginTargetSchema),
-            v.minLength(1),
-            v.maxLength(4),
-            v.check(
-              (targets) => unique(targets.map((target) => JSON.stringify(target))),
-              "Duplicate absent targets",
+      v.pipe(
+        v.array(
+          v.strictObject({
+            target: loginTargetSchema,
+            /**
+             * Elements that must be missing as well, even hidden, such as the sign-in
+             * fields of a page that signs in on its own path, where the marker was learned.
+             * A login page that still holds a hidden "Sign out" element then never counts
+             * as signed in.
+             */
+            absent: v.optional(
+              v.pipe(
+                v.array(loginTargetSchema),
+                v.minLength(1),
+                v.maxLength(4),
+                v.check(
+                  (targets) => unique(targets.map((target) => JSON.stringify(target))),
+                  "Duplicate absent targets",
+                ),
+              ),
             ),
-          ),
+          }),
         ),
-      }),
+        v.minLength(1),
+        v.maxLength(MAX_COMPLETION_MARKERS),
+        v.check(
+          (markers) => unique(markers.map((marker) => JSON.stringify(marker.target))),
+          "Duplicate completion markers",
+        ),
+      ),
     ),
     rejection: v.optional(loginTargetSchema),
     /**
@@ -396,7 +417,7 @@ export const loginRecipeSchema = v.pipe(
         ...variantsOf(recipe).flatMap((variant) => variant.steps.map(stepTargetCount)),
         ...(recipe.passkey ? [stepTargetCount(passkeyStep(recipe.passkey))] : []),
       ) +
-        (recipe.completion ? 1 + (recipe.completion.absent?.length ?? 0) : 0) +
+        completionTargetCount(recipe.completion) +
         (recipe.rejection ? 1 : 0) <=
       24,
     "Too many result elements to observe with a step",
@@ -413,39 +434,31 @@ export const loginRecipeSchema = v.pipe(
       ...(recipe.rejection ? [recipe.rejection] : []),
     ].some((target) => targetKey(target) === key);
   }, "Account switch target is a step or rejection target"),
-  // The completion and rejection are checked after every step, so a variant's own element
-  // must never prove or refuse the sign-in.
+  // The markers and the rejection are checked after every step, on any path, so a
+  // variant's own element must never prove or refuse the sign-in.
   v.check((recipe) => {
     if (!recipe.alternatives) return true;
-    const used = variantsOf(recipe).flatMap((variant) =>
-      variant.steps.flatMap((step) =>
-        (step.kind === "fill" ? step.fields.map((field) => field.target) : [step.target]).map(
-          (target) => ({ path: step.path, key: targetKey(target) }),
+    const used = new Set(
+      variantsOf(recipe).flatMap((variant) =>
+        variant.steps.flatMap((step) =>
+          (step.kind === "fill" ? step.fields.map((field) => field.target) : [step.target]).map(
+            targetKey,
+          ),
         ),
       ),
     );
     return (
-      !used.some(
-        (entry) =>
-          recipe.completion &&
-          entry.path === recipe.completion.path &&
-          entry.key === targetKey(recipe.completion.target),
-      ) && !used.some((entry) => recipe.rejection && entry.key === targetKey(recipe.rejection))
+      !(recipe.completion ?? []).some((marker) => used.has(targetKey(marker.target))) &&
+      !(recipe.rejection && used.has(targetKey(recipe.rejection)))
     );
   }, "Completion or rejection target is a variant's step target"),
   // A handler's element showing would otherwise prove the sign-in on its own page.
-  v.check(
-    (recipe) =>
-      !recipe.completion ||
-      !(recipe.handlers ?? []).some(
-        (handler) =>
-          handler.path === recipe.completion!.path &&
-          handlerTargets(handler).some(
-            (target) => targetKey(target) === targetKey(recipe.completion!.target),
-          ),
-      ),
-    "Completion target is a handler target",
-  ),
+  v.check((recipe) => {
+    const markers = new Set((recipe.completion ?? []).map((marker) => targetKey(marker.target)));
+    return !(recipe.handlers ?? []).some((handler) =>
+      handlerTargets(handler).some((target) => markers.has(targetKey(target))),
+    );
+  }, "Completion target is a handler target"),
   // A `totp` handler types a code into a field of its own: never one a route step uses on
   // its path, such as the password input of a form that asks for the code after it.
   v.check(
@@ -494,8 +507,11 @@ export const loginRecipeSchema = v.pipe(
           handlerTargets(handler).map((target) => ({ path: handler.path, target })),
         ),
       ) &&
-      !onPath(recipe.completion ? [recipe.completion] : []) &&
-      ![recipe.accountSwitch, recipe.rejection].some(
+      ![
+        recipe.accountSwitch,
+        recipe.rejection,
+        ...(recipe.completion ?? []).map((marker) => marker.target),
+      ].some(
         (target) => target !== undefined && targetKey(target) === key,
       )
     );
@@ -1008,8 +1024,8 @@ export function loginFieldFacts(
 
 /**
  * Whether `next` only adds to `previous` (ADR 0027): a newer revision of the same recipe
- * whose routes and route steps are unchanged, whose handlers extend the old ones in order,
- * and whose completion is new or unchanged. A running login takes over only such a
+ * whose routes and route steps are unchanged, and whose handlers and signed-in markers
+ * extend the old ones in order. A running login takes over only such a
  * revision, so its recorded steps and entered handlers keep their meaning.
  */
 export function extendsRecipe(previous: LoginRecipe, next: LoginRecipe): boolean {
@@ -1021,6 +1037,8 @@ export function extendsRecipe(previous: LoginRecipe, next: LoginRecipe): boolean
     return false;
   const before = previous.handlers ?? [];
   const after = next.handlers ?? [];
+  const markers = previous.completion ?? [];
+  const nextMarkers = next.completion ?? [];
   // JSON drops the undefined members, so only the fixed parts are compared.
   const fixed = (recipe: LoginRecipe) => ({
     ...recipe,
@@ -1032,8 +1050,8 @@ export function extendsRecipe(previous: LoginRecipe, next: LoginRecipe): boolean
     canonicalJson(fixed(previous)) === canonicalJson(fixed(next)) &&
     after.length >= before.length &&
     before.every((handler, index) => canonicalJson(handler) === canonicalJson(after[index])) &&
-    (previous.completion === undefined ||
-      canonicalJson(previous.completion) === canonicalJson(next.completion))
+    nextMarkers.length >= markers.length &&
+    markers.every((marker, index) => canonicalJson(marker) === canonicalJson(nextMarkers[index]))
   );
 }
 /**
@@ -1058,8 +1076,8 @@ export function refillsLoginSlot(
  * at least one more, none of which fills a slot `previous`'s steps already fill.
  * `previous` has no completion and no alternatives and ends in an advance; `next` has no
  * alternatives. The `passkey` route and the rejection are unchanged, the handlers extend
- * the old ones in order, the account switch is unchanged or newly added, and a completion
- * may be new. A running login at its final advance takes over only such a revision, so
+ * the old ones in order, the account switch is unchanged or newly added, and signed-in
+ * markers may be new. A running login at its final advance takes over only such a revision, so
  * the steps it ran keep their meaning.
  */
 export function continuesRecipe(previous: LoginRecipe, next: LoginRecipe): boolean {

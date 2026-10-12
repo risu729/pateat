@@ -633,14 +633,14 @@ export async function judgeCompletion(
   // A list of accounts shown again is the sign-in's start, not its result (ADR 0028).
   if (observation.accounts) return unavailable("not-judgeable");
   // The checks use the stored recipe, never the request: a page that still shows one of
-  // the password route's fill fields, of any variant and on any path, or the completion
+  // the password route's fill fields, of any variant and on any path, or a signed-in
   // marker is not judged. The request never names the variant the login ran. The passkey
   // route starts beside that form, so the form counts for it too; and a page on its
   // sign-in paths that still shows its button is not judged either: its passkey exchange
   // may still be running, as the extension holds it.
   const unexplained = [
     ...routeFillTargets(recipe, "password"),
-    ...(recipe.completion ? [recipe.completion.target] : []),
+    ...(recipe.completion ?? []).map((marker) => marker.target),
   ];
   const shown = (targets: readonly LoginTarget[]) =>
     observation.candidates.some((candidate) =>
@@ -803,13 +803,12 @@ export async function judgeCompletion(
     const change = written.ok ? answerable(written.change) : undefined;
     return { version: 1, status: "challenge", ...(change ? { change } : {}) };
   }
-  // A completion is learned once; a later signed-in page needs no change.
-  if (recipe.completion) return { version: 1, status: "signed-in" };
-
+  // A later signed-in page adds its marker, up to four (ADR 0029); with four, or a marker
+  // the recipe has, the page needs no change.
   const learned = addCompletion(recipe, observation, judgement.target);
   if (!learned.ok)
-    return learned.reason === "already-complete"
-      ? unavailable("recipe-conflict")
+    return learned.reason === "marker-limit" || learned.reason === "already-learned"
+      ? { version: 1, status: "signed-in" }
       : failed("invalid-output");
   const learnedRecipe = stored(head.recipe, branch, learned.recipe);
   if (!learnedRecipe) return failed("recipe-invalid");

@@ -192,7 +192,7 @@ const PASSKEY_MOVE_READINGS = 5;
 /**
  * How long a login stays watched after its result stopped at `challenge` or settled as
  * unknown (ADR 0027, owner's choice on 2026-10-12), and how long each new page of its tab
- * is checked for the completion before its sign-in state is read, as after a click.
+ * is checked for a signed-in marker before its sign-in state is read, as after a click.
  */
 const WATCH_MS = 10 * 60_000;
 const WATCH_SETTLE_MS = 3000;
@@ -666,7 +666,7 @@ export interface LoginGeneration {
   slotFields(recipeId: string): Promise<LoginBindingTemplate | undefined>;
   /**
    * Sends a page no recipe check explained after an effect step, so the service can
-   * learn the completion or a handler (ADR 0027). `recipe` is the newer
+   * learn a signed-in marker or a handler (ADR 0027). `recipe` is the newer
    * revision with a handler added, already in the recipe cache. `sent` is called just
    * before the request leaves the device.
    */
@@ -794,6 +794,37 @@ const effectful = (metadata: LoginAttemptMetadata) =>
   metadata.operationEffect === "submit";
 const stepTargets = (step: LoginStep) =>
   step.kind === "fill" ? step.fields.map((field) => field.target) : [step.target];
+/**
+ * The recipe's signed-in markers as elements to observe (ADR 0029): each marker, which may
+ * be a link located by its text (ADR 0018), then the elements it needs missing. `proves`
+ * reads their states from `offset`: whether one marker shows once while each element it
+ * needs missing is missing, on any path.
+ */
+function markerProof(recipe: LoginRecipe) {
+  const markers = recipe.completion ?? [];
+  return {
+    targets: markers.flatMap((marker) => [marker.target, ...(marker.absent ?? [])]),
+    links: markers.flatMap((marker) => [true, ...(marker.absent ?? []).map(() => false)]),
+    /** Each marker shown, and the elements it needs gone counted even when hidden. */
+    shown: markers.flatMap((marker) => [
+      "shown" as const,
+      ...(marker.absent ?? []).map(() => "present" as const),
+    ]),
+    proves(states: readonly string[], offset = 0): boolean {
+      let at = offset;
+      for (const marker of markers) {
+        const absent = marker.absent ?? [];
+        if (
+          states[at] === "unique" &&
+          absent.every((_target, index) => states[at + 1 + index] === "missing")
+        )
+          return true;
+        at += 1 + absent.length;
+      }
+      return false;
+    },
+  };
+}
 /**
  * What confirms the route step at `index` when it is an advance whose next route step is
  * on the same path, as an identifier-first form that swaps in its password form in place
@@ -2759,7 +2790,7 @@ export function createLoginRuntime(
   const unproven = (run: Execution, result: "credential-rejected" | "challenge" | "unknown") =>
     run.metadata.route === "passkey" ? "challenge" : result;
   /**
-   * Checks the page after an effect step: the completion, the rejection, the plan's next
+   * Checks the page after an effect step: the signed-in markers, the rejection, the plan's next
    * step, then a handler on the page (ADR 0027), and once the result would settle as
    * unknown, the sign-in state (ADR 0029) before the judge. Returns `held` while a held click's button
    * still shows in the document that clicked it, so the page is neither judged nor settled
@@ -2779,31 +2810,25 @@ export function createLoginRuntime(
         ? inPlaceNext(run.recipe, run.metadata, run.metadata.stepIndex)
         : undefined;
     const nextTargets = inPlace ? inPlace.targets : next ? stepTargets(next) : [];
-    const { completion, rejection } = run.recipe;
-    const proof = completion ? [completion.target, ...(completion.absent ?? [])] : [];
-    const checks = [...proof, ...(rejection ? [rejection] : [])];
+    const { rejection } = run.recipe;
+    const proof = markerProof(run.recipe);
+    const checks = [...proof.targets, ...(rejection ? [rejection] : [])];
     const targets = [...checks, ...nextTargets];
-    // The completion marker may be a link located by its text (ADR 0018).
     const observed = await observe(
       run,
       targets,
       inPlace
         ? [...checks.map(() => "present" as const), ...nextTargets.map(() => inPlace.require)]
         : undefined,
-      completion ? [true] : undefined,
+      proof.links.length > 0 ? proof.links : undefined,
     );
     if (!observed) return undefined;
-    // Without a completion target only the sign-in state below proves a sign-in.
-    if (
-      completion &&
-      observed.path === completion.path &&
-      observed.targets[0] === "unique" &&
-      observed.targets.slice(1, proof.length).every((state) => state === "missing")
-    ) {
+    // Without a marker only the sign-in state below proves a sign-in.
+    if (proof.proves(observed.targets)) {
       await change(run, { type: "OBSERVED", result: "authenticated", document: run.live.document });
       return undefined;
     }
-    const rejectionIndex = proof.length;
+    const rejectionIndex = proof.targets.length;
     const rejected = rejection !== undefined && observed.targets[rejectionIndex] === "unique";
     if (!rejected) delete run.staleRejection;
     if (rejected && !run.staleRejection) {
@@ -2981,24 +3006,16 @@ export function createLoginRuntime(
   ): Promise<{ signs: SignInSigns; decision: SignInDecision; loaded: boolean } | undefined> {
     const { recipe, metadata } = run;
     if (run.live.topUrl !== undefined) return undefined;
-    const { completion } = recipe;
-    const marker = completion ? [completion.target] : [];
-    // On the completion's own path, the fields that must be gone there, counted even when
-    // hidden as the completion check counts them: a login form that hides itself again
-    // after a failed sign-in is not a sign-in.
-    const absent = completion?.absent ?? [];
-    const fills = routeSignInTargets(recipe, metadata.route).slice(
-      0,
-      24 - marker.length - absent.length,
-    );
+    // Each marker shown, with the fields it needs gone counted even when hidden, as the
+    // completion check counts them: a login form that hides itself again after a failed
+    // sign-in is not a sign-in.
+    const proof = markerProof(recipe);
+    const fills = routeSignInTargets(recipe, metadata.route).slice(0, 24 - proof.targets.length);
     const observed = await observe(
       run,
-      [...fills, ...marker, ...absent],
-      [
-        ...[...fills, ...marker].map(() => "shown" as const),
-        ...absent.map(() => "present" as const),
-      ],
-      marker.length > 0 ? [...fills.map(() => false), true, ...absent.map(() => false)] : undefined,
+      [...fills, ...proof.targets],
+      [...fills.map(() => "shown" as const), ...proof.shown],
+      proof.links.length > 0 ? [...fills.map(() => false), ...proof.links] : undefined,
     );
     if (!observed) return undefined;
     const authorized = await allowed(run);
@@ -3048,11 +3065,7 @@ export function createLoginRuntime(
       // A failure counts only next to the sign-in fields.
       f1: s1 && page.invalid,
       f2: s1 && page.alert,
-      e1:
-        marker.length > 0 &&
-        observed.targets[fills.length] === "unique" &&
-        (observed.path !== completion?.path ||
-          observed.targets.slice(fills.length + 1).every((state) => state === "missing")),
+      e1: proof.proves(observed.targets, fills.length),
       e2: page.username === true,
       // The document's path now, which follows a route change of a single-page site.
       e3:
@@ -3218,30 +3231,28 @@ export function createLoginRuntime(
   }
   /**
    * After a `totp` handler's fill, whether the page moved on by itself before the click
-   * found its button (ADR 0027): to another path, or to the completion or the rejection
+   * found its button (ADR 0027): to another path, or to a signed-in marker or the rejection
    * without the button. A button still shown is clicked once as planned.
    */
   async function submittedByPage(
     run: Execution,
     click: Extract<LoginStep, { kind: "click" }>,
   ): Promise<boolean> {
-    const { completion, rejection } = run.recipe;
-    const proof = completion ? [completion.target, ...(completion.absent ?? [])] : [];
+    const { rejection } = run.recipe;
+    const proof = markerProof(run.recipe);
     const observed = await observe(
       run,
-      [click.target, ...proof, ...(rejection ? [rejection] : [])],
+      [click.target, ...proof.targets, ...(rejection ? [rejection] : [])],
       undefined,
-      completion ? [false, true] : undefined,
+      proof.links.length > 0 ? [false, ...proof.links] : undefined,
     );
     if (!observed || !current(run)) return false;
     if (observed.path !== click.path) return true;
     if (observed.targets[0] === "unique") return false;
-    const proven =
-      completion !== undefined &&
-      observed.path === completion.path &&
-      observed.targets[1] === "unique" &&
-      observed.targets.slice(2, 1 + proof.length).every((state) => state === "missing");
-    return proven || (rejection !== undefined && observed.targets[1 + proof.length] === "unique");
+    return (
+      proof.proves(observed.targets, 1) ||
+      (rejection !== undefined && observed.targets[1 + proof.targets.length] === "unique")
+    );
   }
   /**
    * The page submitted a `totp` handler's code by itself: the handler's click counts as
@@ -3264,9 +3275,9 @@ export function createLoginRuntime(
   }
   /**
    * After an effect step that no check explained, sends the resulting page so the
-   * service can judge it and learn the completion or a handler (ADR 0018, ADR 0027).
+   * service can judge it and learn a signed-in marker or a handler (ADR 0018, ADR 0027).
    * Returns whether the attempt settled or moved on. A page that still shows the route's
-   * fields on one of its paths, or the completion marker, is not sent. At most
+   * fields on one of its paths, or a signed-in marker, is not sent. At most
    * `MAX_JUDGED_PAGES` pages count per effect step, and as many again while the login is
    * watched (ADR 0027): a page counts in the attempt once its complete description is in
    * hand, before the request, so a restart cannot resend without bound, and is given back
@@ -3323,13 +3334,13 @@ export function createLoginRuntime(
     // the variant; on the passkey route, its button and the password form, on its path and
     // the password route's (ADR 0027).
     const paths = routeSignInPaths(recipe, metadata.route);
-    const marker = recipe.completion ? [recipe.completion.target] : [];
+    const marker = (recipe.completion ?? []).map((entry) => entry.target);
     const fills = routeSignInTargets(recipe, metadata.route).slice(0, 24 - marker.length);
     const remaining = await observe(
       run,
       [...fills, ...marker],
       undefined,
-      marker.length > 0 ? [...fills.map(() => false), true] : undefined,
+      marker.length > 0 ? [...fills.map(() => false), ...marker.map(() => true)] : undefined,
     );
     if (!remaining) {
       // A superseded run or a refused one (logged with its own cause) says nothing here.
@@ -3341,9 +3352,9 @@ export function createLoginRuntime(
       remaining.targets.slice(0, fills.length).some((state) => state !== "missing")
     )
       return notSent("sign-in-shown");
-    // The marker shows, but the completion check did not prove the sign-in: another path,
-    // more than one match, or an element that must be gone still shows.
-    if (marker.length > 0 && remaining.targets[fills.length] !== "missing")
+    // A marker shows, but the completion check did not prove the sign-in: more than one
+    // match, or an element it needs gone is there.
+    if (remaining.targets.slice(fills.length).some((state) => state !== "missing"))
       return notSent("marker-shown");
     let observation: LoginObservation | undefined;
     let unsent = "unreachable";
@@ -3964,7 +3975,7 @@ export function createLoginRuntime(
   }
   /**
    * Checks a new page of the tab while the login is watched after a `challenge` (ADR 0027),
-   * reading only: it never fills or clicks. The login completes on the recipe's completion,
+   * reading only: it never fills or clicks. The login completes on a signed-in marker,
    * read for a short while as after a click, or on a confirmed sign-in state (ADR 0029: E1
    * to E3). A page with no sign of a sign-in going on and no evidence is judged, from the
    * watch's own pages: `signed-in` completes and `rejected` ends the login as a refused
@@ -3974,19 +3985,14 @@ export function createLoginRuntime(
   async function watchPage(run: Execution): Promise<void> {
     const { watch } = run.metadata;
     if (!watch || run.live.document.documentId === watch.documentId) return;
-    const { completion } = run.recipe;
+    const proof = markerProof(run.recipe);
     const watching = () => current(run) && run.metadata.state === "watching";
-    if (completion) {
-      const proof = [completion.target, ...(completion.absent ?? [])];
+    if (proof.targets.length > 0) {
       const until = Date.now() + WATCH_SETTLE_MS;
       for (;;) {
-        const observed = await observe(run, proof, undefined, [true]);
+        const observed = await observe(run, proof.targets, undefined, proof.links);
         if (!observed || !watching()) return;
-        if (
-          observed.path === completion.path &&
-          observed.targets[0] === "unique" &&
-          observed.targets.slice(1).every((state) => state === "missing")
-        ) {
+        if (proof.proves(observed.targets)) {
           await change(run, {
             type: "OBSERVED",
             result: "authenticated",
@@ -5950,7 +5956,7 @@ export function createLoginRuntime(
       };
     }
     // A resumed attempt keeps its own recipe revision; a replaced or different recipe never
-    // takes it over. A newer revision that only adds handlers or a completion is taken over
+    // takes it over. A newer revision that only adds handlers or markers is taken over
     // when this worker still holds the recorded one to compare (ADR 0027); after a restart
     // only the recorded revision resumes.
     let revised = false;
