@@ -1553,28 +1553,29 @@ generation is not offered there. On the Formasaurus pages of the real-page corpu
 refused 10 of 954 paths (2026-10-11). Label text is rendered text only: scripts, styles,
 `<noscript>`, SVG, hidden elements and select or text area contents never contribute.
 Only forms that hold a field count, or every control outside a form when a field is
-outside one. Up to four buttons outside every form are kept as optional candidates when
-they sit within two parent elements of a login form with a password field (never the
-body or the root element, never in a header or navigation landmark), such as SBI
-Securities' "パスキー認証でログイン" button beside its password form; more than four are
-left out as page content. On the 954 Formasaurus pages (2026-10-12) this added 36
-buttons on 34 pages, mostly social sign-in, registration and font-size buttons, and
-changed no page's completeness. There the candidates are visible text, email, tel,
-number and password inputs, checkboxes, buttons (disabled ones too, since many enable
-after typing), script links (an `<a>` without `href` that has an `onclick` attribute or
+outside one. In those forms the candidates are visible text, email, tel, number and
+password inputs, checkboxes, buttons (disabled ones too, since many enable after
+typing), script links (an `<a>` without `href` that has an `onclick` attribute or
 `role="button"`, or an `<a href>` with a `javascript:` URL or with an empty or
 fragment-only `href` and an `onclick` attribute or `role="button"`) as buttons, other
 elements with `role="button"` that have an `id`, `name` or `data-testid` (as
 [architecture](architecture.md#declarative-recipes-and-ai) describes) and, as context
-only, links. Script links with `href` were added after observing public Japanese login
-pages on 2026-10-11 showed the login buttons of MyJCB (`href="#"`) and SMBC Direct
-(`href="javascript:;"`) as links, which generation cannot name as the page action. On
-the 954 Formasaurus pages of the real-page corpus (2026-10-11) this turned 371
-candidates on 121 pages, 32 of them login pages, into buttons, mostly from links; no
-page's completeness changed, and five pages that are not login pages lost some context
-links to the 48-candidate limit or to shared text. Hidden, collapsed, `aria-hidden` and
-before-the-page-start inputs are skipped as likely traps. Labels come from
-`aria-labelledby`, `aria-label`, `<label>`, the text next to a field (the preceding
+only, links. Up to four buttons outside every form are also kept as optional candidates
+when they sit anywhere inside the element two levels above a login form with a password
+field (never the body or the root element, never in a header or navigation landmark),
+such as SBI Securities' "パスキー認証でログイン" button beside its password form; more
+than four are left out as page content. On the 954 Formasaurus pages (2026-10-12) this
+added 36 buttons on 33 pages, mostly social sign-in, registration and font-size buttons.
+No page's completeness changed, apart from one page whose completeness differs between
+runs with and without the change. Script links with `href` were added after observing
+public Japanese login pages on 2026-10-11 showed the login buttons of MyJCB (`href="#"`)
+and SMBC Direct (`href="javascript:;"`) as links, which generation cannot name as the
+page action. On the 954 Formasaurus pages of the real-page corpus (2026-10-11) this
+turned 371 candidates on 121 pages, 32 of them login pages, into buttons, mostly from
+links; no page's completeness changed, and five pages that are not login pages lost some
+context links to the 48-candidate limit or to shared text. Hidden, collapsed,
+`aria-hidden` and before-the-page-start inputs are skipped as likely traps. Labels come
+from `aria-labelledby`, `aria-label`, `<label>`, the text next to a field (the preceding
 table cell, `<dt>` or sibling, at most three levels up, never across another control or
 its label), then `title`; image `alt` names buttons, including `<input type="image">`.
 Text is redacted as [architecture](architecture.md#declarative-recipes-and-ai)
