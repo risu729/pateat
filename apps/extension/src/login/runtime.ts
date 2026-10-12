@@ -390,9 +390,10 @@ export interface LoginGeneration {
   available(origin: string, path: string): Promise<true | GenerationHold>;
   /**
    * Sends one page; `recipe` once the generated recipe is in the recipe cache and the
-   * fields its custom slots name are remembered for `slotFields`.
+   * fields its custom slots name are remembered for `slotFields`. `sent` is called just
+   * before the request leaves the device, for the local log (ADR 0019).
    */
-  generate(request: RecipeGenerationRequest): Promise<GenerationOutcome>;
+  generate(request: RecipeGenerationRequest, sent?: () => void): Promise<GenerationOutcome>;
   /**
    * Which vault field each custom slot of a recipe generated from this device names, from
    * the request that produced it (ADR 0027); nothing for a recipe it did not generate.
@@ -401,13 +402,15 @@ export interface LoginGeneration {
   /**
    * Sends a page no recipe check explained after an effect step, so the service can
    * learn the completion or a handler (ADR 0027). `recipe` is the newer
-   * revision with a handler added, already in the recipe cache.
+   * revision with a handler added, already in the recipe cache. `sent` is called just
+   * before the request leaves the device.
    */
   judge(
     recipeId: string,
     revision: number,
     route: LoginRoute,
     observation: LoginObservation,
+    sent?: () => void,
   ): Promise<{
     /**
      * `retry` for a temporary refusal before any model call, which gives the page back:
@@ -693,7 +696,11 @@ export type LoginReport = (
       /** Logged only when it is one of Pateat's own error codes. */
       message?: string;
     }
-  | ({ type: "generation"; tabId: number; origin: string } & GenerationOutcome)
+  | ({ type: "generation"; tabId: number; origin: string } & (
+      | GenerationOutcome
+      // The page went out; the outcome follows unless no answer came (ADR 0019).
+      | { outcome: "sent" }
+    ))
   | {
       type: "judge";
       tabId: number;
@@ -2805,12 +2812,13 @@ export function createLoginRuntime(
         verdict,
         ...detail,
       });
-    reportJudge("sent");
     const {
       verdict,
       reason,
       recipe: added,
-    } = await generation.judge(recipe.id, recipe.revision, metadata.route, observation);
+    } = await generation.judge(recipe.id, recipe.revision, metadata.route, observation, () =>
+      reportJudge("sent"),
+    );
     if (!current(run)) {
       reportJudge(verdict, {
         ...(reason ? { reason } : {}),
@@ -3529,16 +3537,25 @@ export function createLoginRuntime(
       const custom = await customSlots(live.document.origin, scope);
       if (documents.get(key) !== live) return;
       const result = await generation
-        .generate({
-          version: 1,
-          observation,
-          slots: [
-            ...scope.slots.map((slot) =>
-              slot.id === "username" && shape ? { ...slot, valueShape: shape } : slot,
-            ),
-            ...custom,
-          ],
-        })
+        .generate(
+          {
+            version: 1,
+            observation,
+            slots: [
+              ...scope.slots.map((slot) =>
+                slot.id === "username" && shape ? { ...slot, valueShape: shape } : slot,
+              ),
+              ...custom,
+            ],
+          },
+          () =>
+            report(live.document, {
+              type: "generation",
+              tabId: live.document.tabId,
+              origin: live.document.origin,
+              outcome: "sent",
+            }),
+        )
         .catch((): GenerationOutcome => ({ outcome: "failed", reason: "error" }));
       sent = true;
       report(live.document, {

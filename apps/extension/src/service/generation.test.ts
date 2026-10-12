@@ -130,13 +130,19 @@ describe("recipe generation requests", () => {
       kind: "result",
       result: { version: 1, status: "abstained", reason: "no-login-form" },
     });
+    const sent = vi.fn();
     expect(
-      await Promise.all([h.generation.generate(request), h.generation.generate(request)]),
+      await Promise.all([
+        h.generation.generate(request, sent),
+        h.generation.generate(request, sent),
+      ]),
     ).toEqual([
       { outcome: "abstained", reason: "no-login-form" },
       { outcome: "skipped", reason: "sending" },
     ]);
     expect(h.transport.generateRecipe).toHaveBeenCalledTimes(1);
+    // Only the request that left the device says it was sent (ADR 0019).
+    expect(sent).toHaveBeenCalledTimes(1);
     expect(h.sync).not.toHaveBeenCalled();
   });
 

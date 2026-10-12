@@ -27,10 +27,12 @@ function harness(options: { ids?: string[]; online?: boolean } = {}) {
   const run = vi.fn<(id: string, hold: VaultApplyHold) => Promise<VaultSyncOutcome>>(
     async () => "unchanged",
   );
+  const report = vi.fn();
   const auto = createVaultAutoSync({
     records,
     connections: async () => [...(options.ids ?? ["a"])],
     run,
+    report,
     loginActive: async () => login,
     online: () => options.online ?? true,
     nowMs: () => clock,
@@ -38,6 +40,7 @@ function harness(options: { ids?: string[]; online?: boolean } = {}) {
   return {
     auto,
     run,
+    report,
     records,
     stored: () => stored as { connections: Record<string, Record<string, unknown>> } | undefined,
     setStored: (value: unknown) => {
@@ -81,6 +84,23 @@ describe("vault check schedule", () => {
     h.auto.refreshIfStale();
     await h.settle();
     expect(h.run).toHaveBeenCalledTimes(4);
+  });
+  it("reports each outcome with the stored one before it, which outlives the worker", async () => {
+    const h = harness();
+    h.run.mockResolvedValue("reauthentication-required");
+    h.auto.refreshIfStale();
+    await h.settle();
+    h.advance(VAULT_CHECK_INTERVAL_MS);
+    h.auto.refreshIfStale();
+    await h.settle();
+    expect(h.report.mock.calls.map(([event]) => event)).toEqual([
+      { connectionId: "a", outcome: "reauthentication-required", previous: undefined },
+      {
+        connectionId: "a",
+        outcome: "reauthentication-required",
+        previous: "reauthentication-required",
+      },
+    ]);
   });
   it("sends nothing while the browser reports offline", async () => {
     const h = harness({ online: false });

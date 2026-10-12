@@ -175,6 +175,7 @@ export default defineBackground(() => {
     // A stopped worker would leave a refresh claimed and require password sign-in (ADR 0008).
     run: (connectionId, hold) => keepAlive(connections.service.autoSync(connectionId, hold)),
     loginActive: () => login.active(),
+    report: diagnosticsLog.vaultCheck,
   });
   const login = createLoginRuntime(loginSettings, {
     vault: vaultSync,

@@ -657,6 +657,24 @@ describe("refresh reports for the local log", () => {
     await h.sessions.acquire(accountProfile, h.context());
     expect(h.reports).toEqual([{ connectionId, ...report }]);
   });
+  it("reports why no refresh was sent", async () => {
+    const h = harness();
+    // No session yet: the sync sign-in needs the password.
+    await h.sessions.acquire(accountProfile, h.context());
+    await h.retain();
+    h.advance(3_600_000);
+    const denied = { ...h.context(), permitted: async () => false };
+    await h.sessions.acquire(accountProfile, denied);
+    const aborted = new AbortController();
+    aborted.abort();
+    await h.sessions.acquire(accountProfile, h.context(aborted.signal));
+    expect(h.refreshToken).not.toHaveBeenCalled();
+    expect(h.reports).toEqual([
+      { connectionId, outcome: "not-sent", cause: "no-session" },
+      { connectionId, outcome: "not-sent", cause: "provider-permission-required" },
+      { connectionId, outcome: "not-sent", cause: "cancelled" },
+    ]);
+  });
   it("reports a restore that could not be written as failed", async () => {
     const h = harness();
     await h.retain();
