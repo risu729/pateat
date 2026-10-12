@@ -892,6 +892,51 @@ describe("submission and failure reconciliation", () => {
     ).toEqual(revoked);
     expect(nextLoginOperation(revoked, recipe, document, "fill-again")).toBeUndefined();
   });
+
+  it("takes back an undelivered operation's effect when the policy is revoked", () => {
+    const ready = transitionLoginAttempt(detected(), { type: "RESOLVE" });
+    const prepared = transitionLoginAttempt(ready, {
+      type: "PREPARE",
+      operationId: "click-one",
+      kind: "click",
+    });
+    const intent = transitionLoginAttempt(prepared, {
+      type: "SUBMIT_INTENT",
+      operationId: "click-one",
+    });
+    expect(intent).toMatchObject({ submissions: 1, mutationIntent: true });
+    const revoked = transitionLoginAttempt(intent, {
+      type: "POLICY_CHANGED",
+      undelivered: "click-one",
+    });
+    expect(revoked).toMatchObject({ state: "blocked", outcome: "policy-changed", submissions: 0 });
+    expect(revoked.mutationIntent).toBeUndefined();
+    expect(revoked.operationId).toBeUndefined();
+    expect(revoked.usedOperationIds).toContain("click-one");
+    // A submitting fill reserved a submission; a preparing one did not.
+    for (const [effect, submissions] of [
+      ["submit", 0],
+      ["prepare", 0],
+    ] as const) {
+      const fill = transitionLoginAttempt(
+        transitionLoginAttempt(ready, {
+          type: "PREPARE",
+          operationId: "fill-one",
+          kind: "fill",
+          effect,
+        }),
+        { type: "MUTATION_INTENT", operationId: "fill-one" },
+      );
+      expect(fill.submissions).toBe(effect === "submit" ? 1 : 0);
+      expect(
+        transitionLoginAttempt(fill, { type: "POLICY_CHANGED", undelivered: "fill-one" }),
+      ).toMatchObject({ state: "blocked", submissions, mutationIntent: undefined });
+    }
+    // Another operation's name leaves the reserved effect in place.
+    expect(
+      transitionLoginAttempt(intent, { type: "POLICY_CHANGED", undelivered: "other-one" }),
+    ).toMatchObject({ state: "blocked", submissions: 1, mutationIntent: true });
+  });
 });
 
 describe("second-factor handlers in an attempt (ADR 0027)", () => {

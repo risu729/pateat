@@ -1007,7 +1007,13 @@ describe("production login document admission", () => {
     const secondUrl = `${second}/signin`;
     const secondRecipe = parseLoginRecipe({ ...recipe, id: "second-signin", origin: second });
     const executes = () => fake.state.messages.filter((entry) => entry.type === "login.execute");
-    type Stored = { id: string; state: string; outcome?: string; submissions: number } & {
+    type Stored = {
+      id: string;
+      state: string;
+      outcome?: string;
+      submissions: number;
+      mutationIntent?: true;
+    } & {
       account: { origin: string };
       document: { tabId: number; documentId: string };
     };
@@ -1206,23 +1212,140 @@ describe("production login document admission", () => {
       );
       expect(executes()).toHaveLength(4);
     });
-    it("keeps another tab off an origin whose login ended without success", async () => {
-      // A password the site refused is not submitted again from another tab.
-      fake.state.executeReply = { ok: false, reason: "wrong-account" };
+    it.each(["wrong-account", "value-mismatch"] as const)(
+      "lets another tab log in once Pateat stopped the tab's login as %s",
+      async (reason) => {
+        // Nothing was submitted, so another tab's login cannot submit the password twice.
+        fake.state.executeReply = { ok: false, reason };
+        const h = twoSites();
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() =>
+          expect(at(origin)).toMatchObject({ state: "blocked", outcome: reason }),
+        );
+        fake.state.executeReply = undefined;
+        fake.state.tabUrls[2] = fake.state.pageUrl;
+        expect(await h.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({ ok: true });
+        await vi.waitFor(() =>
+          expect(stored()).toMatchObject([
+            { state: "blocked", outcome: reason, document: { tabId: 1 } },
+            { state: "authenticated", document: { tabId: 2 } },
+          ]),
+        );
+      },
+    );
+    it("lets another tab log in after a vault read failed before the page got anything", async () => {
+      // The prepared fill never reached the page, so nothing can be in flight (ADR 0022).
       const h = twoSites();
+      h.fields.mockRejectedValueOnce(new Error("synthetic vault failure"));
       expect(await h.hello()).toEqual({ ok: true });
       await vi.waitFor(() =>
-        expect(at(origin)).toMatchObject({ state: "blocked", outcome: "wrong-account" }),
+        expect(at(origin)).toMatchObject({
+          state: "blocked",
+          outcome: "policy-changed",
+          submissions: 0,
+        }),
       );
-      fake.state.executeReply = undefined;
-      const sent = executes().length;
+      expect(at(origin)?.mutationIntent).toBeUndefined();
+      expect(executes()).toHaveLength(0);
+      fake.state.tabUrls[2] = fake.state.pageUrl;
+      expect(await h.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({ ok: true });
+      await vi.waitFor(() =>
+        expect(stored()).toMatchObject([
+          { state: "blocked", document: { tabId: 1 } },
+          { state: "authenticated", document: { tabId: 2 } },
+        ]),
+      );
+    });
+    it("keeps another tab off an origin whose login was stopped while the page had its click", async () => {
+      // The click may have submitted the password, so its result may still arrive.
+      holdClicks(origin);
+      const h = twoSites();
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(executes()).toHaveLength(2));
+      expect(at(origin)).toMatchObject({ state: "submit-intent" });
+      h.login.settingsChanged("synced");
+      await vi.waitFor(() =>
+        expect(at(origin)).toMatchObject({
+          state: "blocked",
+          outcome: "policy-changed",
+          submissions: 1,
+          mutationIntent: true,
+        }),
+      );
+      fake.state.onExecute = undefined;
       fake.state.tabUrls[2] = fake.state.pageUrl;
       expect(await h.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({
         ok: false,
         reason: "origin-busy",
       });
-      expect(executes()).toHaveLength(sent);
     });
+    const idle = { operationId: undefined, operationKind: undefined, operationEffect: undefined };
+    it.each([
+      // A submitted step was observed, then Pateat stopped the login.
+      ["blocked policy-changed after an observed step", "blocked", "policy-changed", idle, true],
+      [
+        "blocked cancelled before any submission",
+        "blocked",
+        "cancelled",
+        { ...idle, submissions: 0 },
+        true,
+      ],
+      ["blocked cancelled after a submission", "blocked", "cancelled", idle, false],
+      [
+        "blocked policy-changed with a click the page may have received",
+        "blocked",
+        "policy-changed",
+        {},
+        false,
+      ],
+      [
+        "blocked policy-changed with a fill in flight",
+        "blocked",
+        "policy-changed",
+        { operationKind: "fill", operationEffect: "submit", mutationIntent: true },
+        false,
+      ],
+      [
+        "blocked policy-changed settled as unknown",
+        "blocked",
+        "policy-changed",
+        { ...idle, settled: true },
+        false,
+      ],
+      ["blocked credential-rejected", "blocked", "credential-rejected", idle, false],
+      ["blocked challenge", "blocked", "challenge", idle, false],
+      ["blocked submission-limit", "blocked", "submission-limit", idle, false],
+    ] as const)(
+      "decides whether another tab's %s record holds the origin",
+      async (_name, state, outcome, extra, released) => {
+        // A password the site refused, or one whose submission may still arrive, is not
+        // submitted again from another tab (ADR 0022).
+        holdClicks(origin);
+        const h = twoSites();
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(at(origin)).toMatchObject({ state: "submit-intent" }));
+        const [record] = stored();
+        const query = fake.browser.tabs.query;
+        fake.browser.tabs.query = async () => [{ id: 1 }, { id: 2 }] as never;
+        try {
+          fake.state.storage["pateat.login-attempts.v3"] = [
+            { ...record!, state, outcome, mutationIntent: undefined, ...extra },
+          ];
+          fake.state.onExecute = undefined;
+          const restarted = twoSites();
+          expect(await restarted.login.active()).toBe(false);
+          const sent = executes().length;
+          fake.state.tabUrls[2] = fake.state.pageUrl;
+          expect(await restarted.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual(
+            released ? { ok: true } : { ok: false, reason: "origin-busy" },
+          );
+          if (released) await vi.waitFor(() => expect(executes().length).toBeGreaterThan(sent));
+          else expect(executes()).toHaveLength(sent);
+        } finally {
+          fake.browser.tabs.query = query;
+        }
+      },
+    );
     it("keeps another tab off an origin whose login still runs, and says why", async () => {
       holdClicks(origin);
       const h = twoSites();

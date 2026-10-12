@@ -262,7 +262,12 @@ export const loginAttemptEventSchema = v.variant("type", [
    */
   v.strictObject({ type: v.literal("AUTO_SUBMITTED"), operationId: identifier }),
   v.strictObject({ type: v.literal("RETRY") }),
-  v.strictObject({ type: v.literal("POLICY_CHANGED") }),
+  /**
+   * The login's authorization was withdrawn. `undelivered` names a prepared operation the
+   * page never received, whose reserved effect is taken back so the record shows nothing
+   * in flight (ADR 0022).
+   */
+  v.strictObject({ type: v.literal("POLICY_CHANGED"), undelivered: v.optional(identifier) }),
   v.strictObject({ type: v.literal("CANCEL") }),
 ]);
 export type LoginAttemptEvent = v.InferOutput<typeof loginAttemptEventSchema>;
@@ -453,7 +458,23 @@ function record(
         retryRequired: undefined,
       };
     case "POLICY_CHANGED":
-      return { outcome: "policy-changed" };
+      if (event.undelivered === undefined || event.undelivered !== context.operationId)
+        return { outcome: "policy-changed" };
+      return {
+        outcome: "policy-changed",
+        // As with a wrong account, the reserved effect never started; a click reserves a
+        // submission whatever its purpose.
+        submissions:
+          context.mutationIntent === true &&
+          (context.operationKind === "click" ||
+            (context.operationEffect ?? "prepare") !== "prepare")
+            ? context.submissions - 1
+            : context.submissions,
+        operationId: undefined,
+        operationKind: undefined,
+        operationEffect: undefined,
+        mutationIntent: undefined,
+      };
     case "CANCEL":
       return { outcome: "cancelled" };
     default:

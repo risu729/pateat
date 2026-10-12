@@ -246,7 +246,8 @@ journal precedes every fill and click; input-triggered advance/submission declar
 effect and event explicitly. Recovery observes the current document and never blindly
 replays an uncertain mutation or pending submit. Another tab's attempt of the same
 origin that is running or ended without success holds the origin until that tab closes;
-an `authenticated` one does not, and a tab keeps one record per origin
+an `authenticated` one, or one Pateat itself stopped with nothing in flight, does not,
+and a tab keeps one record per origin
 ([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md)).
 
 The shared synthetic site verifies field values, click counts and server-observed
@@ -1616,12 +1617,12 @@ tab's record for that origin is released and the tab asks with reason `logged-ou
 badge and popup list the saved default first and every URI match, even a single one. The
 tab and origin are kept in `pateat.login-logouts.v1` in `chrome.storage.session`, so a
 reload or a restarted worker asks again until a pick logs in. Another tab's record that
-still holds the site (running, or ended without success) blocks it with `origin-busy`,
-and the tab's tooltip says so; while the tab asks, other tabs of the site that show a
-first step ask as well (2026-10-11). If the URI matches cannot be
-listed, the saved default alone is offered. A login whose result is still `reconciling`
-is resumed, not taken as a logout. Frame logins and sites whose logout page shows only a
-password step are not detected.
+still holds the site (running, or ended without success in a way that still holds, such
+as a refused password; 2026-10-12) blocks it with `origin-busy`, and the tab's tooltip
+says so; while the tab asks, other tabs of the site that show a first step ask as well
+(2026-10-11). If the URI matches cannot be listed, the saved default alone is offered. A
+login whose result is still `reconciling` is resumed, not taken as a logout. Frame
+logins and sites whose logout page shows only a password step are not detected.
 
 Later work includes independently permitted vault create/update operations, nonzero
 passkey counter writeback and passkey creation; Bitwarden provider login with passkeys,
