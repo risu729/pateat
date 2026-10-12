@@ -19,6 +19,8 @@ handler, and judgements are limited per revision and path and to 20 per recipe a
 (implemented with the `passkey` and `totp` handlers).
 Amended on 2026-10-12 by the owner's decision on a sign-in form's lone `new-password`
 field ([Decision](#decision)), which the plan check implements.
+Amended on 2026-10-12: every number on the page shown after sign-in becomes `[number]`
+([Architecture](../architecture.md#declarative-recipes-and-ai)).
 
 Date: 2026-10-11
 
@@ -173,7 +175,8 @@ apart from other failures; they are implementation choices, not owner decisions:
 
 The service and Anthropic see, once per new recipe, the page shown right after the
 first sign-in. That page can carry the owner's name or balances in its title and
-headings, within the extractor's label redaction (`[email]`, `[masked]`, `[number]`).
+headings, within the extractor's label redaction (`[email]`, `[masked]`, and
+`[number]` for every number on that page since 2026-10-12).
 A new site costs about two Claude calls, roughly $0.015. A post-login page the extractor
 cannot describe completely is not sent, and that attempt ends `unknown`; the next run
 tries again.

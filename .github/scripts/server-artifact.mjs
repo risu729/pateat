@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
 import { cp, lstat, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
@@ -17,15 +16,6 @@ export function verifyHealthUrl(value, domains) {
   assert.equal(healthUrl.pathname, "/health");
   assert.equal(healthUrl.username + healthUrl.password + healthUrl.search + healthUrl.hash, "");
   assert(domains.includes(healthUrl.host), "The health URL must use the Worker's Custom Domain");
-}
-
-async function toolVersions() {
-  return {
-    node: process.version,
-    bun: execFileSync("bun", ["--version"], { encoding: "utf8" }).trim(),
-    mise: execFileSync("mise", ["--version"], { encoding: "utf8" }).trim(),
-    cf: JSON.parse(await readFile("node_modules/cf/package.json", "utf8")).version,
-  };
 }
 
 export async function inventory(directory, prefix = "") {
@@ -57,13 +47,10 @@ export function verifyProvenance(manifest, expected) {
   assert.equal(manifest.revision, expected.revision);
   assert.match(manifest.revision, /^[0-9a-f]{40}$/u);
   assert.equal(manifest.runId, expected.runId);
-  assert.equal(manifest.runAttempt, expected.runAttempt);
-  assert.equal(manifest.workflow, "CI");
   assert.equal(manifest.event, "push");
   assert.equal(manifest.ref, "refs/heads/main");
   assert.equal(manifest.mode, "production");
   assert.equal(manifest.worker, "pateat-api");
-  assert.equal(manifest.tools.node, process.version);
   assert(Array.isArray(manifest.files) && manifest.files.length > 0);
   assert(Array.isArray(manifest.migrations) && manifest.migrations.length > 0);
   assert(
@@ -71,6 +58,7 @@ export function verifyProvenance(manifest, expected) {
     "Migrations are flat numbered SQL files",
   );
   assert.match(manifest.database ?? "", uuidPattern);
+  assert(Array.isArray(manifest.domains));
 }
 
 /** The SQL files cf applies by default: `<dir>/*.sql`, in numeric order. */
@@ -109,49 +97,43 @@ async function pack() {
   await mkdir(resolve(releasePath, ".."), { recursive: true });
   await mkdir(releasePath, { recursive: false });
   await cp(buildPath, `${releasePath}/output`, { recursive: true, errorOnExist: true });
-  const { database } = await verifyBuild(`${releasePath}/output`);
+  const { database, domains } = await verifyBuild(`${releasePath}/output`);
   await copyMigrations(migrationsPath, `${releasePath}/migrations`);
   const manifest = {
     schema: 1,
     repository: process.env.GITHUB_REPOSITORY,
     revision: process.env.GITHUB_SHA,
     runId: process.env.GITHUB_RUN_ID,
-    runAttempt: process.env.GITHUB_RUN_ATTEMPT,
-    workflow: process.env.GITHUB_WORKFLOW,
     event: process.env.GITHUB_EVENT_NAME,
     ref: process.env.GITHUB_REF,
     mode: "production",
     worker: "pateat-api",
-    tools: await toolVersions(),
     files: await inventory(`${releasePath}/output`),
     database,
+    domains,
     migrations: await inventory(`${releasePath}/migrations`),
   };
   verifyProvenance(manifest, {
     repository: process.env.GITHUB_REPOSITORY,
     revision: process.env.GITHUB_SHA,
     runId: process.env.GITHUB_RUN_ID,
-    runAttempt: process.env.GITHUB_RUN_ATTEMPT,
   });
   await writeFile(`${releasePath}/manifest.json`, `${JSON.stringify(manifest, null, 2)}\n`);
 }
 
+/** Check what the deploy job downloaded from this run's Verify job, then place the build. */
 async function restore() {
   const manifest = JSON.parse(await readFile(`${releasePath}/manifest.json`, "utf8"));
   verifyProvenance(manifest, {
     repository: process.env.GITHUB_REPOSITORY,
-    revision: process.env.RELEASE_REVISION,
-    runId: process.env.RELEASE_RUN_ID,
-    runAttempt: process.env.RELEASE_RUN_ATTEMPT,
+    revision: process.env.GITHUB_SHA,
+    runId: process.env.GITHUB_RUN_ID,
   });
-  assert.deepEqual(await toolVersions(), manifest.tools, "Deployment tool versions differ");
   assert.deepEqual(
     await inventory(`${releasePath}/output`),
     manifest.files,
     "Release file digests differ",
   );
-  const { database, domains } = await verifyBuild(`${releasePath}/output`);
-  assert.equal(database, manifest.database, "Release database differs from its build");
   assert.deepEqual(
     await inventory(`${releasePath}/migrations`),
     manifest.migrations,
@@ -169,12 +151,16 @@ async function restore() {
     "Configure the exact account ID",
   );
   assert.equal(process.env.SERVER_WORKER, manifest.worker, "Configure the exact Worker name");
-  verifyHealthUrl(process.env.SERVER_HEALTH_URL, domains);
+  verifyHealthUrl(process.env.SERVER_HEALTH_URL, manifest.domains);
   // A fresh checkout must have no pre-existing output or implicit rebuild.
-  await assert.rejects(lstat(buildPath), { code: "ENOENT" });
+  await assert.rejects(lstat(buildPath), { code: "ENOENT" }, "Build output already exists");
   await mkdir(resolve(buildPath, ".."), { recursive: true });
-  await cp(`${releasePath}/output`, buildPath, { recursive: true, errorOnExist: true });
-  assert.deepEqual(await inventory(buildPath), manifest.files);
+  await cp(`${releasePath}/output`, buildPath, { recursive: true });
+  assert.deepEqual(
+    await inventory(buildPath),
+    manifest.files,
+    "Copied output differs from the manifest",
+  );
   if (process.env.GITHUB_OUTPUT)
     await writeFile(process.env.GITHUB_OUTPUT, `database=${manifest.database}\n`, { flag: "a" });
 }

@@ -69,7 +69,10 @@ fix them now; the SSO policy itself is recorded separately.
   items match. The same document announcing again, as after a restarted worker, still
   resumes it. A stop after a submission is resumed, unlike in another tab: this tab's
   new pages arrive without the user, so a site that sends the tab back to its first step
-  would otherwise get the credentials again each time. A finished top-level record whose
+  would otherwise get the credentials again each time. Once such a top-level record no
+  longer holds the site against other tabs, its login form's first step showing on a
+  later top-level document of the tab releases it, and that tab asks and only fills,
+  never submitting (ADR 0021 D, amended 2026-10-12). A finished top-level record whose
   login form's first step shows again is released by the logout detection of ADR 0021
   (part D), which then asks for an account instead of submitting. Returning to an origin
   the tab already tried therefore never submits again, which keeps a loop such as site →

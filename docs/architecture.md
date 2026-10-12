@@ -770,13 +770,13 @@ kind's check is left out and a string over 512 characters becomes `"[truncated]"
 | `login.attempt` | debug when a new page resumes the attempt without changing its state or outcome; otherwise info for `authenticated` and `retryable` and for the end of a fill-only login after a logout, warn for other `blocked` and when the result settles as unknown (`unknown-submit`, marked `settled`), so a login that did not finish counts as a warning, else debug | origin, recipe ID, route and `password` variant, state, step, step count, the current step's kind (`fill`, `click`, `wait`, `assert`) and effect (`prepare`, `advance`, `submit`), the entered handler the step belongs to, outcome; for `policy-changed`, its cause and a refused plan's reason; else `fill-only` as the reason for a login that only fills the form after a logout (ADR 0021 D) |
 | `login.handler` | info | origin, recipe ID, handler index, kind, step count; `entered`, `shown-again` (left to the person after this login ran it), `missing-fact` (the item lacks what the handler needs, including a `totp` handler's built-in TOTP field), `code-used` (a `totp` handler in a login that already types a TOTP code) or `no-room` (the attempt's step or submission budget is spent) |
 | `login.state` | debug for a later page of an attempt that already settled as unknown, else info | origin, recipe ID, route; the page signs of [ADR 0029](adr/0029-local-sign-in-state.md) that show, as flags: a sign-in element of the route (`s1`), a password input not for a new password and not in a form with two or more shown password inputs (`s2`), a code input (`s3`), a CAPTCHA widget (`s4`), a passkey request of the top document after the step, outside conditional mediation (`s5`), a new invalid mark on the step's sign-in inputs (`f1`) or new alert text, read as the fill check reads it (`f2`), next to the sign-in fields in the submitted document, the signed-in marker on any path (`e1`), the username in the header or navigation (`e2`), the return target the sign-in page's URL named (`e3`); and what the ADR would do (`rejected`, `unknown`, `continuing`, `signed-in`, `judge`); `settled` for a later page of an attempt that already settled as unknown. Logged for a page after an effect step that no check explained, before the judge is asked. On the `password` route a `signed-in` page is read again a second later, and a second apart while it loads (at most ten times), and the last reading is the one logged; when it is `signed-in` in the fully loaded document, the login completes without the judge (ADR 0029 delivery 2, first part). E1 does not count on the completion's own path while one of its `absent` elements is there, even hidden. The other decisions change nothing yet. A login in a frame is not read |
-| `login.refused` | debug for `recipe-not-found`, `stale-document`, `generating`, and `tab-busy` in a frame (a held tab refuses every frame on its page, such as ad frames); else info | origin, reason, `frame` for a frame; for `no-route` on a recipe with several `password` variants, the first variant's reason as its detail; for `logged-out`, which tab logged out (`this-tab` or `other-tab`); `not-started` when a page of an origin with a recipe shows a visible password, username or one-time-code input for 10 seconds without a ready first step and only watches, once per document and path, with why: the tab's earlier login of the origin finished and this form is not a recipe's first step on its path, so it is not taken as a logout (`logged-in`), a recipe starts on this path but its first step's elements are not found (`first-step-missing`), or the origin's recipes start only on other paths (`no-recipe-on-path`) |
+| `login.refused` | debug for `recipe-not-found`, `stale-document`, `generating`, and `tab-busy` in a frame (a held tab refuses every frame on its page, such as ad frames); else info | origin, reason, `frame` for a frame; for `no-route` on a recipe with several `password` variants, the first variant's reason as its detail; for `logged-out`, which tab logged out (`this-tab` or `other-tab`), or `stopped-login` when this tab's own login stopped after a submission and its form showed again; `not-started` when a page of an origin with a recipe shows a visible password, username or one-time-code input for 10 seconds without a ready first step and only watches, once per document and path, with why: the tab's earlier login of the origin finished and this form is not a recipe's first step on its path, so it is not taken as a logout (`logged-in`), a recipe starts on this path but its first step's elements are not found (`first-step-missing`), or the origin's recipes start only on other paths (`no-recipe-on-path`), or the tab's login of the origin stopped after a submission and the page watches for its form (`stopped-login`) |
 | `recipe.generate` | debug for `skipped` with `no-vault-match`, else info | origin, outcome (`recipe`, `abstained`, `failed`, `unavailable`, `skipped`) and its reason: the abstention, failure or unavailable code, `device-rejected`, `error` for a thrown error, or why nothing was sent (`sending`, `sent`, `no-vault-match`, `incomplete-observation`, the content script's refusal (`no-candidates` for no field or nothing in a login form to locate or act on, `no-locator` for a login form whose controls could not be located, `unsupported-page` for a refused path or a description that fails its schema, `extract-error` when the extractor threw, `cancelled` for a cancelled document), `extract-failed` for an answer that fails its check or never came, `no-slots`, `not-connected`, `storage-unavailable`); for `invalid-output`, the check that refused the model's output (`json`, `schema` or `plan`), the plan check's code or the output format's issue, and for a format issue where in the output it was; a page that is not sent is logged once per document, with the last reason after up to three reads a second apart |
 | `recipe.judge` | debug for `sent`, else info | origin, recipe ID and revision, route; `sent` when the page goes out, then the verdict (`signed-in`, `rejected`, `challenge`, `unclear`, `retry`); for `unclear` and `retry`, the transport, service or model code (for example `already-judged`, `busy`, `timeout`); for a returned revision, whether this login took it over; `not-sent` when the page after an effect step is not sent to the judge, with why: the step's two pages were already sent (`page-limit`), a sign-in field of the route still shows on a sign-in path (`sign-in-shown`), the completion marker shows but does not prove the sign-in, as on another path than its own (`marker-shown`), a field in a shadow root (`shadow-field`), one that cannot be filled and is disabled or may be a sign-in field (`unfillable-field`: a password or email input, one with a `username`, `email`, `current-password`, `new-password` or `one-time-code` autocomplete token, or a short numeric field; other read-only, transparent or tiny fields, as a read-only date picker, are left out), one without a usable locator (`unlocated-field`), more than 48 fields (`too-many-fields`), nothing to describe (`no-candidates`), a refused path or a description that fails its schema (`unsupported-page`), an extractor that threw (`extract-error`), a response that fails its check (`invalid-page`), a cancelled login (`cancelled`), a page that changed meanwhile (`page-changed`) or could not be asked (`unreachable`) |
 | `passkey.request` | info | the passkey report described in [development](development.md#why-a-passkey-request-was-delegated) |
 | `error.unhandled` | error | `error` or `rejection`, class name, message only when it is a Pateat error code, up to five `file.js:line:column` positions inside the extension |
 | `log.dropped` | warn; debug when only `debug` events were dropped | origin, events dropped over the page limit |
-| `log.debug` | info | when debug logging ends |
+| `log.debug` | info | whether debug logging was turned on or off, and when it ends |
 
 Connection and item IDs become HMAC pseudonyms. An origin or RP ID is kept in full only
 when a site default, binding, excluded site or cached recipe names it; any other
@@ -795,21 +795,22 @@ was delivered) and `field-unavailable` (a vault field could not be read).
 Login, judgement, handler, recipe generation and passkey events are limited to 20 per
 minute per tab and origin, and unhandled errors to 20 per minute in all. `debug` events
 have their own 20 per minute, so a page's debug detail never crowds out its other
-events. The first event
-dropped in a window is logged at once as `log.dropped` with `count: 1`; the rest are
-counted when the window ends and the next event or prune runs, so a worker that stops
-first loses only that remainder. `debug` entries are written only for 24 hours after
-**Enable debug logging**. Retention: 14 days; `debug` entries for 24 hours; at most
-5,000 `debug` and `info` entries (oldest `debug` first, then `info`) and 1,000 `warn`
-and `error` entries, pruned at worker start and every 500 writes.
+events. The first event dropped in a window is logged at once as `log.dropped` with
+`count: 1`; the rest are counted when the window ends and the next event or prune runs,
+so a worker that stops first loses only that remainder. `debug` entries are written only
+for 24 hours after **Enable debug logging for 24 hours**, or until
+**Disable debug logging** turns it off sooner; either change is logged as `log.debug`
+with `enabled`. Retention: 14 days; `debug` entries for 24 hours; at most 5,000 `debug`
+and `info` entries (oldest `debug` first, then `info`) and 1,000 `warn` and `error`
+entries, pruned at worker start and every 500 writes.
 
 The diagnostics page sends `diagnostics.logs.export` (with `includeSites`),
-`diagnostics.logs.clear` and `diagnostics.logs.debug`, accepted from the same page URL
-only. **Download logs** previews the exact JSON Lines text and saves it through a `Blob`
-link (no `downloads` permission): a header line with the version, revision and export
-time, then one line per entry. **Copy all** puts the same text on the clipboard in full,
-without selecting the scrolled preview by hand, and reports how many entries it copied.
-The export shows sites and recipe IDs as logged. When
+`diagnostics.logs.clear` and `diagnostics.logs.debug` (with `enabled`), accepted from
+the same page URL only. **Download logs** previews the exact JSON Lines text and saves
+it through a `Blob` link (no `downloads` permission): a header line with the version,
+revision and export time, then one line per entry. **Copy all** puts the same text on
+the clipboard in full, without selecting the scrolled preview by hand, and reports how
+many entries it copied. The export shows sites and recipe IDs as logged. When
 **Hide site addresses and recipe IDs** is checked, every origin, pseudonymized origin
 and RP ID becomes `site-N` and every recipe ID `recipe-N`, numbered within that export.
 **Clear logs** deletes every entry and replaces the pseudonym key.
@@ -933,7 +934,7 @@ A text locator is stored in the recipe, unlike observation labels, which only re
 inference. Redaction keeps email addresses and long numbers out of it, but a button
 such as "Continue as taro_y" still carries an account name, and so can a completion
 marker's link text, such as a header link showing the person's name: the judge is told
-never to pick one, and text with a digit never names a marker, but nothing enforces the
+never to pick one, and text with a number never names a marker, but nothing enforces the
 rest. Recipes are per owner today; before recipes are shared between users, such
 locators need a review.
 
@@ -978,32 +979,38 @@ Bound the full input, including candidate/question text, and reject incomplete
 observations instead of relying on provider truncation.
 
 Extract an allowlisted observation before filling. The proposed observation contract
-lives in `packages/contracts` and the offline role adapters in `packages/inference`;
-see [AI evaluation harness progress](plan.md#ai-evaluation-harness-progress).
-Exclude values, hidden inputs,
-raw HTML, screenshots, query strings, and unrelated page text by default. A page whose
-path may carry a session ID or another token is not observed, so such a path never
-reaches the service or its request log
-([AI evaluation harness progress](plan.md#ai-evaluation-harness-progress)). Labels
-can contain private data too: sanitize and bound them, with privacy fixtures and
-an abstention path when a useful safe observation cannot be constructed. The owner
-chose on 2026-10-11 to redact observed text before it is sent: email-like strings,
-including masked ones, become `[email]`; runs of three or more `*`, `●`, `•` or `＊`
-become `[masked]`; and runs of four or more ASCII or fullwidth digits become
-`[number]` (`口座番号 ****1234` becomes `口座番号 [masked][number]`). Names cannot be
-detected and stay. When such a page already shows a chosen account and offers a
-button or link to use another one, the generation role may name it as the plan's
-`accountSwitch`; it must be an observed button or link that the plan neither fills nor
-uses as its action. The generated recipe keeps the first switch a page names that no
-step clicks. Only links inside the login form are observed, so a switch link outside it
-is not named. A button whose text a link elsewhere on the page shows too, and a button
-that would submit a form, are never clicked as a switch; the attempt then ends
-`wrong-account`. Locating links by text means in-form links without an `id`, `name` or
-`data-testid` are now observed as well, with their redacted labels, and a switch
-link's redacted rendered text is stored in the recipe. Model
-output must pass structural and semantic checks on the server and again locally.
-Screenshot, audio and video collection are deferred. A provider's multimodal
-support does not enable these inputs without a separate privacy/evaluation gate.
+lives in `packages/contracts` and the offline role adapters in `packages/inference`; see
+[AI evaluation harness progress](plan.md#ai-evaluation-harness-progress). Exclude
+values, hidden inputs, raw HTML, screenshots, query strings, and unrelated page text by
+default. A page whose path may carry a session ID or another token is not observed, so
+such a path never reaches the service or its request log
+([AI evaluation harness progress](plan.md#ai-evaluation-harness-progress)). Labels can
+contain private data too: sanitize and bound them, with privacy fixtures and an
+abstention path when a useful safe observation cannot be constructed. The owner chose on
+2026-10-11 to redact observed text before it is sent: email-like strings, including
+masked ones, become `[email]`; runs of three or more `*`, `●`, `•` or `＊` become
+`[masked]`; and runs of four or more ASCII or fullwidth digits become `[number]`
+(`口座番号 ****1234` becomes `口座番号 [masked][number]`). Names cannot be detected and
+stay. On the page shown after sign-in, which the completion judge observes, the owner
+chose on 2026-10-12 to hide every number instead: each number, whatever its length or
+script, with digit groups joined by `.`, `,` or `'`, becomes one `[number]`
+(`保有ポイント 1,234pt` becomes `保有ポイント [number]pt`), because balances and points
+appear in any form and judging the sign-in needs none of them. Numerals written as
+letters, such as most kanji, stay. Login
+pages keep the four-digit rule, since hints such as `4 digits` help map fields. When a
+login page already shows a chosen account and offers a button or link to use another
+one, the generation role may name it as the plan's `accountSwitch`; it must be an
+observed button or link that the plan neither fills nor uses as its action. The
+generated recipe keeps the first switch a page names that no step clicks. Only links
+inside the login form are observed, so a switch link outside it is not named. A button
+whose text a link elsewhere on the page shows too, and a button that would submit a
+form, are never clicked as a switch; the attempt then ends `wrong-account`. Locating
+links by text means in-form links without an `id`, `name` or `data-testid` are now
+observed as well, with their redacted labels, and a switch link's redacted rendered text
+is stored in the recipe. Model output must pass structural and semantic checks on the
+server and again locally. Screenshot, audio and video collection are deferred. A
+provider's multimodal support does not enable these inputs without a separate
+privacy/evaluation gate.
 
 Use a cached compatible recipe first. On structural mismatch or repeated genuine
 recipe failure, request repair within a separate bounded inference budget. Wrong

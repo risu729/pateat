@@ -50,6 +50,14 @@ Chrome, on a production build of main.
   Cloudflare's saved profiles at `https://dash.cloudflare.com/login`
   ([ADR 0028](adr/0028-account-chooser-login-pages.md), accepted 2026-10-12). It builds
   on the `advance` continuation below.
+- Press a site's sign-in link on a page the site sent the visitor to before signing in,
+  shown by a query value naming another path of the same site, such as pixiv's top page
+  `https://www.pixiv.net/en/?return_to=%2Fbookmark_new_illust.php`, whose "Login" leads
+  to `https://accounts.pixiv.net/login`
+  ([ADR 0031](adr/0031-sign-in-entry-pages.md), accepted 2026-10-12). Generation on that
+  login page succeeds since build `e9144a6` (2026-10-12 07:24 UTC). Next, a recipe that
+  starts without a fill step (only `entry` here, `chooser` in ADR 0028), delivered once
+  for both, then the press, verified on pixiv in the owner's Chrome.
 - Continue a generated recipe on the page after an `advance` step (email, then Next,
   then password): generate the steps after Next through the generation route's `base`,
   as listed under [AI evaluation harness progress](#ai-evaluation-harness-progress). The
@@ -1677,9 +1685,9 @@ redacted as [architecture](architecture.md#declarative-recipes-and-ai) describes
 target is the first of `id`, `name` and `data-testid` that matches exactly one element,
 as the executor resolves it, and for an input without one, its first `autocomplete`
 token that is `username`, `email`, `current-password` or `one-time-code` and that no
-other input carries; a button without one gets a text locator when its text
-matches exactly one button and redaction leaves it unchanged, and a script link when its
-text matches no button and exactly one script link. In a login form, a field, button or
+other input carries; a button without one gets a text locator when its text matches
+exactly one button and redaction leaves it unchanged, and a script link when its text
+matches no button and exactly one script link. In a login form, a field, button or
 checkbox without a target, a control the executor cannot act on (a select, radio, text
 area, another input type, or a read-only, disabled, transparent or tiny field) or a
 control in a shadow root makes the observation incomplete, as do more than 48
@@ -1710,15 +1718,18 @@ possible sign-in markers. Links are located by their text too, and those in a pa
 header or navigation, where account menus usually sit, are kept first; the rank reads
 only the page's structure, never words of one language. A text locator with a digit,
 such as a points balance or an unread count, never names a marker there, and the judge
-is told to pick a marker whose text is the same for every account and visit, never the
-person's name, a count or a balance: its text is stored in the recipe and must match
-every later sign-in. On ポイントインカム (2026-10-12) the page after sign-in gave 21
-candidates, all carousel controls, news tabs and an ad's close button, because its
-header links have no `id`; the judge answered `unclear`. A synthetic page of that shape
-now keeps the header's links. There, an attribute locator that redaction would change
-counts as no locator, so an account number in an `id` is never sent.
-`mise run //apps/extension:test:dom` covers these cases in Chromium with synthetic
-pages.
+is told that the marker must show on every signed-in visit of every account, and that a
+marker located by its text keeps that text in the recipe, so it must read the same
+everywhere, never the person's name, a count or a balance. A marker located by `id`
+stores no text: on リクルートID (2026-10-12, 08:07 UTC) the judge named the points
+balance `{"by":"id","value":"total-point1"}`, which the earlier wording forbade although
+nothing private is stored, so the rule now names text targets only. On ポイントインカム
+(2026-10-12) the page after sign-in gave 21 candidates, all carousel controls, news tabs
+and an ad's close button, because its header links have no `id`; the judge answered
+`unclear`. A synthetic page of that shape now keeps the header's links. There, an
+attribute locator that redaction would change counts as no locator, so an account number
+in an `id` is never sent. `mise run //apps/extension:test:dom` covers these cases in
+Chromium with synthetic pages.
 
 Evaluation data candidates, checked 2026-10-10 (terms are as published by each
 source; confirm before use):
@@ -1806,8 +1817,14 @@ still holds, such as a refused password; 2026-10-12) blocks it with `origin-busy
 the tab's tooltip says so; while that tab keeps its logout state, other tabs of the site
 that show a first step ask (and are filled) as well (2026-10-11). If the URI matches
 cannot be listed, the saved default alone is offered. A login whose result is still
-`reconciling` is resumed, not taken as a logout. Frame logins and sites whose logout
-page shows only a password step are not detected.
+`reconciling` is resumed, not taken as a logout. Since 2026-10-12 a tab whose own login
+stopped after a submission asks the same way, in that tab only, once a later page shows
+the login form after the record's 5-minute hold on other tabs has ended
+(`pateat.login-stopped-asks.v1`). Frame logins and sites whose logout
+page shows only a password step are not detected. By the owner's constraint (2026-10-12)
+a session that only expired never needs a manual press, so a logout of a session carried
+over from another tab's login or an earlier browser session is not detected either:
+Pateat logs in again there.
 
 Later work includes independently permitted vault create/update operations, nonzero
 passkey counter writeback and passkey creation; Bitwarden provider login with passkeys,

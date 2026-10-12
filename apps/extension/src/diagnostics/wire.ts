@@ -12,7 +12,11 @@ export const diagnosticsRequestSchema = v.variant("type", [
     includeSites: v.boolean(),
   }),
   v.strictObject({ version: v.literal(1), type: v.literal("diagnostics.logs.clear") }),
-  v.strictObject({ version: v.literal(1), type: v.literal("diagnostics.logs.debug") }),
+  v.strictObject({
+    version: v.literal(1),
+    type: v.literal("diagnostics.logs.debug"),
+    enabled: v.boolean(),
+  }),
 ]);
 export type DiagnosticsRequest = v.InferOutput<typeof diagnosticsRequestSchema>;
 
@@ -228,7 +232,8 @@ const logsResponseSchemas = {
     unavailableSchema,
   ]),
   "diagnostics.logs.debug": v.variant("ok", [
-    v.strictObject({ ok: v.literal(true), debugUntil: time }),
+    // `debugUntil` is absent once debug logging is off.
+    v.strictObject({ ok: v.literal(true), debugUntil: v.optional(time) }),
     unavailableSchema,
   ]),
 };

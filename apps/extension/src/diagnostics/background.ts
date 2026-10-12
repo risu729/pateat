@@ -371,7 +371,9 @@ export function createDiagnosticsLog(options: {
             await logger.clear();
             return { ok: true };
           case "diagnostics.logs.debug":
-            return { ok: true, debugUntil: await logger.enableDebug() };
+            if (message.enabled) return { ok: true, debugUntil: await logger.enableDebug() };
+            await logger.disableDebug();
+            return { ok: true };
         }
       } catch {
         return { ok: false, error: "unavailable" };

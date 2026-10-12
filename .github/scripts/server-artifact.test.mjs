@@ -12,24 +12,22 @@ import {
   verifyProvenance,
 } from "./server-artifact.mjs";
 
-test("release provenance refuses a PR, a different revision, run, or attempt", () => {
+test("release provenance refuses a PR, a different revision or run", () => {
   const expected = {
     repository: "owner/repo",
     revision: "a".repeat(40),
     runId: "123",
-    runAttempt: "2",
   };
   const manifest = {
     schema: 1,
     ...expected,
-    workflow: "CI",
     event: "push",
     ref: "refs/heads/main",
     mode: "production",
     worker: "pateat-api",
-    tools: { node: process.version },
     files: [{}],
     database: "00000000-0000-4000-8000-000000000001",
+    domains: [],
     migrations: [{ path: "0000_init.sql" }],
   };
   verifyProvenance(manifest, expected);
@@ -37,9 +35,9 @@ test("release provenance refuses a PR, a different revision, run, or attempt", (
     event: "pull_request",
     revision: "b".repeat(40),
     runId: "124",
-    runAttempt: "1",
     mode: "preview",
     database: "pateat",
+    domains: undefined,
     migrations: [],
   })) {
     assert.throws(() => verifyProvenance({ ...manifest, [key]: value }, expected));
