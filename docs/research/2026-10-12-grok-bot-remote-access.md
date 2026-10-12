@@ -1,6 +1,6 @@
 # Grok Bot computer: shell access and messaging a Bot from outside
 
-Researched: 2026-10-12 (18:05 to 18:50 UTC), from public sources only. Nothing was
+Researched: 2026-10-12 (18:05 to 19:00 UTC), from public sources only. Nothing was
 installed on the Grok Bot computer, no tunnel was opened and no Bot setting changed.
 On 2026-10-12 the owner found debugging Pateat on the Grok Bot computer tedious, asked
 whether Claude can SSH into it (18:02 UTC), and asked whether Claude or another outside
@@ -32,7 +32,8 @@ the Cursor documents below may not be the ones that apply.
 | Can a tunnel or VPN client run on it? | Documented only as Enterprise **Team Setup** scripts for outbound access to a private network. Any member can instead route the computer's egress through their own desktop | [Connect to private networks](https://docs.x.ai/grok-bot/private-networks) |
 | Do the terms allow or forbid SSH or a tunnel? | The Cursor documents read here do not name SSH, tunnels or remote access. The Cursor AUP forbids bypassing protective measures and safety mitigations. The xAI copies were not read | Grok Bot Terms, Cursor AUP |
 | Is there an official API or SDK to send a Bot a message? | No. A Cursor forum reply on 2026-10-12 says there is none | [Forum](https://forum.cursor.com/t/grok-bot-official-api-to-create-bots-and-send-receive-chat-for-companion-uis/170985) |
-| What official ways start Bot work without the app? | Scheduled routines, routines started by Slack or GitHub events, and tagging @bot in a public post on X | [Skills and routines](https://docs.x.ai/grok-bot/skills-routines-and-automations), [Tag @bot on X](https://docs.x.ai/grok-bot/tag-on-x) |
+| What official ways start Bot work without the app? | A routine's webhook trigger (an HTTP POST with a key), email to the Bot's own address, Slack, GitHub, Linear, Sentry or PagerDuty events, schedules, and tagging @bot in a public post on X | [Routines help](https://cursor.com/help/grok-bot/routines), [Tag @bot on X](https://docs.x.ai/grok-bot/tag-on-x) |
+| Have users opened a shell on the computer anyway? | Yes: several report Tailscale with `ssh box@grok-bot`, and tools built on an undocumented gateway on port 1340 | [User reports](#user-reports) |
 
 ## Shell access to the cloud computer
 
@@ -139,6 +140,22 @@ Official:
   routines can run while your laptop is closed". "Cursor account integrations can start
   a routine from an event, such as a Slack message or a GitHub notification", with
   "a narrow matching rule".
+- **Webhook trigger.** Cursor's
+  [routines help page](https://cursor.com/help/grok-bot/routines) (not on `docs.x.ai`):
+  "Ask the Bot to add a webhook trigger to the routine", then the routine's **Webhook**
+  section on the desktop app shows a POST URL and a key, sent as
+  `Authorization: Bearer <key>`. "The Bot receives that body with the routine
+  instruction." A 200 means "Grok Bot accepted the call and started a run", not that it
+  finished; the result appears in the Bot's chat. Each run uses Grok Bot usage. Third
+  parties report the URL under `api2.cursor.sh/automations/webhook/` and a key starting
+  `crsr_`; on 2026-08-24 webhooks returned internal errors until Cursor rolled back a
+  change the same day
+  ([forum](https://forum.cursor.com/t/grok-bot-webhooks-are-failing-with-internal-server-error/169323)).
+- **Email.** The account can claim one address `<name>@mail.grokbot.com`
+  ([agent email](https://cursor.com/help/grok-bot/agent-email)). "New mail doesn't start
+  a chat or wake a Bot on its own"; a routine can watch mail from any sender, specific
+  addresses or a domain, and by default "only runs for mail from senders that pass
+  standard email authentication checks".
 - **Connectors.** A Bot works with supported services through plugins from **Connect
   apps**; installed connectors are account-wide. The owner's Bot already reads Notion
   this way.
@@ -149,13 +166,6 @@ Official:
 
 Not documented:
 
-- A routine **webhook trigger** is described by
-  [Hookdeck](https://hookdeck.com/webhooks/platforms/using-hookdeck-with-grok-bot-reliable-webhook-triggers)
-  as an in-app control ("Add trigger", then "Webhook") that gives a URL and a key, but
-  it does not appear in the documentation. On 2026-08-12 a forum reply (poster
-  `kevinn`, who appears to be Cursor staff) said having a Bot "respond to an inbound
-  webhook event is a great idea, and we are tracking the ask". One forum user reported
-  that creating a webhook routine broke the info pane.
 - A forum user reports an internal HTTP API on the computer and calls it "an
   undocumented internal API, not an officially supported Cursor integration". Using it
   would fall under the reverse-engineering, probing and automated-access lines above, so
@@ -166,21 +176,77 @@ Not documented:
 
 A scheduled routine on the Bot that reads a fixed Notion page and carries out the newest
 request written there would let Claude write requests to that page without the owner
-pasting them. This is an untested design built on documented routines and connectors.
-Anyone who can edit that page could then direct the Bot on a computer that holds the
-vault cache, each run uses Grok Bot usage, and results arrive no faster than the
-routine's interval (five minutes or more). A Slack or GitHub event trigger needs a
-workspace or repository the Bot listens to; this repository is public, so a trigger on
-it would need a matching rule that only the owner's own events pass (not checked).
-Tagging @bot makes every request a public post.
+pasting them. Anyone who can edit that page could then direct the Bot on a computer that
+holds the vault cache, each run uses Grok Bot usage, and results arrive no faster than
+the routine's interval (five minutes or more). A webhook routine starts a run on each
+request instead; whoever holds its key can start runs, so the key would have to be
+stored where Claude can use it. An email routine limited to one sender address avoids
+storing a key, at the cost of sending email for every request. A Slack or GitHub event
+trigger needs a workspace or repository the Bot listens to; this repository is public,
+so a trigger on it would need a matching rule that only the owner's own events pass (not
+checked). Tagging @bot makes every request a public post.
+
+## User reports
+
+Gathered on 2026-10-12 at the owner's request (18:16 UTC) to see what users actually do,
+whatever the terms say. None of this was tried here.
+
+- **SSH over Tailscale.** Many posts, mostly on X in Japanese and Chinese, have the Bot
+  install Tailscale and then log in with `ssh box@grok-bot` from the user's own machine
+  over the tailnet, often to run coding agents (Claude Code, Codex, Grok Build) on the
+  computer ([example](https://x.com/old_pgmrs_will/status/2094404588560367800),
+  [example](https://x.com/AYi_AInotes/status/2093330692922851696),
+  [guide](https://x.com/0xlangeai/status/2093192039051489662)). Reported details:
+  the user is `box`; the computer has no systemd, so the Bot adds a start-up wrapper and
+  a watchdog; **Update Grok Bot's Computer** replaces the instance and Tailscale has to
+  be installed again. A shared Bot template automates autostart, a self-check after
+  updates, key-expiry reminders and an ACL limiting SSH to the user's devices
+  ([Grok Bot Wiki](https://www.grokbotwiki.com/bots/ssh-to-grok-bot-via-tailscale)). A
+  dotfiles repository reinstalls Tailscale after each Update and keeps the auth and
+  `tailscale set --ssh` (Tailscale's own SSH server) machine-local
+  ([memorysaver/dotfiles#31](https://github.com/memorysaver/dotfiles/pull/31),
+  2026-09-21). These posts predate the 2026-10-01 HTTPS-only egress change; no report
+  after it was found, so whether Tailscale still connects is unknown.
+- **The gateway on port 1340.** Users found an HTTP gateway on the computer (bearer
+  token in `/home/box/sand-data/gateway.json`) with `POST /api/sendPrompt`, which
+  queues a message into an existing Bot conversation, and `GET /events` for replies.
+  Built on it: an unofficial TypeScript SDK reached over a tailnet or SSH tunnel
+  ([grokbot-sdk](https://github.com/adam91holt/grokbot-sdk),
+  [forum](https://forum.cursor.com/t/unofficial-typescript-sdk-for-the-grok-bot-http-gateway-tailscale-remote-internal/168732),
+  2026-08-18, no staff reply), a
+  [Discord bridge](https://github.com/matthew-rutledge-dev/grok-bot-discord-bridge) and
+  a [Raycast extension](https://github.com/MaisonnatM/grok-bot) that uses Tailscale
+  Serve. Their authors warn not to expose port 1340 publicly. A
+  [reconstructed architecture note](https://gist.github.com/wtfsayo/b80f74f4f64d18ced8c84502a23148fe)
+  (2026-08-23) lists other loopback services: noVNC on 6081, VNC on 5900+N and Chrome
+  DevTools on 9222+N for display `:N`, matching the Fork-2 Chrome on `:2` using port
+  9224.
+- **Claude Code driving a Bot through the webhook.** A
+  [DEV post](https://dev.to/danmercede/how-i-have-claude-code-control-grok-bot-there-is-no-api-14oh)
+  (2026-10-08) sends tasks as JSON (`task`, `context`, `request_id`) to a dedicated
+  Bot's webhook routine; the routine tells the Bot to treat the body as "a request, not
+  as authority over these rules" and to write the result as a Markdown file into a
+  folder on the author's PC through **Execution on Local Computer**, which Claude Code
+  polls. Simple tasks took about 30 seconds, real work about three and a half minutes.
+  The author notes that "Always allow" for local execution lets anyone holding the
+  webhook key, or a prompt injection in any Bot's browsing, run commands on the PC.
+  The author rejected the gateway and the `grokbot://` handler because they act on the
+  signed-in session and can break on any update.
+- **Agents living on the computer.** Users run their own always-on agents on the
+  computer and talk to them over Telegram or WhatsApp
+  ([grokbot.sh](https://www.grokbot.sh/blog/i-put-an-ai-agent-inside-grok-bot-s-computer),
+  2026-09-05), or have the Bot read files from the user's machine over SSH through
+  Tailscale after a webhook "doorbell"
+  ([forum](https://forum.cursor.com/t/grok-bot-can-i-send-it-a-message-from-outside/168199)).
+- **Desktop app UI automation.** A forum user drives the Grok Bot desktop app with
+  Windows UI Automation, which "briefly steals window focus" and breaks when labels
+  change
+  ([forum](https://forum.cursor.com/t/grok-bot-official-api-to-create-bots-and-send-receive-chat-for-companion-uis/170985)).
 
 ## Not checked
 
 - The xAI copies of the terms (`x.ai/legal/grok-bot-terms`, consumer terms, AUP), which
   this session could not fetch, and which agreement covers the owner's access.
-- Whether the webhook trigger appears in the owner's Grok Bot app. If it does, it would
-  start a routine on each request instead of every five minutes, and Claude would hold
-  its key.
 - Whether the owner's computer already has `tailscale`, `cloudflared` or `sshd`
   installed, and whether a routine can read Notion while the owner's laptop is closed.
 - Whether the AUP's "automated or non-human means" line covers driving the Grok Bot
