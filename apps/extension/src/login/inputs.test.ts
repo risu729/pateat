@@ -10,6 +10,8 @@ const input = (overrides: Partial<SecretInput> = {}): SecretInput => ({
 });
 const password = input({ type: "password" });
 const declared = input({ autocomplete: "section-login current-password" });
+// A sign-in form may mark its only password field so; the plan check decides (ADR 0018).
+const newPassword = input({ type: "password", autocomplete: "new-password" });
 const pin = input({ type: "tel", maxLength: 4 });
 const numeric = input({ inputMode: "numeric", maxLength: 6 });
 const number = input({ type: "number", maxLength: 10 });
@@ -22,6 +24,7 @@ describe("secret input rule", () => {
   it.each([
     ["password", password, true],
     ["password", declared, true],
+    ["password", newPassword, true],
     ["password", pin, false],
     ["password", oneTimeCode, false],
     ["password", text, false],
@@ -34,6 +37,7 @@ describe("secret input rule", () => {
     ["otp", longTel, false],
     ["hidden", password, true],
     ["hidden", declared, true],
+    ["hidden", newPassword, true],
     ["hidden", pin, true],
     ["hidden", numeric, true],
     ["hidden", number, true],

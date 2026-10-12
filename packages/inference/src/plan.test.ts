@@ -9,6 +9,7 @@ import {
   namesPasskey,
   registersPasskey,
   slotAccepts,
+  slotAcceptsOn,
   validateGeneratedPage,
   validatePagePlan,
   type GeneratedPagePlan,
@@ -215,6 +216,188 @@ describe("the one-time-code slot in plan validation, probed independently (ADR 0
     ["a number input without the hint", { role: "number" }],
   ])("refuses the code in %s", (_label, extra) => {
     expect(plan(extra)).toEqual({ ok: false, reason: "incompatible-role" });
+  });
+});
+
+describe("a lone new-password field on a sign-in form (ADR 0018, 2026-10-12)", () => {
+  // Shaped like SBI Securities' login form, with synthetic locators: a username input, a
+  // password input marked new-password, a software keyboard button, the login button, a
+  // help link and a phone authentication button, all in one form.
+  const form = (extra: Partial<Candidate> = {}) => ({ group: "f1", ...extra });
+  const sbi = (...more: Candidate[]): LoginObservation => ({
+    ...observation,
+    origin: "https://securities.example.test",
+    candidates: [
+      input("c1", form({ label: "ユーザーネーム", autocomplete: "username" })),
+      input("c2", form({ role: "password", label: "パスワード", autocomplete: "new-password" })),
+      input("c3", form({ role: "button", label: "セキュリティキーボード" })),
+      input("c4", form({ role: "button", label: "ログイン" })),
+      input("c5", form({ role: "link", label: "ログインできない方" })),
+      input("c6", form({ role: "button", label: "電話番号認証" })),
+      ...more,
+    ],
+  });
+  const signIn = { candidate: "c4", purpose: "submit" } as const;
+  const both: PagePlan["fields"] = [
+    { slot: "username", candidate: "c1" },
+    { slot: "password", candidate: "c2" },
+  ];
+  const plan = (page: LoginObservation, fields: PagePlan["fields"] = both) =>
+    validatePagePlan(page, slots, { fields, action: signIn });
+  const refused = { ok: false, reason: "incompatible-role" };
+
+  it("fills the username and the password and submits", () => {
+    expect(plan(sbi())).toMatchObject({
+      ok: true,
+      plan: {
+        steps: [
+          {
+            kind: "fill",
+            fields: [
+              { slot: "username", target: { by: "id", value: "c1" } },
+              { slot: "password", target: { by: "id", value: "c2" } },
+            ],
+          },
+          { kind: "click", target: { by: "id", value: "c4" }, purpose: "submit" },
+        ],
+      },
+    });
+    expect(slotAcceptsOn(sbi(), "secret", sbi().candidates[1]!)).toBe(true);
+    // Without the page, a registration password still never qualifies.
+    expect(slotAccepts("secret", sbi().candidates[1]!)).toBe(false);
+  });
+
+  it.each<[string, Partial<Candidate>]>([
+    ["marked email", { role: "email", autocomplete: "email" }],
+    ["marked off", { autocomplete: "off" }],
+    ["without a mark", {}],
+  ])("takes an identifier %s", (_label, extra) => {
+    const page = sbi();
+    page.candidates[0] = { ...page.candidates[0]!, autocomplete: undefined, ...extra };
+    expect(plan(page)).toMatchObject({ ok: true });
+  });
+
+  it("fills a Hidden field there under the same rule, but never a one-time code", () => {
+    expect(
+      plan(sbi(), [
+        { slot: "username", candidate: "c1" },
+        { slot: "custom-3", candidate: "c2", name: "pin-code" },
+      ]),
+    ).toMatchObject({ ok: true });
+    expect(
+      validatePagePlan(sbi(), [builtInLoginSlots.username, builtInLoginSlots.totp], {
+        fields: [
+          { slot: "username", candidate: "c1" },
+          { slot: "totp", candidate: "c2" },
+        ],
+        action: signIn,
+      }),
+    ).toEqual(refused);
+  });
+
+  it("refuses a confirmation field or a second password field of the form", () => {
+    for (const autocomplete of ["new-password", "current-password", undefined] as const)
+      expect(
+        plan(
+          sbi(input("c7", form({ role: "password", label: "パスワード（確認）", autocomplete }))),
+        ),
+      ).toEqual(refused);
+    expect(plan(sbi(input("c7", form({ autocomplete: "current-password" }))))).toEqual(refused);
+  });
+
+  it.each<[string, Partial<Candidate>]>([
+    ["a name", { autocomplete: "name" }],
+    ["a family name", { autocomplete: "family-name" }],
+    ["a telephone number", { role: "tel", autocomplete: "tel" }],
+    ["a birthday", { autocomplete: "bday" }],
+    ["a postal code", { autocomplete: "postal-code" }],
+  ])("refuses a form that also asks for %s", (_label, extra) => {
+    expect(plan(sbi(input("c7", form(extra))))).toEqual(refused);
+  });
+
+  it("refuses an identifier marked for a new password or a personal detail", () => {
+    const page = sbi();
+    page.candidates[0] = { ...page.candidates[0]!, autocomplete: "new-password" };
+    expect(plan(page)).toEqual(refused);
+    page.candidates[0] = { ...page.candidates[0]!, role: "tel", autocomplete: "tel" };
+    expect(plan(page)).toEqual(refused);
+  });
+
+  it("refuses a plan that fills the password without an identifier", () => {
+    expect(plan(sbi(), [{ slot: "password", candidate: "c2" }])).toEqual({
+      ok: false,
+      reason: "lone-new-password",
+    });
+    // A form with no identifier input never offers the field at all.
+    const alone = sbi();
+    alone.candidates = alone.candidates.slice(1);
+    expect(slotAcceptsOn(alone, "secret", alone.candidates[0]!)).toBe(false);
+  });
+
+  it("refuses the field when the page shows a sign-in password elsewhere", () => {
+    const login = [
+      input("u", { group: "f2" }),
+      input("p", { group: "f2", role: "password" }),
+      input("go", { group: "f2", role: "button" }),
+    ];
+    expect(plan(sbi(...login))).toEqual(refused);
+    // A registration password elsewhere does not count against it.
+    expect(
+      plan(sbi(input("r", { group: "f2", role: "password", autocomplete: "new-password" }))),
+    ).toMatchObject({ ok: true });
+  });
+
+  it.each<[string, Partial<Candidate>]>([
+    ["a username input", { autocomplete: "username" }],
+    ["a current-password input", { autocomplete: "current-password" }],
+    ["a one-time-code input", { autocomplete: "one-time-code" }],
+  ])("refuses the field when another form shows %s, as the judge reads a sign-in", (_l, extra) => {
+    expect(plan(sbi(input("x", { group: "f2", ...extra })))).toEqual(refused);
+  });
+
+  it("refuses an email and new-password sign-up form beside an identifier-first sign-in", () => {
+    // The sign-in form asks for the username first; the sign-up form beside it asks for
+    // an email and a new password only.
+    const page: LoginObservation = {
+      ...observation,
+      candidates: [
+        input("login-id", { group: "f1", autocomplete: "username" }),
+        input("next", { group: "f1", role: "button" }),
+        input("join-email", { group: "f2", role: "email", autocomplete: "email" }),
+        input("join-pass", { group: "f2", role: "password", autocomplete: "new-password" }),
+        input("join", { group: "f2", role: "button" }),
+      ],
+    };
+    expect(
+      validatePagePlan(page, slots, {
+        fields: [
+          { slot: "username", candidate: "join-email" },
+          { slot: "password", candidate: "join-pass" },
+        ],
+        action: { candidate: "join", purpose: "submit" },
+      }),
+    ).toEqual(refused);
+  });
+
+  it("refuses a form that also holds a one-time code, as a password reset does", () => {
+    expect(plan(sbi(input("c7", form({ role: "tel", autocomplete: "one-time-code" }))))).toEqual(
+      refused,
+    );
+  });
+
+  it("takes an identifier only from an input marked username, email, off or nothing", () => {
+    // The form's only text input is marked for a one-time code: the field is not offered.
+    const coded = sbi();
+    coded.candidates[0] = { ...coded.candidates[0]!, autocomplete: "one-time-code" };
+    expect(slotAcceptsOn(coded, "secret", coded.candidates[1]!)).toBe(false);
+    // With a username input too, the identifier still never goes into the code input.
+    const withCode = sbi(input("c7", form({ autocomplete: "one-time-code" })));
+    expect(
+      plan(withCode, [
+        { slot: "username", candidate: "c7" },
+        { slot: "password", candidate: "c2" },
+      ]),
+    ).toEqual(refused);
   });
 });
 
