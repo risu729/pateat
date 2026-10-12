@@ -39,6 +39,14 @@ export function loginReadiness(step: LoginStep): LoginReadiness {
     targets,
   };
 }
+/**
+ * How many times a document announces a ready first step before it waits until the form
+ * goes, each try about half a second after a refusal that may pass, such as a stale
+ * announcement. The worker counts them to log the page giving up (ADR 0019).
+ */
+export const START_TRIES = 4;
+/** How long apart a document's tries of one start may be to count together. */
+export const START_TRY_WINDOW_MS = 5000;
 /** How long a started attempt waits for a fill or click step's elements (owner-approved). */
 export const LOGIN_STEP_WAIT_MS = 10000;
 /**

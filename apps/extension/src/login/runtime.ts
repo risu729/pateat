@@ -88,6 +88,8 @@ import {
   loginReadiness,
   HELD_CLICK_WAIT_MS,
   LOGIN_STEP_WAIT_MS,
+  START_TRIES,
+  START_TRY_WINDOW_MS,
   type LoginReadiness,
   type TargetState,
   type LoginSecretKind,
@@ -603,6 +605,27 @@ export type LoginReport =
        * logged out; for `not-started`, why a shown sign-in input did not start a login.
        */
       detail?: string;
+      /** The same reason was already logged for this page (ADR 0019). */
+      repeat?: true;
+      /**
+       * The page is not login-related: its origin has no recipe and no login runs in the
+       * tab, so the refusal is ordinary browsing (ADR 0019).
+       */
+      unrelated?: true;
+    }
+  | {
+      /** An exception stopped a login; only its class name and message are passed on. */
+      type: "exception";
+      tabId: number;
+      origin: string;
+      recipeId: string;
+      route: LoginRoute;
+      /** The state the login was left in, and the step it stopped at. */
+      state: LoginAttemptMetadata["state"];
+      stepIndex: number;
+      name: string;
+      /** Logged only when it is one of Pateat's own error codes. */
+      message?: string;
     }
   | ({ type: "generation"; tabId: number; origin: string } & GenerationOutcome)
   | {
@@ -908,7 +931,7 @@ export function createLoginRuntime(
   const probeTop = (url: URL) =>
     probeMode && url.protocol === "http:" && url.hostname === "127.0.0.1";
   const admitted = async (url: URL) =>
-    probeDocument(url) || Boolean(sites && (await sites.admits(url)));
+    probeDocument(url) || (sites !== undefined && (await sites.admission(url)) === "admitted");
   /**
    * The browser-identified document. A frame inside the page is admitted only when the
    * tab's page is admitted too; excluded sites stop it on either side (ADR 0017).
@@ -3051,9 +3074,20 @@ export function createLoginRuntime(
         await reconcileBounded(run);
         if (run.metadata.state !== "ready") return;
       }
-    } catch {
+    } catch (error) {
       if (current(run) && !terminal(run.metadata)) {
         run.metadata = recoverLoginAttempt(run.metadata);
+        report({
+          type: "exception",
+          tabId: run.metadata.document.tabId,
+          origin: run.metadata.document.origin,
+          recipeId: run.metadata.recipeId,
+          route: run.metadata.route,
+          state: run.metadata.state,
+          stepIndex: run.metadata.stepIndex,
+          name: error instanceof Error ? error.name : typeof error,
+          ...(error instanceof Error ? { message: error.message } : {}),
+        });
         await save(run).catch(() => undefined);
         await publish(run.live, run.metadata);
       }
@@ -3272,6 +3306,7 @@ export function createLoginRuntime(
   async function generateFor(live: LiveDocument, scope: GenerationScope): Promise<void> {
     if (!generation) return;
     const key = frameKey(live.document);
+    let sent = false;
     try {
       let observation: LoginObservation | undefined;
       // A page that renders its form in steps may offer itself before the form is whole,
@@ -3324,6 +3359,7 @@ export function createLoginRuntime(
           ],
         })
         .catch((): GenerationOutcome => ({ outcome: "failed", reason: "error" }));
+      sent = true;
       report({
         type: "generation",
         tabId: live.document.tabId,
@@ -3337,7 +3373,9 @@ export function createLoginRuntime(
         { documentId: live.document.documentId, frameId: live.document.frameId },
       );
     } catch {
-      // The document went away or the service could not answer; nothing was started.
+      // The document went away or did not answer, or the vault could not be read; nothing
+      // was started. Only a page still shown is worth the reason (ADR 0019).
+      if (!sent && documents.get(key) === live) skipGeneration(live, "exception");
     }
   }
   /**
@@ -3372,6 +3410,129 @@ export function createLoginRuntime(
       })
       .catch(() => undefined);
   }
+  /** Reasons already logged, by tab, document and path; bounded like the logout fills. */
+  const noted = new Map<string, Set<string>>();
+  /**
+   * Logs why Pateat did nothing on a page. The same reason again on the same page is
+   * logged as a repeat (ADR 0019).
+   */
+  function note(
+    document: LoginDocument,
+    path: string,
+    reason: string,
+    detail?: string,
+    unrelated?: boolean,
+  ): void {
+    const key = `${document.tabId} ${document.documentId} ${path}`;
+    const reasons = noted.get(key) ?? new Set<string>();
+    const id = `${reason} ${detail ?? ""}`;
+    const repeat = reasons.has(id);
+    reasons.add(id);
+    noted.delete(key);
+    noted.set(key, reasons);
+    for (const old of noted.keys()) {
+      if (noted.size <= 256) break;
+      noted.delete(old);
+    }
+    report({
+      type: "refused",
+      tabId: document.tabId,
+      origin: document.origin,
+      reason,
+      ...(detail ? { detail } : {}),
+      ...(document.frameId === 0 ? {} : { frame: true as const }),
+      ...(repeat ? { repeat: true as const } : {}),
+      ...(unrelated ? { unrelated: true as const } : {}),
+    });
+  }
+  /**
+   * Whether a page is login-related: its origin has a recipe, or a login runs in its tab
+   * (ADR 0019). Other pages are ordinary browsing.
+   */
+  async function loginRelated(tabId: number, documentOrigin: string): Promise<boolean> {
+    const running = tabAttempt(tabId);
+    if (running && !terminal(running)) return true;
+    if (probeMode && documentOrigin === origin) return true;
+    return (await recipes.starts(documentOrigin).catch(() => [])).length > 0;
+  }
+  /**
+   * Logs why the tab's own page was not admitted, such as an excluded site, when the page
+   * is login-related. A frame or a prerendered page is not the tab's page.
+   */
+  async function noteUnadmitted(sender: Sender): Promise<void> {
+    const tabId = sender.tab?.id;
+    if (
+      !sites ||
+      sender.id !== browser.runtime.id ||
+      tabId === undefined ||
+      sender.frameId !== 0 ||
+      !sender.documentId ||
+      (sender as { documentLifecycle?: string }).documentLifecycle === "prerender" ||
+      !sender.url
+    )
+      return;
+    try {
+      const url = new URL(sender.url);
+      const refusal = await sites.admission(url);
+      // A page that is not HTTPS never runs the content script in production.
+      if (refusal === "admitted" || refusal === "not-https") return;
+      if (!(await loginRelated(tabId, url.origin))) return;
+      note(
+        { tabId, frameId: 0, documentId: sender.documentId, origin: url.origin },
+        url.pathname,
+        refusal,
+      );
+    } catch {
+      // A report must never change the answer.
+    }
+  }
+  /**
+   * Consecutive answers that make a document try its start again, by frame and document.
+   * The content script tries a start `START_TRIES` times, about half a second apart, and
+   * then waits until its form goes; the worker counts the answers to log the page giving up.
+   */
+  const startTries = new Map<string, { count: number; at: number }>();
+  function countStartTry(sender: Sender, helloKey: string, result: Readiness): void {
+    const key = `${helloKey}:${sender.documentId}`;
+    if (
+      result.reason !== "stale-document" &&
+      result.reason !== "closed-tab" &&
+      result.starts === undefined
+    ) {
+      startTries.delete(key);
+      return;
+    }
+    const now = Date.now();
+    const last = startTries.get(key);
+    const count = last && now - last.at < START_TRY_WINDOW_MS ? last.count + 1 : 1;
+    startTries.delete(key);
+    startTries.set(key, { count, at: now });
+    for (const old of startTries.keys()) {
+      if (startTries.size <= 256) break;
+      startTries.delete(old);
+    }
+    const tabId = sender.tab?.id;
+    if (
+      count !== START_TRIES ||
+      result.reason !== "stale-document" ||
+      tabId === undefined ||
+      sender.frameId === undefined ||
+      !sender.documentId ||
+      !sender.url
+    )
+      return;
+    try {
+      const url = new URL(sender.url);
+      note(
+        { tabId, frameId: sender.frameId, documentId: sender.documentId, origin: url.origin },
+        url.pathname,
+        "stale-document",
+        "gave-up",
+      );
+    } catch {
+      // A report must never change the answer.
+    }
+  }
   type Readiness = { ok: boolean; reason?: string; starts?: LoginReadiness[]; generate?: true };
   async function ready(
     sender: Sender,
@@ -3396,7 +3557,9 @@ export function createLoginRuntime(
     })();
     admitting.set(helloKey, admission);
     try {
-      return await admission;
+      const result = await admission;
+      if (start) countStartTry(sender, helloKey, result);
+      return result;
     } finally {
       if (admitting.get(helloKey) === admission) admitting.delete(helloKey);
     }
@@ -3439,7 +3602,10 @@ export function createLoginRuntime(
     await loaded;
     await sessionLoaded;
     const document = await identify(sender);
-    if (!document || !sender.url) return { ok: false, reason: "unauthorized-document" };
+    if (!document || !sender.url) {
+      await noteUnadmitted(sender);
+      return { ok: false, reason: "unauthorized-document" };
+    }
     if (hellos.get(helloKey) !== sequence) return { ok: false, reason: "stale-document" };
     const key = frameKey(document);
     // A new page in the tab replaces the document that waited for a choice.
@@ -3511,6 +3677,7 @@ export function createLoginRuntime(
             document,
           });
           if (run) run.metadata = ended;
+          reportAttempt(ended, run?.recipe);
           try {
             await keep(ended);
           } catch {
@@ -3545,8 +3712,10 @@ export function createLoginRuntime(
       sameDocument &&
       (oldLive.token !== token ||
         (carried?.live === oldLive && !(document.frameId === 0 && finishedLogin(carried.metadata))))
-    )
+    ) {
+      note(document, new URL(url).pathname, "duplicate-document");
       return { ok: false, reason: "duplicate-document" };
+    }
     if (oldLive && !sameDocument)
       await send(oldLive, { type: "login.cancel" }).catch(() => undefined);
     const path = new URL(url).pathname;
@@ -3565,15 +3734,8 @@ export function createLoginRuntime(
         : {}),
     };
     documents.set(key, live);
-    const refuse = async (reason: string, detail?: string) => {
-      report({
-        type: "refused",
-        tabId: document.tabId,
-        origin: document.origin,
-        reason,
-        ...(detail ? { detail } : {}),
-        ...(document.frameId === 0 ? {} : { frame: true as const }),
-      });
+    const refuse = async (reason: string, detail?: string, unrelated?: boolean) => {
+      note(document, live.path, reason, detail, unrelated);
       live.state = "denied";
       live.reason = reason;
       await publish(live);
@@ -3596,7 +3758,12 @@ export function createLoginRuntime(
     // A report sent only for the log does not log the tab's hold again.
     if (busy)
       return shown && !start && !signIn ? { ok: false, reason: "tab-busy" } : refuse("tab-busy");
-    if (!storageHealthy) return refuse("storage-unavailable");
+    if (!storageHealthy)
+      return refuse(
+        "storage-unavailable",
+        undefined,
+        !(await loginRelated(document.tabId, document.origin)),
+      );
     const holder = tabAttempt(document.tabId);
     if (holder && !terminal(holder) && holder.document.frameId === 0 && leftSite(holder)) {
       // The tab's page moved to another origin: the attempt there ends without
@@ -3743,7 +3910,8 @@ export function createLoginRuntime(
         skipGeneration(live, "no-vault-match");
         offer = false;
       }
-      if (!recipe && !starts.length && !offer) return refuse("recipe-not-found");
+      // No recipe of the origin and no login in the tab: ordinary browsing (ADR 0019).
+      if (!recipe && !starts.length && !offer) return refuse("recipe-not-found", undefined, true);
       // Only an origin with a recipe: elsewhere every sign-in page would be logged.
       if (starts.length) notStarted(recipe ? "first-step-missing" : "no-recipe-on-path");
       live.state = "watching";
