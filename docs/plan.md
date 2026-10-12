@@ -35,6 +35,13 @@ password or passkey, in the Grok Bot computer's Chrome, on a production build of
 
 - Start from a list of those sites. It names the owner's own accounts, so it stays in
   the project's files rather than in this repository.
+- Sites where the owner has no password or passkey sign-in, only a code or link sent
+  by email or an identity provider, are out of scope for phase 1 (owner, 2026-10-12
+  14:01 and 14:21 UTC). Such a site counts as done once a check shows Pateat does
+  nothing there, and waits for those sign-ins in
+  [phase 4](#phase-4-issues-and-work-as-needed). Claude, where the owner signs in by
+  email, Tailscale, Zenn and Vercel are recorded as such sites; the last three were
+  judged from their usual sign-in pages, not checked.
 - Log in, in the Grok Bot computer's Chrome, on the sites the owner's Bot checks
   regularly, such as card statements and AI usage pages, so the Bot never needs a
   password (owner, 2026-10-12 14:00 UTC). Sites that sign in only through another
@@ -241,6 +248,10 @@ still open on 2026-10-11.
 
 - Signing in through an identity provider
   ([ADR 0026](adr/0026-sign-in-through-identity-providers.md), ADR 0027 delivery 5).
+- Signing in with a code or link sent by email, which
+  [ADR 0027](adr/0027-per-account-login-routes.md) does not handle today (such a code
+  page ends `challenge`). It has the same priority as signing in through an identity
+  provider (owner, 2026-10-12 14:01 UTC).
 - Opening the service to other people, once there are users who need it; per-owner byte
   quotas come with it.
 - Settings to limit Pateat as an extension that handles personal data: only allowed
