@@ -113,19 +113,23 @@ new owner decision:
   `name` or `data-testid` value that the label redaction would change is never used as a
   locator there, since signed-in pages often name the account in them: such a button or
   link is left out, and such a field makes the page incomplete.
-- A generation that fails `invalid-output` names the check that refused the model's
-  output in its answer and in the request log, in codes only (2026-10-12, after a real
-  page's failure could not be told apart): the output was not JSON, failed the output
-  format at a path, or failed the plan check with its code. The request log also keeps a
-  plan the plan check refused, reduced to the request's candidate and slot IDs and
-  generic slot IDs. The extension logs the check and its codes with `recipe.generate`.
-  Each request log row also records the role's prompt version, a short hash of its
-  instructions and response format, so a row shows which instructions produced it.
 - While a model call runs, the extension calls an extension API every 20 seconds, so
   Chrome does not stop its service worker and lose the answer. It waits up to 90
   seconds; a page whose answer timed out is freed for its next visit, which the service
   answers with `recently-tried` or the written recipe if the model was called
   ([ADR 0016](0016-recipe-generation-trigger.md)).
+
+Diagnostics added on 2026-10-12, after a real page's `invalid-output` could not be told
+apart from other failures; they are implementation choices, not owner decisions:
+
+- A generation that fails `invalid-output` names the check that refused the model's
+  output in its answer and in the request log, in codes only: the output was not JSON,
+  failed the output format at a path, or failed the plan check with its code. The
+  request log also keeps a plan the plan check refused, reduced to the request's
+  candidate and slot IDs, with each name the model gave replaced by a placeholder. The
+  extension logs the check and its codes with `recipe.generate`.
+- Each request log row records the role's prompt version, a short hash of its
+  instructions and response format, so a row shows which instructions produced it.
 
 ## Consequences
 

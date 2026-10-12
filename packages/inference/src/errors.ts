@@ -38,20 +38,49 @@ export function classifyInferenceError(
   return "provider-error";
 }
 
-/** The property names an output's JSON Schema defines anywhere in it. */
-export function schemaKeys(schema: unknown): ReadonlySet<string> {
-  const keys = new Set<string>();
-  const visit = (node: unknown) => {
-    if (Array.isArray(node)) node.forEach(visit);
-    else if (node !== null && typeof node === "object") {
-      const properties = (node as { properties?: unknown }).properties;
-      if (properties !== null && typeof properties === "object")
-        for (const key of Object.keys(properties)) keys.add(key);
-      Object.values(node).forEach(visit);
-    }
+type SchemaNode = Record<string, unknown>;
+const isNode = (value: unknown): value is SchemaNode =>
+  value !== null && typeof value === "object" && !Array.isArray(value);
+
+/**
+ * The JSON Schema nodes that one step of an output path may lead to: an object key's
+ * property schema or an array's item schema, looking through `anyOf`, `oneOf`, `allOf`
+ * and local `$ref`s. Empty when the format does not define the step at that place.
+ */
+function step(root: unknown, nodes: readonly SchemaNode[], key: string | number): SchemaNode[] {
+  const expand = (node: SchemaNode, seen: Set<SchemaNode>): SchemaNode[] => {
+    if (seen.has(node)) return [];
+    seen.add(node);
+    const ref = node["$ref"];
+    const target =
+      typeof ref === "string" && ref.startsWith("#/")
+        ? ref
+            .slice(2)
+            .split("/")
+            .reduce<unknown>((at, part) => (isNode(at) ? at[part] : undefined), root)
+        : undefined;
+    return [
+      node,
+      ...(isNode(target) ? expand(target, seen) : []),
+      ...["anyOf", "oneOf", "allOf"].flatMap((group) => {
+        const options = node[group];
+        return Array.isArray(options)
+          ? options.filter(isNode).flatMap((option) => expand(option, seen))
+          : [];
+      }),
+    ];
   };
-  visit(schema);
-  return keys;
+  return nodes
+    .flatMap((node) => expand(node, new Set()))
+    .flatMap((node) => {
+      const next =
+        typeof key === "number"
+          ? node["items"]
+          : isNode(node["properties"]) && Object.hasOwn(node["properties"], key)
+            ? node["properties"][key]
+            : undefined;
+      return isNode(next) ? [next] : [];
+    });
 }
 
 const kebab = (value: string) =>
@@ -60,15 +89,12 @@ const kebab = (value: string) =>
 /**
  * Why the SDK's structured-output check refused the model's text: `json` when it was not
  * JSON, otherwise the type of the first Valibot issue and where it was. The path keeps
- * array indexes and the keys of `keys` (the output schema's), in kebab case; it ends before
- * any other key, which the model wrote, and the issue is then `unknown-key`. The text, the
- * issue's message and the value it received are never read, since they may quote the
- * output. `undefined` for any other error.
+ * array indexes and the keys that `schema` (the output's JSON Schema) defines at each
+ * place, in kebab case; it ends before any other key, which the model wrote, and the issue
+ * is then `unknown-key`. The text, the issue's message and the value it received are never
+ * read, since they may quote the output. `undefined` for any other error.
  */
-export function outputSchemaIssue(
-  error: unknown,
-  keys: ReadonlySet<string>,
-): OutputSchemaIssue | undefined {
+export function outputSchemaIssue(error: unknown, schema: unknown): OutputSchemaIssue | undefined {
   const cause = RetryError.isInstance(error) ? error.lastError : error;
   const failure = NoObjectGeneratedError.isInstance(cause) ? cause.cause : cause;
   if (JSONParseError.isInstance(failure)) return { check: "json" };
@@ -81,14 +107,19 @@ export function outputSchemaIssue(
   if (typeof issue?.type !== "string") return undefined;
   const path: string[] = [];
   let unknownKey = false;
+  let at: SchemaNode[] = isNode(schema) ? [schema] : [];
   for (const item of Array.isArray(issue.path) ? issue.path : []) {
     const key = (item as { key?: unknown } | null)?.key;
-    if (typeof key === "number" && Number.isSafeInteger(key) && key >= 0) path.push(String(key));
-    else if (typeof key === "string" && keys.has(key)) path.push(kebab(key));
-    else {
+    const next =
+      (typeof key === "number" && Number.isSafeInteger(key) && key >= 0) || typeof key === "string"
+        ? step(schema, at, key)
+        : [];
+    if (!next.length) {
       unknownKey = true;
       break;
     }
+    path.push(typeof key === "number" ? String(key) : kebab(key as string));
+    at = next;
   }
   return {
     check: "schema",

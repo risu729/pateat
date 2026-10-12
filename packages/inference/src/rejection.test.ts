@@ -114,7 +114,7 @@ describe("refused generated output", () => {
     if (outcome.status !== "failed") throw new Error("expected a failure");
     expect(outcome.output).toEqual({
       result: {
-        fields: [field("username", "c1"), field("custom-1", "c3", "?")],
+        fields: [field("username", "c1"), field("custom-1", "c3", "name-1")],
         action: { candidate: "?", purpose: "submit" },
         accountSwitch: "c5",
         alternatives: [{ fields: [field("?", "c6")], action: signIn }],
@@ -122,6 +122,46 @@ describe("refused generated output", () => {
       },
     });
     expect(JSON.stringify(outcome)).not.toMatch(/取引|ログイン|電話|phone/u);
+  });
+
+  it("replaces each name the model gave by a placeholder, keeping equal names equal", async () => {
+    // Two requested slots under one name, and a name repeated in an alternative.
+    const outcome = await answer({
+      fields: [
+        field("custom-1", "c2", "trading-pin"),
+        field("custom-2", "c1", "trading-pin"),
+        field("username", "c1", "username"),
+      ],
+      action: signIn,
+      alternatives: [
+        {
+          fields: [field("custom-2", "c1", "取引暗証番号"), field("custom-1", "c2", "trading-pin")],
+          action: signIn,
+        },
+      ],
+      passkeyButton: "c6",
+    });
+    if (outcome.status !== "failed") throw new Error("expected a failure");
+    expect(outcome.output).toEqual({
+      result: {
+        fields: [
+          field("custom-1", "c2", "name-1"),
+          field("custom-2", "c1", "name-1"),
+          // A request slot ID is a reference the request holds.
+          field("username", "c1", "username"),
+        ],
+        action: signIn,
+        alternatives: [
+          {
+            fields: [field("custom-2", "c1", "name-2"), field("custom-1", "c2", "name-1")],
+            action: signIn,
+          },
+        ],
+        // A candidate of the request stays, whatever it is.
+        passkeyButton: "c6",
+      },
+    });
+    expect(JSON.stringify(outcome)).not.toMatch(/trading|取引/u);
   });
 
   it.each([
@@ -151,6 +191,29 @@ describe("refused generated output", () => {
         },
       }),
       { check: "schema", issue: "unknown-key", path: "result.fields.0" },
+    ],
+    [
+      "a key the format defines only elsewhere",
+      JSON.stringify({
+        result: {
+          decision: "plan",
+          fields: [{ ...field("username", "c1"), purpose: "submit" }],
+          action: signIn,
+        },
+      }),
+      { check: "schema", issue: "unknown-key", path: "result.fields.0" },
+    ],
+    [
+      "an alternative's field past the length limit",
+      JSON.stringify({
+        result: {
+          decision: "plan",
+          fields: [field("username", "c1")],
+          action: signIn,
+          alternatives: [{ fields: [field("username", "ユーザー".repeat(20))], action: signIn }],
+        },
+      }),
+      { check: "schema", issue: "max-length", path: "result.alternatives.0.fields.0.candidate" },
     ],
     [
       "an action purpose outside the list",

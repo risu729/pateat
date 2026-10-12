@@ -1226,6 +1226,44 @@ describe("completion judgement", () => {
     expect(head).toEqual({ revision: 2 });
   });
 
+  it("logs which check refused a judgement's output, as codes only", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    // A code source outside the list: the output format refuses it.
+    replies.push({
+      text: JSON.stringify({
+        result: {
+          decision: "challenge",
+          code: { field: "logout", submit: "help", source: "Text message to your phone" },
+        },
+      }),
+    });
+    expect((await complete(device, change.recipeId, 2)).body).toEqual({
+      version: 1,
+      status: "failed",
+      error: "invalid-output",
+    });
+    const [logged] = await rows(
+      "SELECT outcome, prompt_version, result FROM inference_log WHERE owner_id = ? AND role = 'judge'",
+      device.ownerId,
+    );
+    expect({ ...logged, result: JSON.parse(String(logged!.result)) }).toEqual({
+      outcome: "invalid-output",
+      prompt_version: await completionPromptVersion(),
+      result: {
+        rejection: { check: "schema", issue: "picklist", path: "result.code.source" },
+      },
+    });
+    expect(String(logged!.result)).not.toMatch(/phone/u);
+    expect(info).toHaveBeenCalledWith("Model output refused", {
+      role: "judge",
+      promptVersion: await completionPromptVersion(),
+      rejection: { check: "schema", issue: "picklist", path: "result.code.source" },
+    });
+    info.mockRestore();
+  });
+
   it("does not judge a page that shows the login form again", async () => {
     const device = await owner();
     const change = await twoPageRecipe(device);

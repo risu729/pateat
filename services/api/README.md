@@ -264,14 +264,18 @@ reservation. The `inference_log` row stores the provider and model, the role's p
 version (`prompt_version`: the first 12 hex digits of the SHA-256 of its instructions, a
 newline and its response format's JSON Schema, computed once per role), the instructions
 and input as sent, the structured result, the outcome code, usage and estimated cost; a
-request refused locally before any model call is not logged. For `invalid-output`, the
-result is the `rejection` and, when the plan check refused a plan, that plan as
-`output`, with every candidate, slot or name that is not one of the request's candidate
-or slot IDs or a generic slot ID replaced by `?`, since an unchecked string may quote
-the page or a field name. The model's text is never stored, and the Worker logs only
-`Model output refused` with the role, its prompt version and the `rejection`. Rows older
-than 90 days are deleted whenever a call is logged and on every `GET /v1/recipes`,
-because routine releases do not apply cron triggers.
+request refused locally before any model call is not logged. For `invalid-output`,
+the result is `{ rejection }` when a check named it (the judge role's
+check of its marker refuses without one, leaving the result empty) and, when the plan
+check refused a plan, that plan as `output`: a candidate or slot that is not one of the
+request's IDs becomes `?`, and each name the model gave that is not a request slot ID
+becomes `name-1`, `name-2` and so on by first appearance, so equal names stay visible.
+An unchecked string may quote the page or a field name, so the model's text is never
+stored, and the Worker logs only `Model output refused` with the role, its prompt
+version and the `rejection`. A schema `path` resolves each key where the output format
+defines it, so a key the format defines only elsewhere also ends the path as
+`unknown-key`. Rows older than 90 days are deleted whenever a call is logged and on
+every `GET /v1/recipes`, because routine releases do not apply cron triggers.
 
 ## Schema and tests
 

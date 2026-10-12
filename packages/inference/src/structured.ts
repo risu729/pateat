@@ -2,7 +2,7 @@ import { valibotSchema } from "@ai-sdk/valibot";
 import { generateText, Output, wrapLanguageModel, type LanguageModel } from "ai";
 import * as v from "valibot";
 import { toJsonSchema } from "@valibot/to-json-schema";
-import { classifyInferenceError, outputSchemaIssue, schemaKeys } from "./errors";
+import { classifyInferenceError, outputSchemaIssue } from "./errors";
 import {
   createUsageMeter,
   normalizeUsage,
@@ -117,9 +117,7 @@ export async function runStructuredRole<O, T>(config: {
   } catch (error) {
     const code = classifyInferenceError(error, { timeout, caller: config.abortSignal });
     const issue =
-      code === "invalid-output"
-        ? outputSchemaIssue(error, schemaKeys(toJsonSchema(config.schema)))
-        : undefined;
+      code === "invalid-output" ? outputSchemaIssue(error, toJsonSchema(config.schema)) : undefined;
     return outcome({ status: "failed", error: code, ...(issue ? { schemaIssue: issue } : {}) });
   }
 }

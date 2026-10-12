@@ -77,8 +77,8 @@ const rejectionCode = v.pipe(v.string(), v.regex(/^[a-z][a-z0-9-]{0,47}$/u));
  * Why the service refused the model's output as `invalid-output`, as codes only: `json`
  * when the output was not JSON; `schema` with the type of the first Valibot issue of the
  * output format, such as `max-length`, and where it was, as the output's keys in kebab
- * case and array indexes joined by dots (empty at the top, and ending at a key the format
- * does not define); or `plan` with the code of the plan check that refused it, such as
+ * case and array indexes joined by dots (empty at the top, and ending before a key the
+ * format does not define at that place, the issue then being `unknown-key`); or `plan` with the code of the plan check that refused it, such as
  * `incompatible-role`. Never the output's text.
  */
 export const generationOutputRejectionSchema = v.variant("check", [
