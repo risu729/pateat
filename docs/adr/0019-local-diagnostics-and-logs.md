@@ -4,7 +4,8 @@ Status: accepted by the owner on 2026-10-11 and amended the same day (see
 [Amendment: server information](#amendment-server-information)) and on 2026-10-12 (see
 [Amendment: logins that did not finish](#amendment-logins-that-did-not-finish) and
 [Amendment: sites shown in log downloads](#amendment-sites-shown-in-log-downloads) and
-[Amendment: a page limit per level](#amendment-a-page-limit-per-level)). The
+[Amendment: a page limit per level](#amendment-a-page-limit-per-level) and
+[Amendment: what the log records](#amendment-what-the-log-records)). The
 diagnostics page, the logs, the Bitwarden server information, recent log lines and the
 Pateat service's record for the device are implemented.
 
@@ -72,7 +73,8 @@ The owner approved the following on 2026-10-11.
 
 - Never recorded: passwords, keys, tokens, TOTP secrets or codes, field values, passkey
   private keys, emails, usernames, item names, connection labels, custom field names,
-  service response bodies, and URL paths, queries or fragments.
+  service response bodies, and URL paths, queries or fragments (amended below: a
+  login-related page's URL is recorded).
 - Pseudonymized with HMAC-SHA-256 under a random per-device key: item IDs
   (`item:3f9a0c1e`) and connection IDs (`bitwarden:5c1e9a`).
 - Origins are logged in full only when the origin is in the recipe cache, site defaults,
@@ -197,3 +199,75 @@ dropped. The owner could not tell from the log why the site was not filled.
   their own, so they never crowd out `info`, `warn` or `error` events of the same page.
 - A `log.dropped` entry for dropped `debug` events is `debug`; one for any other events
   stays `warn`.
+
+## Amendment: what the log records
+
+On 2026-10-12 the owner found that logs often lacked the reason for what happened, and
+asked for a standard of what to log. The owner had already set the rule (05:44 UTC):
+whenever Pateat does nothing and no login happens, the log says why. The owner approved
+the proposal below on 2026-10-12 (06:54 and 06:55 UTC), with two changes: debug logging
+can be turned on and off, and a page's URL path, query and fragment may be recorded.
+
+Goal: on every login-related page, the log tells what Pateat did or, if it did nothing,
+why, without debug logging.
+
+A login-related page is the tab's own page (not a frame inside it) when the origin has a
+recipe, or when a login is in progress in that tab. Other pages are ordinary browsing
+and are not logged, so the log does not become a browsing history; a sign-in form on a
+site without a recipe is not logged either.
+
+What is logged, and at which level:
+
+- On a login-related page, the reason Pateat did nothing: no recipe, no account chosen,
+  an excluded site, no site access, another login in the tab, waiting after a logout,
+  and so on. `info`, one line per reason per page; the same reason again on the same
+  page is `debug`. A `stale-document` race that a later announcement resolves stays
+  `debug`; the page giving up after its retries is `info`.
+- Decisions: a login started (with its route and variant), an account chosen
+  automatically (the candidate count and the `item:` pseudonym only), a logout
+  recognized. `info`.
+- Results: unchanged. `authenticated` is `info`; `blocked` and a result settled as
+  unknown are `warn`.
+- Requests that leave the device (generation and judgement, the Pateat service sync,
+  Bitwarden sync and token refresh, passkey answers): one line per request with its
+  result. A routine success that changed nothing is `debug`, one that changed something
+  `info`, a failure `warn`. A request that never got an answer logs that it was sent.
+- An exception that stops a login: `warn`, with Pateat's error code and the exception
+  name only.
+- Step-by-step progress, frame refusals and repeated states: `debug`.
+- Reasons are not folded into coarser codes: a step timeout, a failed step check, a
+  page change, an expired authorization and a real cancel each get their own code.
+  Counts and flags are kept.
+
+Who writes: still only the service worker, from the answers it gives. A content script
+does not get a message to write a log line, because a page could forge it; the reasons
+a content script stops are logged by the service worker when it answers. Reasons that
+only a page's own script knows, such as a passkey request it leaves to the browser, are
+not logged.
+
+URLs:
+
+- For the tab's own page of an origin that is logged in full, the log records the URL's
+  path, query and fragment. A pseudonymized origin (`origin:7d2b91aa`) gets no URL.
+- Queries and fragments can carry one-time codes or tokens that sites put in links; the
+  owner accepted that. The value is cut at 512 characters like any field.
+- **Hide site addresses and recipe IDs** also leaves the URL out of an export. The bug
+  report's recent lines never carry it.
+
+Debug logging:
+
+- The diagnostics page turns debug logging on and off. Turning it on lasts 24 hours,
+  then it turns itself off.
+
+Limits:
+
+- `debug` and `info` entries: 14,000 (was 5,000), enough for about 14 days at an
+  estimated 1,000 a day on a testing day. `warn` and `error`: 1,000, unchanged. The
+  number of entries, not the 14 days, decides how long logs last.
+- Page events other than `debug`: 30 per minute per tab and origin (was 20), since one
+  login now writes 6 to 8 such entries. `debug` keeps its own 20.
+- `log.dropped` also names the dropped events.
+
+Delivery, one pull request each: debug logging on and off; reasons for doing nothing
+(including an exception that stops a login); decisions; URLs; requests and sync
+results; finer reasons; limits. The page limit per level (#291) is done.
