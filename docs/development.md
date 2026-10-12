@@ -500,7 +500,7 @@ use.
 | Service web UI | **Implemented for the devices page:** React, Tailwind through its Vite plugin, Base UI with the selected shadcn/ui Button and TanStack Query, built by Vite into Worker static assets; **approved:** TanStack Form | M4 owner web UI |
 | Form state | **Implemented:** TanStack Form with Valibot through Standard Schema | M2 settings validation, dirty drafts and field errors |
 | Async UI state | **Implemented for settings:** TanStack Query for metadata reads and mutations | M2 extension-message queries; M4 sync integration |
-| Attempt lifecycle | **Implemented in the local probe:** XState with application-owned login transitions, guards and recovery | M2 declarative executor |
+| Attempt lifecycle | **Implemented:** XState for each login attempt (`loginAttemptMachine`), applied with its pure `transition()`; the runtime around it stays application code | M2 declarative executor |
 | Transport | **Approved:** `@webext-core/messaging` around validated contracts | M2 message transport |
 | Storage | **Approved:** WXT storage helpers | M2 persistence integration |
 | Destination matching | **Selected under delegated authority:** WHATWG URL plus tldts for public/private suffix information | M3 URI matching; M5 RP ID validation |
@@ -536,6 +536,15 @@ guards, attempt limits and reconciliation. Persist only allowlisted resumable
 metadata. Restoring an invoked actor can restart its work: never restore directly
 into a submit invocation. Resume through observation and outcome reconciliation.
 Do not put secrets in machine context, events, snapshots, inspectors or logs.
+
+The owner decided on 2026-10-12 to keep this split after comparing replacements
+([research](research/2026-10-12-state-handling-libraries.md)). Durable workflow engines
+such as Temporal or Cloudflare Workflows are not used for logins: they run on a server,
+while login steps run in the extension with values that stay on the device, and they do
+not take over resubmission safety. Effect is not adopted for the runtime's cancellation
+checks. New per-tab or per-site state that has transitions is added the way the attempt
+is: an XState machine in `packages/contracts`, applied with `transition()` without a
+long-lived actor, and stored only as Valibot-validated metadata.
 
 WXT helpers and typed messaging do not replace Valibot validation, browser-sender
 authorization or tab/frame/document checks. Initialize trusted-only storage access
