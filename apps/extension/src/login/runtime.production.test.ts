@@ -1044,7 +1044,7 @@ describe("production login document admission", () => {
     const stored = () => (fake.state.storage["pateat.login-attempts.v3"] ?? []) as Stored[];
     const at = (from: string) => stored().find((entry) => entry.account.origin === from);
     /** Both origins have their own recipe, binding and saved default for the same item. */
-    const twoSites = () => {
+    const twoSites = (live: Parameters<typeof harness>[1] = {}) => {
       const h = harness(
         {
           siteDefaults: [
@@ -1053,7 +1053,7 @@ describe("production login document admission", () => {
           ],
           bindings: [savedBinding, { ...savedBinding, recipeId: secondRecipe.id, origin: second }],
         },
-        { allowedOrigins: [origin, second] },
+        { allowedOrigins: [origin, second], ...live },
       );
       h.recipes.recipe.mockImplementation(async (from: string, path: string) =>
         path !== "/signin"
@@ -1133,6 +1133,82 @@ describe("production login document admission", () => {
         expect.objectContaining({ document: expect.objectContaining({ origin: second }) }),
         expect.objectContaining({ document: expect.objectContaining({ origin: second }) }),
       ]);
+    });
+    /** A page of the second site whose login form is in a frame of the same origin. */
+    const secondPage = `${second}/account`;
+    const secondFrame = () => {
+      fake.state.tabUrls[1] = secondPage;
+      return h2frame;
+    };
+    const h2frame = {
+      frameId: 3,
+      documentId: "second-frame",
+      url: secondUrl,
+      tab: { id: 1, url: secondPage },
+    };
+    it("starts the next site's framed login after the tab's login ended on another site", async () => {
+      fake.state.executeReply = { ok: false, reason: "wrong-account" };
+      const h = twoSites();
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() =>
+        expect(at(origin)).toMatchObject({ state: "blocked", outcome: "wrong-account" }),
+      );
+      fake.state.executeReply = undefined;
+      expect(await navigate(h, secondPage, "second-page", false)).toMatchObject({ ok: false });
+      // The ended login of the site the tab left never holds the next site's frame.
+      expect(await h.hello(secondFrame())).toEqual({ ok: true });
+      await vi.waitFor(() => expect(at(second)).toMatchObject({ state: "authenticated" }));
+      expect(at(origin)).toMatchObject({ state: "blocked", outcome: "wrong-account" });
+    });
+    it("ends the left site's login when the next site's frame announces before its page", async () => {
+      holdClicks(origin);
+      const h = twoSites();
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(executes()).toHaveLength(2));
+      expect(await h.hello(secondFrame())).toEqual({ ok: true });
+      expect(at(origin)).toMatchObject({
+        state: "blocked",
+        outcome: "left-origin",
+        submissions: 1,
+      });
+      await vi.waitFor(() => expect(at(second)).toMatchObject({ state: "authenticated" }));
+      expect(await h.login.active()).toBe(false);
+    });
+    it("still holds a frame of the same page while its login runs", async () => {
+      holdClicks(origin);
+      const h = twoSites();
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(executes()).toHaveLength(2));
+      // A frame of the second site's origin inside the first site's page is not another site.
+      expect(await h.hello({ ...h2frame, tab: { id: 1, url: fake.state.pageUrl } })).toEqual({
+        ok: false,
+        reason: "tab-busy",
+      });
+      expect(at(origin)).toMatchObject({ state: "submit-intent" });
+    });
+    it("offers the next site's page for generation after the tab's login ended", async () => {
+      fake.state.executeReply = { ok: false, reason: "wrong-account" };
+      const available = vi.fn<LoginGeneration["available"]>(async () => true);
+      const h = twoSites({
+        uris: async (_connection, url) => ({
+          ok: true,
+          data: uriMatch({ targetOrigin: new URL(url).origin }),
+        }),
+        generation: {
+          available,
+          generate: vi.fn<LoginGeneration["generate"]>(),
+          judge: vi.fn<LoginGeneration["judge"]>(),
+          slotFields: vi.fn<LoginGeneration["slotFields"]>(async () => undefined),
+        },
+      });
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() =>
+        expect(at(origin)).toMatchObject({ state: "blocked", outcome: "wrong-account" }),
+      );
+      expect(
+        await navigate(h, "https://elsewhere.example/login", "elsewhere-document", false),
+      ).toEqual({ ok: false, reason: "recipe-not-found", starts: [], generate: true });
+      expect(available).toHaveBeenCalledWith("https://elsewhere.example", "/login");
     });
     it("ends a submitted attempt when the next origin has no recipe", async () => {
       holdClicks(origin);

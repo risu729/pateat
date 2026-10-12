@@ -12,7 +12,9 @@ another tab no longer holds the origin; see "Holding the origin in other tabs" b
 Amended again on 2026-10-12 (02:42 UTC, owner's choice on a decision card): a login
 Pateat itself stopped no longer holds the origin either. Evidence: in the owner's Chrome
 a `policy-changed` record from a transient vault error kept a new npm tab from logging
-in for 8 hours, across an extension reload.
+in for 8 hours, across an extension reload. Amended on 2026-10-12 (05:41 UTC, owner's
+request in the project chat): a tab that moves to another site starts clean there, also
+for a login form in a frame; see "A tab still runs one attempt at a time" below.
 
 ## Context
 
@@ -47,11 +49,16 @@ fix them now; the SSO policy itself is recorded separately.
 - **A tab still runs one attempt at a time.** When a new top-level page of another
   origin arrives while the tab's top-level attempt has not ended, that attempt ends
   first (`NAVIGATED`) and keeps its record; then the new top-level page is handled like
-  one in a fresh tab. Frames are not: as before, a frame of a later page gets `tab-busy`
-  while the tab holds an earlier record. Frame attempts keep ADR 0017's rule: a
-  whole-tab navigation ends them `blocked` with outcome `cancelled`. A frame that itself
-  moves to another origin does not end its attempt; it ends with the next whole-tab
-  navigation or when the tab closes, as before.
+  one in a fresh tab. Frames of that page are too (amended 2026-10-12): a top-level
+  record of another origin than the tab's page never holds a frame, and one that has not
+  ended ends `NAVIGATED` first, also when the frame announces before its page. Before, a
+  frame of a later page got `tab-busy` while the tab held any earlier record, so a site
+  whose login form is in a frame never logged in in a tab used for another site's login.
+  A record of the page's own origin and a frame's record still hold other frames with
+  `tab-busy`. Frame attempts keep ADR 0017's rule: a whole-tab
+  navigation ends them `blocked` with outcome `cancelled`. A frame that itself moves to
+  another origin does not end its attempt; it ends with the next whole-tab navigation or
+  when the tab closes, as before.
 - **Leaving the origin after a possible submission ends the attempt.** A top-level
   attempt that may have submitted (any fill or a click that submitted) and sees the
   tab's page move to another origin ends `blocked` with the new outcome `left-origin`.
