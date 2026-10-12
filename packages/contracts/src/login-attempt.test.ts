@@ -2492,6 +2492,26 @@ describe("a login watched after a challenge or an unknown result (ADR 0027)", ()
     ).toMatchObject({ state: "blocked", outcome: "left-origin" });
   });
 
+  it("takes newer settings over only while watched", () => {
+    const watching = transitionLoginAttempt(awaiting(), observed("challenge"), 1000);
+    const revised = {
+      type: "POLICY_REVISED" as const,
+      policyRevision: watching.policyRevision + 1,
+    };
+    expect(transitionLoginAttempt(watching, revised)).toEqual({
+      ...watching,
+      policyRevision: watching.policyRevision + 1,
+    });
+    // An older or the same revision changes nothing.
+    for (const policyRevision of [watching.policyRevision, watching.policyRevision - 1])
+      expect(transitionLoginAttempt(watching, { type: "POLICY_REVISED", policyRevision })).toEqual(
+        watching,
+      );
+    // A login that still issues steps is stopped by newer settings instead.
+    const pending = awaiting();
+    expect(transitionLoginAttempt(pending, { ...revised, policyRevision: 9 })).toEqual(pending);
+  });
+
   it("keeps a frame's and the passkey route's challenge final", () => {
     expect(
       transitionLoginAttempt(

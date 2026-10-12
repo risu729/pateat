@@ -1810,14 +1810,16 @@ export function createLoginRuntime(
     const previous = persisted.get(key);
     const next = parseAttemptMetadata({ ...metadata, changedAt: undefined });
     // Only the login's own progress counts as a change. A new page of its tab (another
-    // `documentId`) or a page sent to be judged keeps the time, so a tab left browsing the
-    // site after a login that did not succeed stops holding it.
+    // `documentId`), a page sent to be judged or newer settings a watch took over keep the
+    // time, so a tab left browsing the site after a login that did not succeed stops
+    // holding it.
     const progress = (record: LoginAttemptMetadata) =>
       JSON.stringify({
         ...record,
         document: { ...record.document, documentId: undefined },
         judged: undefined,
         watch: undefined,
+        policyRevision: undefined,
         changedAt: undefined,
       });
     const unchanged =
@@ -1956,8 +1958,9 @@ export function createLoginRuntime(
   }
   /**
    * Saves an automatic account choice after `authenticated` (ADR 0013). The settings must
-   * still be the revision the attempt was authorized under; otherwise nothing is saved and
-   * the next login chooses again.
+   * still be the revision the attempt was authorized under, or the newer one a watch took
+   * over after checking its account; otherwise nothing is saved and the next login chooses
+   * again.
    */
   async function remember(run: Execution): Promise<void> {
     const choice = run.choice;
@@ -2733,7 +2736,20 @@ export function createLoginRuntime(
     if (!current(run) || !storageHealthy) return undefined;
     const snapshot = await settings.handle({ version: 1, type: "settings.get" });
     if (!current(run)) return undefined;
-    if (!snapshot.ok || snapshot.snapshot.revision !== run.metadata.policyRevision) {
+    // A watched login only reads, so newer settings stop it only when they no longer plan
+    // its account on this page, as another site's saved account choice does not (ADR 0027).
+    const revised =
+      snapshot.ok &&
+      run.metadata.watch !== undefined &&
+      snapshot.snapshot.revision > run.metadata.policyRevision;
+    // A read that another check of the same watch overtook says nothing.
+    if (
+      snapshot.ok &&
+      run.metadata.watch !== undefined &&
+      snapshot.snapshot.revision < run.metadata.policyRevision
+    )
+      return undefined;
+    if (!snapshot.ok || (snapshot.snapshot.revision !== run.metadata.policyRevision && !revised)) {
       await change(
         run,
         { type: "POLICY_CHANGED" },
@@ -2758,6 +2774,11 @@ export function createLoginRuntime(
         { cause: "plan", reason: plan.ok ? "account-changed" : plan.reason },
       );
       return undefined;
+    }
+    if (revised) {
+      await change(run, { type: "POLICY_REVISED", policyRevision: snapshot.snapshot.revision });
+      if (!current(run) || run.metadata.policyRevision !== snapshot.snapshot.revision)
+        return undefined;
     }
     return {
       connection: plan.connection,
@@ -6269,8 +6290,21 @@ export function createLoginRuntime(
           recipeRevision: recipe.revision,
         });
       if (metadata.policyRevision !== snapshot.snapshot.revision && !terminal(metadata)) {
-        metadata = transitionLoginAttempt(metadata, { type: "POLICY_CHANGED" });
-        resumedPolicy = { cause: "settings-revision" };
+        // A watched login keeps watching while the newer settings still plan its account
+        // (ADR 0027).
+        const kept =
+          metadata.watch !== undefined &&
+          snapshot.snapshot.revision > metadata.policyRevision &&
+          plan.ok &&
+          plan.account.connectionId === metadata.account.connectionId &&
+          plan.account.itemId === metadata.account.itemId;
+        metadata = transitionLoginAttempt(
+          metadata,
+          kept
+            ? { type: "POLICY_REVISED", policyRevision: snapshot.snapshot.revision }
+            : { type: "POLICY_CHANGED" },
+        );
+        if (!kept) resumedPolicy = { cause: "settings-revision" };
       }
     } else {
       // A new login's plan carries the facts it chose its route with.
@@ -7069,18 +7103,25 @@ export function createLoginRuntime(
       run.metadata.policyRevision,
     );
   }
-  /** Stops every running login: settings were synced from the service or saved locally. */
+  /**
+   * Settings were synced from the service or saved locally: stops every running login but
+   * a watched one, which only reads, so it is checked against the new settings instead and
+   * stops only when they no longer plan its account (ADR 0027).
+   */
   function settingsChanged(source: "synced" | "saved"): void {
     for (const run of attempts.values()) {
-      if (!terminal(run.metadata)) {
-        // Stop in-flight DOM waits promptly; the journal write may be slower.
-        void send(run.live, { type: "login.cancel" }).catch(() => undefined);
-        void change(
-          run,
-          { type: "POLICY_CHANGED" },
-          { cause: source === "synced" ? "settings-synced" : "settings-saved" },
-        ).catch(() => undefined);
+      if (terminal(run.metadata)) continue;
+      if (run.metadata.watch !== undefined) {
+        void allowed(run).catch(() => undefined);
+        continue;
       }
+      // Stop in-flight DOM waits promptly; the journal write may be slower.
+      void send(run.live, { type: "login.cancel" }).catch(() => undefined);
+      void change(
+        run,
+        { type: "POLICY_CHANGED" },
+        { cause: source === "synced" ? "settings-synced" : "settings-saved" },
+      ).catch(() => undefined);
     }
   }
   browser.tabs.onRemoved.addListener((tabId) => {

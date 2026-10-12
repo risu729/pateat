@@ -414,6 +414,14 @@ export const loginAttemptEventSchema = v.variant("type", [
    * in flight (ADR 0022).
    */
   v.strictObject({ type: v.literal("POLICY_CHANGED"), undelivered: v.optional(identifier) }),
+  /**
+   * A watched login, which only reads, still has its account under newer settings: it
+   * keeps watching under their revision (ADR 0027).
+   */
+  v.strictObject({
+    type: v.literal("POLICY_REVISED"),
+    policyRevision: integer(Number.MAX_SAFE_INTEGER - 1),
+  }),
   v.strictObject({ type: v.literal("CANCEL") }),
 ]);
 export type LoginAttemptEvent = v.InferOutput<typeof loginAttemptEventSchema>;
@@ -557,6 +565,8 @@ function record(
       };
     case "REVISED":
       return { recipeRevision: event.recipeRevision };
+    case "POLICY_REVISED":
+      return { policyRevision: event.policyRevision };
     case "JUDGING":
       if (context.watch) return { watch: { ...context.watch, pages: context.watch.pages + 1 } };
       return {
@@ -868,6 +878,10 @@ function createLoginAttemptMachine() {
         context.handlers.length === 0,
       newerRevision: ({ context, event }) =>
         event.type === "REVISED" && event.recipeRevision > context.recipeRevision,
+      newerPolicy: ({ context, event }) =>
+        event.type === "POLICY_REVISED" &&
+        watched(context) &&
+        event.policyRevision > context.policyRevision,
       // A handler follows only an effect step that may have submitted, runs once per
       // login, and stays within the attempt's step and submission caps.
       canEnterHandler: ({ context, event }) =>
@@ -908,6 +922,7 @@ function createLoginAttemptMachine() {
     context: ({ input }) => parseAttemptMetadata(input),
     on: {
       REVISED: { guard: "newerRevision", actions: "record" },
+      POLICY_REVISED: { guard: "newerPolicy", actions: "record" },
       POLICY_CHANGED: { target: ".blocked", actions: "record" },
       CANCEL: { target: ".blocked", actions: "record" },
       NAVIGATED: [
