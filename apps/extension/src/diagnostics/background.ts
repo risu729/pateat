@@ -423,6 +423,36 @@ export function createDiagnosticsLog(options: {
           },
           { source },
         );
+      else if (report.type === "entry")
+        void logger.log(
+          "login.entry",
+          {
+            origin: report.origin,
+            url: report.url,
+            recipe: report.recipeId,
+            revision: report.revision,
+            outcome: report.outcome,
+            reason: report.reason,
+            detail: report.detail,
+          },
+          // ADR 0019's levels: a press and the first refusal of each reason on a document
+          // are info, a page that names no path to return to (an entry page visited while
+          // signed in), a press another document's check holds, and a repeated refusal are
+          // debug. An entry that led nowhere is a problem, and its revision is now blocked
+          // (ADR 0031).
+          {
+            source,
+            level:
+              report.outcome === "blocked"
+                ? "warn"
+                : report.outcome === "refused" &&
+                    (report.repeat ||
+                      report.reason === "no-return-target" ||
+                      report.reason === "in-progress")
+                  ? "debug"
+                  : "info",
+          },
+        );
       else
         void logger.log(
           "login.attempt",

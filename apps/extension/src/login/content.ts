@@ -8,6 +8,7 @@ import { CODE_SETTLE_MS, visible, watchCodeSubmission } from "../page/code-submi
 import { fillBaseline, inputValueMismatch, rejectsFill, unreadyForm } from "../page/fill-checks";
 import {
   extractAccountListObservation,
+  extractEntryObservation,
   extractLoginObservation,
   extractSignedInObservation,
 } from "../observation/extract";
@@ -18,6 +19,7 @@ import {
   listChoice,
   listControls,
 } from "../page/account-list";
+import { entryElementRefusal, entryHosts, showsSignUp } from "../page/entry";
 import { pageSigns, submittedPage, type SubmittedPage } from "../page/sign-in-state";
 import { acceptsSecret } from "./inputs";
 import {
@@ -213,9 +215,14 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   let generate = false;
   let offered = false;
   // The path where this document last submitted a form with a password input, and the
-  // next path it showed after it: that page is never offered as a list of accounts.
+  // next path it showed after it: that page is never offered as a list of accounts or as a
+  // sign-in entry.
   let submitPath: string | undefined;
   let afterSubmit: string | undefined;
+  // The page's URL names another path of its site: once the step wait passes without a
+  // sign-in input, it is offered as a site's sign-in entry, once (ADR 0031).
+  let entryWanted = false;
+  let entryOffered = false;
   // Paths where a sign-in input stayed shown without a ready first step, reported once
   // each so the background can log a login that did not start.
   const shown = new Set<string>();
@@ -239,9 +246,10 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     removeEventListener("popstate", schedule);
     navigation?.removeEventListener("currententrychange", schedule);
   }
-  function watch(list: LoginReadiness[], offer = false): void {
+  function watch(list: LoginReadiness[], offer = false, entryPage = false): void {
     starts = list;
     generate = offer && !offered;
+    entryWanted = generate && entryPage;
     if (!generate) {
       clearTimeout(offerTimer);
       offerTimer = undefined;
@@ -249,10 +257,16 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       offerTimer ??= setTimeout(() => {
         offerTimer = undefined;
         offered = true;
-        // A page that shows no sign-in input by now may list accounts (ADR 0028).
-        const accounts = !cancelled && !starts.some(ready) && !showsSignIn() ? listed() : undefined;
-        if (accounts) void announce(false, false, accounts).catch(() => undefined);
+        // A page that shows no sign-in input by now may list accounts (ADR 0028) or, when
+        // its URL names another path of its site, hold the site's sign-in entry (ADR
+        // 0031). The page right after a submitted password form offers neither.
+        const bare = !cancelled && !starts.some(ready) && !showsSignIn() && !afterSubmitted();
+        const accounts = bare ? listed() : undefined;
+        const offerEntry = bare && entryWanted && !entryOffered;
+        if (offerEntry) entryOffered = true;
         watch(starts);
+        if (accounts || offerEntry)
+          void announce(false, false, accounts, offerEntry).catch(() => undefined);
       }, LOGIN_STEP_WAIT_MS);
     if ((!starts.length && !generate) || cancelled) {
       unwatch();
@@ -350,15 +364,19 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         .catch(() => undefined);
     }, LOGIN_STEP_WAIT_MS);
   }
+  /** Whether this path is the one this document showed next after a submitted password form. */
+  function afterSubmitted(): boolean {
+    const path = location.pathname;
+    if (submitPath !== undefined && path !== submitPath) afterSubmit ??= path;
+    return path === afterSubmit;
+  }
   /**
    * What this page offers as a list of accounts (ADR 0028): its path once it lists an
    * account by email, or else the short texts that may name one by a username that is not
-   * an email. The page right after a submitted password form offers nothing.
+   * an email.
    */
   function listed(): { path: string; names?: string[] } | undefined {
     const path = location.pathname;
-    if (submitPath !== undefined && path !== submitPath) afterSubmit ??= path;
-    if (path === afterSubmit) return undefined;
     if (listsAccounts()) return { path };
     const names = accountNames(document);
     return names.length ? { path, names } : undefined;
@@ -367,6 +385,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     start: boolean,
     signIn = false,
     list?: { path: string; names?: string[] },
+    entryPage = false,
   ): Promise<unknown> {
     announced = start;
     const result: unknown = await browser.runtime.sendMessage({
@@ -376,12 +395,13 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       ...(start ? { start: { path: location.pathname } } : {}),
       ...(signIn ? { signIn: { path: location.pathname } } : {}),
       ...(list ? { list } : {}),
+      ...(entryPage ? { entry: { path: location.pathname } } : {}),
     });
     const parsed = v.safeParse(readySchema, result);
     if (!parsed.success || parsed.output.ok) {
       unwatch();
     } else if (parsed.output.starts) {
-      watch(parsed.output.starts, parsed.output.generate === true);
+      watch(parsed.output.starts, parsed.output.generate === true, parsed.output.entry === true);
       // In the document that logged in, a form still showing is not a logout; only its
       // next appearance is (ADR 0021 D).
       if (ended && !start) announced = starts.some(ready);
@@ -485,6 +505,81 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       }
       return false;
     }
+    if (command.type === "login.entry.hosts") {
+      respond(cancelled ? { ok: false } : { ok: true, hosts: entryHosts(document) });
+      return false;
+    }
+    if (command.type === "login.entry.inspect") {
+      // Polls the current DOM until the target names one shown element; never mutates.
+      void (async () => {
+        const until = Date.now() + command.timeoutMs;
+        const find = () => matches(command.target, true);
+        let found = find();
+        // A link still rendering, or not shown yet, gets the step wait. Cancellation is set
+        // by the independent background message listener.
+        for (;;) {
+          const waiting =
+            found.length === 0 ||
+            (found.length === 1 && entryElementRefusal(found[0]!) === "hidden");
+          if (cancelled || Date.now() >= until || !waiting) break;
+          // eslint-disable-next-line no-await-in-loop
+          await pause(100);
+          found = find();
+        }
+        if (cancelled) return { ok: false };
+        const url = location.href;
+        if (found.length !== 1)
+          return { ok: true, state: found.length ? "ambiguous" : "missing", url };
+        const element = found[0]!;
+        const refusal = entryElementRefusal(element);
+        return {
+          ok: true,
+          state: "unique",
+          url,
+          ...(refusal ? { refusal } : {}),
+          ...(element instanceof HTMLAnchorElement ? { href: element.href } : {}),
+        };
+      })().then(respond, () => respond({ ok: false }));
+      return true;
+    }
+    if (command.type === "login.entry.press") {
+      // Pressed only as the worker checked it: the same URL, one link, the same `href`.
+      const found = matches(command.target, true);
+      const element = found.length === 1 ? found[0] : undefined;
+      const reason = cancelled
+        ? "cancelled"
+        : location.href !== command.url
+          ? "page-changed"
+          : !(element instanceof HTMLAnchorElement) ||
+              entryElementRefusal(element) !== undefined ||
+              element.href !== command.href
+            ? "target-changed"
+            : undefined;
+      if (reason || !(element instanceof HTMLAnchorElement)) {
+        respond({ ok: false, reason: reason ?? "target-changed" });
+        return false;
+      }
+      watchPressedUrl();
+      element.click();
+      respond({ ok: true });
+      return false;
+    }
+    if (command.type === "login.entry.check") {
+      // The page after an entry press: polls until a sign-in input or a first step shows.
+      void (async () => {
+        const until = Date.now() + command.timeoutMs;
+        for (;;) {
+          if (cancelled) return { ok: false };
+          const signIn = showsSignIn();
+          const start = command.starts.some(ready);
+          if (signIn || start || Date.now() >= until)
+            return { ok: true, signIn, start, signUp: showsSignUp(document) };
+          // eslint-disable-next-line no-await-in-loop
+          await pause(100);
+        }
+      })().then(respond, () => respond({ ok: false }));
+      return true;
+    }
     if (command.type === "login.extract") {
       if (cancelled) {
         respond({ ok: false, reason: "cancelled" });
@@ -492,12 +587,15 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       }
       let result: unknown;
       try {
+        const onSite = new Set(command.onSite ?? []);
         result =
           command.page === "login"
             ? extractLoginObservation(document, command.known)
             : command.page === "accounts"
               ? extractAccountListObservation(document, command.names)
-              : extractSignedInObservation();
+              : command.page === "entry"
+                ? extractEntryObservation(document, (url) => onSite.has(url.hostname))
+                : extractSignedInObservation();
       } catch {
         // A page the extractor cannot read still gets an answer the log can name.
         result = { ok: false, reason: "extract-error" };
@@ -869,10 +967,26 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     return true;
   };
   /**
+   * After an entry press, a same-document URL change within the step wait is the next page
+   * (ADR 0031): the document announces again so the worker checks it. A press that leads to
+   * a new document needs nothing here; that document announces itself.
+   */
+  function watchPressedUrl(): void {
+    const from = location.href;
+    const until = Date.now() + LOGIN_STEP_WAIT_MS;
+    const poll = setInterval(() => {
+      if (cancelled || Date.now() > until) clearInterval(poll);
+      else if (location.href !== from) {
+        clearInterval(poll);
+        void announce(false).catch(() => undefined);
+      }
+    }, 100);
+  }
+  /**
    * A form with a password input submitted in this document: its next path here, and the
    * tab's next document if it is of the same origin, are not offered as a list of accounts
-   * (ADR 0028).
-   * Pateat's own submissions count too; their pages belong to a login anyway.
+   * (ADR 0028) or as a sign-in entry (ADR 0031). Nothing about the form or its values is
+   * sent. Pateat's own submissions count too; their pages belong to a login anyway.
    */
   const onSubmit = (event: Event) => {
     const form = event.target;

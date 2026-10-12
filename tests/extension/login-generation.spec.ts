@@ -86,29 +86,32 @@ function syntheticClaude({ abstainOnPassword = false }: { abstainOnPassword?: bo
     const signedIn = prompt.observation.candidates.some(
       ({ target }) => target.by === "id" && target.value === "sign-out",
     );
+    // A page without a login form (ADR 0031): its "Login" link opens the sign-in page.
     const result =
-      prompt.task !== "generate"
-        ? signedIn
-          ? { decision: "signed-in", marker: byTarget("sign-out") }
-          : prompt.observation.candidates.some(
-                ({ target }) => target.by === "text" && target.value === "My page",
-              )
-            ? // The `link` marker variant's account link has no id, so only its text names it.
-              { decision: "signed-in", marker: byTarget("My page", "text") }
-            : { decision: "rejected" }
-        : passwordPage && abstainOnPassword
-          ? { decision: "abstain", reason: "ambiguous" }
-          : passwordPage
-            ? {
-                decision: "plan",
-                fields: [{ slot: "password", candidate: byTarget("password") }],
-                action: { candidate: login(), purpose: "submit" },
-              }
-            : {
-                decision: "plan",
-                fields: [{ slot: "username", candidate: byTarget("account") }],
-                action: { candidate: byTarget("next"), purpose: "advance" },
-              };
+      prompt.task === "entry"
+        ? { decision: "entry", entry: byTarget("Login", "text") }
+        : prompt.task !== "generate"
+          ? signedIn
+            ? { decision: "signed-in", marker: byTarget("sign-out") }
+            : prompt.observation.candidates.some(
+                  ({ target }) => target.by === "text" && target.value === "My page",
+                )
+              ? // The `link` marker variant's account link has no id, so only its text names it.
+                { decision: "signed-in", marker: byTarget("My page", "text") }
+              : { decision: "rejected" }
+          : passwordPage && abstainOnPassword
+            ? { decision: "abstain", reason: "ambiguous" }
+            : passwordPage
+              ? {
+                  decision: "plan",
+                  fields: [{ slot: "password", candidate: byTarget("password") }],
+                  action: { candidate: login(), purpose: "submit" },
+                }
+              : {
+                  decision: "plan",
+                  fields: [{ slot: "username", candidate: byTarget("account") }],
+                  action: { candidate: byTarget("next"), purpose: "advance" },
+                };
     return {
       id: "msg_synthetic",
       type: "message",
@@ -431,6 +434,81 @@ test("an abstained continuation settles unknown without judging the page (ADR 00
         ]);
         expect(recipes.changes[0]!.recipe!.steps).toHaveLength(2);
         expect([...new Set(externalRequests)].sort()).toEqual(["https://127.0.0.1", site]);
+      },
+      { args: ["--ignore-certificate-errors"] },
+    );
+  } finally {
+    await service.close();
+    await fixture.close();
+  }
+});
+
+test("a page that sent the visitor to sign in first presses its Login link to the login page (ADR 0031)", async () => {
+  // The entry page waits ten seconds for a sign-in input before it is sent.
+  test.setTimeout(90_000);
+  const fixture = await startLoginFixture(0, { password });
+  const claude = syntheticClaude();
+  const service = await startSyncService({ claude: claude.answer });
+  // A top page on another host of the site: no form, a "Create account" and a
+  // "Login" link to the login page, and a sign-in through another site.
+  const top = "https://www.synthetic.example.test";
+  try {
+    await withVaultProfile(
+      async (open, externalRequests) => {
+        const browser = await open();
+        await serveSite(browser.context, fixture);
+        const runId = fixture.createRun();
+        await browser.context.route(`${top}/**`, (route) =>
+          route.fulfill({
+            contentType: "text/html",
+            body: `<!doctype html><html lang="en"><head><title>Synthetic art</title></head><body>
+              <header>
+                <a href="${site}/signup">Create account</a>
+                <a href="${site}/sign-in?runId=${runId}">Login</a>
+                <a href="https://other-site.test/oauth">Continue with Other</a>
+              </header>
+              <main><h1>Synthetic art</h1><p>Sign in to see your bookmarks.</p></main>
+            </body></html>`,
+          }),
+        );
+        const options = await connect(browser, service);
+
+        const page = await browser.context.newPage();
+        await page.goto(`${top}/en/?return_to=%2Fbookmarks`);
+        // The entry page is sent, its Login link pressed, and the login page it leads to is
+        // generated and logs in.
+        await expect(page.locator("#signed-in")).toBeVisible({ timeout: 60_000 });
+        expect(fixture.evidence(runId)).toMatchObject({ posts: 1, allMatched: true });
+        // The press is no login attempt: only the login page's attempt is recorded.
+        await expect
+          .poll(() => send(options, { version: 1, type: "login.probe.status" }))
+          .toMatchObject({ attempts: [{ state: "authenticated", account: { origin: site } }] });
+        expect(claude.prompts.map((prompt) => [prompt.task, prompt.observation.path])).toEqual([
+          ["entry", "/en/"],
+          ["generate", "/sign-in"],
+          ["judge-sign-in", "/account"],
+        ]);
+        // The entry page goes without its query, values or links to another site.
+        const [entry] = claude.prompts;
+        expect(entry!.observation.candidates.map((candidate) => candidate.target)).toEqual([
+          { by: "text", value: "Create account" },
+          { by: "text", value: "Login" },
+        ]);
+        expect(JSON.stringify(claude.prompts)).not.toContain("return_to");
+        expect(JSON.stringify(claude.prompts)).not.toContain("other-site");
+        expect(JSON.stringify(claude.prompts)).not.toContain(password);
+        const recipes = (await (await service.request("/v1/recipes")).json()) as {
+          changes: { recipe?: { origin: string; entry?: unknown } }[];
+        };
+        expect(recipes.changes.map((change) => change.recipe)).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              origin: top,
+              entry: { path: "/en/", target: { by: "text", value: "Login" } },
+            }),
+          ]),
+        );
+        expect([...new Set(externalRequests)].sort()).toEqual(["https://127.0.0.1", site, top]);
       },
       { args: ["--ignore-certificate-errors"] },
     );

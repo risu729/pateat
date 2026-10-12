@@ -96,10 +96,16 @@ export const helloSchema = v.strictObject({
       ),
     }),
   ),
+  /**
+   * No sign-in input and no ready first step showed on this path within the step wait
+   * after loading, so the page may be sent as a site's sign-in entry (ADR 0031).
+   */
+  entry: v.optional(v.strictObject({ path })),
 });
 /**
  * A form with a password input was submitted in this document by anyone, Pateat or the
- * person: the tab's next page of the origin is never sent as a list of accounts (ADR 0028).
+ * person: the tab's next page of the origin is never sent as a list of accounts (ADR 0028)
+ * or as a sign-in entry (ADR 0031).
  */
 export const submittedSchema = v.strictObject({
   version: v.literal(1),
@@ -116,6 +122,11 @@ export const readySchema = v.strictObject({
   starts: v.optional(v.pipe(v.array(loginReadinessSchema), v.maxLength(32))),
   /** The page may be sent for generation; announce again with `signIn` once it applies. */
   generate: v.optional(v.literal(true)),
+  /**
+   * With `generate`: the page's URL names another path of its site, so it may be sent as a
+   * sign-in entry; announce again with `entry` when no sign-in input showed (ADR 0031).
+   */
+  entry: v.optional(v.literal(true)),
 });
 export const reconnectSchema = v.strictObject({
   version: v.literal(1),
@@ -149,6 +160,9 @@ export const chooseResultSchema = v.variant("ok", [
   }),
   v.strictObject({ ok: v.literal(false) }),
 ]);
+/** Hosts the content script asks the worker about at most (ADR 0031). */
+const hostList = v.pipe(v.array(v.pipe(v.string(), v.maxLength(253))), v.maxLength(256));
+const href = v.pipe(v.string(), v.maxLength(8192));
 export const commandSchema = v.variant("type", [
   v.strictObject({
     version: v.literal(1),
@@ -252,7 +266,7 @@ export const commandSchema = v.variant("type", [
     version: v.literal(1),
     type: v.literal("login.extract"),
     token: id,
-    page: v.picklist(["login", "signed-in", "accounts"]),
+    page: v.picklist(["login", "signed-in", "accounts", "entry"]),
     /**
      * For a list of accounts (ADR 0028): the shown texts that equal a matching item's
      * username that is not an email, hidden from the observation as `[account]`.
@@ -266,6 +280,47 @@ export const commandSchema = v.variant("type", [
      * again beside the password, is left out rather than making the page incomplete.
      */
     known: v.optional(v.pipe(v.array(loginAttributeTargetSchema), v.maxLength(24))),
+    /**
+     * For a page without a login form (`entry`, ADR 0031): the hosts the worker found on
+     * the page's site among those `login.entry.hosts` listed. A link elsewhere is left out.
+     */
+    onSite: v.optional(hostList),
+  }),
+  /** Lists the hosts the page's URL and its links name (ADR 0031). */
+  v.strictObject({ version: v.literal(1), type: v.literal("login.entry.hosts"), token: id }),
+  /**
+   * Waits up to `timeoutMs` for an entry recipe's target to name exactly one element and
+   * describes it, for the worker's checks before the press (ADR 0031). Never clicks.
+   */
+  v.strictObject({
+    version: v.literal(1),
+    type: v.literal("login.entry.inspect"),
+    token: id,
+    target: loginTargetSchema,
+    timeoutMs: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(LOGIN_STEP_WAIT_MS)),
+  }),
+  /**
+   * Presses the entry link the worker checked, only while the page's URL is still `url`,
+   * the target still names exactly that one link and its `href` is still `href` (ADR 0031).
+   */
+  v.strictObject({
+    version: v.literal(1),
+    type: v.literal("login.entry.press"),
+    token: id,
+    target: loginTargetSchema,
+    href,
+    url: href,
+  }),
+  /**
+   * Waits up to `timeoutMs` on the page after an entry press for a sign-in input or one of
+   * `starts` ready, then reports those and whether a sign-up form shows (ADR 0031).
+   */
+  v.strictObject({
+    version: v.literal(1),
+    type: v.literal("login.entry.check"),
+    token: id,
+    starts: v.pipe(v.array(loginReadinessSchema), v.maxLength(32)),
+    timeoutMs: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(LOGIN_STEP_WAIT_MS)),
   }),
   /**
    * Reads the page signs of ADR 0029 after an effect step that no check explained. The
@@ -372,6 +427,34 @@ export const extractResultSchema = v.variant("ok", [
   }),
   v.strictObject({ ok: v.literal(false), reason: v.string() }),
 ]);
+/** The answer to `login.entry.hosts`. */
+export const entryHostsResultSchema = v.strictObject({ ok: v.literal(true), hosts: hostList });
+/**
+ * The answer to `login.entry.inspect`: how many elements the target names, and for exactly
+ * one, why it may not be pressed apart from where it leads (`refusal`), its `href` and the
+ * page's URL, each as the browser resolved it (ADR 0031).
+ */
+export const entryInspectResultSchema = v.strictObject({
+  ok: v.literal(true),
+  state: v.picklist(["missing", "unique", "ambiguous"]),
+  refusal: v.optional(
+    v.picklist(["not-link", "script-link", "hidden", "no-text", "new-window", "download"]),
+  ),
+  href: v.optional(href),
+  url: href,
+});
+/** The answer to `login.entry.press`: whether the link was clicked, and why not. */
+export const entryPressResultSchema = v.strictObject({
+  ok: v.boolean(),
+  reason: v.optional(v.picklist(["page-changed", "target-changed", "cancelled"])),
+});
+/** The answer to `login.entry.check`, for the page after an entry press (ADR 0031). */
+export const entryCheckResultSchema = v.strictObject({
+  ok: v.literal(true),
+  signIn: v.boolean(),
+  start: v.boolean(),
+  signUp: v.boolean(),
+});
 /** The answer to `login.state`: the page signs as flags only (ADR 0029). */
 export const stateResultSchema = v.variant("ok", [
   v.strictObject({

@@ -3,13 +3,34 @@
 Status: accepted by the owner on 2026-10-12 (03:31 to 06:53 UTC). Partly implemented:
 the stored entry recipe ([#325](https://github.com/risu729/pateat/pull/325)) and, on
 2026-10-12, the service side (#336): an entry request, the `entry` decision, its prompt
-line and plan checks, and the stored entry recipe. Nothing sends such a request or
-presses an entry yet.
-Amends [ADR 0016](0016-recipe-generation-trigger.md) (a page without a sign-in input can
-be sent), [ADR 0018](0018-recipe-generation-route.md) (a generated answer that is not a
+line and plan checks, and the stored entry recipe. Also on 2026-10-12, the extension
+side: sending such pages, the checks before and after the press, the press record, the
+device block and the `login.entry` log, tested locally and with synthetic pages only.
+Not yet verified on pixiv in the owner's Chrome. Amends
+[ADR 0016](0016-recipe-generation-trigger.md) (a page without a sign-in input can be
+sent), [ADR 0018](0018-recipe-generation-route.md) (a generated answer that is not a
 form plan) and the recipe contract in `packages/contracts/src/login.ts`. Like
 [ADR 0028](0028-account-chooser-login-pages.md)'s `chooser`, it needs a recipe whose
 start has no fill step.
+
+Implementation notes (2026-10-12), which leave the decision below as accepted:
+
+- The `login.entry` levels follow
+  [ADR 0019's standard](0019-local-diagnostics-and-logs.md#amendment-what-the-log-records)
+  of the same day, not "refused (debug)" below: a refusal is `info` once per document
+  and reason, and `debug` for `no-return-target` (an entry page visited while signed
+  in), `in-progress` and a reason the document already logged. `pressed` is `info` and
+  `blocked` `warn`.
+- The URL parser reads every query key and value of a link, on its own and resolved
+  against the link, and a link is refused when either reading leads to another site; a
+  page's return path counts only when every reading of it stays on the site. So
+  `https:evil.example/x`, `\\evil.example/x` and a bare key naming another site are
+  refused.
+- A link is also refused when it leads only to another fragment of the page, downloads,
+  has an empty box, or opens elsewhere through the document's `<base target>`.
+- A press the page never answered is not taken as one: its next page is not checked, but
+  it counts against the tab's 10-minute limit. A page that comes after the wait settles
+  the press as `no-sign-in` without being refused itself.
 
 Date: 2026-10-12
 

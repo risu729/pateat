@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { findTargets } from "../page/targets";
 import {
   extractAccountListObservation,
+  extractEntryObservation,
   extractLoginObservation,
   extractSignedInObservation,
 } from "./extract";
@@ -1550,5 +1551,114 @@ describe("extractAccountListObservation", () => {
     if (!result.ok) throw new Error(result.reason);
     expect(result.observation.candidates).toHaveLength(8);
     expect(result.observation.complete).toBe(false);
+  });
+});
+
+describe("extractEntryObservation (ADR 0031)", () => {
+  // Synthetic hosts; the worker answers which hosts are on the page's site.
+  const onSite = (url: URL) =>
+    url.hostname === "synthetic.example" || url.hostname.endsWith(".synthetic.example");
+  const entry = () => {
+    const result = extractEntryObservation(document, onSite);
+    if (!result.ok) throw new Error(`no observation: ${result.reason}`);
+    return result.observation;
+  };
+
+  it("lists the page's on-site links and buttons, header and navigation first", () => {
+    page(
+      `<main>
+        <h1>Synthetic art</h1>
+        <a href="https://www.synthetic.example/ranking">Ranking</a>
+        <button type="button">Show more</button>
+      </main>
+      <header>
+        <a href="https://accounts.synthetic.example/signup">Create account</a>
+        <a href="https://accounts.synthetic.example/login?return_to=%2Fbookmarks">Login</a>
+        <a href="https://other.example/oauth">Continue with Other</a>
+        <a href="https://accounts.synthetic.example/login?next=https%3A%2F%2Fother.example%2F">Other login</a>
+        <a href="https://accounts.synthetic.example/login?next=%2F%2Fother.example%2F">Relative other</a>
+        <a href="http://accounts.synthetic.example/login">Plain login</a>
+        <a href="https://accounts.synthetic.example/login" target="_blank">New tab login</a>
+        <a href="https://accounts.synthetic.example/login" target="_self">Same tab login</a>
+        <a href="javascript:void 0">Script link</a>
+        <a href="https://www.synthetic.example/icon"><img alt="Icon only" src="data:,"></a>
+        <a href="https://www.synthetic.example/hidden" hidden>Hidden link</a>
+        <button disabled>Disabled</button>
+        <button aria-disabled="true">Marked disabled</button>
+      </header>
+      <form role="search"><input type="search" name="q"><button>Search</button></form>
+      <form><button>Form without fields</button></form>`,
+      "Synthetic art",
+    );
+    const observation = entry();
+    expect(observation.complete).toBe(true);
+    expect(observation.accounts).toBeUndefined();
+    // `observe` lists the kept controls in document order.
+    expect(observation.candidates.map((candidate) => [candidate.role, candidate.label])).toEqual([
+      ["link", "Ranking"],
+      ["button", "Show more"],
+      ["link", "Create account"],
+      ["link", "Login"],
+      ["link", "Same tab login"],
+      // A script link is described as the button it acts as; only a link is ever pressed.
+      ["button", "Script link"],
+      ["button", "Form without fields"],
+    ]);
+    // Neither the page's query nor any `href` is described.
+    expect(JSON.stringify(observation)).not.toContain("synthetic.example/");
+    expect(JSON.stringify(observation)).not.toContain("return_to");
+  });
+
+  it("keeps header controls past the 48-candidate limit without marking the page incomplete", () => {
+    const filler = Array.from(
+      { length: 60 },
+      (_, index) => `<a href="https://www.synthetic.example/work/${index}">Work ${index}</a>`,
+    ).join("");
+    page(
+      `<main>${filler}</main>
+      <nav><a href="https://accounts.synthetic.example/login">Login</a></nav>`,
+    );
+    const observation = entry();
+    expect(observation.candidates).toHaveLength(48);
+    expect(observation.complete).toBe(true);
+    expect(observation.candidates.map((candidate) => candidate.label)).toContain("Login");
+    expect(observation.candidates.map((candidate) => candidate.label)).not.toContain("Work 47");
+  });
+
+  it("drops every link when no host is on the site and describes no field", () => {
+    page(
+      `<a href="https://accounts.synthetic.example/login">Login</a>
+      <input type="text" name="nickname">`,
+    );
+    const result = extractEntryObservation(document, () => false);
+    expect(result).toEqual({ ok: false, reason: "no-candidates" });
+  });
+
+  it("drops a link that downloads and one the page's base target opens elsewhere", () => {
+    page(
+      `<a href="https://accounts.synthetic.example/login" download>Download login</a>
+      <a href="https://accounts.synthetic.example/login">Login</a>`,
+    );
+    expect(entry().candidates.map((candidate) => candidate.label)).toEqual(["Login"]);
+    const base = document.createElement("base");
+    base.target = "_blank";
+    document.head.append(base);
+    try {
+      expect(extractEntryObservation(document, onSite)).toEqual({
+        ok: false,
+        reason: "no-candidates",
+      });
+    } finally {
+      base.remove();
+    }
+  });
+
+  it("refuses a path that may carry a token", () => {
+    page(`<a href="https://accounts.synthetic.example/login">Login</a>`);
+    history.replaceState(null, "", "/s/0123456789abcdef0123456789abcdef/");
+    expect(extractEntryObservation(document, onSite)).toEqual({
+      ok: false,
+      reason: "unsupported-page",
+    });
   });
 });
