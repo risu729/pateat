@@ -225,11 +225,16 @@ describe("raw provider account through native local crypto", () => {
     expect(result.data.notes).toBe("Some notes");
   });
 
-  it("retains a valid known V2 provider binding", () => {
-    const result = mapRaw(rawV2Account(), known);
-    expect(result.ok).toBe(true);
-    if (result.ok) expect(result.data.minimumSecurityVersion).toBe(2);
-  });
+  it.each(["v1", "v2"] as const)(
+    "retains a valid known provider binding's security floor for a %s account",
+    (accountVersion) => {
+      const raw = accountVersion === "v2" ? rawV2Account() : rawV1Account();
+      const result = mapRaw(raw, { ...known, accountVersion });
+      expect(result.ok).toBe(true);
+      // A V1 account under a floor-2 binding keeps the floor, so the session refuses it.
+      if (result.ok) expect(result.data.minimumSecurityVersion).toBe(2);
+    },
+  );
 
   it.each([undefined, null])(
     "password-unlocks and verifies V2 when sync omits optional signedPublicKey as %s",
@@ -735,7 +740,7 @@ describe("received-envelope item mapping", () => {
     [1, 5],
     [5, 1],
     [5, 99],
-  ])("rejects duplicate supported/unavailable IDs with types%j", (first, second) => {
+  ])("rejects duplicate supported/unavailable IDs with types %i and %i", (first, second) => {
     const raw = rawV1Account();
     raw.sync.ciphers[0]!.type = first;
     raw.sync.ciphers.push({ ...rawLoginCipher(), type: second });

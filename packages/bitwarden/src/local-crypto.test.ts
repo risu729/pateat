@@ -903,7 +903,7 @@ describe("strict cipher isolation and disposal", () => {
     }
   });
 
-  it("rejects a tampered wrapped cipher key instead of falling back to the user key", async () => {
+  it("rejects a cipher key that fails authentication instead of falling back to the user key", async () => {
     // The user key alone decrypts this blob, so a fallback would succeed.
     const active = await session(blobInput());
     expect(
