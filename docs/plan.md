@@ -51,7 +51,7 @@ on 2026-10-12 (20:50 UTC):
 | A stored passkey | npm, pixiv | Done |
 | The page's own passkey request, including `required`, and choosing again after a logout ([ADR 0034](adr/0034-answer-page-passkey-requests.md)) | Wise | Signed in with the passkey on `1df2d38`; recheck that no Bitwarden "Save passkey" window follows (below) and the choice after a logout |
 | A TOTP code from an authenticator app, the source said outside the code form | Resend | Recheck once the judge sees the text near the code field (ADR 0027, owner's option A, 2026-10-12 22:04 UTC); needs a paid judge call and the owner's code entry |
-| A TOTP code split into one-digit inputs | None found yet | Find a site: Resend has one input (real-Chrome check, 2026-10-12) |
+| A TOTP code split into one-digit inputs | ニコニコ | Candidate from its public code (six `maxlength` 1 inputs, [research](research/2026-10-12-split-totp-inputs.md)); check in the owner's Chrome. Resend has one input (real-Chrome check, 2026-10-12) |
 | Approval in an app, then the signed-in page ([ADR 0027](adr/0027-per-account-login-routes.md#watching-after-a-challenge)) | 三菱UFJダイレクト | Done |
 | A software keyboard or extra PIN page, left to the person | エポスNet | Recheck after `92df780` |
 | A CAPTCHA the person solves, then the signed-in page | Q-move | Investigating why the signed-in page is not judged |
@@ -244,7 +244,10 @@ own accounts, so they stay in the project's files rather than in this repository
     UTC). A judged code page adds the handler, and the same login fills the code and
     clicks once. It needs a paid judge call and the owner's own code entry or approval.
     A code split into one-digit inputs (owner decision, 2026-10-12 19:21 UTC) still
-    needs a real site; Resend was first recorded as one, wrongly.
+    needs a real site; Resend was first recorded as one, wrongly. ニコニコ's code page
+    fits the split rule in its public code and waits for a real-Chrome check; the other
+    split pages found draw their inputs without `maxlength`
+    ([research](research/2026-10-12-split-totp-inputs.md)).
 - Polish the UI, in phase 1 so that phase 2's feedback is on the improved UI (owner,
   2026-10-11 18:33 UTC): the extension and the service web UI in one pass with
   [stop-describing-ui](https://github.com/artouc/stop-describing-ui), as the owner
