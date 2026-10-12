@@ -378,6 +378,8 @@ own accounts, so they stay in the project's files rather than in this repository
   - Batch 2, `services/api` (2026-10-12): 308 to 293 Vitest cases, service line
     coverage unchanged at 95.6%. The preservation review's mutations found two
     removals that were the only proof of a judgement rule, and both were kept.
+  - Batch 3, `packages/inference` (2026-10-12): 336 to 323 Vitest cases, package
+    line coverage unchanged at 99.1%.
 - UI improvements the owner reports from daily use of the UI polished in phase 1. Small
   fixes for broken UI still land as found.
 - Features found missing during use are added here.

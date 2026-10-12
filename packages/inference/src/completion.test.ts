@@ -275,7 +275,6 @@ describe("authenticator app code on a challenge page (ADR 0027)", () => {
       "a field that is not a code field",
       [{ ...codeField, autocomplete: undefined, inputMode: undefined }, verify],
     ],
-    ["a field shorter than six characters", [{ ...codeField, maxLength: 1 }, verify]],
     [
       "one of several code fields in its form",
       [codeField, { ...codeField, id: "code-2", target: { by: "id", value: "digit-2" } }, verify],
@@ -300,12 +299,6 @@ describe("authenticator app code on a challenge page (ADR 0027)", () => {
     expect(
       await answer({ source: "authenticator-app" }).judge(page([hinted, verify])),
     ).toMatchObject({ status: "ok", value: { decision: "challenge", totp } });
-  });
-
-  it("tells the model to say where the code comes from", () => {
-    expect(completionInstructions).toMatch(
-      /code\.source is authenticator-app only when the page says the code comes from an authenticator app/u,
-    );
   });
 });
 

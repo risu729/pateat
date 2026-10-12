@@ -95,10 +95,20 @@ describe("heuristic comparator", () => {
   });
 
   it("reports each case's plan in candidate IDs", async () => {
-    const report = await runHeuristicBenchmark(realPageCorpus.slice(0, 5));
+    const cases = realPageCorpus.slice(0, 5);
+    const report = await runHeuristicBenchmark(cases);
     expect(report.total).toBe(5);
     expect(report.calls).toBe(0);
-    for (const result of report.cases)
+    expect(report.cases.map((result) => result.verdict)).toContain("correct");
+    for (const result of report.cases) {
       expect(result.plan === undefined).toBe(result.status !== "ok");
+      const expected = cases.find((entry) => entry.id === result.id)!.expected;
+      if (result.verdict === "correct" && expected.kind === "plan")
+        expect(result.plan).toEqual({
+          fields: expected.fields,
+          action: expected.action,
+          purpose: expected.purpose,
+        });
+    }
   });
 });
