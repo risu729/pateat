@@ -372,7 +372,7 @@ passkey or provider is involved. The probe build has its own
 
 ### Filing a bug report
 
-Open Pateat settings and follow **Diagnostics for bug reports** at the bottom, or open
+Open Pateat settings and follow **Diagnostics** in the section list, or open
 `chrome-extension://<id>/diagnostics.html`. Click **Copy for bug report**, check the
 preview, then click **Copy** and paste the text into the report. It names the build
 revision, Chrome version and the state of each connection and the Pateat service under
@@ -498,7 +498,12 @@ when needed, and Forget sync sign-in removes it locally without a server logout.
 Forget cancels a running Sync but is refused while a password sign-in is in progress.
 Offline local-vault restoration is independent of that provider session.
 
-Delete connection, confirmed by a second click, removes one connection from this
+Each connection is a row with one main action, Sync, or Sign in again while syncing
+needs a sign-in first (the vault is locked, setup is incomplete, automatic unlock is
+off or the sync sign-in is missing). The other of the two, Disable automatic unlock,
+Forget sync sign-in and Delete connection are in the row's menu.
+
+Delete connection, confirmed in the row, removes one connection from this
 device: its sync sign-in, its local vault record with the retained unlock key (after
 locking any open vault session), and finally its saved configuration. Like forget, it
 is local only: no provider revocation is called, so other sessions stay signed in. It
@@ -508,8 +513,8 @@ Saved settings, recipes and their field-policy entries are not modified; anythin
 referred to the deleted connection resolves as an unavailable connection. This is how
 a connection left over by a failed first sign-in is removed.
 
-The add form's **Enable this connection in Pateat policy** choice becomes the
-connection's entry in **Vault access policy** when the connection is added, before
+The add form's **Use this connection** choice becomes the connection's entry in
+**Vault access** when the connection is added, before
 its first sign-in. If that sign-in does not finish, **Sign in again** completes the
 setup and keeps the choice. Sign-ins never change the entry; the policy is edited on
 the settings page. Like other saved settings, the entry stays after Delete connection.

@@ -24,6 +24,7 @@
   --warning: #8a5a00;
   --warning-tint: #fff6dc;
   --shadow-panel: 0 1px 2px rgb(15 23 42 / 5%);
+  --shadow-menu: 0 8px 24px rgb(15 23 42 / 15%);
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
@@ -45,6 +46,7 @@
   --warning: #f2c14e;
   --warning-tint: #33280d;
   --shadow-panel: 0 1px 2px rgb(0 0 0 / 40%);
+  --shadow-menu: 0 8px 24px rgb(0 0 0 / 50%);
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
@@ -67,6 +69,7 @@
     --warning: #f2c14e;
     --warning-tint: #33280d;
     --shadow-panel: 0 1px 2px rgb(0 0 0 / 40%);
+    --shadow-menu: 0 8px 24px rgb(0 0 0 / 50%);
   }
 }
 
@@ -216,17 +219,6 @@ body {
 }
 
 @layer components {
-  .eyebrow {
-    font-size: 0.8rem;
-    color: var(--accent-ink);
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-  }
-  .intro {
-    font-size: 1.075rem;
-    color: var(--ink-muted);
-  }
   .panel {
     padding: 1.5rem;
     margin: 1.5rem 0;
@@ -234,10 +226,6 @@ body {
     border-radius: 0.75rem;
     background: var(--surface);
     box-shadow: var(--shadow-panel);
-  }
-  .note {
-    font-size: 0.9rem;
-    color: var(--ink-muted);
   }
   .badge {
     display: inline-flex;
@@ -335,9 +323,6 @@ body {
     color: var(--danger);
     font-size: 0.9rem;
     font-weight: 500;
-  }
-  .settings-footer {
-    padding: 0.75rem 0;
   }
   .visually-hidden {
     position: absolute;

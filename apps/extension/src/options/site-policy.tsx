@@ -13,6 +13,7 @@ import { useQueries, useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import * as v from "valibot";
 import { Button } from "./button";
+import { Panel } from "./ui";
 
 const hostnameSchema = v.pipe(
   v.string(),
@@ -306,8 +307,7 @@ export function SitePolicy({
 
   return (
     <>
-      <section aria-labelledby="sites-heading" className="panel">
-        <h2 id="sites-heading">Excluded sites</h2>
+      <Panel id="excluded-sites-panel" headingId="sites-heading" title="Excluded sites">
         <p>
           Match a hostname exactly, or include its subdomains. Excluded sites are blocked by the
           local policy before any future login work.
@@ -393,9 +393,8 @@ export function SitePolicy({
         <p id="site-help" className="note">
           Enter a hostname without a scheme, port or path. Each change is saved at once.
         </p>
-      </section>
-      <section aria-labelledby="defaults-heading" className="panel">
-        <h2 id="defaults-heading">Site default accounts</h2>
+      </Panel>
+      <Panel id="site-defaults-panel" headingId="defaults-heading" title="Site default accounts">
         <p>
           Choose an account for an exact origin. A default applies to the next login; it does not
           log out or switch an existing session.
@@ -550,7 +549,7 @@ export function SitePolicy({
           secondary account, https://mail.example. Setting an existing origin replaces only that
           draft default.
         </p>
-      </section>
+      </Panel>
     </>
   );
 }

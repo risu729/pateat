@@ -805,9 +805,10 @@ owner web UI take their colors, type, radii and focus ring from the
 Tailwind colors, with the same values; `tests/options/design-tokens.test.tsx` fails when
 their light or dark token values differ.
 
-Each page has light and dark themes and a Theme select (System, Light, Dark): on the
-extension's settings page and in the owner web UI's footer (owner, 2026-10-12 20:54
-UTC). System, the default, follows the browser's `prefers-color-scheme`. The choice is
+Each page has light and dark themes and a Theme select (Browser setting, Light, Dark):
+at the foot of the extension settings page's section list and in the owner web UI's
+footer (owner, 2026-10-12 20:54 UTC). Browser setting, the default, follows the
+browser's `prefers-color-scheme`. The choice is
 presentation only: it is kept in the program's own `localStorage` under `pateat.theme`,
 not in `chrome.storage`, the service or sync, so the extension and the owner web UI keep
 separate choices and each browser profile has its own. A page applies the stored choice

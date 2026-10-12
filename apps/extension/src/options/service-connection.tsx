@@ -7,8 +7,20 @@ import {
 } from "@pateat/contracts";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import * as v from "valibot";
+import { CircleCheck, CircleX, Clock, Link, Lock, TriangleAlert } from "lucide-react";
 import { Button } from "./button";
 import type { ServiceClient } from "./service-client";
+import {
+  Badge,
+  controlClass,
+  fieldClass,
+  Panel,
+  Row,
+  RowList,
+  RowSub,
+  RowTitle,
+  StatusLines,
+} from "./ui";
 
 /** How often the page checks whether the first sync after pairing finished. */
 export const SYNC_POLL_MS = 10_000;
@@ -188,22 +200,17 @@ export function ServiceConnection({
   }, [client, awaitingSync, pollMs]);
 
   return (
-    <section className="panel" aria-labelledby="sync-service-heading">
-      <h2 id="sync-service-heading">Sync service</h2>
-      <p className="note">
-        Optional. Pair this device with your own Pateat service to sync recipes, site exclusions,
-        saved accounts and account bindings. Pairing never sends vault values, passwords or keys.
-      </p>
+    <Panel id="sync" headingId="sync-service-heading" title="Sync service">
       <output
         id="sync-service-status"
-        className="settings-status block"
+        className="settings-status block text-sm leading-5"
         aria-live="polite"
         aria-atomic="true"
       >
         {message}
       </output>
       {corrupt && (
-        <div className="mt-3">
+        <div>
           <Button
             id="sync-service-forget"
             type="button"
@@ -220,6 +227,7 @@ export function ServiceConnection({
       {state?.kind === "disconnected" && (
         <form
           noValidate
+          className="flex flex-col gap-3"
           onSubmit={(event) => {
             event.preventDefault();
             const origin = normalizeServiceOrigin(address);
@@ -247,37 +255,51 @@ export function ServiceConnection({
             });
           }}
         >
-          <label>
-            Service address
-            <input
-              id="sync-service-address"
-              type="url"
-              inputMode="url"
-              autoComplete="off"
-              spellCheck={false}
-              placeholder="https://pateat.example.com"
-              value={address}
-              aria-invalid={addressError ? true : undefined}
-              aria-describedby={addressError ? "sync-service-error" : undefined}
-              onChange={(event) => setAddress(event.target.value)}
-            />
-          </label>
-          <label>
-            Device name
-            <input
-              id="sync-service-label"
-              type="text"
-              maxLength={64}
-              autoComplete="off"
-              value={label}
-              onChange={(event) => setLabel(event.target.value)}
-            />
-          </label>
+          <div className="grid gap-x-4 gap-y-3 sm:grid-cols-2">
+            <label className={fieldClass}>
+              Service address
+              <input
+                id="sync-service-address"
+                className={controlClass}
+                type="url"
+                inputMode="url"
+                autoComplete="off"
+                spellCheck={false}
+                placeholder="https://pateat.example.com"
+                value={address}
+                aria-invalid={addressError ? true : undefined}
+                aria-describedby={addressError ? "sync-service-error" : undefined}
+                onChange={(event) => setAddress(event.target.value)}
+              />
+            </label>
+            <label className={fieldClass}>
+              Device name
+              <input
+                id="sync-service-label"
+                className={controlClass}
+                type="text"
+                maxLength={64}
+                autoComplete="off"
+                value={label}
+                onChange={(event) => setLabel(event.target.value)}
+              />
+            </label>
+          </div>
           {addressError && (
-            <p id="sync-service-error" className="validation-error" role="alert">
+            <p id="sync-service-error" className="validation-error m-0" role="alert">
               {addressError}
             </p>
           )}
+          <StatusLines
+            muted
+            lines={[
+              {
+                tone: "idle",
+                icon: Lock,
+                text: "Syncs recipes, site exclusions, saved accounts and account bindings. Never sends vault values, passwords or keys.",
+              },
+            ]}
+          />
           <div className="flex flex-wrap gap-2">
             <Button id="sync-service-pair" type="submit" disabled={busy}>
               Pair this device
@@ -317,42 +339,70 @@ export function ServiceConnection({
         </form>
       )}
       {state?.kind === "connected" && (
-        <div>
-          <p>
-            <strong>{state.label}</strong> is paired with {state.origin}.
-          </p>
-          <p id="sync-service-recipes" className="note">
-            {state.rejected
-              ? "The service no longer accepts this device. Login keeps using the recipes synced before; disconnect and pair again to sync."
-              : state.cacheFull
-                ? "Your recipes or settings no longer fit, so newer changes are not applied. Login keeps using what was synced before."
-                : state.syncedAt === undefined
-                  ? "Recipes and settings have not finished syncing yet."
-                  : `Recipes and settings last synced at ${new Date(state.syncedAt).toLocaleString()}.`}
-          </p>
-          <div>
-            <Button
-              id="sync-service-disconnect"
-              type="button"
-              variant="outline"
-              disabled={busy}
-              onClick={() =>
-                void act(async () => {
-                  const response = await client.disconnect();
-                  receive(
-                    response,
-                    response.ok && response.revoked === false
-                      ? `Disconnected on this device, but the service could not confirm it. Revoke this device from ${state.origin}/manage in a browser that can open it.`
-                      : "Disconnected. The service no longer accepts this device.",
-                  );
-                })
-              }
-            >
-              Disconnect this device
-            </Button>
-          </div>
-        </div>
+        <RowList>
+          <Row
+            icon={Link}
+            main={
+              <>
+                <RowTitle>
+                  <span>{new URL(state.origin).host}</span>
+                  <Badge>Paired</Badge>
+                </RowTitle>
+                <RowSub>Named {state.label} on the service</RowSub>
+                <StatusLines
+                  id="sync-service-recipes"
+                  lines={[
+                    state.rejected
+                      ? {
+                          tone: "err",
+                          icon: CircleX,
+                          text: "The service no longer accepts this device. Login keeps using the recipes synced before; disconnect and pair again to sync.",
+                        }
+                      : state.cacheFull
+                        ? {
+                            tone: "warn",
+                            icon: TriangleAlert,
+                            text: "Your recipes or settings no longer fit, so newer changes are not applied. Login keeps using what was synced before.",
+                          }
+                        : state.syncedAt === undefined
+                          ? {
+                              tone: "idle",
+                              icon: Clock,
+                              text: "Recipes and settings have not finished syncing yet",
+                            }
+                          : {
+                              tone: "ok",
+                              icon: CircleCheck,
+                              text: `Recipes and settings synced ${new Date(state.syncedAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`,
+                            },
+                  ]}
+                />
+              </>
+            }
+            actions={
+              <Button
+                id="sync-service-disconnect"
+                type="button"
+                variant="danger"
+                disabled={busy}
+                onClick={() =>
+                  void act(async () => {
+                    const response = await client.disconnect();
+                    receive(
+                      response,
+                      response.ok && response.revoked === false
+                        ? `Disconnected on this device, but the service could not confirm it. Revoke this device from ${state.origin}/manage in a browser that can open it.`
+                        : "Disconnected. The service no longer accepts this device.",
+                    );
+                  })
+                }
+              >
+                Disconnect this device
+              </Button>
+            }
+          />
+        </RowList>
       )}
-    </section>
+    </Panel>
   );
 }

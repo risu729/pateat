@@ -99,7 +99,9 @@ test("pairs in one click from the background with the browser's session", async 
       const sent = pageRequests(options, service);
       await pair(options, service);
       await expect(options.getByText("This device is paired.", { exact: true })).toBeVisible();
-      await expect(options.getByText(/Synthetic paired device.*is paired with/)).toBeVisible();
+      await expect(
+        options.getByText("Named Synthetic paired device on the service", { exact: true }),
+      ).toBeVisible();
 
       const created = (await service.devices()).filter(
         (device) => device.label === "Synthetic paired device",
@@ -124,7 +126,7 @@ test("pairs in one click from the background with the browser's session", async 
         .toBeGreaterThan(0);
       for (const request of service.requests.filter((entry) => entry.path.startsWith("/v1/")))
         expect(request.cookie).toBeNull();
-      await expect(options.getByText(/Recipes and settings last synced at/)).toBeVisible({
+      await expect(options.getByText(/^Recipes and settings synced /)).toBeVisible({
         timeout: 15_000,
       });
     });

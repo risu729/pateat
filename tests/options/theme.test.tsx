@@ -107,6 +107,9 @@ test("the Theme select shows the stored choice and changes the theme", async () 
   await render(<ThemeSelect />);
   const select = page.getByRole("combobox", { name: "Theme", exact: true });
   await expect.element(select).toHaveValue("light");
+  expect(
+    [...(select.element() as HTMLSelectElement).options].map((option) => option.textContent),
+  ).toEqual(["Browser setting", "Light", "Dark"]);
 
   await select.selectOptions("dark");
   expect(root.getAttribute("data-theme")).toBe("dark");

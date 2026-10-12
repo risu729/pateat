@@ -254,11 +254,18 @@ own accounts, so they stay in the project's files rather than in this repository
     and `services/api/web/styles.css`) define its tokens as CSS custom properties and
     Tailwind colors (`bg-surface`, `text-ink-muted`, `border-border-strong`), and the
     pages use no other colors. Page titles are 28px.
-  - Done: light and dark themes with a Theme select (System, Light, Dark) in the
-    extension's settings page and the `/manage` footer; System, the default, follows
-    the browser's `prefers-color-scheme` (owner, 2026-10-12 20:54 UTC). The choice is
-    presentation only, kept in each program's `localStorage` (`pateat.theme`), and an
-    open extension page follows a change made on another.
+  - Done: light and dark themes with a Theme select (Browser setting, Light, Dark) in
+    the extension's settings page and the `/manage` footer; Browser setting, the
+    default, follows the browser's `prefers-color-scheme` (owner, 2026-10-12 20:54 UTC).
+    The choice is presentation only, kept in each program's `localStorage`
+    (`pateat.theme`), and an open extension page follows a change made on another.
+  - Done: the extension's settings page has the approved layout: a section list with
+    the Theme select at its foot, panels, icon-led status lines and no intro
+    paragraphs. Each Bitwarden connection is a row with its vault, sync sign-in and
+    automatic-unlock lines, one main action (Sync, or Sign in again when syncing needs
+    a sign-in first) and the other actions in a menu. Adding a connection is a
+    disclosure, open while there is none, and the paired sync service is a row with its
+    last sync.
   - Approved: `lucide-react` for icons in the polish (owner, 2026-10-12 20:53 UTC); the
     first PR that uses it adds it.
   - Done: the diagnostics page keeps its structure, with only its visuals and copy
@@ -301,7 +308,6 @@ own accounts, so they stay in the project's files rather than in this repository
     with Allow and an exclude form, and the revoked recipes. Each origin opens its own
     page with a "Pateat on this site" switch, its default account, recipes and bindings
     ([owner web UI](architecture.md#owner-web-ui)).
-  - Next: the other screens' layouts and copy.
   - Next: the other screens' layouts and copy.
 - Done: `https://my.jcb.co.jp/Login` was generated again after delivery 3. The recipe
   revision the Grok Bot computer's device generated on 2026-10-12 (13:45 UTC) names both

@@ -1,15 +1,43 @@
 import { normalizeBitwardenProfile, type BitwardenProfile } from "@pateat/bitwarden";
 import type { SettingsResponse, VaultItemMetadata } from "@pateat/contracts";
+import { Menu } from "@base-ui/react/menu";
+import {
+  CircleCheck,
+  CircleX,
+  Ellipsis,
+  Globe,
+  Info,
+  Lock,
+  LogIn,
+  LogOut,
+  Pause,
+  RefreshCw,
+  Trash2,
+  TriangleAlert,
+  Vault,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { SetupBegin, SetupReply } from "../connections/types";
 import { providerPermissionOrigins } from "../connections/permissions";
 import { Button } from "./button";
 import type { ConnectionClient } from "./connection-client";
+import {
+  checkClass,
+  controlClass,
+  fieldClass,
+  groupClass,
+  Panel,
+  Row,
+  RowList,
+  RowSub,
+  RowTitle,
+  StatusLines,
+  type Tone,
+} from "./ui";
 
 type StatusReply = Extract<SetupReply, { kind: "status" }>;
 type Challenge = Extract<SetupReply, { kind: "mfa-required" | "new-device-verification-required" }>;
 type Connection = StatusReply["connections"][number];
-const inputClass = "w-full rounded-lg border border-border-strong bg-surface px-3 py-2.5";
 function errorMessage(code: string, check?: string): string {
   if (code === "account-mismatch")
     return `The provider's sign-in and vault data did not agree${check ? ` (check: ${check})` : ""}. Setup is incomplete; report this check name.`;
@@ -20,13 +48,13 @@ function errorMessage(code: string, check?: string): string {
       "Sign in again to sync. The saved local vault can still unlock independently.",
     "auto-unlock-disabled":
       "Automatic unlock is off for this connection, and Sync needs it. Sign in again and check Enable automatic unlock on this device to restore it.",
-    "crypto-locked": "The vault is locked. Refresh connections to check recovery options.",
+    "crypto-locked": "The vault is locked. Refresh to check recovery options.",
     "resource-limit":
-      "The operation reached a resource limit. Refresh connections to check the current vault status before trying again.",
+      "The operation reached a resource limit. Refresh to check the current vault status before trying again.",
     "cache-quota-exceeded":
-      "The vault exceeds the local cache limit. Refresh connections to check the current vault status.",
+      "The vault exceeds the local cache limit. Refresh to check the current vault status.",
     "storage-uncertain":
-      "The cache update could not be confirmed. Refresh connections and reload saved settings before using this vault.",
+      "The cache update could not be confirmed. Refresh and reload saved settings before using this vault.",
     "setup-expired": "This verification session expired. Start sign-in again.",
     "unsupported-crypto": "This account uses an unsupported vault format. Setup is incomplete.",
     "invalid-response": "The provider response could not be accepted. Setup is incomplete.",
@@ -37,38 +65,62 @@ function errorMessage(code: string, check?: string): string {
       "Saved settings changed. Reload saved settings and review the current field list before trying again.",
   };
   return (
-    messages[code] ??
-    `Connection operation unavailable (${code}). Refresh connections before trying again.`
+    messages[code] ?? `Connection operation unavailable (${code}). Refresh before trying again.`
   );
 }
-function stateLabel(connection: Connection): string {
+type Line = { tone: Tone; icon: typeof Info; text: string };
+
+/** The vault, the sync sign-in and automatic unlock, one line each. */
+function statusLines(connection: Connection): Line[] {
+  const lines: Line[] = [];
   switch (connection.state) {
     case "ready":
-      return "Local vault ready";
-    case "disabled":
-      return "Automatic unlock disabled";
+      lines.push({ tone: "ok", icon: CircleCheck, text: "Local vault ready" });
+      break;
     case "review-required":
-      return "Some items need their field settings reviewed before use";
+      lines.push({
+        tone: "warn",
+        icon: TriangleAlert,
+        text: "Some items need their field settings reviewed before use",
+      });
+      break;
     case "configured":
-      return "Setup incomplete or vault locked · sign in again";
+      lines.push({ tone: "warn", icon: TriangleAlert, text: "Setup incomplete or vault locked" });
+      break;
     case "unavailable":
-      return "Vault unavailable · refresh or sign in again";
+      lines.push({ tone: "err", icon: CircleX, text: "Vault unavailable" });
+      break;
+    case "disabled":
+      // The automatic-unlock line below says it.
+      break;
   }
-}
-
-function sessionLabel(connection: Connection): string {
   switch (connection.providerSession) {
     case "active":
-      return "Sync sign-in saved on this device";
+      lines.push({ tone: "ok", icon: CircleCheck, text: "Sync sign-in saved on this device" });
+      break;
     case "refresh-required":
-      return "Sync sign-in saved · it renews on the next sync";
+      lines.push({
+        tone: "ok",
+        icon: CircleCheck,
+        text: "Sync sign-in saved, renewed on the next sync",
+      });
+      break;
     case "reauthentication-required":
-      return "Sign in again to sync";
+      lines.push({ tone: "warn", icon: TriangleAlert, text: "Sign in again to sync" });
+      break;
     case "none":
-      return "Not signed in for sync";
+      lines.push({ tone: "idle", icon: Pause, text: "Not signed in for sync" });
+      break;
     case "unavailable":
-      return "Sync sign-in unavailable · sign in again";
+      lines.push({ tone: "warn", icon: TriangleAlert, text: "Sync sign-in unavailable" });
+      break;
   }
+  if (connection.autoUnlock === "enabled")
+    lines.push({ tone: "ok", icon: CircleCheck, text: "Automatic unlock on" });
+  else if (connection.autoUnlock === "disabled")
+    lines.push({ tone: "idle", icon: Pause, text: "Automatic unlock off" });
+  else lines.push({ tone: "idle", icon: Info, text: "Automatic unlock unknown" });
+  return lines;
 }
 
 function FieldReview({
@@ -83,15 +135,17 @@ function FieldReview({
   const fields = item.fields.filter((field) => field.id.startsWith("custom."));
   const [excluded, setExcluded] = useState(() => fields.map((field) => field.id));
   return (
-    <fieldset className="item-exclusions" disabled={disabled}>
-      <legend>Review changed fields: {item.label}</legend>
-      <p className="note">
-        This item's custom fields changed. All current custom fields start excluded. Review each
-        exclusion, then explicitly save this review before the item can be used. Other saved
-        exclusions stay in place.
+    <fieldset
+      className="m-0 flex min-w-0 flex-col gap-2 rounded-lg border border-border bg-surface p-4"
+      disabled={disabled}
+    >
+      <legend className="px-1 font-semibold">Review changed fields in {item.label}</legend>
+      <p className="m-0 text-sm text-ink-muted">
+        All current custom fields start excluded. Save this review before the item can be used;
+        other saved exclusions stay in place.
       </p>
       {fields.map((field, index) => (
-        <label className="checkbox-row" key={field.id}>
+        <label className={checkClass} key={field.id}>
           <input
             type="checkbox"
             aria-label={`${item.label}: Review exclude ${field.label} (field ${index + 1})`}
@@ -108,13 +162,14 @@ function FieldReview({
         </label>
       ))}
       {!fields.length && (
-        <p>
+        <p className="m-0 text-sm">
           This item has no current custom fields. Saving this review explicitly removes its old
           custom-field exclusions.
         </p>
       )}
       <Button
         type="button"
+        className="self-start"
         aria-label={`${item.label}: Save reviewed field exclusions`}
         onClick={() => onReview(excluded)}
       >
@@ -146,6 +201,21 @@ export function BitwardenSetup({
   const [enableUnlock, setEnableUnlock] = useState(false);
   const [challenge, setChallenge] = useState<Challenge>();
   const [confirmingDelete, setConfirmingDelete] = useState<string>();
+  const confirmDeleteButton = useRef<HTMLButtonElement>(null);
+  const menuTriggers = useRef(new Map<string, HTMLButtonElement>());
+  /** The row whose menu trigger takes focus back once Keep connection closes the confirmation. */
+  const keptConnection = useRef<string>(undefined);
+  useEffect(() => {
+    if (confirmingDelete) {
+      confirmDeleteButton.current?.focus();
+    } else if (keptConnection.current) {
+      menuTriggers.current.get(keptConnection.current)?.focus();
+      keptConnection.current = undefined;
+    }
+  }, [confirmingDelete]);
+  // Unset until toggled: the form starts open only while there is no connection.
+  const [addOpen, setAddOpen] = useState<boolean>();
+  const focusPassword = useRef(false);
   const [provider, setProvider] = useState<0 | 1>(0);
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(true);
@@ -179,7 +249,7 @@ export function BitwardenSetup({
       })
       .catch(() => {
         if (epoch === generation.current)
-          setMessage("Unable to read connection status. Refresh connections to retry.");
+          setMessage("Unable to read connection status. Refresh to retry.");
       })
       .finally(() => {
         if (epoch === generation.current) {
@@ -268,7 +338,7 @@ export function BitwardenSetup({
         if (epoch !== generation.current) return;
         setChallenge(undefined);
         setMessage(
-          "The operation could not be confirmed. Refresh connections and reload saved settings. Your previous draft is preserved.",
+          "The operation could not be confirmed. Refresh and reload saved settings. Your previous draft is preserved.",
         );
         catalogChanged.current();
       })
@@ -341,169 +411,272 @@ export function BitwardenSetup({
     clearSecrets();
     setChallenge(undefined);
     setBusy(false);
-    setMessage("Setup stopped. Refresh connections to confirm the latest state.");
+    setMessage("Setup stopped. Refresh to confirm the latest state.");
     catalogChanged.current();
   }
+  function syncConnection(connection: Connection) {
+    start(async (epoch) => {
+      const granted = await client.requestProviderPermission(connection.environment);
+      if (epoch !== generation.current) return;
+      if (!granted) {
+        setMessage("Provider access was not granted. No sync request was sent.");
+        return;
+      }
+      await receive(await client.sync(connection.connectionId), epoch);
+    });
+  }
+  function signInAgain(connection: Connection) {
+    clearSecrets();
+    setExisting(connection);
+    setEnableUnlock(false);
+    setAddOpen(true);
+    focusPassword.current = true;
+    setMessage(
+      "Enter the master password to sign in again. Automatic unlock stays unchanged unless explicitly enabled.",
+    );
+  }
+  // The sign-in form may only now be open; focus its password once it is shown.
+  useEffect(() => {
+    if (!focusPassword.current) return;
+    focusPassword.current = false;
+    passwordInput.current?.focus();
+  });
   const previewEnvironment: BitwardenProfile["environment"] =
     existing?.environment ??
     (region === "self-hosted"
       ? { kind: "self-hosted", baseUrl }
       : { kind: "cloud", region: region === "eu" ? "eu" : "us" });
   const origins = providerPermissionOrigins(previewEnvironment);
+  const formOpen = addOpen ?? !connections.length;
+  const cancelable = busy || !!challenge || !!password || !!code || !!existing;
+  const cancelButton = (id?: string) => (
+    <Button id={id} type="button" variant="outline" disabled={!cancelable} onClick={cancel}>
+      Cancel setup
+    </Button>
+  );
   return (
-    <section className="panel" aria-labelledby="bitwarden-setup-heading">
-      <h2 id="bitwarden-setup-heading">Bitwarden connections</h2>
-      <p className="note">
-        Connect manually to Bitwarden Cloud US/EU or an ordinary HTTPS self-hosted server. Master
-        passwords and verification codes are not saved. Connecting retains a local unlock key, an
-        encrypted vault cache and a sync sign-in on this device.
-      </p>
+    <Panel
+      id="bitwarden"
+      headingId="bitwarden-setup-heading"
+      title="Bitwarden"
+      actions={
+        <div className="flex flex-wrap gap-2">
+          {/* While a row's operation runs with the form closed, it can still be stopped. */}
+          {busy && !challenge && !formOpen && cancelButton()}
+          <Button
+            id="bitwarden-refresh-connections"
+            type="button"
+            variant="ghost"
+            aria-label="Refresh connections"
+            disabled={busy || !!challenge}
+            onClick={() =>
+              start(async (epoch) => {
+                await readConnections(epoch);
+                if (epoch === generation.current) setMessage("Connection status refreshed.");
+              })
+            }
+          >
+            <RefreshCw aria-hidden size={16} strokeWidth={2} />
+            Refresh
+          </Button>
+        </div>
+      }
+    >
       <output
         id="bitwarden-setup-status"
-        className="settings-status block"
+        className="settings-status block text-sm leading-5"
         aria-live="polite"
         aria-atomic="true"
       >
         {message}
       </output>
-      <ul id="bitwarden-connections" className="saved-list">
-        {connections.map((connection) => (
-          <li key={connection.connectionId} className="flex-wrap">
-            <div>
-              <strong>{connection.label}</strong>
-              <small>
-                {connection.email} · {stateLabel(connection)}
-              </small>
-              <small>Automatic unlock: {connection.autoUnlock}.</small>
-              <small>{sessionLabel(connection)}.</small>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                disabled={busy || !!challenge}
-                aria-label={`${connection.label}: Sync`}
-                onClick={() => {
-                  start(async (epoch) => {
-                    const granted = await client.requestProviderPermission(connection.environment);
-                    if (epoch !== generation.current) return;
-                    if (!granted) {
-                      setMessage("Provider access was not granted. No sync request was sent.");
-                      return;
-                    }
-                    await receive(await client.sync(connection.connectionId), epoch);
-                  });
-                }}
-              >
-                Sync
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                disabled={busy || !!challenge}
-                aria-label={`${connection.label}: Sign in again`}
-                onClick={() => {
-                  clearSecrets();
-                  setExisting(connection);
-                  setEnableUnlock(false);
-                  setMessage(
-                    "Enter the master password to sign in again. Automatic unlock stays unchanged unless explicitly enabled.",
-                  );
-                  passwordInput.current?.focus();
-                }}
-              >
-                Sign in again
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                disabled={busy || !!challenge || connection.autoUnlock === "disabled"}
-                aria-label={`${connection.label}: Disable automatic unlock`}
-                onClick={() =>
-                  start(async (epoch) => {
-                    await receive(await client.disableAutoUnlock(connection.connectionId), epoch);
-                  })
-                }
-              >
-                Disable automatic unlock
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                disabled={busy || !!challenge || connection.providerSession === "none"}
-                aria-label={`${connection.label}: Forget sync sign-in`}
-                onClick={() =>
-                  start(async (epoch) => {
-                    await receive(
-                      await client.forgetProviderSession(connection.connectionId),
-                      epoch,
-                    );
-                  })
-                }
-              >
-                Forget sync sign-in
-              </Button>
-              {confirmingDelete === connection.connectionId ? (
+      <RowList id="bitwarden-connections">
+        {connections.map((connection) => {
+          const signInFirst = needsSignIn(connection);
+          const blocked = busy || !!challenge;
+          const confirming = confirmingDelete === connection.connectionId;
+          return (
+            <Row
+              key={connection.connectionId}
+              icon={Vault}
+              main={
                 <>
-                  <Button
-                    type="button"
-                    disabled={busy || !!challenge}
-                    aria-label={`${connection.label}: Confirm delete connection`}
-                    onClick={() =>
-                      start(async (epoch) => {
-                        await receive(
-                          await client.deleteConnection(connection.connectionId),
-                          epoch,
-                        );
-                      })
-                    }
-                  >
-                    Confirm delete
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    aria-label={`${connection.label}: Keep connection`}
-                    onClick={() => {
-                      setConfirmingDelete(undefined);
-                      setMessage("Connection kept.");
-                    }}
-                  >
-                    Keep connection
-                  </Button>
+                  <RowTitle>{connection.label}</RowTitle>
+                  <RowSub>
+                    {connection.email} on {serverName(connection.environment)}
+                  </RowSub>
+                  <StatusLines lines={statusLines(connection)} />
                 </>
-              ) : (
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={busy || !!challenge}
-                  aria-label={`${connection.label}: Delete connection`}
-                  onClick={() => {
-                    setConfirmingDelete(connection.connectionId);
-                    setMessage(
-                      `Delete ${connection.label}? This removes the connection, its local vault cache, unlock key and sync sign-in from this device. It does not sign out other sessions, and saved settings that refer to it will show it as unavailable. Choose Confirm delete to continue.`,
-                    );
-                  }}
-                >
-                  Delete connection
-                </Button>
-              )}
-            </div>
-          </li>
-        ))}
-      </ul>
+              }
+              actions={
+                confirming ? (
+                  <>
+                    <Button
+                      ref={confirmDeleteButton}
+                      type="button"
+                      variant="danger"
+                      disabled={blocked}
+                      aria-label={`${connection.label}: Confirm delete connection`}
+                      onClick={() =>
+                        start(async (epoch) => {
+                          await receive(
+                            await client.deleteConnection(connection.connectionId),
+                            epoch,
+                          );
+                        })
+                      }
+                    >
+                      Confirm delete
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      aria-label={`${connection.label}: Keep connection`}
+                      onClick={() => {
+                        keptConnection.current = connection.connectionId;
+                        setConfirmingDelete(undefined);
+                        setMessage("Connection kept.");
+                      }}
+                    >
+                      Keep connection
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={blocked}
+                      aria-label={`${connection.label}: ${signInFirst ? "Sign in again" : "Sync"}`}
+                      onClick={() =>
+                        signInFirst ? signInAgain(connection) : syncConnection(connection)
+                      }
+                    >
+                      {signInFirst ? (
+                        <LogIn aria-hidden size={16} strokeWidth={2} />
+                      ) : (
+                        <RefreshCw aria-hidden size={16} strokeWidth={2} />
+                      )}
+                      {signInFirst ? "Sign in again" : "Sync"}
+                    </Button>
+                    <Menu.Root>
+                      <Menu.Trigger
+                        ref={(element: HTMLButtonElement | null) => {
+                          if (element) menuTriggers.current.set(connection.connectionId, element);
+                          else menuTriggers.current.delete(connection.connectionId);
+                        }}
+                        className={iconButtonClass}
+                        aria-label={`More for ${connection.label}`}
+                        disabled={blocked}
+                      >
+                        <Ellipsis aria-hidden size={16} strokeWidth={2} />
+                      </Menu.Trigger>
+                      <Menu.Portal>
+                        <Menu.Positioner sideOffset={4} align="end">
+                          <Menu.Popup className="min-w-56 rounded-lg border border-border bg-surface p-1 text-ink shadow-[var(--shadow-menu)] outline-none">
+                            {signInFirst ? (
+                              <Menu.Item
+                                className={menuItemClass}
+                                aria-label={`${connection.label}: Sync`}
+                                onClick={() => syncConnection(connection)}
+                              >
+                                <RefreshCw aria-hidden size={16} strokeWidth={2} />
+                                Sync
+                              </Menu.Item>
+                            ) : (
+                              <Menu.Item
+                                className={menuItemClass}
+                                aria-label={`${connection.label}: Sign in again`}
+                                onClick={() => signInAgain(connection)}
+                              >
+                                <LogIn aria-hidden size={16} strokeWidth={2} />
+                                Sign in again
+                              </Menu.Item>
+                            )}
+                            <Menu.Item
+                              className={menuItemClass}
+                              aria-label={`${connection.label}: Disable automatic unlock`}
+                              disabled={connection.autoUnlock === "disabled"}
+                              onClick={() =>
+                                start(async (epoch) => {
+                                  await receive(
+                                    await client.disableAutoUnlock(connection.connectionId),
+                                    epoch,
+                                  );
+                                })
+                              }
+                            >
+                              <Pause aria-hidden size={16} strokeWidth={2} />
+                              Disable automatic unlock
+                            </Menu.Item>
+                            <Menu.Item
+                              className={menuItemClass}
+                              aria-label={`${connection.label}: Forget sync sign-in`}
+                              disabled={connection.providerSession === "none"}
+                              onClick={() =>
+                                start(async (epoch) => {
+                                  await receive(
+                                    await client.forgetProviderSession(connection.connectionId),
+                                    epoch,
+                                  );
+                                })
+                              }
+                            >
+                              <LogOut aria-hidden size={16} strokeWidth={2} />
+                              Forget sync sign-in
+                            </Menu.Item>
+                            <Menu.Item
+                              className={`${menuItemClass} text-danger`}
+                              aria-label={`${connection.label}: Delete connection`}
+                              onClick={() => {
+                                setConfirmingDelete(connection.connectionId);
+                                setMessage(
+                                  `Delete ${connection.label}? This removes the connection, its local vault cache, unlock key and sync sign-in from this device. It does not sign out other sessions, and saved settings that refer to it will show it as unavailable. Choose Confirm delete to continue.`,
+                                );
+                              }}
+                            >
+                              <Trash2 aria-hidden size={16} strokeWidth={2} />
+                              Delete connection
+                            </Menu.Item>
+                          </Menu.Popup>
+                        </Menu.Positioner>
+                      </Menu.Portal>
+                    </Menu.Root>
+                  </>
+                )
+              }
+            />
+          );
+        })}
+      </RowList>
       {acceptedSettings?.catalog.connections.map((connection) => {
         const quarantined = connection.quarantinedItemIds ?? [];
         if (!quarantined.length) return null;
         return (
-          <div key={connection.id}>
-            <h3>{connection.label}: Review changed custom fields</h3>
-            {reviewBlocked && (
-              <p className="note">
-                Reload saved settings to review the current field list. Your unsaved policy draft is
-                preserved until you choose Reload.
-              </p>
-            )}
+          <div key={connection.id} className={groupClass}>
+            <h3 className="m-0 flex items-center gap-2 text-base">
+              <TriangleAlert aria-hidden size={16} strokeWidth={2} className="text-warning" />
+              Review changed custom fields in {connection.label}
+            </h3>
+            <StatusLines
+              muted
+              lines={[
+                {
+                  tone: "idle",
+                  icon: Info,
+                  text: "Affected items stay unavailable until their field settings are reviewed; refreshing does not approve them.",
+                },
+                ...(reviewBlocked
+                  ? [
+                      {
+                        tone: "warn" as const,
+                        icon: TriangleAlert,
+                        text: "Reload saved settings to review the current field list. Your unsaved policy draft is preserved until you choose Reload.",
+                      },
+                    ]
+                  : []),
+              ]}
+            />
             {connection.items
               .filter((item) => quarantined.includes(item.id))
               .map((item) => (
@@ -529,45 +702,48 @@ export function BitwardenSetup({
           </div>
         );
       })}
-      <Button
-        id="bitwarden-refresh-connections"
-        type="button"
-        variant="outline"
-        disabled={busy || !!challenge}
-        onClick={() =>
-          start(async (epoch) => {
-            await readConnections(epoch);
-            if (epoch === generation.current) setMessage("Connection status refreshed.");
-          })
-        }
-      >
-        Refresh connections
-      </Button>
       {challenge ? (
-        <fieldset className="connection" disabled={busy}>
-          <legend>Manual verification</legend>
-          {challenge.kind === "mfa-required" ? (
-            <>
-              <label>
-                Verification method
-                <select
-                  id="bitwarden-mfa-provider"
-                  value={provider}
-                  onChange={(event) => setProvider(event.target.value === "1" ? 1 : 0)}
-                >
-                  {challenge.providers.map((id) => (
-                    <option key={id} value={id}>
-                      {id === 0 ? "Authenticator code" : "Email code"}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Verification code
+        <div className={groupClass}>
+          <fieldset className="m-0 flex min-w-0 flex-col gap-3 border-0 p-0" disabled={busy}>
+            <legend className="mb-3 p-0 font-semibold">Manual verification</legend>
+            {challenge.kind === "mfa-required" ? (
+              <div className="grid gap-x-4 gap-y-3 sm:grid-cols-2">
+                <label className={fieldClass}>
+                  Verification method
+                  <select
+                    id="bitwarden-mfa-provider"
+                    className={controlClass}
+                    value={provider}
+                    onChange={(event) => setProvider(event.target.value === "1" ? 1 : 0)}
+                  >
+                    {challenge.providers.map((id) => (
+                      <option key={id} value={id}>
+                        {id === 0 ? "Authenticator code" : "Email code"}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className={fieldClass}>
+                  Verification code
+                  <input
+                    id="bitwarden-code"
+                    ref={codeInput}
+                    className={controlClass}
+                    type="password"
+                    autoComplete="off"
+                    maxLength={1024}
+                    value={code}
+                    onChange={(event) => setCode(event.target.value)}
+                  />
+                </label>
+              </div>
+            ) : (
+              <label className={fieldClass}>
+                New-device verification code
                 <input
-                  id="bitwarden-code"
+                  id="bitwarden-new-device-otp"
                   ref={codeInput}
-                  className={inputClass}
+                  className={controlClass}
                   type="password"
                   autoComplete="off"
                   maxLength={1024}
@@ -575,97 +751,128 @@ export function BitwardenSetup({
                   onChange={(event) => setCode(event.target.value)}
                 />
               </label>
-            </>
-          ) : (
-            <label>
-              New-device verification code
-              <input
-                id="bitwarden-new-device-otp"
-                ref={codeInput}
-                className={inputClass}
-                type="password"
-                autoComplete="off"
-                maxLength={1024}
-                value={code}
-                onChange={(event) => setCode(event.target.value)}
+            )}
+            {provider === 1 && challenge.kind === "mfa-required" && (
+              <StatusLines
+                muted
+                lines={[
+                  {
+                    tone: "idle",
+                    icon: Info,
+                    text: "Enter an email code you already received. Sending an email verification code is not available here.",
+                  },
+                ]}
               />
-            </label>
-          )}
-          <Button
-            id="bitwarden-continue"
-            type="button"
-            disabled={!code || (challenge.kind === "mfa-required" && !challenge.providers.length)}
-            onClick={continueSetup}
-          >
-            Verify code
-          </Button>
-        </fieldset>
+            )}
+          </fieldset>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              id="bitwarden-continue"
+              type="button"
+              disabled={
+                busy || !code || (challenge.kind === "mfa-required" && !challenge.providers.length)
+              }
+              onClick={continueSetup}
+            >
+              Verify code
+            </Button>
+            {cancelButton("bitwarden-cancel")}
+          </div>
+        </div>
       ) : (
-        <fieldset className="connection" disabled={busy}>
-          <legend>{existing ? `Sign in again: ${existing.label}` : "Add a connection"}</legend>
-          {!existing ? (
-            <>
-              <label>
-                Server
-                <select
-                  id="bitwarden-region"
-                  value={region}
-                  onChange={(event) => setRegion(event.target.value)}
-                >
-                  <option value="us">Bitwarden Cloud US</option>
-                  <option value="eu">Bitwarden Cloud EU</option>
-                  <option value="self-hosted">Self-hosted HTTPS</option>
-                </select>
-              </label>
-              {region === "self-hosted" && (
-                <label>
-                  Server address
-                  <input
-                    id="bitwarden-base-url"
-                    type="text"
-                    maxLength={2048}
-                    placeholder="https://vault.example.com"
-                    value={baseUrl}
-                    onChange={(event) => setBaseUrl(event.target.value)}
-                  />
-                </label>
+        <details
+          className={groupClass}
+          open={formOpen}
+          onToggle={(event) => {
+            // Toggle events also follow the page's own changes; keep only the owner's.
+            const open = event.currentTarget.open;
+            if (open !== formOpen) setAddOpen(open);
+          }}
+        >
+          <summary className="cursor-pointer font-semibold">
+            {existing ? `Sign in to ${existing.label} again` : "Add a connection"}
+          </summary>
+          <fieldset className="m-0 flex min-w-0 flex-col gap-3 border-0 p-0" disabled={busy}>
+            <legend className="visually-hidden">
+              {existing ? `Sign in to ${existing.label} again` : "Add a connection"}
+            </legend>
+            <div className="grid gap-x-4 gap-y-3 sm:grid-cols-2">
+              {!existing && (
+                <>
+                  <label className={fieldClass}>
+                    Server
+                    <select
+                      id="bitwarden-region"
+                      className={controlClass}
+                      value={region}
+                      onChange={(event) => setRegion(event.target.value)}
+                    >
+                      <option value="us">Bitwarden Cloud US</option>
+                      <option value="eu">Bitwarden Cloud EU</option>
+                      <option value="self-hosted">Self-hosted HTTPS</option>
+                    </select>
+                  </label>
+                  {region === "self-hosted" && (
+                    <label className={fieldClass}>
+                      Server address
+                      <input
+                        id="bitwarden-base-url"
+                        className={controlClass}
+                        type="text"
+                        maxLength={2048}
+                        placeholder="https://vault.example.com"
+                        value={baseUrl}
+                        onChange={(event) => setBaseUrl(event.target.value)}
+                      />
+                    </label>
+                  )}
+                  <label className={fieldClass}>
+                    Name
+                    <input
+                      id="bitwarden-name"
+                      className={controlClass}
+                      type="text"
+                      maxLength={200}
+                      placeholder="Personal"
+                      value={name}
+                      onChange={(event) => setName(event.target.value)}
+                    />
+                  </label>
+                  <label className={fieldClass}>
+                    Email
+                    <input
+                      id="bitwarden-email"
+                      className={controlClass}
+                      type="email"
+                      autoComplete="username"
+                      maxLength={320}
+                      value={email}
+                      onChange={(event) => setEmail(event.target.value)}
+                    />
+                  </label>
+                </>
               )}
-              <label>
-                Connection name
+              {existing && (
+                <div className={fieldClass}>
+                  Email
+                  <span className="flex min-h-10 items-center font-normal">{existing.email}</span>
+                </div>
+              )}
+              <label className={fieldClass}>
+                Master password
                 <input
-                  id="bitwarden-name"
-                  type="text"
-                  maxLength={200}
-                  value={name}
-                  onChange={(event) => setName(event.target.value)}
+                  id="bitwarden-password"
+                  ref={passwordInput}
+                  className={controlClass}
+                  type="password"
+                  autoComplete="off"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
                 />
               </label>
-              <label>
-                Email
-                <input
-                  id="bitwarden-email"
-                  className={inputClass}
-                  type="email"
-                  autoComplete="username"
-                  maxLength={320}
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                />
-              </label>
-              <label className="checkbox-row">
-                <input
-                  id="bitwarden-enabled"
-                  type="checkbox"
-                  checked={enabled}
-                  onChange={(event) => setEnabled(event.target.checked)}
-                />
-                Enable this connection in Pateat policy
-              </label>
-            </>
-          ) : (
-            <>
-              <p>{existing.email}</p>
-              <label className="checkbox-row">
+            </div>
+            {existing ? (
+              <label className={checkClass}>
                 <input
                   id="bitwarden-enable-auto-unlock"
                   type="checkbox"
@@ -674,32 +881,41 @@ export function BitwardenSetup({
                 />
                 Enable automatic unlock on this device
               </label>
-            </>
-          )}
-          <label>
-            Master password
-            <input
-              id="bitwarden-password"
-              ref={passwordInput}
-              className={inputClass}
-              type="password"
-              autoComplete="off"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
+            ) : (
+              <label className={checkClass}>
+                <input
+                  id="bitwarden-enabled"
+                  type="checkbox"
+                  checked={enabled}
+                  onChange={(event) => setEnabled(event.target.checked)}
+                />
+                Use this connection
+              </label>
+            )}
+            <StatusLines
+              muted
+              lines={[
+                {
+                  tone: "idle",
+                  icon: Lock,
+                  text: "The master password and verification codes are not saved. An unlock key, an encrypted vault copy and a sync sign-in stay on this device.",
+                },
+                origins.ok
+                  ? {
+                      tone: "idle",
+                      icon: Globe,
+                      text: `Chrome asks for access to ${listHosts(origins.data)}`,
+                    }
+                  : {
+                      tone: "warn",
+                      icon: TriangleAlert,
+                      text: "Enter a valid HTTPS server address.",
+                    },
+              ]}
             />
-          </label>
-          {provider === 1 && (
-            <p className="note">
-              Enter an email code you already received. Sending an email verification code is not
-              available here.
-            </p>
-          )}
-          <p className="note">
-            Provider hosts requested by this button:{" "}
-            {origins.ok ? origins.data.join(", ") : "Enter a valid HTTPS server address."}
-          </p>
-          <div className="flex gap-3">
-            <Button id="bitwarden-connect" type="button" onClick={connect}>
+          </fieldset>
+          <div className="flex flex-wrap gap-2">
+            <Button id="bitwarden-connect" type="button" disabled={busy} onClick={connect}>
               {existing ? "Sign in and sync" : "Connect Bitwarden"}
             </Button>
             {existing && (
@@ -707,6 +923,7 @@ export function BitwardenSetup({
                 id="bitwarden-add-new"
                 type="button"
                 variant="outline"
+                disabled={busy}
                 onClick={() => {
                   clearSecrets();
                   setExisting(undefined);
@@ -715,22 +932,39 @@ export function BitwardenSetup({
                 Add another connection
               </Button>
             )}
+            {cancelButton("bitwarden-cancel")}
           </div>
-        </fieldset>
+        </details>
       )}
-      <Button
-        id="bitwarden-cancel"
-        type="button"
-        variant="outline"
-        disabled={!busy && !challenge && !password && !code && !existing}
-        onClick={cancel}
-      >
-        Cancel setup
-      </Button>
-      <p className="note">
-        Changed custom-field exclusions can require review. Affected items remain unavailable until
-        their field settings are explicitly reviewed; refreshing does not approve them.
-      </p>
-    </section>
+    </Panel>
+  );
+}
+
+const iconButtonClass =
+  "inline-grid size-10 flex-none place-items-center rounded-lg border border-transparent bg-transparent text-ink-muted hover:bg-surface-sunken disabled:opacity-50";
+const menuItemClass =
+  "flex min-h-9 cursor-default items-center gap-2 rounded-md px-3 text-sm outline-none select-none data-[disabled]:opacity-50 data-[highlighted]:bg-accent-tint data-[highlighted]:outline-solid data-[highlighted]:outline-2 data-[highlighted]:-outline-offset-2 data-[highlighted]:outline-focus";
+
+/** Where a connection's vault lives, as the Server choice names it. */
+function serverName(environment: BitwardenProfile["environment"]): string {
+  if (environment.kind === "self-hosted") return new URL(environment.baseUrl).host;
+  return environment.region === "eu" ? "Bitwarden Cloud EU" : "Bitwarden Cloud US";
+}
+
+/** "a", "a and b", "a, b and c" of the hosts in Chrome match patterns. */
+function listHosts(patterns: string[]): string {
+  const hosts = patterns.map((pattern) => new URL(pattern.replace(/\/\*$/, "/")).host);
+  return hosts.length > 1
+    ? `${hosts.slice(0, -1).join(", ")} and ${hosts.at(-1)}`
+    : (hosts[0] ?? "");
+}
+
+/** A connection that cannot sync until its owner signs in again. */
+function needsSignIn(connection: Connection): boolean {
+  return (
+    connection.state === "configured" ||
+    connection.state === "unavailable" ||
+    connection.state === "disabled" ||
+    (connection.providerSession !== "active" && connection.providerSession !== "refresh-required")
   );
 }
