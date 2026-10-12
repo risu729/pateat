@@ -4523,11 +4523,36 @@ export function createLoginRuntime(
         ...outcomeFields(result),
         ...page,
       });
-      if (result.outcome !== "recipe" || documents.get(key) !== live) return;
-      await browser.tabs.sendMessage(
-        live.document.tabId,
-        { version: 1, type: "login.reconnect" },
-        { documentId: live.document.documentId, frameId: live.document.frameId },
+      if (result.outcome !== "recipe") return;
+      // Every tab's page still shown on this origin and path that holds no login announces
+      // again and starts the recipe: this document, and one refused for want of a recipe
+      // while the request was in flight, such as a page that replaced this one or the same
+      // page in another tab.
+      const pages = [...documents.values()].filter((other) => {
+        const running = tabAttempt(other.document.tabId);
+        return (
+          other.document.frameId === 0 &&
+          !other.topUrl &&
+          other.document.origin === live.document.origin &&
+          other.path === live.path &&
+          attempts.get(other.document.tabId)?.live !== other &&
+          !(running && !terminal(running))
+        );
+      });
+      await Promise.all(
+        pages.map(async (other) => {
+          try {
+            await browser.tabs.sendMessage(
+              other.document.tabId,
+              { version: 1, type: "login.reconnect" },
+              { documentId: other.document.documentId, frameId: other.document.frameId },
+            );
+          } catch {
+            // The page starts nothing until it announces again (ADR 0019).
+            if (documents.get(frameKey(other.document)) === other)
+              note(other.document, other.url, "reconnect-failed");
+          }
+        }),
       );
     } catch {
       // The document went away or did not answer, or the vault could not be read; nothing
@@ -5568,6 +5593,10 @@ export function createLoginRuntime(
         ? { repeat: true }
         : {},
     );
+    // A page that resumes a stopped login, as one within the 5-minute hold (ADR 0022), does
+    // nothing, and says why once (ADR 0019).
+    if (previous && metadata.state === "blocked" && previous.state === "blocked")
+      note(document, live.url, "not-started", "stopped-login");
     clearChoice(document.tabId);
     // A hold's tooltip no longer applies once the tab logs in.
     void quietly(() => browser.action.setTitle({ tabId: document.tabId, title: "Pateat" }));
