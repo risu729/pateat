@@ -1,6 +1,7 @@
 # ADR 0033: No site-specific features unless strictly necessary
 
-Status: accepted by the owner on 2026-10-12 (13:38 UTC) as policy.
+Status: accepted by the owner on 2026-10-12 (13:38 UTC) as policy; the decisions on
+existing cases at 13:46 UTC.
 
 Date: 2026-10-12
 

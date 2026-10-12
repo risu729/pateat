@@ -81,7 +81,8 @@ The owner chose, on 2026-10-11:
   origin and the AI's judgment, with no fixed per-IdP page list (ADR 0033 amendment):
   - the login form, filled from the IdP item above;
   - an account list ([ADR 0028](0028-account-chooser-login-pages.md)), where only the
-    entry whose email equals the username exactly (no partial match) is chosen; a list
+    entry whose email equals the username exactly (no partial match, stricter than ADR
+    0028's masked addresses) is chosen; a list
     that says the account's details will be shared with the site stops until it has
     been checked in Chrome;
   - a page that only asks whether to stay signed in or to continue as that account,
@@ -114,4 +115,7 @@ The owner chose, on 2026-10-11:
   stays valid, and `origin-busy` on IdP pages.
 - IdP password pages that ask for the email first need recipe continuation after an
   `advance` step ([ADR 0018](0018-recipe-generation-route.md)).
+- An IdP whose sign-in moves across several origins, as personal Microsoft accounts move
+  from `login.microsoftonline.com` to `login.live.com`, is followed only on the item's
+  origin since the ADR 0033 amendment; following such a move is left to implementation.
 - Real-site checks need real accounts and therefore separate owner approval.
