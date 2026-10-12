@@ -49,7 +49,7 @@ on 2026-10-12 (20:50 UTC):
 | A list of saved accounts ([ADR 0028](adr/0028-account-chooser-login-pages.md)) | Cloudflare, Wise | Signed in; the record ended `unknown-submit`, recheck after `92df780` |
 | A sign-in entry button ([ADR 0031](adr/0031-sign-in-entry-pages.md)) | pixiv | Done |
 | A stored passkey | npm, pixiv | Done |
-| The page's own passkey request, including `required`, and choosing again after a logout ([ADR 0034](adr/0034-answer-page-passkey-requests.md)) | Wise | Recheck after `1df2d38` |
+| The page's own passkey request, including `required`, and choosing again after a logout ([ADR 0034](adr/0034-answer-page-passkey-requests.md)) | Wise | Signed in with the passkey on `1df2d38`; recheck that no Bitwarden "Save passkey" window follows (below) and the choice after a logout |
 | A TOTP code split into one-digit inputs | Resend | Recheck after `cdfa420`; needs a paid judge call and the owner's code entry |
 | Approval in an app, then the signed-in page ([ADR 0027](adr/0027-per-account-login-routes.md#watching-after-a-challenge)) | 三菱UFJダイレクト | Done |
 | A software keyboard or extra PIN page, left to the person | エポスNet | Recheck after `92df780` |
@@ -179,9 +179,20 @@ own accounts, so they stay in the project's files rather than in this repository
   Pateat logged that request as `passkey.request` `delegate` `unsupported-mediation`.
   As the owner chose on 2026-10-12 (19:32 UTC), Pateat now answers a `required` request
   as it answers an `optional` one
-  ([ADR 0007](adr/0007-existing-passkey-assertions.md); local tests only). Next, in the
-  owner's Chrome: Wise's "Welcome back" list and "Log back in" sign in with the passkey
-  (`passkey.request` `assertion`) without the Bitwarden or Windows Security window.
+  ([ADR 0007](adr/0007-existing-passkey-assertions.md); local tests only). In the
+  owner's Chrome on build `1df2d38` (2026-10-12, 20:17 to 20:43 UTC), Wise's "Welcome
+  back" list and "Log back in" signed in with the passkey (`passkey.request`
+  `assertion`), but the Bitwarden extension then sometimes opened its "Save passkey"
+  window ("A passkey already exists for this application."). The cause: after the
+  sign-in Wise asks to register a passkey (`navigator.credentials.create`), and its
+  `excludeCredentials` lists the passkey Pateat just used, which Bitwarden's vault
+  holds. As the owner chose at 20:56 UTC, Pateat now wraps `create` and refuses such a
+  registration with `NotAllowedError`, the answer Bitwarden gives once its window is
+  closed, within five minutes of Pateat's sign-in to that site in the same tab, and
+  logs each checked registration as `passkey.create`
+  ([ADR 0007](adr/0007-existing-passkey-assertions.md#registration-after-a-sign-in);
+  local tests only). Next, in the owner's Chrome: no "Save passkey" window after Pateat
+  signs in to Wise, and `passkey.create` `declined` in the log.
 - Redact the account's own username from every page observation sent to the service
   (generation, its continuation after an `advance` step, and the judge): each matching
   item's username of three or more characters is hidden as `[account]` wherever it shows

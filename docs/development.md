@@ -453,6 +453,35 @@ never hold credential IDs, user handles or item IDs, and the page is never told 
 reason. The origin and RP ID are named only for sites your settings or recipes name;
 other sites appear as `origin:7d2b91aa` and `rp:7d2b91aa`.
 
+A site's passkey registration (`navigator.credentials.create`) that excludes credentials
+logs one `passkey.create` entry, under the same limit
+([ADR 0007](adr/0007-existing-passkey-assertions.md#registration-after-a-sign-in)). A
+registration goes to the browser without an entry when the wrapper does not ask the
+background: an empty or malformed `excludeCredentials` or other required member, an
+unknown mediation, a non-string `rp.id`, a signal that is not genuine or already
+aborted, a call whose `this` is not `navigator.credentials`, a document the relay
+refuses (a frame, an insecure context or the permissions policy) or a relay that does
+not answer. A sender the background refuses (`invalid-sender`) is not logged either.
+The sign-ins the check reads are kept per tab in `chrome.storage.session`
+(`pateat.passkey-sign-ins.v1`). Each entry holds:
+
+- `origin` and `outcome`: `declined` (Pateat refused it with `NotAllowedError`) or
+  `delegate` (handed on to the browser and other providers), with the delegate `reason`:
+  `not-signed-in` (no Pateat sign-in to that RP ID in the tab), `expired` (the latest
+  one was more than five minutes ago), `not-listed` (no listed credential is a passkey
+  Pateat could sign with there), `vault-incomplete` (none is, but a connection or item
+  could not be searched, as when the vault is locked), `not-configured` (the site is
+  excluded or the settings could not be read), `vault-unavailable` or `timeout` (the
+  lookup failed or took too long), `invalid-request`, `invalid-origin`, `invalid-rp-id`,
+  `rp-id-mismatch` or `busy`;
+- `rpId` once it is valid for the origin, and `excludeCredentials`: how many
+  credentials the site listed;
+- `mediation`: `conditional` (Chrome's automatic passkey upgrade) or `other`, when the
+  request names one;
+- `sinceSignIn`: whole seconds since Pateat's latest sign-in to that RP ID in the tab,
+  when there was one;
+- `listed`, once the listed credentials were checked: whether one is such a passkey.
+
 ### Manual Bitwarden setup preview
 
 The connection setup slice is implemented and tested with synthetic responses. Its
