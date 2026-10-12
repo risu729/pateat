@@ -723,7 +723,7 @@ describe("unhandled errors", () => {
     vi.restoreAllMocks();
   });
 
-  it("warns for a login that settled as unknown and keeps a held tab's frames quiet", async () => {
+  it("warns once for a login that did not finish and keeps a held tab's frames quiet", async () => {
     const log = createDiagnosticsLog({
       build: { version: "0.1.0", revision: "1c42ad3" },
       settings: async () => {
@@ -749,16 +749,29 @@ describe("unhandled errors", () => {
       outcome: "unknown-submit",
       settled: true,
     });
+    // The tab's next page resumes a stopped login without changing it.
+    log.login({
+      type: "attempt",
+      ...site,
+      recipeId: "synthetic-recipe",
+      route: "password",
+      state: "blocked",
+      stepIndex: 2,
+      stepCount: 2,
+      outcome: "challenge",
+      repeat: true,
+    });
     log.login({ type: "refused", ...site, reason: "tab-busy", frame: true });
     log.login({ type: "refused", ...site, reason: "tab-busy" });
-    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(4));
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(5));
     const entries = (await log.logger.entries()).filter((entry) => entry.event !== "log.debug");
     expect(entries.map((entry) => [entry.event, entry.level, entry.fields["settled"]])).toEqual([
       ["login.attempt", "warn", true],
+      ["login.attempt", "debug", undefined],
       ["login.refused", "debug", undefined],
       ["login.refused", "info", undefined],
     ]);
-    expect(entries[1]?.fields).toMatchObject({ reason: "tab-busy", frame: true });
+    expect(entries[2]?.fields).toMatchObject({ reason: "tab-busy", frame: true });
     expect((await log.logger.summary()).recentWarnings).toBe(1);
     vi.restoreAllMocks();
   });

@@ -159,6 +159,10 @@ happened:
 - A login whose result settles as unknown (`unknown-submit`) is logged once, at that
   moment, as a `warn` `login.attempt` entry marked `settled`. A `blocked` login was
   already `warn`. Other events keep their levels.
+- Each new page of the tab resumes the attempt and reports it again. A resumed attempt
+  whose state and outcome did not change is `debug`, so one stopped login is one
+  warning however many pages follow. The count is per stop, not per login: a settled
+  login whose later page shows a challenge stops again and warns again.
 - The page's row becomes "Problems in the last 24 h" with both counts, such as
   `0 errors, 3 warnings`; the bug report's `Logs:` line and the `logs` check carry the
   same counts. The check is `warn` when there is an error and `info` for warnings only,

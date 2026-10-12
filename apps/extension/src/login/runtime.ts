@@ -488,6 +488,8 @@ export type LoginReport =
       reason?: string;
       /** The result of the current effect step just settled as unknown (`unknown-submit`). */
       settled?: true;
+      /** A new document of the tab resumed the attempt without changing its state or outcome. */
+      repeat?: true;
     }
   | {
       type: "refused";
@@ -595,7 +597,7 @@ export function createLoginRuntime(
     metadata: LoginAttemptMetadata,
     recipe: LoginRecipe | undefined,
     policy?: PolicyChange,
-    settled?: true,
+    flags: { settled?: true; repeat?: true } = {},
   ) => {
     // Handler steps sit inside the plan, so the plan names the handler a step belongs to.
     const handler =
@@ -617,7 +619,7 @@ export function createLoginRuntime(
       ...(handler === undefined ? {} : { handler }),
       ...(metadata.outcome ? { outcome: metadata.outcome } : {}),
       ...(policy && metadata.outcome === "policy-changed" ? policy : {}),
-      ...(settled ? { settled } : {}),
+      ...flags,
     });
   };
   let origin = DEFAULT_PROBE_ORIGIN;
@@ -1043,7 +1045,7 @@ export function createLoginRuntime(
           : run.metadata,
         run.recipe,
         policy,
-        settled,
+        settled ? { settled } : {},
       );
     if (
       import.meta.env.MODE === "probe" &&
@@ -3288,7 +3290,15 @@ export function createLoginRuntime(
         : {}),
     };
     attempts.set(document.tabId, run);
-    reportAttempt(metadata, recipe, resumedPolicy);
+    // Each new document of the tab resumes the attempt; only a change is news.
+    reportAttempt(
+      metadata,
+      recipe,
+      resumedPolicy,
+      previous && metadata.state === previous.state && metadata.outcome === previous.outcome
+        ? { repeat: true }
+        : {},
+    );
     clearChoice(document.tabId);
     // A hold's tooltip no longer applies once the tab logs in.
     void quietly(() => browser.action.setTitle({ tabId: document.tabId, title: "Pateat" }));
