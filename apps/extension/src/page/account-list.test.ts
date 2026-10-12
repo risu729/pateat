@@ -1,10 +1,13 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
   accountEntries,
+  accountNames,
   besideAccounts,
   besideEmails,
   chooses,
   entryLike,
+  listControls,
+  namedAccounts,
   namesUsername,
   pickEntry,
 } from "./account-list";
@@ -191,6 +194,41 @@ describe("besideAccounts", () => {
       <div><p>a@example.com</p><button>1</button><button>2</button><button>3</button><button>4</button></div>
       <button disabled><span>b@example.com</span></button>`;
     expect(besideAccounts(document).map((account) => account.text)).toEqual([]);
+  });
+});
+
+describe("account names and list controls", () => {
+  it("hands over Instagram's short texts and finds the one that names the account", () => {
+    document.body.innerHTML = instagram;
+    expect(accountNames(document)).toEqual([
+      "taro.yamada",
+      "Continue",
+      "Use another profile",
+      "Create new account",
+    ]);
+    expect(namedAccounts(document, ["Taro.Yamada"]).map((element) => element.textContent)).toEqual([
+      "taro.yamada",
+    ]);
+    expect(namedAccounts(document, ["hanako"])).toEqual([]);
+  });
+
+  it("never hands over a text with an @, or one longer than 64 characters", () => {
+    document.body.innerHTML = `<div><span>taro@example.com</span><button>Continue</button></div>
+      <button>${"x".repeat(65)}</button>`;
+    expect(accountNames(document)).toEqual(["Continue"]);
+  });
+
+  it("finds a list's own buttons by their whole text, whatever their element type", () => {
+    document.body.innerHTML = instagram;
+    expect(
+      listControls(document, { by: "text", value: "Use another profile" }).map(
+        (element) => element.tagName,
+      ),
+    ).toEqual(["DIV"]);
+    expect(listControls(document, { by: "text", value: "Continue" })).toHaveLength(1);
+    expect(listControls(document, { by: "text", value: "Use another" })).toEqual([]);
+    document.body.innerHTML = wise;
+    expect(listControls(document, { by: "text", value: "Log back in" })).toHaveLength(1);
   });
 });
 

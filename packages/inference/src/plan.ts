@@ -573,7 +573,7 @@ export type AccountListRejection =
  * more digits; a control holding one may be an account, which is never clicked as `other`
  * or `continue`.
  */
-const accountText = /\[(?:email|masked|number)\]|@|\d{4}/u;
+const accountText = /\[(?:email|masked|number|account)\]|@|\d{4}/u;
 
 /**
  * Validates an account-list answer (ADR 0028): the page must list accounts, and each named

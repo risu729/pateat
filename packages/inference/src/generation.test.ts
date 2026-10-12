@@ -647,10 +647,12 @@ describe("account lists (ADR 0028)", () => {
         { id: "c4", role: "button", target: { by: "text", value: "[email] Last used" } },
         { id: "c5", role: "button", target: { by: "id", value: "p" }, label: "Taro [masked]" },
         { id: "c6", role: "email", target: { by: "id", value: "email" } },
+        { id: "c7", role: "button", target: { by: "id", value: "q" }, label: "[account]" },
       ],
     };
     await refused(marked, answer({ other: "c4" }), "account-text");
     await refused(marked, answer({ continue: "c5" }), "account-text");
+    await refused(marked, answer({ continue: "c7" }), "account-text");
     await refused(marked, answer({ other: "c6" }), "incompatible-role");
     // A form gets no list answer, and a list gets no form plan.
     const form = await run(page.observation, answer({ other: "c1" }));

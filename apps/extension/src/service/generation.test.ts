@@ -125,6 +125,35 @@ describe("recipe generation requests", () => {
     expect(await h.generation.available(observation.origin, "/login")).toBe(true);
   });
 
+  it("takes a chooser recipe (ADR 0028) as the answer to a list of accounts only", async () => {
+    const chooser = {
+      ...recipeChange,
+      recipe: {
+        version: 1 as const,
+        id: recipeChange.recipeId,
+        revision: 1,
+        origin: observation.origin,
+        chooser: { path: "/login", other: { by: "text" as const, value: "Use another" } },
+      },
+    };
+    const list = { ...request, observation: { ...observation, accounts: ["[email]"] } };
+    const h = setup({ kind: "result", result: { version: 1, status: "recipe", change: chooser } });
+    expect(await h.generation.generate(list)).toEqual({
+      outcome: "recipe",
+      recipe: chooser.recipe,
+    });
+    expect(h.sync).toHaveBeenCalled();
+    // A route recipe never answers a list.
+    const route = setup({
+      kind: "result",
+      result: { version: 1, status: "recipe", change: recipeChange },
+    });
+    expect(await route.generation.generate(list)).toEqual({
+      outcome: "unavailable",
+      reason: "recipe-conflict",
+    });
+  });
+
   it("takes no chooser recipe (ADR 0028) as the answer to a form page", async () => {
     const chooser = {
       ...recipeChange,

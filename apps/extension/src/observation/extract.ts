@@ -21,7 +21,13 @@ import {
   renderedText,
   shown,
 } from "../page/text";
-import { accountEntries, besideEmails, chromeSelector, entryLike } from "../page/account-list";
+import {
+  accountEntries,
+  besideEmails,
+  chromeSelector,
+  entryLike,
+  namedAccounts,
+} from "../page/account-list";
 
 /**
  * Why no observation was produced. A page without one is never sent to inference.
@@ -829,6 +835,7 @@ const listScanLimit = 4000;
  */
 export function extractAccountListObservation(
   document: Document = globalThis.document,
+  names: readonly string[] = [],
 ): ObservationResult {
   const location = document.location;
   if (!location || tokenPath(location.pathname)) return { ok: false, reason: "unsupported-page" };
@@ -851,11 +858,23 @@ export function extractAccountListObservation(
           ),
       ),
   ];
+  // A shown text that equals a matching item's username that is not an email (ADR 0028).
+  const named = names.length
+    ? namedAccounts(document, names).filter(
+        (element) => !listed.some((other) => other.contains(element) || element.contains(other)),
+      )
+    : [];
+  listed.push(...named);
   if (listed.length === 0) return { ok: false, reason: "no-candidates" };
-  // A text in which an address survived redaction is left out, never sent.
+  // A text in which an address survived redaction is left out, never sent; a name is sent
+  // only as `[account]`.
   const accounts = listed
     .slice(0, maxAccounts)
-    .map((element) => observedText(renderedText(element, rawLimit, { everyElement: true })))
+    .map((element) =>
+      named.includes(element)
+        ? "[account]"
+        : observedText(renderedText(element, rawLimit, { everyElement: true })),
+    )
     .filter((text): text is string => text !== undefined && !atSign.test(text));
   let complete = listed.length <= maxAccounts && accounts.length === listed.length;
   for (const host of document.querySelectorAll("*"))
@@ -864,7 +883,9 @@ export function extractAccountListObservation(
   // The innermost list controls that are not entries, by their whole text, which must
   // survive redaction and name one control only.
   const inEntry = (element: Element) =>
-    entries.some((entry) => entry.element.contains(element) || element.contains(entry.element));
+    [...entries.map((entry) => entry.element), ...named].some(
+      (entry) => entry.contains(element) || element.contains(entry),
+    );
   const scanned = [...document.body.querySelectorAll("*")];
   if (scanned.length > listScanLimit) complete = false;
   const listControls = scanned
@@ -895,7 +916,43 @@ export function extractAccountListObservation(
     return [{ form: null, draft: { element, role: "button", label: text }, target }];
   });
   if (chosen.length > maxListControls) complete = false;
-  return observe(document, chosen.slice(0, maxListControls), complete, undefined, accounts);
+  const result = observe(document, chosen.slice(0, maxListControls), complete, undefined, accounts);
+  return result.ok && names.length ? withoutNames(result.observation, names) : result;
+}
+
+/**
+ * The observation without `names` (ADR 0028), whatever their case: a control whose text,
+ * label or locator holds one, such as "Continue as" and the account, is left out, since
+ * its locator could not be kept without it; any other text, such as a heading, shows it
+ * as `[account]`. Refused when the result no longer fits the observation's limits.
+ */
+/** The page texts of a candidate, apart from its ID, role and locator kind, one per line. */
+function textsOf(value: unknown, key = ""): string {
+  if (typeof value === "string") return ["id", "role", "by"].includes(key) ? "" : value;
+  if (Array.isArray(value)) return value.map((entry) => textsOf(entry)).join("\n");
+  if (value && typeof value === "object")
+    return Object.entries(value)
+      .map(([name, entry]) => textsOf(entry, name))
+      .join("\n");
+  return "";
+}
+function withoutNames(observation: LoginObservation, names: readonly string[]): ObservationResult {
+  const source = names.map((name) => name.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")).join("|");
+  const holds = new RegExp(source, "iu");
+  const pattern = new RegExp(source, "giu");
+  const kept = {
+    ...observation,
+    candidates: observation.candidates.filter((candidate) => !holds.test(textsOf(candidate))),
+  };
+  const hidden: unknown = JSON.parse(JSON.stringify(kept), (key, value: unknown) =>
+    typeof value === "string" && !["origin", "path", "language", "id", "role", "by"].includes(key)
+      ? value.replace(pattern, "[account]")
+      : value,
+  );
+  const parsed = v.safeParse(loginObservationSchema, hidden);
+  return parsed.success
+    ? { ok: true, observation: parsed.output }
+    : { ok: false, reason: "unsupported-page" };
 }
 
 /**

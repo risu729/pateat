@@ -59,6 +59,8 @@ import {
   type LoginItemFacts,
   type LoginObservation,
   type LoginOperation,
+  isLoginRouteRecipe,
+  type LoginChooserRecipe,
   type LoginRecipe,
   type LoginRoute,
   type LoginRouteChoice,
@@ -87,6 +89,7 @@ import {
   observationSchema,
   stateResultSchema,
   statusSchema,
+  submittedSchema,
   probeControlSchema,
   loginReadiness,
   HELD_CLICK_WAIT_MS,
@@ -115,6 +118,7 @@ import {
   type PickResponse,
 } from "./choice-wire";
 import { customFieldOffers, type CustomFieldOffer } from "./generation-slots";
+import { namesUsername } from "../page/account-list";
 import {
   decideSignInState,
   reachedReturnTarget,
@@ -219,6 +223,11 @@ type LiveDocument = {
   /** Why this document's sign-in input last did not start a login, logged once. */
   notStarted?: string;
 };
+/**
+ * A page offered as a list of accounts (ADR 0028): its path, and without an email listed,
+ * the short texts that may name an account by a username that is not an email.
+ */
+type ListOffer = { path: string; names?: string[] | undefined };
 /** Whether a record holds its origin against other tabs at `now` (ADR 0022). */
 const holdsSite = (entry: LoginAttemptMetadata, now: number) =>
   entry.state !== "authenticated" &&
@@ -361,7 +370,11 @@ const terminal = (metadata: LoginAttemptMetadata) =>
  * Where one recipe starts: its start path and the first step of each of its routes and
  * variants, all on that path (ADR 0027).
  */
-export type LoginRecipeStart = { path: string; steps: LoginStep[] };
+/**
+ * Where a recipe starts: its first steps, or for a chooser recipe (ADR 0028) no steps and
+ * `list`, the list's own buttons, when it shows the list of accounts.
+ */
+export type LoginRecipeStart = { path: string; steps: LoginStep[]; list?: LoginTarget[] };
 /**
  * Cached recipes. Account bindings come from synced settings (`settings.bindings`,
  * ADR 0013); neither carries values.
@@ -394,7 +407,8 @@ export type GenerationHold = "not-connected" | "sending" | "sent";
  * 0018). A continuation of a revoked or since-changed recipe is not marked.
  */
 export type GenerationOutcome =
-  | { outcome: "recipe"; recipe: LoginRecipe }
+  /** A route recipe, or a chooser recipe for a list of accounts (ADR 0028). */
+  | { outcome: "recipe"; recipe: LoginRecipe | LoginChooserRecipe }
   | {
       outcome: "abstained" | "failed" | "unavailable" | "skipped";
       reason: string;
@@ -775,6 +789,8 @@ export type LoginReport = (
       recipeId?: string;
       baseRevision?: number;
       takenOver?: boolean;
+      /** `accounts` for a page that lists accounts (ADR 0028). */
+      page?: "accounts";
     }
   | {
       type: "judge";
@@ -1141,6 +1157,13 @@ export function createLoginRuntime(
     }
   })();
   const hellos = new Map<string, number>();
+  /**
+   * Per tab, the document that last submitted a form with a password input, and the
+   * tab's next document of that origin: the page right after a sign-in, which is never
+   * sent as a list of accounts (ADR 0028). Kept in memory only.
+   */
+  const passwordSubmits = new Map<number, { origin: string; documentId: string }>();
+  const afterSignIn = new Map<number, string>();
   /** The latest announcement of each frame while it is admitted, by the same key. */
   const admitting = new Map<string, Promise<unknown>>();
   const probeDocument = (url: URL) =>
@@ -3311,12 +3334,13 @@ export function createLoginRuntime(
    */
   async function continueWith(
     run: Execution,
-    next: LoginRecipe,
+    next: LoginRecipe | LoginChooserRecipe,
     taking?: () => void,
   ): Promise<boolean> {
     const route = attemptRouteChoice(run.metadata);
     if (
       !current(run) ||
+      !isLoginRouteRecipe(next) ||
       route.route !== "password" ||
       next.id !== run.recipe.id ||
       !continuesRecipe(run.recipe, next)
@@ -3804,9 +3828,10 @@ export function createLoginRuntime(
       probeMode && documentOrigin === origin
         ? probeStarts(origin)
         : await recipes.starts(documentOrigin).catch(() => []);
+    // A chooser's list starts nothing yet; its path only holds generation back (ADR 0028).
     const steps = all
       .filter((start) => all.filter((other) => other.path === start.path).length === 1)
-      .flatMap((start) => start.steps);
+      .flatMap((start) => (start.list ? [] : start.steps));
     const unique = new Map(
       steps.map((step) => {
         const readiness = loginReadiness(step);
@@ -3940,32 +3965,61 @@ export function createLoginRuntime(
     }
     return shape;
   }
+  /** The matching items' username reads: none for an item without one, or excluded. */
+  function usernameReads(scope: GenerationScope) {
+    return scope.items.flatMap(({ connection, item }) => {
+      const excluded = scope.settings.connections
+        .find((entry) => entry.connectionId === connection.id)
+        ?.excludedFields.some(
+          (field) => field.itemId === item.id && field.fieldId === "login.username",
+        );
+      return excluded || !item.fields.some((field) => field.id === "login.username")
+        ? []
+        : [
+            {
+              connection,
+              itemId: item.id,
+              fieldId: "login.username",
+              source: "username" as const,
+            },
+          ];
+    });
+  }
+  /**
+   * The shown texts that name a matching item's username that is not an email: the whole
+   * text equals it, ignoring case and a leading `@` (ADR 0028, owner 2026-10-12 08:36
+   * UTC). Usernames are read one at a time here and never kept or sent to the page.
+   */
+  async function listedNames(
+    pageOrigin: string,
+    scope: GenerationScope,
+    texts: readonly string[],
+  ): Promise<string[]> {
+    const found = new Set<string>();
+    for (const { connection, itemId, fieldId } of usernameReads(scope)) {
+      let value: string | undefined;
+      try {
+        // Serial reads through the shared vault host, as for a fill.
+        // eslint-disable-next-line no-await-in-loop
+        value = await fields({
+          account: { origin: pageOrigin, connectionId: connection.id, itemId },
+          connection,
+          fieldId,
+        });
+      } catch {
+        value = undefined;
+      }
+      if (value) for (const text of texts) if (namesUsername(text, value)) found.add(text);
+      value = "";
+    }
+    return [...found];
+  }
   /**
    * The shape of the matching items' username: an item without a username, or whose
    * username the user excluded, does not count.
    */
   function usernameShape(pageOrigin: string, scope: GenerationScope) {
-    return sharedShape(
-      pageOrigin,
-      scope,
-      scope.items.flatMap(({ connection, item }) => {
-        const excluded = scope.settings.connections
-          .find((entry) => entry.connectionId === connection.id)
-          ?.excludedFields.some(
-            (field) => field.itemId === item.id && field.fieldId === "login.username",
-          );
-        return excluded || !item.fields.some((field) => field.id === "login.username")
-          ? []
-          : [
-              {
-                connection,
-                itemId: item.id,
-                fieldId: "login.username",
-                source: "username" as const,
-              },
-            ];
-      }),
-    );
+    return sharedShape(pageOrigin, scope, usernameReads(scope));
   }
   /**
    * The custom-field slots with the shapes their fields share (ADR 0027): only for Text
@@ -4014,8 +4068,14 @@ export function createLoginRuntime(
    * cache by then; the document announces again and starts it once its first step is
    * ready (ADR 0018).
    */
-  async function generateFor(live: LiveDocument, scope: GenerationScope): Promise<void> {
+  async function generateFor(
+    live: LiveDocument,
+    scope: GenerationScope,
+    /** For a list of accounts (ADR 0028): the shown texts to hide as `[account]`. */
+    list?: { names: string[] },
+  ): Promise<void> {
     if (!generation) return;
+    const page = list ? ({ page: "accounts" } as const) : {};
     const key = frameKey(live.document);
     let sent = false;
     try {
@@ -4026,7 +4086,16 @@ export function createLoginRuntime(
         const extracted = v.safeParse(
           extractResultSchema,
           // eslint-disable-next-line no-await-in-loop
-          await send(live, { type: "login.extract", page: "login" }),
+          await send(
+            live,
+            list
+              ? {
+                  type: "login.extract",
+                  page: "accounts",
+                  ...(list.names.length ? { names: list.names } : {}),
+                }
+              : { type: "login.extract", page: "login" },
+          ),
         );
         if (documents.get(key) !== live) return;
         // The content script's refusal, such as `no-locator` or `extract-error`;
@@ -4040,7 +4109,9 @@ export function createLoginRuntime(
             parsed.success &&
             parsed.output.complete &&
             parsed.output.origin === live.document.origin &&
-            parsed.output.path === live.path
+            parsed.output.path === live.path &&
+            // A list is sent as one, and only a page announced as one is.
+            (parsed.output.accounts !== undefined) === (list !== undefined)
           ) {
             observation = parsed.output;
             break;
@@ -4076,6 +4147,7 @@ export function createLoginRuntime(
               tabId: live.document.tabId,
               origin: live.document.origin,
               outcome: "sent",
+              ...page,
             }),
         )
         .catch((): GenerationOutcome => ({ outcome: "failed", reason: "error" }));
@@ -4085,6 +4157,7 @@ export function createLoginRuntime(
         tabId: live.document.tabId,
         origin: live.document.origin,
         ...outcomeFields(result),
+        ...page,
       });
       if (result.outcome !== "recipe" || documents.get(key) !== live) return;
       await browser.tabs.sendMessage(
@@ -4269,6 +4342,7 @@ export function createLoginRuntime(
     start?: { path: string },
     signIn?: { path: string },
     shown?: { path: string },
+    list?: ListOffer,
   ): Promise<Readiness> {
     // Admission is async; a later hello from the same frame must not be overtaken by an older one.
     const helloKey = `${sender.tab?.id}:${sender.frameId}`;
@@ -4279,7 +4353,7 @@ export function createLoginRuntime(
     const admission = (async () => {
       const leave = await options.vault?.enter(start !== undefined);
       try {
-        return await admitFresh(sender, token, helloKey, sequence, start, signIn, shown);
+        return await admitFresh(sender, token, helloKey, sequence, start, signIn, shown, list);
       } finally {
         leave?.();
       }
@@ -4305,12 +4379,13 @@ export function createLoginRuntime(
     start?: { path: string },
     signIn?: { path: string },
     shown?: { path: string },
+    list?: ListOffer,
     tries = 0,
   ): Promise<Readiness> {
-    const result = await admit(sender, token, helloKey, sequence, start, signIn, shown);
+    const result = await admit(sender, token, helloKey, sequence, start, signIn, shown, list);
     if (result.reason !== CHOICE_SAVED) return result;
     return tries < 2
-      ? admitFresh(sender, token, helloKey, sequence, start, signIn, shown, tries + 1)
+      ? admitFresh(sender, token, helloKey, sequence, start, signIn, shown, list, tries + 1)
       : { ok: false, reason: "stale-document" };
   }
   /** Resolves once no account choice is being saved. */
@@ -4327,6 +4402,7 @@ export function createLoginRuntime(
     start?: { path: string },
     signIn?: { path: string },
     shown?: { path: string },
+    list?: ListOffer,
   ): Promise<Readiness> {
     await loaded;
     await sessionLoaded;
@@ -4337,6 +4413,17 @@ export function createLoginRuntime(
     }
     if (hellos.get(helloKey) !== sequence) return { ok: false, reason: "stale-document" };
     const key = frameKey(document);
+    // The tab's next page of the origin after a submitted password form (ADR 0028).
+    const submitted = passwordSubmits.get(document.tabId);
+    if (
+      submitted &&
+      document.frameId === 0 &&
+      submitted.origin === document.origin &&
+      submitted.documentId !== document.documentId
+    ) {
+      passwordSubmits.delete(document.tabId);
+      afterSignIn.set(document.tabId, document.documentId);
+    }
     // A new page in the tab replaces the document that waited for a choice.
     const waiting = pending.get(document.tabId);
     if (
@@ -4491,7 +4578,9 @@ export function createLoginRuntime(
     };
     // A report sent only for the log does not log the tab's hold again.
     if (busy)
-      return shown && !start && !signIn ? { ok: false, reason: "tab-busy" } : refuse("tab-busy");
+      return shown && !start && !signIn && !list
+        ? { ok: false, reason: "tab-busy" }
+        : refuse("tab-busy");
     if (!storageHealthy)
       return refuse(
         "storage-unavailable",
@@ -4710,18 +4799,30 @@ export function createLoginRuntime(
       let offer = availability === true;
       // Only a page that was sent is held, so the log says why it is not sent again.
       if (availability === "sending" || availability === "sent") skipGeneration(live, availability);
-      if (offer && signIn?.path === live.path) {
+      const listing = !signIn && list?.path === live.path ? list : undefined;
+      // The page right after a sign-in is never sent as a list of accounts (ADR 0028).
+      if (offer && listing && afterSignIn.get(document.tabId) === document.documentId) {
+        skipGeneration(live, "after-sign-in");
+        offer = false;
+      }
+      if (offer && (signIn?.path === live.path || listing)) {
         const scope = await generationSlotsFor(live).catch(() => undefined);
         if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
-        if (scope) {
+        // Without an email listed, a shown text must name a matching item's username.
+        const names =
+          scope && listing?.names
+            ? await listedNames(live.document.origin, scope, listing.names)
+            : undefined;
+        if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+        if (scope && (!listing?.names || names?.length)) {
           live.state = "generating";
           delete live.reason;
           await publish(live);
-          void generateFor(live, scope);
+          void generateFor(live, scope, listing ? { names: names ?? [] } : undefined);
           return { ok: false, reason: "generating" };
         }
-        // No vault item matches this page, so it is not sent.
-        skipGeneration(live, "no-vault-match");
+        // No vault item matches this page, or no shown text names one, so it is not sent.
+        skipGeneration(live, scope ? "no-listed-account" : "no-vault-match");
         offer = false;
       }
       // No recipe of the origin and no login in the tab: ordinary browsing (ADR 0019).
@@ -5066,6 +5167,15 @@ export function createLoginRuntime(
       if (pick.success) return pickFor(pick.output);
       return undefined;
     }
+    if (v.safeParse(submittedSchema, message).success) {
+      const document = await identify(sender);
+      if (document)
+        passwordSubmits.set(document.tabId, {
+          origin: document.origin,
+          documentId: document.documentId,
+        });
+      return undefined;
+    }
     const hello = v.safeParse(helloSchema, message);
     if (hello.success) {
       options.vault?.refreshIfStale();
@@ -5075,6 +5185,7 @@ export function createLoginRuntime(
         hello.output.start,
         hello.output.signIn,
         hello.output.shown,
+        hello.output.list,
       );
     }
     const authorization = v.safeParse(authorizeSchema, message);
@@ -5117,6 +5228,8 @@ export function createLoginRuntime(
     }
   }
   browser.tabs.onRemoved.addListener((tabId) => {
+    passwordSubmits.delete(tabId);
+    afterSignIn.delete(tabId);
     for (const key of hellos.keys()) if (key.startsWith(`${tabId}:`)) hellos.delete(key);
     for (const [key, live] of documents) if (live.document.tabId === tabId) documents.delete(key);
     const closed = attempts.get(tabId);

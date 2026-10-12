@@ -209,6 +209,8 @@ export const LOG_EVENTS = {
       recipe: "recipe",
       baseRevision: "count",
       takenOver: "flag",
+      // `accounts` for a list of accounts (ADR 0028).
+      page: "code",
       url: "url",
     },
   },

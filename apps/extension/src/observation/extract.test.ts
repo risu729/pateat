@@ -1405,6 +1405,34 @@ describe("extractAccountListObservation", () => {
     expect(JSON.stringify(observation)).not.toContain("example.com");
   });
 
+  it("hides a saved profile named by a username as [account], everywhere", () => {
+    // Instagram's saved profile on 2026-10-12, with a made-up username.
+    page(
+      `<h1>Welcome back, Taro.Yamada</h1>
+      <div>
+        <div>
+          <div><div role="img"><svg></svg></div><div><span>taro.yamada</span></div></div>
+          <div role="button"><div role="button" aria-label="Continue as taro.yamada">Continue</div></div>
+        </div>
+        <div role="button" aria-label="Use another profile">Use another profile</div>
+        <a role="link" href="/accounts/emailsignup/">Create new account</a>
+      </div>`,
+    );
+    // Without a matching name, nothing is listed.
+    expect(extractAccountListObservation()).toEqual({ ok: false, reason: "no-candidates" });
+    const result = extractAccountListObservation(document, ["taro.yamada"]);
+    if (!result.ok) throw new Error(result.reason);
+    const { observation } = result;
+    expect(observation.accounts).toEqual(["[account]"]);
+    expect(observation.headings).toEqual(["Welcome back, [account]"]);
+    expect(summary(observation).map((candidate) => candidate.target)).toEqual([
+      { by: "text", value: "Continue" },
+      { by: "text", value: "Use another profile" },
+      { by: "text", value: "Create new account" },
+    ]);
+    expect(JSON.stringify(observation).toLowerCase()).not.toContain("taro");
+  });
+
   it("refuses a page with a field or without a shown account", () => {
     page(`<button>taro@example.com</button><input type="password">`);
     expect(extractAccountListObservation()).toEqual({ ok: false, reason: "no-candidates" });

@@ -1,5 +1,7 @@
+import type { LoginTarget } from "@pateat/contracts";
 import { fits, shownAccounts } from "./accounts";
-import { isButton, isScriptButton, renderedText, shown } from "./text";
+import { findTargets } from "./targets";
+import { collapseText, isButton, isScriptButton, renderedText, shown } from "./text";
 
 /** Roles that make an element a list entry (ADR 0028). */
 const entryRoles = new Set(["button", "link", "option", "menuitem", "radio"]);
@@ -286,5 +288,58 @@ export function namesUsername(text: string, username: string): boolean {
 export function besideEmails(root: Document | Element): BesideAccount[] {
   return besideAccounts(root).filter((account) =>
     shownAccounts(account.text).some((shownAccount) => shownAccount.includes("@")),
+  );
+}
+
+/** Rendered text read from a list control, as the observation names it (ADR 0028). */
+const controlTextLimit = 480;
+/** The whitespace-collapsed rendered text of a list control, as its text locator names it. */
+export function listControlText(element: HTMLElement): string {
+  return collapseText(renderedText(element, controlTextLimit) ?? "");
+}
+
+/**
+ * The elements a chooser's `other` or `continue` locator names (ADR 0028): for a `text`
+ * locator, the innermost entry-like elements outside page chrome whose whole text is its
+ * value, as the observation named them; otherwise the locator's own elements that are
+ * entry-like.
+ */
+export function listControls(document: Document, target: LoginTarget): HTMLElement[] {
+  if (target.by === "text")
+    return entryControls(document).filter((element) => listControlText(element) === target.value);
+  return findTargets(document, target).filter((element) => entryLike(element));
+}
+
+/** At most this many short texts are handed over as possible account names. */
+const maxNames = 32;
+
+/**
+ * The short texts that may name a listed account by a username that is not an email (ADR
+ * 0028, owner 2026-10-12 08:36 UTC): those shown beside at most three buttons, and the
+ * whole texts of the entry-like controls outside page chrome, each at most 64 characters
+ * and without an `@`. The background compares them with the matching items' usernames;
+ * no username reaches the page.
+ */
+export function accountNames(root: Document | Element): string[] {
+  const texts = [
+    ...besideAccounts(root).map((account) => account.text),
+    ...entryControls(root).map((element) =>
+      (renderedText(element, besideTextLimit + 1) ?? "").replace(/\s+/gu, " ").trim(),
+    ),
+  ].filter((text) => text.length > 0 && text.length <= besideTextLimit && !/[@＠]/u.test(text));
+  return [...new Set(texts)].slice(0, maxNames);
+}
+
+/**
+ * The elements of `root` whose whole shown text names one of `names` (ADR 0028): a text
+ * beside separate buttons, or an entry-like control outside page chrome.
+ */
+export function namedAccounts(root: Document | Element, names: readonly string[]): HTMLElement[] {
+  const fold = (text: string) => text.normalize("NFKC").trim().toLowerCase();
+  const wanted = new Set(names.map(fold));
+  const text = (element: HTMLElement) =>
+    (renderedText(element, besideTextLimit + 1) ?? "").replace(/\s+/gu, " ").trim();
+  return [...besideAccounts(root).map((account) => account.element), ...entryControls(root)].filter(
+    (element, index, all) => all.indexOf(element) === index && wanted.has(fold(text(element))),
   );
 }

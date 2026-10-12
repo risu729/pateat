@@ -351,6 +351,7 @@ export function createDiagnosticsLog(options: {
             recipe: report.recipeId,
             baseRevision: report.baseRevision,
             takenOver: report.takenOver,
+            page: report.page,
           },
           // A login page without a matching vault item is common and not a problem; a
           // request that failed is (ADR 0019).
