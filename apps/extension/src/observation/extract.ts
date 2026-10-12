@@ -215,8 +215,8 @@ const idList = (element: Element, attribute: string) =>
   element.getAttribute(attribute)?.split(/\s+/u).filter(Boolean) ?? [];
 
 /**
- * Visible text of the elements `ids` name. With `skip`, an element matching it, inside
- * one or holding one contributes nothing of that part.
+ * Visible text of the elements `ids` name. With `skip`, the text of an element matching
+ * it, or of one inside such an element, is left out.
  */
 function referencedText(
   element: Element,
