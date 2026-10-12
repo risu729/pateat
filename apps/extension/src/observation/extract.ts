@@ -26,6 +26,7 @@ import {
   besideEmails,
   chromeSelector,
   entryLike,
+  foldName,
   namedAccounts,
 } from "../page/account-list";
 
@@ -858,12 +859,12 @@ export function extractAccountListObservation(
           ),
       ),
   ];
-  // A shown text that equals a matching item's username that is not an email (ADR 0028).
-  const named = names.length
-    ? namedAccounts(document, names).filter(
-        (element) => !listed.some((other) => other.contains(element) || element.contains(other)),
-      )
-    : [];
+  // A shown text that equals a matching item's username that is not an email (ADR 0028),
+  // and the other texts beside buttons, which may name accounts not in the vault.
+  const beside = names.length ? namedAccounts(document, names) : { named: [], others: [] };
+  const named = beside.named.filter(
+    (element) => !listed.some((other) => other.contains(element) || element.contains(other)),
+  );
   listed.push(...named);
   if (listed.length === 0) return { ok: false, reason: "no-candidates" };
   // A text in which an address survived redaction is left out, never sent; a name is sent
@@ -917,7 +918,11 @@ export function extractAccountListObservation(
   });
   if (chosen.length > maxListControls) complete = false;
   const result = observe(document, chosen.slice(0, maxListControls), complete, undefined, accounts);
-  return result.ok && names.length ? withoutNames(result.observation, names) : result;
+  if (!result.ok || !names.length) return result;
+  const hidden = beside.others.map((element) =>
+    collapseText(renderedText(element, rawLimit) ?? ""),
+  );
+  return withoutNames(result.observation, names, hidden);
 }
 
 /**
@@ -936,23 +941,61 @@ function textsOf(value: unknown, key = ""): string {
       .join("\n");
   return "";
 }
-function withoutNames(observation: LoginObservation, names: readonly string[]): ObservationResult {
-  const source = names.map((name) => name.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")).join("|");
+/**
+ * The observation of a list shown by names (ADR 0028) with no name in it: `names`, the
+ * texts that name a matching item's username, become `[account]` wherever they show as a
+ * whole word, with or without a leading `@` and in any width or case, and a candidate
+ * whose text holds one is left out; a text that is wholly one of `hidden`, the other
+ * texts beside buttons, which may name accounts not in the vault, becomes `[account]`,
+ * and a candidate with such a text is left out. A path that holds a name is not sent.
+ */
+function withoutNames(
+  observation: LoginObservation,
+  names: readonly string[],
+  hidden: readonly string[],
+): ObservationResult {
+  const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  // Longest first, so a name inside a longer one never leaves part of the longer one.
+  const folded = [...new Set(names.map(foldName).filter(Boolean))].sort(
+    (left, right) => right.length - left.length,
+  );
+  const source = `(?<![\\p{L}\\p{N}])@?(?:${folded.map(escape).join("|")})(?![\\p{L}\\p{N}])`;
   const holds = new RegExp(source, "iu");
   const pattern = new RegExp(source, "giu");
+  const others = new Set(hidden.map(foldName).filter(Boolean));
+  const shows = (text: string) => holds.test(text.normalize("NFKC"));
+  const whole = (text: string) => others.has(foldName(text));
+  if (shows(decodeURIComponentSafe(observation.path)))
+    return { ok: false, reason: "unsupported-page" };
   const kept = {
     ...observation,
-    candidates: observation.candidates.filter((candidate) => !holds.test(textsOf(candidate))),
+    candidates: observation.candidates.filter((candidate) => {
+      const text = textsOf(candidate);
+      return !shows(text) && !text.split("\n").some(whole);
+    }),
   };
-  const hidden: unknown = JSON.parse(JSON.stringify(kept), (key, value: unknown) =>
+  const hide = (text: string) => {
+    if (whole(text)) return "[account]";
+    const normal = text.normalize("NFKC");
+    return holds.test(normal) ? normal.replace(pattern, "[account]") : text;
+  };
+  const replaced: unknown = JSON.parse(JSON.stringify(kept), (key, value: unknown) =>
     typeof value === "string" && !["origin", "path", "language", "id", "role", "by"].includes(key)
-      ? value.replace(pattern, "[account]")
+      ? hide(value)
       : value,
   );
-  const parsed = v.safeParse(loginObservationSchema, hidden);
+  const parsed = v.safeParse(loginObservationSchema, replaced);
   return parsed.success
     ? { ok: true, observation: parsed.output }
     : { ok: false, reason: "unsupported-page" };
+}
+/** A path as it reads, or as it is when it does not decode. */
+function decodeURIComponentSafe(path: string): string {
+  try {
+    return decodeURIComponent(path);
+  } catch {
+    return path;
+  }
 }
 
 /**

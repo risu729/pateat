@@ -1424,13 +1424,49 @@ describe("extractAccountListObservation", () => {
     if (!result.ok) throw new Error(result.reason);
     const { observation } = result;
     expect(observation.accounts).toEqual(["[account]"]);
-    expect(observation.headings).toEqual(["Welcome back, [account]"]);
+    // The heading is a text beside the buttons too, which may name another account.
+    expect(observation.headings).toEqual(["[account]"]);
     expect(summary(observation).map((candidate) => candidate.target)).toEqual([
       { by: "text", value: "Continue" },
       { by: "text", value: "Use another profile" },
       { by: "text", value: "Create new account" },
     ]);
     expect(JSON.stringify(observation).toLowerCase()).not.toContain("taro");
+  });
+
+  it("hides a name in every form it shows in, and other texts beside buttons", () => {
+    page(
+      `<main>
+        <h1>ようこそ ＴＡＲＯ.yamada さん</h1>
+        <section><span>@taro.yamada</span><button aria-label="Continue as taro.yamada">Continue</button></section>
+        <section><span>hanako.s</span><button>Switch</button></section>
+        <button>Use another profile</button><button>Use an app</button>
+      </main>`,
+    );
+    const result = extractAccountListObservation(document, ["@taro.yamada"]);
+    if (!result.ok) throw new Error(result.reason);
+    const { observation } = result;
+    expect(observation.accounts).toEqual(["[account]"]);
+    expect(observation.headings).toEqual(["ようこそ [account] さん"]);
+    // "an" in "another" is not a name.
+    expect(summary(observation).map((candidate) => candidate.label)).toEqual([
+      "Continue",
+      "Switch",
+      "Use another profile",
+      "Use an app",
+    ]);
+    const sent = JSON.stringify(observation).normalize("NFKC").toLowerCase();
+    expect(sent).not.toContain("taro");
+    expect(sent).not.toContain("hanako");
+  });
+
+  it("does not send a list whose path names the account", () => {
+    history.replaceState(null, "", "/u/taro/");
+    page(`<div><span>taro</span><button>Continue</button></div>`);
+    expect(extractAccountListObservation(document, ["taro"])).toEqual({
+      ok: false,
+      reason: "unsupported-page",
+    });
   });
 
   it("refuses a page with a field or without a shown account", () => {

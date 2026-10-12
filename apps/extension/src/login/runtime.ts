@@ -4415,14 +4415,11 @@ export function createLoginRuntime(
     const key = frameKey(document);
     // The tab's next page of the origin after a submitted password form (ADR 0028).
     const submitted = passwordSubmits.get(document.tabId);
-    if (
-      submitted &&
-      document.frameId === 0 &&
-      submitted.origin === document.origin &&
-      submitted.documentId !== document.documentId
-    ) {
+    if (submitted && document.frameId === 0 && submitted.documentId !== document.documentId) {
+      // Only the tab's next page counts: one of another origin ends the skip.
       passwordSubmits.delete(document.tabId);
-      afterSignIn.set(document.tabId, document.documentId);
+      if (submitted.origin === document.origin)
+        afterSignIn.set(document.tabId, document.documentId);
     }
     // A new page in the tab replaces the document that waited for a choice.
     const waiting = pending.get(document.tabId);
@@ -4578,7 +4575,7 @@ export function createLoginRuntime(
     };
     // A report sent only for the log does not log the tab's hold again.
     if (busy)
-      return shown && !start && !signIn && !list
+      return (shown || list) && !start && !signIn
         ? { ok: false, reason: "tab-busy" }
         : refuse("tab-busy");
     if (!storageHealthy)
@@ -4822,7 +4819,9 @@ export function createLoginRuntime(
           return { ok: false, reason: "generating" };
         }
         // No vault item matches this page, or no shown text names one, so it is not sent.
-        skipGeneration(live, scope ? "no-listed-account" : "no-vault-match");
+        // A page offered only by its short texts is ordinary browsing then, and not logged
+        // (ADR 0019): most pages show a short text beside a button.
+        if (!listing?.names) skipGeneration(live, scope ? "no-listed-account" : "no-vault-match");
         offer = false;
       }
       // No recipe of the origin and no login in the tab: ordinary browsing (ADR 0019).
@@ -5169,11 +5168,13 @@ export function createLoginRuntime(
     }
     if (v.safeParse(submittedSchema, message).success) {
       const document = await identify(sender);
-      if (document)
-        passwordSubmits.set(document.tabId, {
-          origin: document.origin,
-          documentId: document.documentId,
-        });
+      // A sign-in in a frame counts for the tab's page, whose next page is skipped.
+      const page =
+        document && document.frameId !== 0
+          ? documents.get(frameKey({ tabId: document.tabId, frameId: 0 }))?.document
+          : document;
+      if (page)
+        passwordSubmits.set(page.tabId, { origin: page.origin, documentId: page.documentId });
       return undefined;
     }
     const hello = v.safeParse(helloSchema, message);

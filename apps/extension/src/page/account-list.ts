@@ -315,31 +315,40 @@ const maxNames = 32;
 
 /**
  * The short texts that may name a listed account by a username that is not an email (ADR
- * 0028, owner 2026-10-12 08:36 UTC): those shown beside at most three buttons, and the
- * whole texts of the entry-like controls outside page chrome, each at most 64 characters
- * and without an `@`. The background compares them with the matching items' usernames;
+ * 0028, owner 2026-10-12 08:36 UTC): those shown beside at most three buttons, as
+ * Instagram shows a saved profile's username beside "Continue", each at most 64
+ * characters and without an `@`. A control's own text is not one, so a page of buttons
+ * alone offers none. The background compares them with the matching items' usernames;
  * no username reaches the page.
  */
 export function accountNames(root: Document | Element): string[] {
-  const texts = [
-    ...besideAccounts(root).map((account) => account.text),
-    ...entryControls(root).map((element) =>
-      (renderedText(element, besideTextLimit + 1) ?? "").replace(/\s+/gu, " ").trim(),
-    ),
-  ].filter((text) => text.length > 0 && text.length <= besideTextLimit && !/[@＠]/u.test(text));
+  const texts = besideAccounts(root)
+    .map((account) => account.text)
+    .filter((text) => text.length > 0 && text.length <= besideTextLimit && !/[@＠]/u.test(text));
   return [...new Set(texts)].slice(0, maxNames);
 }
 
+/** Folds a shown text or username for comparison: NFKC, lowercase, no leading `@`. */
+export const foldName = (text: string) =>
+  text.normalize("NFKC").trim().replace(/^@/u, "").toLowerCase();
+
 /**
- * The elements of `root` whose whole shown text names one of `names` (ADR 0028): a text
- * beside separate buttons, or an entry-like control outside page chrome.
+ * The texts beside separate buttons that name one of `names` (ADR 0028), compared as
+ * {@link foldName} folds them, and the other texts beside buttons, which may name
+ * accounts that are not in the vault.
  */
-export function namedAccounts(root: Document | Element, names: readonly string[]): HTMLElement[] {
-  const fold = (text: string) => text.normalize("NFKC").trim().toLowerCase();
-  const wanted = new Set(names.map(fold));
-  const text = (element: HTMLElement) =>
-    (renderedText(element, besideTextLimit + 1) ?? "").replace(/\s+/gu, " ").trim();
-  return [...besideAccounts(root).map((account) => account.element), ...entryControls(root)].filter(
-    (element, index, all) => all.indexOf(element) === index && wanted.has(fold(text(element))),
-  );
+export function namedAccounts(
+  root: Document | Element,
+  names: readonly string[],
+): { named: HTMLElement[]; others: HTMLElement[] } {
+  const wanted = new Set(names.map(foldName));
+  const beside = besideAccounts(root);
+  return {
+    named: beside
+      .filter((account) => wanted.has(foldName(account.text)))
+      .map((account) => account.element),
+    others: beside
+      .filter((account) => !wanted.has(foldName(account.text)))
+      .map((account) => account.element),
+  };
 }

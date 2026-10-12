@@ -4303,9 +4303,8 @@ describe("production login document admission", () => {
           ok: false,
           reason: "recipe-not-found",
         });
-        expect(generations()).toEqual([
-          { type: "generation", tabId: 1, origin, outcome: "skipped", reason: "no-listed-account" },
-        ]);
+        // A page offered only by its short texts is ordinary browsing then: not logged.
+        expect(generations()).toEqual([]);
         expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.extract");
         // Another page whose shown text is the username, ignoring case and a leading `@`.
         expect(await h.hello({ documentId: "next-page" }, false)).toMatchObject({ generate: true });

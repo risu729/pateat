@@ -914,7 +914,8 @@ more onto the newer chooser. Generation attempts and judged pages are keyed by b
 too. A form page, or a route recipe's next page, whose stored recipe is a chooser still
 answers `recipe-conflict`. The extension sends a page that lists accounts ten seconds
 after loading, unless it follows a submitted password form, with a username that is not
-an email shown as `[account]`, and caches the chooser it gets; it sends no branch and
+an email and the other texts beside its buttons shown as `[account]`, and caches the
+chooser it gets; it sends no branch and
 starts no chooser yet.
 
 A generated recipe has no completion target until the page after its first sign-in is

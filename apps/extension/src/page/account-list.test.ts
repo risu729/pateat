@@ -198,24 +198,23 @@ describe("besideAccounts", () => {
 });
 
 describe("account names and list controls", () => {
-  it("hands over Instagram's short texts and finds the one that names the account", () => {
+  it("hands over Instagram's username beside Continue and finds the one that names the account", () => {
     document.body.innerHTML = instagram;
-    expect(accountNames(document)).toEqual([
-      "taro.yamada",
-      "Continue",
-      "Use another profile",
-      "Create new account",
-    ]);
-    expect(namedAccounts(document, ["Taro.Yamada"]).map((element) => element.textContent)).toEqual([
-      "taro.yamada",
-    ]);
-    expect(namedAccounts(document, ["hanako"])).toEqual([]);
+    // A control's own text is never handed over.
+    expect(accountNames(document)).toEqual(["taro.yamada"]);
+    const found = namedAccounts(document, ["＠Taro.Yamada"]);
+    expect(found.named.map((element) => element.textContent)).toEqual(["taro.yamada"]);
+    expect(found.others).toEqual([]);
+    const missing = namedAccounts(document, ["hanako"]);
+    expect(missing.named).toEqual([]);
+    expect(missing.others.map((element) => element.textContent)).toEqual(["taro.yamada"]);
   });
 
   it("never hands over a text with an @, or one longer than 64 characters", () => {
     document.body.innerHTML = `<div><span>taro@example.com</span><button>Continue</button></div>
-      <button>${"x".repeat(65)}</button>`;
-    expect(accountNames(document)).toEqual(["Continue"]);
+      <div><span>${"x".repeat(65)}</span><button>Go</button></div>
+      <button>hanako</button>`;
+    expect(accountNames(document)).toEqual([]);
   });
 
   it("finds a list's own buttons by their whole text, whatever their element type", () => {

@@ -101,19 +101,26 @@ refuses it as `invalid-request` without a model call.
 As implemented in the extension: the content script checks once, when its ten seconds
 to offer a page for generation end, and announces a list with the page's path. Without
 an email listed, it hands over up to 32 short texts instead: those beside at most three
-buttons and the whole texts of the entry-like controls outside page chrome, each at most
-64 characters and without an `@`. The worker reads the matching items' usernames one at
-a time, sends the page only when a text names one, and passes those texts back with the
-request to describe the page. The observation then lists each as `[account]`, leaves out
-a control whose text, label or locator holds one, such as a "Continue as" label naming
-the account, and shows it as `[account]` in any other text, such as a heading. The page
-right after a submitted password form is skipped: the content script skips its own next
-path, and the worker the tab's next document of the origin, kept in memory only, so a
-restart of the worker in between forgets it. A stored chooser's path counts as a recipe
-start, so the page is not sent again, though nothing starts there yet. The local log
-names a list's generation with `page: accounts`, and its skips as `after-sign-in` or
-`no-listed-account`. The service's check of the answer also refuses a control whose text
-holds `[account]`.
+buttons, each at most 64 characters and without an `@`; a control's own text is never
+one. Many ordinary pages show such a text, so on a site with a vault match the worker
+reads the matching items' usernames, email usernames included, one at a time on each
+such page, and sends the page only when a text names one; a page offered only by such
+texts that is not sent is not logged, as ordinary browsing. The worker passes the
+naming texts back with the request to describe the page. The observation then lists
+each as `[account]`, and hides the name wherever it shows as a whole word, with or
+without a leading `@`, in any width or case, such as in a heading: a control whose
+text or label holds it is left out, and so is the page when its path holds it. Every
+other text beside the buttons, which may name an account that is not in the vault, is
+shown as `[account]` when it is a whole heading or the title, and a control with such a
+text is left out; such a name inside a longer text is not found. The page right after a
+submitted password form is skipped: the content script skips its own next path, and the
+worker the tab's next document, kept in memory only, so a restart of the worker in
+between forgets it. A submission in a frame counts for the tab's page, and a next page
+of another origin ends the skip. A stored chooser's path counts as a recipe start, so
+the page is not sent again, though nothing starts there yet. The local log names a
+list's generation with `page: accounts`, and the skips of a list with an email as
+`after-sign-in`, `no-vault-match` or `no-listed-account`. The service's check of the
+answer also refuses a control whose text holds `[account]`.
 
 ### What the AI answers
 
