@@ -280,8 +280,9 @@ function harness(
     passkeys?: (account: unknown) => Promise<{ passkey: boolean; discoverable: boolean }>;
     /** Automatic vault sync (ADR 0025). */
     vault?: Parameters<typeof createLoginRuntime>[1]["vault"];
-    /** Receives the runtime's reports for the local log. */
+    /** Receives the runtime's reports for the local log, without page URLs unless `urls`. */
     report?: (report: LoginReport) => void;
+    urls?: boolean;
     /** Replaces the item's custom fields. */
     custom?: CustomField[];
     /** Custom fields of the other item, which has none otherwise. */
@@ -428,7 +429,14 @@ function harness(
     ...(live.generation ? { generation: live.generation } : {}),
     ...(live.passkeys ? { passkeys: live.passkeys } : {}),
     ...(live.vault ? { vault: live.vault } : {}),
-    ...(live.report ? { report: live.report } : {}),
+    ...(live.report
+      ? {
+          report: (entry: LoginReport) => {
+            const { url: _url, ...rest } = entry;
+            live.report?.(live.urls ? entry : rest);
+          },
+        }
+      : {}),
   });
   // By default the document reports its first step ready, as the content script does
   // once the form appears; `start: false` sends the initial announcement instead.
@@ -868,6 +876,26 @@ describe("production login document admission", () => {
       { type: "refused", tabId: 1, origin, reason: "stale-document", detail: "gave-up" },
     ]);
   });
+  it("names the tab's page URL in its reports, but not a frame's", async () => {
+    const report = vi.fn<(report: LoginReport) => void>();
+    fake.state.pageUrl = "https://login.example/signin?next=%2Fhome#top";
+    const h = harness({}, { report, urls: true });
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(report.mock.calls.map(([entry]) => entry.type)).toContain("attempt"),
+    );
+    const reports = report.mock.calls.map(([entry]) => entry);
+    expect(reports.find((entry) => entry.type === "start")?.url).toBe(fake.state.pageUrl);
+    expect(reports.find((entry) => entry.type === "attempt")?.url).toBe(fake.state.pageUrl);
+    report.mockClear();
+    fake.state.tabUrls[1] = fake.state.pageUrl;
+    expect(
+      await h.hello({ frameId: 2, documentId: "frame", tab: { id: 1, url: fake.state.pageUrl } }),
+    ).toEqual({ ok: false, reason: "tab-busy" });
+    expect(
+      report.mock.calls.map(([entry]) => entry).filter((entry) => entry.type === "refused"),
+    ).toEqual([{ type: "refused", tabId: 1, origin, reason: "tab-busy", frame: true }]);
+  });
   it("logs the same refusal on the same page once, and again on a new page", async () => {
     const report = vi.fn<(report: LoginReport) => void>();
     const h = harness({ siteDefaults: [] }, { report });
@@ -1086,6 +1114,22 @@ describe("production login document admission", () => {
       fake.state.tabUrls[1] = top;
       return { frameId: 3, documentId: "frame-document", tab: { id: 1, url: top }, ...overrides };
     };
+    it("never names the tab's page URL in the reports of a login in a same-site frame", async () => {
+      const report = vi.fn<(report: LoginReport) => void>();
+      const signin = fake.state.pageUrl;
+      const top = "https://login.example/elsewhere?next=1";
+      fake.state.pageUrl = top;
+      const h = harness({}, { report, urls: true });
+      expect(await h.hello()).toMatchObject({ ok: false, reason: "recipe-not-found" });
+      fake.state.pageUrl = signin;
+      expect(await h.hello(framed(top))).toEqual({ ok: true });
+      await vi.waitFor(() => expect(executes()).toHaveLength(2));
+      const reports = report.mock.calls
+        .map(([entry]) => entry)
+        .filter((entry) => entry.type !== "refused");
+      expect(reports.map((entry) => entry.type)).toContain("attempt");
+      expect(reports.filter((entry) => entry.url !== undefined)).toEqual([]);
+    });
     it("logs in when the item also allows the tab's page", async () => {
       const h = harness();
       expect(await h.hello(framed("https://login.example/home"))).toEqual({ ok: true });
