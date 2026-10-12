@@ -54,8 +54,8 @@ The route follows from these and from ADRs 0013 to 0016:
   checks the plan with `validatePagePlan` and saves the steps as one recipe per origin
   (per origin and start path since the ADR 0016 amendment).
   It answers synchronously with the saved recipe, an abstention reason, a failure code
-  or an unavailable reason (no credentials, a limit reached, busy, or tried in the
-  previous 24 hours).
+  or an unavailable reason (no credentials, a limit reached, busy, or tried within the
+  ADR 0016 retry window).
 - A login that spans pages is generated one page at a time. When an `advance` step
   leads to a page the recipe has no steps for, that page is sent and its steps are
   appended to the same recipe in a new revision.
@@ -63,7 +63,8 @@ The route follows from these and from ADRs 0013 to 0016:
   sync; the service never sees item IDs.
 - Limits per owner: $100 a month (the ADR 0014 default, estimated from returned usage
   and a versioned price table), $5 a day (UTC), one call at a time, and the ADR 0016
-  24-hour rule per origin and path, enforced again on the service. The owner replaced
+  retry window per origin and path (24 hours until 2026-10-12, now 10 minutes),
+  enforced again on the service. The owner replaced
   the first limit of 50 calls a day with the daily amount on 2026-10-11.
 
 Failed recipes are not repaired by this route; repair is a later design.
@@ -77,11 +78,14 @@ new owner decision:
   bound held for a call whose usage was not reported (about $0.43), so a day can end at
   most one call over $5. A typical call costs about $0.007 (the approved benchmark),
   so $5 is about 700 calls; a day of calls that report no usage stops after about 12.
-- A page that continues a recipe after an `advance` step counts toward the 24-hour rule
+- A page that continues a recipe after an `advance` step counts toward the retry window
   under that recipe revision, not under its path alone, so the password form of a login
   that stays on `/login` is not refused as a retry of the email form.
-- Revoking a generated recipe stops generation on its start path, because each origin
-  and start path has one generated recipe ID; a later design can let the owner reset it.
+- Each origin and start path has one generated recipe ID. Revoking it stops its later
+  pages and judgements, but its start page is generated again on the next visit, as the
+  revision after the tombstone (owner decision, 2026-10-12). That attempt is keyed by
+  the tombstone's revision, so the earlier recipe's attempt does not hold it back. Until
+  then a revoked recipe stopped generation on its start path for good.
 - Log rows older than 90 days are deleted whenever a call is logged and whenever a
   device reads the recipe change feed, since routine releases do not apply scheduled
   triggers. Requests refused locally before any model call are not logged.

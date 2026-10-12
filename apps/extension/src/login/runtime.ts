@@ -305,7 +305,7 @@ export const noLoginRecipes: LoginRecipes = {
 
 /**
  * Why a page is not sent now: no paired service, its request is in flight, or a request
- * for it reached the model in the last day (ADR 0016).
+ * for it reached the model within the retry window (ADR 0016).
  */
 export type GenerationHold = "not-connected" | "sending" | "sent";
 /**
@@ -2721,7 +2721,7 @@ export function createLoginRuntime(
   /**
    * Whether this document may be sent for generation once it shows a sign-in input: a
    * top-level page on whose path no cached recipe of its origin starts (several starting
-   * there count too), and whose path was not sent in the last day (ADR 0016).
+   * there count too), and whose path was not sent within the retry window (ADR 0016).
    */
   async function offersGeneration(live: LiveDocument): Promise<true | GenerationHold | undefined> {
     if (!generation || !uris || live.document.frameId !== 0 || live.topUrl) return undefined;

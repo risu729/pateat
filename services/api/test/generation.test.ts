@@ -11,7 +11,7 @@ import { createDeviceToken, hashDeviceToken } from "../src/auth";
 import { saveWifCredential } from "../src/claude/credentials";
 import { MAX_ACTIVE_RECIPES } from "../src/limits";
 import { writeRecipe } from "../src/recipe-store";
-import { generatedRecipeId, staleHead } from "../src/recipes/generate";
+import { ATTEMPT_WINDOW_MS, generatedRecipeId, staleHead } from "../src/recipes/generate";
 
 // Synthetic owners, devices, federation identifiers and pages only. Anthropic's token
 // endpoint and the Messages API are answered locally; no request leaves the test.
@@ -315,7 +315,7 @@ describe("recipe generation", () => {
     ).toEqual([]);
   });
 
-  it("tries a page at most once in 24 hours, abstentions included", async () => {
+  it("tries a page at most once in ten minutes, abstentions included", async () => {
     const device = await owner();
     replies.push({
       text: JSON.stringify({ result: { decision: "abstain", reason: "ambiguous" } }),
@@ -333,7 +333,7 @@ describe("recipe generation", () => {
     expect(sent).toHaveLength(1);
 
     await env.DB.prepare("UPDATE generation_attempts SET attempted_at = ? WHERE owner_id = ?")
-      .bind(Date.now() - DAY_MS - 1, device.ownerId)
+      .bind(Date.now() - ATTEMPT_WINDOW_MS - 1, device.ownerId)
       .run();
     replies.push({ text: plan([["email", "email"]], "next", "advance") });
     expect(await generate(device, emailPage)).toMatchObject({ status: "recipe" });
@@ -643,7 +643,7 @@ describe("recipe generation", () => {
     ).toEqual([]);
   });
 
-  it("refuses a revoked recipe, a stale base, a base with no recipe and a non-generated base", async () => {
+  it("refuses a revoked base, a stale base, a base with no recipe and a non-generated base", async () => {
     const device = await owner();
     const recipeId = await generatedRecipeId(ORIGIN, "/login");
     replies.push({ text: plan([["email", "email"]], "next", "advance") });
@@ -676,7 +676,9 @@ describe("recipe generation", () => {
       "PUT",
     );
     expect(revoke.status).toBe(200);
-    expect(await generate(device, emailPage)).toMatchObject({ reason: "recipe-revoked" });
+    expect(await generate(device, passwordPage, { recipeId, revision: 2 })).toMatchObject({
+      reason: "recipe-revoked",
+    });
     expect(sent).toHaveLength(1);
   });
 
@@ -776,7 +778,7 @@ describe("recipe generation", () => {
     });
   });
 
-  it("stops generating once the owner revokes the recipe in the web UI", async () => {
+  it("generates a recipe the owner revoked in the web UI again from its first page", async () => {
     const device = await owner();
     replies.push({ text: plan([["email", "email"]], "next", "advance") });
     const first = await generate(device, emailPage);
@@ -790,14 +792,39 @@ describe("recipe generation", () => {
       null,
     );
     expect(revoked.ok).toBe(true);
-    expect(await generate(device, emailPage)).toMatchObject({ reason: "recipe-revoked" });
+    // A later page never continues it, and its pages are not judged.
     expect(
-      await generate(device, passwordPage, { recipeId: first.change.recipeId, revision: 1 }),
+      await generate(device, passwordPage, { recipeId: first.change.recipeId, revision: 2 }),
     ).toMatchObject({ reason: "recipe-revoked" });
     expect((await complete(device, first.change.recipeId, 1)).body).toMatchObject({
       reason: "recipe-revoked",
     });
     expect(sent).toHaveLength(1);
+
+    // Its first page writes the revision after the tombstone, without waiting out the
+    // attempt the first recipe made (owner, 2026-10-12).
+    replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    expect(await generate(device, emailPage)).toMatchObject({
+      status: "recipe",
+      change: {
+        recipeId: first.change.recipeId,
+        revision: 3,
+        state: "active",
+        recipe: { revision: 3 },
+      },
+    });
+    expect(sent).toHaveLength(2);
+    expect(
+      await rows(
+        "SELECT base_revision FROM generation_attempts WHERE owner_id = ? ORDER BY base_revision",
+        device.ownerId,
+      ),
+    ).toEqual([{ base_revision: 0 }, { base_revision: 2 }]);
+    // The new recipe is continued as usual.
+    replies.push({ text: plan([["password", "password"]], "sign-in", "submit") });
+    expect(
+      await generate(device, passwordPage, { recipeId: first.change.recipeId, revision: 3 }),
+    ).toMatchObject({ status: "recipe", change: { revision: 4 } });
   });
 
   it("needs room for one more active recipe before a first page's call", async () => {

@@ -64,7 +64,7 @@ export function createBrowserVaultSyncStorage() {
   return trustedRecord<VaultSyncRecord>("pateat.vault-sync-schedule.v1");
 }
 
-/** Which pages were sent for recipe generation in the last day (ADR 0016). */
+/** Which pages were sent for recipe generation within the retry window (ADR 0016). */
 export function createBrowserGenerationAttemptStorage(): GenerationAttemptStorage {
   return trustedRecord("pateat.generation-attempts.v1");
 }

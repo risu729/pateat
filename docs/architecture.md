@@ -410,8 +410,8 @@ access ([ADR 0009](adr/0009-install-time-https-site-access.md)). A frame also ne
 tab's page admitted, and its account must match the tab's URL as well as the frame's
 ([ADR 0017](adr/0017-login-forms-in-frames.md)). The exception is recipe generation: a
 tab's own page on whose path no recipe starts that shows a login field within 10 seconds
-and has a vault URI match is observed and sent, and not again for a day per origin and
-path once a request for it reached the model,
+and has a vault URI match is observed and sent, and not again within 10 minutes per
+origin and path once a request for it reached the model,
 unless the tab holds an attempt record other than an account switch on that origin
 ([ADR 0016](adr/0016-recipe-generation-trigger.md)). The request also offers one slot
 per custom field a matching item allows (Text, Hidden, or Linked with an allowed

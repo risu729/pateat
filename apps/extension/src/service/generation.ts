@@ -18,9 +18,9 @@ import type { ServiceTransport } from "./transport";
 
 /**
  * A page whose request reached the model is not sent again for this long, whatever came of
- * it (ADR 0016).
+ * it: the service's retry window (ADR 0016, owner 2026-10-12).
  */
-export const GENERATION_RETRY_MS = 24 * 60 * 60 * 1000;
+export const GENERATION_RETRY_MS = 10 * 60 * 1000;
 /**
  * How long a page stays claimed while its request is in flight: longer than the
  * transport's 90-second inference timeout, so a claim whose request was lost with a
@@ -267,8 +267,8 @@ export function createLoginGeneration(options: {
       });
       if (held) return { outcome: "skipped", reason: held };
       if (!stored) return { outcome: "skipped", reason: "storage-unavailable" };
-      // The claim is kept for the day only when the answer shows this request reached the
-      // model. Every other end frees the page for its next visit: a refusal before any
+      // The claim is kept for the retry window only when the answer shows this request
+      // reached the model. Every other end frees the page for its next visit: a refusal before any
       // model call, a timeout or unexpected answer (the service answers `recently-tried`
       // if its model call did happen) and a thrown error alike (ADR 0016). It is settled
       // as soon as the answer is read, and only while it is still this request's claim.

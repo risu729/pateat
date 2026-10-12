@@ -80,9 +80,9 @@ Chrome, on a production build of main.
   2026-10-11 18:33 UTC): the extension and the service web UI in one pass with
   [stop-describing-ui](https://github.com/artouc/stop-describing-ui), as the owner
   planned on 2026-10-11, and the base design tokens set with Claude Design.
-- `https://my.jcb.co.jp/Login`: generate again once delivery 3 is merged and the 24-hour
-  wait after the abstention (until 2026-10-12 12:27 UTC) has passed, so the first recipe
-  names both its password and passkey routes. A recipe generated earlier gets no routes
+- `https://my.jcb.co.jp/Login`: generate again once delivery 3 is merged (the retry
+  window is 10 minutes since 2026-10-12), so the first recipe names both its password
+  and passkey routes. A recipe generated earlier gets no routes
   without being revoked ([ADR 0027](adr/0027-per-account-login-routes.md),
   [ADR 0018](adr/0018-recipe-generation-route.md)).
 

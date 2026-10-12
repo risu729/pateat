@@ -5,12 +5,13 @@ Status: accepted by the owner on 2026-10-11. Amends
 [ADR 0018](0018-recipe-generation-route.md), by the owner's account-switch decision
 of 2026-10-11 ([Pages where no recipe starts](#pages-where-no-recipe-starts)) and by
 the owner's username shape decision of 2026-10-11 ([Username shape](#username-shape)),
-and by [ADR 0027](0027-per-account-login-routes.md) (implemented): each request also
+by the owner's retry decision of 2026-10-12 (condition 4), and by
+[ADR 0027](0027-per-account-login-routes.md) (implemented): each request also
 offers the matching items' allowed custom fields by name and position, with the Text
 shapes all of them agree on, read just before sending as for the username.
 Implemented in the extension
 ([Background execution](../architecture.md#background-execution)), including that
-amendment; the service route enforces the 24-hour rule as well
+amendment; the service route enforces the retry window as well
 ([API README](../../services/api/README.md#recipe-generation)).
 
 Date: 2026-10-11
@@ -39,8 +40,11 @@ generation automatically when all of these hold:
    for their shape ([Username shape](#username-shape)).
 3. The page shows a visible `type="password"` input, or an input with
    `autocomplete="username"` or `autocomplete="one-time-code"`.
-4. No generation was attempted for the same origin and path in the previous 24 hours,
-   whatever its outcome (a recipe, an abstention or a failure).
+4. No generation was attempted for the same origin and path in the previous 10 minutes,
+   whatever its outcome (a recipe, an abstention or a failure). The owner lifted the
+   first rule of once in 24 hours on 2026-10-12, so a page can be tried again the same
+   day; the 10-minute window, chosen without a new owner decision, keeps a page that
+   reloads itself from calling the model on every load.
 
 Example: opening `https://bank.example/ib/login`, with a Bitwarden item whose URI
 matches `bank.example` and a visible password input, sends the page's observation to
@@ -69,20 +73,20 @@ new owner decision:
   offered.
 - The extension claims a page as `sending` just before it sends it, so another tab on
   the same page does not send it too. The claim becomes `sent`, which holds the page for
-  24 hours, only when the answer shows the request reached the model: a recipe, an
-  abstention, or a `failed` code other than `incomplete-observation`, `invalid-request`
-  and `input-too-large`. Every other end frees the page for its next visit: an
-  `unavailable` answer (including `busy` and `recently-tried`), a refusal before the
-  model, an unreachable service or its request limit, a rejected device, a timeout, an
-  unexpected answer and a thrown error. A timed-out request may still have reached the
-  model; the service then answers its next send with `recently-tried`, or with the
-  recipe it wrote, without another model call. A `sending` claim expires after two
-  minutes, longer than the 90-second request timeout, so a request lost with a stopped
-  or reloaded service worker frees the page soon after. Condition 4 therefore counts a
-  request as an attempt once it reached the model. This replaced the earlier claim on
-  2026-10-12, without a new owner decision, after Moppy and LinkedIn stayed claimed for
-  the day by a send that never reached the model; claims in the earlier record shape
-  are dropped.
+  the 10-minute retry window, only when the answer shows the request reached the model:
+  a recipe, an abstention, or a `failed` code other than `incomplete-observation`,
+  `invalid-request` and `input-too-large`. Every other end frees the page for its next
+  visit: an `unavailable` answer (including `busy` and `recently-tried`), a refusal
+  before the model, an unreachable service or its request limit, a rejected device, a
+  timeout, an unexpected answer and a thrown error. A timed-out request may still have
+  reached the model; the service then answers its next send with `recently-tried`, or
+  with the recipe it wrote, without another model call. A `sending` claim expires after
+  two minutes, longer than the 90-second request timeout, so a request lost with a
+  stopped or reloaded service worker frees the page soon after. Condition 4 therefore
+  counts a request as an attempt once it reached the model. This replaced the earlier
+  claim on 2026-10-12, without a new owner decision, after Moppy and LinkedIn stayed
+  claimed for a day by a send that never reached the model; claims in the earlier record
+  shape are dropped.
 - Each page offered for generation is logged as `recipe.generate` with its outcome
   (`recipe`, `abstained`, `failed`, `unavailable` or `skipped`) and reason, including a
   page not sent because it is `sending` or `sent`, once per document
