@@ -2879,16 +2879,18 @@ export function createLoginRuntime(
       const shape = await usernameShape(live.document.origin, scope);
       const custom = await customSlots(live.document.origin, scope);
       if (documents.get(key) !== live) return;
-      const result = await generation.generate({
-        version: 1,
-        observation: parsed.output,
-        slots: [
-          ...scope.slots.map((slot) =>
-            slot.id === "username" && shape ? { ...slot, valueShape: shape } : slot,
-          ),
-          ...custom,
-        ],
-      });
+      const result = await generation
+        .generate({
+          version: 1,
+          observation: parsed.output,
+          slots: [
+            ...scope.slots.map((slot) =>
+              slot.id === "username" && shape ? { ...slot, valueShape: shape } : slot,
+            ),
+            ...custom,
+          ],
+        })
+        .catch((): GenerationOutcome => ({ outcome: "failed", reason: "error" }));
       report({
         type: "generation",
         tabId: live.document.tabId,

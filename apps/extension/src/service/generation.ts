@@ -208,8 +208,9 @@ export function createLoginGeneration(options: {
     return next.catch(() => false);
   }
 
+  /** The claims still in force; stored claims that do not parse count as none. */
   async function recent(): Promise<GenerationAttempts["attempts"]> {
-    const parsed = v.safeParse(attemptsSchema, await storage.read().catch(() => undefined));
+    const parsed = v.safeParse(attemptsSchema, await storage.read());
     const at = now();
     return parsed.success
       ? parsed.output.attempts.filter(
@@ -218,7 +219,10 @@ export function createLoginGeneration(options: {
         )
       : [];
   }
-  /** Applies one change to the remembered attempts; fails closed when it cannot write. */
+  /**
+   * Applies one change to the remembered attempts; fails closed when it cannot read or
+   * write, so a failed read never drops the other pages' claims.
+   */
   function remember(
     change: (attempts: GenerationAttempts["attempts"]) => GenerationAttempts["attempts"],
   ): Promise<boolean> {
@@ -242,7 +246,8 @@ export function createLoginGeneration(options: {
     async available(origin, path) {
       if (!(await connected())) return "not-connected";
       await queue;
-      return (await recent()).find(same(origin, path))?.state ?? true;
+      const attempts = await recent().catch(() => []);
+      return attempts.find(same(origin, path))?.state ?? true;
     },
     async generate(input: RecipeGenerationRequest): Promise<GenerationOutcome> {
       // `totp` is offered only for a page with a code field, so the slots never tell the
@@ -255,17 +260,32 @@ export function createLoginGeneration(options: {
       const { origin, path } = request.observation;
       // Claimed before sending, so another tab on the same page does not send it too.
       let held: GenerationHold | undefined;
+      const claimedAt = now();
       const stored = await remember((attempts) => {
         held = attempts.find(same(origin, path))?.state;
-        return held ? attempts : [...attempts, { origin, path, state: "sending", at: now() }];
+        return held ? attempts : [...attempts, { origin, path, state: "sending", at: claimedAt }];
       });
       if (held) return { outcome: "skipped", reason: held };
       if (!stored) return { outcome: "skipped", reason: "storage-unavailable" };
       // The claim is kept for the day only when the answer shows this request reached the
       // model. Every other end frees the page for its next visit: a refusal before any
       // model call, a timeout or unexpected answer (the service answers `recently-tried`
-      // if its model call did happen) and a thrown error alike (ADR 0016).
-      let reached = false;
+      // if its model call did happen) and a thrown error alike (ADR 0016). It is settled
+      // as soon as the answer is read, and only while it is still this request's claim.
+      let settled = false;
+      const settle = (reached: boolean) => {
+        settled = true;
+        const at = now();
+        return remember((attempts) =>
+          attempts.flatMap((entry) =>
+            !same(origin, path)(entry) || entry.state !== "sending" || entry.at !== claimedAt
+              ? [entry]
+              : reached
+                ? [{ ...entry, state: "sent" as const, at }]
+                : [],
+          ),
+        );
+      };
       try {
         const answer = await transport.generateRecipe(
           connection.origin,
@@ -273,10 +293,11 @@ export function createLoginGeneration(options: {
           request,
         );
         const result = answer.kind === "result" ? answer.result : undefined;
-        reached =
+        await settle(
           result?.status === "recipe" ||
-          result?.status === "abstained" ||
-          (result?.status === "failed" && !failedBeforeModel.has(result.error));
+            result?.status === "abstained" ||
+            (result?.status === "failed" && !failedBeforeModel.has(result.error)),
+        );
         if (!result)
           return {
             outcome: "failed",
@@ -306,16 +327,7 @@ export function createLoginGeneration(options: {
         await sync().catch(() => undefined);
         return { outcome: "recipe" };
       } finally {
-        const at = now();
-        await remember((attempts) =>
-          attempts.flatMap((entry) =>
-            !same(origin, path)(entry) || entry.state !== "sending"
-              ? [entry]
-              : reached
-                ? [{ ...entry, state: "sent" as const, at }]
-                : [],
-          ),
-        );
+        if (!settled) await settle(false);
       }
     },
     async slotFields(recipeId: string): Promise<LoginBindingTemplate | undefined> {

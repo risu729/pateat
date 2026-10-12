@@ -237,6 +237,17 @@ describe("recipe generation requests", () => {
     expect(await restarted.available(observation.origin, "/login")).toBe(true);
   });
 
+  it("keeps other pages' claims when storage cannot be read", async () => {
+    const h = setup();
+    expect(await h.generation.generate(request)).toEqual({ outcome: "recipe" });
+    h.storage.read.mockRejectedValueOnce(new Error("read"));
+    expect(
+      await h.generation.generate({ ...request, observation: { ...observation, path: "/other" } }),
+    ).toEqual({ outcome: "skipped", reason: "storage-unavailable" });
+    expect(await h.generation.available(observation.origin, "/login")).toBe("sent");
+    expect(h.transport.generateRecipe).toHaveBeenCalledTimes(1);
+  });
+
   it("ignores pages claimed in the earlier record shape", async () => {
     const h = setup();
     h.storage.write.mockClear();

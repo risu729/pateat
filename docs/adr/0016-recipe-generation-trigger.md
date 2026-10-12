@@ -78,9 +78,11 @@ new owner decision:
   model; the service then answers its next send with `recently-tried`, or with the
   recipe it wrote, without another model call. A `sending` claim expires after two
   minutes, longer than the 90-second request timeout, so a request lost with a stopped
-  or reloaded service worker frees the page soon after. The rule was set on 2026-10-12
-  after Moppy and LinkedIn stayed claimed for the day by a send that never reached the
-  model; claims in the earlier record shape are dropped.
+  or reloaded service worker frees the page soon after. Condition 4 therefore counts a
+  request as an attempt once it reached the model. This replaced the earlier claim on
+  2026-10-12, without a new owner decision, after Moppy and LinkedIn stayed claimed for
+  the day by a send that never reached the model; claims in the earlier record shape
+  are dropped.
 - Each page offered for generation is logged as `recipe.generate` with its outcome
   (`recipe`, `abstained`, `failed`, `unavailable` or `skipped`) and reason, including a
   page not sent because it is `sending` or `sent`, once per document
