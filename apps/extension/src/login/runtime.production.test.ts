@@ -818,9 +818,113 @@ describe("production login document admission", () => {
     h.recipes.recipe.mockResolvedValue(undefined);
     h.recipes.starts.mockResolvedValue([]);
     expect(await shownHello(h)).toEqual({ ok: false, reason: "recipe-not-found" });
+    // Ordinary browsing: logged only while debug logging is on.
     expect(report.mock.calls.map(([entry]) => entry)).toEqual([
-      { type: "refused", tabId: 1, origin, reason: "recipe-not-found" },
+      { type: "refused", tabId: 1, origin, reason: "recipe-not-found", unrelated: true },
     ]);
+  });
+  it.each([
+    [
+      "an excluded site",
+      { excludedSites: [{ hostname: "login.example", includeSubdomains: false }] },
+      "site-excluded",
+    ],
+    ["a site whose access the user withheld", undefined, "no-site-access"],
+  ])("logs why the page of %s with a recipe is not admitted", async (_name, overrides, reason) => {
+    const report = vi.fn<(report: LoginReport) => void>();
+    if (!overrides) fake.state.granted = false;
+    const h = harness((overrides ?? {}) as Partial<LocalSettings>, { report });
+    const refusals = () => report.mock.calls.map(([entry]) => entry);
+    expect(await h.hello()).toEqual({ ok: false, reason: "unauthorized-document" });
+    // The same page again is a repeat.
+    expect(await h.hello({}, false)).toEqual({ ok: false, reason: "unauthorized-document" });
+    // A frame is not the tab's page, and an origin without a recipe is ordinary browsing.
+    expect(await h.hello({ frameId: 1 })).toEqual({ ok: false, reason: "unauthorized-document" });
+    h.recipes.starts.mockResolvedValue([]);
+    expect(await h.hello({ documentId: "other" })).toEqual({
+      ok: false,
+      reason: "unauthorized-document",
+    });
+    expect(refusals()).toEqual([
+      { type: "refused", tabId: 1, origin, reason },
+      { type: "refused", tabId: 1, origin, reason, repeat: true },
+    ]);
+    expect(h.store.handle).not.toHaveBeenCalled();
+    expect(h.recipes.recipe).not.toHaveBeenCalled();
+  });
+  it("logs a page that gave up starting after its tries were stale", async () => {
+    const report = vi.fn<(report: LoginReport) => void>();
+    const h = harness({}, { report });
+    // The tab moved on while the document's settings were read.
+    fake.state.tabUrls[1] = "https://elsewhere.example/";
+    for (let tries = 0; tries < 4; tries += 1)
+      // eslint-disable-next-line no-await-in-loop
+      expect(await h.hello()).toEqual({ ok: false, reason: "stale-document" });
+    expect(report.mock.calls.map(([entry]) => entry)).toEqual([
+      { type: "refused", tabId: 1, origin, reason: "stale-document" },
+      { type: "refused", tabId: 1, origin, reason: "stale-document", repeat: true },
+      { type: "refused", tabId: 1, origin, reason: "stale-document", repeat: true },
+      { type: "refused", tabId: 1, origin, reason: "stale-document", repeat: true },
+      { type: "refused", tabId: 1, origin, reason: "stale-document", detail: "gave-up" },
+    ]);
+  });
+  it("logs the same refusal on the same page once, and again on a new page", async () => {
+    const report = vi.fn<(report: LoginReport) => void>();
+    const h = harness({ siteDefaults: [] }, { report });
+    const first = await h.hello();
+    expect(first).toMatchObject({ ok: false });
+    expect(await h.hello()).toEqual(first);
+    expect(await h.hello({ documentId: "next-page" })).toEqual(first);
+    const { reason } = first as { reason: string };
+    expect(
+      report.mock.calls.map(([entry]) => entry).filter((entry) => entry.type === "refused"),
+    ).toEqual([
+      expect.objectContaining({ reason }),
+      expect.objectContaining({ reason, repeat: true }),
+      expect.not.objectContaining({ repeat: true }),
+    ]);
+  });
+  it("logs an exception that stops a login with its name and message", async () => {
+    const report = vi.fn<(report: LoginReport) => void>();
+    const h = harness({}, { report });
+    fake.state.onExecute = async () => {
+      fake.state.onExecute = undefined;
+      throw new SyntaxError("synthetic page answer");
+    };
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(report.mock.calls.map(([entry]) => entry)).toContainEqual(
+        expect.objectContaining({ type: "exception" }),
+      ),
+    );
+    expect(
+      report.mock.calls.map(([entry]) => entry).find((entry) => entry.type === "exception"),
+    ).toEqual({
+      type: "exception",
+      tabId: 1,
+      origin,
+      recipeId: recipe.id,
+      route: "password",
+      state: expect.any(String),
+      stepIndex: 0,
+      name: "SyntaxError",
+      message: "synthetic page answer",
+    });
+  });
+  it("logs only the type of a thrown value that is not an Error", async () => {
+    const report = vi.fn<(report: LoginReport) => void>();
+    const h = harness({}, { report });
+    fake.state.onExecute = async () => {
+      fake.state.onExecute = undefined;
+      throw "synthetic thrown text";
+    };
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(report.mock.calls.map(([entry]) => entry)).toContainEqual(
+        expect.objectContaining({ type: "exception", name: "string" }),
+      ),
+    );
+    expect(JSON.stringify(report.mock.calls)).not.toContain("synthetic thrown text");
   });
   it("refuses a different content script instance in an already announced document", async () => {
     const h = harness();
@@ -836,6 +940,18 @@ describe("production login document admission", () => {
         sender(),
       ),
     ).toEqual({ ok: false, reason: "duplicate-document" });
+  });
+  it("logs a document announcing again while it carries a login", async () => {
+    const report = vi.fn<(report: LoginReport) => void>();
+    const h = harness({}, { report });
+    expect(await h.hello()).toEqual({ ok: true });
+    expect(await h.hello()).toEqual({ ok: false, reason: "duplicate-document" });
+    expect(report.mock.calls.map(([entry]) => entry)).toContainEqual({
+      type: "refused",
+      tabId: 1,
+      origin,
+      reason: "duplicate-document",
+    });
   });
   it("a policy change while waiting for elements stops before any intent or vault read", async () => {
     const report = vi.fn<(report: LoginReport) => void>();
@@ -3624,6 +3740,35 @@ describe("production login document admission", () => {
         { slot: "username", value: "synthetic-secret" },
         { slot: "password", value: "synthetic-secret", secret: "password" },
       ]);
+    });
+
+    it("logs a page whose description threw before it was sent", async () => {
+      const service = generation();
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness(unsaved, {
+        allowedOrigins: [],
+        uris,
+        username: true,
+        custom: [],
+        generation: service,
+        report,
+      });
+      h.recipes.recipe.mockResolvedValue(undefined);
+      h.recipes.starts.mockResolvedValue(startsOf([]));
+      expect(await h.hello({}, false)).toMatchObject({ generate: true });
+      // The page stops answering, as while it is replaced.
+      fake.state.gone.add("synthetic-document");
+      expect(await h.signIn()).toEqual({ ok: false, reason: "generating" });
+      await vi.waitFor(() =>
+        expect(report).toHaveBeenCalledWith({
+          type: "generation",
+          tabId: 1,
+          origin,
+          outcome: "skipped",
+          reason: "exception",
+        }),
+      );
+      expect(service.generate).not.toHaveBeenCalled();
     });
 
     it("sends the username's shape only when every matching item agrees", async () => {
