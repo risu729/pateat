@@ -183,6 +183,17 @@ describe("withoutUsernames", () => {
     expect(extracted.observation.headerText).toHaveLength(1000);
     const shown = hidden(extracted.observation, ["taro.yamada"]).headerText!;
     expect(shown).not.toMatch(/ta$|tar$|taro/u);
+    // Whatever the page's text before the name, the read text's own end inside the name
+    // never survives the hiding of the numbers before it.
+    for (let filler = 0; filler <= 40; filler++) {
+      document.body.innerHTML = `<header>${"<span>Points 1,234,567</span> ".repeat(57)}
+        <span>${"x".repeat(filler)}</span><span>Hi taro.yamada</span></header>
+        <button id="logout" type="button">Sign out</button>`;
+      const page = extractSignedInObservation();
+      if (!page.ok) throw new Error(page.reason);
+      const text = hidden(page.observation, ["taro.yamada"]).headerText!;
+      expect(text, String(filler)).not.toMatch(/taro|\bt[a-z.]*$/u);
+    }
     const long = `${"a ".repeat(498)}taro.yamada`;
     expect(header(long)!.length).toBeLessThanOrEqual(1000);
   });
