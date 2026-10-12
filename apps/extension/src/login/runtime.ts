@@ -6076,8 +6076,16 @@ export function createLoginRuntime(
       }
       // A page offered for generation that showed nothing to send by the end of the step
       // wait is logged with why; mostly ordinary browsing, so at debug level (ADR 0019).
+      // The tab's next document after a submitted password form is known only here.
       if (offer && unoffered?.path === live.path && !signIn && !shownList && !entryOffer)
-        skipGeneration(live, "nothing-offered", undefined, unoffered.why);
+        skipGeneration(
+          live,
+          "nothing-offered",
+          undefined,
+          unoffered.why === "no-list" && afterSignIn.get(document.tabId) === document.documentId
+            ? "after-sign-in"
+            : unoffered.why,
+        );
       // No recipe of the origin and no login in the tab: ordinary browsing (ADR 0019).
       if (!recipe && !starts.length && !offer) return refuse("recipe-not-found", undefined, true);
       // Only an origin with a recipe: elsewhere every sign-in page would be logged.

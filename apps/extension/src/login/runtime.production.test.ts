@@ -5071,6 +5071,17 @@ describe("production login document admission", () => {
           sender({ documentId: "next-page" }),
         );
         expect(generations()).toHaveLength(1);
+        // The tab's next document after a submitted password form says so.
+        await h.login.handle(
+          { version: 1, type: "login.document.submitted", token: "synthetic-token" },
+          sender({ documentId: "next-page" }),
+        );
+        expect(await h.hello({ documentId: "after" }, false)).toMatchObject({ generate: true });
+        await unoffered("no-list", { documentId: "after" });
+        expect(generations().at(-1)).toMatchObject({
+          reason: "nothing-offered",
+          detail: "after-sign-in",
+        });
         // A reason outside the list is refused by the message schema.
         expect(await unoffered("other", { documentId: "next-page" })).toBeUndefined();
       });

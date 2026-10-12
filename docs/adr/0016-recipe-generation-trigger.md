@@ -72,6 +72,8 @@ new owner decision:
   ([AI evaluation harness progress](../plan.md#ai-evaluation-harness-progress)).
 - Only a page that shows such an input within 10 seconds of loading is sent, the same
   wait a login step gets; a form shown later, for example after a click, is not.
+  Since 2026-10-12, a page that could be sent but shows nothing to send by then is
+  logged at debug level as `nothing-offered` ([architecture](../architecture.md)).
   Since 2026-10-12 (added after this decision, after Vpass's post-logout login page was
   logged as not described), a page whose description is refused, fails its check or is
   incomplete is read again up to twice, one second apart, before it counts as not

@@ -375,6 +375,10 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       // Offered once per page; the background keeps its own daily limit as well.
       if (generate && !offered && showsSignIn()) {
         offered = true;
+        // The page's one offer: the step wait's check would only report it for the log,
+        // and could overtake this announcement in the worker.
+        clearTimeout(offerTimer);
+        offerTimer = undefined;
         void announce(false, true).catch(() => undefined);
       }
       noteShown();
