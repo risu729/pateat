@@ -2706,7 +2706,7 @@ export function createLoginRuntime(
         // The first variant that fits decides; without the item's password none is taken.
         // The passkey route, when the facts choose it here, did not resolve, so nothing is.
         refusals[index] = "no-route";
-        missing[index] = known.password ? "passkey-unresolved" : "no-password";
+        missing[index] = taken?.route === "passkey" ? "passkey-unresolved" : "no-password";
         break;
       }
       /* eslint-enable no-await-in-loop */
