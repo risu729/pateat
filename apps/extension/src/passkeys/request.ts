@@ -97,7 +97,13 @@ export function admitGetRequest(input: {
   if (!parsed.success) return { kind: "delegate", reason: "invalid-request" };
   const request = parsed.output;
   const conditional = request.mediation === "conditional" && input.conditional === true;
-  if (request.mediation !== undefined && request.mediation !== "optional" && !conditional)
+  // `required` asks for the person as `optional` does: a passkey request always shows the
+  // browser's prompt, which Pateat answers in its place.
+  const modal =
+    request.mediation === undefined ||
+    request.mediation === "optional" ||
+    request.mediation === "required";
+  if (!modal && !conditional)
     return { kind: "delegate", reason: "unsupported-mediation" };
   if (request.userVerification === "required" && input.policy.verification !== "always")
     return { kind: "delegate", reason: "user-verification-required" };
