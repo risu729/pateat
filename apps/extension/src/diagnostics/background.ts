@@ -36,8 +36,8 @@ const QUIET_SYNC: ReadonlySet<RecipeSyncOutcome> = new Set([
  */
 const QUIET_REFUSALS: ReadonlySet<string> = new Set(["stale-document", "duplicate-document"]);
 
-/** Unhandled errors share one rate-limit window; its origin is not logged. */
-const ERROR_SOURCE = { tabId: -1, origin: "" };
+/** Unhandled errors share one rate-limit window of 20 a minute; its origin is not logged. */
+const ERROR_SOURCE = { tabId: -1, origin: "", perMinute: 20 };
 /** States worth an entry even the first time a worker sees a connection. */
 const WARN_STATES: ReadonlySet<string> = new Set([
   "unavailable",

@@ -784,7 +784,7 @@ kind's check is left out and a string over 512 characters becomes `"[truncated]"
 | `recipe.judge` | warn for `retry` after a request that failed (any reason but `not-connected`, where nothing was sent), else info; `unclear` stays info even with a failure code such as `timeout`, since it also covers permanent refusals such as `already-judged`, and its reason tells them apart; `sent` is logged just before the request leaves the device and is kept because it is all that is left when no answer comes | origin, recipe ID and revision, route; `sent` when the page goes out, then the verdict (`signed-in`, `rejected`, `challenge`, `unclear`, `retry`); for `unclear` and `retry`, the transport, service or model code (for example `already-judged`, `busy`, `timeout`); for a returned revision, whether this login took it over; `not-sent` when the page after an effect step is not sent to the judge, with why: the step's two pages were already sent (`page-limit`), a sign-in field of the route still shows on a sign-in path (`sign-in-shown`), the completion marker shows but does not prove the sign-in, as on another path than its own (`marker-shown`), a field in a shadow root (`shadow-field`), one that cannot be filled and is disabled or may be a sign-in field (`unfillable-field`: a password or email input, one with a `username`, `email`, `current-password`, `new-password` or `one-time-code` autocomplete token, or a short numeric field; other read-only, transparent or tiny fields, as a read-only date picker, are left out), one without a usable locator (`unlocated-field`), more than 48 fields (`too-many-fields`), nothing to describe (`no-candidates`), a refused path or a description that fails its schema (`unsupported-page`), an extractor that threw (`extract-error`), a response that fails its check (`invalid-page`), a cancelled login (`cancelled`), a page that changed meanwhile (`page-changed`) or could not be asked (`unreachable`) |
 | `passkey.request` | info | the passkey report described in [development](development.md#why-a-passkey-request-was-delegated) |
 | `error.unhandled` | error | `error` or `rejection`, class name, message only when it is a Pateat error code, up to five `file.js:line:column` positions inside the extension |
-| `log.dropped` | warn; debug when only `debug` events were dropped | origin, events dropped over the page limit |
+| `log.dropped` | warn; debug when only `debug` events were dropped | origin, the dropped event's name (`dropped`) and how many of it were dropped over the page limit |
 | `log.debug` | info | whether debug logging was turned on or off, and when it ends |
 
 The login, judgement, handler and generation events also carry `url`, the tab's page
@@ -812,17 +812,19 @@ plan's refusal reason such as `connection-disabled`, or `account-changed`),
 `vault-replaced` (a vault sync replaced the snapshot that authorized a value before it
 was delivered) and `field-unavailable` (a vault field could not be read).
 
-Login, judgement, handler, recipe generation and passkey events are limited to 20 per
-minute per tab and origin, and unhandled errors to 20 per minute in all. `debug` events
-have their own 20 per minute, so a page's debug detail never crowds out its other
-events. The first event dropped in a window is logged at once as `log.dropped` with
-`count: 1`; the rest are counted when the window ends and the next event or prune runs,
-so a worker that stops first loses only that remainder. `debug` entries are written only
-for 24 hours after **Enable debug logging for 24 hours**, or until
-**Disable debug logging** turns it off sooner; either change is logged as `log.debug`
-with `enabled`. Retention: 14 days; `debug` entries for 24 hours; at most 5,000 `debug`
-and `info` entries (oldest `debug` first, then `info`) and 1,000 `warn` and `error`
-entries, pruned at worker start and every 500 writes.
+Login, judgement, handler, recipe generation and passkey events are limited to 30 per
+minute per tab and origin, since one login writes 6 to 8 of them, and unhandled errors
+to 20 per minute in all. `debug` events have their own 20 per minute, so a page's debug
+detail never crowds out its other events. Each `log.dropped` entry names one dropped
+event and how many of it were dropped. The first drop of each event in a window is
+logged at once and also logs the drops not yet counted; the rest are counted when the
+window ends and the next event or prune runs, so a worker that stops first loses only
+that remainder. `debug` entries are written only for 24 hours after
+**Enable debug logging for 24 hours**, or until **Disable debug logging** turns it off
+sooner; either change is logged as `log.debug` with `enabled`. Retention: 14 days;
+`debug` entries for 24 hours; at most 14,000 `debug` and `info` entries (oldest `debug`
+first, then `info`) and 1,000 `warn` and `error` entries, pruned at worker start and
+every 500 writes.
 
 The diagnostics page sends `diagnostics.logs.export` (with `includeSites`),
 `diagnostics.logs.clear` and `diagnostics.logs.debug` (with `enabled`), accepted from
