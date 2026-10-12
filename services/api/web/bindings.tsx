@@ -2,6 +2,7 @@ import type { SavedLoginBinding } from "@pateat/contracts";
 import { describeError, type ManageClient } from "./api";
 import { Button } from "./button";
 import { useSettings, useSettingsEdit, vaultAccountLabel } from "./settings";
+import { PAGE_TITLE_CLASSES } from "./ui";
 
 type FieldReference = SavedLoginBinding["slots"][number]["field"];
 
@@ -42,9 +43,9 @@ export function BindingsPage({ client }: { client: ManageClient }) {
 
   return (
     <section aria-labelledby="bindings-heading" className="space-y-4">
-      <h2 id="bindings-heading" className="text-xl font-semibold">
+      <h1 id="bindings-heading" className={PAGE_TITLE_CLASSES}>
         Account bindings
-      </h2>
+      </h1>
       <p className="text-ink-muted">
         Which vault field fills each part of a recipe for one item. Removing a binding makes that
         item use only its username, password and TOTP; a recipe that needs other fields then stops

@@ -3,6 +3,7 @@ import { useId, useRef, useState, type FormEvent } from "react";
 import { describeError, type ManageClient } from "./api";
 import { Button } from "./button";
 import { useSettings, useSettingsEdit, vaultAccountLabel } from "./settings";
+import { PAGE_TITLE_CLASSES } from "./ui";
 
 type SiteDefault = LocalSettings["siteDefaults"][number];
 
@@ -74,6 +75,7 @@ export function SitesPage({ client }: { client: ManageClient }) {
 
   return (
     <div className="space-y-8">
+      <h1 className={PAGE_TITLE_CLASSES}>Sites</h1>
       <output id="settings-saved" className="block text-ink-muted">
         {edit.isSuccess && edit.variables.done}
       </output>
