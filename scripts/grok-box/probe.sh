@@ -41,7 +41,7 @@ redact() {
 	sed -E \
 		-e "s/chrome-extension_${EXT_ID}/@@pateat-idb@@/g" \
 		-e 's/(bearer|basic)[[:space:]]+[A-Za-z0-9._~+\/=-]+/\1 [redacted]/gI' \
-		-e 's/([A-Za-z_-]*(token|secret|password|passwd|cookie|credential|api[_-]?key|auth[a-z_]*))(["'"'"']?[[:space:]]*[:=][[:space:]]*["'"'"']?)[^"'"'"'[:space:]&,;]+/\1\3[redacted]/gI' \
+		-e 's/([A-Za-z_-]*(token|secret|password|passwd|pass|key|cookie|credential|auth[a-z_]*))(["'"'"']?[[:space:]]*[:=][[:space:]]*["'"'"']?)[^"'"'"'[:space:]&,;]+/\1\3[redacted]/gI' \
 		-e 's/(--?[A-Za-z_-]*(token|secret|password|passwd|key|credential|cookie|session|auth)[A-Za-z_-]*)([[:space:]]+)[^[:space:]-][^[:space:]]*/\1\3[redacted]/gI' \
 		-e 's/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*/[jwt]/g' \
 		-e 's/(gh[pousr]_|github_pat_|sk-|xox[abprs]-|crsr_)[A-Za-z0-9_-]+/\1[redacted]/g' \
@@ -115,7 +115,13 @@ mode = sys.argv[1]
 
 if mode == "list":
     pattern = re.compile(sys.argv[2], re.I)
+    own, current = set(), str(os.getpid())
+    while current not in ("0", "?", "1"):
+        own.add(current)
+        current = status_field(current, "PPid")
     for pid in sorted(pids, key=int):
+        if pid in own:
+            continue
         argv = argv_of(pid)
         if any("--type=" in a for a in argv):
             continue
@@ -195,7 +201,8 @@ text = sys.stdin.read()
 data = re.search(r"--user-data-dir=(\S+)", text)
 profile = re.search(r"--profile-directory=(\S+)", text)
 root = data.group(1) if data else os.environ["PROFILE"]
-print(os.path.join(root, profile.group(1) if profile else "Default"))'
+print(os.path.join(root, profile.group(1) if profile else "Default"))
+print("from Chrome flags" if data else "fallback: no Chrome flags seen", file=sys.stderr)'
 }
 
 # Pateat's entry in Chrome's preferences: only the fields needed to see what is loaded.
@@ -258,6 +265,7 @@ cdp_list() {
 # One URL through three routes: no proxy, the environment proxy, and Chrome's proxy.
 reach() {
 	local env_proxy="${https_proxy:-${HTTPS_PROXY:-none}}"
+	case "$1" in http://*) env_proxy="${http_proxy:-${HTTP_PROXY:-none}}" ;; esac
 	curl -sS -m 30 --noproxy '*' -o /dev/null -w "%{http_code} %{time_total}s no proxy\n" "$1" 2>&1
 	if [ "$env_proxy" != none ]; then
 		curl -sS -m 30 -o /dev/null -w "%{http_code} %{time_total}s environment proxy ${env_proxy##*@}\n" "$1" 2>&1
@@ -265,18 +273,22 @@ reach() {
 	curl -sS -m 30 --noproxy '' --proxy "$CHROME_PROXY" -o /dev/null -w "%{http_code} %{time_total}s chrome proxy $CHROME_PROXY\n" "$1" 2>&1
 }
 
-# Lists files containing TEXT under the given roots, with grep's result code.
+# Lists files containing TEXT under the given roots, staying on each root's filesystem.
+# Transcripts, logs and this probe's own files merely quote the text, so they are skipped.
 find_text() {
-	local text="$1" found rc
+	local text="$1" found
 	shift
-	# Transcripts and logs that merely quote the message are skipped; code and binaries are not.
-	found=$(grep -rlF -m1 --exclude-dir=proc --exclude-dir=sys --exclude-dir=workspace \
-		--exclude-dir=chrome-profile --exclude-dir=pateat-probe --exclude-dir=sand-data \
-		--exclude-dir=.claude --exclude='*.jsonl' --exclude='*.log' --exclude='*.db' \
-		--exclude='*.db-wal' --exclude='*.sqlite*' "$text" "$@" 2>/dev/null)
-	rc=$?
-	printf '%s\n' "$found" | head -10
-	echo "grep rc=$rc (0 found, 1 none, 124 or 137 cut off by the time limit) in: $*"
+	found=$(timeout -k 5 100 find "$@" -xdev \( -name proc -o -name sys -o -name workspace \
+		-o -name chrome-profile -o -name pateat-probe -o -name sand-data -o -name .claude \) -prune \
+		-o -type f -size -64M ! -name '*.jsonl' ! -name '*.log' ! -name '*.db' ! -name '*.db-wal' \
+		! -name '*.sqlite*' ! -name 'probe*.sh' ! -name 'report-*.txt' -print0 2>/dev/null |
+		xargs -0 -r grep -lsF -- "$text" 2>/dev/null)
+	if [ -n "$found" ]; then
+		printf '%s\n' "$found" | head -10
+	else
+		echo "none found"
+	fi
+	echo "searched (readable files under 64 MiB) in: $*"
 }
 
 seconds_since() { awk -v s="$1" -v e="$(date +%s.%N)" 'BEGIN { printf "%.2f", e - s }'; }
@@ -324,7 +336,7 @@ main() {
 	run 'ls -la "$PROFILE_ROOT"; du -sh "$PROFILE_ROOT"/* 2>/dev/null'
 
 	section "5. Chrome DevTools endpoints (metadata only, tab URLs cut to origin)"
-	run 'for dir in "$PROFILE_ROOT"/*; do [ -f "$dir/DevToolsActivePort" ] && echo "$dir: port $(head -1 "$dir/DevToolsActivePort")"; done; echo checked'
+	run 'for dir in "$PROFILE_ROOT"/* $(procs chrome | grep -o -- "--user-data-dir=[^ ]*" | cut -d= -f2-); do [ -f "$dir/DevToolsActivePort" ] && echo "$dir: port $(head -1 "$dir/DevToolsActivePort")"; done; echo checked'
 	local port seen=0
 	for port in $(seq 9222 9240); do
 		if curl -sf -m 2 --noproxy '*' "http://127.0.0.1:$port/json/version" -o /dev/null; then
@@ -345,10 +357,12 @@ main() {
 	run 'find / -xdev -maxdepth 5 \( -iname "*mcp*.json" -o -iname "*mcp*.toml" -o -iname "*proxy*.json" -o -iname "*allowlist*" -o -iname "*blocklist*" \) -not -path "/proc/*" -not -path "/workspace/*" -not -path "$PROFILE_ROOT/*" 2>/dev/null | head -40'
 	run 'find / -xdev -maxdepth 6 -type d -name "playwright*" -not -path "/proc/*" -not -path "/workspace/*" 2>/dev/null | head -20'
 	# The Bot sees these messages; no file on this computer containing them suggests they come from outside it (inferred).
-	local text
-	for text in "could not confirm that no saved credential" "Blocked by Playwright proxy"; do
-		run --limit 120 "find_text '$text' /opt /usr/local /home/box /app /srv /etc /root /tmp /var/lib /usr/lib /usr/share /nix"
-	done
+	# Built from pieces so this script and its reports do not contain the text themselves.
+	GUARD_CREDENTIAL="could not confirm that no saved cred""ential"
+	GUARD_PROXY="Blocked by Play""wright proxy"
+	export GUARD_CREDENTIAL GUARD_PROXY
+	run --limit 120 'find_text "$GUARD_CREDENTIAL" /opt /usr/local /home/box /app /srv /etc /root /tmp /var/lib /usr/lib /usr/share /nix'
+	run --limit 120 'find_text "$GUARD_PROXY" /opt /usr/local /home/box /app /srv /etc /root /tmp /var/lib /usr/lib /usr/share /nix'
 
 	section "7. Network"
 	run 'cat /etc/resolv.conf; getent hosts pateat.takuk.me example.com github.com api.bitwarden.com'
@@ -380,8 +394,9 @@ main() {
 		return
 	fi
 	local profile path
-	profile=$(chrome_profile)
-	echo "profile directory from Chrome's flags: $profile"
+	profile=$(chrome_profile 2>"$OUT_DIR/.profile-source")
+	echo "profile directory: $profile ($(cat "$OUT_DIR/.profile-source"))"
+	rm -f "$OUT_DIR/.profile-source"
 	for file in "$profile/Preferences" "$profile/Secure Preferences"; do
 		printf '\n--- %s\n' "$file"
 		pateat_prefs "$file"
