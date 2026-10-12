@@ -236,9 +236,11 @@ the path ending before it), or `{ check: "plan", reason }` with the plan check's
   log row has the entry request's own prompt version and records `{ entry }` with the
   candidate ID.
 - `POST /v1/recipes/:recipeId/completion` takes
-  `{ version: 1, revision, route, observation }` for a page an effect step of that
-  revision led to, on the recipe's origin
-  ([ADR 0027](../../docs/adr/0027-per-account-login-routes.md)). Another revision, or a
+  `{ version: 1, revision, route, observation, partial? }` for a page an effect step of
+  that revision led to, on the recipe's origin
+  ([ADR 0027](../../docs/adr/0027-per-account-login-routes.md)). `partial: true` says
+  the description left out a disabled field that may not be a sign-in field
+  ([ADR 0029](../../docs/adr/0029-local-sign-in-state.md)). Another revision, or a
   route the stored recipe lacks, answers `recipe-conflict`. The request never names a
   `password` variant. On the `passkey` route, a page that shows a fill field of any
   `password` variant on any path, or its button on its path or a `password` route path,
@@ -277,13 +279,17 @@ Judgements are limited under the lock, before credentials are resolved:
 `already-judged` when the model answered `signed-in` or abstained (`unclear`), and
 `judged-challenge`, `judged-rejected` or `judgement-unanswered` when it judged the page
 `challenge` or `rejected` or the row has no verdict, as after the request failed or
-while it still runs past the owner's lock (the row's `verdict`, ADR 0029). A recipe
-judged 20 times since the start of the UTC day answers `judgement-limit`. A row of
-another judge prompt version does not answer a repeat, so a changed prompt judges the
-page again, as one that can now name a handler an earlier prompt could not. A change to
-the local checks that keep a handler alone does not; it needs a prompt change to reach
-pages already judged. The row is
-written with the spend reservation, so a request the role then refuses locally still
+while it still runs past the owner's lock (the row's `verdict`, ADR 0029). An abstention
+on a `partial` request is kept as `partial`: another `partial` request for the path
+answers `already-judged`, and one without it is judged again on the same row, which
+counts in the day it was first taken; that adds at most one model call per path, as the
+new verdict is never `partial`. A recipe judged 20 times since the start of the UTC
+day answers `judgement-limit`. A row of another judge prompt version does not answer a
+repeat, so a changed prompt judges the page again, as one that can now name a handler
+an earlier prompt could not. A change to the local checks that keep a handler alone
+does not; it
+needs a prompt change to reach pages already judged. The row is written with the spend
+reservation, so a request the role then refuses locally still
 uses it. Rows of older revisions or other judge prompt versions are deleted once their
 UTC day is over.
 

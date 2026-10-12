@@ -621,7 +621,7 @@ export async function judgeCompletion(
   const head = await readHead(env.DB, scope.ownerId, recipeId);
   if (!head) return undefined;
   if (head.state === "revoked") return unavailable("recipe-revoked");
-  const { observation, route, branch } = request;
+  const { observation, route, branch, partial } = request;
   if (observation.origin !== head.recipe.origin) return null;
   // Only a page of the revision that ran, on a route the stored recipe has, is judged: the
   // recipe's own, or for a chooser (ADR 0028) the route of the branch the login took. An
@@ -697,8 +697,12 @@ export async function judgeCompletion(
       // undecided verdict (ADR 0029): one judged `challenge` or `rejected`, still being
       // judged, or whose request failed does not. A row of an earlier judge prompt does not
       // count: a page it judged `challenge` but kept no handler for, such as a code split
-      // into one-digit inputs before those were learned, is judged again.
-      if (judged)
+      // into one-digit inputs before those were learned, is judged again. A page the model
+      // could not decide on a description that left out a disabled field, as a code field
+      // waiting for its code may be, is judged again once the path is described in full; a
+      // description that leaves one out again is `already-judged`, which the extension
+      // never completes on.
+      if (judged && !(judged.verdict === "partial" && !partial))
         return judged.verdict === "challenge"
           ? "judged-challenge"
           : judged.verdict === "rejected"
@@ -713,7 +717,8 @@ export async function judgeCompletion(
       return (today?.value ?? 0) >= JUDGEMENTS_PER_RECIPE_DAY ? "judgement-limit" : undefined;
     },
     // A request the role refuses before sending still uses its slot, as a generation
-    // attempt does. Rows of older revisions or judges go once their day is over.
+    // attempt does; a `partial` row judged again takes today's slot and waits for its new
+    // verdict. Rows of older revisions or judges go once their day is over.
     reserved: (db, now) => [
       db
         .insert(pageJudgements)
@@ -726,7 +731,18 @@ export async function judgeCompletion(
           promptVersion,
           judgedAt: now,
         })
-        .onConflictDoNothing(),
+        .onConflictDoUpdate({
+          target: [
+            pageJudgements.ownerId,
+            pageJudgements.recipeId,
+            pageJudgements.branch,
+            pageJudgements.revision,
+            pageJudgements.path,
+            pageJudgements.promptVersion,
+          ],
+          set: { judgedAt: now, verdict: null },
+          setWhere: eq(pageJudgements.verdict, "partial"),
+        }),
       db
         .delete(pageJudgements)
         .where(
@@ -768,7 +784,9 @@ export async function judgeCompletion(
     }
   };
   if (outcome.status === "abstained") {
-    await keepVerdict("unclear");
+    // Undecided on a description that left a disabled field out: not kept as `unclear`,
+    // so a later login does not complete on the path once the field is enabled.
+    await keepVerdict(partial ? "partial" : "unclear");
     return { version: 1, status: "unclear" };
   }
   const judgement = outcome.value;

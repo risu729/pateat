@@ -452,7 +452,6 @@ export const awaitResultSchema = v.strictObject({
 export const observationGaps = [
   "shadow-field",
   "unfillable-field",
-  "disabled-field",
   "unlocated-field",
   "too-many-fields",
 ] as const;
@@ -463,6 +462,11 @@ export const extractResultSchema = v.variant("ok", [
     observation: v.unknown(),
     /** Why a signed-in page's observation is incomplete; for diagnostics only. */
     gap: v.optional(v.picklist(observationGaps)),
+    /**
+     * A signed-in page's description left out a disabled field that may not be a sign-in
+     * field: only `signed-in` completes the page (ADR 0029).
+     */
+    disabledLeftOut: v.optional(v.literal(true)),
   }),
   v.strictObject({ ok: v.literal(false), reason: v.string() }),
 ]);

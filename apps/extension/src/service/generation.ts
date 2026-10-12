@@ -482,6 +482,7 @@ export function createLoginGeneration(options: {
       observation: LoginObservation,
       sent?: () => void,
       branch?: ChooserBranch,
+      partial?: true,
     ) {
       const connection = await connected();
       if (!connection) return { verdict: "retry", reason: "not-connected" };
@@ -490,7 +491,14 @@ export function createLoginGeneration(options: {
         connection.origin,
         connection.credential,
         recipeId,
-        { version: 1, revision, route, ...(branch ? { branch } : {}), observation },
+        {
+          version: 1,
+          revision,
+          route,
+          ...(branch ? { branch } : {}),
+          observation,
+          ...(partial ? { partial } : {}),
+        },
       );
       const result: RecipeCompletionResult | undefined =
         answer.kind === "result" ? answer.result : undefined;

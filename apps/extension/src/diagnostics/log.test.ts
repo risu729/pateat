@@ -996,6 +996,16 @@ describe("unhandled errors", () => {
       verdict: "unclear",
       completed: true,
     });
+    // So is one that did not complete it only because a disabled field was left out.
+    log.login({
+      type: "judge",
+      ...page,
+      recipeRevision: 1,
+      route: "password",
+      verdict: "unclear",
+      disabledLeftOut: true,
+      notCompleted: "disabled-left-out",
+    });
     for (const reason of ["unreachable", "not-connected"])
       log.login({
         type: "judge",
@@ -1075,7 +1085,7 @@ describe("unhandled errors", () => {
       check: "plan",
       detail: "incompatible-role",
     });
-    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(16));
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(17));
     const entries = (await log.logger.entries()).filter((entry) => entry.event !== "log.debug");
     expect(entries.map((entry) => [entry.event, entry.level, entry.fields])).toEqual([
       // An unchanged sync is a debug entry; one that changed a recipe is info.
@@ -1116,6 +1126,19 @@ describe("unhandled errors", () => {
           route: "password",
           verdict: "unclear",
           completed: true,
+        },
+      ],
+      [
+        "recipe.judge",
+        "warn",
+        {
+          origin: recipeOrigin,
+          recipe: expect.any(String),
+          recipeRevision: 1,
+          route: "password",
+          verdict: "unclear",
+          disabledLeftOut: true,
+          notCompleted: "disabled-left-out",
         },
       ],
       // A request that failed is a problem; with no paired service nothing was sent.

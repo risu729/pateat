@@ -7576,8 +7576,9 @@ describe("production login document admission", () => {
         answer: Awaited<ReturnType<LoginGeneration["judge"]>>,
         signs: typeof noSigns = noSigns,
         answering?: () => void,
+        described: unknown = homePage,
       ) {
-        fake.state.extracted = { "signed-in": homePage };
+        fake.state.extracted = { "signed-in": described };
         fake.state.signs = signs;
         const service = generation({
           judge: async () => {
@@ -7606,22 +7607,104 @@ describe("production login document admission", () => {
           report.mock.calls.flatMap(([value]) =>
             value.type === "judge" && value.verdict !== "sent" ? [value] : [],
           );
-        return { judges };
+        return { judges, service, report };
       }
 
       it.each([undefined, "already-judged", "judgement-limit", "daily-limit", "monthly-limit"])(
         "completes a page with no sign and no evidence the judge did not decide (%s)",
         async (reason) => {
-          const { judges } = await judged({ verdict: "unclear", ...(reason ? { reason } : {}) });
+          const { judges, service } = await judged({
+            verdict: "unclear",
+            ...(reason ? { reason } : {}),
+          });
           await vi.waitFor(() =>
             expect(status()).toMatchObject([{ state: "authenticated", outcome: "authenticated" }]),
           );
           expect(judges()).toEqual([
             expect.objectContaining({ verdict: "unclear", completed: true }),
           ]);
+          expect(judges()[0]).not.toHaveProperty("disabledLeftOut");
+          expect(judges()[0]).not.toHaveProperty("notCompleted");
+          // A description that left nothing out is sent without the mark.
+          expect(service.judge.mock.calls[0]).toHaveLength(5);
         },
         12_000,
       );
+
+      // A description that left out a disabled field that may not be a sign-in field is
+      // still judged, but such a field may be a code field waiting for a timer or a sent
+      // code, so only `signed-in` completes the page (owner, 2026-10-12; Q-move's history
+      // page after a sign-in was never judged).
+      const disabledLeftOut = { ...homePage, disabledLeftOut: true };
+
+      it("judges a page that left out a disabled field and completes it on signed-in", async () => {
+        const { judges, service, report } = await judged(
+          { verdict: "signed-in" },
+          noSigns,
+          undefined,
+          disabledLeftOut,
+        );
+        await vi.waitFor(() =>
+          expect(status()).toMatchObject([{ state: "authenticated", outcome: "authenticated" }]),
+        );
+        // The description goes as it is, and the request says a field was left out.
+        expect(service.judge.mock.calls[0]![3]).toEqual(homePage.observation);
+        expect(service.judge.mock.calls[0]!.slice(5)).toEqual([undefined, true]);
+        expect(
+          report.mock.calls.flatMap(([value]) => (value.type === "judge" ? [value] : [])),
+        ).toEqual([
+          expect.objectContaining({ verdict: "sent", disabledLeftOut: true }),
+          expect.objectContaining({ verdict: "signed-in", disabledLeftOut: true }),
+        ]);
+        expect(judges()[0]).not.toHaveProperty("notCompleted");
+      }, 12_000);
+
+      it.each([undefined, "already-judged", "daily-limit"])(
+        "does not complete a page that left out a disabled field the judge did not decide (%s)",
+        async (reason) => {
+          const { judges } = await judged(
+            { verdict: "unclear", ...(reason ? { reason } : {}) },
+            noSigns,
+            undefined,
+            disabledLeftOut,
+          );
+          await vi.waitFor(() =>
+            expect(status()).toMatchObject([{ state: "reconciling", outcome: "unknown-submit" }]),
+          );
+          expect(judges()).toEqual([
+            expect.objectContaining({
+              verdict: "unclear",
+              disabledLeftOut: true,
+              notCompleted: "disabled-left-out",
+            }),
+          ]);
+          expect(judges()[0]).not.toHaveProperty("completed");
+        },
+        12_000,
+      );
+
+      it("names no left-out field for an undecided answer that would not complete anyway", async () => {
+        const { judges } = await judged(
+          { verdict: "unclear", reason: "timeout" },
+          noSigns,
+          undefined,
+          disabledLeftOut,
+        );
+        await vi.waitFor(() =>
+          expect(status()).toMatchObject([{ state: "reconciling", outcome: "unknown-submit" }]),
+        );
+        expect(judges()).toEqual([
+          expect.objectContaining({ verdict: "unclear", reason: "timeout", disabledLeftOut: true }),
+        ]);
+        expect(judges()[0]).not.toHaveProperty("notCompleted");
+      }, 12_000);
+
+      it("rejects a page that left out a disabled field as usual", async () => {
+        await judged({ verdict: "rejected" }, noSigns, undefined, disabledLeftOut);
+        await vi.waitFor(() =>
+          expect(status()).toMatchObject([{ state: "blocked", outcome: "credential-rejected" }]),
+        );
+      }, 12_000);
 
       it("keeps a page undecided when the request failed", async () => {
         const { judges } = await judged({ verdict: "unclear", reason: "timeout" });

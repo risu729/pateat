@@ -54,7 +54,7 @@ on 2026-10-12 (20:50 UTC):
 | A TOTP code split into one-digit inputs | None found yet | Find a site: Resend has one input (real-Chrome check, 2026-10-12) |
 | Approval in an app, then the signed-in page ([ADR 0027](adr/0027-per-account-login-routes.md#watching-after-a-challenge)) | 三菱UFJダイレクト | Done |
 | A software keyboard or extra PIN page, left to the person | エポスNet | Recheck after `92df780` |
-| A CAPTCHA the person solves, then the signed-in page | Q-move | Investigating why the signed-in page is not judged |
+| A CAPTCHA the person solves, then the signed-in page | Q-move | Recheck after this change's merge: a disabled field kept the signed-in page from the judge ([ADR 0029](adr/0029-local-sign-in-state.md)) |
 | A signed-in page on another host of the same site | JAL (`jallogin.jal.co.jp` to `www.jal.co.jp`, after a passkey), モッピー (`ssl.pc.moppy.jp` to `pc.moppy.jp`, after a password) | Both records ended `left-origin`. JAL: fix in progress. モッピー: a password login now completes when the new host's page shows the account's username (synthetic tests only; recheck); next, the judge decides once when it does not ([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md)) |
 | Google's own sign-in (email first, account choice) | Google | Not checked |
 | Choosing among several accounts of one site in the popup ([#187](https://github.com/risu729/pateat/pull/187)) | GitHub | Signed in; recheck the shortened item IDs and the silent stop while another tab's login holds the site |
@@ -2134,6 +2134,10 @@ sign-in field, which is left out since 2026-10-12: the page after アパホテ�
 logged as `unfillable-field` and never judged, and a read-only date picker of its hotel
 search is the inferred cause. In the owner's Chrome on 2026-10-12 (06:17 UTC) the page
 after the login was then judged `signed-in` with the ログアウト button as its marker.
+A disabled field that does not look like a sign-in field is left out too since
+2026-10-12 (22:03 UTC), but such a page completes only on `signed-in`
+([ADR 0029](adr/0029-local-sign-in-state.md)): Q-move's signed-in page was logged
+`disabled-field` and never judged.
 Buttons and links past the limit or without a locator are left out, since they are only
 possible sign-in markers. Links are located by their text too, and those in a page
 header or navigation, where account menus usually sit, are kept first; the rank reads

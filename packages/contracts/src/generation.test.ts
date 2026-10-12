@@ -458,6 +458,13 @@ describe("page judgement contracts (ADR 0027)", () => {
       ).toBe(false);
   });
 
+  it("marks a description that left out a disabled field only as true (ADR 0029)", () => {
+    const request = { version: 1, revision: 2, route: "password", observation };
+    expect(v.is(recipeCompletionRequestSchema, { ...request, partial: true })).toBe(true);
+    for (const partial of [false, "true"])
+      expect(v.is(recipeCompletionRequestSchema, { ...request, partial })).toBe(false);
+  });
+
   it("answers signed-in and challenge with or without a change", () => {
     for (const status of ["signed-in", "challenge"]) {
       expect(v.is(recipeCompletionResultSchema, { version: 1, status })).toBe(true);

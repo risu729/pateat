@@ -17,6 +17,10 @@ Amended on 2026-10-12 by the owner's choice at 21:18 UTC (「AI判定」,
 [ADR 0022](0022-login-attempts-per-tab-and-origin.md)): E2 is also read on a page of
 another origin of the same site that a `password` login's tab moves to right after the
 submission; see the end of the implementation notes.
+Amended on 2026-10-12 by the owner's choice at 22:03 UTC (「除いて慎重に」, leave out
+with care): a disabled field that does not look like a sign-in field is left out of a
+judged page, and such a page completes only on `signed-in`, after Q-move's signed-in
+page was never judged; see "Disabled fields" in the implementation notes.
 Amends [ADR 0018](0018-recipe-generation-route.md) (how success is decided after a
 generated recipe's submission) and [ADR 0027](0027-per-account-login-routes.md) (when a
 page is judged).
@@ -178,7 +182,8 @@ not sent it stays unknown. A page with no sign and no evidence is judged, and th
 completes when the judge cannot decide: the model abstains (`unclear` with no reason),
 the path was judged before (`already-judged`), or a limit applies (`judgement-limit`,
 `daily-limit`, `monthly-limit`), and the page still shows no sign and no evidence once
-the answer is back in the loaded document. Its `recipe.judge` entry is then a warning
+the answer is back in the loaded document, unless its description left out a disabled
+field (below). Its `recipe.judge` entry is then a warning
 marked `completed`. A failed request, a conflict, a missing service or a page that
 cannot be described or was not sent leaves the login unknown, as before. The service
 keeps the model's verdict on the path's judgement row (`page_judgements.verdict`,
@@ -232,6 +237,32 @@ attribute value that may be a token. Since a sign-in field left out of the descr
 could no longer be seen by the service, a page where S1 holds, on any path, is not sent
 to the judge. Which field was unlocated on each site is inferred; Cloudflare's reason is
 inferred from its path.
+
+Disabled fields (owner, 2026-10-12 22:03 UTC, 「除いて慎重に」): on 2026-10-12 at 21:29
+UTC, after the owner solved Q-move's CAPTCHA and signed in, its history page had a
+disabled field that does not look like a sign-in field. The page was logged
+`recipe.judge not-sent` `disabled-field`, never judged, and the login recorded no
+completion; which field it was is inferred. The owner chose to leave such a field out of
+the description and judge the page, but such a page then completes only when the judge
+answers `signed-in`. `unclear` with no reason, `already-judged` or a limit leaves the
+login unknown there, as a page that was not sent would, since a code page whose code
+field stays disabled until the code is sent could otherwise complete.
+`rejected` and `challenge` act as on any page. A disabled field that may be a sign-in
+field, by the rule for read-only ones (a password or email input, one with any
+autocomplete token the description carries other than `off`, such as `username`,
+`one-time-code` or a personal-data token such as `tel`, or a short numeric field), still
+keeps the page from the judge (`unfillable-field`). The description itself is unchanged;
+the request says that a field was left out (`partial`). The service keeps a `signed-in`,
+`challenge` or `rejected` verdict for such a page as for any page, but stores an
+abstention as `partial` rather than `unclear`: a later login whose page leaves the field
+out again gets `already-judged`, which never completes it, and a page of the path
+described in full is judged again, within the daily limits, so that page cannot complete
+on the earlier abstention once the code field is enabled. Each `recipe.judge` entry of
+such a page carries `disabledLeftOut`, and an undecided answer that would otherwise have
+completed the login is a warning marked `notCompleted` `disabled-left-out`. Not chosen:
+leaving such fields out and letting an undecided answer complete (the code page above),
+showing them to the judge marked disabled (a larger change of the description and the
+judge's instructions, and pages judged again), and keeping such pages from the judge.
 
 Watched logins (owner, 2026-10-12 13:08 UTC,
 [ADR 0027](0027-per-account-login-routes.md#watching-after-a-challenge)): Evidence: on

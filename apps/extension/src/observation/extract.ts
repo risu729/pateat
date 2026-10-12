@@ -45,12 +45,22 @@ import { linkRefusal, type OnSite } from "../login/entry";
 export type ObservationRefusal = "unsupported-page" | "no-candidates" | "no-locator";
 /**
  * Why a signed-in page's observation is incomplete, for diagnostics only: a fillable field
- * in a shadow root, one that cannot be filled and is disabled or may be a sign-in field,
- * one without a usable locator, or more fields than the candidate limit.
+ * in a shadow root, one that cannot be filled and may be a sign-in field, one without a
+ * usable locator, or more fields than the candidate limit.
  */
 export type ObservationGap = (typeof observationGaps)[number];
 export type ObservationResult =
-  | { readonly ok: true; readonly observation: LoginObservation; readonly gap?: ObservationGap }
+  | {
+      readonly ok: true;
+      readonly observation: LoginObservation;
+      readonly gap?: ObservationGap;
+      /**
+       * A signed-in page's description leaves out a disabled field that may not be a
+       * sign-in field. The page is judged, but completes only on `signed-in` (owner,
+       * 2026-10-12, ADR 0029). Never sent to the service.
+       */
+      readonly disabledLeftOut?: true;
+    }
   | { readonly ok: false; readonly reason: ObservationRefusal };
 
 const maxCandidates = 48;
@@ -1227,15 +1237,17 @@ function mayBeSignIn(input: HTMLInputElement): boolean {
  * The judge refuses a page that still shows a sign-in field, so every field that may be
  * one must be described: a field in a shadow root, or more fields than the limit marks
  * the observation incomplete, and so does a field that may be a sign-in field
- * (`mayBeSignIn`) but cannot be located, or one that cannot be filled when it is
- * disabled, as a code field waiting for a timer is, or may be a sign-in field. A field
- * that may not, such as a search box with no ID, a password change form's field or a
- * hotel search's read-only date picker, is left out (owner, 2026-10-12, ADR 0029). Buttons and links are only possible
- * markers; those past the limit or without a locator are left out. A link is located by
- * its text too, as for an account switch, and the executor looks for the completion
- * marker the same way. A path segment that may carry a token is sent as
- * `REDACTED_PATH_SEGMENT` (`signedInPath`). A page with a code field also carries up to
- * three texts near the first one (`nearCodeTexts`), hidden as the rest of the page.
+ * (`mayBeSignIn`) but cannot be located or filled. A field that may not, such as a search
+ * box with no ID, a password change form's field or a hotel search's read-only date
+ * picker, is left out (owner, 2026-10-12, ADR 0029). A disabled one is left out too, but
+ * the result says so (`disabledLeftOut`): it may be a code field waiting for a timer or a
+ * sent code, so such a page completes only when the judge answers `signed-in`. Buttons
+ * and links are only possible markers; those past the limit or without a locator are
+ * left out. A link is located by its text too, as for an account switch, and the
+ * executor looks for the completion marker the same way. A path segment that may carry a
+ * token is sent as `REDACTED_PATH_SEGMENT` (`signedInPath`). A page with a code field
+ * also carries up to three texts near the first one (`nearCodeTexts`), hidden as the
+ * rest of the page.
  */
 export function extractSignedInObservation(
   document: Document = globalThis.document,
@@ -1250,14 +1262,15 @@ export function extractSignedInObservation(
   )
     ? "shadow-field"
     : undefined;
+  let disabledLeftOut = false;
   const fieldEntries: { form: HTMLFormElement | null; draft: Draft }[] = [];
   const markers: { form: HTMLFormElement | null; draft: Draft }[] = [];
   for (const entry of found) {
     if (entry.kind === "unsupported") {
-      // A disabled field may be a code field waiting for a timer or a sent code; the log
-      // tells one that may not be a sign-in field (`disabled-field`) from one that may.
+      // A disabled field may be a code field waiting for a timer or a sent code: one that
+      // may not be a sign-in field is left out, but only `signed-in` completes the page.
       if (entry.field && mayBeSignIn(entry.field)) gap ??= "unfillable-field";
-      else if (entry.field?.disabled) gap ??= "disabled-field";
+      else if (entry.field?.disabled) disabledLeftOut = true;
     } else if (fillTypes[entry.draft.role]) fieldEntries.push(entry);
     else if (entry.draft.role !== "checkbox") markers.push(entry);
   }
@@ -1312,5 +1325,10 @@ export function extractSignedInObservation(
     signedInPath(location.pathname),
     true,
   );
-  return result.ok && gap ? { ...result, gap } : result;
+  if (!result.ok) return result;
+  return {
+    ...result,
+    ...(gap ? { gap } : {}),
+    ...(disabledLeftOut ? { disabledLeftOut: true as const } : {}),
+  };
 }

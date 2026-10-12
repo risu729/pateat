@@ -252,6 +252,8 @@ export const LOG_EVENTS = {
       takenOver: "flag",
       watched: "flag",
       completed: "flag",
+      disabledLeftOut: "flag",
+      notCompleted: "code",
       url: "url",
     },
   },
