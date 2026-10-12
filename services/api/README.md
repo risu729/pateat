@@ -273,9 +273,11 @@ becomes `name-1`, `name-2` and so on by first appearance, so equal names stay vi
 An unchecked string may quote the page or a field name, so the model's text is never
 stored, and the Worker logs only `Model output refused` with the role, its prompt
 version and the `rejection`. A schema `path` resolves each key where the output format
-defines it, so a key the format defines only elsewhere also ends the path as
-`unknown-key`. Rows older than 90 days are deleted whenever a call is logged and on
-every `GET /v1/recipes`, because routine releases do not apply cron triggers.
+defines it, so a key the format defines only in another object also ends the path as
+`unknown-key`; the options of a variant are read together, so a key of a sibling option
+gives that object's issue instead. Rows older than 90 days are deleted whenever a call
+is logged and on every `GET /v1/recipes`, because routine releases do not apply cron
+triggers.
 
 ## Schema and tests
 
