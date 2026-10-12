@@ -120,7 +120,8 @@ only a username, with no text beside them, is not found. The page right after a
 submitted password form is skipped: the content script skips its own next path, and the
 worker the tab's next document, kept in memory only, so a restart of the worker in
 between forgets it. A submission in a frame counts for the tab's page, and a next page
-of another origin ends the skip. A stored chooser's path counts as a recipe start, so
+of another origin ends the skip; after a submission in a frame, a same-document URL
+change of the tab's page is not skipped, since only the frame saw the submission. A stored chooser's path counts as a recipe start, so
 the page is not sent again, though nothing starts there yet. The local log names a
 list's generation with `page: accounts`, and the skips of a list with an email as
 `after-sign-in` or `no-vault-match`. The service's check of the
