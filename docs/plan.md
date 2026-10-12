@@ -375,6 +375,9 @@ own accounts, so they stay in the project's files rather than in this repository
     the skill files into the repository was refused by the cloud session's approval
     policy, so the batches follow the survey's summary of its rules until the owner
     decides how the copy lands.
+  - Batch 2, `services/api` (2026-10-12): 308 to 293 Vitest cases, service line
+    coverage unchanged at 95.6%. The preservation review's mutations found two
+    removals that were the only proof of a judgement rule, and both were kept.
 - UI improvements the owner reports from daily use of the UI polished in phase 1. Small
   fixes for broken UI still land as found.
 - Features found missing during use are added here.
