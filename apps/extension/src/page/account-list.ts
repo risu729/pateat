@@ -416,8 +416,9 @@ const otherTextLimit = 64;
  * (another, other, different, switch, 別の, 他の, ほかの, 切り替え, 切替) and one for an
  * account (account, profile, user and their plurals, アカウント, プロフィール, ユーザー),
  * and {@link listControls} could click it. Only words of the control's own text count,
- * never a site name. A control whose text or label holds one of `names`, which are hidden
- * from the page sent, would be left out of it, so it does not count.
+ * never a site name. A control whose text holds one of `names`, which are hidden from the
+ * page sent, would be left out of it, so it does not count; nor, as a precaution, does one
+ * whose `aria-label` holds one.
  */
 export function showsOtherAccountControl(
   document: Document,

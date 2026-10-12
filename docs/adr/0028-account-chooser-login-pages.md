@@ -344,19 +344,19 @@ other, different, switch, 別の, 他の, ほかの, 切り替え, 切替) and o
 (account, profile, user and their plurals, アカウント, プロフィール, ユーザー), such as
 "Use another profile" or "Switch accounts", and that the `other` rule above could click.
 Every short text the page handed over is then hidden as `[account]`, since any of them
-may name an account. A control whose text or `aria-label` holds one of those texts would
-be left out of the page sent, so it does not count, and a page without another such
-control is not sent: "Not taro? Switch accounts" beside the name taro, or
-"別のアカウントでログイン" under a heading "ログイン" beside the list. The login then
-clicks `other` by the [execution](#execution) rule, since no shown account fits the
-username, and the next page is generated as that branch. The page right after a sign-in
-is not sent and is logged as `after-sign-in`. The words are a local list, as the passkey
-button words are, and name no site ([ADR 0033](0033-no-site-specific-features.md)).
-Known cost: a signed-in page on a matching site that shows a short text beside a button
-and such a control in its content, such as "Manage other accounts" or "Create another
-account", can be sent (about $0.007, at most once in the 10-minute window), and the AI
-abstains there. Not covered: a control worded only "Not you?", "Use a different email"
-or "Add account".
+may name an account. A control whose text holds one of those texts would be left out of
+the page sent, so it does not count; nor, as a precaution, does one whose `aria-label`
+holds one. A page without another such control is not sent: "Not taro? Switch accounts"
+beside the name taro, or "別のアカウントでログイン" under a heading "ログイン" beside
+the list. The login then clicks `other` by the [execution](#execution) rule, since no
+shown account fits the username, and the next page is generated as that branch. The page
+right after a sign-in is not sent and is logged as `after-sign-in`. The words are a
+local list, as the passkey button words are, and name no site
+([ADR 0033](0033-no-site-specific-features.md)). Known cost: a signed-in page on a
+matching site that shows a short text beside a button and such a control in its content,
+such as "Manage other accounts" or "Create another account", can be sent (about $0.007,
+at most once in the 10-minute window), and the AI abstains there. Not covered: a control
+worded only "Not you?", "Use a different email" or "Add account".
 
 ## Consequences
 
