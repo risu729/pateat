@@ -3335,8 +3335,44 @@ describe("production login document admission", () => {
     it.each([
       ["the extractor's refusal", { ok: false, reason: "no-locator" }, "no-locator"],
       ["an answer that fails its check", { ok: true }, "extract-failed"],
-    ] as const)("logs %s when the page cannot be described", async (_name, extracted, reason) => {
-      fake.state.extracted = { login: extracted };
+    ] as const)(
+      "logs %s when the page cannot be described",
+      async (_name, extracted, reason) => {
+        fake.state.extracted = { login: extracted };
+        const service = generation();
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris,
+          username: true,
+          generation: service,
+          report,
+        });
+        h.recipes.recipe.mockResolvedValue(undefined);
+        h.recipes.starts.mockResolvedValue(startsOf([]));
+        expect(await h.signIn()).toEqual({ ok: false, reason: "generating" });
+        // Read three times a second apart, as a form rendered in steps may still settle.
+        await vi.waitFor(
+          () =>
+            expect(report).toHaveBeenCalledWith({
+              type: "generation",
+              tabId: 1,
+              origin,
+              outcome: "skipped",
+              reason,
+            }),
+          { timeout: 4_000 },
+        );
+        expect(fake.state.messages.filter((entry) => entry.type === "login.extract")).toHaveLength(
+          3,
+        );
+        expect(service.generate).not.toHaveBeenCalled();
+      },
+      10_000,
+    );
+
+    it("stops at once for a cancelled document", async () => {
+      fake.state.extracted = { login: { ok: false, reason: "cancelled" } };
       const service = generation();
       const report = vi.fn<(report: LoginReport) => void>();
       const h = harness(unsaved, {
@@ -3350,16 +3386,30 @@ describe("production login document admission", () => {
       h.recipes.starts.mockResolvedValue(startsOf([]));
       expect(await h.signIn()).toEqual({ ok: false, reason: "generating" });
       await vi.waitFor(() =>
-        expect(report).toHaveBeenCalledWith({
-          type: "generation",
-          tabId: 1,
-          origin,
-          outcome: "skipped",
-          reason,
-        }),
+        expect(report).toHaveBeenCalledWith(
+          expect.objectContaining({ type: "generation", outcome: "skipped", reason: "cancelled" }),
+        ),
       );
-      expect(service.generate).not.toHaveBeenCalled();
+      expect(fake.state.messages.filter((entry) => entry.type === "login.extract")).toHaveLength(1);
     });
+
+    it("reads a page again that could not be described yet", async () => {
+      fake.state.extracted = { login: { ok: false, reason: "no-locator" } };
+      const service = generation();
+      const h = harness(unsaved, { allowedOrigins: [], uris, username: true, generation: service });
+      h.recipes.recipe.mockResolvedValue(undefined);
+      h.recipes.starts.mockResolvedValue(startsOf([]));
+      expect(await h.signIn()).toEqual({ ok: false, reason: "generating" });
+      await vi.waitFor(() =>
+        expect(fake.state.messages.map((entry) => entry.type)).toContain("login.extract"),
+      );
+      // The form finishes rendering before the next read.
+      fake.state.extracted = { login: loginPage };
+      await vi.waitFor(() => expect(service.generate).toHaveBeenCalled(), { timeout: 4_000 });
+      expect(service.generate.mock.calls[0]![0]).toMatchObject({
+        observation: loginPage.observation,
+      });
+    }, 10_000);
 
     it("offers nothing for a page sent recently, a path a recipe starts on, a frame or an incomplete description", async () => {
       const service = generation({ available: async () => "sent" as const });
@@ -3399,15 +3449,18 @@ describe("production login document admission", () => {
       await vi.waitFor(() =>
         expect(fake.state.messages.map((entry) => entry.type)).toContain("login.extract"),
       );
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      await vi.waitFor(
+        () =>
+          expect(generations().at(-1)).toEqual({
+            type: "generation",
+            tabId: 1,
+            origin,
+            outcome: "skipped",
+            reason: "incomplete-observation",
+          }),
+        { timeout: 4_000 },
+      );
       expect(service.generate).not.toHaveBeenCalled();
-      expect(generations().at(-1)).toEqual({
-        type: "generation",
-        tabId: 1,
-        origin,
-        outcome: "skipped",
-        reason: "incomplete-observation",
-      });
 
       fake.state.tabUrls = { 1: "https://top.example/" };
       expect(
@@ -3426,7 +3479,7 @@ describe("production login document admission", () => {
         ),
       ).toEqual({ ok: false, reason: "recipe-not-found" });
       expect(service.generate).not.toHaveBeenCalled();
-    });
+    }, 10_000);
 
     it("offers the page an account switch leads to when no recipe starts on its path", async () => {
       const service = generation();

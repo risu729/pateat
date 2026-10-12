@@ -1636,13 +1636,12 @@ typed, so a field marked `aria-invalid="true"` gets no description, and neither 
 element the field's `aria-errormessage` names nor the text of an alert, status or other
 live region, around the description or inside it, ever counts. An error message with
 none of these marks is still read. The description reaches the generation, finite-choice
-and completion roles as untrusted page text, like labels. The owner chose
-on 2026-10-12 to add only this now and to consider the rest only if field or button
-mapping gets worse on real pages. Not observed today: text after a field that no
-`aria-describedby` names (a hint printed under an input), a second label source once one
-is found (the text next to a field when a `<label>` exists), text around a button (a
-line above a passkey button, or which `h1`-`h3` heading a button sits under) and a
-button's
+and completion roles as untrusted page text, like labels. The owner chose on 2026-10-12
+to add only this now and to consider the rest only if field or button mapping gets worse
+on real pages. Not observed today: text after a field that no `aria-describedby` names
+(a hint printed under an input), a second label source once one is found (the text next
+to a field when a `<label>` exists), text around a button (a line above a passkey
+button, or which `h1`-`h3` heading a button sits under) and a button's
 `aria-describedby`, the `pattern` attribute, and whether a button is disabled. Whatever
 the model saw, the executor still checks a field's `maxlength` and `minlength` before it
 fills and the browser's validation, `pattern` included, before it clicks. Text is
@@ -1674,20 +1673,22 @@ to 48 candidates, listed in document order. A field it cannot describe marks it
 incomplete, except a read-only, transparent or tiny field that does not look like a
 sign-in field, which is left out since 2026-10-12: the page after アパホテル's login was
 logged as `unfillable-field` and never judged, and a read-only date picker of its hotel
-search is the inferred cause, not yet confirmed in the owner's Chrome. Buttons and links
-past the limit or without a locator are left out, since they are only possible sign-in
-markers. Links are located by their text too, and those in a page header or navigation,
-where account menus usually sit, are kept first; the rank reads only the page's
-structure, never words of one language. A text locator with a digit, such as a points
-balance or an unread count, never names a marker there, and the judge is told to pick a
-marker whose text is the same for every account and visit, never the person's name, a
-count or a balance: its text is stored in the recipe and must match every later sign-in.
-On ポイントインカム (2026-10-12) the page after sign-in gave 21 candidates, all carousel
-controls, news tabs and an ad's close button, because its header links have no `id`; the
-judge answered `unclear`. A synthetic page of that shape now keeps the header's links.
-There, an attribute locator that redaction would change counts as no locator, so an
-account number in an `id` is never sent. `mise run //apps/extension:test:dom` covers
-these cases in Chromium with synthetic pages.
+search is the inferred cause. In the owner's Chrome on 2026-10-12 (06:17 UTC) the page
+after the login was then judged `signed-in` with the ログアウト button as its marker.
+Buttons and links past the limit or without a locator are left out, since they are only
+possible sign-in markers. Links are located by their text too, and those in a page
+header or navigation, where account menus usually sit, are kept first; the rank reads
+only the page's structure, never words of one language. A text locator with a digit,
+such as a points balance or an unread count, never names a marker there, and the judge
+is told to pick a marker whose text is the same for every account and visit, never the
+person's name, a count or a balance: its text is stored in the recipe and must match
+every later sign-in. On ポイントインカム (2026-10-12) the page after sign-in gave 21
+candidates, all carousel controls, news tabs and an ad's close button, because its
+header links have no `id`; the judge answered `unclear`. A synthetic page of that shape
+now keeps the header's links. There, an attribute locator that redaction would change
+counts as no locator, so an account number in an `id` is never sent.
+`mise run //apps/extension:test:dom` covers these cases in Chromium with synthetic
+pages.
 
 Evaluation data candidates, checked 2026-10-10 (terms are as published by each
 source; confirm before use):

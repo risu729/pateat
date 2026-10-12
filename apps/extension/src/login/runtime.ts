@@ -130,6 +130,12 @@ const CONFIG_KEY = "pateat.login-probe-origin.v1";
  * last changed (ADR 0022, owner's choice on 2026-10-12).
  */
 const HOLD_MS = 5 * 60_000;
+/**
+ * How often a login page offered for generation is read before it counts as one that
+ * cannot be described, and how long apart: a form rendered in steps settles meanwhile.
+ */
+const EXTRACT_READS = 3;
+const EXTRACT_RETRY_MS = 1000;
 type Sender = Browser.runtime.MessageSender;
 type SettingsRuntime = {
   handle(value: unknown): Promise<SettingsResponse>;
@@ -3098,30 +3104,41 @@ export function createLoginRuntime(
     if (!generation) return;
     const key = frameKey(live.document);
     try {
-      const extracted = v.safeParse(
-        extractResultSchema,
-        await send(live, { type: "login.extract", page: "login" }),
-      );
-      if (documents.get(key) !== live) return;
-      if (!extracted.success || !extracted.output.ok) {
+      let observation: LoginObservation | undefined;
+      // A page that renders its form in steps may offer itself before the form is whole,
+      // so a page that cannot be described yet is read again (Vpass, 2026-10-12).
+      for (let read = 1; ; read += 1) {
+        const extracted = v.safeParse(
+          extractResultSchema,
+          // eslint-disable-next-line no-await-in-loop
+          await send(live, { type: "login.extract", page: "login" }),
+        );
+        if (documents.get(key) !== live) return;
         // The content script's refusal, such as `no-locator` or `extract-error`;
         // `extract-failed` for an answer that fails its check or never came.
-        skipGeneration(
-          live,
-          extracted.success && !extracted.output.ok ? extracted.output.reason : "extract-failed",
-        );
-        return;
-      }
-      const parsed = v.safeParse(loginObservationSchema, extracted.output.observation);
-      // An incomplete observation is not sent (ADR 0016).
-      if (
-        !parsed.success ||
-        !parsed.output.complete ||
-        parsed.output.origin !== live.document.origin ||
-        parsed.output.path !== live.path
-      ) {
-        skipGeneration(live, "incomplete-observation");
-        return;
+        let unsent =
+          extracted.success && !extracted.output.ok ? extracted.output.reason : "extract-failed";
+        if (extracted.success && extracted.output.ok) {
+          const parsed = v.safeParse(loginObservationSchema, extracted.output.observation);
+          // An incomplete observation is not sent (ADR 0016).
+          if (
+            parsed.success &&
+            parsed.output.complete &&
+            parsed.output.origin === live.document.origin &&
+            parsed.output.path === live.path
+          ) {
+            observation = parsed.output;
+            break;
+          }
+          unsent = "incomplete-observation";
+        }
+        if (unsent === "cancelled" || read >= EXTRACT_READS) {
+          skipGeneration(live, unsent);
+          return;
+        }
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((resolve) => setTimeout(resolve, EXTRACT_RETRY_MS));
+        if (documents.get(key) !== live) return;
       }
       const shape = await usernameShape(live.document.origin, scope);
       const custom = await customSlots(live.document.origin, scope);
@@ -3129,7 +3146,7 @@ export function createLoginRuntime(
       const result = await generation
         .generate({
           version: 1,
-          observation: parsed.output,
+          observation,
           slots: [
             ...scope.slots.map((slot) =>
               slot.id === "username" && shape ? { ...slot, valueShape: shape } : slot,
