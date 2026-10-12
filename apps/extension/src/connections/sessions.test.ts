@@ -10,7 +10,7 @@ import { rawV1Account } from "../../../../packages/bitwarden/src/__fixtures__/ac
 import { v1Email } from "../../../../packages/bitwarden/src/__fixtures__/crypto";
 import { memorySessionStore } from "./__fixtures__/sessions";
 import { admitProviderSession } from "./session-record";
-import { createProviderSessions } from "./sessions";
+import { createProviderSessions, type RefreshReport } from "./sessions";
 
 type Authenticated = Extract<PasswordTokenOutcome, { kind: "authenticated" }>;
 const cacheRevision = "50000000-0000-4000-8000-000000000001";
@@ -43,7 +43,15 @@ function harness() {
   let clock = accountNow * 1000;
   let cache: string | null = cacheRevision;
   const memory = memorySessionStore({ profile: accountProfile, cacheRevision: () => cache });
-  const sessions = createProviderSessions({ storeFor: () => memory.store, nowMs: () => clock });
+  const reports: RefreshReport[] = [];
+  /** A worker; a second one models the worker that starts after one stopped. */
+  const worker = () =>
+    createProviderSessions({
+      storeFor: () => memory.store,
+      nowMs: () => clock,
+      report: (event) => reports.push(event),
+    });
+  const sessions = worker();
   const refreshToken = vi.fn<BitwardenTransport["refreshToken"]>();
   const transport = { refreshToken } as unknown as BitwardenTransport;
   const context = (signal = new AbortController().signal) => ({
@@ -75,6 +83,8 @@ function harness() {
   return {
     sessions,
     memory,
+    reports,
+    worker,
     refreshToken,
     context,
     retain,
@@ -89,7 +99,7 @@ function harness() {
 }
 
 describe("provider session record admission", () => {
-  it("narrows the encrypted context and keeps tokens out of a refresh claim", async () => {
+  it("narrows the encrypted context and keeps only the refresh token in a claim", async () => {
     const h = harness();
     expect(await h.retain()).toEqual({ ok: true, data: expect.any(String) });
     const stored = h.memory.raw() as Record<string, unknown> & {
@@ -111,8 +121,10 @@ describe("provider session record admission", () => {
       claimedAt: 1,
     };
     expect(admitProviderSession(claim, accountProfile).ok).toBe(false);
-    const { accessToken: _a, refreshToken: _r, receivedAt: _t, expiresIn: _e, ...clean } = claim;
-    expect(admitProviderSession(clean, accountProfile).ok).toBe(true);
+    const { accessToken: _a, receivedAt: _t, expiresIn: _e, ...resumable } = claim;
+    expect(admitProviderSession(resumable, accountProfile).ok).toBe(true);
+    const { refreshToken: _r, ...final } = resumable;
+    expect(admitProviderSession(final, accountProfile).ok).toBe(true);
   });
   it("rejects another profile, unknown members and oversized records", () => {
     const h = harness();
@@ -151,15 +163,20 @@ describe("explicit sync acquisition", () => {
     expect(result).toMatchObject({ ok: true, data: { authenticated: { kind: "authenticated" } } });
     expect(h.refreshToken).not.toHaveBeenCalled();
   });
-  it("commits a token-free claim before HTTP and commits rotation before returning", async () => {
+  it("commits a claim with only the refresh token before HTTP and commits rotation before returning", async () => {
     const h = harness();
     await h.retain();
     h.advance(3_600_000);
     expect(await h.sessions.status(accountProfile)).toBe("refresh-required");
     h.refreshToken.mockImplementationOnce(async (input) => {
       const during = h.memory.raw() as Record<string, unknown>;
-      expect(during["state"]).toBe("refreshing");
-      expect(JSON.stringify(during)).not.toContain("synthetic-refresh-token");
+      expect(during).toMatchObject({
+        state: "refreshing",
+        refreshToken: "synthetic-refresh-token",
+      });
+      expect(during).not.toHaveProperty("accessToken");
+      // An in-flight refresh is not reported as needing the password.
+      expect(await h.sessions.status(accountProfile)).toBe("refresh-required");
       expect(input).toEqual({
         connectionId: accountProfile.connectionId,
         refreshToken: "synthetic-refresh-token",
@@ -218,19 +235,29 @@ describe("explicit sync acquisition", () => {
     { label: "401", error: { code: "http-error", status: 401 } },
     { label: "redirect", error: { code: "redirect" } },
     { label: "invalid-response", error: { code: "invalid-response" } },
-  ] as const)("a refresh that fails with $label leaves the claim", async ({ error }) => {
-    const h = harness();
-    await h.retain();
-    h.advance(3_600_000);
-    h.refreshToken.mockResolvedValueOnce({ ok: false, error });
-    expect(await h.sessions.acquire(accountProfile, h.context())).toEqual({ ok: false, error });
-    expect(await h.sessions.status(accountProfile)).toBe("reauthentication-required");
-    expect(await h.sessions.acquire(accountProfile, h.context())).toEqual({
-      ok: false,
-      error: { code: "setup-reauthentication-required" },
-    });
-    expect(h.refreshToken).toHaveBeenCalledTimes(1);
-  });
+  ] as const)(
+    "a refresh that fails with $label keeps the claim without its token",
+    async ({ error }) => {
+      const h = harness();
+      await h.retain();
+      h.advance(3_600_000);
+      h.refreshToken.mockResolvedValueOnce({ ok: false, error });
+      expect(await h.sessions.acquire(accountProfile, h.context())).toEqual({ ok: false, error });
+      expect(h.memory.raw()).toMatchObject({ state: "refreshing" });
+      expect(h.memory.raw()).not.toHaveProperty("refreshToken");
+      expect(await h.sessions.status(accountProfile)).toBe("reauthentication-required");
+      // A worker that starts later does not resume it either.
+      expect(await h.worker().acquire(accountProfile, h.context())).toEqual({
+        ok: false,
+        error: { code: "setup-reauthentication-required" },
+      });
+      expect(await h.sessions.acquire(accountProfile, h.context())).toEqual({
+        ok: false,
+        error: { code: "setup-reauthentication-required" },
+      });
+      expect(h.refreshToken).toHaveBeenCalledTimes(1);
+    },
+  );
   it("a password session retained during a failing refresh is not overwritten", async () => {
     const h = harness();
     await h.retain();
@@ -458,6 +485,189 @@ describe("explicit sync acquisition", () => {
   });
 });
 
+describe("a refresh left by a stopped worker", () => {
+  /** Starts a refresh in one worker whose request never returns, as when it stops. */
+  async function abandoned() {
+    const h = harness();
+    await h.retain();
+    h.advance(3_600_000);
+    h.refreshToken.mockImplementationOnce(() => new Promise(() => undefined));
+    void h.sessions.acquire(accountProfile, h.context());
+    await vi.waitFor(() => expect(h.refreshToken).toHaveBeenCalledTimes(1));
+    return h;
+  }
+  it("is resumed by the next worker with the same refresh token", async () => {
+    const h = await abandoned();
+    const next = h.worker();
+    expect(await next.status(accountProfile)).toBe("refresh-required");
+    h.refreshToken.mockResolvedValueOnce(h.refreshed());
+    const result = await next.acquire(accountProfile, h.context());
+    expect(result.ok).toBe(true);
+    expect(h.refreshToken).toHaveBeenLastCalledWith({
+      connectionId: accountProfile.connectionId,
+      refreshToken: "synthetic-refresh-token",
+    });
+    expect(h.memory.raw()).toMatchObject({
+      state: "active",
+      refreshToken: "synthetic-refresh-token",
+    });
+    expect(await next.status(accountProfile)).toBe("active");
+  });
+  it("is not taken over by a second acquire in the worker that holds it", async () => {
+    const h = await abandoned();
+    expect(await h.sessions.acquire(accountProfile, h.context())).toEqual({
+      ok: false,
+      error: { code: "cancelled" },
+    });
+    expect(h.refreshToken).toHaveBeenCalledTimes(1);
+  });
+  it("stays resumable after a resumed request fails with a network error", async () => {
+    const h = await abandoned();
+    const next = h.worker();
+    h.refreshToken.mockResolvedValueOnce({ ok: false, error: { code: "network" } });
+    expect(await next.acquire(accountProfile, h.context())).toEqual({
+      ok: false,
+      error: { code: "network" },
+    });
+    expect(h.memory.raw()).toMatchObject({
+      state: "refreshing",
+      refreshToken: "synthetic-refresh-token",
+    });
+    expect(await next.status(accountProfile)).toBe("refresh-required");
+    h.refreshToken.mockResolvedValueOnce(h.refreshed());
+    expect((await next.acquire(accountProfile, h.context())).ok).toBe(true);
+  });
+  it("forget removes it", async () => {
+    const h = await abandoned();
+    expect(await h.worker().forget(accountProfile)).toEqual({ ok: true, data: true });
+    expect(h.memory.raw()).toBeUndefined();
+  });
+  it("a claim from an earlier build that kept no token still needs the password", async () => {
+    const h = harness();
+    await h.retain();
+    const stored = h.memory.raw() as Record<string, unknown>;
+    const { accessToken: _a, refreshToken: _r, receivedAt: _t, expiresIn: _e, ...rest } = stored;
+    h.memory.set({
+      ...rest,
+      revision: crypto.randomUUID(),
+      state: "refreshing",
+      claimId: crypto.randomUUID(),
+      claimedAt: 1,
+    });
+    expect(await h.worker().status(accountProfile)).toBe("reauthentication-required");
+    expect(await h.worker().acquire(accountProfile, h.context())).toEqual({
+      ok: false,
+      error: { code: "setup-reauthentication-required" },
+    });
+    expect(h.refreshToken).not.toHaveBeenCalled();
+  });
+});
+
+describe("refresh reports for the local log", () => {
+  const connectionId = accountProfile.connectionId;
+  it("reports a committed refresh once and nothing for a live token", async () => {
+    const h = harness();
+    await h.retain();
+    expect((await h.sessions.acquire(accountProfile, h.context())).ok).toBe(true);
+    expect(h.reports).toEqual([]);
+    h.advance(3_600_000);
+    h.refreshToken.mockResolvedValueOnce(h.refreshed());
+    expect((await h.sessions.acquire(accountProfile, h.context())).ok).toBe(true);
+    expect(h.reports).toEqual([{ connectionId, outcome: "refreshed" }]);
+  });
+  it.each([
+    {
+      error: { code: "http-error", status: 503 },
+      report: { outcome: "restored", cause: "http-error", status: 503 },
+    },
+    { error: { code: "timeout" }, report: { outcome: "restored", cause: "timeout" } },
+    {
+      error: { code: "http-error", status: 401 },
+      report: { outcome: "failed", cause: "http-error", status: 401 },
+    },
+    {
+      error: { code: "invalid-response" },
+      report: { outcome: "failed", cause: "invalid-response" },
+    },
+  ] as const)("reports $error.code $error.status as $report.outcome", async ({ error, report }) => {
+    const h = harness();
+    await h.retain();
+    h.advance(3_600_000);
+    h.refreshToken.mockResolvedValueOnce({ ok: false, error });
+    await h.sessions.acquire(accountProfile, h.context());
+    expect(h.reports).toEqual([{ connectionId, ...report }]);
+  });
+  it("reports a restore that could not be written as failed", async () => {
+    const h = harness();
+    await h.retain();
+    h.advance(3_600_000);
+    h.refreshToken.mockImplementationOnce(async () => {
+      h.memory.failNext("storage-uncertain");
+      return { ok: false, error: { code: "network" } };
+    });
+    await h.sessions.acquire(accountProfile, h.context());
+    expect(h.reports).toEqual([{ connectionId, outcome: "failed", cause: "network" }]);
+  });
+  it("reports a rejection and a subject mismatch", async () => {
+    const h = harness();
+    await h.retain();
+    h.advance(3_600_000);
+    h.refreshToken.mockResolvedValueOnce({
+      ok: true,
+      data: { kind: "rejected", reason: "refresh" },
+    });
+    await h.sessions.acquire(accountProfile, h.context());
+    await h.retain();
+    h.advance(3_600_000);
+    h.refreshToken.mockResolvedValueOnce(h.refreshed({ sub: "another-user" }));
+    await h.sessions.acquire(accountProfile, h.context());
+    expect(h.reports).toEqual([
+      { connectionId, outcome: "rejected", cause: "refresh" },
+      { connectionId, outcome: "account-mismatch" },
+    ]);
+  });
+  it("a throwing report does not change the refresh", async () => {
+    let clock = accountNow * 1000;
+    const memory = memorySessionStore({
+      profile: accountProfile,
+      cacheRevision: () => cacheRevision,
+    });
+    const sessions = createProviderSessions({
+      storeFor: () => memory.store,
+      nowMs: () => clock,
+      report: () => {
+        throw new Error("log unavailable");
+      },
+    });
+    await sessions.retain(
+      accountProfile,
+      authenticated(),
+      { userId: accountUserId, email: v1Email },
+      cacheRevision,
+      clock,
+    );
+    clock += 3_600_000;
+    const refreshToken = vi.fn<BitwardenTransport["refreshToken"]>().mockResolvedValueOnce({
+      ok: true,
+      data: {
+        kind: "authenticated",
+        tokens: {
+          accessToken: syntheticJwt({ exp: Math.floor(clock / 1000) + 3600 }),
+          tokenType: "Bearer",
+          expiresIn: 3600,
+        },
+      },
+    });
+    const result = await sessions.acquire(accountProfile, {
+      cacheRevision,
+      transport: { refreshToken } as unknown as BitwardenTransport,
+      permitted: async () => true,
+      signal: new AbortController().signal,
+    });
+    expect(result.ok).toBe(true);
+    expect(await sessions.status(accountProfile)).toBe("active");
+  });
+});
 describe("forget", () => {
   it("deletes a corrupt record instead of reusing it", async () => {
     const h = harness();

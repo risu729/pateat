@@ -660,9 +660,10 @@ IndexedDB database at version 2 holds a `records` store and a `providerSessions`
 vault records still never contain tokens. A version 1 database from an earlier build
 fails to open until the extension is reinstalled
 ([compatibility before release](development.md#compatibility-before-release)). A
-token-free refresh claim commits by compare-and-swap before HTTP, a network failure,
-timeout, 429 or 5xx restores the previous session so a later sync retries it, a restart
-or other failure requires password sign-in, rotation commits before sync,
+refresh claim holding only the refresh token commits by compare-and-swap before HTTP, a
+network failure, timeout, 429 or 5xx restores the previous session so a later sync
+retries it, a claim left by a stopped worker is resumed by the next sync, any other
+failure requires password sign-in, rotation commits before sync,
 and an absent refresh token keeps the captured one. Local forget, permission loss for
 that provider, a rejected refresh or access token, and a mismatched account context
 clear only the sync session. Startup only reads state; the settings page shows sync
@@ -681,6 +682,17 @@ snapshot; unit tests cover the gate, the window and the reconnect target, and
 `tests/extension/login-service.spec.ts` logs in on a routed site once the item's URI
 arrives through that check. Automatic sync is not yet verified in installed Chrome or
 against a real account.
+
+On 2026-10-12 the owner's installed Chrome reported `reauthentication-required` about
+five minutes after an extension update, after hourly refreshes had worked since the
+previous day's sign-in. A refresh claim had been left behind: either the worker stopped
+during the refresh request (the log shows 184 worker starts in 14 hours) or the request
+failed with a non-retryable error; the log could not tell which. The owner decided that
+an interrupted refresh resumes without the password
+([ADR 0008](adr/0008-durable-provider-sessions.md)). Automatic checks also run under the
+same keep-alive as model calls, and each refresh result is logged as `vault.refresh`
+with its error code and status. Unit tests cover the resumed claim; it is not yet
+verified in installed Chrome.
 
 Unit tests cover claims, rotation, concurrent writers, forget and permission races,
 expiry from the token's own claims, and per-provider permission loss. Isolated Chromium

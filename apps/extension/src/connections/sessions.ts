@@ -37,13 +37,31 @@ const retryable = (error: { code: string; status?: number }) =>
     error.status !== undefined &&
     (error.status === 429 || error.status >= 500));
 
+/** How one refresh request ended, for the local log. No token or account value. */
+export type RefreshReport = {
+  connectionId: string;
+  outcome: "refreshed" | "restored" | "rejected" | "account-mismatch" | "failed";
+  /** The transport or store error code when the outcome is not `refreshed`. */
+  cause?: string;
+  /** The HTTP status of an `http-error`. */
+  status?: number;
+};
+
 export function createProviderSessions(deps: {
   storeFor(profile: BitwardenProfile): ProviderSessionStore;
   nowMs?: () => number;
   randomId?: () => string;
+  report?: (event: RefreshReport) => void;
 }) {
   const now = deps.nowMs ?? Date.now;
   const random = deps.randomId ?? (() => crypto.randomUUID());
+  const report = (event: RefreshReport) => {
+    try {
+      deps.report?.(event);
+    } catch {
+      // Logging never changes a refresh.
+    }
+  };
   /** Usable only before both the response lifetime and the token's own `exp`, if present. */
   const usable = (entry: Extract<ProviderSessionEntry, { state: "active" }>) => {
     const lifetime = entry.receivedAt + entry.expiresIn * 1000;
@@ -52,9 +70,12 @@ export function createProviderSessions(deps: {
       now() + EXPIRY_MARGIN_MS < (exp === undefined ? lifetime : Math.min(lifetime, exp * 1000))
     );
   };
+  /** Claims this worker is refreshing now. A claim not listed was left by a stopped worker. */
+  const held = new Set<string>();
   function stateOf(entry: ProviderSessionEntry | null): ProviderSessionState {
     if (!entry) return "none";
-    if (entry.state === "refreshing") return "reauthentication-required";
+    if (entry.state === "refreshing")
+      return entry.refreshToken ? "refresh-required" : "reauthentication-required";
     if (usable(entry)) return "active";
     return entry.refreshToken ? "refresh-required" : "reauthentication-required";
   }
@@ -116,10 +137,11 @@ export function createProviderSessions(deps: {
     },
     /**
      * Return a usable authorization for one explicit sync, refreshing it at most once.
-     * The refresh claim is committed before HTTP and holds no token. A network failure,
-     * timeout, 429 or 5xx puts the session back with the captured refresh token, which
-     * the provider reuses; a restart or any other failure leaves the claim, which then
-     * requires password sign-in.
+     * The refresh claim is committed before HTTP and keeps the refresh token it sends. A
+     * network failure, timeout, 429 or 5xx puts the session back with that token, which
+     * the provider reuses. A claim left by a worker that stopped mid-request is resumed
+     * with its token by the next acquire. Any other failure drops the token from the
+     * claim, which then requires password sign-in.
      * The caller signal only bounds the pre-claim checks; once claimed, the request and
      * rotation commit run to completion (bounded by the transport timeout) so closing the
      * options page cannot strand a rotated token. Forget still wins by the claim revision.
@@ -138,9 +160,11 @@ export function createProviderSessions(deps: {
       const current = await store.read();
       if (!current.ok) return current;
       const entry = current.data;
-      if (!entry || entry.state !== "active")
-        return { ok: false, error: { code: "setup-reauthentication-required" } };
-      if (usable(entry))
+      if (!entry) return { ok: false, error: { code: "setup-reauthentication-required" } };
+      if (entry.state === "refreshing") {
+        // Another acquire in this worker owns the claim; a claim nobody holds is resumed.
+        if (held.has(entry.claimId)) return { ok: false, error: { code: "cancelled" } };
+      } else if (usable(entry))
         return {
           ok: true,
           data: { authenticated: authenticatedFrom(entry), revision: entry.revision },
@@ -159,59 +183,103 @@ export function createProviderSessions(deps: {
         state: "refreshing",
         claimId: random(),
         claimedAt: now(),
+        refreshToken: captured,
       };
+      // Held before the write, so no other acquire in this worker can resume it meanwhile.
+      held.add(claim.claimId);
       const claimed = await store.compareAndSwap(entry.revision, claim, {
         cacheRevision: context.cacheRevision,
       });
       // Only the writer whose claim committed may send the refresh request.
-      if (!claimed.ok) return claimed;
-      const refreshed = await context.transport.refreshToken({
-        connectionId: profile.connectionId,
-        refreshToken: captured,
-      });
-      const receivedAt = now();
-      if (!refreshed.ok) {
-        // The provider never invalidates a presented refresh token, so after a failure that
-        // carries no rejection the captured one is still valid: put it back so a later sync can retry without a
-        // password. The restore compares only the claim, so a forget in between still wins.
-        if (retryable(refreshed.error))
-          await store.compareAndSwap(claim.revision, { ...entry, revision: random() });
-        return refreshed;
+      if (!claimed.ok) {
+        held.delete(claim.claimId);
+        return claimed;
       }
-      if (refreshed.data.kind !== "authenticated") {
-        await store.compareAndSwap(claim.revision, null);
-        return { ok: false, error: { code: "setup-reauthentication-required" } };
-      }
-      const tokens = refreshed.data.tokens;
-      // Bitwarden access tokens carry an email claim; a missing claim is a mismatch.
-      const subject = tokenSubject(tokens.accessToken);
-      if (subject.sub !== entry.binding.userId || subject.email !== entry.binding.email) {
-        await store.compareAndSwap(claim.revision, null);
-        return { ok: false, error: { code: "account-mismatch" } };
-      }
-      const active: ProviderSessionEntry = {
-        schemaVersion: 1,
-        revision: random(),
-        profile: entry.profile,
-        binding: entry.binding,
-        encryptedAccount: entry.encryptedAccount,
-        state: "active",
-        accessToken: tokens.accessToken,
-        // An omitted or null refresh token keeps the captured one, as the official client does.
-        refreshToken: tokens.refreshToken ?? captured,
-        receivedAt,
-        expiresIn: tokens.expiresIn,
+      const refresh = async (): Promise<
+        VaultResult<Acquired> | { ok: false; error: { code: SessionFailure } }
+      > => {
+        const refreshed = await context.transport.refreshToken({
+          connectionId: profile.connectionId,
+          refreshToken: captured,
+        });
+        const receivedAt = now();
+        const connectionId = profile.connectionId;
+        if (!refreshed.ok) {
+          const failure = refreshed.error as { code: string; status?: number };
+          // The provider never invalidates a presented refresh token, so after a failure that
+          // carries no rejection the captured one is still valid: put it back so a later sync can retry without a
+          // password. The restore compares only the claim, so a forget in between still wins.
+          // A resumed claim has no session to go back to, so it becomes a new claim nobody
+          // holds. Any other failure keeps the claim without its token: password sign-in.
+          const restored = retryable(failure)
+            ? (
+                await store.compareAndSwap(
+                  claim.revision,
+                  entry.state === "active"
+                    ? { ...entry, revision: random() }
+                    : { ...claim, revision: random(), claimId: random() },
+                )
+              ).ok
+            : false;
+          if (!restored) {
+            const { refreshToken: _dropped, ...final } = claim;
+            await store.compareAndSwap(claim.revision, { ...final, revision: random() });
+          }
+          report({
+            connectionId,
+            outcome: restored ? "restored" : "failed",
+            cause: failure.code,
+            ...(failure.status === undefined ? {} : { status: failure.status }),
+          });
+          return refreshed;
+        }
+        if (refreshed.data.kind !== "authenticated") {
+          report({ connectionId, outcome: "rejected", cause: refreshed.data.reason });
+          await store.compareAndSwap(claim.revision, null);
+          return { ok: false, error: { code: "setup-reauthentication-required" } };
+        }
+        const tokens = refreshed.data.tokens;
+        // Bitwarden access tokens carry an email claim; a missing claim is a mismatch.
+        const subject = tokenSubject(tokens.accessToken);
+        if (subject.sub !== entry.binding.userId || subject.email !== entry.binding.email) {
+          report({ connectionId, outcome: "account-mismatch" });
+          await store.compareAndSwap(claim.revision, null);
+          return { ok: false, error: { code: "account-mismatch" } };
+        }
+        const active: ProviderSessionEntry = {
+          schemaVersion: 1,
+          revision: random(),
+          profile: entry.profile,
+          binding: entry.binding,
+          encryptedAccount: entry.encryptedAccount,
+          state: "active",
+          accessToken: tokens.accessToken,
+          // An omitted or null refresh token keeps the captured one, as the official client does.
+          refreshToken: tokens.refreshToken ?? captured,
+          receivedAt,
+          expiresIn: tokens.expiresIn,
+        };
+        // Commit rotation before any sync so a later sync failure cannot restore the old token.
+        // The commit compares only the claim: a forget in between removes it and wins.
+        const committed = await store.compareAndSwap(claim.revision, active);
+        report(
+          committed.ok
+            ? { connectionId, outcome: "refreshed" }
+            : { connectionId, outcome: "failed", cause: committed.error.code },
+        );
+        if (!committed.ok) return committed;
+        return context.signal.aborted
+          ? { ok: false, error: { code: "cancelled" } }
+          : {
+              ok: true,
+              data: { authenticated: authenticatedFrom(active), revision: active.revision },
+            };
       };
-      // Commit rotation before any sync so a later sync failure cannot restore the old token.
-      // The commit compares only the claim: a forget in between removes it and wins.
-      const committed = await store.compareAndSwap(claim.revision, active);
-      if (!committed.ok) return committed;
-      return context.signal.aborted
-        ? { ok: false, error: { code: "cancelled" } }
-        : {
-            ok: true,
-            data: { authenticated: authenticatedFrom(active), revision: active.revision },
-          };
+      try {
+        return await refresh();
+      } finally {
+        held.delete(claim.claimId);
+      }
     },
     forget,
     /** Delete exactly the session that was used; a newer one (conflict) is left in place. */
