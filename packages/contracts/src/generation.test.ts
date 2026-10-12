@@ -86,6 +86,37 @@ describe("recipe generation contracts", () => {
       }),
     ).toBe(false);
   });
+
+  it("says which check refused invalid output, as codes only", () => {
+    const failed = (error: string, rejection: unknown) =>
+      v.is(recipeGenerationResultSchema, { version: 1, status: "failed", error, rejection });
+    for (const rejection of [
+      { check: "json" },
+      { check: "schema", issue: "max-length", path: "result.alternatives" },
+      { check: "schema", issue: "strict-object", path: "result.fields.0" },
+      { check: "schema", issue: "object", path: "" },
+      { check: "plan", reason: "incompatible-role" },
+    ])
+      expect(failed("invalid-output", rejection)).toBe(true);
+    for (const rejection of [
+      { check: "plan", reason: "incompatible-role", output: { result: {} } },
+      { check: "plan", reason: "Invalid type: Expected string" },
+      { check: "schema", issue: "max-length", path: "result.ｆｉｅｌｄｓ" },
+      { check: "schema", issue: "max-length", path: "result..fields" },
+      { check: "schema", issue: "max_length", path: "result" },
+      { check: "values" },
+    ])
+      expect(failed("invalid-output", rejection)).toBe(false);
+    expect(failed("timeout", { check: "json" })).toBe(false);
+    expect(
+      v.is(recipeCompletionResultSchema, {
+        version: 1,
+        status: "failed",
+        error: "invalid-output",
+        rejection: { check: "json" },
+      }),
+    ).toBe(false);
+  });
 });
 
 describe("custom slots in a generated recipe (ADR 0027)", () => {

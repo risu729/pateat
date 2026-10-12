@@ -58,8 +58,9 @@ own copy of the Worker output. The setup order below sets the release credential
 last, after pairing works through Access; the typed-code enrollment did when the owner
 paired on 2026-10-11. Installed Chrome first paired directly with the deployed service
 on 2026-10-11 ([device enrollment](architecture.md#device-enrollment)). A deployment
-also needs the `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD` Worker secrets; the owner pages
-answer 503 without them. Artifact tests reject tampering and mismatched provenance.
+also needs the `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD` and `ACCESS_PAIR_AUD` Worker
+secrets; the owner pages answer 503 without the first two, and cf refuses to deploy
+without any of them. Artifact tests reject tampering and mismatched provenance.
 
 ### Production settings
 
@@ -77,19 +78,45 @@ The owner decided these on 2026-10-11, following the kogane repository:
   and `/.well-known/openid-configuration` and `/.well-known/jwks.json` (fetched
   anonymously by Anthropic for Workload Identity Federation). The Worker still
   verifies the Access token itself on the owner pages. `POST /pair` (direct pairing,
-  [ADR 0020](adr/0020-direct-device-pairing.md)) stays under the host-wide application
-  and must not be added to the Bypass application: it needs the owner's Access session.
+  [ADR 0020](adr/0020-direct-device-pairing.md)) must not be added to the Bypass
+  application: it needs the owner's Access session.
+- Pairing without WARP: the owner decided on 2026-10-12 that browsers without WARP,
+  such as an agent's cloud computer, may pair permanently
+  ([ADR 0030](adr/0030-pairing-without-warp.md)). A third self-hosted Access
+  application, "pateat pair", covers `pateat.takuk.me` with path `pair` (and the paths
+  below it) and takes precedence there. Its Login methods are the host-wide
+  application's identity provider and One-time PIN. Policy 1 is the same reusable
+  policy as the host-wide application (email domain and WARP); Policy 2 includes the
+  owner's email address only and requires the One-time PIN login method, without WARP.
+  Session Duration is 15 minutes, and Cookie Path Attribute and Binding Cookie are on.
+  Its Application Audience (AUD) Tag is the `ACCESS_PAIR_AUD` Worker secret; the
+  Worker accepts it on `/pair` and `/pair/signed-in` only, and an empty value turns
+  it off while "pateat pair" does not exist; once it exists, Access issues only its
+  audience on `/pair`, so emptying the secret then stops all pairing. `/manage` keeps
+  requiring WARP. One-time PIN must be enabled under
+  Integrations, Identity providers; enabling it also offers it to every Access
+  application whose Login methods accept all identity providers. After pairing on a
+  vendor's machine, open `/cdn-cgi/access/logout` there.
 - Pairing extension IDs: `PAIRING_EXTENSION_IDS` is a committed JSON variable in
   `cloudflare.config.ts` that lists Pateat's production extension ID. It is not a
   secret, workflows do not synchronize it, and it needs no GitHub environment variable
   or Worker secret; a release deploys the committed list.
-- Worker secrets: `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`, `OIDC_ISSUER` and
-  `OIDC_SIGNING_KEYS` are set once during bootstrap; workflows never synchronize them.
-  cf refuses to create a Worker without its declared secrets, so the first deploy
-  passes all four at once with `cf deploy --prebuilt --mode production --secrets-file
-  <file>` (JSON) and deletes the file afterwards; later changes use
-  `cf workers secrets update`. With several accounts visible to the login, cf also
-  needs `CLOUDFLARE_ACCOUNT_ID`. Versions created by routine releases keep the secrets.
+- Worker secrets: `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`, `ACCESS_PAIR_AUD`, `OIDC_ISSUER`
+  and `OIDC_SIGNING_KEYS` are set once during bootstrap; workflows never synchronize
+  them. cf refuses to create a Worker without its declared secrets, so the first deploy
+  passes all five at once with
+  `cf deploy --prebuilt --mode production --secrets-file <file>` (JSON) and deletes the
+  file afterwards; later changes use
+  `cf workers secrets update <NAME> --worker pateat-api --type secret_text --text <value>`;
+  cf refuses the update without `--type secret_text`. With several accounts visible to
+  the login, cf also needs `CLOUDFLARE_ACCOUNT_ID`. Versions created by routine releases
+  keep the secrets.
+- Adding `ACCESS_PAIR_AUD` (2026-10-12): cf also refuses a release whose declared secret
+  is missing, and the AUD tag exists only after "pateat pair" is created, while
+  creating it before the Worker accepts its tag stops all pairing. The order is
+  therefore: set `ACCESS_PAIR_AUD` to the placeholder `none`, which no Access token
+  carries; merge the change and let it release; create "pateat pair"; then immediately
+  set `ACCESS_PAIR_AUD` to its Application Audience (AUD) Tag.
 - Delivery: a successful main-push CI run starts `deploy-server.yml` automatically,
   as in kogane; `workflow_dispatch` with a CI run ID remains for retries.
 - Preview: there is no preview deployment for now. Without the owner web UI there is
@@ -103,7 +130,7 @@ The owner decided these on 2026-10-11, following the kogane repository:
 `deploy-server.yml` has no enable switch: the owner decided on 2026-10-11 that every
 successful main-push CI run starts a release. Until the production
 credentials exist, each run fails at its first step without changing anything. Set the
-release credentials last: first bootstrap the Worker and its Custom Domain, the two
+release credentials last: first bootstrap the Worker and its Custom Domain, the
 Access applications and the Worker secrets, and verify pairing through Access;
 otherwise a release would apply migrations and then fail to activate a missing Worker.
 Then set the `production` environment variables `CLOUDFLARE_ACCOUNT_ID`,

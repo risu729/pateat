@@ -20,6 +20,7 @@ import {
   ORIGIN,
   owner,
   ownerIdFor,
+  pairOwner,
   rejectedTokens,
   request,
   type Owner,
@@ -92,6 +93,60 @@ describe("Access verification", () => {
     const response = await request("/manage", { access: await token() });
     expect(response.status).toBe(403);
     expect(await response.text()).not.toContain("Pateat test app");
+  });
+
+  it("refuses the pairing-only application's audience on every owner route", async () => {
+    // The owner exists and has a device, paired through the pairing-only application.
+    const viaPair = await pairOwner();
+    const device = await pairDevice(viaPair);
+    const pages = [
+      "/manage",
+      "/manage/sites",
+      "/manage/bindings",
+      "/manage/recipes",
+      "/manage/assets/app.js",
+      "/manage/claude",
+    ];
+    const pageResponses = await Promise.all(
+      pages.map((path) => request(path, { access: viaPair.token })),
+    );
+    expect(pageResponses.map((response) => response.status)).toEqual(pages.map(() => 403));
+    for (const response of pageResponses)
+      expect(response.headers.get("Content-Type")).toMatch(/^text\/html/);
+    const pageBodies = await Promise.all(pageResponses.map((response) => response.text()));
+    for (const body of pageBodies) expect(body).not.toContain("Pateat test app");
+    const claudeForm = await request("/manage/claude", {
+      method: "POST",
+      access: viaPair.token,
+      headers: { "Content-Type": "application/x-www-form-urlencoded", Origin: ORIGIN },
+      body: new URLSearchParams({ action: "save" }),
+    });
+    expect(claudeForm.status).toBe(403);
+    // Refused by Access, not by the form's own origin or body checks.
+    const claudeFormBody = await claudeForm.text();
+    expect(claudeFormBody).toContain("Access denied");
+    expect(claudeFormBody).toContain("Your sign-in could not be verified.");
+
+    const apiResponses = await Promise.all([
+      manageApi("/manage/api/devices", viaPair.token, "GET"),
+      manageApi("/manage/api/settings", viaPair.token, "GET"),
+      manageApi("/manage/api/recipes", viaPair.token, "GET"),
+      manageApi(`/manage/api/devices/${device.deviceId}/revoke`, viaPair.token, "POST"),
+    ]);
+    expect(apiResponses.map((response) => response.status)).toEqual([403, 403, 403, 403]);
+    expect(await Promise.all(apiResponses.map((response) => response.json()))).toEqual(
+      apiResponses.map(() => ({ error: "forbidden" })),
+    );
+
+    // The device was not revoked, and the host-wide application still reaches the owner.
+    expect((await deviceApi(device.credential)).status).toBe(200);
+    const viaHost = await owner(viaPair.subject);
+    expect((await request("/manage", { access: viaHost.token })).status).toBe(200);
+    const listed = v.parse(
+      manageDevicesSchema,
+      await (await manageApi("/manage/api/devices", viaHost.token, "GET")).json(),
+    );
+    expect(listed.devices.map((entry) => entry.id)).toEqual([device.deviceId]);
   });
 
   it("fails closed when the signing keys cannot be fetched", async () => {

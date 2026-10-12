@@ -280,7 +280,12 @@ test("tells the owner when the service could not confirm a disconnect", async ()
   await render(<ServiceConnection client={client} pollMs={60_000} />);
   await page.getByRole("button", { name: "Disconnect this device", exact: true }).click();
   await expect
-    .element(page.getByText(/Revoke this device from https:\/\/pateat\.example\.com\/manage/))
+    .element(
+      page.getByText(
+        "Disconnected on this device, but the service could not confirm it. Revoke this device from https://pateat.example.com/manage in a browser that can open it.",
+        { exact: true },
+      ),
+    )
     .toBeVisible();
   expect(client.pair).not.toHaveBeenCalled();
 });

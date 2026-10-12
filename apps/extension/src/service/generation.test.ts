@@ -156,6 +156,64 @@ describe("recipe generation requests", () => {
       { kind: "result", result: { version: 1, status: "failed", error: "timeout" } },
       { outcome: "failed", reason: "timeout" },
     ],
+    [
+      "output the plan check refused",
+      {
+        kind: "result",
+        result: {
+          version: 1,
+          status: "failed",
+          error: "invalid-output",
+          rejection: { check: "plan", reason: "incompatible-role" },
+        },
+      },
+      { outcome: "failed", reason: "invalid-output", check: "plan", detail: "incompatible-role" },
+    ],
+    [
+      "output the format refused",
+      {
+        kind: "result",
+        result: {
+          version: 1,
+          status: "failed",
+          error: "invalid-output",
+          rejection: { check: "schema", issue: "max-length", path: "result.alternatives" },
+        },
+      },
+      {
+        outcome: "failed",
+        reason: "invalid-output",
+        check: "schema",
+        detail: "max-length",
+        path: "result.alternatives",
+      },
+    ],
+    [
+      "output the format refused at its top",
+      {
+        kind: "result",
+        result: {
+          version: 1,
+          status: "failed",
+          error: "invalid-output",
+          rejection: { check: "schema", issue: "object", path: "" },
+        },
+      },
+      { outcome: "failed", reason: "invalid-output", check: "schema", detail: "object" },
+    ],
+    [
+      "output that was not JSON",
+      {
+        kind: "result",
+        result: {
+          version: 1,
+          status: "failed",
+          error: "invalid-output",
+          rejection: { check: "json" },
+        },
+      },
+      { outcome: "failed", reason: "invalid-output", check: "json" },
+    ],
   ] as const)("keeps the page for the retry window after %s", async (_name, answer, outcome) => {
     const h = setup(answer);
     expect(await h.generation.generate(request)).toEqual(outcome);

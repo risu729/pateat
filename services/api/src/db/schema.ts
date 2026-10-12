@@ -163,10 +163,19 @@ export const inferenceLog = sqliteTable(
     role: text("role", { enum: ["generate", "judge"] }).notNull(),
     provider: text("provider").notNull(),
     modelId: text("model_id").notNull(),
+    /**
+     * The role's prompt version: 12 hex digits of the SHA-256 of its instructions and
+     * response format (`promptVersion`). Rows logged before it was recorded have none.
+     */
+    promptVersion: text("prompt_version"),
     origin: text("origin").notNull(),
     path: text("path").notNull(),
     request: text("request", { mode: "json" }).notNull(),
-    /** The validated result (a plan, a judgement or an abstention reason), or null. */
+    /**
+     * The validated result (a plan, a judgement or an abstention reason); for
+     * `invalid-output`, the check that refused the output and the refused plan reduced to
+     * references (`{ rejection, output? }`); otherwise null.
+     */
     result: text("result", { mode: "json" }),
     /** `ok`, `abstained` or the failure code. */
     outcome: text("outcome").notNull(),

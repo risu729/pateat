@@ -117,9 +117,11 @@ Chrome, on a production build of main.
   [browser agents and logins](research/2026-10-11-browser-agent-logins.md) found no
   documented install for the ChatGPT cloud browser. On Grok Bot's computer the owner
   loaded the unpacked build on 2026-10-12, and it stayed after the computer slept and
-  after a computer update. Pairing there is unchecked, because the service's WARP-only
-  Access policy refuses that browser; it waits on the owner's decision about a
-  temporary Access policy.
+  after a computer update. Pairing there is refused by the service's WARP-only Access
+  policy; [ADR 0030](adr/0030-pairing-without-warp.md) adds a "pateat pair" Access
+  application without WARP for pairing only. After the owner sets it up and the
+  owner's Chrome still pairs, the next check is pairing and a login on a real site on
+  the Grok Bot computer with the owner's existing Bitwarden account.
 - UI improvements the owner reports from daily use of the UI polished in phase 1. Small
   fixes for broken UI still land as found.
 - Features found missing during use are added here.
@@ -805,7 +807,8 @@ extension storage; it never crosses the runtime message boundary. An Access redi
 a `401`, or a response that is not JSON, such as the Access login page, means the user
 must sign in; a non-JSON `429` or `5xx` edge error page counts as rate limiting or an
 unexpected answer instead. On a sign-in the page opens
-`<service>/manage` in a new tab once per click, retries once when it is shown or focused
+`<service>/pair/signed-in` ([ADR 0030](adr/0030-pairing-without-warp.md)) in a new tab
+once per click, retries once when it is shown or focused
 again, and offers **Try again** and **Open sign-in page**; a later retry opens no tab by
 itself. Nothing is stored until the service has created the device, and an issued
 credential whose write failed is kept in memory and saved on the next request. An

@@ -321,7 +321,17 @@ export type GenerationHold = "not-connected" | "sending" | "sent";
  */
 export type GenerationOutcome =
   | { outcome: "recipe" }
-  | { outcome: "abstained" | "failed" | "unavailable" | "skipped"; reason: string };
+  | { outcome: "abstained" | "failed" | "unavailable" | "skipped"; reason: string }
+  | {
+      outcome: "failed";
+      reason: "invalid-output";
+      /** Which check refused the model's output (`json`, `schema` or `plan`). */
+      check: "json" | "schema" | "plan";
+      /** The plan check's code or the output format's issue. */
+      detail?: string;
+      /** For an output format issue: where in the output it was. */
+      path?: string;
+    };
 
 /** The service's recipe generation routes (ADR 0016, ADR 0018). */
 export interface LoginGeneration {

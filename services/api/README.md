@@ -32,6 +32,7 @@ framed. Contracts live in `packages/contracts/src/sync.ts`, `pairing.ts` and
 | `GET /v1/device` | The calling device's paired time, the owner's live recipe count and settings revision, and whether recipe generation would run now, for the diagnostics page |
 | `DELETE /v1/device` | Revoke the calling device's own credential |
 | `POST /pair` | Create a device for the signed-in owner from an allowed extension; 201 with the credential, once |
+| `GET /pair/signed-in` | The page the extension opens when pairing needs a sign-in; it asks the user to go back to Pateat's settings |
 | `GET /manage`, `/manage/sites`, `/manage/bindings`, `/manage/recipes` | Owner web UI (React app): devices, excluded sites and site defaults, account bindings, recipes |
 | `GET /manage/assets/*` | The web UI's built script, styles and notices |
 | `GET /manage/api/devices` | The owner's devices with their last use, newest first |
@@ -60,9 +61,13 @@ application exempts `/v1/*`, `/health`, `/.well-known/openid-configuration` and
 `/.well-known/jwks.json`, which clients call without an Access login. For `/pair` and
 `/manage`, the Worker verifies the `Cf-Access-Jwt-Assertion` itself against the team's
 keys, the `ACCESS_TEAM_DOMAIN` issuer and the `ACCESS_AUD` audience. Without both
-secrets those routes answer 503. The owner is found by token issuer and subject, never
-by email. The [pairing design](../../docs/architecture.md#device-enrollment) describes
-the flow.
+secrets those routes answer 503. `POST /pair` and `GET /pair/signed-in` also accept the
+`ACCESS_PAIR_AUD` audience of the "pateat pair" Access application, which admits
+browsers without WARP to pairing only
+([ADR 0030](../../docs/adr/0030-pairing-without-warp.md)). An empty value turns it off
+only while that application does not exist. The owner is found by token issuer and
+subject, never by email. The
+[pairing design](../../docs/architecture.md#device-enrollment) describes the flow.
 
 `POST /pair` is direct pairing
 ([ADR 0020](../../docs/adr/0020-direct-device-pairing.md)). The extension's background
@@ -168,7 +173,13 @@ identifiers.
 [ADR 0018](../../docs/adr/0018-recipe-generation-route.md) routes, in
 `src/recipes/generate.ts`. Both answer 200 with a `status`: `recipe` or `signed-in`
 with the stored change, `abstained`, `rejected`, `challenge` or `unclear`, `failed` with
-a code, or `unavailable` with a reason when no model was called.
+a code, or `unavailable` with a reason when no model was called. A generation that fails
+`invalid-output` because a check refused the model's output also names it as
+`rejection`, in codes only: `{ check: "json" }` for output that was not JSON,
+`{ check: "schema", issue, path }` for the first issue of the output format (such as
+`max-length` at `result.alternatives`; `unknown-key` where the model added a key, with
+the path ending before it), or `{ check: "plan", reason }` with the plan check's code
+(such as `incompatible-role`).
 
 - `POST /v1/recipes/generate` takes `{ version: 1, observation, slots, base? }`. Each
   origin and start path has one generated recipe, `gen-` and the first 32 hex digits of
@@ -254,11 +265,24 @@ passes every check is an attempt, including one the role then refuses locally fo
 size, which would be refused again. Each call first reserves its upper bound (64 KiB of
 input as tokens plus 8,192 output tokens at the ADR 0014 rates, about $0.43) and then
 corrects it from reported usage; usage the provider does not report keeps the
-reservation. The `inference_log` row stores the provider and model, the instructions and
-input as sent, the structured result, the outcome code, usage and estimated cost; a
-request refused locally before any model call is not logged. Rows older than 90 days are
-deleted whenever a call is logged and on every `GET /v1/recipes`, because routine
-releases do not apply cron triggers.
+reservation. The `inference_log` row stores the provider and model, the role's prompt
+version (`prompt_version`: the first 12 hex digits of the SHA-256 of its instructions, a
+newline and its response format's JSON Schema, computed once per role), the instructions
+and input as sent, the structured result, the outcome code, usage and estimated cost; a
+request refused locally before any model call is not logged. For `invalid-output`,
+the result is `{ rejection }` when a check named it (the judge role's
+check of its marker refuses without one, leaving the result empty) and, when the plan
+check refused a plan, that plan as `output`: a candidate or slot that is not one of the
+request's IDs becomes `?`, and each name the model gave that is not a request slot ID
+becomes `name-1`, `name-2` and so on by first appearance, so equal names stay visible.
+An unchecked string may quote the page or a field name, so the model's text is never
+stored, and the Worker logs only `Model output refused` with the role, its prompt
+version and the `rejection`. A schema `path` resolves each key where the output format
+defines it, so a key the format defines only in another object also ends the path as
+`unknown-key`; the options of a variant are read together, so a key of a sibling option
+gives that object's issue instead. Rows older than 90 days are deleted whenever a call
+is logged and on every `GET /v1/recipes`, because routine releases do not apply cron
+triggers.
 
 ## Schema and tests
 

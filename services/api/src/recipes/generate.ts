@@ -21,9 +21,12 @@ import {
   appendPageSteps,
   claudeRefusalCategory,
   completionInstructions,
+  completionPromptVersion,
   createCompletionJudge,
   createRecipeGenerator,
   generationInstructions,
+  generationPromptVersion,
+  outputRejection,
   type InferenceErrorCode,
 } from "@pateat/inference";
 import { and, count, eq, gt, gte, lt } from "drizzle-orm";
@@ -139,6 +142,7 @@ export async function generateRecipe(
 
   const call = await callClaude(env, scope.ownerId, {
     role: "generate",
+    promptVersion: await generationPromptVersion(),
     origin,
     path,
     request: { instructions: generationInstructions, slots, observation },
@@ -213,7 +217,11 @@ export async function generateRecipe(
   });
   if (call.status === "unavailable") return raced ?? unavailable(call.reason);
   const { outcome } = call;
-  if (outcome.status === "failed") return failed(failureOf(outcome.error));
+  if (outcome.status === "failed") {
+    // Which check refused the model's output, so the device can log it (codes only).
+    const rejection = outputRejection(outcome);
+    return { ...failed(failureOf(outcome.error)), ...(rejection ? { rejection } : {}) };
+  }
   if (outcome.status === "abstained")
     return {
       version: 1,
@@ -350,6 +358,7 @@ export async function judgeCompletion(
   );
   const call = await callClaude(env, scope.ownerId, {
     role: "judge",
+    promptVersion: await completionPromptVersion(),
     origin: observation.origin,
     path: observation.path,
     request: { instructions: completionInstructions, recipeId, route, loginPaths, observation },

@@ -15,14 +15,21 @@ type AccessFailure = "unconfigured" | "missing" | "rejected";
  * Verifies the Cloudflare Access application token on browser-facing owner routes.
  * Only the signed `Cf-Access-Jwt-Assertion` is trusted, never the plain identity
  * headers; issuer, audience, signature and expiry must all match the configuration.
+ * Pairing routes also accept the "pateat pair" application's audience, which lets a
+ * browser without WARP pair but not open the owner pages (ADR 0030).
  */
 function accessGuard(
   refuse: (c: Context<ApiEnv>, failure: AccessFailure) => Response | Promise<Response>,
+  { pairing = false }: { pairing?: boolean } = {},
 ) {
   return createMiddleware<ApiEnv>(async (c, next) => {
     const teamDomain = c.env.ACCESS_TEAM_DOMAIN;
-    const audience = c.env.ACCESS_AUD;
-    if (!teamDomain || !TEAM_DOMAIN.test(teamDomain) || !audience) return refuse(c, "unconfigured");
+    const ownerAudience = c.env.ACCESS_AUD;
+    if (!teamDomain || !TEAM_DOMAIN.test(teamDomain) || !ownerAudience)
+      return refuse(c, "unconfigured");
+    // An empty pairing audience leaves pairing to the host-wide application alone.
+    const pairAudience = pairing ? c.env.ACCESS_PAIR_AUD : "";
+    const audience = pairAudience ? [ownerAudience, pairAudience] : ownerAudience;
 
     const token = c.req.header("Cf-Access-Jwt-Assertion");
     if (!token) return refuse(c, "missing");
@@ -55,23 +62,33 @@ function accessGuard(
   });
 }
 
-/** For server-rendered owner pages: failures are explained as pages. */
-export const requireAccess = accessGuard((c, failure) =>
-  failure === "unconfigured"
+function refusePage(c: Context<ApiEnv>, failure: AccessFailure) {
+  return failure === "unconfigured"
     ? message(c, 503, "Unavailable", "Owner sign-in is not configured for this service.")
     : failure === "missing"
       ? message(c, 401, "Sign in required", "Open this page through Cloudflare Access.")
-      : message(c, 403, "Access denied", "Your sign-in could not be verified."),
-);
+      : message(c, 403, "Access denied", "Your sign-in could not be verified.");
+}
 
-/** For the web UI's JSON API: failures are stable error codes. */
-export const requireAccessApi = accessGuard((c, failure) =>
-  failure === "unconfigured"
+function refuseApi(c: Context<ApiEnv>, failure: AccessFailure) {
+  return failure === "unconfigured"
     ? apiError(c, 503, { error: "access_unavailable" })
     : failure === "missing"
       ? apiError(c, 401, { error: "unauthorized" })
-      : apiError(c, 403, { error: "forbidden" }),
-);
+      : apiError(c, 403, { error: "forbidden" });
+}
+
+/** For server-rendered owner pages: failures are explained as pages. */
+export const requireAccess = accessGuard(refusePage);
+
+/** For the web UI's JSON API: failures are stable error codes. */
+export const requireAccessApi = accessGuard(refuseApi);
+
+/** For the sign-in page the extension opens before pairing. */
+export const requirePairingAccess = accessGuard(refusePage, { pairing: true });
+
+/** For `POST /pair`. */
+export const requirePairingAccessApi = accessGuard(refuseApi, { pairing: true });
 
 /**
  * The web UI's API answers only its own pages. A state-changing request must carry

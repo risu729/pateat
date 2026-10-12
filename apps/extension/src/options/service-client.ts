@@ -13,7 +13,10 @@ export interface ServiceClient {
   disconnect(): Promise<ServiceResponse>;
   /** Forgets an unreadable local connection without contacting the service. */
   forget(): Promise<ServiceResponse>;
-  /** Opens the service's `/manage` page in an ordinary tab, where the user signs in. */
+  /**
+   * Opens the service's `/pair/signed-in` page in an ordinary tab, where the user signs
+   * in. A browser without WARP can sign in there but not on `/manage` (ADR 0030).
+   */
   openSignIn(origin: string): Promise<void>;
 }
 
@@ -33,7 +36,7 @@ export function createServiceClient(deps: {
     forget: () => call({ type: "service.forget" }),
     openSignIn: async (origin) => {
       // Built here from a validated origin, never from a URL another context supplied.
-      await deps.openTab(new URL("/manage", v.parse(serviceOriginSchema, origin)).href);
+      await deps.openTab(new URL("/pair/signed-in", v.parse(serviceOriginSchema, origin)).href);
     },
   };
 }

@@ -251,6 +251,10 @@ export function createDiagnosticsLog(options: {
             origin: report.origin,
             outcome: report.outcome,
             reason: "reason" in report ? report.reason : undefined,
+            // For refused model output: which check refused it, and why.
+            check: "check" in report ? report.check : undefined,
+            detail: "check" in report ? report.detail : undefined,
+            path: "check" in report ? report.path : undefined,
           },
           // A login page without a matching vault item is common and not a problem.
           {
