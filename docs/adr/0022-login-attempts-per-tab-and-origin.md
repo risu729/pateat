@@ -109,14 +109,20 @@ fix them now; the SSO policy itself is recorded separately.
     is the passkey's RP ID or a subdomain of it, so `jallogin.jal.co.jp` may move to
     `www.jal.co.jp` for RP ID `jal.co.jp`; and that page, read when it announces itself,
     shows no password field, code input or CAPTCHA and makes no passkey request of its
-    own, in two readings a second apart once it has loaded (up to about 10 seconds). The
+    own, in two readings a second apart once it has loaded (at most 5 readings). The
     readings are the page signs of [ADR 0029](0029-local-sign-in-state.md); Pateat fills
-    and clicks nothing there. The completion saves an automatic account choice and
-    releases the origin like any other `authenticated` attempt. The answer is kept in
-    memory only, so after a worker restart, a move announced by a frame first, or any
-    condition not met, the attempt ends `left-origin` as before. A site that rejects the
-    assertion and sends the tab to a quiet page of the same site is counted as signed
-    in; other tabs may then log in there again.
+    and clicks nothing there. A username-only form is not among those signs, and the
+    failure signs next to the sign-in fields cannot apply to a new page. The page's
+    announcement waits for the readings. A frame of the new page that announces first
+    leaves the move to the top page, and one that announces during the readings waits
+    for them. The completion saves an automatic account choice and releases the origin
+    like any other `authenticated` attempt; it is the one completion that needs neither
+    a completion check, ADR 0029 evidence nor the judge, also on the `passkey` route of
+    [ADR 0027](0027-per-account-login-routes.md). The answer is kept in memory only, so
+    after a worker restart, or with any condition not met, the attempt ends
+    `left-origin` as before. A site that rejects the assertion and sends the tab to a
+    quiet page of the same site is counted as signed in; other tabs may then log in
+    there again.
 - **Holding the origin in other tabs** (amended 2026-10-11 and twice on 2026-10-12).
   Cookies can be shared across tabs, so another tab's record of the origin refuses a new
   attempt with `origin-busy` until that tab closes or the record has not changed for 5

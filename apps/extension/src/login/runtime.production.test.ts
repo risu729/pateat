@@ -1346,6 +1346,42 @@ describe("production login document admission", () => {
         expect(await h.login.active()).toBe(false);
         expect(executes()).toHaveLength(2);
       });
+      it("waits until the new page has loaded", async () => {
+        const h = await submitted();
+        fake.state.loaded = false;
+        setTimeout(() => (fake.state.loaded = true), 1_500);
+        await navigate(h, "https://www.login.example/home", "home-document", false);
+        expect(at(origin)).toMatchObject({ state: "authenticated" });
+      }, 10_000);
+      /** A frame of the new page at https://www.login.example/home. */
+      const homeFrame = {
+        frameId: 3,
+        documentId: "home-frame",
+        url: "https://widgets.login.example/panel",
+        tab: { id: 1, url: "https://www.login.example/home" },
+      };
+      it("leaves the move to the new top page when its frame announces first", async () => {
+        const h = await submitted();
+        fake.state.tabUrls[1] = homeFrame.tab.url;
+        await h.hello(homeFrame, false);
+        expect(at(origin)).toMatchObject({ state: "submit-intent" });
+        await navigate(h, "https://www.login.example/home", "home-document", false);
+        expect(at(origin)).toMatchObject({ state: "authenticated" });
+      });
+      it("lets a frame that announces while the top page is read wait for it", async () => {
+        const h = await submitted();
+        const top = navigate(h, "https://www.login.example/home", "home-document", false);
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        await h.hello(homeFrame, false);
+        expect(await top).not.toEqual({ ok: false, reason: "stale-document" });
+        expect(at(origin)).toMatchObject({ state: "authenticated" });
+      });
+      it("ends left-origin when the new page shows a password field", async () => {
+        const h = await submitted();
+        fake.state.signs = { ...quiet, password: true };
+        await navigate(h, "https://www.login.example/signin", "signin-document", false);
+        expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
+      });
       it("ends left-origin when the new page still asks for a code", async () => {
         const h = await submitted();
         fake.state.signs = { ...quiet, code: true };

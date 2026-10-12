@@ -154,6 +154,8 @@ const SIGN_IN_RECHECK_MS = 1000;
 const SIGN_IN_RECHECKS = 10;
 /** How soon after a passkey answer a move to that site's other origin may complete (ADR 0022). */
 const PASSKEY_MOVE_MS = 30_000;
+/** Readings of that move's new page, a second apart, before it must have loaded quietly. */
+const PASSKEY_MOVE_READINGS = 5;
 type Sender = Browser.runtime.MessageSender;
 type SettingsRuntime = {
   handle(value: unknown): Promise<SettingsResponse>;
@@ -757,6 +759,8 @@ export function createLoginRuntime(
   const passkeyRequests = new Map<string, number>();
   /** By tab and origin: the last assertion the passkey bridge returned, and its RP ID. */
   const passkeyAnswers = new Map<string, { at: number; rpId: string }>();
+  /** By tab: the check of a move after a passkey answer, while its new top page is read. */
+  const passkeyMoves = new Map<number, Promise<boolean>>();
   /** By `recordKey`, in the order they were last written. */
   const persisted = new Map<string, LoginAttemptMetadata>();
   const picked = new Map<number, PickedAccount>();
@@ -3606,27 +3610,44 @@ export function createLoginRuntime(
       // The tab's page moved to another origin: the attempt there ends without
       // resubmitting and keeps its record, and this page or its frame may start its own.
       // A frame stands for the tab's page, which left the attempt's origin. A move to the
-      // passkey's site right after Pateat answered it completes the attempt instead.
-      const signedIn = await signedInByPasskey(holder, live);
+      // passkey's site right after Pateat answered it completes the attempt instead, which
+      // only the top page can tell: a frame of the new page waits for that check, or leaves
+      // the move to the top page when one may follow.
+      let ending = true;
+      let signedIn = false;
+      if (document.frameId !== 0) {
+        const check = passkeyMoves.get(document.tabId);
+        if (check) await check;
+        else if (passkeyMoveFits(holder, document.tabId, siteOrigin)) ending = false;
+      } else {
+        const check = signedInByPasskey(holder, live);
+        passkeyMoves.set(document.tabId, check);
+        try {
+          signedIn = await check;
+        } finally {
+          if (passkeyMoves.get(document.tabId) === check) passkeyMoves.delete(document.tabId);
+        }
+      }
       if (hellos.get(helloKey) !== sequence || documents.get(key) !== live)
         return { ok: false, reason: "stale-document" };
       const run = attempts.get(document.tabId);
       const latest = run?.metadata ?? tabAttempt(document.tabId);
-      if (!latest || latest.id !== holder.id || terminal(latest))
-        return { ok: false, reason: "stale-document" };
-      const ended = transitionLoginAttempt(run?.metadata ?? recoverLoginAttempt(latest), {
-        type: "NAVIGATED",
-        document: { ...document, frameId: 0, origin: siteOrigin },
-        ...(signedIn ? { signedIn } : {}),
-      });
-      if (run) run.metadata = ended;
-      reportAttempt(ended, run?.recipe);
-      try {
-        await keep(ended);
-      } catch {
-        return refuse("storage-unavailable");
+      // Another page of the tab may have ended the attempt meanwhile.
+      if (ending && latest?.id === holder.id && !terminal(latest)) {
+        const ended = transitionLoginAttempt(run?.metadata ?? recoverLoginAttempt(latest), {
+          type: "NAVIGATED",
+          document: { ...document, frameId: 0, origin: siteOrigin },
+          ...(signedIn ? { signedIn } : {}),
+        });
+        if (run) run.metadata = ended;
+        reportAttempt(ended, run?.recipe);
+        try {
+          await keep(ended);
+        } catch {
+          return refuse("storage-unavailable");
+        }
+        if (ended.state === "authenticated" && run?.choice) await remember(run);
       }
-      if (ended.state === "authenticated" && run?.choice) await remember(run);
       if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
     }
     // A document resumes only its own origin's record in the tab, even an ended one, also
@@ -4217,28 +4238,13 @@ export function createLoginRuntime(
     record: LoginAttemptMetadata,
     live: LiveDocument,
   ): Promise<boolean> {
-    const { tabId, origin } = live.document;
-    const answer = passkeyAnswers.get(`${tabId} ${record.document.origin}`);
-    const effect = effects.get(tabId);
-    if (
-      !answer ||
-      effect?.attemptId !== record.id ||
-      answer.at < effect.at ||
-      Date.now() - answer.at > PASSKEY_MOVE_MS ||
-      live.document.frameId !== 0 ||
-      live.topUrl !== undefined
-    )
-      return false;
-    const { protocol, hostname } = new URL(origin);
-    if (
-      protocol !== "https:" ||
-      !(hostname === answer.rpId || hostname.endsWith(`.${answer.rpId}`))
-    )
-      return false;
+    const { tabId, origin: pageOrigin } = live.document;
+    const answer = passkeyMoveFits(record, tabId, pageOrigin);
+    if (!answer || live.document.frameId !== 0 || live.topUrl !== undefined) return false;
     let quiet = 0;
     // Each reading depends on the time passed since the last, so they run one after another.
     /* eslint-disable no-await-in-loop */
-    for (let reading = 0; reading <= SIGN_IN_RECHECKS && quiet < 2; reading++) {
+    for (let reading = 0; reading < PASSKEY_MOVE_READINGS && quiet < 2; reading++) {
       if (reading > 0)
         await new Promise<void>((resolve) => setTimeout(resolve, SIGN_IN_RECHECK_MS));
       if (documents.get(frameKey(live.document)) !== live) return false;
@@ -4250,14 +4256,39 @@ export function createLoginRuntime(
       }
       const parsed = v.safeParse(stateResultSchema, response);
       if (!parsed.success || !parsed.output.ok) return false;
-      const { signs, loaded } = parsed.output;
-      const requested = passkeyRequests.get(`${tabId} ${origin}`);
+      const { signs } = parsed.output;
+      const requested = passkeyRequests.get(`${tabId} ${pageOrigin}`);
       if (signs.password || signs.code || signs.captcha || (requested ?? 0) >= answer.at)
         return false;
-      quiet = loaded ? quiet + 1 : 0;
+      quiet = parsed.output.loaded ? quiet + 1 : 0;
     }
     /* eslint-enable no-await-in-loop */
     return quiet >= 2;
+  }
+  /**
+   * The passkey answer that lets a top-level attempt's tab moving to `siteOrigin` complete
+   * (ADR 0022), if any: given after the attempt's last effect step and at most
+   * `PASSKEY_MOVE_MS` ago, for an RP ID that `siteOrigin`'s HTTPS host is or is under.
+   */
+  function passkeyMoveFits(
+    record: LoginAttemptMetadata,
+    tabId: number,
+    siteOrigin: string,
+  ): { at: number; rpId: string } | undefined {
+    const answer = passkeyAnswers.get(`${tabId} ${record.document.origin}`);
+    const effect = effects.get(tabId);
+    if (
+      !answer ||
+      effect?.attemptId !== record.id ||
+      answer.at < effect.at ||
+      Date.now() - answer.at > PASSKEY_MOVE_MS
+    )
+      return undefined;
+    const { protocol, hostname } = new URL(siteOrigin);
+    return protocol === "https:" &&
+      (hostname === answer.rpId || hostname.endsWith(`.${answer.rpId}`))
+      ? answer
+      : undefined;
   }
   return { handle, settingsChanged, active, loginAccount, passkeyRequested, passkeyAnswered };
 }

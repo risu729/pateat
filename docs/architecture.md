@@ -832,7 +832,8 @@ judged ([ADR 0018](adr/0018-recipe-generation-route.md)). Until then the executo
 reports `authenticated` with it only when the sign-in state of
 [ADR 0029](adr/0029-local-sign-in-state.md) shows confirmed evidence of a sign-in on the
 `password` route (the username in the header or navigation, or the return target the
-sign-in page's URL named); otherwise a submission ends `credential-rejected`, moves to a
+sign-in page's URL named), or when the tab moves on to the site of a passkey Pateat has
+just answered (ADR 0022); otherwise a submission ends `credential-rejected`, moves to a
 later step, or stays unknown (`unknown-submit`), so no account choice is saved. An
 unknown attempt stays in `reconciling` until its tab closes or, for a top-level attempt,
 until the tab shows a page of another origin that Pateat may run on (`left-origin`, ADR
