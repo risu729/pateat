@@ -776,6 +776,22 @@ function codeFieldOf(
     : undefined;
 }
 /**
+ * Why an item's password fact is false, for the log (ADR 0027): the item's password is
+ * missing or empty (`password-empty`), or it holds one that the account may not fill,
+ * directly or through a field linked to it (`password-not-allowed`). Never a value.
+ */
+function passwordMiss(
+  item: Pick<VaultItemMetadata, "fields"> | undefined,
+  allowedFieldIds: readonly string[],
+): "password-not-allowed" | "password-empty" {
+  const held = item?.fields.some((field) => field.id === "login.password" && field.empty !== true);
+  return item &&
+    held &&
+    !allowedFieldIds.some((allowed) => loginFieldSource(item, allowed) === "login.password")
+    ? "password-not-allowed"
+    : "password-empty";
+}
+/**
  * Where the plan step at `index` stands in a TOTP code's entry (ADR 0027): the code fill
  * of an entered `totp` handler or of a route step that fills only the `totp` slot, or
  * the click on its button that follows the fill on the same path. A route's code fill
@@ -2774,7 +2790,8 @@ export function createLoginRuntime(
           );
         if (unheld) {
           refusals[index] = "no-route";
-          missing[index] = unheld === "login.password" ? "no-password" : "no-totp";
+          missing[index] =
+            unheld === "login.password" ? passwordMiss(item, resolved.account.fieldIds) : "no-totp";
           continue;
         }
         fits[index] = true;
@@ -2784,7 +2801,10 @@ export function createLoginRuntime(
         // The first variant that fits decides; without the item's password none is taken.
         // The passkey route, when the facts choose it here, did not resolve, so nothing is.
         refusals[index] = "no-route";
-        missing[index] = taken?.route === "passkey" ? "passkey-unresolved" : "no-password";
+        missing[index] =
+          taken?.route === "passkey"
+            ? "passkey-unresolved"
+            : passwordMiss(item, resolved.account.fieldIds);
         break;
       }
       /* eslint-enable no-await-in-loop */

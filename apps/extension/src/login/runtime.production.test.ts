@@ -8437,11 +8437,55 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       expect(await h.hello()).toEqual({ ok: false, reason: "no-route" });
       // The log names the missing fact, never a value.
       expect(report).toHaveBeenCalledWith(
-        expect.objectContaining({ type: "refused", reason: "no-route", detail: "no-password" }),
+        expect.objectContaining({ type: "refused", reason: "no-route", detail: "password-empty" }),
       );
       expect(h.fields).not.toHaveBeenCalled();
       expect(executed()).toEqual([]);
       expect(status() ?? []).toEqual([]);
+    });
+
+    it("names a password the account may not fill apart from an empty one", async () => {
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness(
+        {
+          connections: [
+            {
+              connectionId,
+              enabled: true,
+              selection: { mode: "all", groupIds: [], itemIds: [] },
+              excludedItemIds: [],
+              excludedFields: [{ itemId, fieldId: "login.password" }],
+            },
+          ],
+        },
+        { passkeys: withPasskey, report, username: true },
+      );
+      // An email-first page: the route binds only the username, so no binding is refused,
+      // and the item's password decides whether the route can finish.
+      h.recipes.recipe.mockResolvedValue(
+        parseLoginRecipe({
+          version: 1,
+          id: "synthetic-email-first",
+          revision: 1,
+          origin,
+          slots: ["username"],
+          steps: [
+            {
+              kind: "fill",
+              path: "/signin",
+              fields: [{ slot: "username", target: target("password") }],
+            },
+            { kind: "click", path: "/signin", target: target("login"), purpose: "advance" },
+          ],
+          maxSubmissions: 1,
+        }),
+      );
+      expect(await h.hello()).toEqual({ ok: false, reason: "no-route" });
+      expect(report).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "refused", detail: "password-not-allowed" }),
+      );
+      expect(h.fields).not.toHaveBeenCalled();
+      expect(executed()).toEqual([]);
     });
 
     it("refuses a login whose Linked password field reads an empty password as no-route", async () => {
