@@ -14446,6 +14446,30 @@ describe("the start page's own passkey request (ADR 0034)", () => {
     expect(routeChanges(report)).toEqual(["sign-in-rejected"]);
   });
 
+  it("does not take a rejection still showing from the passkey answer as the password's", async () => {
+    const rejecting = parseLoginRecipe({ ...recipe, rejection: target("rejected") });
+    const { h, report } = start(rejecting);
+    const request = ask(h);
+    await flush();
+    expect(await h.hello()).toEqual({ ok: true });
+    const answer = answerOf(await request.decision);
+    fake.state.present = new Set(["password", "login", "rejected"]);
+    // The banner stays after the click until the site signs in a little later.
+    fake.state.onExecute = async (message) => {
+      const step = (message["operation"] as { step: LoginStep }).step;
+      if (step.kind === "click" && step.target.value === "login")
+        setTimeout(() => {
+          fake.state.present = new Set(["authenticated"]);
+        }, 300);
+    };
+    answer.answered(true);
+    await vi.waitFor(() =>
+      expect(status()).toMatchObject([{ state: "authenticated", route: "password" }]),
+    );
+    expect(clicks("login")).toBe(1);
+    expect(routeChanges(report)).toEqual(["sign-in-rejected"]);
+  });
+
   it("does not spin when the answer is not authorized, and withholds after four minutes", async () => {
     vi.useFakeTimers();
     const first = new AbortController();

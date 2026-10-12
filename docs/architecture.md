@@ -583,10 +583,10 @@ still shows 15 seconds after the answer
 ([ADR 0034](adr/0034-answer-page-passkey-requests.md)). A recipe's `password` route has
 one to four variants, one per identifier set its start page offers (such as branch and
 account numbers, or a contract number), and the attempt records the variant it took:
-the first, in recipe order,
-whose binding resolves on the item and whose every bound password or TOTP field,
-built in or Linked to one, has its fact; the item's own password must also be present. A
-saved binding is the only source for its item, so a variant whose slots it does not hold
+the first, in recipe order, whose binding resolves on the item and whose every bound
+password or TOTP field, built in or Linked to one, has its fact; the item's own
+password must also be present. A saved binding is the only source for its item, so a
+variant whose slots it does not hold
 is skipped. When none fits, a recipe with one variant refuses the page with that
 variant's reason, and a recipe with several refuses it `no-route`, with the first
 variant's reason as the logged refusal's detail. A running or resumed login checks only

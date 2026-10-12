@@ -56,13 +56,12 @@ password when the item has one. The proposal reviewed with the owner is
    record holds the origin as ADR 0022 says, the sign-in checks and the judge of
    ADR 0029 and ADR 0027 apply, and ADR 0021 D asks before signing in again after a
    logout. The answer counts as the route's submission.
-5. **Requests after a submission wait.** A conditional request of a document whose
-   login runs, or starts within three seconds, waits without an answer until that login
-   ends. It is then withheld if the login signed in, so the page's promise stays pending
-   until the page aborts it, as the specification allows for conditional mediation, and
-   handed on otherwise (`login-ended`); a login watched after a `challenge` or an
-   unknown result (ADR 0027) has ended for this. One that waits four minutes is
-   withheld. A
+5. **Requests after a submission wait.** A conditional request of a document whose login
+   runs, or starts within three seconds, waits without an answer until that login ends.
+   It is then withheld if the login signed in, so the page's promise stays pending until
+   the page aborts it, as the specification allows for conditional mediation, and handed
+   on otherwise (`login-ended`); a login watched after a `challenge` or an unknown
+   result (ADR 0027) has ended for this. One that waits four minutes is withheld. A
    waiting request is not cancelled when settings are saved and does not hold the vault
    replacement of ADR 0025; the item it is answered with is looked up under the settings
    current at that time. A login that only fills after a logout (ADR 0021 D) hands it on
@@ -72,9 +71,11 @@ password when the item has one. The proposal reviewed with the owner is
    seconds of the step, the item's passkey cannot answer it, the recipe's rejection
    shows after the answer, or the start page's sign-in form still shows on the start
    path fifteen seconds after the answer, the login takes the `password` route's variant
-   recorded at its start and goes on from its first step. The answer's time is kept in
-   the service worker's memory, so after a worker restart a form that still shows falls
-   back at once. It never answers twice. Without a variant that fits the item, it ends
+   recorded at its start and goes on from its first step. The answer's time is kept per
+   document in the service worker's memory, so in a new document or after a worker
+   restart a form that still shows falls back at once. A rejection still showing from
+   the answer does not reject the password in that document until it has gone. It never
+   answers twice. Without a variant that fits the item, it ends
    `challenge`, as the button route does.
 7. **Signed without the person.** The answer sets UP and UV with no gesture, the policy
    the owner chose for `optional` requests in ADR 0007. A conditional request is meant

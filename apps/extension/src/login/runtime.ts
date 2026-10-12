@@ -473,11 +473,17 @@ type Execution = {
   continuationRefused?: string;
   /**
    * When the `passkey` route's answer to its page's own request went back (ADR 0034). Kept
-   * in memory only, so after a worker restart the page counts as shown long after it.
+   * per document in memory only, so a new document or a worker restart counts as long
+   * after it.
    */
   answeredAt?: number;
   /** The login's item could not answer its page's own request; the login never asks again. */
   passkeyFailed?: true;
+  /**
+   * The recipe's rejection showed when the login fell back from the passkey answer to the
+   * password (ADR 0034). It does not reject the password in this document until it has gone.
+   */
+  staleRejection?: true;
 };
 /**
  * A top document's own `conditional` passkey request, waiting for the login of that
@@ -2771,13 +2777,17 @@ export function createLoginRuntime(
       return undefined;
     }
     const rejectionIndex = proof.length;
-    if (rejection && observed.targets[rejectionIndex] === "unique") {
+    const rejected = rejection !== undefined && observed.targets[rejectionIndex] === "unique";
+    if (!rejected) delete run.staleRejection;
+    if (rejected && !run.staleRejection) {
       // A site that refused the passkey answer gets the password instead (ADR 0034).
       if (
         effectful(run.metadata) &&
         run.metadata.route === "passkey" &&
         passkeyAnswersRequest(run.recipe)
       ) {
+        // The banner still shows when the password is submitted in this document.
+        run.staleRejection = true;
         await fallBack(run, "sign-in-rejected");
         return undefined;
       }
