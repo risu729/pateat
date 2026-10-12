@@ -1,11 +1,11 @@
 # ADR 0030: Pairing from browsers without WARP
 
 Status: accepted by the owner on 2026-10-12 (05:17 to 05:28 UTC). Implemented in the
-Worker and the extension. The "pateat pair" Access application and the
-`ACCESS_PAIR_AUD` Worker secret are set up by the owner (see
+Worker and the extension. The "pateat pair" Access application and the `ACCESS_PAIR_AUD`
+Worker secret are set up by the owner (see
 [delivery](../delivery.md#production-settings)). Amends
-[ADR 0020](0020-direct-device-pairing.md) (the sign-in tab and the audiences `POST /pair`
-accepts).
+[ADR 0020](0020-direct-device-pairing.md) (the sign-in tab and the audiences
+`POST /pair` accepts).
 
 Date: 2026-10-12
 
@@ -42,15 +42,17 @@ a way through without WARP should stay once it works, not only for a test (05:17
 - **The Worker accepts the second audience on pairing routes only.** The
   `ACCESS_PAIR_AUD` Worker secret holds "pateat pair"'s Application Audience (AUD) Tag.
   `POST /pair` and `GET /pair/signed-in` accept `ACCESS_AUD` or `ACCESS_PAIR_AUD`;
-  `/manage` and `/manage/api` accept `ACCESS_AUD` only. An empty `ACCESS_PAIR_AUD`
-  turns the second audience off. The owner is still found by issuer and subject. Access
-  gives one `sub` per email address in the account, so a One-time PIN sign-in and an
-  identity provider sign-in reach the same owner.
-- **The sign-in tab opens `/pair/signed-in`.** When pairing needs a sign-in, the settings
-  page opens `<service>/pair/signed-in` instead of `<service>/manage`. Access signs the
-  browser in on the way, and the page says "Close this tab and go back to Pateat's
-  settings page." It has no `/manage` link, which a browser without WARP could not
-  open. The settings page retries pairing once when it is shown or focused again, as
+  `/manage` and `/manage/api` accept `ACCESS_AUD` only. An empty `ACCESS_PAIR_AUD`, or
+  one no token carries, turns the second audience off; once "pateat pair" exists, Access
+  issues only its audience on `/pair`, so that would stop all pairing. The owner is
+  still found by issuer and subject. Access gives one `sub` per email address in the
+  account, so a One-time PIN sign-in and an identity provider sign-in reach the same
+  owner.
+- **The sign-in tab opens `/pair/signed-in`.** When pairing needs a sign-in, the
+  settings page opens `<service>/pair/signed-in` instead of `<service>/manage`. Access
+  signs the browser in on the way, and the page says "Close this tab and go back to
+  Pateat's settings page." It has no `/manage` link, which a browser without WARP could
+  not open. The settings page retries pairing once when it is shown or focused again, as
   before. The owner's Chrome uses the same page.
 
 ## Consequences

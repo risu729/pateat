@@ -64,9 +64,10 @@ keys, the `ACCESS_TEAM_DOMAIN` issuer and the `ACCESS_AUD` audience. Without bot
 secrets those routes answer 503. `POST /pair` and `GET /pair/signed-in` also accept the
 `ACCESS_PAIR_AUD` audience of the "pateat pair" Access application, which admits
 browsers without WARP to pairing only
-([ADR 0030](../../docs/adr/0030-pairing-without-warp.md)); an empty value turns it off. The owner is found by token issuer and subject, never
-by email. The [pairing design](../../docs/architecture.md#device-enrollment) describes
-the flow.
+([ADR 0030](../../docs/adr/0030-pairing-without-warp.md)). An empty value turns it off
+only while that application does not exist. The owner is found by token issuer and
+subject, never by email. The
+[pairing design](../../docs/architecture.md#device-enrollment) describes the flow.
 
 `POST /pair` is direct pairing
 ([ADR 0020](../../docs/adr/0020-direct-device-pairing.md)). The extension's background

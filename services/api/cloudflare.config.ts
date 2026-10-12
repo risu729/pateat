@@ -20,7 +20,8 @@ export default defineConfig({
       ACCESS_TEAM_DOMAIN: bindings.secret(),
       ACCESS_AUD: bindings.secret(),
       // The audience tag of the "pateat pair" Access application, which also lets
-      // browsers without WARP reach /pair (ADR 0030). An empty value turns it off.
+      // browsers without WARP reach /pair (ADR 0030). A value no token carries, such as
+      // `none`, turns it off while that application does not exist.
       ACCESS_PAIR_AUD: bindings.secret(),
       // The public origin (`https://<host>`) and ES256 key set of the OIDC issuer that
       // owners trust for Claude Workload Identity Federation. Unset values fail closed.

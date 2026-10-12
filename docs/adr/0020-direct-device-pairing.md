@@ -132,14 +132,14 @@ Access Bypass application ("pateat bypass").
   Access login or denial page), and the Worker's own `401`. The request also sends
   `X-Requested-With: XMLHttpRequest`. Cloudflare documents that this header turns an
   expired session into a `401` instead of a redirect; whether it does the same when
-  there is no session at all is unverified, so the redirect handling stays. The
-  settings page then opens `https://<service>/manage` in a new tab, at most once per
-  click. Signing in there is the same for Access and for a later service login, and
-  the new device appears on that page afterwards. (Superseded by
+  there is no session at all is unverified, so the redirect handling stays. The settings
+  page then opens `https://<service>/manage` in a new tab, at most once per click.
+  Signing in there is the same for Access and for a later service login, and the new
+  device appears on that page afterwards. (Superseded by
   [ADR 0030](0030-pairing-without-warp.md): the tab opens `/pair/signed-in`, which a
-  browser without WARP can also reach, and the device appears on `/manage` as before.) The settings page retries once when
-  it is shown or focused again, and offers **Try again**. Its message also covers
-  "the service refused this account".
+  browser without WARP can also reach, and the device appears on `/manage` as before.)
+  The settings page retries once when it is shown or focused again, and offers
+  **Try again**. Its message also covers "the service refused this account".
 
 ## Threat model
 
