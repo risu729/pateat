@@ -116,7 +116,9 @@ The owner decided these on 2026-10-11, following the kogane repository:
   audience on `/pair`, so emptying the secret then stops all pairing. `/manage` keeps
   requiring WARP. If another identity provider is added under Integrations, Identity
   providers, Policy 2 still admits One-time PIN sign-ins only. After pairing on a
-  vendor's machine, open `/cdn-cgi/access/logout` there.
+  vendor's machine, open `https://<team domain>/cdn-cgi/access/logout` there (the
+  `ACCESS_TEAM_DOMAIN` host); the service's own `/cdn-cgi/access/logout` finds no Access
+  cookie in that browser, because "pateat pair"'s cookie is sent below `/pair` only.
 - Pairing extension IDs: `PAIRING_EXTENSION_IDS` is a committed JSON variable in
   `cloudflare.config.ts` that lists Pateat's production extension ID. It is not a
   secret, workflows do not synchronize it, and it needs no GitHub environment variable
