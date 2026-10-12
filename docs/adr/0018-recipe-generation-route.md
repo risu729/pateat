@@ -92,10 +92,12 @@ new owner decision:
   attempt resumed after the worker restarts may send it again, within the daily limit.
 - That page is described by `extractSignedInObservation`: every field on the page, which
   the judge needs to refuse a page that still shows a sign-in field, then buttons and
-  links as possible markers up to the 48-candidate limit. An `id`, `name` or
-  `data-testid` value that the label redaction would change is never used as a locator
-  there, since signed-in pages often name the account in them: such a button or link is
-  left out, and such a field makes the page incomplete.
+  links as possible markers up to the 48-candidate limit, those in the page header or
+  navigation first. A link may be located by its text, and the executor then finds the
+  completion marker by that text; text with a digit never locates a marker. An `id`,
+  `name` or `data-testid` value that the label redaction would change is never used as a
+  locator there, since signed-in pages often name the account in them: such a button or
+  link is left out, and such a field makes the page incomplete.
 - While a model call runs, the extension calls an extension API every 20 seconds, so
   Chrome does not stop its service worker and lose the answer. It waits up to 90
   seconds; a page whose answer timed out stays claimed for the day, since the service

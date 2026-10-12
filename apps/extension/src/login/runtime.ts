@@ -1782,6 +1782,7 @@ export function createLoginRuntime(
     run: Execution,
     targets: LoginTarget[],
     require?: ("writable" | "clickable" | "shown" | "present")[],
+    links?: boolean[],
   ) {
     // Exclusion/default/policy checks precede even metadata observation.
     if (!(await allowed(run))) return undefined;
@@ -1790,6 +1791,7 @@ export function createLoginRuntime(
       path: run.live.path,
       targets,
       ...(require ? { require } : {}),
+      ...(links ? { links } : {}),
     });
     if (!current(run)) return undefined;
     const parsed = v.safeParse(observationSchema, response);
@@ -1847,12 +1849,14 @@ export function createLoginRuntime(
     const proof = completion ? [completion.target, ...(completion.absent ?? [])] : [];
     const checks = [...proof, ...(rejection ? [rejection] : [])];
     const targets = [...checks, ...nextTargets];
+    // The completion marker may be a link located by its text (ADR 0018).
     const observed = await observe(
       run,
       targets,
       inPlace
         ? [...checks.map(() => "present" as const), ...nextTargets.map(() => inPlace.require)]
         : undefined,
+      completion ? [true] : undefined,
     );
     if (!observed) return undefined;
     // Without a completion target nothing proves a sign-in, so the attempt can settle
@@ -2104,11 +2108,12 @@ export function createLoginRuntime(
   ): Promise<boolean> {
     const { completion, rejection } = run.recipe;
     const proof = completion ? [completion.target, ...(completion.absent ?? [])] : [];
-    const observed = await observe(run, [
-      click.target,
-      ...proof,
-      ...(rejection ? [rejection] : []),
-    ]);
+    const observed = await observe(
+      run,
+      [click.target, ...proof, ...(rejection ? [rejection] : [])],
+      undefined,
+      completion ? [false, true] : undefined,
+    );
     if (!observed || !current(run)) return false;
     if (observed.path !== click.path) return true;
     if (observed.targets[0] === "unique") return false;
@@ -2163,7 +2168,12 @@ export function createLoginRuntime(
     const paths = routeSignInPaths(recipe, metadata.route);
     const marker = recipe.completion ? [recipe.completion.target] : [];
     const fills = routeSignInTargets(recipe, metadata.route).slice(0, 24 - marker.length);
-    const remaining = await observe(run, [...fills, ...marker]);
+    const remaining = await observe(
+      run,
+      [...fills, ...marker],
+      undefined,
+      marker.length > 0 ? [...fills.map(() => false), true] : undefined,
+    );
     if (!remaining) return false;
     if (
       (paths.includes(remaining.path) &&

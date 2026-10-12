@@ -100,6 +100,24 @@ describe("findTargets", () => {
     expect(ids(findTargets(document, { by: "text", value: "ログイン" }))).toEqual(["f"]);
   });
 
+  it("matches an image-only link by its images' alt, with links", () => {
+    page(
+      `<a id="a" href="/my/"><img src="data:," alt="マイページ" width="24" height="24"></a>
+      <a id="b" href="/news"><img src="data:," alt="ignored">News</a>
+      <a id="c" href="/logout"><img src="data:," alt="ログアウト" hidden></a>`,
+    );
+    expect(ids(findTargets(document, { by: "text", value: "マイページ" }))).toEqual([]);
+    expect(
+      ids(findTargets(document, { by: "text", value: "マイページ" }, { links: true })),
+    ).toEqual(["a"]);
+    // Text wins over images, and a hidden image names nothing.
+    expect(ids(findTargets(document, { by: "text", value: "News" }, { links: true }))).toEqual([
+      "b",
+    ]);
+    expect(findTargets(document, { by: "text", value: "ignored" }, { links: true })).toEqual([]);
+    expect(findTargets(document, { by: "text", value: "ログアウト" }, { links: true })).toEqual([]);
+  });
+
   it("never matches non-buttons, hidden buttons or partial text, and returns every duplicate", () => {
     page(
       `<a id="a" href="/">Log in</a><label id="b">Log in</label><input id="c" value="Log in">

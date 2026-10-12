@@ -1559,12 +1559,21 @@ accepts only a button as the page action. Known limits: a read-only username sho
 on a password step makes that step incomplete, and honeypot inputs moved to the right or
 clipped by `overflow: hidden` stay candidates. `extractSignedInObservation` describes
 the page after a generated recipe's final submission the same way, but over the whole
-page: every field, then buttons and links in document order up to 48 candidates. A field
-it cannot describe marks it incomplete; buttons and links past the limit or without a
-locator are left out, since they are only possible sign-in markers. There, an attribute
-locator that redaction would change counts as no locator, so an account number in an
-`id` is never sent. `mise run //apps/extension:test:dom` covers these cases in Chromium
-with synthetic pages.
+page: every field, then buttons and links up to 48 candidates, listed in document order.
+A field it cannot describe marks it incomplete; buttons and links past the limit or
+without a locator are left out, since they are only possible sign-in markers. Links are
+located by their text too, and those in a page header or navigation, where account menus
+usually sit, are kept first; the rank reads only the page's structure, never words of
+one language. A text locator with a digit, such as a points balance or an unread count,
+never names a marker there, and the judge is told to pick a marker whose text is the
+same for every account and visit, never the person's name, a count or a balance: its
+text is stored in the recipe and must match every later sign-in. On ポイントインカム
+(2026-10-12) the page after sign-in gave 21 candidates, all carousel controls, news tabs
+and an ad's close button, because its header links have no `id`; the judge answered
+`unclear`. A synthetic page of that shape now keeps the header's links. There, an
+attribute locator that redaction would change counts as no locator, so an account number
+in an `id` is never sent. `mise run //apps/extension:test:dom` covers these cases in
+Chromium with synthetic pages.
 
 Evaluation data candidates, checked 2026-10-10 (terms are as published by each
 source; confirm before use):

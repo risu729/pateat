@@ -588,7 +588,11 @@ export async function startLoginFixture(
       // page reads its run ID itself, so nothing from the request URL is written into it.
       // `?button=anchor` makes the login button a link without href, as MyJCB's passkey
       // button; `?button=script-link` a `javascript:` link without an id, as SMBC Direct's.
+      // `?marker=link` makes /account show an account link without an id instead of a
+      // sign-out button, as ポイントインカム's header.
       const variant = fixtureUrl.searchParams.get("button");
+      const account =
+        fixtureUrl.searchParams.get("marker") === "link" ? "/account?marker=link" : "/account";
       const button =
         variant === "anchor"
           ? '<a id="login" onclick="return false">Log in</a>'
@@ -603,16 +607,20 @@ export async function startLoginFixture(
           sessionStorage.setItem('passwordMatched', String(document.getElementById('password').value === ${JSON.stringify(password)}));
           const runId = new URLSearchParams(location.search).get('runId');
           if (runId) void fetch('/effect/' + encodeURIComponent(runId), {method:'POST', keepalive:true, body:new URLSearchParams({source:'click', password:document.getElementById('password').value})});
-          location.href = '/account';
+          location.href = ${JSON.stringify(account)};
         });`,
         ),
       );
     } else if (path === "/account") {
+      const marker =
+        fixtureUrl.searchParams.get("marker") === "link"
+          ? '<header><a href="/my/">My page</a></header>'
+          : '<button id="sign-out" type="button">Sign out</button>';
       response.end(
         html(
           "<h1>Synthetic account</h1>",
           `document.body.insertAdjacentHTML('afterbegin', sessionStorage.getItem('passwordMatched') === 'true'
-          ? '<h2 id="signed-in">Your synthetic account</h2><button id="sign-out" type="button">Sign out</button>'
+          ? ${JSON.stringify(`<h2 id="signed-in">Your synthetic account</h2>${marker}`)}
           : '<h2 id="rejected">Credentials rejected</h2>');`,
         ),
       );
