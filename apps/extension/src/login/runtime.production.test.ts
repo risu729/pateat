@@ -2846,6 +2846,32 @@ describe("production login document admission", () => {
           fake.state.onReconnect = () => h.hello({ documentId: "signed-out" });
           return h;
         };
+        it("never clicks the account switch while it only fills, and asks", async () => {
+          const h = harness(
+            {},
+            { allowedOrigins: [], uris: async () => ({ ok: true, data: both }), username: true },
+          );
+          h.recipes.recipe.mockResolvedValue(
+            parseLoginRecipe({
+              ...recipe,
+              accountSwitch: { by: "text", value: "Use another account" },
+            }),
+          );
+          expect(await h.hello()).toEqual({ ok: true });
+          await vi.waitFor(() => expect(attempts()).toMatchObject([{ state: "authenticated" }]));
+          // The login page after the logout shows another account than the one to fill.
+          fake.state.executeReply = { ok: false, reason: "wrong-account", switchable: true };
+          const before = steps().length;
+          expect(await h.hello({ documentId: "signed-out" })).toEqual({ ok: true });
+          await vi.waitFor(() => expect(steps()).toHaveLength(before + 1));
+          await vi.waitFor(async () => expect(await h.login.active()).toBe(false));
+          const sent = fake.state.messages.filter((entry) => entry.type === "login.execute");
+          expect(sent.at(-1)!.accountSwitch).toBeUndefined();
+          expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.switch");
+          // The fill-only record is forgotten and the tab asks.
+          expect(attempts()).toEqual([]);
+          expect(fake.state.badges[1]?.text).toBe("2");
+        });
         it("asks with the saved default first and releases only this tab's record", async () => {
           const h = await loggedOut();
           expect(attempts()).toEqual([]);
@@ -2991,42 +3017,22 @@ describe("production login document admission", () => {
           expect(refusals()).toEqual([
             { type: "refused", tabId: 1, origin, reason: "not-started", detail: "logged-in" },
           ]);
-          await filledOnly(h, { documentId: "signed-out" });
-          expect(refusals().at(-1)).toMatchObject({ reason: "logged-out", detail: "this-tab" });
-          fake.state.tabUrls[2] = fake.state.pageUrl;
-          await filledOnly(h, { tab: { id: 2 }, documentId: "other-tab" });
-          expect(refusals().at(-1)).toMatchObject({
-            tabId: 2,
-            reason: "logged-out",
-            detail: "other-tab",
-          });
-        });
-        it("logs a sign-in form that is not taken as a logout, and which tab logged out", async () => {
-          const report = vi.fn<(report: LoginReport) => void>();
-          const h = harness(
-            {},
-            { allowedOrigins: [], uris: async () => ({ ok: true, data: both }), report },
+          // The fill after the logout ends asking, and that is logged with the tab that
+          // logged out; the content script does not announce a start again for that form.
+          expect(await h.hello({ documentId: "signed-out" })).toEqual({ ok: true });
+          await vi.waitFor(() =>
+            expect(refusals().at(-1)).toMatchObject({ reason: "logged-out", detail: "this-tab" }),
           );
-          const refusals = () =>
-            report.mock.calls.map(([entry]) => entry).filter((entry) => entry.type === "refused");
-          expect(await h.hello()).toEqual({ ok: true });
-          await vi.waitFor(() => expect(attempts()).toMatchObject([{ state: "authenticated" }]));
-          // A sign-in input whose form is not the recipe's first step: still logged in.
-          const watching = { ok: false, reason: "logged-in", starts: [signinStart] };
-          expect(await shownHello(h, { documentId: "home" })).toEqual(watching);
-          expect(await shownHello(h, { documentId: "home" })).toEqual(watching);
-          expect(refusals()).toEqual([
-            { type: "refused", tabId: 1, origin, reason: "not-started", detail: "logged-in" },
-          ]);
-          await filledOnly(h, { documentId: "signed-out" });
-          expect(refusals().at(-1)).toMatchObject({ reason: "logged-out", detail: "this-tab" });
           fake.state.tabUrls[2] = fake.state.pageUrl;
-          await filledOnly(h, { tab: { id: 2 }, documentId: "other-tab" });
-          expect(refusals().at(-1)).toMatchObject({
-            tabId: 2,
-            reason: "logged-out",
-            detail: "other-tab",
-          });
+          expect(await h.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({ ok: true });
+          await vi.waitFor(() =>
+            expect(refusals().at(-1)).toMatchObject({
+              tabId: 2,
+              reason: "logged-out",
+              detail: "other-tab",
+            }),
+          );
+          expect(refusals().filter((entry) => entry.reason === "logged-out")).toHaveLength(2);
         });
         it("asks in other tabs of the site while it asks, and a pick there logs in", async () => {
           const h = await loggedOut();

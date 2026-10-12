@@ -1246,17 +1246,28 @@ export function createLoginRuntime(
    */
   async function endFillOnly(run: Execution): Promise<void> {
     if (!current(run)) return;
-    run.metadata = transitionLoginAttempt(run.metadata, { type: "CANCEL" });
-    reportAttempt(run.metadata, run.recipe);
-    const tabId = run.live.document.tabId;
-    attempts.delete(tabId);
-    await forget(recordKey(tabId, run.metadata.account.origin)).catch(() => undefined);
+    if (!terminal(run.metadata)) {
+      run.metadata = transitionLoginAttempt(run.metadata, { type: "CANCEL" });
+      reportAttempt(run.metadata, run.recipe);
+    }
+    const { document } = run.live;
+    const key = recordKey(document.tabId, run.metadata.account.origin);
+    attempts.delete(document.tabId);
+    await forget(key).catch(() => undefined);
     // The page then waits for a pick, as after a logout; its own announcement after this
-    // status carries no start, so the choice is offered here.
+    // status carries no start, so the choice is offered and the asking logged here.
     if (run.asked?.length) {
-      offerChoice(run.live.document, run.asked, true);
+      offerChoice(document, run.asked, true);
       run.live.state = "denied";
       run.live.reason = "logged-out";
+      report({
+        type: "refused",
+        tabId: document.tabId,
+        origin: document.origin,
+        reason: "logged-out",
+        detail: logouts.has(key) ? "this-tab" : "other-tab",
+        ...(document.frameId === 0 ? {} : { frame: true as const }),
+      });
     }
     await publish(run.live, run.metadata);
   }
@@ -2836,7 +2847,11 @@ export function createLoginRuntime(
             values,
             ...(expected ? { account: expected } : {}),
             // One switch per tab: an attempt that follows a switch never clicks another.
-            ...(expected && run.recipe.accountSwitch && !run.metadata.accountSwitched
+            // A fill-only login after a logout never clicks, not even a switch (ADR 0021 D).
+            ...(expected &&
+            run.recipe.accountSwitch &&
+            !run.metadata.accountSwitched &&
+            !run.metadata.fillOnly
               ? { accountSwitch: run.recipe.accountSwitch }
               : {}),
             // A `totp` handler's code fill watches for the page submitting the code itself.
@@ -2876,13 +2891,19 @@ export function createLoginRuntime(
           const switched =
             result.output.switchable === true &&
             run.recipe.accountSwitch !== undefined &&
-            !run.metadata.accountSwitched;
+            !run.metadata.accountSwitched &&
+            !run.metadata.fillOnly;
           await change(run, {
             type: "WRONG_ACCOUNT",
             operationId: operation.operationId,
             document: run.live.document,
             ...(switched ? { switched: true } : {}),
           });
+          // The page shows another account: a fill-only login ends and asks.
+          if (run.metadata.fillOnly) {
+            await endFillOnly(run);
+            return;
+          }
           // The switch is recorded before the click, so the page it leads to starts a new
           // attempt instead of resuming this one (owner decision, 2026-10-11).
           if (run.metadata.outcome === "account-switched") {

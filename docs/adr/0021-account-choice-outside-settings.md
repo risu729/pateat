@@ -187,8 +187,10 @@ reload fills again. Nothing is filled when several accounts match without a save
 default, when the saved default cannot be used, when the passkey route is chosen, or
 while another tab's login holds the site. The attempt record carries `fillOnly`, and the
 attempt contract refuses to issue or authorize a step with an effect for it, so a
-restarted worker cannot click. The log shows such a login as `login.attempt` with reason
-`fill-only`.
+restarted worker cannot click. The recipe's account switch is never clicked either: when
+the page shows another account, the fill ends and the tab asks. The log shows such a
+login as `login.attempt` with reason `fill-only`, then the asking as `login.refused`
+`logged-out` with the tab that logged out.
 
 Known gaps:
 
