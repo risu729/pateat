@@ -1,7 +1,7 @@
 import {
   genericSlotIdSchema,
   isLoginRouteRecipe,
-  recipeSlots,
+  storedRecipeSlots,
   slotsForPage,
   syncRecipeIdSchema,
   vaultFieldReferenceSchema,
@@ -365,9 +365,13 @@ export function createLoginGeneration(options: {
         // The mapping arrives only with the answer that wrote the recipe; the login binds
         // the custom slots from it until a binding is saved (ADR 0027).
         const { customSlots, change } = result;
-        // A chooser recipe (ADR 0028) answers only a list or a branch, which this device
-        // does not send yet.
-        if (!isLoginRouteRecipe(change.recipe))
+        // A chooser recipe (ADR 0028) answers a list of accounts, and only a list: this
+        // device sends no branch yet.
+        if (
+          request.observation.accounts !== undefined
+            ? !("chooser" in change.recipe)
+            : !isLoginRouteRecipe(change.recipe)
+        )
           return { outcome: "unavailable", reason: "recipe-conflict" };
         const fields = customSlots && slotFieldsOf(request, customSlots);
         if (fields)
@@ -380,7 +384,7 @@ export function createLoginGeneration(options: {
             },
             // A continuation answers with only its own page's slots (ADR 0027).
             request.base?.recipeId === change.recipeId && change.revision > 1
-              ? recipeSlots(change.recipe)
+              ? storedRecipeSlots(change.recipe)
               : undefined,
           );
         // A continuation's login takes the recipe over at once; a full sync could apply a

@@ -24,6 +24,11 @@ export const loginReadinessSchema = v.strictObject({
   path,
   require: v.picklist(["writable", "clickable", "present"]),
   targets: v.pipe(v.array(loginTargetSchema), v.maxLength(20)),
+  /**
+   * A chooser recipe's start (ADR 0028): ready on its path, without a sign-in input, once
+   * one of `targets` shows or the page lists an account by its email, masked or not.
+   */
+  accounts: v.optional(v.literal(true)),
 });
 export type LoginReadiness = v.InferOutput<typeof loginReadinessSchema>;
 /** What a step waits for; a `wait` or `assert`-absent step does its own waiting. */
@@ -76,6 +81,29 @@ export const helloSchema = v.strictObject({
    * for the log of a login that did not start.
    */
   shown: v.optional(v.strictObject({ path })),
+  /**
+   * Ten seconds after loading, this path shows no sign-in input but lists accounts (ADR
+   * 0028): an entry or a text beside at most three buttons with an email, masked or not.
+   * Without one, `names` are the short texts that may name an account by a username that
+   * is not an email, for the background to compare with the matching items' usernames.
+   */
+  list: v.optional(
+    v.strictObject({
+      path,
+      names: v.optional(
+        v.pipe(v.array(v.pipe(v.string(), v.minLength(1), v.maxLength(64))), v.maxLength(32)),
+      ),
+    }),
+  ),
+});
+/**
+ * A form with a password input was submitted in this document by anyone, Pateat or the
+ * person: the tab's next page of the origin is never sent as a list of accounts (ADR 0028).
+ */
+export const submittedSchema = v.strictObject({
+  version: v.literal(1),
+  type: v.literal("login.document.submitted"),
+  token: id,
 });
 /**
  * A refused hello. `starts` lists the first steps of the origin's recipes; the document
@@ -186,7 +214,14 @@ export const commandSchema = v.variant("type", [
     version: v.literal(1),
     type: v.literal("login.extract"),
     token: id,
-    page: v.picklist(["login", "signed-in"]),
+    page: v.picklist(["login", "signed-in", "accounts"]),
+    /**
+     * For a list of accounts (ADR 0028): the shown texts that equal a matching item's
+     * username that is not an email, hidden from the observation as `[account]`.
+     */
+    names: v.optional(
+      v.pipe(v.array(v.pipe(v.string(), v.minLength(1), v.maxLength(64))), v.maxLength(32)),
+    ),
     /**
      * For a login page that continues a recipe (ADR 0018): the fields the recipe already
      * fills on this path. One of them shown read-only or disabled, as an email address shown

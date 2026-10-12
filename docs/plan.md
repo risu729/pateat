@@ -55,11 +55,13 @@ Chrome, on a production build of main.
   beside separate buttons (Wise, Instagram) is in
   [#323](https://github.com/risu729/pateat/pull/323), and the service stores, syncs and
   lists a chooser recipe, which the extension caches but never starts
-  ([#327](https://github.com/risu729/pateat/pull/327)). The service now answers a list
-  page with a chooser recipe and generates and judges each branch's pages into it (local
-  tests only). Next, the extension sends list pages (the trigger, the skip after a
-  manual sign-in, and hiding non-email account names as `[account]`), then runs the
-  chooser: the account's entry, the `continue` button or `other`, then the branch,
+  ([#327](https://github.com/risu729/pateat/pull/327)). The service answers a list page
+  with a chooser recipe and generates and judges each branch's pages into it
+  ([#334](https://github.com/risu729/pateat/pull/334)). The extension now sends list
+  pages ten seconds after loading, skips the page right after a submitted password form,
+  hides a username that is not an email as `[account]`, and stores the answer (local
+  tests only). Next, it runs the chooser: the account's entry, the `continue` button or
+  `other`, then the branch,
   continued as any recipe after an `advance` step
   ([#332](https://github.com/risu729/pateat/pull/332)).
 - Press a site's sign-in link on a page the site sent the visitor to before signing in,

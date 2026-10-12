@@ -19,7 +19,7 @@ import { createRecipeSync } from "../service/recipes";
 import { createSettingsSync } from "../service/settings-sync";
 import type { ServiceTransport } from "../service/transport";
 import { acceptsSecret, type SecretInput } from "./inputs";
-import type { LoginGeneration, LoginReport } from "./runtime";
+import type { LoginGeneration, LoginRecipeStart, LoginReport } from "./runtime";
 import type { LoginFieldSource } from "./vault";
 
 const fake = vi.hoisted(() => {
@@ -243,7 +243,8 @@ const sender = (overrides: Record<string, unknown> = {}) =>
   }) as never;
 const target = (value: string) => ({ by: "id" as const, value });
 /** One recipe start per step, as the recipe cache lists single-variant recipes. */
-const startsOf = (steps: LoginStep[]) => steps.map((step) => ({ path: step.path, steps: [step] }));
+const startsOf = (steps: LoginStep[]): LoginRecipeStart[] =>
+  steps.map((step) => ({ path: step.path, steps: [step] }));
 const recipe = parseLoginRecipe({
   version: 1,
   id: "synthetic-signin",
@@ -4213,6 +4214,150 @@ describe("production login document admission", () => {
       });
       expect(service.generate).not.toHaveBeenCalled();
       expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.extract");
+    });
+
+    describe("a page that lists accounts (ADR 0028)", () => {
+      const listPage = {
+        ok: true,
+        observation: {
+          ...page("/signin", [
+            {
+              id: "c1",
+              role: "button",
+              target: { by: "text", value: "Use another profile" },
+              label: "Use another profile",
+            },
+          ]).observation,
+          accounts: ["[account]"],
+        },
+      };
+      /** The document announces, ten seconds after loading, that it lists accounts. */
+      const listHello = (
+        h: ReturnType<typeof harness>,
+        names?: string[],
+        from: Record<string, unknown> = {},
+      ) =>
+        h.login.handle(
+          {
+            version: 1,
+            type: "login.document.ready",
+            token: "synthetic-token",
+            list: { path: "/signin", ...(names ? { names } : {}) },
+          },
+          sender(from),
+        );
+      const setup = () => {
+        fake.state.extracted = { accounts: listPage };
+        const service = generation();
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris,
+          username: true,
+          custom: [],
+          generation: service,
+          report,
+        });
+        h.recipes.recipe.mockResolvedValue(undefined);
+        h.recipes.starts.mockResolvedValue(startsOf([]));
+        const generations = () =>
+          report.mock.calls.map(([entry]) => entry).filter((entry) => entry.type === "generation");
+        return { service, h, generations };
+      };
+
+      it("sends a list with an email as a list, logging it as one", async () => {
+        const { service, h, generations } = setup();
+        expect(await h.hello({}, false)).toMatchObject({ generate: true });
+        expect(await listHello(h)).toEqual({ ok: false, reason: "generating" });
+        await vi.waitFor(() => expect(generations()).toHaveLength(2));
+        expect(fake.state.messages.find((entry) => entry.type === "login.extract")).toMatchObject({
+          page: "accounts",
+        });
+        expect(
+          fake.state.messages.find((entry) => entry.type === "login.extract"),
+        ).not.toHaveProperty("names");
+        expect(service.generate).toHaveBeenCalledWith(
+          expect.objectContaining({ observation: listPage.observation }),
+          expect.any(Function),
+        );
+        expect(generations()).toEqual([
+          { type: "generation", tabId: 1, origin, outcome: "sent", page: "accounts" },
+          {
+            type: "generation",
+            tabId: 1,
+            origin,
+            outcome: "abstained",
+            reason: "ambiguous",
+            page: "accounts",
+          },
+        ]);
+      });
+
+      it("sends a list of names only when one names a matching item's username", async () => {
+        const { service, h, generations } = setup();
+        h.fields.mockImplementation(async ({ fieldId }) =>
+          fieldId === "login.username" ? "Risu729" : "synthetic-secret",
+        );
+        expect(await h.hello({}, false)).toMatchObject({ generate: true });
+        expect(await listHello(h, ["Help", "Create new account"])).toMatchObject({
+          ok: false,
+          reason: "recipe-not-found",
+        });
+        // A page offered only by its short texts is ordinary browsing then: not logged.
+        expect(generations()).toEqual([]);
+        expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.extract");
+        // Another page whose shown text is the username, ignoring case and a leading `@`.
+        expect(await h.hello({ documentId: "next-page" }, false)).toMatchObject({ generate: true });
+        expect(await listHello(h, ["@risu729", "Help"], { documentId: "next-page" })).toEqual({
+          ok: false,
+          reason: "generating",
+        });
+        await vi.waitFor(() => expect(service.generate).toHaveBeenCalled());
+        // Only the matching text goes back, to be hidden; the username itself never does.
+        expect(fake.state.messages.find((entry) => entry.type === "login.extract")).toMatchObject({
+          page: "accounts",
+          names: ["@risu729"],
+        });
+        expect(JSON.stringify(fake.state.messages)).not.toContain("Risu729");
+      });
+
+      it("offers no page where a stored list starts, and watches nothing there yet", async () => {
+        const { service, h } = setup();
+        h.recipes.starts.mockResolvedValue([
+          { path: "/signin", steps: [], list: [{ by: "text", value: "Use another profile" }] },
+        ]);
+        expect(await h.hello({}, false)).toEqual({ ok: false, reason: "recipe-not-found" });
+        expect(await listHello(h)).toMatchObject({ ok: false, reason: "recipe-not-found" });
+        expect(service.available).not.toHaveBeenCalled();
+        expect(service.generate).not.toHaveBeenCalled();
+      });
+
+      it("never sends the tab's next page of the origin after a password form was submitted", async () => {
+        const { service, h, generations } = setup();
+        expect(
+          await h.login.handle(
+            { version: 1, type: "login.document.submitted", token: "synthetic-token" },
+            sender(),
+          ),
+        ).toBeUndefined();
+        expect(await h.hello({ documentId: "after-sign-in" }, false)).toMatchObject({
+          generate: true,
+        });
+        expect(await listHello(h, undefined, { documentId: "after-sign-in" })).not.toEqual({
+          ok: false,
+          reason: "generating",
+        });
+        expect(generations()).toEqual([
+          { type: "generation", tabId: 1, origin, outcome: "skipped", reason: "after-sign-in" },
+        ]);
+        // The page after that one may be sent.
+        expect(await h.hello({ documentId: "later" }, false)).toMatchObject({ generate: true });
+        expect(await listHello(h, undefined, { documentId: "later" })).toEqual({
+          ok: false,
+          reason: "generating",
+        });
+        await vi.waitFor(() => expect(service.generate).toHaveBeenCalledTimes(1));
+      });
     });
 
     it.each([

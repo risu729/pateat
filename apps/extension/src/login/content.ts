@@ -6,7 +6,12 @@ import { isButton, isScriptButton } from "../page/text";
 import { findTargets } from "../page/targets";
 import { CODE_SETTLE_MS, visible, watchCodeSubmission } from "../page/code-submission";
 import { fillBaseline, inputValueMismatch, rejectsFill, unreadyForm } from "../page/fill-checks";
-import { extractLoginObservation, extractSignedInObservation } from "../observation/extract";
+import {
+  extractAccountListObservation,
+  extractLoginObservation,
+  extractSignedInObservation,
+} from "../observation/extract";
+import { accountEntries, accountNames, besideEmails, listControls } from "../page/account-list";
 import { pageSigns, submittedPage, type SubmittedPage } from "../page/sign-in-state";
 import { acceptsSecret } from "./inputs";
 import {
@@ -80,9 +85,20 @@ function targetState(
     ? "unusable"
     : "unique";
 }
+/** Whether the page lists an account by its email, masked or not (ADR 0028). */
+function listsAccounts(): boolean {
+  return accountEntries(document).length > 0 || besideEmails(document).length > 0;
+}
 /** Whether a step's elements are ready now: the path matches and each target is unique and usable. */
 function ready(readiness: LoginReadiness): boolean {
   if (location.pathname !== readiness.path) return false;
+  // A chooser's list (ADR 0028): one of its buttons, or an account it lists by email.
+  if (readiness.accounts)
+    return (
+      !showsSignIn() &&
+      (readiness.targets.some((target) => listControls(document, target).length === 1) ||
+        listsAccounts())
+    );
   return readiness.targets.every((target) => {
     const found = matches(target);
     if (found.length !== 1) return false;
@@ -190,6 +206,10 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   // after loading; a form shown only later, for example after a click, is not sent.
   let generate = false;
   let offered = false;
+  // The path where this document last submitted a form with a password input, and the
+  // next path it showed after it: that page is never offered as a list of accounts.
+  let submitPath: string | undefined;
+  let afterSubmit: string | undefined;
   // Paths where a sign-in input stayed shown without a ready first step, reported once
   // each so the background can log a login that did not start.
   const shown = new Set<string>();
@@ -223,6 +243,9 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       offerTimer ??= setTimeout(() => {
         offerTimer = undefined;
         offered = true;
+        // A page that shows no sign-in input by now may list accounts (ADR 0028).
+        const accounts = !cancelled && !starts.some(ready) && !showsSignIn() ? listed() : undefined;
+        if (accounts) void announce(false, false, accounts).catch(() => undefined);
         watch(starts);
       }, LOGIN_STEP_WAIT_MS);
     if ((!starts.length && !generate) || cancelled) {
@@ -321,7 +344,24 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         .catch(() => undefined);
     }, LOGIN_STEP_WAIT_MS);
   }
-  async function announce(start: boolean, signIn = false): Promise<unknown> {
+  /**
+   * What this page offers as a list of accounts (ADR 0028): its path once it lists an
+   * account by email, or else the short texts that may name one by a username that is not
+   * an email. The page right after a submitted password form offers nothing.
+   */
+  function listed(): { path: string; names?: string[] } | undefined {
+    const path = location.pathname;
+    if (submitPath !== undefined && path !== submitPath) afterSubmit ??= path;
+    if (path === afterSubmit) return undefined;
+    if (listsAccounts()) return { path };
+    const names = accountNames(document);
+    return names.length ? { path, names } : undefined;
+  }
+  async function announce(
+    start: boolean,
+    signIn = false,
+    list?: { path: string; names?: string[] },
+  ): Promise<unknown> {
     announced = start;
     const result: unknown = await browser.runtime.sendMessage({
       version: 1,
@@ -329,6 +369,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       token,
       ...(start ? { start: { path: location.pathname } } : {}),
       ...(signIn ? { signIn: { path: location.pathname } } : {}),
+      ...(list ? { list } : {}),
     });
     const parsed = v.safeParse(readySchema, result);
     if (!parsed.success || parsed.output.ok) {
@@ -438,7 +479,9 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         result =
           command.page === "login"
             ? extractLoginObservation(document, command.known)
-            : extractSignedInObservation();
+            : command.page === "accounts"
+              ? extractAccountListObservation(document, command.names)
+              : extractSignedInObservation();
       } catch {
         // A page the extractor cannot read still gets an answer the log can name.
         result = { ok: false, reason: "extract-error" };
@@ -794,11 +837,34 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       });
     return true;
   };
+  /**
+   * A form with a password input submitted in this document: its next path here, and the
+   * tab's next document if it is of the same origin, are not offered as a list of accounts
+   * (ADR 0028).
+   * Pateat's own submissions count too; their pages belong to a login anyway.
+   */
+  const onSubmit = (event: Event) => {
+    const form = event.target;
+    if (
+      !(form instanceof HTMLFormElement) ||
+      ![...form.elements].some(
+        (element) => element instanceof HTMLInputElement && element.type === "password",
+      )
+    )
+      return;
+    submitPath = location.pathname;
+    afterSubmit = undefined;
+    void browser.runtime
+      .sendMessage({ version: 1, type: "login.document.submitted", token })
+      .catch(() => undefined);
+  };
+  document.addEventListener("submit", onSubmit, true);
   browser.runtime.onMessage.addListener(listener);
   void announce(false).catch(() => undefined);
   return () => {
     cancelled = true;
     unwatch();
+    document.removeEventListener("submit", onSubmit, true);
     browser.runtime.onMessage.removeListener(listener);
   };
 }

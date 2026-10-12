@@ -1405,6 +1405,74 @@ describe("extractAccountListObservation", () => {
     expect(JSON.stringify(observation)).not.toContain("example.com");
   });
 
+  it("hides a saved profile named by a username as [account], everywhere", () => {
+    // Instagram's saved profile on 2026-10-12, with a made-up username.
+    page(
+      `<h1>Welcome back, Taro.Yamada</h1>
+      <div>
+        <div>
+          <div><div role="img"><svg></svg></div><div><span>taro.yamada</span></div></div>
+          <div role="button"><div role="button" aria-label="Continue as taro.yamada">Continue</div></div>
+        </div>
+        <div role="button" aria-label="Use another profile">Use another profile</div>
+        <a role="link" href="/accounts/emailsignup/">Create new account</a>
+      </div>`,
+    );
+    // Without a matching name, nothing is listed.
+    expect(extractAccountListObservation()).toEqual({ ok: false, reason: "no-candidates" });
+    const result = extractAccountListObservation(document, ["taro.yamada"]);
+    if (!result.ok) throw new Error(result.reason);
+    const { observation } = result;
+    expect(observation.accounts).toEqual(["[account]"]);
+    // The heading is a text beside the buttons too, which may name another account.
+    expect(observation.headings).toEqual(["[account]"]);
+    expect(summary(observation).map((candidate) => candidate.target)).toEqual([
+      { by: "text", value: "Continue" },
+      { by: "text", value: "Use another profile" },
+      { by: "text", value: "Create new account" },
+    ]);
+    expect(JSON.stringify(observation).toLowerCase()).not.toContain("taro");
+  });
+
+  it("hides a name in every form it shows in, and other texts beside buttons", () => {
+    page(
+      `<main>
+        <h1>ようこそ＠ＴＡＲＯ.yamadaさん</h1>
+        <section><span>taro.yamada</span><button aria-label="Continue as taro.yamada">Continue</button></section>
+        <section><span>hanako.s</span><button>Switch</button></section>
+        <button>Use another profile</button><button>Use an app</button>
+        <button>taro.yamadaとして続行</button><button>Retaro.yamada2</button>
+      </main>`,
+    );
+    const result = extractAccountListObservation(document, ["taro.yamada"]);
+    if (!result.ok) throw new Error(result.reason);
+    const { observation } = result;
+    expect(observation.accounts).toEqual(["[account]"]);
+    // A Latin name touching kana is still hidden, with its leading @ and in any width.
+    expect(observation.headings).toEqual(["ようこそ[account]さん"]);
+    // A control naming the account is left out; "an" in "another" is not a name, and a
+    // name inside a longer Latin word is not this one.
+    expect(summary(observation).map((candidate) => candidate.label)).toEqual([
+      "Continue",
+      "Switch",
+      "Use another profile",
+      "Use an app",
+      "Retaro.yamada2",
+    ]);
+    const sent = JSON.stringify(observation).normalize("NFKC").toLowerCase();
+    expect(sent.replaceAll("retaro.yamada2", "")).not.toContain("taro");
+    expect(sent).not.toContain("hanako");
+  });
+
+  it("does not send a list whose path names the account", () => {
+    history.replaceState(null, "", "/u/taro/");
+    page(`<div><span>taro</span><button>Continue</button></div>`);
+    expect(extractAccountListObservation(document, ["taro"])).toEqual({
+      ok: false,
+      reason: "unsupported-page",
+    });
+  });
+
   it("refuses a page with a field or without a shown account", () => {
     page(`<button>taro@example.com</button><input type="password">`);
     expect(extractAccountListObservation()).toEqual({ ok: false, reason: "no-candidates" });
