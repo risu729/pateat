@@ -13,6 +13,11 @@ Amended again on 2026-10-12 (02:42 UTC, owner's choice on a decision card): a lo
 Pateat itself stopped no longer holds the origin either. Evidence: in the owner's Chrome
 a `policy-changed` record from a transient vault error kept a new npm tab from logging
 in for 8 hours, across an extension reload.
+Amended again on 2026-10-12 (05:08 UTC, owner's choice in the thread after a decision
+card): a record that still holds the origin stops holding it 5 minutes after it last
+changed. Evidence: in the owner's Chrome a github.com login that had succeeded after a
+passkey step stayed `reconciling` with an unknown result in one tab, so a pick in
+another tab was refused `origin-busy` until that tab would close.
 
 ## Context
 
@@ -59,11 +64,14 @@ fix them now; the SSO policy itself is recorded separately.
   account choice is saved, and neither is retried. For the logout detection of
   [ADR 0021](0021-account-choice-outside-settings.md) (part D), both count as finished,
   like unknown outcomes.
-- **Holding the origin in other tabs** (amended 2026-10-11 and 2026-10-12). Cookies can
-  be shared across tabs, so another tab's record of the origin refuses a new attempt
-  with `origin-busy` until that tab closes, unless it is `authenticated`, ended
-  `interrupted` without any submission, or ended `blocked` because Pateat itself stopped
-  it with nothing in flight: `policy-changed`, `value-mismatch`, `wrong-account`,
+- **Holding the origin in other tabs** (amended 2026-10-11 and twice on 2026-10-12).
+  Cookies can be shared across tabs, so another tab's record of the origin refuses a new
+  attempt with `origin-busy` until that tab closes or the record has not changed for 5
+  minutes (`changedAt`, written when the login's progress changes: a new page of its tab
+  or a page sent to be judged does not count, nor does a restarted worker finding it; a
+  record without it does not hold), unless it is `authenticated`, ended `interrupted`
+  without any submission, or ended `blocked` because Pateat itself stopped it with
+  nothing in flight: `policy-changed`, `value-mismatch`, `wrong-account`,
   `account-switched`, or `cancelled` before any submission (a frame login whose page
   went away also ends `cancelled`), without a pending mutation intent, a click the page
   may have received, or a result settled as unknown. A withdrawn authorization before
@@ -85,8 +93,12 @@ fix them now; the SSO policy itself is recorded separately.
   be in flight or was refused, or while the user may be answering a challenge Pateat
   does not handle. Releasing `account-switched` lets another tab start between the
   switch click and the first tab's fresh attempt, which then waits as `origin-busy`. A
-  refused tab's tooltip says that another tab's login holds the site, and is reset when
-  the tab logs in ([Background execution](../architecture.md#background-execution)).
+  refused tab's tooltip says that another tab's login holds the site and that closing
+  that tab, or waiting 5 minutes and reloading, lets it log in, and is reset when the
+  tab logs in ([Background execution](../architecture.md#background-execution)). A
+  refused page does not announce again when the hold ends; reloading it starts the
+  login, as does a pick in the toolbar popup while the page waits for an account choice
+  ([ADR 0021](0021-account-choice-outside-settings.md)).
 - **Generation offers.** ADR 0016's "a page is not offered while its tab holds an
   attempt record" now means a record for the page's own origin.
 - The move is noticed only when the new page announces itself, which needs HTTPS, a site
@@ -95,6 +107,12 @@ fix them now; the SSO policy itself is recorded separately.
 
 ## Alternatives
 
+- **Release a hold once its tab moves to another page of the site.** Not chosen
+  (2026-10-12): a second-factor page is such a move while the login is still running,
+  so telling it from the page after a login needs the login-completion judge, which
+  already releases a record it judges `authenticated`. A tab opened before an extension
+  update has no content script, so its moves are not seen at all.
+- **Release a hold after 10 minutes.** The owner chose 5 minutes instead.
 - **Keep every record holding the origin until its tab closes** (the original rule).
   Replaced on 2026-10-11: after a logout that does not show the login form again in
   the same tab (npmjs.com's logout lands on its home page), a login form opened in a

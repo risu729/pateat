@@ -14,10 +14,10 @@ function harness() {
 }
 
 describe("openSignIn", () => {
-  it("opens the service's /manage page", async () => {
+  it("opens the service's /pair/signed-in page", async () => {
     const { client, openTab } = harness();
     await client.openSignIn("https://pateat.example.com");
-    expect(openTab.mock.calls).toEqual([["https://pateat.example.com/manage"]]);
+    expect(openTab.mock.calls).toEqual([["https://pateat.example.com/pair/signed-in"]]);
   });
 
   it.each([

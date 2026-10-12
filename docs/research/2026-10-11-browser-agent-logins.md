@@ -164,6 +164,8 @@ each needs separate owner approval:
 3. On a dot's cloud computer during a takeover, check whether `chrome://extensions`
    or the Web Store opens. This only records what is possible; running Pateat there
    with a vault is the owner's tradeoff above.
-4. On the Grok Bot computer, pairing and a login with a test vault. This needs the
-   owner to allow that browser through Access first, and a build from current main
-   with its source beside it ([Corresponding Source](../sdk-source.md)).
+4. On the Grok Bot computer, pairing and a login on one of the owner's real sites with
+   the owner's existing Bitwarden account (owner decisions, 2026-10-12). This needs the
+   "pateat pair" Access application of [ADR 0030](../adr/0030-pairing-without-warp.md)
+   first, and a build from current main with its source beside it
+   ([Corresponding Source](../sdk-source.md)).

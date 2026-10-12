@@ -679,6 +679,16 @@ describe("unhandled errors", () => {
       outcome: "entered",
       steps: 1,
     });
+    // ADR 0029's sign-in state: only the signs that show are written.
+    const signs = { s1: true, s2: true, s3: false, s4: false, s5: false, f1: false, f2: true };
+    log.login({
+      type: "state",
+      ...page,
+      route: "password",
+      ...signs,
+      ...{ e1: false, e2: false, e3: false },
+      decision: "rejected",
+    });
     log.login({
       type: "attempt",
       ...page,
@@ -701,7 +711,7 @@ describe("unhandled errors", () => {
       reason: "no-route",
       detail: "binding-not-found",
     });
-    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(9));
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(10));
     const entries = (await log.logger.entries()).filter((entry) => entry.event !== "log.debug");
     expect(entries.map((entry) => [entry.event, entry.level, entry.fields])).toEqual([
       // An unchanged sync is a debug entry; one that changed a recipe is info.
@@ -741,6 +751,19 @@ describe("unhandled errors", () => {
           kind: "passkey",
           outcome: "entered",
           steps: 1,
+        },
+      ],
+      [
+        "login.state",
+        "info",
+        {
+          origin: recipeOrigin,
+          recipe: expect.any(String),
+          route: "password",
+          decision: "rejected",
+          s1: true,
+          s2: true,
+          f2: true,
         },
       ],
       [

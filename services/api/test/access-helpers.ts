@@ -12,6 +12,8 @@ export const ORIGIN = "https://pateat.invalid";
 const TEAM = "pateat-test.cloudflareaccess.com";
 export const ISSUER = `https://${TEAM}`;
 const AUDIENCE = "pateat-test-audience";
+/** The synthetic "pateat pair" application's audience, which pairing routes also accept. */
+export const PAIR_AUDIENCE = "pateat-test-pair-audience";
 const JWKS_URL = `${ISSUER}/cdn-cgi/access/certs`;
 
 type SigningKey = { privateJwk: HonoJsonWebKey; publicJwk: HonoJsonWebKey };
@@ -101,6 +103,11 @@ export function newSubject() {
 
 export async function owner(subject = newSubject()) {
   return { subject, token: await signAccess(claims(subject)) };
+}
+
+/** The owner signed in through the "pateat pair" application (ADR 0030). */
+export async function pairOwner(subject = newSubject()) {
+  return { subject, token: await signAccess(claims(subject, { aud: [PAIR_AUDIENCE] })) };
 }
 
 export type Owner = Awaited<ReturnType<typeof owner>>;

@@ -60,6 +60,8 @@ const fake = vi.hoisted(() => {
     removed: [] as ((tabId: number) => void)[],
     /** The document's description of itself, by the page asked for. */
     extracted: {} as Record<string, unknown>,
+    /** The page signs the document reports for ADR 0029; none when unset. */
+    signs: undefined as undefined | Record<string, boolean>,
     /** `chrome.storage.session`. */
     session: {} as Record<string, unknown>,
     /** Present elements that are hidden or disabled, for an observation that asks. */
@@ -149,6 +151,8 @@ const fake = vi.hoisted(() => {
               : [...state.observed],
           };
         if (message["type"] === "login.switch") return state.switchReply;
+        if (message["type"] === "login.state")
+          return state.signs ? { ok: true, signs: state.signs } : { ok: false };
         if (message["type"] === "login.extract")
           return (
             state.extracted[message["page"] as string] ?? { ok: false, reason: "no-candidates" }
@@ -491,6 +495,7 @@ describe("production login document admission", () => {
     fake.state.switchReply = { ok: true };
     fake.state.gone = new Set();
     fake.state.extracted = {};
+    fake.state.signs = undefined;
   });
   it("completes a saved-default HTTPS login with a local recipe and live field", async () => {
     const h = harness();
@@ -1099,6 +1104,7 @@ describe("production login document admission", () => {
       outcome?: string;
       submissions: number;
       mutationIntent?: true;
+      changedAt?: number;
     } & {
       account: { origin: string };
       document: { tabId: number; documentId: string };
@@ -1400,10 +1406,33 @@ describe("production login document admission", () => {
       ],
       ["blocked credential-rejected", "blocked", "credential-rejected", idle, false],
       ["blocked challenge", "blocked", "challenge", idle, false],
+      // A login that has not succeeded holds the origin only for a while after it changed.
+      [
+        "blocked challenge unchanged for 5 minutes",
+        "blocked",
+        "challenge",
+        { ...idle, age: 5 * 60_000 + 1000 },
+        true,
+      ],
+      [
+        "reconciling unknown-submit unchanged for 5 minutes",
+        "reconciling",
+        "unknown-submit",
+        { ...idle, settled: true, age: 5 * 60_000 + 1000 },
+        true,
+      ],
+      [
+        "reconciling unknown-submit changed 4 minutes ago",
+        "reconciling",
+        "unknown-submit",
+        { ...idle, settled: true, age: 4 * 60_000 },
+        false,
+      ],
       ["blocked submission-limit", "blocked", "submission-limit", idle, false],
     ] as const)(
       "decides whether another tab's %s record holds the origin",
       async (_name, state, outcome, extra, released) => {
+        const { age, ...rest } = extra as typeof extra & { age?: number };
         // A password the site refused, or one whose submission may still arrive, is not
         // submitted again from another tab (ADR 0022).
         holdClicks(origin);
@@ -1415,7 +1444,15 @@ describe("production login document admission", () => {
         fake.browser.tabs.query = async () => [{ id: 1 }, { id: 2 }] as never;
         try {
           fake.state.storage["pateat.login-attempts.v3"] = [
-            { ...record!, state, outcome, mutationIntent: undefined, ...extra },
+            {
+              ...record!,
+              state,
+              outcome,
+              mutationIntent: undefined,
+              ...rest,
+              // A record's age is taken when the case runs, not when the table was built.
+              ...(age === undefined ? {} : { changedAt: Date.now() - age }),
+            },
           ];
           fake.state.onExecute = undefined;
           const restarted = twoSites();
@@ -1427,6 +1464,89 @@ describe("production login document admission", () => {
           );
           if (released) await vi.waitFor(() => expect(executes().length).toBeGreaterThan(sent));
           else expect(executes()).toHaveLength(sent);
+        } finally {
+          fake.browser.tabs.query = query;
+        }
+      },
+    );
+    it("ends another tab's hold 5 minutes after its record last changed, not after a resume", async () => {
+      holdClicks(origin);
+      const h = twoSites();
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(at(origin)).toMatchObject({ state: "submit-intent" }));
+      const [record] = stored();
+      const query = fake.browser.tabs.query;
+      fake.browser.tabs.query = async () => [{ id: 1 }, { id: 2 }] as never;
+      try {
+        // The login was stopped by a challenge 6 minutes ago and its tab was left open.
+        const changedAt = Date.now() - 6 * 60_000;
+        fake.state.storage["pateat.login-attempts.v3"] = [
+          {
+            ...record!,
+            state: "blocked",
+            outcome: "challenge",
+            mutationIntent: undefined,
+            ...idle,
+            changedAt,
+          },
+        ];
+        fake.state.onExecute = undefined;
+        const restarted = twoSites();
+        // Its tab's page announces again after the restart; the unchanged record keeps its time.
+        await restarted.hello({ documentId: "challenge-page" });
+        expect(at(origin)).toMatchObject({ state: "blocked", outcome: "challenge", changedAt });
+        fake.state.tabUrls[2] = fake.state.pageUrl;
+        expect(await restarted.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({
+          ok: true,
+        });
+      } finally {
+        fake.browser.tabs.query = query;
+      }
+    });
+    it(
+      "keeps the time a held login last progressed when its tab shows another page",
+      { timeout: 10_000 },
+      async () => {
+        holdClicks(origin);
+        const h = twoSites();
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(at(origin)).toMatchObject({ state: "submit-intent" }));
+        const [record] = stored();
+        const query = fake.browser.tabs.query;
+        fake.browser.tabs.query = async () => [{ id: 1 }, { id: 2 }] as never;
+        try {
+          // The result stayed unknown 6 minutes ago and its tab was left open.
+          const changedAt = Date.now() - 6 * 60_000;
+          fake.state.storage["pateat.login-attempts.v3"] = [
+            {
+              ...record!,
+              state: "reconciling",
+              outcome: "unknown-submit",
+              settled: true,
+              changedAt,
+            },
+          ];
+          fake.state.onExecute = undefined;
+          // The user browses on to a page that is neither the completion nor the next step.
+          fake.state.observedPath = "/elsewhere";
+          const restarted = twoSites();
+          expect(await restarted.hello({ documentId: "after-login" })).toEqual({ ok: true });
+          await vi.waitFor(
+            () =>
+              expect(at(origin)).toMatchObject({
+                state: "reconciling",
+                outcome: "unknown-submit",
+                settled: true,
+                document: { documentId: "after-login" },
+              }),
+            { timeout: 6000 },
+          );
+          // A new page is not the login's progress, so the hold has ended.
+          expect(at(origin)?.changedAt).toBe(changedAt);
+          fake.state.tabUrls[2] = fake.state.pageUrl;
+          expect(await restarted.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({
+            ok: true,
+          });
         } finally {
           fake.browser.tabs.query = query;
         }
@@ -1444,7 +1564,7 @@ describe("production login document admission", () => {
         reason: "origin-busy",
       });
       expect(fake.state.badges[2]?.title).toBe(
-        "Pateat: another tab's login to this site is running or did not succeed. Close that tab to log in here.",
+        "Pateat: another tab's login to this site is running or did not succeed. Close that tab, or wait 5 minutes and reload this page, to log in here.",
       );
       expect(executes()).toHaveLength(2);
       // Once that tab closes, this tab logs in and its tooltip is reset.
@@ -3404,6 +3524,190 @@ describe("production login document admission", () => {
         expect.objectContaining({ type: "judge", verdict: "not-sent", reason: "sign-in-shown" }),
       );
     }, 10_000);
+
+    describe("the sign-in state, logged only (ADR 0029 delivery 1)", () => {
+      it("logs a passkey request after the submission, but not one before it", async () => {
+        fake.state.extracted = { "signed-in": homePage };
+        fake.state.signs = {
+          password: false,
+          code: false,
+          captcha: false,
+          invalid: false,
+          alert: false,
+        };
+        const service = generation({ judge: async () => ({ verdict: "signed-in" }) });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris,
+          username: true,
+          generation: service,
+          report,
+        });
+        h.recipes.recipe.mockResolvedValue(generated);
+        fake.state.present = new Set(["user", "password", "login"]);
+        // The sign-in page's own request, before the submission, does not count.
+        h.login.passkeyRequested(1, origin);
+        fake.state.onExecute = async (message) => {
+          if ((message["operation"] as { step: { kind: string } }).step.kind !== "click") return;
+          fake.state.present = new Set();
+          fake.state.observedPath = "/home";
+          setTimeout(() => h.login.passkeyRequested(1, origin), 0);
+        };
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(service.judge).toHaveBeenCalled(), { timeout: 6_000 });
+        expect(
+          report.mock.calls.flatMap(([value]) => (value.type === "state" ? [value] : [])),
+        ).toEqual([expect.objectContaining({ s1: false, s5: true, decision: "continuing" })]);
+      }, 10_000);
+
+      it("does not count a passkey request made before the submission", async () => {
+        fake.state.extracted = { "signed-in": homePage };
+        fake.state.signs = {
+          password: false,
+          code: false,
+          captcha: false,
+          invalid: false,
+          alert: false,
+        };
+        const service = generation({ judge: async () => ({ verdict: "signed-in" }) });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris,
+          username: true,
+          generation: service,
+          report,
+        });
+        h.recipes.recipe.mockResolvedValue(generated);
+        fake.state.present = new Set(["user", "password", "login"]);
+        h.login.passkeyRequested(1, origin);
+        fake.state.onExecute = async (message) => {
+          if ((message["operation"] as { step: { kind: string } }).step.kind !== "click") return;
+          fake.state.present = new Set();
+          fake.state.observedPath = "/home";
+        };
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(service.judge).toHaveBeenCalled(), { timeout: 6_000 });
+        expect(
+          report.mock.calls.flatMap(([value]) => (value.type === "state" ? [value] : [])),
+        ).toEqual([expect.objectContaining({ s5: false, decision: "judge" })]);
+      }, 10_000);
+
+      it("does not count a passkey request of another origin", async () => {
+        fake.state.extracted = { "signed-in": homePage };
+        fake.state.signs = {
+          password: false,
+          code: false,
+          captcha: false,
+          invalid: false,
+          alert: false,
+        };
+        const service = generation({ judge: async () => ({ verdict: "signed-in" }) });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris,
+          username: true,
+          generation: service,
+          report,
+        });
+        h.recipes.recipe.mockResolvedValue(generated);
+        fake.state.present = new Set(["user", "password", "login"]);
+        fake.state.onExecute = async (message) => {
+          if ((message["operation"] as { step: { kind: string } }).step.kind !== "click") return;
+          fake.state.present = new Set();
+          fake.state.observedPath = "/home";
+          setTimeout(() => h.login.passkeyRequested(1, "https://other.example"), 0);
+        };
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(service.judge).toHaveBeenCalled(), { timeout: 6_000 });
+        expect(
+          report.mock.calls.flatMap(([value]) => (value.type === "state" ? [value] : [])),
+        ).toEqual([expect.objectContaining({ s5: false, decision: "judge" })]);
+      }, 10_000);
+
+      const noSigns = {
+        password: false,
+        code: false,
+        captcha: false,
+        invalid: false,
+        alert: false,
+      };
+
+      it("logs a failure shown next to the sign-in fields, comparing the username in the page", async () => {
+        fake.state.extracted = { "signed-in": homePage };
+        fake.state.signs = { ...noSigns, password: true, alert: true, username: false };
+        const service = generation({ judge: async () => ({ verdict: "signed-in" }) });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris,
+          username: true,
+          generation: service,
+          report,
+        });
+        h.recipes.recipe.mockResolvedValue(generated);
+        fake.state.present = new Set(["user", "password", "login"]);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(
+          () =>
+            expect(status()).toMatchObject([{ state: "reconciling", outcome: "unknown-submit" }]),
+          { timeout: 6_000 },
+        );
+        expect(report).toHaveBeenCalledWith({
+          type: "state",
+          tabId: 1,
+          origin,
+          recipeId: generated.id,
+          route: "password",
+          ...{ s1: true, s2: true, s3: false, s4: false, s5: false, f1: false, f2: true },
+          ...{ e1: false, e2: false, e3: false },
+          decision: "rejected",
+        });
+        // The username goes to the page for its comparison; what happens is unchanged.
+        expect(fake.state.messages.find((entry) => entry.type === "login.state")?.account).toEqual({
+          username: "synthetic-secret",
+        });
+        expect(service.judge).not.toHaveBeenCalled();
+      }, 10_000);
+
+      it("logs reaching the return target the sign-in page's URL named, before the judge", async () => {
+        fake.state.pageUrl = `${origin}/signin?return_to=%2Fhome`;
+        fake.state.extracted = { "signed-in": homePage };
+        fake.state.signs = noSigns;
+        const service = generation({ judge: async () => ({ verdict: "signed-in" }) });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris,
+          username: true,
+          generation: service,
+          report,
+        });
+        h.recipes.recipe.mockResolvedValue(generated);
+        fake.state.present = new Set(["user", "password", "login"]);
+        fake.state.onExecute = async (message) => {
+          if ((message["operation"] as { step: { kind: string } }).step.kind !== "click") return;
+          // The click loads the return target in a new document.
+          fake.state.present = new Set();
+          fake.state.observedPath = "/home";
+          fake.state.pageUrl = `${origin}/home`;
+          setTimeout(() => void h.hello({ documentId: "document-home" }, false), 0);
+        };
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(service.judge).toHaveBeenCalled(), { timeout: 6_000 });
+        const states = report.mock.calls.flatMap(([value]) =>
+          value.type === "state" ? [value] : [],
+        );
+        expect(states).toEqual([
+          expect.objectContaining({ s1: false, s5: false, e3: true, decision: "signed-in" }),
+        ]);
+        // The judge's verdict is logged right after, as today.
+        const entries = report.mock.calls.map(([value]) => value.type);
+        expect(entries.indexOf("state")).toBeLessThan(entries.indexOf("judge"));
+      }, 10_000);
+    });
 
     describe("custom-field offers and their shapes (ADR 0027)", () => {
       const thirdItemId = "80000000-0000-4000-8000-000000000003";

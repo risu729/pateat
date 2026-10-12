@@ -2,7 +2,14 @@ import { devicePairRequestSchema } from "@pateat/contracts";
 import { Hono, type Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { HTTPException } from "hono/http-exception";
-import { requireAccess, requireAccessApi, requirePairingOrigin, requireSameOrigin } from "./access";
+import {
+  requireAccess,
+  requireAccessApi,
+  requirePairingAccess,
+  requirePairingAccessApi,
+  requirePairingOrigin,
+  requireSameOrigin,
+} from "./access";
 import { requireDevice, type ApiEnv } from "./auth";
 import { API_HEADERS, apiError } from "./http";
 import { limitIdentity, limitOwner } from "./limits";
@@ -79,7 +86,7 @@ export const app = new Hono<ApiEnv>()
   // No CORS headers: extension contexts with host access skip CORS; pages cannot read it.
   .post(
     "/pair",
-    requireAccessApi,
+    requirePairingAccessApi,
     requirePairingOrigin,
     pairLimit,
     bodyLimit({
@@ -91,6 +98,12 @@ export const app = new Hono<ApiEnv>()
     createPairedDevice,
   )
   .all("/pair", methodNotAllowed("POST"))
+  // The tab the extension opens when pairing needs a sign-in. Access signs the browser
+  // in on the way; the settings page retries pairing once it is shown again.
+  .get("/pair/signed-in", requirePairingAccess, (c) =>
+    message(c, 200, "Signed in", "Close this tab and go back to Pateat's settings page."),
+  )
+  .all("/pair/signed-in", methodNotAllowed("GET"))
   // Authenticate and count the request against its owner before reading bodies;
   // unauthenticated requests are never parsed.
   .use(
@@ -114,7 +127,8 @@ export const app = new Hono<ApiEnv>()
   .notFound((c) => apiError(c, 404, { error: "not_found" }))
   .onError((error, c) => {
     const ownerPage =
-      /^\/manage(?:\/|$)/.test(c.req.path) && !/^\/manage\/api(?:\/|$)/.test(c.req.path);
+      c.req.path === "/pair/signed-in" ||
+      (/^\/manage(?:\/|$)/.test(c.req.path) && !/^\/manage\/api(?:\/|$)/.test(c.req.path));
     if (error instanceof HTTPException && error.status === 400)
       return ownerPage
         ? message(c, 400, "Invalid request", "The request was malformed.")

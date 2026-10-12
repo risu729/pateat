@@ -56,8 +56,8 @@ Chrome, on a production build of main.
   owner rated it high priority. An existing recipe whose step after an advance is on the
   same path, as an identifier-first form that swaps in its password form in place,
   already continues ([#252](https://github.com/risu729/pateat/pull/252)).
-- [ADR 0029](adr/0029-local-sign-in-state.md) (accepted 2026-10-12): delivery 1 computes
-  the local sign-in state of the page after a submission and logs it next to today's
+- [ADR 0029](adr/0029-local-sign-in-state.md) (accepted 2026-10-12): delivery 1 logs the
+  local sign-in state of the page after a submission as `login.state`, next to today's
   result, with no change in behaviour. After the owner reviews those logs from the
   daily-site passes, delivery 2 settles logins by it, with the judge as a fallback.
 - Installed-Chrome checks still open:
@@ -117,9 +117,11 @@ Chrome, on a production build of main.
   [browser agents and logins](research/2026-10-11-browser-agent-logins.md) found no
   documented install for the ChatGPT cloud browser. On Grok Bot's computer the owner
   loaded the unpacked build on 2026-10-12, and it stayed after the computer slept and
-  after a computer update. Pairing there is unchecked, because the service's WARP-only
-  Access policy refuses that browser; it waits on the owner's decision about a
-  temporary Access policy.
+  after a computer update. Pairing there is refused by the service's WARP-only Access
+  policy; [ADR 0030](adr/0030-pairing-without-warp.md) adds a "pateat pair" Access
+  application without WARP for pairing only. After the owner sets it up and the
+  owner's Chrome still pairs, the next check is pairing and a login on a real site on
+  the Grok Bot computer with the owner's existing Bitwarden account.
 - UI improvements the owner reports from daily use of the UI polished in phase 1. Small
   fixes for broken UI still land as found.
 - Features found missing during use are added here.
@@ -233,6 +235,11 @@ still open on 2026-10-11.
   has no Japanese address model, and no widely used extension covers them. It recommends
   Japanese forms as the first candidate if identity filling is designed later (not
   decided).
+- CAPTCHA solving is out of scope because it is heavy (owner, 2026-10-12 05:35 UTC). The
+  [survey](research/2026-10-12-captcha-solving-landscape.md) records the existing
+  approaches (paid solver services, audio speech-to-text, object detection, LLM agents,
+  and ways to avoid the challenge such as Private Access Tokens) and their reported
+  success rates.
 - Cloudflare Clef for the finite-choice role, chosen for
   [phase 3](#phase-3-public-release) but not planned until the corpus of real pages
   grows (owner, 2026-10-11 17:48 UTC): the
@@ -311,7 +318,8 @@ build. It uses explicit saved account defaults and bundled synthetic values. A m
 journal precedes every fill and click; input-triggered advance/submission declares its
 effect and event explicitly. Recovery observes the current document and never blindly
 replays an uncertain mutation or pending submit. Another tab's attempt of the same
-origin that is running or ended without success holds the origin until that tab closes;
+origin that is running or ended without success holds the origin until that tab closes
+or its record has not changed for 5 minutes;
 an `authenticated` one, or one Pateat itself stopped with nothing in flight, does not,
 and a tab keeps one record per origin
 ([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md)).
@@ -799,7 +807,8 @@ extension storage; it never crosses the runtime message boundary. An Access redi
 a `401`, or a response that is not JSON, such as the Access login page, means the user
 must sign in; a non-JSON `429` or `5xx` edge error page counts as rate limiting or an
 unexpected answer instead. On a sign-in the page opens
-`<service>/manage` in a new tab once per click, retries once when it is shown or focused
+`<service>/pair/signed-in` ([ADR 0030](adr/0030-pairing-without-warp.md)) in a new tab
+once per click, retries once when it is shown or focused
 again, and offers **Try again** and **Open sign-in page**; a later retry opens no tab by
 itself. Nothing is stored until the service has created the device, and an issued
 credential whose write failed is kept in memory and saved on the next request. An
@@ -1640,20 +1649,24 @@ on a password step makes that step incomplete, and honeypot inputs moved to the 
 clipped by `overflow: hidden` stay candidates. `extractSignedInObservation` describes
 the page after a generated recipe's final submission the same way, but over the whole
 page: every field, then buttons and links up to 48 candidates, listed in document order.
-A field it cannot describe marks it incomplete; buttons and links past the limit or
-without a locator are left out, since they are only possible sign-in markers. Links are
-located by their text too, and those in a page header or navigation, where account menus
-usually sit, are kept first; the rank reads only the page's structure, never words of
-one language. A text locator with a digit, such as a points balance or an unread count,
-never names a marker there, and the judge is told to pick a marker whose text is the
-same for every account and visit, never the person's name, a count or a balance: its
-text is stored in the recipe and must match every later sign-in. On ポイントインカム
-(2026-10-12) the page after sign-in gave 21 candidates, all carousel controls, news tabs
-and an ad's close button, because its header links have no `id`; the judge answered
-`unclear`. A synthetic page of that shape now keeps the header's links. There, an
-attribute locator that redaction would change counts as no locator, so an account number
-in an `id` is never sent. `mise run //apps/extension:test:dom` covers these cases in
-Chromium with synthetic pages.
+A field it cannot describe marks it incomplete, except a read-only, transparent or tiny
+field that does not look like a sign-in field, which is left out since 2026-10-12: the
+page after アパホテル's login was logged as `unfillable-field` and never judged, and a
+read-only date picker of its hotel search is the inferred cause, not yet confirmed in
+the owner's Chrome. Buttons and links past the limit or without a locator are left out,
+since they are only possible sign-in markers. Links are located by their text too, and
+those in a page header or navigation, where account menus usually sit, are kept first;
+the rank reads only the page's structure, never words of one language. A text locator
+with a digit, such as a points balance or an unread count, never names a marker there,
+and the judge is told to pick a marker whose text is the same for every account and
+visit, never the person's name, a count or a balance: its text is stored in the recipe
+and must match every later sign-in. On ポイントインカム (2026-10-12) the page after
+sign-in gave 21 candidates, all carousel controls, news tabs and an ad's close button,
+because its header links have no `id`; the judge answered `unclear`. A synthetic page of
+that shape now keeps the header's links. There, an attribute locator that redaction
+would change counts as no locator, so an account number in an `id` is never sent.
+`mise run //apps/extension:test:dom` covers these cases in Chromium with synthetic
+pages.
 
 Evaluation data candidates, checked 2026-10-10 (terms are as published by each
 source; confirm before use):
