@@ -67,6 +67,8 @@ validation. Moving it into a state-machine library would keep the same checks.
 - No production code sends `RETRY`. A `retryable` attempt keeps its tab and holds its
   origin in other tabs. A new document re-observes it, but `retryRequired` survives
   `OBSERVED continue`, so it returns to `retryable` when the step's elements show and
-  settles as unknown when they do not.
+  settles as unknown when they do not. Resolved after this note: the runtime now sends
+  `RETRY` and a spent budget ends the attempt `retry-limit`, which releases the origin
+  ([ADR 0022](../adr/0022-login-attempts-per-tab-and-origin.md)).
 - `docs/architecture.md` still listed the states `resolving` and `filling`, and
   `docs/development.md` called the attempt lifecycle a local-probe implementation.

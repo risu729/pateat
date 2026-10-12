@@ -270,5 +270,10 @@ Limits:
 
 Delivery, one pull request each: debug logging on and off; reasons for doing nothing
 (including an exception that stops a login); decisions; URLs; requests and sync
-results; finer reasons; limits. The page limit per level (#291) and debug logging on
-and off are done.
+results; finer reasons; limits. The page limit per level (#291), debug logging on and
+off, and reasons for doing nothing are done.
+
+When reasons for doing nothing were delivered, frame refusals were read as the
+proposal's example put it, refusals of embedded frames such as ads: a frame whose own
+origin has a recipe, as a login form embedded in a page, is logged like the tab's page,
+as it already was, so a framed login's refusal stays `info`.

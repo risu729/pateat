@@ -13,6 +13,7 @@ import {
   commandSchema,
   LOGIN_STEP_WAIT_MS,
   readySchema,
+  START_TRIES,
   reconnectSchema,
   type LoginReadiness,
   type TargetState,
@@ -232,7 +233,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   function retry(): void {
     if (!observer) return;
     retries += 1;
-    if (retries > 3) return;
+    if (retries >= START_TRIES) return;
     announced = false;
     clearTimeout(timer);
     timer = setTimeout(check, 500);
