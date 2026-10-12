@@ -41,7 +41,12 @@ password or passkey, in the Grok Bot computer's Chrome, on a production build of
   nothing there, and waits for those sign-ins in
   [phase 4](#phase-4-issues-and-work-as-needed). Claude, where the owner signs in by
   email, Tailscale, Zenn and Vercel are recorded as such sites; the last three were
-  judged from their usual sign-in pages, not checked.
+  judged from their usual sign-in pages, not checked. ABEMA is one too: its web site
+  switches accounts only with a code sent by email, Google, Apple, or an ID and
+  one-time password issued on another device (checked in cloud Chromium on 2026-10-12
+  at 19:10 UTC, without Pateat). That Pateat does nothing there is judged from the code
+  and from the Grok Bot's log of 2026-10-12, which has no ABEMA entry after the Bot
+  opened `abema.tv/mylist` (build `a8350f5`).
 - Log in, in the Grok Bot computer's Chrome, on the sites the owner's Bot checks
   regularly, such as card statements and AI usage pages, so the Bot never needs a
   password (owner, 2026-10-12 14:00 UTC). Sites that sign in only through another
@@ -327,6 +332,17 @@ still open on 2026-10-11.
   [ADR 0027](adr/0027-per-account-login-routes.md) does not handle today (such a code
   page ends `challenge`). It has the same priority as signing in through an identity
   provider (owner, 2026-10-12 14:01 UTC).
+  Sites that create an account for every visitor, as ABEMA does when it is first opened,
+  sign in by switching that account to the person's own. Pateat neither decides that
+  the current account is such a visitor account nor switches it on its own (owner,
+  2026-10-12 19:18 UTC): a general page looks the same for both accounts, and a switch
+  gives up the current account's plan and purchases, which may belong to another
+  person. The account switch the person starts from the popup, kept for later in
+  [ADR 0021](adr/0021-account-choice-outside-settings.md#later), switches such an
+  account too, even where Pateat has not logged in (owner, 19:19 UTC). A sign-in form
+  that a click opens on the same path stays unsent
+  ([ADR 0031](adr/0031-sign-in-entry-pages.md#not-covered)); it is proposed on its own,
+  with evidence from a site that signs in with a password, when one needs it.
 - Opening the service to other people, once there are users who need it; per-owner byte
   quotas come with it.
 - Settings to limit Pateat as an extension that handles personal data: only allowed
