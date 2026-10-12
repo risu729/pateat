@@ -54,7 +54,7 @@ on 2026-10-12 (20:50 UTC):
 | Approval in an app, then the signed-in page ([ADR 0027](adr/0027-per-account-login-routes.md#watching-after-a-challenge)) | 三菱UFJダイレクト | Done |
 | A software keyboard or extra PIN page, left to the person | エポスNet | Recheck after `92df780` |
 | A CAPTCHA the person solves, then the signed-in page | Q-move | Investigating why the signed-in page is not judged |
-| A signed-in page on another host of the same site | JAL (`jallogin.jal.co.jp` to `www.jal.co.jp`) | The record ends `left-origin`; fix in progress |
+| A signed-in page on another host of the same site | JAL (`jallogin.jal.co.jp` to `www.jal.co.jp`, after a passkey), モッピー (`ssl.pc.moppy.jp` to `pc.moppy.jp`, after a password) | Both records ended `left-origin`. JAL: fix in progress. モッピー: a password login now completes when the new host's page shows the account's username (synthetic tests only; recheck); next, the judge decides once when it does not ([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md)) |
 | Google's own sign-in (email first, account choice) | Google | Not checked |
 | Choosing among several accounts of one site in the popup ([#187](https://github.com/risu729/pateat/pull/187)) | GitHub | Signed in; recheck the shortened item IDs and the silent stop while another tab's login holds the site |
 | Fill only after a logout | アパホテル | Done |

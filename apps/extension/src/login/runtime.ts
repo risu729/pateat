@@ -189,10 +189,13 @@ const AFTER_SIGN_IN_MS = 60_000;
  */
 const SIGN_IN_RECHECK_MS = 1000;
 const SIGN_IN_RECHECKS = 10;
-/** How soon after a passkey answer a move to that site's other origin may complete (ADR 0022). */
-const PASSKEY_MOVE_MS = 30_000;
+/**
+ * How soon after a passkey answer, or after a password login's last effect step, a move to
+ * another origin of that site may complete (ADR 0022).
+ */
+const SITE_MOVE_MS = 30_000;
 /** Readings of that move's new page, a second apart, before it must have loaded quietly. */
-const PASSKEY_MOVE_READINGS = 5;
+const SITE_MOVE_READINGS = 5;
 /**
  * How long a login stays watched after its result stopped at `challenge` or settled as
  * unknown (ADR 0027, owner's choice on 2026-10-12), and how long each new page of its tab
@@ -1330,8 +1333,11 @@ export function createLoginRuntime(
   const passkeyRequests = new Map<string, number>();
   /** By tab and origin: the last assertion the passkey bridge returned, and its RP ID. */
   const passkeyAnswers = new Map<string, { at: number; rpId: string }>();
-  /** By tab: the check of a move after a passkey answer, while its new top page is read. */
-  const passkeyMoves = new Map<number, Promise<boolean>>();
+  /**
+   * By tab: the check of a move to another origin of the site after a passkey answer or a
+   * password submission, while its new top page is read (ADR 0022).
+   */
+  const siteMoves = new Map<number, Promise<boolean>>();
   /** Top documents' own conditional passkey requests, waiting for their login (ADR 0034). */
   const parkedRequests = new Set<ParkedRequest>();
   let reviewTimer: ReturnType<typeof setInterval> | undefined;
@@ -5760,23 +5766,30 @@ export function createLoginRuntime(
       // The tab's page moved to another origin: the attempt there ends without
       // resubmitting and keeps its record, and this page or its frame may start its own.
       // A frame stands for the tab's page, which left the attempt's origin. A move to the
-      // passkey's site right after Pateat answered it completes the attempt instead, which
-      // only the top page can tell: a frame of the new page waits for that check, or leaves
-      // the move to the top page when one may follow.
+      // passkey's site right after Pateat answered it, or to another origin of the site
+      // right after a password submission to a page that shows the account's username,
+      // completes the attempt instead, which only the top page can tell: a frame of the new
+      // page waits for that check, or leaves the move to the top page when one may follow.
       let ending = true;
       let signedIn = false;
       if (document.frameId !== 0) {
-        const check = passkeyMoves.get(document.tabId);
+        const check = siteMoves.get(document.tabId);
         if (check) await check;
         // A check that went stale, as when the top page announced again, ended nothing.
-        if (passkeyMoveFits(holder, document.tabId, siteOrigin)) ending = false;
+        if (
+          passkeyMoveFits(holder, document.tabId, siteOrigin) ||
+          passwordMoveFits(holder, document.tabId, siteOrigin)
+        )
+          ending = false;
       } else {
-        const check = signedInByPasskey(holder, live);
-        passkeyMoves.set(document.tabId, check);
+        const check = passkeyMoveFits(holder, document.tabId, siteOrigin)
+          ? signedInByPasskey(holder, live)
+          : signedInByPassword(holder, live);
+        siteMoves.set(document.tabId, check);
         try {
           signedIn = await check;
         } finally {
-          if (passkeyMoves.get(document.tabId) === check) passkeyMoves.delete(document.tabId);
+          if (siteMoves.get(document.tabId) === check) siteMoves.delete(document.tabId);
         }
       }
       if (hellos.get(helloKey) !== sequence || documents.get(key) !== live)
@@ -7321,26 +7334,56 @@ export function createLoginRuntime(
    * Whether a top-level attempt's tab moving to `live`, a top page of another origin, ended
    * its sign-in (ADR 0022): after its last effect step, and shortly before the move, Pateat
    * answered the attempt's page's passkey request; the new page's host is the passkey's RP
-   * ID or a subdomain of it; and that page, once loaded and read again a second later,
-   * shows no password, code input or CAPTCHA and has not asked for a passkey. Only reads.
+   * ID or a subdomain of it; and that page is quiet (`quietMove`). Only reads.
    */
   async function signedInByPasskey(
     record: LoginAttemptMetadata,
     live: LiveDocument,
   ): Promise<boolean> {
-    const { tabId, origin: pageOrigin } = live.document;
-    const answer = passkeyMoveFits(record, tabId, pageOrigin);
+    const answer = passkeyMoveFits(record, live.document.tabId, live.document.origin);
     if (!answer || live.document.frameId !== 0 || live.topUrl !== undefined) return false;
+    return quietMove(live, answer.at);
+  }
+  /**
+   * Whether a top-level `password` attempt's tab moving to `live`, a top page of another
+   * origin of the same site, ended its sign-in (ADR 0022): the attempt's last effect step
+   * ran shortly before the move, and that page is quiet and shows the account's username
+   * in its header or navigation (`quietMove`, ADR 0029: E2). Only reads.
+   */
+  async function signedInByPassword(
+    record: LoginAttemptMetadata,
+    live: LiveDocument,
+  ): Promise<boolean> {
+    const effect = passwordMoveFits(record, live.document.tabId, live.document.origin);
+    if (!effect || live.document.frameId !== 0 || live.topUrl !== undefined) return false;
+    const username = await moveUsername(record);
+    if (!username || documents.get(frameKey(live.document)) !== live) return false;
+    return quietMove(live, effect.at, username);
+  }
+  /**
+   * Whether `live`, the new top page of a move to another origin (ADR 0022), once loaded
+   * and read again a second later, shows no password field, code input or CAPTCHA and has
+   * not asked for a passkey since `since`, the page signs of ADR 0029. With `username`, it
+   * must also show the account's username in its header or navigation (E2) in both
+   * readings; the username goes to the page's content script for that comparison only, as
+   * for E2 after an effect step. A page still loading, or not showing the username yet, is
+   * read again, a second apart. Only reads.
+   */
+  async function quietMove(live: LiveDocument, since: number, username?: string) {
+    const { tabId, origin: pageOrigin } = live.document;
     let quiet = 0;
     // Each reading depends on the time passed since the last, so they run one after another.
     /* eslint-disable no-await-in-loop */
-    for (let reading = 0; reading < PASSKEY_MOVE_READINGS && quiet < 2; reading++) {
+    for (let reading = 0; reading < SITE_MOVE_READINGS && quiet < 2; reading++) {
       if (reading > 0)
         await new Promise<void>((resolve) => setTimeout(resolve, SIGN_IN_RECHECK_MS));
       if (documents.get(frameKey(live.document)) !== live) return false;
       let response: unknown;
       try {
-        response = await send(live, { type: "login.state" });
+        response = await send(live, {
+          type: "login.state",
+          ...(username ? { account: { username } } : {}),
+        });
       } catch {
         return false;
       }
@@ -7348,9 +7391,9 @@ export function createLoginRuntime(
       if (!parsed.success || !parsed.output.ok) return false;
       const { signs } = parsed.output;
       const requested = passkeyRequests.get(`${tabId} ${pageOrigin}`);
-      if (signs.password || signs.code || signs.captcha || (requested ?? 0) >= answer.at)
-        return false;
-      quiet = parsed.output.loaded ? quiet + 1 : 0;
+      if (signs.password || signs.code || signs.captcha || (requested ?? 0) >= since) return false;
+      // A page that renders its header late, as a single-page site does, is read again.
+      quiet = parsed.output.loaded && (!username || signs.username === true) ? quiet + 1 : 0;
     }
     /* eslint-enable no-await-in-loop */
     return quiet >= 2;
@@ -7358,7 +7401,7 @@ export function createLoginRuntime(
   /**
    * The passkey answer that lets a top-level attempt's tab moving to `siteOrigin` complete
    * (ADR 0022), if any: given after the attempt's last effect step and at most
-   * `PASSKEY_MOVE_MS` ago, for an RP ID that `siteOrigin`'s HTTPS host is or is under.
+   * `SITE_MOVE_MS` ago, for an RP ID that `siteOrigin`'s HTTPS host is or is under.
    */
   function passkeyMoveFits(
     record: LoginAttemptMetadata,
@@ -7371,7 +7414,7 @@ export function createLoginRuntime(
       !answer ||
       effect?.attemptId !== record.id ||
       answer.at < effect.at ||
-      Date.now() - answer.at > PASSKEY_MOVE_MS
+      Date.now() - answer.at > SITE_MOVE_MS
     )
       return undefined;
     const { protocol, hostname } = new URL(siteOrigin);
@@ -7379,6 +7422,53 @@ export function createLoginRuntime(
       (hostname === answer.rpId || hostname.endsWith(`.${answer.rpId}`))
       ? answer
       : undefined;
+  }
+  /**
+   * The effect step that lets a top-level `password` attempt's tab moving to `siteOrigin`
+   * complete on the account's username (ADR 0022), if any: the attempt's last one, not a
+   * step that asks for a passkey, delivered at most `SITE_MOVE_MS` ago, with `siteOrigin`
+   * an HTTPS origin of the attempt's registrable domain. A passkey answer after it decides
+   * the move instead (`passkeyMoveFits`).
+   */
+  function passwordMoveFits(
+    record: LoginAttemptMetadata,
+    tabId: number,
+    siteOrigin: string,
+  ): { at: number } | undefined {
+    const effect = effects.get(tabId);
+    if (
+      record.route !== "password" ||
+      record.document.frameId !== 0 ||
+      effect?.attemptId !== record.id ||
+      effect.passkey ||
+      Date.now() - effect.at > SITE_MOVE_MS ||
+      passkeyMoveFits(record, tabId, siteOrigin)
+    )
+      return undefined;
+    const site = siteOf(siteOrigin);
+    return new URL(siteOrigin).protocol === "https:" &&
+      site !== undefined &&
+      site === siteOf(record.document.origin)
+      ? effect
+      : undefined;
+  }
+  /**
+   * The username of a login's own account, for the E2 comparison on the page its tab moved
+   * to (ADR 0022), read with the settings the login was authorized with. `undefined` when
+   * the settings changed since, or the item has no username or it cannot be read.
+   */
+  async function moveUsername(record: LoginAttemptMetadata): Promise<string | undefined> {
+    const snapshot = await settings.handle({ version: 1, type: "settings.get" });
+    if (!snapshot.ok || snapshot.snapshot.revision !== record.policyRevision) return undefined;
+    const { connectionId, itemId } = record.account;
+    const connection = snapshot.catalog.connections.find((entry) => entry.id === connectionId);
+    const fieldId = connection && loginUsernameFieldId(connection, itemId);
+    if (!connection || !fieldId) return undefined;
+    try {
+      return (await fields({ account: record.account, connection, fieldId })) || undefined;
+    } catch {
+      return undefined;
+    }
   }
   /** The newest conditional request of a top document still waiting (ADR 0034). */
   function parkedFor(document: { tabId: number; documentId: string }): ParkedRequest | undefined {

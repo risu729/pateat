@@ -13,6 +13,10 @@ notes.
 Amended on 2026-10-12 by the owner's choice at 20:23 UTC (「入力だけ」, fill only): a
 click that would run while S4 shows is left to the person, after Q-move's login page
 showed a CAPTCHA before its submission; see S4 below.
+Amended on 2026-10-12 by the owner's choice at 21:18 UTC (「AI判定」,
+[ADR 0022](0022-login-attempts-per-tab-and-origin.md)): E2 is also read on a page of
+another origin of the same site that a `password` login's tab moves to right after the
+submission; see the end of the implementation notes.
 Amends [ADR 0018](0018-recipe-generation-route.md) (how success is decided after a
 generated recipe's submission) and [ADR 0027](0027-per-account-login-routes.md) (when a
 page is judged).
@@ -239,6 +243,17 @@ a `challenge`, and after a result settled as unknown, are read for 10 minutes. A
 judge answered `challenge` for in a recipe revision is never completed by a later
 request for it (`judged-challenge`, above), so the second login on 三菱UFJ銀行 does not
 complete on its QR page.
+
+Moves to another origin of the site (owner, 2026-10-12 21:18 UTC,
+[ADR 0022](0022-login-attempts-per-tab-and-origin.md)): on モッピー the page after the
+password is on another host of the site, which ended the login `left-origin` before
+these signs were read. When a top-level `password` login's tab moves to another HTTPS
+origin of its registrable domain within 30 seconds of its last effect step, the new top
+page is read for S2 to S5 and E2 only, with the username sent as above, and the login
+completes when two readings a second apart in the loaded document show E2 and none of
+those signs. S1, F1, F2, E1 and E3 are not read there, and no `login.state` entry is
+logged. Otherwise the login ends `left-origin` as before; asking the judge once for such
+a page without E2 is the next change (ADR 0022).
 
 ## Consequences
 
