@@ -1178,6 +1178,56 @@ describe("unhandled errors", () => {
     vi.restoreAllMocks();
   });
 
+  it("keeps a login's route change at info, naming why (ADR 0034)", async () => {
+    const log = createDiagnosticsLog({
+      build: { version: "0.1.0", revision: "1c42ad3" },
+      settings: async () => {
+        throw new Error("not needed");
+      },
+      recipeCache: async () => undefined,
+      connections: async () => ({ ok: true, kind: "status", connections: [] }),
+      databaseName: `log-test-${crypto.randomUUID()}`,
+      scope: { addEventListener: () => undefined } as never,
+    });
+    for (const level of ["debug", "info", "warn"] as const)
+      vi.spyOn(console, level).mockImplementation(() => undefined);
+    await log.logger.enableDebug();
+    const site = { tabId: 4, origin: "https://login.example" };
+    const ready = {
+      type: "attempt" as const,
+      ...site,
+      recipeId: "synthetic-recipe",
+      state: "ready" as const,
+      stepIndex: 0,
+    };
+    // A step of a running login stays at debug.
+    log.login({ ...ready, route: "password", variant: 0, stepCount: 2 });
+    log.login({
+      ...ready,
+      route: "passkey",
+      variant: 0,
+      stepCount: 1,
+      routeChange: "page-request",
+    });
+    log.login({
+      ...ready,
+      route: "password",
+      variant: 0,
+      stepCount: 2,
+      routeChange: "sign-in-shown",
+    });
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(4));
+    const entries = (await log.logger.entries()).filter((entry) => entry.event !== "log.debug");
+    expect(entries.map((entry) => [entry.event, entry.level, entry.fields["routeChange"]])).toEqual(
+      [
+        ["login.attempt", "debug", undefined],
+        ["login.attempt", "info", "page-request"],
+        ["login.attempt", "info", "sign-in-shown"],
+      ],
+    );
+    vi.restoreAllMocks();
+  });
+
   it("logs a reason once per login-related page and warns for an exception", async () => {
     const log = createDiagnosticsLog({
       build: { version: "0.1.0", revision: "1c42ad3" },

@@ -492,12 +492,14 @@ export function createDiagnosticsLog(options: {
             cause: report.cause,
             reason: report.reason,
             settled: report.settled,
+            routeChange: report.routeChange,
           },
           {
             source,
             // A login that stopped, or whose result settled as unknown, did not finish. A resumed
             // attempt that changed nothing repeats what was already logged.
-            // A fill-only login after a logout ends by design without pressing anything.
+            // A fill-only login after a logout ends by design without pressing anything. A
+            // route change is kept for the log too (ADR 0034).
             level: report.repeat
               ? "debug"
               : (report.state === "blocked" &&
@@ -509,7 +511,9 @@ export function createDiagnosticsLog(options: {
                 ? "info"
                 : report.state === "blocked" || report.state === "watching" || report.settled
                   ? "warn"
-                  : report.state === "authenticated" || report.state === "retryable"
+                  : report.state === "authenticated" ||
+                      report.state === "retryable" ||
+                      report.routeChange !== undefined
                     ? "info"
                     : "debug",
           },

@@ -162,7 +162,8 @@ function toCredential(
 /**
  * Wrap `navigator.credentials.get` in a top-level document at document start. Every request this
  * bridge does not answer with an assertion goes, with the caller's original arguments, to the
- * implementation it wraps.
+ * implementation it wraps, except a `conditional` request withheld after a Pateat login of the
+ * page signed in, which stays pending until the page aborts it (ADR 0034).
  *
  * Pateat stays outside wrappers that later scripts install by assigning `get`: such an assignment,
  * including another provider's restore of a saved function, becomes the delegation target instead
@@ -257,12 +258,15 @@ export function installPasskeyPage(scope: PageScope = window): void {
     if (!request || (signal !== undefined && !(signal instanceof AbortSignalClass)))
       return delegate();
     if (signal?.aborted) return delegate();
+    // A conditional request may wait for a login of the page for as long as the relay
+    // answers (ADR 0034).
+    const conditional = request.mediation === "conditional";
     const id = crypto.randomUUID();
     const result = await new Promise<PageResult | { kind: "aborted" }>((resolve) => {
       const finish = (outcome: PageResult | { kind: "aborted" }) => {
         if (!pending.delete(id)) return;
         clearTimeout(timer);
-        clearTimeout(limit);
+        if (limit !== undefined) clearTimeout(limit);
         clearTimeout(ackTimer);
         signal?.removeEventListener("abort", onAbort);
         if (outcome.kind === "cancelled" || outcome.kind === "aborted")
@@ -273,7 +277,7 @@ export function installPasskeyPage(scope: PageScope = window): void {
       const expire = () => finish({ kind: "cancelled" });
       // Each acknowledgement from the relay restarts this; the limit below does not move.
       let timer = setTimeout(expire, PAGE_TIMEOUT_MS);
-      const limit = setTimeout(expire, PAGE_MAX_WAIT_MS);
+      const limit = conditional ? undefined : setTimeout(expire, PAGE_MAX_WAIT_MS);
       // A removed or invalidated relay never acknowledges; do not hold the caller for long.
       const ackTimer = setTimeout(expire, RELAY_ACK_TIMEOUT_MS);
       pending.set(id, {
@@ -288,6 +292,15 @@ export function installPasskeyPage(scope: PageScope = window): void {
       post({ channel: PAGE_CHANNEL, type: "get", id, request });
     });
     if (result.kind === "aborted") throw signal?.reason;
+    // A Pateat login signed the page in: the request stays pending until the page aborts
+    // it, as a conditional request whose autofill choice is never made does (ADR 0034).
+    if (result.kind === "withheld" && conditional) {
+      // The page may have aborted after the relay's answer arrived.
+      if (signal?.aborted) throw signal.reason;
+      return new Promise<never>((_resolve, reject) => {
+        signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+      });
+    }
     // Chrome's own rejection when its prompt times out or is dismissed.
     if (result.kind === "not-allowed")
       throw new DOMExceptionClass(NOT_ALLOWED_MESSAGE, "NotAllowedError");

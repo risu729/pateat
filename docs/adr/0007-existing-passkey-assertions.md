@@ -22,6 +22,9 @@ requests after Pateat signed in the same tab.
 Amended on 2026-10-11 by [ADR 0027](0027-per-account-login-routes.md): during a login
 that has not ended, a request from its tab and origin uses that login's own item
 (implemented).
+Amended on 2026-10-12 by [ADR 0034](0034-answer-page-passkey-requests.md): a top
+document's `conditional` request is answered through a Pateat login of that document,
+with UP and UV set as for `optional` requests, and otherwise handed on (implemented).
 
 Date: 2026-10-10
 
@@ -110,7 +113,10 @@ boundary. Only the assertion fields return to the page.
 Pateat claims a request only when all of these hold; otherwise it delegates:
 
 - `publicKey` is the only credential type requested and mediation is absent or
-  `optional`. Conditional, silent and immediate mediation delegate.
+  `optional`. Silent and immediate mediation delegate. Conditional mediation is
+  admitted only for the login runtime to decide, which answers it through a login of
+  the document and hands it on otherwise
+  ([ADR 0034](0034-answer-page-passkey-requests.md)).
 - The caller is a top-level document, so `crossOrigin` is false and `topOrigin`
   is absent. Cross-origin frames, opaque
   origins and related origin requests delegate.
@@ -237,8 +243,9 @@ providers. Claimed requests
 complete unattended, and relying parties receive UV that no authenticator performed; any
 script running in a top-level page of a site with a stored passkey, including injected
 script, can obtain a verified assertion for that site without any Pateat site setting.
-Registration, nonzero-counter writeback, conditional mediation, cross-origin frames,
-related origins and extensions remain later work.
+Registration, nonzero-counter writeback, cross-origin frames, related origins and
+extensions remain later work; conditional mediation is answered through a login under
+[ADR 0034](0034-answer-page-passkey-requests.md).
 
 Verify with the WebAuthn Level 3 ES256 vectors, HTML registrable-suffix cases,
 credential mapping vectors, signature verification by an independent verifier,

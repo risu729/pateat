@@ -23,6 +23,7 @@ import type { ServiceTransport } from "../service/transport";
 import { acceptsSecret, type SecretInput } from "./inputs";
 import type { LoginGeneration, LoginRecipeStart, LoginReport } from "./runtime";
 import type { LoginFieldSource } from "./vault";
+import type { ConditionalDecision } from "../passkeys/runtime";
 
 const fake = vi.hoisted(() => {
   const state = {
@@ -13959,5 +13960,554 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
       expect(await h.hello()).toEqual({ ok: false, reason: "stale-document" });
       expect(status()).toBeUndefined();
     });
+  });
+});
+
+describe("the start page's own passkey request (ADR 0034)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    for (const listener of fake.state.removed.splice(0))
+      for (const tabId of [1, 2]) listener(tabId);
+  });
+  beforeEach(() => {
+    fake.state.storage = {};
+    fake.state.session = {};
+    fake.state.badges = {};
+    fake.state.reconnects = [];
+    fake.state.onReconnect = undefined;
+    fake.state.messages = [];
+    fake.state.granted = true;
+    fake.state.pageUrl = "https://login.example/signin";
+    fake.state.onExecute = undefined;
+    fake.state.tabUrls = {};
+    fake.state.observed = ["unique", "missing"];
+    fake.state.observedPath = "/signin";
+    // The base recipe has no passkey button: the page asks for a passkey by itself.
+    fake.state.present = new Set(["password", "login"]);
+    fake.state.awaited = { ok: true };
+    fake.state.onAwait = undefined;
+    fake.state.executeReply = undefined;
+    fake.state.switchReply = { ok: true };
+    fake.state.chosen = { ok: true, click: "entry" };
+    fake.state.gone = new Set();
+    fake.state.extracted = {};
+  });
+
+  const discoverable = () => vi.fn(async () => ({ passkey: true, discoverable: true }));
+  const secondFactor = () => vi.fn(async () => ({ passkey: true, discoverable: false }));
+  const status = () =>
+    fake.state.storage["pateat.login-attempts.v4"] as Record<string, unknown>[] | undefined;
+  const executed = () =>
+    fake.state.messages
+      .filter((entry) => entry.type === "login.execute")
+      .map((entry) => (entry as unknown as { operation: { step: LoginStep } }).operation.step);
+  const clicks = (value: string) =>
+    executed().filter((step) => step.kind === "click" && step.target.value === value).length;
+  const fills = () => executed().filter((step) => step.kind === "fill").length;
+  /** The page signs in once the password route's button is clicked. */
+  const signsInOnClick = () => {
+    fake.state.onExecute = async (message) => {
+      const step = (message["operation"] as { step: LoginStep }).step;
+      if (step.kind === "click" && step.target.value === "login")
+        fake.state.present = new Set(["authenticated"]);
+    };
+  };
+  function start(
+    used: LoginRecipe = recipe,
+    live: Parameters<typeof harness>[1] = {},
+    overrides: Partial<LocalSettings> = {},
+  ) {
+    const report = vi.fn<(report: LoginReport) => void>();
+    const h = harness(overrides, { passkeys: discoverable(), report, ...live });
+    h.recipes.recipe.mockResolvedValue(used);
+    return { h, report };
+  }
+  /** The passkey bridge passes the top document's conditional request to the login. */
+  const ask = (
+    h: ReturnType<typeof harness>,
+    change: Partial<{ tabId: number; origin: string; documentId: string }> = {},
+  ) => {
+    const controller = new AbortController();
+    let decided: ConditionalDecision | undefined;
+    const decision = h.login
+      .conditionalRequest({
+        tabId: 1,
+        origin,
+        documentId: "synthetic-document",
+        signal: controller.signal,
+        ...change,
+      })
+      .then((value) => (decided = value));
+    return { controller, decision, decided: () => decided };
+  };
+  /** Lets the request reach its waiting place. */
+  const flush = async () => {
+    for (let index = 0; index < 10; index++)
+      // eslint-disable-next-line no-await-in-loop
+      await (vi.isFakeTimers()
+        ? vi.advanceTimersByTimeAsync(0)
+        : new Promise((resolve) => setTimeout(resolve, 0)));
+  };
+  /** Advances fake time until the check holds. */
+  async function until(check: () => boolean, maxMs = 200_000) {
+    for (let spent = 0; !check(); spent += 100) {
+      if (spent > maxMs) throw new Error("Condition not reached in fake time");
+      // eslint-disable-next-line no-await-in-loop
+      await vi.advanceTimersByTimeAsync(100);
+    }
+  }
+  const settled = (state: string, outcome?: string) => () =>
+    status()?.[0]?.["state"] === state &&
+    (outcome === undefined || status()?.[0]?.["outcome"] === outcome);
+  const answerOf = (decision: ConditionalDecision | undefined) => {
+    expect(decision).toMatchObject({ kind: "answer", item: { connectionId, itemId } });
+    return decision as Extract<ConditionalDecision, { kind: "answer" }>;
+  };
+  const routeChanges = (report: ReturnType<typeof start>["report"]) =>
+    report.mock.calls
+      .map(([entry]) => entry)
+      .filter((entry) => entry.type === "attempt" && "routeChange" in entry)
+      .map((entry) => (entry as { route: string; routeChange?: string }).routeChange);
+
+  it("hands a request on at once on an origin without a recipe", async () => {
+    const { h } = start();
+    const request = ask(h, { origin: "https://elsewhere.example" });
+    expect(await request.decision).toEqual({ kind: "delegate", reason: "no-recipe" });
+    expect(executed()).toEqual([]);
+  });
+
+  it("hands a request on when no login of its document starts within three seconds", async () => {
+    vi.useFakeTimers();
+    const { h } = start();
+    const request = ask(h);
+    await flush();
+    await vi.advanceTimersByTimeAsync(2_500);
+    expect(request.decided()).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(request.decided()).toEqual({ kind: "delegate", reason: "no-login" });
+    // A login of another document of the tab does not decide it either.
+    const other = ask(h, { documentId: "other-document" });
+    await flush();
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => other.decided() !== undefined, 5_000);
+    expect(other.decided()).toEqual({ kind: "delegate", reason: "no-login" });
+  });
+
+  it("forgets a request the page aborts while it waits", async () => {
+    const { h } = start();
+    const request = ask(h);
+    await flush();
+    request.controller.abort();
+    await request.decision;
+    // A login of the document then finds no request to answer and takes the password.
+    signsInOnClick();
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(status()).toMatchObject([{ state: "authenticated", route: "password" }]),
+    );
+    expect(fills()).toBe(1);
+    expect(clicks("login")).toBe(1);
+  });
+
+  it("answers a waiting request with the login's item on the passkey route, filling nothing", async () => {
+    const { h, report } = start();
+    const request = ask(h);
+    await flush();
+    expect(await h.hello()).toEqual({ ok: true });
+    const answer = answerOf(await request.decision);
+    // The answer is the route's submission, recorded before it goes out.
+    expect(status()![0]).toMatchObject({
+      route: "passkey",
+      variant: 0,
+      state: "submit-intent",
+      stepCount: 1,
+      submissions: 1,
+    });
+    fake.state.present = new Set(["authenticated"]);
+    answer.answered(true);
+    await vi.waitFor(() =>
+      expect(status()).toMatchObject([{ state: "authenticated", route: "passkey" }]),
+    );
+    expect(executed()).toEqual([]);
+    expect(h.fields).not.toHaveBeenCalled();
+    expect(report.mock.calls.map(([entry]) => entry)).toContainEqual(
+      expect.objectContaining({ type: "start", route: "passkey", variant: 0 }),
+    );
+    expect(routeChanges(report)).toEqual([]);
+  });
+
+  it("switches a password login to the passkey route before it submits, keeping its fill", async () => {
+    const { h, report } = start();
+    let request: ReturnType<typeof ask> | undefined;
+    // The page asks for a passkey while its form is being filled.
+    fake.state.onExecute = async (message) => {
+      const step = (message["operation"] as { step: LoginStep }).step;
+      if (step.kind !== "fill" || request) return;
+      request = ask(h);
+      await flush();
+    };
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(request).toBeDefined());
+    const answer = answerOf(await request!.decision);
+    expect(status()![0]).toMatchObject({
+      route: "passkey",
+      variant: 0,
+      state: "submit-intent",
+      submissions: 1,
+    });
+    fake.state.present = new Set(["authenticated"]);
+    answer.answered(true);
+    await vi.waitFor(() =>
+      expect(status()).toMatchObject([{ state: "authenticated", route: "passkey" }]),
+    );
+    expect(fills()).toBe(1);
+    expect(clicks("login")).toBe(0);
+    expect(routeChanges(report)).toEqual(["page-request"]);
+    expect(report.mock.calls.map(([entry]) => entry)).toContainEqual(
+      expect.objectContaining({ type: "attempt", route: "passkey", routeChange: "page-request" }),
+    );
+  });
+
+  it("falls back to the password when the request went away before the answer", async () => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    // The page cancels its request while the login starts.
+    const passkeys = vi.fn(async () => {
+      controller.abort();
+      return { passkey: true, discoverable: true };
+    });
+    const { h, report } = start(recipe, { passkeys });
+    void h.login.conditionalRequest({
+      tabId: 1,
+      origin,
+      documentId: "synthetic-document",
+      signal: controller.signal,
+    });
+    await flush();
+    signsInOnClick();
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(settled("authenticated"), 20_000);
+    expect(status()![0]).toMatchObject({ route: "password", variant: 0, submissions: 1 });
+    expect(fills()).toBe(1);
+    expect(clicks("login")).toBe(1);
+    expect(routeChanges(report)).toEqual(["request-missing"]);
+  });
+
+  it("falls back to the recorded variant when the item cannot answer, and never answers twice", async () => {
+    const { h, report } = start();
+    const request = ask(h);
+    await flush();
+    expect(await h.hello()).toEqual({ ok: true });
+    const answer = answerOf(await request.decision);
+    signsInOnClick();
+    answer.answered(false);
+    // The passkey bridge passes the request to the login again, as it does after a failure.
+    const again = ask(h);
+    await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]));
+    expect(status()![0]).toMatchObject({
+      route: "password",
+      variant: 0,
+      // The answer counted, and the password route kept its own budget.
+      submissions: 2,
+      maxSubmissions: 2,
+    });
+    expect(fills()).toBe(1);
+    expect(clicks("login")).toBe(1);
+    // The login signed in, so the page keeps waiting.
+    expect(await again.decision).toEqual({ kind: "withhold" });
+    expect(routeChanges(report)).toEqual(["answer-failed"]);
+    expect(report.mock.calls.map(([entry]) => entry)).toContainEqual(
+      expect.objectContaining({ type: "attempt", route: "passkey", cause: "answer-failed" }),
+    );
+  });
+
+  it("falls back to the password when the sign-in form still shows fifteen seconds after the answer", async () => {
+    vi.useFakeTimers();
+    const { h, report } = start();
+    const request = ask(h);
+    await flush();
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => request.decided() !== undefined, 5_000);
+    const answer = answerOf(request.decided());
+    answer.answered(true);
+    // The site may still be exchanging the assertion while its form shows.
+    await vi.advanceTimersByTimeAsync(12_000);
+    expect(status()![0]).toMatchObject({ state: "awaiting-result", route: "passkey" });
+    expect(executed()).toEqual([]);
+    signsInOnClick();
+    await until(settled("authenticated"), 20_000);
+    expect(status()![0]).toMatchObject({ route: "password", variant: 0, submissions: 2 });
+    expect(fills()).toBe(1);
+    expect(clicks("login")).toBe(1);
+    expect(routeChanges(report)).toEqual(["sign-in-shown"]);
+  });
+
+  it("ends as a challenge without a password variant to fall back to", async () => {
+    vi.useFakeTimers();
+    // The item has no password, so no variant fits.
+    const { h, report } = start(recipe, {}, { bindings: [] });
+    const original = h.store.handle.getMockImplementation()!;
+    h.store.handle.mockImplementation(async () => {
+      const response = await original();
+      if (response.ok)
+        response.catalog.connections[0]!.items[0]!.fields =
+          response.catalog.connections[0]!.items[0]!.fields.map((field) =>
+            field.id === "login.password" ? { ...field, empty: true as const } : field,
+          );
+      return response;
+    });
+    const request = ask(h);
+    await flush();
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => request.decided() !== undefined, 5_000);
+    expect(status()![0]).toMatchObject({ route: "passkey" });
+    expect(status()![0]).not.toHaveProperty("variant");
+    answerOf(request.decided()).answered(false);
+    await until(settled("blocked", "challenge"), 5_000);
+    expect(executed()).toEqual([]);
+    expect(routeChanges(report)).toEqual([]);
+  });
+
+  it("judges the page after the answer on the password route", async () => {
+    vi.useFakeTimers();
+    const { completion: _unlearned, ...unlearned } = recipe;
+    const homePage = {
+      ok: true,
+      observation: {
+        version: 1,
+        origin,
+        path: "/home",
+        language: "en",
+        complete: true,
+        candidates: [{ id: "c1", role: "button", target: target("logout"), label: "Sign out" }],
+      },
+    };
+    const service = {
+      available: vi.fn<LoginGeneration["available"]>(async () => "sent"),
+      generate: vi.fn<LoginGeneration["generate"]>(async () => ({
+        outcome: "skipped",
+        reason: "sent",
+      })),
+      judge: vi.fn<LoginGeneration["judge"]>(async (...args) => {
+        args[4]?.();
+        return { verdict: "signed-in" };
+      }),
+      generateEntry: vi.fn<LoginGeneration["generateEntry"]>(),
+      slotFields: vi.fn<LoginGeneration["slotFields"]>(async () => undefined),
+    };
+    const used = parseLoginRecipe(unlearned);
+    const { h } = start(used, { generation: service });
+    const request = ask(h);
+    await flush();
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => request.decided() !== undefined, 5_000);
+    fake.state.observedPath = "/home";
+    fake.state.present = new Set(["logout"]);
+    fake.state.extracted = { "signed-in": homePage };
+    answerOf(request.decided()).answered(true);
+    await until(settled("authenticated"), 20_000);
+    expect(status()![0]).toMatchObject({ route: "passkey" });
+    // The service knows no passkey route on a recipe without its button.
+    expect(service.judge).toHaveBeenCalledWith(
+      used.id,
+      used.revision,
+      "password",
+      homePage.observation,
+      expect.any(Function),
+    );
+    expect(executed()).toEqual([]);
+  });
+
+  it("withholds a request that waited for a password login that signed in", async () => {
+    // The item's passkey is a second factor only, so the login takes the password route.
+    const { h, report } = start(recipe, { passkeys: secondFactor() });
+    const request = ask(h);
+    await flush();
+    signsInOnClick();
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(status()).toMatchObject([{ state: "authenticated", route: "password" }]),
+    );
+    expect(await request.decision).toEqual({ kind: "withhold" });
+    expect(fills()).toBe(1);
+    expect(routeChanges(report)).toEqual([]);
+  });
+
+  it("hands a request on once the login it waited for ended without signing in", async () => {
+    const { h } = start(parseLoginRecipe({ ...recipe, rejection: target("rejected") }), {
+      passkeys: secondFactor(),
+    });
+    const request = ask(h);
+    await flush();
+    fake.state.onExecute = async (message) => {
+      const step = (message["operation"] as { step: LoginStep }).step;
+      if (step.kind === "click") fake.state.present = new Set(["password", "login", "rejected"]);
+    };
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(status()).toMatchObject([{ state: "blocked" }]));
+    expect(await request.decision).toEqual({ kind: "delegate", reason: "login-ended" });
+  });
+
+  it("hands a request on during a login that only fills after a logout", async () => {
+    const both = uriMatch({
+      candidates: [
+        { itemId, matches: [{ uriIndex: 0, match: 0 }] },
+        { itemId: otherItemId, matches: [{ uriIndex: 0, match: 0 }] },
+      ],
+    });
+    // The item holds a discoverable passkey, yet the login after the logout only fills.
+    const { h, report } = start(recipe, {
+      allowedOrigins: [],
+      uris: async () => ({ ok: true, data: both }),
+    });
+    signsInOnClick();
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]));
+    // The form shows again after a logout; the fill that follows never answers.
+    fake.state.present = new Set(["password", "login"]);
+    fake.state.onExecute = () => new Promise(() => undefined);
+    expect(await h.hello({ documentId: "signed-out" })).toEqual({ ok: true });
+    await vi.waitFor(() => expect(fills()).toBe(2));
+    expect(status()![0]).toMatchObject({ fillOnly: true, route: "password" });
+    const request = ask(h, { documentId: "signed-out" });
+    expect(await request.decision).toEqual({ kind: "delegate", reason: "after-logout" });
+    expect(routeChanges(report)).toEqual([]);
+  });
+
+  it("does not answer a login that only fills after a logout when the request came first", async () => {
+    const both = uriMatch({
+      candidates: [
+        { itemId, matches: [{ uriIndex: 0, match: 0 }] },
+        { itemId: otherItemId, matches: [{ uriIndex: 0, match: 0 }] },
+      ],
+    });
+    const { h, report } = start(recipe, {
+      allowedOrigins: [],
+      uris: async () => ({ ok: true, data: both }),
+    });
+    signsInOnClick();
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]));
+    // The signed-out page asks for a passkey before its form is ready.
+    fake.state.present = new Set(["password", "login"]);
+    fake.state.onExecute = () => new Promise(() => undefined);
+    const request = ask(h, { documentId: "signed-out" });
+    await flush();
+    expect(await h.hello({ documentId: "signed-out" })).toEqual({ ok: true });
+    expect(await request.decision).toEqual({ kind: "delegate", reason: "after-logout" });
+    await vi.waitFor(() => expect(fills()).toBe(2));
+    expect(status()![0]).toMatchObject({ fillOnly: true, route: "password" });
+    expect(clicks("login")).toBe(1);
+    expect(routeChanges(report)).toEqual([]);
+  });
+
+  it("falls back as a missing request when the request went away as it was answered", async () => {
+    const { h, report } = start();
+    const request = ask(h);
+    await flush();
+    // The page aborts its request just before the answer goes out.
+    const original = h.store.handle.getMockImplementation()!;
+    h.store.handle.mockImplementation(async () => {
+      if (status()?.[0]?.["state"] === "submit-intent") request.controller.abort();
+      return original();
+    });
+    signsInOnClick();
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(status()).toMatchObject([{ state: "authenticated", route: "password" }]),
+    );
+    expect(status()![0]).toMatchObject({ variant: 0, submissions: 2, maxSubmissions: 2 });
+    expect(routeChanges(report)).toEqual(["request-missing"]);
+    const attempts = report.mock.calls
+      .map(([entry]) => entry)
+      .filter((entry) => entry.type === "attempt");
+    expect(attempts).not.toContainEqual(expect.objectContaining({ cause: "answer-failed" }));
+    expect(attempts).toContainEqual(
+      expect.objectContaining({ route: "passkey", state: "reconciling", outcome: "timeout" }),
+    );
+  });
+
+  it("falls back to the password when the recipe's rejection shows after the answer", async () => {
+    const rejecting = parseLoginRecipe({ ...recipe, rejection: target("rejected") });
+    const { h, report } = start(rejecting);
+    const request = ask(h);
+    await flush();
+    expect(await h.hello()).toEqual({ ok: true });
+    const answer = answerOf(await request.decision);
+    fake.state.present = new Set(["password", "login", "rejected"]);
+    signsInOnClick();
+    answer.answered(true);
+    await vi.waitFor(() =>
+      expect(status()).toMatchObject([{ state: "authenticated", route: "password" }]),
+    );
+    expect(status()![0]).toMatchObject({ variant: 0, submissions: 2 });
+    expect(fills()).toBe(1);
+    expect(clicks("login")).toBe(1);
+    expect(routeChanges(report)).toEqual(["sign-in-rejected"]);
+  });
+
+  it("does not take a rejection still showing from the passkey answer as the password's", async () => {
+    const rejecting = parseLoginRecipe({ ...recipe, rejection: target("rejected") });
+    const { h, report } = start(rejecting);
+    const request = ask(h);
+    await flush();
+    expect(await h.hello()).toEqual({ ok: true });
+    const answer = answerOf(await request.decision);
+    fake.state.present = new Set(["password", "login", "rejected"]);
+    // The banner stays after the click until the site signs in a little later.
+    fake.state.onExecute = async (message) => {
+      const step = (message["operation"] as { step: LoginStep }).step;
+      if (step.kind === "click" && step.target.value === "login")
+        setTimeout(() => {
+          fake.state.present = new Set(["authenticated"]);
+        }, 300);
+    };
+    answer.answered(true);
+    await vi.waitFor(() =>
+      expect(status()).toMatchObject([{ state: "authenticated", route: "password" }]),
+    );
+    expect(clicks("login")).toBe(1);
+    expect(routeChanges(report)).toEqual(["sign-in-rejected"]);
+  });
+
+  it("does not spin when the answer is not authorized, and withholds after four minutes", async () => {
+    vi.useFakeTimers();
+    const first = new AbortController();
+    // The page cancels its first request while the login starts on the passkey route.
+    const passkeys = vi.fn(async () => {
+      first.abort();
+      return { passkey: true, discoverable: true };
+    });
+    const { h } = start(recipe, { passkeys });
+    void h.login.conditionalRequest({
+      tabId: 1,
+      origin,
+      documentId: "synthetic-document",
+      signal: first.signal,
+    });
+    await flush();
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.advanceTimersByTimeAsync(500);
+    expect(status()![0]).toMatchObject({ route: "passkey", state: "ready" });
+    // The extension's storage fails meanwhile, so no step is authorized any more.
+    const set = fake.browser.storage.local.set;
+    fake.browser.storage.local.set = async () => {
+      throw new Error("synthetic storage failure");
+    };
+    try {
+      for (const listener of fake.state.removed) listener(2);
+      await flush();
+    } finally {
+      fake.browser.storage.local.set = set;
+    }
+    // The page asks again while the login waits for a request.
+    const request = ask(h);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(request.decided()).toBeUndefined();
+    expect(executed()).toEqual([]);
+    // The login stays where it was; the request waits for it, then is withheld.
+    await until(() => request.decided() !== undefined, 250_000);
+    expect(request.decided()).toEqual({ kind: "withhold" });
+    expect(executed()).toEqual([]);
   });
 });
