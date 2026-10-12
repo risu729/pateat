@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { domainKey } from "@pateat/bitwarden";
-import { linkRefusal, namedHosts, namedUrls, namesReturnPath, type OnSite } from "./entry";
+import { linkRefusal, namedHosts, namesReturnPath, type OnSite } from "./entry";
 
 // Synthetic sites only. The worker compares registrable domains; here the site is every
 // host under `pixiv.example`.
@@ -9,16 +9,8 @@ const onSite: OnSite = (url) =>
 const page = (query: string, path = "/en/") => new URL(`https://www.pixiv.example${path}${query}`);
 
 describe("the URLs a page's query values name (ADR 0031)", () => {
-  it("reads a value that starts with `/` or is an absolute URL, parsed against the page", () => {
-    expect(
-      namedUrls(page("?return_to=%2Fbookmark_new_illust.php&lang=en&ref=https://a.example/x")).map(
-        String,
-      ),
-    ).toEqual(["https://www.pixiv.example/bookmark_new_illust.php", "https://a.example/x"]);
-  });
-
   it("does not read a word, which resolves to a path of the page", () => {
-    expect(namedUrls(page("?lang=en&next=bookmarks"))).toEqual([]);
+    expect(namesReturnPath(page("?lang=en&next=bookmarks"), onSite)).toBe(false);
   });
 
   it.each([
@@ -29,9 +21,6 @@ describe("the URLs a page's query values name (ADR 0031)", () => {
     ["an absolute URL whose host only ends with the site's name", "https://evilpixiv.example/x"],
   ])("lets the URL parser decide where %s leads", (_label, value) => {
     const url = page(`?return_to=${encodeURIComponent(value)}`);
-    expect(namedUrls(url).map((named) => named.hostname)).toEqual([
-      value.includes("evilpixiv") ? "evilpixiv.example" : "evil.example",
-    ]);
     expect(namesReturnPath(url, onSite)).toBe(false);
   });
 });

@@ -157,11 +157,6 @@ test("links the source, its license and the bundled notices", async () => {
   await expect.element(page.getByRole("combobox", { name: /^Theme/ })).toBeVisible();
 });
 
-test("renders no page for an unknown path", async () => {
-  await mount(mockClient(), "/manage/unknown");
-  await expect.element(page.getByText("No such page.")).toBeVisible();
-});
-
 test("the client sends same-origin requests and validates answers", async () => {
   const fetcher = vi.fn(async (input: string, init?: RequestInit) => {
     if (input === "/manage/api/devices") return Response.json(devices());

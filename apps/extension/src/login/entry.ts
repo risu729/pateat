@@ -35,26 +35,21 @@ function queryUrls(url: URL): URL[] {
   return queryParts(url).flatMap((part) => readings(part, url).filter((read) => read.hostname));
 }
 
-/** The query values of `url` that {@link namedUrls} reads. */
+/**
+ * The query values of `url` that may name a URL: a value counts when, after URL decoding,
+ * it is an absolute URL or starts with `/`, as `return_to=%2Fbookmarks` does. Other values,
+ * such as `lang=en`, are not read, since any word resolves to a path of the page. The URL
+ * parser decides where a value leads, never its characters: `//evil.example/x`,
+ * `/\evil.example/x` and a `/` followed by a tab and `/evil.example/x` all lead to
+ * `evil.example`.
+ */
 const namedValues = (url: URL) =>
   [...url.searchParams.values()].filter((value) => value.startsWith("/") || parse(value));
 
 /**
- * The URLs the query values of `url` name, parsed against `url` itself: a value counts
- * when, after URL decoding, it is an absolute URL or starts with `/`, as
- * `return_to=%2Fbookmarks` does. Other values, such as `lang=en`, are not read, since any
- * word resolves to a path of the page. The URL parser decides where a value leads, never
- * its characters: `//evil.example/x`, `/\evil.example/x` and a `/` followed by a tab and
- * `/evil.example/x` all lead to `evil.example`.
- */
-export function namedUrls(url: URL): URL[] {
-  return namedValues(url).flatMap((value) => parse(value, url) ?? []);
-}
-
-/**
  * Whether a query value of the page's URL names another path of its own site, which shows
  * the site sent the visitor there to sign in first (ADR 0031, owner 2026-10-12 06:53 UTC):
- * a value that {@link namedUrls} reads and that leads to an `https:` URL on the site whose
+ * a value that {@link namedValues} reads and that leads to an `https:` URL on the site whose
  * path is neither `/` nor the page's own. A value counts only when every reading of it, on
  * its own and resolved against the page, is such a URL: `https:evil.example/x` is a
  * path of the page resolved against it, but another host on its own. A manual logout that

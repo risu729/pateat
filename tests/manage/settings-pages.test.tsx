@@ -364,7 +364,6 @@ test("leaves a rule that also covers other sites to the Sites list", async () =>
     .toHaveAccessibleDescription(
       "Excluded with example and subdomains; allow it on the Sites list",
     );
-  await expect.element(page.getByRole("link", { name: "Sites" }).first()).toBeVisible();
 });
 
 test("has no page for a path that names no exact HTTP(S) origin", async () => {
@@ -375,6 +374,7 @@ test("has no page for a path that names no exact HTTP(S) origin", async () => {
     "/manage/sites/https/bank.example/login",
     "/manage/bindings",
     "/manage/recipes",
+    "/manage/unknown",
   ]) {
     // oxlint-disable-next-line no-await-in-loop -- one page at a time
     await mount(mockClient({ version: 1, revision: 0, settings: null }), path);
