@@ -49,16 +49,22 @@ fix them now; the SSO policy itself is recorded separately.
 - **A tab still runs one attempt at a time.** When a new top-level page of another
   origin arrives while the tab's top-level attempt has not ended, that attempt ends
   first (`NAVIGATED`) and keeps its record; then the new top-level page is handled like
-  one in a fresh tab. Frames of that page are too (amended 2026-10-12): a top-level
-  record of another origin than the tab's page never holds a frame, and one that has not
-  ended ends `NAVIGATED` first, also when the frame announces before its page. Before, a
-  frame of a later page got `tab-busy` while the tab held any earlier record, so a site
-  whose login form is in a frame never logged in in a tab used for another site's login.
-  A record of the page's own origin and a frame's record still hold other frames with
-  `tab-busy`. Frame attempts keep ADR 0017's rule: a whole-tab
-  navigation ends them `blocked` with outcome `cancelled`. A frame that itself moves to
-  another origin does not end its attempt; it ends with the next whole-tab navigation or
-  when the tab closes, as before.
+  one in a fresh tab. Frames of that page are too (amended 2026-10-12). A record belongs
+  to the site of the tab's page when its login started: the record's own origin for a
+  top-level login, and the page around it (stored as `pageOrigin`) for a frame's login.
+  An ended record of another site than the tab's page never holds the page or its
+  frames, also after a worker restart. A top-level one that has not ended ends
+  `NAVIGATED` first, also when a frame announces before its page; a frame's one ends
+  when the new page arrives, as below. Before, a frame of a later page got
+  `tab-busy` while the tab held any earlier record, so a site whose login form is in a
+  frame never logged in in a tab used for another site's login, and after a restart the
+  next site's page did not either. A document of the left site's own origin, such as a
+  frame of it on the new page, still resumes that origin's ended record and never
+  submits there again. While the tab's latest record belongs to the page's site, it
+  still holds the page's other frames with `tab-busy`. Frame attempts keep ADR 0017's
+  rule: a whole-tab navigation ends them `blocked` with outcome `cancelled`. A frame
+  that itself moves to another origin does not end its attempt; it ends with the next
+  whole-tab navigation or when the tab closes, as before.
 - **Leaving the origin after a possible submission ends the attempt.** A top-level
   attempt that may have submitted (any fill or a click that submitted) and sees the
   tab's page move to another origin ends `blocked` with the new outcome `left-origin`.

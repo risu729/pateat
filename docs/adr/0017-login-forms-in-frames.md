@@ -54,8 +54,8 @@ the frame's URL and the tab's URL match the chosen vault item:
   [ADR 0022](0022-login-attempts-per-tab-and-origin.md)). While a frame holds it, the
   page around the frame and any other frame (an advertisement, a widget) are refused
   with `tab-busy`. The same applies to frames while the top-level page holds the
-  attempt, but not to frames of a page on another origin than that attempt's (amended by
-  ADR 0022 on 2026-10-12). A new top-level document ends an attempt held by a frame only
+  attempt. A record of another site than the tab's page holds neither (amended by ADR
+  0022 on 2026-10-12). A new top-level document ends an attempt held by a frame only
   when that frame no longer answers, because a frame of the new page may announce before
   its own page does. A prerendered page, which Chrome also reports with a nonzero frame
   ID, is not treated as a frame.

@@ -6,6 +6,7 @@ import {
   loginDocumentSchema,
   loginItemFactsSchema,
   loginOperationSchema,
+  loginOriginSchema,
   loginOutcomeSchema,
   loginRouteSchema,
   loginStepEffect,
@@ -84,6 +85,11 @@ export const attemptMetadataSchema = v.pipe(
       ),
     ),
     document: loginDocumentSchema,
+    /**
+     * For a frame's login, the origin of the tab's page around it when the login started:
+     * the site the login belongs to (ADR 0022).
+     */
+    pageOrigin: v.optional(loginOriginSchema),
     state: loginAttemptStateSchema,
     stepIndex: integer(MAX_ATTEMPT_STEPS),
     stepCount: v.pipe(integer(MAX_ATTEMPT_STEPS), v.minValue(1)),
@@ -120,6 +126,7 @@ export const attemptMetadataSchema = v.pipe(
   v.check(
     (metadata) =>
       metadata.document.origin === metadata.account.origin &&
+      (metadata.pageOrigin === undefined || metadata.document.frameId !== 0) &&
       metadata.stepIndex <= metadata.stepCount &&
       metadata.submissions <= metadata.maxSubmissions,
     "Inconsistent attempt scope or budget",
@@ -752,6 +759,8 @@ export function createAttemptMetadata(input: {
   choice: LoginRouteChoice;
   facts: LoginItemFacts;
   document: LoginDocument;
+  /** The origin of the tab's page, for a frame's login. */
+  pageOrigin?: string;
   accountSwitched?: boolean;
 }): LoginAttemptMetadata {
   const recipe = parseLoginRecipe(input.recipe);
@@ -769,6 +778,7 @@ export function createAttemptMetadata(input: {
     facts: input.facts,
     handlers: [],
     document: input.document,
+    ...(input.pageOrigin === undefined ? {} : { pageOrigin: input.pageOrigin }),
     state: "detected",
     stepIndex: 0,
     stepCount: routeSteps(recipe, input.choice).length,

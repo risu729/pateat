@@ -1160,6 +1160,36 @@ describe("production login document admission", () => {
       await vi.waitFor(() => expect(at(second)).toMatchObject({ state: "authenticated" }));
       expect(at(origin)).toMatchObject({ state: "blocked", outcome: "wrong-account" });
     });
+    it("lets the next site log in after the tab's framed login on another site", async () => {
+      const portal = "https://portal.example/account";
+      const h = twoSites({ allowedOrigins: [origin, second, "https://portal.example"] });
+      fake.state.tabUrls[1] = portal;
+      expect(
+        await h.hello({ frameId: 5, documentId: "portal-frame", tab: { id: 1, url: portal } }),
+      ).toEqual({ ok: true });
+      await vi.waitFor(() =>
+        expect(at(origin)).toMatchObject({
+          state: "authenticated",
+          document: { frameId: 5 },
+          pageOrigin: "https://portal.example",
+        }),
+      );
+      // After a worker restart, the next site's page and its frame are not held either.
+      const query = fake.browser.tabs.query;
+      fake.browser.tabs.query = async () => [{ id: 1 }] as never;
+      try {
+        const restarted = twoSites();
+        expect(await restarted.login.active()).toBe(false);
+        expect(await navigate(restarted, secondPage, "second-page", false)).toMatchObject({
+          reason: "recipe-not-found",
+        });
+        expect(await restarted.hello(secondFrame())).toEqual({ ok: true });
+        await vi.waitFor(() => expect(at(second)).toMatchObject({ state: "authenticated" }));
+        expect(at(origin)).toMatchObject({ state: "authenticated", document: { frameId: 5 } });
+      } finally {
+        fake.browser.tabs.query = query;
+      }
+    });
     it("ends the left site's login when the next site's frame announces before its page", async () => {
       holdClicks(origin);
       const h = twoSites();

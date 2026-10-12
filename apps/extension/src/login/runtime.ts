@@ -3097,7 +3097,9 @@ export function createLoginRuntime(
     try {
       const tab = await browser.tabs.get(document.tabId);
       if (document.frameId !== 0) {
-        if (!tab.url) return { ok: false, reason: "stale-document" };
+        // A frame's page is a web page; any other URL means the tab moved on.
+        if (!tab.url || !/^https?:$/.test(new URL(tab.url).protocol))
+          return { ok: false, reason: "stale-document" };
         topUrl = tab.url;
       } else if (tab.url && new URL(tab.url).origin === document.origin) url = tab.url;
     } catch {
@@ -3158,12 +3160,14 @@ export function createLoginRuntime(
         }
       }
     }
-    // The site the tab shows now. A login of the tab's page on another site is a login of
-    // a site the tab left: it never holds a document of this site, so a frame here can log
-    // in after it, and one still running ends below.
+    // The site the tab shows now. A login on another site's page, in the page or in one of
+    // its frames, is a login of a site the tab left: it never holds a document of this
+    // site, and a top-level one still running ends below.
     const siteOrigin = topUrl ? new URL(topUrl).origin : document.origin;
-    const leftSite = (record: LoginAttemptMetadata) =>
-      record.document.frameId === 0 && record.account.origin !== siteOrigin;
+    const leftSite = (record: LoginAttemptMetadata) => {
+      const site = record.document.frameId === 0 ? record.account.origin : record.pageOrigin;
+      return site !== undefined && site !== siteOrigin;
+    };
     // A busy document is still recorded, so a later new page in the tab is recognized.
     const busy =
       owner !== undefined &&
@@ -3214,15 +3218,14 @@ export function createLoginRuntime(
     if (busy) return refuse("tab-busy");
     if (!storageHealthy) return refuse("storage-unavailable");
     const holder = tabAttempt(document.tabId);
-    if (holder && !terminal(holder) && leftSite(holder)) {
+    if (holder && !terminal(holder) && holder.document.frameId === 0 && leftSite(holder)) {
       // The tab's page moved to another origin: the attempt there ends without
       // resubmitting and keeps its record, and this page or its frame may start its own.
       // A frame stands for the tab's page, which left the attempt's origin.
       const run = attempts.get(document.tabId);
       const ended = transitionLoginAttempt(run?.metadata ?? recoverLoginAttempt(holder), {
         type: "NAVIGATED",
-        document:
-          document.frameId === 0 ? document : { ...document, frameId: 0, origin: siteOrigin },
+        document: { ...document, frameId: 0, origin: siteOrigin },
       });
       if (run) run.metadata = ended;
       reportAttempt(ended, run?.recipe);
@@ -3233,7 +3236,8 @@ export function createLoginRuntime(
       }
       if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
     }
-    // A document resumes only its own origin's record in the tab, even an ended one.
+    // A document resumes only its own origin's record in the tab, even an ended one, also
+    // one of a site the tab left, so a login never submits there again.
     let recorded = recordFor(document.tabId, document.origin);
     const logoutKey = recordKey(document.tabId, document.origin);
     if (
@@ -3468,6 +3472,7 @@ export function createLoginRuntime(
           choice: plan.route,
           facts: plan.facts,
           document,
+          ...(document.frameId === 0 ? {} : { pageOrigin: siteOrigin }),
           accountSwitched: switched,
         }),
         { type: "RESOLVE" },
