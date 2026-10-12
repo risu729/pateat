@@ -577,7 +577,7 @@ describe("recipe generation", () => {
       { calls: 0, cost_micro_usd: 0 },
       { calls: 0, cost_micro_usd: 0 },
     ]);
-    // The refusal is deterministic, so it counts toward the 24-hour rule.
+    // The refusal is deterministic, so it counts toward the retry window.
     expect(
       await rows("SELECT path FROM generation_attempts WHERE owner_id = ?", device.ownerId),
     ).toEqual([{ path: big.path }]);

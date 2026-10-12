@@ -149,6 +149,9 @@ export async function generateRecipe(
         raced = latest.answer;
         return "recipe-conflict";
       }
+      // A recipe generated and revoked meanwhile would make this call's write fail.
+      if ((latest.base?.revision ?? latest.revoked ?? 0) !== baseRevision)
+        return "recipe-conflict";
       const [recent] = await db
         .select()
         .from(generationAttempts)

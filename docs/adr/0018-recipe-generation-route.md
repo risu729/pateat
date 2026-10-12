@@ -84,8 +84,10 @@ new owner decision:
 - Each origin and start path has one generated recipe ID. Revoking it stops its later
   pages and judgements, but its start page is generated again on the next visit, as the
   revision after the tombstone (owner decision, 2026-10-12). That attempt is keyed by
-  the tombstone's revision, so the earlier recipe's attempt does not hold it back. Until
-  then a revoked recipe stopped generation on its start path for good.
+  the tombstone's revision, so the earlier recipe's attempt does not hold it back. A
+  device offers the page again once its recipe sync has removed the revoked recipe. The
+  recipe keeps its ID, so a saved binding or this device's slot map for it still
+  applies. Until then a revoked recipe stopped generation on its start path for good.
 - Log rows older than 90 days are deleted whenever a call is logged and whenever a
   device reads the recipe change feed, since routine releases do not apply scheduled
   triggers. Requests refused locally before any model call are not logged.
