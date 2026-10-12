@@ -1544,6 +1544,35 @@ describe("the totp handler in an attempt (ADR 0027)", () => {
     expect(ready).toMatchObject({ state: "ready", stepIndex: 2 });
     expect(submitted(ready)).toEqual(ready);
   });
+
+  it("takes it after a route's code fill when the runtime marks the code as the route's", () => {
+    const route = { type: "AUTO_SUBMITTED", operationId: "page-one", route: true } as const;
+    let attempt = transitionLoginAttempt(detected(coded), { type: "RESOLVE" });
+    // Before anything was filled there is no code to have submitted.
+    expect(transitionLoginAttempt(attempt, route)).toEqual(attempt);
+    attempt = transitionLoginAttempt(attempt, {
+      type: "PREPARE",
+      operationId: "fill-one",
+      kind: "fill",
+    });
+    attempt = transitionLoginAttempt(attempt, { type: "MUTATION_INTENT", operationId: "fill-one" });
+    // In flight, as a new document finds it, the step becomes the click after the fill.
+    expect(transitionLoginAttempt(attempt, route)).toMatchObject({
+      state: "reconciling",
+      stepIndex: 1,
+      operationKind: "click",
+      submissions: 1,
+    });
+    attempt = transitionLoginAttempt(attempt, { type: "OPERATION_OK", operationId: "fill-one" });
+    expect(transitionLoginAttempt(attempt, route)).toMatchObject({
+      state: "reconciling",
+      stepIndex: 1,
+      operationId: "page-one",
+      operationKind: "click",
+      operationEffect: "submit",
+      submissions: 1,
+    });
+  });
 });
 
 describe("password route variants in an attempt (ADR 0027)", () => {

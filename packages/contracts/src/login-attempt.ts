@@ -378,13 +378,18 @@ export const loginAttemptEventSchema = v.variant("type", [
     document: loginDocumentSchema,
   }),
   /**
-   * The page submitted a `totp` handler's code by itself (ADR 0027), as a code input that
-   * submits on its last digit does: after the handler's fill, before its click found the
-   * button. The click step counts as done by the page under `operationId`, a new effect
-   * step, so the page is settled and judged as after a click; the code is never filled
-   * again. The runtime checks that the steps are a `totp` handler's fill and click.
+   * The page submitted a TOTP code by itself (ADR 0027), as a code input that submits on
+   * its last digit does: after the code's fill, before its click found the button. The
+   * click step counts as done by the page under `operationId`, a new effect step, so the
+   * page is settled and judged as after a click; the code is never filled again. `route`
+   * marks a route step's code rather than a `totp` handler's. The runtime checks that the
+   * steps are such a code's fill and click.
    */
-  v.strictObject({ type: v.literal("AUTO_SUBMITTED"), operationId: identifier }),
+  v.strictObject({
+    type: v.literal("AUTO_SUBMITTED"),
+    operationId: identifier,
+    route: v.optional(v.literal(true)),
+  }),
   /**
    * A chooser's list shows no account that fits the login's own, and no button for another
    * account (ADR 0028): the login ends before its first step, as `account-not-listed`.
@@ -898,23 +903,27 @@ function createLoginAttemptMachine() {
         context.stepCount + event.steps <= MAX_ATTEMPT_STEPS &&
         context.maxSubmissions + event.effects <= MAX_ATTEMPT_SUBMISSIONS &&
         sameScope(context.document, event.document),
-      // Between an entered handler's first step, its fill, and the click after it, or with
-      // the fill still unanswered; the page's own submission takes the click's place in the
-      // budget. The runtime checks that the handler is a `totp` handler.
+      // Between a code's fill and the click after it, or with the fill still unanswered:
+      // an entered handler's first step, or a route step's (`route`); the page's own
+      // submission takes the click's place in the budget. The runtime checks that the
+      // steps are a `totp` handler's or a route's fill of the `totp` slot and its click.
       canAutoSubmit: ({ context, event }) =>
         event.type === "AUTO_SUBMITTED" &&
         !context.usedOperationIds.includes(event.operationId) &&
         context.usedOperationIds.length < 96 &&
         context.submissions < context.maxSubmissions &&
         (context.operationId === undefined
-          ? context.stepIndex < context.stepCount &&
+          ? context.stepIndex > 0 &&
+            context.stepIndex < context.stepCount &&
             context.retryRequired !== true &&
-            context.handlers.some((entry) => entry.start === context.stepIndex - 1)
+            (event.route === true ||
+              context.handlers.some((entry) => entry.start === context.stepIndex - 1))
           : context.operationKind === "fill" &&
             context.operationEffect === "prepare" &&
             context.mutationIntent === true &&
             context.stepIndex + 1 < context.stepCount &&
-            context.handlers.some((entry) => entry.start === context.stepIndex)),
+            (event.route === true ||
+              context.handlers.some((entry) => entry.start === context.stepIndex))),
     },
   }).createMachine({
     id: "login-attempt",

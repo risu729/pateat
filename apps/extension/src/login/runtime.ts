@@ -773,8 +773,10 @@ function codeFieldOf(
     : undefined;
 }
 /**
- * Where the plan step at `index` stands in an entered `totp` handler (ADR 0027): its code
- * fill, or the click on its button that follows the fill.
+ * Where the plan step at `index` stands in a TOTP code's entry (ADR 0027): the code fill
+ * of an entered `totp` handler or of a route step that fills only the `totp` slot, or
+ * the click on its button that follows the fill on the same path. A route's code fill
+ * counts only when that click follows it.
  */
 function codeStep(
   recipe: LoginRecipe,
@@ -783,19 +785,36 @@ function codeStep(
 ): "fill" | "click" | undefined {
   const plan = attemptPlan(recipe, metadata);
   const entry = plan?.[index];
-  if (entry?.handler === undefined || recipe.handlers?.[entry.handler]?.kind !== "totp")
-    return undefined;
-  if (entry.step.kind === "fill") return "fill";
+  if (!entry) return undefined;
   const before = plan![index - 1];
-  return entry.step.kind === "click" &&
-    before?.handler === entry.handler &&
-    before.step.kind === "fill"
+  if (entry.handler !== undefined) {
+    if (recipe.handlers?.[entry.handler]?.kind !== "totp") return undefined;
+    if (entry.step.kind === "fill") return "fill";
+    return entry.step.kind === "click" &&
+      before?.handler === entry.handler &&
+      before.step.kind === "fill"
+      ? "click"
+      : undefined;
+  }
+  const routeCode = (at: { step: LoginStep; handler?: number } | undefined) =>
+    at?.handler === undefined &&
+    at?.step.kind === "fill" &&
+    at.step.fields.length === 1 &&
+    at.step.fields[0]!.slot === TOTP_HANDLER_SLOT;
+  const after = plan![index + 1];
+  if (routeCode(entry))
+    return after?.handler === undefined &&
+      after?.step.kind === "click" &&
+      after.step.path === entry.step.path
+      ? "fill"
+      : undefined;
+  return entry.step.kind === "click" && routeCode(before) && before!.step.path === entry.step.path
     ? "click"
     : undefined;
 }
 /**
- * Whether a `totp` handler's fill went in, or may have, and its click has not run (ADR
- * 0027): a page that moved on meanwhile submitted the code by itself.
+ * Whether a TOTP code's fill (see `codeStep`) went in, or may have, and its click has not
+ * run (ADR 0027): a page that moved on meanwhile submitted the code by itself.
  */
 const codeAwaitsClick = (recipe: LoginRecipe, metadata: LoginAttemptMetadata) =>
   metadata.operationId === undefined
@@ -804,6 +823,14 @@ const codeAwaitsClick = (recipe: LoginRecipe, metadata: LoginAttemptMetadata) =>
       metadata.operationEffect === "prepare" &&
       metadata.mutationIntent === true &&
       codeStep(recipe, metadata, metadata.stepIndex) === "fill";
+/** The event for a code the page submitted by itself, marking a route step's code. */
+const autoSubmitted = (recipe: LoginRecipe, metadata: LoginAttemptMetadata) => ({
+  type: "AUTO_SUBMITTED" as const,
+  operationId: newId(),
+  ...(attemptPlan(recipe, metadata)?.[metadata.stepIndex]?.handler === undefined
+    ? { route: true as const }
+    : {}),
+});
 /** The step may have submitted or moved the page, so its result can show a handler. */
 const effectful = (metadata: LoginAttemptMetadata) =>
   metadata.operationKind === "click" ||
@@ -3388,12 +3415,13 @@ export function createLoginRuntime(
     );
   }
   /**
-   * The page submitted a `totp` handler's code by itself: the handler's click counts as
-   * done, and the page is settled as after a click. The code is never filled again.
+   * The page submitted a TOTP code by itself, a `totp` handler's or a route step's: the
+   * code's click counts as done, and the page is settled as after a click. The code is
+   * never filled again.
    * Returns whether the attempt took it.
    */
   async function codeSubmitted(run: Execution): Promise<boolean> {
-    await change(run, { type: "AUTO_SUBMITTED", operationId: newId() });
+    await change(run, autoSubmitted(run.recipe, run.metadata));
     if (
       !current(run) ||
       run.metadata.state !== "reconciling" ||
@@ -4190,8 +4218,8 @@ export function createLoginRuntime(
     try {
       // A failure that changed nothing on the page is tried again from the same step, up
       // to the attempt's retry budget; a spent budget ends it `retry-limit` (owner
-      // decision, 2026-10-12). A `totp` handler's click after its code is in is never
-      // retried: a late click could submit an expired code (ADR 0027).
+      // decision, 2026-10-12). A TOTP code's click after the code is in is never retried:
+      // a late click could submit an expired code (ADR 0027).
       for (;;) {
         await runSteps(run);
         if (!current(run) || run.metadata.state !== "retryable") return;
@@ -4393,7 +4421,8 @@ export function createLoginRuntime(
             }
             // A `totp` handler's code fills only a code input, whatever field it reads.
             const secret: LoginSecretKind | undefined =
-              codeStep(run.recipe, run.metadata, operation.stepIndex) === "fill"
+              codeStep(run.recipe, run.metadata, operation.stepIndex) === "fill" &&
+              attemptPlan(run.recipe, run.metadata)?.[operation.stepIndex]?.handler !== undefined
                 ? "otp"
                 : loginSecretKind(
                     authorized.connection,
@@ -6360,14 +6389,11 @@ export function createLoginRuntime(
     let resumedPolicy: PolicyChange | undefined;
     if (previous) {
       let resumed = recoverLoginAttempt(previous);
-      // The page left the document a `totp` handler filled its code into before the click,
+      // The page left the document a TOTP code was filled into before its click,
       // as a code input that submits on its last digit does: the page submitted the code
       // itself, and it is never filled again (ADR 0027).
       if (previous.document.documentId !== document.documentId && codeAwaitsClick(recipe, resumed))
-        resumed = transitionLoginAttempt(resumed, {
-          type: "AUTO_SUBMITTED",
-          operationId: newId(),
-        });
+        resumed = transitionLoginAttempt(resumed, autoSubmitted(recipe, resumed));
       metadata = transitionLoginAttempt(resumed, {
         type: "NAVIGATED",
         document,

@@ -656,11 +656,13 @@ after the code went in, or a new busy indicator in the form each mean the page s
 the code by itself. So do a page that leaves the path or shows a signed-in marker or the
 rejection without the button before the click, and a new document after the fill. Each
 counts as the handler's click (`AUTO_SUBMITTED`); the code is never filled again or
-followed by a click. A button rendered again at the same locator and a status message
-alone, such as a digit counter, are not signs, and a status message never refuses the
-code. While a handler's or the `passkey` route's clicked button, or the button of a code
-the page submitted itself, still shows in that document, the page is neither judged nor
-settled for up to two minutes; then it ends `challenge`. A new document of the tab that
+followed by a click. A route step that fills only the `totp` slot, followed by a click
+on the same path, is watched and settled the same way. A button rendered again at the
+same locator and a status message alone, such as a digit counter, are not signs, and a
+status message never refuses the code. While a handler's or the `passkey` route's
+clicked button, or the button of a code the page submitted itself, still shows in that
+document, the page is neither judged nor settled for up to two minutes; then it ends
+`challenge`. A new document of the tab that
 shows the `passkey` route's button again ends `challenge` at once, and so does one that
 shows a handler that already ran and no other that qualifies; a handler shown there that
 still qualifies, such as a `totp` handler beside a `passkey` handler that already ran,

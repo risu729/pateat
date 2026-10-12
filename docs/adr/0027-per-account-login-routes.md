@@ -541,7 +541,11 @@ new owner decision:
   document of the tab resumes a login whose code fill went in, or may have, and whose
   click has not run. The button is clicked, once, only when it was enabled within half a
   second of the code going in, stayed enabled and idle since, and nothing else showed a
-  submission.
+  submission. A route step that fills only the `totp` slot and is followed by a click on
+  the same path is handled the same way, with its click taking the handler click's
+  place; this was added on 2026-10-12, after Resend's code page, opened on its own as a
+  pending sign-in's second factor, signed in on the last digit while the login retried
+  the gone button until `retry-limit`.
 - **Synthetic TOTP fact.** The probe build's configure message takes an optional
   `totp: true`, which gives the synthetic dummy item a `totp` field with the fixed code
   `012345` and sets its `totp` fact; no TOTP secret or real code is used.
