@@ -162,8 +162,16 @@ the list; with it, the page is appended after the branch's final `advance` as an
 continuation. The judgement request names the branch too, and its completion or handler
 is learned into that branch, with the list's path among the login paths the judge is
 told. Each write is the whole chooser at its next revision, so the other branch, if any,
-moves to that revision unchanged. The service's retry window and its once-per-revision
-judgement are kept per branch as well.
+moves to that revision unchanged. A branch's generated page whose write loses to a
+write of the other branch meanwhile is written once more onto that newer chooser, as
+long as its own branch is unchanged there; a judgement that loses the same way is
+answered without a change, and a request sent against the older revision is refused as
+`recipe-conflict` before any model call. A list of accounts shown again after a branch's
+step is never judged (`not-judgeable`). A form page on the chooser's own path, as when
+no profile is saved, gets no recipe of its own (`recipe-conflict`): it is reached only
+as the `other` branch. The service's retry window and its once-per-revision judgement
+are kept per branch as well. The service sends the `accounts` texts as they come, so the
+extension must hide a non-email account name as `[account]` before it sends any list.
 
 ### Execution
 

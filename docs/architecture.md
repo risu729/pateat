@@ -908,10 +908,11 @@ chooser as `base` generates that branch's next page: its first page when the bra
 absent, with no alternatives and no passkey route as for any later page, or an append
 after the branch's final `advance`. The page judgement takes the same `branch` and
 learns a completion or handler into that branch, with the list's path among the login
-paths. Each answer is the whole chooser at its next revision, and generation attempts
-and judged pages are keyed by branch too. A form page, or a route recipe's next page,
-whose stored recipe is a chooser still answers `recipe-conflict`. The extension sends
-neither a list nor a branch yet.
+paths, and a list shown again is never judged. Each answer is the whole chooser at its
+next revision; a branch's page that loses its write to the other branch is written once
+more onto the newer chooser. Generation attempts and judged pages are keyed by branch
+too. A form page, or a route recipe's next page, whose stored recipe is a chooser still
+answers `recipe-conflict`. The extension sends neither a list nor a branch yet.
 
 A generated recipe has no completion target until the page after its first sign-in is
 judged ([ADR 0018](adr/0018-recipe-generation-route.md)). Until then the executor

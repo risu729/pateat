@@ -2903,4 +2903,113 @@ describe("account lists and chooser branches (ADR 0028)", () => {
       ),
     ).toEqual([{ branch: "account", revision: 2, path: "/home" }]);
   });
+
+  it("keeps a branch's page written during the call onto the other branch's newer chooser", async () => {
+    const device = await owner();
+    const { recipeId } = await chooser(device);
+    replies.push({ text: plan([["password", "password"]], "sign-in", "submit") });
+    const account = await branchGenerate(
+      device,
+      passwordPage,
+      { recipeId, revision: 1 },
+      "account",
+    );
+    if (account.status !== "recipe" || !("chooser" in account.change.recipe))
+      throw new Error(account.status);
+    const atTwo = account.change.recipe;
+    // While the other branch's page is generated, a judgement of the account branch on
+    // another device stores revision 3.
+    const judged = {
+      ...atTwo,
+      revision: 3,
+      chooser: {
+        ...atTwo.chooser,
+        afterAccount: {
+          ...atTwo.chooser.afterAccount!,
+          revision: 3,
+          completion: { path: "/home", target: { by: "id", value: "logout" } },
+        },
+      },
+    };
+    during = async () => {
+      const put = await post(
+        device,
+        `/v1/recipes/${recipeId}`,
+        { version: 1, expectedRevision: 2, state: "active", recipe: judged },
+        "PUT",
+      );
+      expect(put.status).toBe(200);
+    };
+    replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    expect(
+      await branchGenerate(device, emailPage, { recipeId, revision: 2 }, "other"),
+    ).toMatchObject({
+      status: "recipe",
+      change: {
+        revision: 4,
+        recipe: {
+          revision: 4,
+          chooser: {
+            afterAccount: { revision: 4, completion: judged.chooser.afterAccount.completion },
+            afterOther: { revision: 4, slots: ["email"] },
+          },
+        },
+      },
+    });
+    expect(
+      await rows(
+        "SELECT revision FROM recipe_heads WHERE owner_id = ? AND recipe_id = ?",
+        device.ownerId,
+        recipeId,
+      ),
+    ).toEqual([{ revision: 4 }]);
+  });
+
+  it("adds a handler into a branch and never judges the list shown again", async () => {
+    const device = await owner();
+    const { recipeId } = await chooser(device);
+    replies.push({ text: plan([["password", "password"]], "sign-in", "submit") });
+    await branchGenerate(device, passwordPage, { recipeId, revision: 1 }, "account");
+    const judge = (page: LoginObservation) =>
+      post(device, `/v1/recipes/${recipeId}/completion`, {
+        version: 1,
+        revision: 2,
+        route: "password",
+        branch: "account",
+        observation: page,
+      }).then(async (response) => response.json());
+    const calls = sent.length;
+    expect(await judge(listPage)).toEqual({
+      version: 1,
+      status: "unavailable",
+      reason: "not-judgeable",
+    });
+    expect(sent).toHaveLength(calls);
+    replies.push(judgeReply({ decision: "challenge", passkeyButton: "key" }));
+    expect(
+      await judge(
+        observation("/login/webauthn", [
+          element("key", "button", "Use security key"),
+          element("recovery", "link", "Use a recovery code"),
+        ]),
+      ),
+    ).toMatchObject({
+      status: "challenge",
+      change: {
+        revision: 3,
+        recipe: {
+          chooser: {
+            path: "/login",
+            other: { by: "id", value: "other" },
+            afterAccount: {
+              revision: 3,
+              handlers: [
+                { kind: "passkey", path: "/login/webauthn", target: { by: "id", value: "key" } },
+              ],
+            },
+          },
+        },
+      },
+    });
+  });
 });
