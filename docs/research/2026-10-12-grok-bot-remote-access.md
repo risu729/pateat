@@ -243,6 +243,19 @@ whatever the terms say. None of this was tried here.
   change
   ([forum](https://forum.cursor.com/t/grok-bot-official-api-to-create-bots-and-send-receive-chat-for-companion-uis/170985)).
 
+## Probe script
+
+On 2026-10-12 (18:24 UTC) the owner set remote access aside and asked for commands to
+run in the computer's terminal instead.
+[`scripts/grok-box/probe.sh`](../../scripts/grok-box/probe.sh) collects, read-only:
+system limits and load, Chrome's binary, flags and policies, the DevTools endpoints
+(versions and tab origins only), which processes listen on or connect to Chrome's
+DevTools port and the browser proxy, whether the browser-tool guard messages exist in
+files on the computer, reachability of the Pateat server and Bitwarden directly and
+through the proxy, and which Pateat build Chrome loads. It prints no vault data,
+passwords, cookies, Local Storage, chrome.storage or IndexedDB contents, redacts
+token-like strings, and writes its report to `/workspace/pateat-probe/`.
+
 ## Not checked
 
 - The xAI copies of the terms (`x.ai/legal/grok-bot-terms`, consumer terms, AUP), which
