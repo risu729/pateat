@@ -72,7 +72,10 @@ Chrome, on a production build of main.
   login page succeeds since build `e9144a6` (2026-10-12 07:24 UTC). The service stores,
   syncs and lists a recipe with only `entry`, and the extension caches it without
   pressing it or starting a login (local tests only); ADR 0028's `chooser` builds on
-  that contract. Next, the press, verified on pixiv in the owner's Chrome. That PR also
+  that contract. The service generates that recipe from an entry request, a page sent
+  without slots, with the `entry` decision, its prompt line and plan checks (#NNN, local
+  tests with fake models only). Next, the extension's sending of such pages and the
+  press, verified on pixiv in the owner's Chrome. That PR also
   makes the entry path a path where a recipe starts for ADR 0016, so no page on it is
   generated, by adding it in `offersGeneration` only: not through `starts()`, whose
   paths runtime `startsFor` drops when more than one start shares them.

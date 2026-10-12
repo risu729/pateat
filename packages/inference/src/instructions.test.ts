@@ -3,7 +3,13 @@ import { describe, expect, it } from "vitest";
 import { completionInstructions, createCompletionJudge, judgedPageSchema } from "./completion";
 import { evaluationCorpus } from "./corpus/cases";
 import { buildFieldQuestions } from "./decision";
-import { createRecipeGenerator, generatedPlanSchema, generationInstructions } from "./generation";
+import {
+  createRecipeGenerator,
+  entryGenerationInstructions,
+  entryInstruction,
+  generatedPlanSchema,
+  generationInstructions,
+} from "./generation";
 import { textModel, textResult } from "./testing/fake-models";
 
 // The owner chose short, language-neutral instructions (2026-10-12): the model handles
@@ -33,6 +39,7 @@ describe("instructions sent to the model", () => {
   it("contain no language-specific text", () => {
     for (const text of [
       generationInstructions,
+      entryGenerationInstructions,
       completionInstructions,
       JSON.stringify(toJsonSchema(generatedPlanSchema)),
       JSON.stringify(toJsonSchema(judgedPageSchema)),
@@ -99,6 +106,14 @@ describe("instructions sent to the model", () => {
       "code.source is authenticator-app only when the page says the code comes from an authenticator app.",
     );
     expect(generationInstructions).toContain("Abstain rather than guess.");
+    // ADR 0031's entry line, by meaning only, goes only into requests without slots.
+    expect(entryInstruction).toBe(
+      "If the page has no sign-in fields, name in `entry` the one control that opens sign-in " +
+        "to an existing account for a visitor who is not signed in; never one that creates an " +
+        "account or signs in through another service; otherwise abstain.",
+    );
+    expect(generationInstructions).not.toContain(entryInstruction);
+    expect(entryGenerationInstructions).toBe(`${generationInstructions} ${entryInstruction}`);
     expect(completionInstructions).toContain("Answer unclear rather than guess.");
   });
 });

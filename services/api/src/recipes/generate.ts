@@ -12,6 +12,8 @@ import {
   storedRecipeStartPath,
   withChooserBranch,
   type ChooserBranch,
+  type EntryGenerationRequest,
+  type EntryGenerationResult,
   type GenerationUnavailableReason,
   type LoginChooserRecipe,
   type LoginRecipe,
@@ -31,16 +33,21 @@ import {
   completionInstructions,
   completionPromptVersion,
   createCompletionJudge,
+  createEntryGenerator,
   createRecipeGenerator,
+  entryGenerationInstructions,
+  entryGenerationPromptVersion,
+  entryRecipe,
   generationInstructions,
   generationPromptVersion,
   outputRejection,
   type InferenceErrorCode,
+  type InferenceOutcome,
 } from "@pateat/inference";
 import { and, count, eq, gt, gte, lt } from "drizzle-orm";
 import * as v from "valibot";
 import type { DeviceScope } from "../auth";
-import { callClaude, MAX_OUTPUT_TOKENS, ROLE_LIMITS } from "../claude/calls";
+import { callClaude, MAX_OUTPUT_TOKENS, ROLE_LIMITS, type ClaudeCall } from "../claude/calls";
 import { generationAttempts, pageJudgements } from "../db/schema";
 import { hasRecipeRoom, readHead, writeRecipe } from "../recipe-store";
 
@@ -55,6 +62,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 export const JUDGEMENTS_PER_RECIPE_DAY = 20;
 const utcDayStart = (now: number) => now - (now % DAY_MS);
 
+type AttemptDb = Parameters<NonNullable<ClaudeCall<unknown>["gate"]>>[0];
 type GenerationEnv = { DB: D1Database; OIDC_ISSUER?: string; OIDC_SIGNING_KEYS?: string };
 type Failure = Extract<RecipeGenerationResult, { status: "failed" }>["error"];
 
@@ -119,6 +127,92 @@ function stored(
   const chooser = withChooserBranch(head, branch, next);
   return v.is(loginChooserRecipeSchema, chooser) ? chooser : undefined;
 }
+/**
+ * The answer of a call that produced no value: failed, with the check that refused the
+ * model's output (codes only), or abstained.
+ */
+function unsettled<T>(
+  outcome: InferenceOutcome<T>,
+): { answer: RecipeGenerationResult & EntryGenerationResult } | { value: T } {
+  if (outcome.status === "failed") {
+    // Which check refused the model's output, so the device can log it (codes only).
+    const rejection = outputRejection(outcome);
+    return { answer: { ...failed(failureOf(outcome.error)), ...(rejection ? { rejection } : {}) } };
+  }
+  if (outcome.status === "abstained")
+    return {
+      answer: {
+        version: 1,
+        status: "abstained",
+        // The generation role abstains only with these; anything else is not evidence.
+        reason:
+          outcome.reason === "no-login-form" ||
+          outcome.reason === "ambiguous" ||
+          outcome.reason === "unsafe-instructions"
+            ? outcome.reason
+            : "insufficient-evidence",
+      },
+    };
+  return { value: outcome.value };
+}
+
+/**
+ * The 10-minute retry window of one generation call and its attempt row (ADR 0016), keyed
+ * by the recipe, the chooser branch (empty without one), the path and the revision the
+ * call's write replaces. `recheck` reads the stored head again under the owner's lock.
+ */
+function attemptWindow(
+  ownerId: string,
+  key: { recipeId: string; branch: string; origin: string; path: string; baseRevision: number },
+  recheck: () => Promise<GenerationUnavailableReason | undefined>,
+) {
+  const { recipeId, branch, origin, path, baseRevision } = key;
+  return {
+    gate: async (db: AttemptDb, now: number) => {
+      const stale = await recheck();
+      if (stale) return stale;
+      const [recent] = await db
+        .select()
+        .from(generationAttempts)
+        .where(
+          and(
+            eq(generationAttempts.ownerId, ownerId),
+            eq(generationAttempts.recipeId, recipeId),
+            eq(generationAttempts.branch, branch),
+            eq(generationAttempts.path, path),
+            eq(generationAttempts.baseRevision, baseRevision),
+            gt(generationAttempts.attemptedAt, now - ATTEMPT_WINDOW_MS),
+          ),
+        )
+        .limit(1);
+      return recent ? "recently-tried" : undefined;
+    },
+    reserved: (db: AttemptDb, now: number) => [
+      db
+        .insert(generationAttempts)
+        .values({ ownerId, recipeId, branch, origin, path, baseRevision, attemptedAt: now })
+        .onConflictDoUpdate({
+          target: [
+            generationAttempts.ownerId,
+            generationAttempts.recipeId,
+            generationAttempts.branch,
+            generationAttempts.path,
+            generationAttempts.baseRevision,
+          ],
+          set: { attemptedAt: now },
+        }),
+      db
+        .delete(generationAttempts)
+        .where(
+          and(
+            eq(generationAttempts.ownerId, ownerId),
+            lt(generationAttempts.attemptedAt, now - ATTEMPT_WINDOW_MS),
+          ),
+        ),
+    ],
+  };
+}
+
 /** Whether two route recipes are the same apart from their revision, absent ones included. */
 const sameRoute = (left: LoginRecipe | undefined, right: LoginRecipe | undefined) =>
   left === right ||
@@ -231,62 +325,20 @@ export async function generateRecipe(
     origin,
     path,
     request: { instructions: generationInstructions, slots, observation },
-    gate: async (db, now) => {
-      // Another device may have stored this recipe while this request waited for the lock.
-      const latest = await decide(await readHead(env.DB, scope.ownerId, recipeId));
-      if ("answer" in latest) {
-        raced = latest.answer;
-        return "recipe-conflict";
-      }
-      // A recipe generated and revoked meanwhile would make this call's write fail.
-      if (revisionOf(latest) !== baseRevision) return "recipe-conflict";
-      const [recent] = await db
-        .select()
-        .from(generationAttempts)
-        .where(
-          and(
-            eq(generationAttempts.ownerId, scope.ownerId),
-            eq(generationAttempts.recipeId, recipeId),
-            eq(generationAttempts.branch, attemptBranch),
-            eq(generationAttempts.path, path),
-            eq(generationAttempts.baseRevision, baseRevision),
-            gt(generationAttempts.attemptedAt, now - ATTEMPT_WINDOW_MS),
-          ),
-        )
-        .limit(1);
-      return recent ? "recently-tried" : undefined;
-    },
-    reserved: (db, now) => [
-      db
-        .insert(generationAttempts)
-        .values({
-          ownerId: scope.ownerId,
-          recipeId,
-          branch: attemptBranch,
-          origin,
-          path,
-          baseRevision,
-          attemptedAt: now,
-        })
-        .onConflictDoUpdate({
-          target: [
-            generationAttempts.ownerId,
-            generationAttempts.recipeId,
-            generationAttempts.branch,
-            generationAttempts.path,
-            generationAttempts.baseRevision,
-          ],
-          set: { attemptedAt: now },
-        }),
-      db
-        .delete(generationAttempts)
-        .where(
-          and(
-            eq(generationAttempts.ownerId, scope.ownerId),
-            lt(generationAttempts.attemptedAt, now - ATTEMPT_WINDOW_MS),
-          ),
-        ),
-    ],
+    ...attemptWindow(
+      scope.ownerId,
+      { recipeId, branch: attemptBranch, origin, path, baseRevision },
+      async () => {
+        // Another device may have stored this recipe while this request waited for the lock.
+        const latest = await decide(await readHead(env.DB, scope.ownerId, recipeId));
+        if ("answer" in latest) {
+          raced = latest.answer;
+          return "recipe-conflict";
+        }
+        // A recipe generated and revoked meanwhile would make this call's write fail.
+        return revisionOf(latest) !== baseRevision ? "recipe-conflict" : undefined;
+      },
+    ),
     invoke: (model) => createRecipeGenerator({ model, ...roleConfig })({ observation, slots }),
     logValue: (value) => {
       if ("accountList" in value)
@@ -313,24 +365,8 @@ export async function generateRecipe(
     },
   });
   if (call.status === "unavailable") return raced ?? unavailable(call.reason);
-  const { outcome } = call;
-  if (outcome.status === "failed") {
-    // Which check refused the model's output, so the device can log it (codes only).
-    const rejection = outputRejection(outcome);
-    return { ...failed(failureOf(outcome.error)), ...(rejection ? { rejection } : {}) };
-  }
-  if (outcome.status === "abstained")
-    return {
-      version: 1,
-      status: "abstained",
-      // The generation role abstains only with these; anything else is not evidence.
-      reason:
-        outcome.reason === "no-login-form" ||
-        outcome.reason === "ambiguous" ||
-        outcome.reason === "unsafe-instructions"
-          ? outcome.reason
-          : "insufficient-evidence",
-    };
+  const result = unsettled(call.outcome);
+  if ("answer" in result) return result.answer;
   /**
    * Writes the recipe after `baseRevision` and answers with it, with `customSlots` when
    * given, or with what won the race: only the recipe this call wrote has a mapping to
@@ -376,7 +412,7 @@ export async function generateRecipe(
       expectedRevision = moved.revision - 1;
     }
   };
-  const { value } = outcome;
+  const { value } = result;
   // The role answers a list only for a list and a plan only for a form; checked again here.
   if ("accountList" in value !== list) return failed("invalid-output");
   if ("accountList" in value) {
@@ -449,6 +485,106 @@ export async function generateRecipe(
       return undefined;
     return stored(current.recipe, branch, { ...next, revision: current.revision + 1 });
   });
+}
+
+/**
+ * `POST /v1/recipes/generate` without `slots`: an entry request (ADR 0031) for a page
+ * without a login form. The model names the link that opens the site's login page, which
+ * is stored as the entry recipe of the page's origin and path under its generated ID. The
+ * retry window, attempt row, spend limits and request log are a first page's; a login or
+ * chooser recipe starting on that path answers `recipe-conflict`.
+ */
+export async function generateEntry(
+  env: GenerationEnv,
+  scope: DeviceScope,
+  request: EntryGenerationRequest,
+): Promise<EntryGenerationResult> {
+  const { observation } = request;
+  const { origin, path } = observation;
+  const recipeId = await generatedRecipeId(origin, path);
+  if (!observation.complete) return failed("incomplete-observation");
+
+  /**
+   * What the stored head means for this request: an answer without a model call, or the
+   * revision the new recipe follows (its tombstone's, or 0). Checked again under the lock.
+   */
+  const decide = async (
+    head: SyncRecipeChange | null,
+  ): Promise<{ answer: EntryGenerationResult } | { revision: number }> => {
+    const current = active(head);
+    if (current) {
+      // Only the entry recipe generated here answers; a login or chooser recipe on its path,
+      // or a device write under the ID for another page, is no entry to answer with.
+      const { recipe } = current;
+      return "entry" in recipe &&
+        recipe.origin === origin &&
+        recipe.id === recipeId &&
+        recipe.entry.path === path
+        ? { answer: { version: 1, status: "recipe", change: { ...current, recipe } } }
+        : { answer: unavailable("recipe-conflict") };
+    }
+    // A revoked recipe is generated again as the revision after its tombstone (owner,
+    // 2026-10-12), and a new one needs room under the active recipe limit.
+    if (!(await hasRecipeRoom(env.DB, scope.ownerId)))
+      return { answer: unavailable("recipe-limit") };
+    return { revision: head?.revision ?? 0 };
+  };
+  const before = await decide(await readHead(env.DB, scope.ownerId, recipeId));
+  if ("answer" in before) return before.answer;
+  const baseRevision = before.revision;
+  let raced: EntryGenerationResult | undefined;
+
+  const call = await callClaude(env, scope.ownerId, {
+    role: "generate",
+    promptVersion: await entryGenerationPromptVersion(),
+    origin,
+    path,
+    request: { instructions: entryGenerationInstructions, observation },
+    ...attemptWindow(
+      scope.ownerId,
+      { recipeId, branch: "", origin, path, baseRevision },
+      async () => {
+        // Another device may have stored this recipe while this request waited for the lock.
+        const latest = await decide(await readHead(env.DB, scope.ownerId, recipeId));
+        if ("answer" in latest) {
+          raced = latest.answer;
+          return "recipe-conflict";
+        }
+        return latest.revision !== baseRevision ? "recipe-conflict" : undefined;
+      },
+    ),
+    invoke: (model) => createEntryGenerator({ model, ...roleConfig })({ observation }),
+    logValue: ({ entry: candidate }) => ({ entry: candidate }),
+  });
+  if (call.status === "unavailable") return raced ?? unavailable(call.reason);
+  const result = unsettled(call.outcome);
+  if ("answer" in result) return result.answer;
+  // A recipe generated again follows its tombstone's revision.
+  const built = entryRecipe({
+    id: recipeId,
+    revision: baseRevision + 1,
+    origin,
+    path,
+    target: result.value.target,
+  });
+  if (!built.ok) return failed("recipe-invalid");
+  const written = await writeRecipe(
+    env.DB,
+    scope.ownerId,
+    recipeId,
+    { version: 1, state: "active", expectedRevision: baseRevision, recipe: built.recipe },
+    scope.deviceId,
+  );
+  if (!written.ok) {
+    if (written.limited) return unavailable("recipe-limit");
+    // A write lost to another device answers with that device's recipe, as above.
+    const lost = await decide(written.current);
+    return "answer" in lost ? lost.answer : unavailable("recipe-conflict");
+  }
+  const change = active(written.change);
+  return change && "entry" in change.recipe
+    ? { version: 1, status: "recipe", change: { ...change, recipe: change.recipe } }
+    : unavailable("recipe-conflict");
 }
 
 /**
