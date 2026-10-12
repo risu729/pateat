@@ -41,13 +41,16 @@ const unique = (values: string[]) => new Set(values).size === values.length;
 
 /**
  * `autocomplete` tokens an input can be located by. `new-password` is left out: a
- * recipe never names a field for a new password.
+ * recipe never names a field for a new password. `webauthn` marks the field a passkey
+ * fills, which tells it from another field with the same first token, such as a hidden
+ * copy of the password field.
  */
 export const loginAutocompleteTokens = [
   "username",
   "email",
   "current-password",
   "one-time-code",
+  "webauthn",
 ] as const;
 /**
  * An attribute locator: the element whose `id`, `name` or `data-testid` equals the

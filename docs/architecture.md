@@ -1141,11 +1141,14 @@ without any, its images' `alt`), the `<input type="submit|button">` whose value,
 decision, 2026-10-11). Hidden buttons and hidden text inside a button do not count, and
 text over 120 characters gives no locator. The `autocomplete` locator,
 `{ "by": "autocomplete", "value": "username" }`, names the one `<input>` whose
-`autocomplete` attribute holds that token, ignoring case and other tokens such as
-`webauthn`; the token is `username`, `email`, `current-password` or `one-time-code`,
-never `new-password`. The owner added it on 2026-10-12 for pixiv's login page, whose
-inputs carry only `autocomplete="username webauthn"` and
-`autocomplete="current-password webauthn"`. The extractor gives it only to a field that
+`autocomplete` attribute holds that token, ignoring case and other tokens; the token is
+`username`, `email`, `current-password`, `one-time-code` or `webauthn`, never
+`new-password`. The owner added it on 2026-10-12 for pixiv's login page, whose inputs
+carry only `autocomplete="username webauthn"` and
+`autocomplete="current-password webauthn"`. `webauthn` was added the same day for
+LinkedIn's remembered-account page, whose shown password field differs from a hidden
+copy (`current-password`) only by that token, once its React IDs no longer counted.
+The extractor gives it only to a field that
 no `id`, `name` or `data-testid` names alone. Such a token is generic: when another form
 on the page, such as a newsletter sign-up, also carries `email`, a step that names
 `{ "by": "autocomplete", "value": "email" }` matches twice and waits, or, if the login
