@@ -72,7 +72,7 @@ new owner decision:
   logged as not described), a page whose description is refused, fails its check or is
   incomplete is read again up to twice, one second apart, before it counts as not
   described, since a form rendered in steps may show its password input before the
-  rest of it.
+  rest of it. A cancelled or replaced document stops at once.
 - The vault match is checked only once the input shows, and only matching items'
   built-in fields decide which of the `username`, `password` and `totp` slots are
   offered.

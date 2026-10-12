@@ -3170,6 +3170,28 @@ describe("production login document admission", () => {
       10_000,
     );
 
+    it("stops at once for a cancelled document", async () => {
+      fake.state.extracted = { login: { ok: false, reason: "cancelled" } };
+      const service = generation();
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness(unsaved, {
+        allowedOrigins: [],
+        uris,
+        username: true,
+        generation: service,
+        report,
+      });
+      h.recipes.recipe.mockResolvedValue(undefined);
+      h.recipes.starts.mockResolvedValue(startsOf([]));
+      expect(await h.signIn()).toEqual({ ok: false, reason: "generating" });
+      await vi.waitFor(() =>
+        expect(report).toHaveBeenCalledWith(
+          expect.objectContaining({ type: "generation", outcome: "skipped", reason: "cancelled" }),
+        ),
+      );
+      expect(fake.state.messages.filter((entry) => entry.type === "login.extract")).toHaveLength(1);
+    });
+
     it("reads a page again that could not be described yet", async () => {
       fake.state.extracted = { login: { ok: false, reason: "no-locator" } };
       const service = generation();
