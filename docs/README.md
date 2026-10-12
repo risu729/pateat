@@ -77,6 +77,7 @@ pages, with synthetic slot hints, may be committed as evaluation data
 - [0031: Press a site's sign-in entry on pages without a login form](adr/0031-sign-in-entry-pages.md)
 - [0032: aube installs the workspace dependencies](adr/0032-aube-package-manager.md)
 - [0033: No site-specific features unless strictly necessary](adr/0033-no-site-specific-features.md)
+- [0034: Pateat answers a login page's own passkey request](adr/0034-answer-page-passkey-requests.md)
 
 This layout follows the useful separation in
 [Kogane ADR 0041](https://github.com/risu729/kogane/blob/main/docs/adr/0041-documentation-scope.md),

@@ -15,6 +15,7 @@ import {
   loginAutocompleteTokens,
   loginChooserRecipeSchema,
   loginEntryRecipeSchema,
+  passkeyAnswersRequest,
   passwordVariants,
   recipeHasRoute,
   recipeSlots,
@@ -1665,14 +1666,71 @@ describe("the passkey route (ADR 0027)", () => {
     // The password route is unchanged, and the recipe's slots are only its own.
     expect(routeSteps(parsed, { route: "password", variant: 0 })).toEqual(parsed.steps);
     expect(recipeSlots(parsed)).toEqual(parsed.slots);
-    // A recipe without the route offers nothing for it.
+    // A recipe without the button has no route of its own to start; its passkey route
+    // only answers the start page's own request (ADR 0034).
     const plain = parseLoginRecipe(recipe());
     expect(recipeHasRoute(plain, "passkey")).toBe(false);
-    expect(routeSteps(plain, { route: "passkey" })).toEqual([]);
-    expect(routePaths(plain, "passkey")).toEqual([]);
-    expect(routeSignInTargets(plain, "passkey")).toEqual([]);
-    expect(routeSignInPaths(plain, "passkey")).toEqual([]);
+    expect(passkeyAnswersRequest(parsed)).toBe(false);
+    expect(passkeyAnswersRequest(plain)).toBe(true);
+    expect(routeSteps(plain, { route: "passkey" })).toEqual([
+      { kind: "click", path: "/identity", target: id("branch"), purpose: "submit" },
+    ]);
+    expect(routeSlots(plain, { route: "passkey" })).toEqual([]);
+    expect(routeFillTargets(plain, "passkey")).toEqual([]);
+    expect(routePaths(plain, "passkey")).toEqual(["/identity"]);
+    expect(routeSignInTargets(plain, "passkey")).toEqual(routeFillTargets(plain, "password"));
+    expect(routeSignInPaths(plain, "passkey")).toEqual(routePaths(plain, "password"));
     expect(recipeStartSteps(plain)).toEqual([plain.steps[0]]);
+  });
+
+  it("answers the start page's own request on the first step's target (ADR 0034)", () => {
+    // A recipe whose first step is a click stands for the answer on that button.
+    const clickFirst = parseLoginRecipe({
+      ...recipe(),
+      steps: [
+        { kind: "click", path: "/start", target: id("open-login"), purpose: "advance" },
+        ...recipe().steps,
+      ],
+      maxSubmissions: 3,
+    });
+    expect(passkeyAnswersRequest(clickFirst)).toBe(true);
+    expect(routeSteps(clickFirst, { route: "passkey" })).toEqual([
+      { kind: "click", path: "/start", target: id("open-login"), purpose: "submit" },
+    ]);
+    expect(routePaths(clickFirst, "passkey")).toEqual(["/start"]);
+    expect(routeSignInPaths(clickFirst, "passkey")).toEqual(["/start", "/identity", "/password"]);
+    // The step stands for the answer only: the password route keeps its own steps.
+    expect(routeSteps(clickFirst, { route: "password", variant: 0 })).toEqual(clickFirst.steps);
+  });
+
+  it("chooses the passkey route for a page's own request only with a discoverable passkey", () => {
+    const plain = parseLoginRecipe(recipe());
+    const facts = (discoverablePasskey: boolean, password = true) => ({
+      password,
+      discoverablePasskey,
+    });
+    // Without the page's request a recipe without the button takes the password route.
+    expect(chooseLoginRoute(plain, facts(true), [true])).toEqual({
+      route: "password",
+      variant: 0,
+    });
+    expect(chooseLoginRoute(plain, facts(true), [true], false)).toEqual({
+      route: "password",
+      variant: 0,
+    });
+    expect(chooseLoginRoute(plain, facts(true), [true], true)).toEqual({ route: "passkey" });
+    // An item without a password still answers the request.
+    expect(chooseLoginRoute(plain, facts(true, false), [], true)).toEqual({ route: "passkey" });
+    // A passkey that is not discoverable never answers it.
+    expect(chooseLoginRoute(plain, facts(false), [true], true)).toEqual({
+      route: "password",
+      variant: 0,
+    });
+    expect(chooseLoginRoute(plain, facts(false, false), [true], true)).toBeUndefined();
+    // A recipe with the button takes its route either way.
+    const button = parseLoginRecipe(withPasskey());
+    expect(chooseLoginRoute(button, facts(true), [true], true)).toEqual({ route: "passkey" });
+    expect(chooseLoginRoute(button, facts(true), [true], false)).toEqual({ route: "passkey" });
   });
 
   it.each<[string, Record<string, unknown>]>([

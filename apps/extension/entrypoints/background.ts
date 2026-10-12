@@ -250,6 +250,8 @@ export default defineBackground(() => {
         requested: login.passkeyRequested,
         answered: login.passkeyAnswered,
         signedTabs,
+        conditional: login.conditionalRequest,
+        hold: () => vaultSync.enter(false),
       })
     : createPasskeyRuntime(vaultPasskeys, {
         extensionId: browser.runtime.id,
@@ -264,6 +266,10 @@ export default defineBackground(() => {
         // ADR 0022: a login that moves on to the passkey's site after an answer completes.
         answered: login.passkeyAnswered,
         signedTabs,
+        // ADR 0034: the page's own conditional request waits for the login of its page.
+        conditional: login.conditionalRequest,
+        // The open vault is not replaced while a passkey request is looked up or signed.
+        hold: () => vaultSync.enter(false),
       });
 
   // Value-free per-device state for bug reports (ADR 0019).
@@ -490,12 +496,11 @@ export default defineBackground(() => {
       typeof message.type === "string" &&
       message.type.startsWith("passkey.")
     ) {
-      // The open vault is not replaced while a passkey request is answered; a cancel
-      // never waits for a replacement.
-      const request = message.type === "passkey.get";
-      if (request) vaultSync.refreshIfStale();
-      void (request ? vaultSync.enter(false) : Promise.resolve(() => undefined))
-        .then((leave) => passkeys.handle(message, sender).finally(leave))
+      // The runtime holds the open vault while it reads it for a request, but not while a
+      // conditional request waits for a login (ADR 0034); a cancel never waits.
+      if (message.type === "passkey.get") vaultSync.refreshIfStale();
+      void passkeys
+        .handle(message, sender)
         .then(sendResponse, () =>
           sendResponse({ kind: "delegate", reason: "runtime-unavailable" }),
         );

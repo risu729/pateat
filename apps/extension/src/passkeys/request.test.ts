@@ -89,6 +89,56 @@ describe("request admission", () => {
     expect(admit({ ...base, userVerification: "discouraged" }).kind).toBe("claim");
   });
 
+  it("claims a conditional request only for a caller that answers it through a login", () => {
+    const conditional = { ...base, mediation: "conditional" };
+    const through = (request: unknown, flag: boolean | undefined, policy?: PasskeyPolicy) =>
+      admitGetRequest({
+        origin: "https://login.example.com",
+        request,
+        userActivation: false,
+        policy: policy ?? INITIAL_PASSKEY_POLICY,
+        ...(flag === undefined ? {} : { conditional: flag }),
+      });
+    // ADR 0034: a page's own request is admitted, marked, without a gesture.
+    expect(through(conditional, true)).toEqual({
+      kind: "claim",
+      request: {
+        origin: "https://login.example.com",
+        rpId: "login.example.com",
+        challenge: Uint8Array.from({ length: 16 }, (_, index) => index),
+        allowCredentialIds: [],
+        userVerified: true,
+        conditional: true,
+      },
+    });
+    // Without the caller's flag it is handed on, as before (ADR 0007).
+    for (const flag of [undefined, false])
+      expect(through(conditional, flag)).toEqual({
+        kind: "delegate",
+        reason: "unsupported-mediation",
+      });
+    // The flag admits no other mediation, and marks no other request.
+    for (const mediation of ["silent", "required", "immediate"])
+      expect(through({ ...base, mediation }, true)).toEqual({
+        kind: "delegate",
+        reason: "unsupported-mediation",
+      });
+    for (const request of [base, { ...base, mediation: "optional" }]) {
+      const admitted = through(request, true);
+      expect(admitted.kind).toBe("claim");
+      expect(admitted.kind === "claim" && admitted.request).not.toHaveProperty("conditional");
+    }
+    // The rest of admission still applies to it.
+    expect(through({ ...conditional, rpId: "example.net" }, true)).toEqual({
+      kind: "delegate",
+      reason: "rp-id-mismatch",
+    });
+    expect(through(conditional, true, ceremony)).toEqual({
+      kind: "delegate",
+      reason: "no-user-activation",
+    });
+  });
+
   it("asserts UP and UV without a gesture under the initial policy", () => {
     expect(admit({ ...base, userVerification: "required" }, false)).toMatchObject({
       kind: "claim",

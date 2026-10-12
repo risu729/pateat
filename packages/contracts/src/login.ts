@@ -810,9 +810,34 @@ export type PasswordVariant = { slots: string[]; steps: LoginStep[] };
 export function passwordVariants(recipe: LoginRecipe): PasswordVariant[] {
   return variantsOf(recipe);
 }
-/** The chosen route's steps, or none when the recipe lacks it. */
+/**
+ * Whether the recipe's `passkey` route answers the start page's own conditional passkey
+ * request (ADR 0034): a recipe without a passkey button has no button to click.
+ */
+export function passkeyAnswersRequest(recipe: LoginRecipe): boolean {
+  return recipe.passkey === undefined;
+}
+/**
+ * The one step of a `passkey` route that answers the start page's own request (ADR 0034):
+ * it stands for that answer as a submit on the password route's first element, on the
+ * start path, and is never sent to the page.
+ */
+function requestStep(recipe: LoginRecipe): LoginStep {
+  const first = recipe.steps[0]!;
+  return {
+    kind: "click",
+    path: first.path,
+    target: first.kind === "fill" ? first.fields[0]!.target : first.target,
+    purpose: "submit",
+  };
+}
+/**
+ * The chosen route's steps. The `passkey` route clicks its button, or without one answers
+ * the start page's own request (ADR 0034).
+ */
 export function routeSteps(recipe: LoginRecipe, choice: LoginRouteChoice): LoginStep[] {
-  if (choice.route === "passkey") return recipe.passkey ? [passkeyStep(recipe.passkey)] : [];
+  if (choice.route === "passkey")
+    return [recipe.passkey ? passkeyStep(recipe.passkey) : requestStep(recipe)];
   return passwordVariants(recipe)[choice.variant]?.steps ?? [];
 }
 /**
@@ -841,9 +866,12 @@ export function routeFillTargets(recipe: LoginRecipe, route: LoginRoute): LoginT
     (target, index) => targets.findIndex((other) => sameLoginTarget(other, target)) === index,
   );
 }
-/** Every path a route's steps use, over all its variants, each once. */
+/**
+ * Every path a route's steps use, over all its variants, each once. A `passkey` route
+ * that answers the start page's request uses the start path (ADR 0034).
+ */
 export function routePaths(recipe: LoginRecipe, route: LoginRoute): string[] {
-  if (route === "passkey") return recipe.passkey ? [recipe.passkey.path] : [];
+  if (route === "passkey") return [recipe.passkey?.path ?? recipe.steps[0]!.path];
   return [
     ...new Set(
       passwordVariants(recipe).flatMap((variant) => variant.steps.map((step) => step.path)),
@@ -855,10 +883,10 @@ export function routePaths(recipe: LoginRecipe, route: LoginRoute): string[] {
  * sign-in page, so it is not judged (ADR 0027): every fill target of the `password` route,
  * and on the `passkey` route also its button, which stays while its passkey exchange
  * runs. The `passkey` route counts the password form too: a start page that shows it
- * again after the click is still the sign-in page, not a page to learn from.
+ * again after the click is still the sign-in page, not a page to learn from. A `passkey`
+ * route without a button counts the password form only (ADR 0034).
  */
 export function routeSignInTargets(recipe: LoginRecipe, route: LoginRoute): LoginTarget[] {
-  if (route === "passkey" && !recipe.passkey) return [];
   const fills = routeFillTargets(recipe, "password");
   if (route !== "passkey" || !recipe.passkey) return fills;
   const button = recipe.passkey.target;
@@ -870,8 +898,8 @@ export function routeSignInTargets(recipe: LoginRecipe, route: LoginRoute): Logi
  * path of the `password` route, whose form it starts beside.
  */
 export function routeSignInPaths(recipe: LoginRecipe, route: LoginRoute): string[] {
-  if (route !== "passkey" || !recipe.passkey) return routePaths(recipe, route);
-  return [...new Set([recipe.passkey.path, ...routePaths(recipe, "password")])];
+  if (route !== "passkey") return routePaths(recipe, route);
+  return [...new Set([...routePaths(recipe, "passkey"), ...routePaths(recipe, "password")])];
 }
 /**
  * The first step of every route and variant: a new login starts once any of them is
@@ -894,18 +922,20 @@ export function recipeHasRoute(recipe: LoginRecipe, route: LoginRoute): boolean 
     : route === "password" && passwordVariants(recipe).length > 0;
 }
 /**
- * The route a new login takes (ADR 0027), in the owner's order: `passkey` when the recipe
- * has it and the item holds a discoverable passkey; otherwise, from whether the item's
- * binding fills each password variant in order (`fits[variant]`), the first fitting
- * variant, when the item has a password. Undefined means `no-route`.
+ * The route a new login takes (ADR 0027), in the owner's order: `passkey` when the item
+ * holds a discoverable passkey and the recipe has the route's button, or the start page
+ * asked for a passkey by itself (`pageRequest`, ADR 0034); otherwise, from whether the
+ * item's binding fills each password variant in order (`fits[variant]`), the first
+ * fitting variant, when the item has a password. Undefined means `no-route`.
  */
 // SSO (ADR 0026) comes between the passkey and password routes once it exists.
 export function chooseLoginRoute(
   recipe: LoginRecipe,
   facts: Pick<LoginItemFacts, "password" | "discoverablePasskey">,
   fits: readonly boolean[],
+  pageRequest = false,
 ): LoginRouteChoice | undefined {
-  if (recipe.passkey && facts.discoverablePasskey) return { route: "passkey" };
+  if ((recipe.passkey || pageRequest) && facts.discoverablePasskey) return { route: "passkey" };
   if (!facts.password) return undefined;
   const variant = passwordVariants(recipe).findIndex((_, index) => fits[index] === true);
   return variant === -1 ? undefined : { route: "password", variant };

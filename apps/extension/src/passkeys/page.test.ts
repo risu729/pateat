@@ -45,6 +45,9 @@ function fakePage(relay: (message: Message) => Array<Record<string, unknown>> = 
     posted,
     prototypes: { credential: PublicKeyCredential.prototype },
     post: (data: unknown) => scope.postMessage(data),
+    /** Listens to the page's messages after the wrapper's own listener. */
+    listen: (listener: (event: { data: Message }) => void) =>
+      listeners.push(listener as (event: unknown) => void),
   };
 }
 
@@ -133,6 +136,87 @@ describe("MAIN-world passkey wrapper", () => {
     expect(page.nativeGet).not.toHaveBeenCalled();
     // The background already ended the request; nothing is left to cancel.
     expect(page.posted.map((message) => message.type)).toEqual(["get"]);
+  });
+
+  it("keeps a withheld conditional request pending until the page aborts it (ADR 0034)", async () => {
+    const page = fakePage(answer({ kind: "withheld" }));
+    const controller = new AbortController();
+    let settled = false;
+    const result = page.container.get({
+      publicKey,
+      mediation: "conditional",
+      signal: controller.signal,
+    });
+    result.then(
+      () => (settled = true),
+      () => (settled = true),
+    );
+    await vi.waitFor(() => expect(page.posted).toHaveLength(1));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(settled).toBe(false);
+    expect(page.nativeGet).not.toHaveBeenCalled();
+    const reason = { synthetic: "abort" };
+    controller.abort(reason);
+    await expect(result).rejects.toBe(reason);
+    // The background already ended the request, so nothing is cancelled or handed on.
+    expect(page.posted.map((message) => message.type)).toEqual(["get"]);
+    expect(page.nativeGet).not.toHaveBeenCalled();
+  });
+
+  it("rejects a withheld conditional request at once when the page aborted as it arrived", async () => {
+    const page = fakePage(answer({ kind: "withheld" }));
+    const controller = new AbortController();
+    const reason = { synthetic: "abort" };
+    // The page aborts right after the wrapper took the relay's answer.
+    page.listen((event) => {
+      if (event.data.type === "result") controller.abort(reason);
+    });
+    const result = page.container.get({
+      publicKey,
+      mediation: "conditional",
+      signal: controller.signal,
+    });
+    await expect(result).rejects.toBe(reason);
+    expect(page.posted.map((message) => message.type)).toEqual(["get"]);
+    expect(page.nativeGet).not.toHaveBeenCalled();
+  });
+
+  it("hands a withheld request on when it was not conditional", async () => {
+    const page = fakePage(answer({ kind: "withheld" }));
+    const options = { publicKey, signal: new AbortController().signal };
+    await expect(page.container.get(options)).resolves.toBe("native");
+    expect(page.nativeGet).toHaveBeenCalledOnce();
+    expect(page.nativeGet.mock.calls[0]![0]).toBe(options);
+  });
+
+  it("lets a conditional request wait past the absolute limit while the relay answers", async () => {
+    vi.useFakeTimers();
+    const page = fakePage((message) =>
+      message.type === "get" ? [{ type: "ack", id: message.id }] : [],
+    );
+    const held = page.container.get({ publicKey, mediation: "conditional" });
+    await vi.advanceTimersByTimeAsync(0);
+    const id = page.posted.at(-1)!.id;
+    const heartbeat = setInterval(
+      () => page.post({ channel: PAGE_CHANNEL, type: "ack", id }),
+      PAGE_TIMEOUT_MS / 3,
+    );
+    await vi.advanceTimersByTimeAsync(PAGE_MAX_WAIT_MS * 3);
+    expect(page.nativeGet).not.toHaveBeenCalled();
+    expect(page.posted.map((message) => message.type)).toEqual(["get"]);
+    // The login's decision still arrives, here to hand the request on.
+    page.post({ channel: PAGE_CHANNEL, type: "result", id, result: { kind: "delegate" } });
+    await vi.advanceTimersByTimeAsync(0);
+    await expect(held).resolves.toBe("native");
+    clearInterval(heartbeat);
+    // Without the relay's answers it is handed on as any request is.
+    const silent = page.container.get({ publicKey: { ...publicKey }, mediation: "conditional" });
+    await vi.advanceTimersByTimeAsync(0);
+    const silentId = page.posted.at(-1)!.id;
+    page.post({ channel: PAGE_CHANNEL, type: "ack", id: silentId });
+    await vi.advanceTimersByTimeAsync(PAGE_TIMEOUT_MS);
+    await expect(silent).resolves.toBe("native");
+    expect(page.posted.at(-1)).toMatchObject({ type: "cancel", id: silentId });
   });
 
   it("leaves a non-AbortSignal signal to the browser without relaying", async () => {

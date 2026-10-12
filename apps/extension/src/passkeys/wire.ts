@@ -22,7 +22,8 @@ export const CHOOSER_MIN_REMAINING_MS = 5_000;
 export const CHOOSER_MIN_WAIT_MS = 10_000;
 /**
  * The wrapper's absolute limit, past the longest chooser wait plus a signing budget, even while
- * the relay answers.
+ * the relay answers. A `conditional` request has none: it waits for a login of the page
+ * while the relay answers (ADR 0034).
  */
 export const PAGE_MAX_WAIT_MS = CHOOSER_MAX_WAIT_MS + PAGE_TIMEOUT_MS;
 /** Upper bound on a serialized snapshot; a maximal valid snapshot is about 100,000 characters. */
@@ -61,6 +62,11 @@ export const runtimeResultSchema = v.variant("kind", [
    * (ADR 0021; the owner chose this over handing the request to the browser).
    */
   v.strictObject({ kind: v.literal("not-allowed") }),
+  /**
+   * A `conditional` request Pateat neither answers nor hands on: a Pateat login of the
+   * page signed in, so the page keeps waiting, as a conditional request may (ADR 0034).
+   */
+  v.strictObject({ kind: v.literal("withheld") }),
 ]);
 export type RuntimeResult = v.InferOutput<typeof runtimeResultSchema>;
 
@@ -74,6 +80,7 @@ export const pageResultSchema = v.variant("kind", [
   v.strictObject({ kind: v.literal("delegate") }),
   v.strictObject({ kind: v.literal("cancelled") }),
   v.strictObject({ kind: v.literal("not-allowed") }),
+  v.strictObject({ kind: v.literal("withheld") }),
 ]);
 export type PageResult = v.InferOutput<typeof pageResultSchema>;
 

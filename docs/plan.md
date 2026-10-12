@@ -114,9 +114,9 @@ password or passkey, in the Grok Bot computer's Chrome, on a production build of
   once on the `passkey` route; the page's conditional passkey request was handed to
   Bitwarden (`passkey.request` `delegate` `unsupported-mediation`), and the login
   stopped with `login.exception` (state `reconciling`) at 13:55:39 UTC. A new tab at
-  14:08 UTC logged in. Answering the conditional request belongs to the passkey work in
-  progress, and the `reconciling` exception, also seen after submissions on other
-  sites, is investigated separately.
+  14:08 UTC logged in. Such a conditional request now waits for the login
+  ([ADR 0034](adr/0034-answer-page-passkey-requests.md)), and the `reconciling`
+  exception, also seen after submissions on other sites, is investigated separately.
 - Start pages that replaced the sent page during generation. While looking into SBI証券,
   the code showed a race that was not its cause: a page that replaced the sent page in
   its tab, or the same page in another tab, announced while the request was in flight,
@@ -127,6 +127,13 @@ password or passkey, in the Grok Bot computer's Chrome, on a production build of
   submission and does nothing logs `not-started` with `stopped-login` (local tests
   only). Not fixed: `generate` in `apps/extension/src/service/generation.ts` ignores a
   failed sync after generation, so a page could still find no recipe.
+- Prefer the item's passkey over the password on login pages that ask for a passkey by
+  themselves, such as Wise's ([ADR 0034](adr/0034-answer-page-passkey-requests.md),
+  accepted 2026-10-12 14:19 UTC): a page's `conditional` request is answered through
+  the login of its page, which falls back to the password when the site does not sign
+  in; pages without a recipe keep delegating. Implemented with local tests only. Next,
+  confirm in the owner's Chrome that Wise's request is `conditional` (the `mediation`
+  field of `passkey.request`) and that Pateat signs in there with the passkey.
 - Redact the account's own username from every page observation sent to the service
   (generation, its continuation after an `advance` step, and the judge): each matching
   item's username of three or more characters is hidden as `[account]` wherever it
@@ -1162,7 +1169,9 @@ import validates its structure. Unit tests cover malformed and unsupported views
 an SDK round trip through the synthetic legacy account fixture.
 
 The extension's assertion core admits only requests with mediation absent or `optional`
-that pass WebAuthn RP ID validation with tldts private suffixes; everything else is a
+that pass WebAuthn RP ID validation with tldts private suffixes, and `conditional` ones
+for a login of the page to answer
+([ADR 0034](adr/0034-answer-page-passkey-requests.md)); everything else is a
 delegation result. A `PasskeyPolicy` decides whether a missing gesture or a UV
 requirement also delegates; the initial policy sets UP and UV unattended. It selects
 exactly one eligible credential, refuses nonzero counters, serializes `clientDataJSON`,

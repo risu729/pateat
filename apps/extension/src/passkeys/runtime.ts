@@ -110,8 +110,13 @@ export interface PasskeyRequestReport {
   readonly chooser?: PasskeyChoice["kind"] | "timeout" | "cancelled";
   /** Pateat signed for this RP ID in this tab before, so the request asks again. */
   readonly signedBefore?: boolean;
-  /** For the `unsupported-mediation` reason: the request's mediation. */
-  readonly mediation?: "conditional" | "required" | "silent" | "immediate" | "other";
+  /** The request's mediation, when it names one (ADR 0034). */
+  readonly mediation?: "optional" | "conditional" | "required" | "silent" | "immediate" | "other";
+  /**
+   * Why the login's item could not answer a conditional request the login gave it, which
+   * then waited for that login again (ADR 0034).
+   */
+  readonly answerFailed?: string;
   /**
    * A delegated request came while a login of the tab and origin had not ended, so another
    * provider, such as the Bitwarden extension, may have shown its prompt during that login.
@@ -125,12 +130,14 @@ export interface PasskeyRequestReport {
 }
 /**
  * Who cancelled a request (`page-cancelled`, `settings-changed`), or the step that threw:
- * the login's account lookup, the passkey lookup, the check for an earlier signing in the
- * tab, the chooser window, or signing.
+ * the wait for a login's decision on a conditional request, the login's account lookup,
+ * the passkey lookup, the check for an earlier signing in the tab, the chooser window, or
+ * signing.
  */
 export type PasskeyStopCause =
   | "page-cancelled"
   | "settings-changed"
+  | "login-wait"
   | "account-lookup"
   | "passkey-lookup"
   | "signed-before-lookup"
@@ -142,15 +149,29 @@ type ReportDetail = {
   ]?: PasskeyRequestReport[K];
 };
 
-const MEDIATIONS = ["conditional", "required", "silent", "immediate"] as const;
-/** A delegated request's mediation for its report, never the page's own text. */
-function mediationOf(request: unknown): NonNullable<PasskeyRequestReport["mediation"]> {
-  const mediation =
-    typeof request === "object" && request !== null && "mediation" in request
-      ? request.mediation
-      : undefined;
+const MEDIATIONS = ["optional", "conditional", "required", "silent", "immediate"] as const;
+/** A request's mediation for its report, never the page's own text; none when it names none. */
+function mediationOf(request: unknown): PasskeyRequestReport["mediation"] {
+  if (typeof request !== "object" || request === null || !("mediation" in request))
+    return undefined;
+  const { mediation } = request;
+  if (mediation === undefined) return undefined;
   return MEDIATIONS.find((entry) => entry === mediation) ?? "other";
 }
+
+/**
+ * What the login runtime decides for a `conditional` request (ADR 0034): answer it with the
+ * item of the login of its page, which is told whether the answer went back; hand it on,
+ * with why; or withhold it after that login signed in.
+ */
+export type ConditionalDecision =
+  | {
+      readonly kind: "answer";
+      readonly item: PasskeyItem;
+      readonly answered: (signed: boolean) => void;
+    }
+  | { readonly kind: "delegate"; readonly reason: string }
+  | { readonly kind: "withhold" };
 
 const MAX_OPERATIONS = 32;
 /** One document cannot exhaust the shared operation budget. */
@@ -184,7 +205,8 @@ function abortable<T>(pending: Promise<T>, signal: AbortSignal): Promise<T> {
 
 /**
  * Background coordinator for bridged `get()` requests. Every outcome but an assertion delegates,
- * except a chooser window left unanswered until the request's wait ran out, which fails.
+ * except a chooser window left unanswered until the request's wait ran out, which fails, and a
+ * conditional request withheld after a login of its page signed in (ADR 0034).
  */
 export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
   source: PasskeySource<TCandidate>,
@@ -224,6 +246,21 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
     answered?: (tabId: number, origin: string, rpId: string) => void;
     /** Where Pateat signed before; a username-less request there asks again (ADR 0021 D). */
     signedTabs?: SignedTabs;
+    /**
+     * Decides a `conditional` request of a top document through the login of its page
+     * (ADR 0034). Without it, conditional requests are handed on (ADR 0007).
+     */
+    conditional?: (input: {
+      tabId: number;
+      origin: string;
+      documentId: string;
+      signal: AbortSignal;
+    }) => Promise<ConditionalDecision>;
+    /**
+     * Holds vault replacement off while the vault is read and signed with for a request,
+     * until the returned function is called (ADR 0025).
+     */
+    hold?: () => Promise<() => void>;
   },
 ) {
   type Operation = {
@@ -235,12 +272,16 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
     choosing: boolean;
     /** Who cancelled the operation, for its report. */
     cancelledBy?: "page-cancelled" | "settings-changed";
+    /** A conditional request waiting for a login's decision, which reads no settings yet. */
+    parked: boolean;
   };
   const operations = new Map<string, Operation>();
   const settingsChanged = () => {
     for (const [id, operation] of operations) {
       // A person deciding is not interrupted; their choice is checked against the new settings.
-      if (operation.asked) continue;
+      // A conditional request waiting for a login is not either: the login follows the
+      // settings, and its answer is looked up under them (ADR 0034).
+      if (operation.asked || operation.parked) continue;
       operation.cancelledBy ??= "settings-changed";
       operation.controller.abort();
       operations.delete(id);
@@ -269,23 +310,46 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       request: message.request,
       userActivation: message.userActivation,
       policy: options.policy?.(origin) ?? INITIAL_PASSKEY_POLICY,
+      conditional: options.conditional !== undefined,
     });
     if (admission.kind === "delegate") return admission;
     detail.rpId = admission.request.rpId;
     detail.allowCredentials = admission.request.allowCredentialIds.length;
+    const conditional = admission.request.conditional === true;
     const controller = new AbortController();
-    const operation: Operation = { documentId, controller, asked: false, choosing: false };
+    const operation: Operation = {
+      documentId,
+      controller,
+      asked: false,
+      choosing: false,
+      parked: false,
+    };
     operations.set(message.operationId, operation);
     const received = Date.now();
     const expire = () =>
       controller.abort(new DOMException("Passkey bridge timed out", "TimeoutError"));
-    let timer = setTimeout(expire, options.timeoutMs?.() ?? RUNTIME_TIMEOUT_MS);
+    const budget = () => options.timeoutMs?.() ?? RUNTIME_TIMEOUT_MS;
+    // A conditional request gets its budget once a login answers it (ADR 0034).
+    let timer = conditional ? undefined : setTimeout(expire, budget());
     // The step running when something threw, for the report.
-    let step: PasskeyStopCause = "account-lookup";
-    try {
-      const signal = controller.signal;
-      // A failed lookup fails closed: the catch below delegates.
-      const login = await options.loginAccount?.(context.tabId, origin);
+    let step: PasskeyStopCause = conditional ? "login-wait" : "account-lookup";
+    // Vault replacement waits while the vault is read for this request, never while a
+    // conditional request waits for a login (ADR 0025, ADR 0034).
+    let leave: (() => void) | undefined;
+    const hold = async (signal: AbortSignal) => {
+      const entering = Promise.resolve(options.hold?.());
+      try {
+        leave = await abortable(entering, signal);
+      } catch (error) {
+        void entering.then((late) => late?.());
+        throw error;
+      }
+    };
+    /** Looks the request up for the login's item, or for any item, and signs (ADR 0007). */
+    const answer = async (
+      login: PasskeyItem | undefined,
+      signal: AbortSignal,
+    ): Promise<RuntimeResult> => {
       step = "passkey-lookup";
       const candidates = await abortable(
         login
@@ -437,7 +501,56 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       }
       if (makeDefault) after.remember = credential;
       return { kind: "assertion", assertion };
+    };
+    // Told whether the answer of a login's conditional request went back (ADR 0034).
+    let answered: ((signed: boolean) => void) | undefined;
+    // A conditional request waits for the login of its page, if one starts or runs, which
+    // answers it with its own item, hands it on or withholds it (ADR 0034).
+    const waitForLogin = async (signal: AbortSignal): Promise<RuntimeResult> => {
+      step = "login-wait";
+      operation.parked = true;
+      const decision = await abortable(
+        Promise.resolve().then(() =>
+          options.conditional!({ tabId: context.tabId, origin, documentId, signal }),
+        ),
+        signal,
+      );
+      operation.parked = false;
+      if (decision.kind === "delegate") return { kind: "delegate", reason: decision.reason };
+      if (decision.kind === "withhold") return { kind: "withheld" };
+      answered = decision.answered;
+      step = "passkey-lookup";
+      await hold(signal);
+      timer = setTimeout(expire, budget());
+      let result: RuntimeResult;
+      try {
+        result = await answer(decision.item, signal);
+      } catch (error) {
+        if (signal.aborted) throw error;
+        detail.cause = step;
+        result = { kind: "delegate", reason: "assertion-failed" };
+      }
+      const signed = result.kind === "assertion";
+      answered(signed);
+      answered = undefined;
+      if (signed || signal.aborted) return result;
+      // The login takes its password route instead; the request waits for that login
+      // again, which never answers it twice.
+      detail.answerFailed = result.kind === "delegate" ? result.reason : result.kind;
+      clearTimeout(timer);
+      timer = undefined;
+      leave?.();
+      leave = undefined;
+      return waitForLogin(signal);
+    };
+    try {
+      const signal = controller.signal;
+      if (conditional) return await waitForLogin(signal);
+      await hold(signal);
+      // A failed lookup fails closed: the catch below delegates.
+      return await answer(await options.loginAccount?.(context.tabId, origin), signal);
     } catch {
+      answered?.(false);
       const reason = controller.signal.reason as unknown;
       const timedOut = reason instanceof DOMException && reason.name === "TimeoutError";
       if (operation.choosing && controller.signal.aborted) {
@@ -455,6 +568,7 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       return { kind: "delegate", reason: "assertion-failed" };
     } finally {
       clearTimeout(timer);
+      leave?.();
       operations.delete(message.operationId);
     }
   }
@@ -520,8 +634,8 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
         void signedTabs.add(sender.tab!.id!, rpId).catch(() => undefined);
       }
       const remembered = after.remember;
-      if (result.kind === "delegate" && result.reason === "unsupported-mediation")
-        detail.mediation = mediationOf(request);
+      const mediation = mediationOf(request);
+      if (mediation) detail.mediation = mediation;
       if (remembered && options.remember) {
         const remember = options.remember;
         // After the reply is on its way: saving settings cancels pending passkey requests.

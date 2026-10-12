@@ -1053,8 +1053,13 @@ describe("second-factor handlers in an attempt (ADR 0027)", () => {
       maxSubmissions: 1,
     });
     expect(parseAttemptMetadata(attempt)).toEqual(attempt);
+    // A passkey route may keep the password variant it falls back to (ADR 0034).
+    expect(parseAttemptMetadata({ ...attempt, route: "passkey" })).toMatchObject({
+      route: "passkey",
+      variant: 0,
+    });
     for (const malformed of [
-      { ...attempt, route: "passkey" },
+      { ...attempt, route: "sso" },
       { ...attempt, variant: undefined },
       { ...attempt, variant: 4 },
       { ...attempt, facts: { ...facts, sso: true } },
@@ -1662,26 +1667,54 @@ describe("the passkey route in an attempt (ADR 0027)", () => {
     });
   });
 
-  it("has a variant exactly when the route is the password route", () => {
+  it("needs a variant on the password route, and lets the passkey route keep one", () => {
     const passkey = create({ route: "passkey" });
     const password = create({ route: "password", variant: 0 });
-    expect(() => parseAttemptMetadata({ ...passkey, variant: 0 })).toThrow();
+    // The variant a passkey route falls back to (ADR 0034).
+    expect(parseAttemptMetadata({ ...passkey, variant: 0 })).toMatchObject({
+      route: "passkey",
+      variant: 0,
+    });
     expect(() => parseAttemptMetadata({ ...password, variant: undefined })).toThrow();
+    expect(() => parseAttemptMetadata({ ...passkey, variant: 4 })).toThrow();
     expect(parseAttemptMetadata(passkey)).toEqual(passkey);
   });
 
-  it("refuses the route for a recipe without it", () => {
-    expect(() =>
+  it("answers the start page's own request on a recipe without the button (ADR 0034)", () => {
+    const answering = (fallback?: number) =>
       createAttemptMetadata({
         id: "attempt-passkey",
         recipe,
         policyRevision: 3,
         account: { origin: document.origin, connectionId: "demo-personal", itemId: "primary" },
         choice: { route: "passkey" },
+        ...(fallback === undefined ? {} : { fallback }),
+        facts: { ...facts, passkey: true, discoverablePasskey: true },
+        document,
+      });
+    const attempt = answering();
+    expect(attempt).toMatchObject({ route: "passkey", stepCount: 1, maxSubmissions: 1 });
+    expect(attempt).not.toHaveProperty("variant");
+    // Its one step stands for the answer as a submit on the start page's first field.
+    expect(attemptPlan(recipe, attempt)?.map(({ step }) => step)).toEqual([
+      { kind: "click", path: "/login", target: { by: "id", value: "password" }, purpose: "submit" },
+    ]);
+    // The password variant it falls back to is kept as its variant.
+    expect(answering(0)).toMatchObject({ route: "passkey", variant: 0, stepCount: 1 });
+    expect(attemptRouteChoice(answering(0))).toEqual({ route: "passkey" });
+    // A fallback is the passkey route's only: the password route keeps its own variant.
+    expect(
+      createAttemptMetadata({
+        id: "attempt-password",
+        recipe,
+        policyRevision: 3,
+        account: { origin: document.origin, connectionId: "demo-personal", itemId: "primary" },
+        choice: { route: "password", variant: 0 },
+        fallback: 3,
         facts,
         document,
       }),
-    ).toThrow();
+    ).toMatchObject({ route: "password", variant: 0 });
   });
 });
 
@@ -2525,5 +2558,236 @@ describe("a login watched after a challenge or an unknown result (ADR 0027)", ()
     expect(() => parseAttemptMetadata({ ...watching, watch: undefined })).toThrow();
     expect(() => parseAttemptMetadata({ ...awaiting(), watch: watching.watch })).toThrow();
     expect(() => parseAttemptMetadata({ ...watching, document: { ...top, frameId: 2 } })).toThrow();
+  });
+});
+
+describe("route changes for a page's own passkey request (ADR 0034)", () => {
+  const keyFacts = { ...facts, passkey: true, discoverablePasskey: true };
+  const create = (
+    choice: Parameters<typeof createAttemptMetadata>[0]["choice"],
+    change: Partial<Parameters<typeof createAttemptMetadata>[0]> = {},
+  ) =>
+    createAttemptMetadata({
+      id: "attempt-route",
+      recipe,
+      policyRevision: 3,
+      account: { origin: document.origin, connectionId: "demo-personal", itemId: "primary" },
+      choice,
+      facts: keyFacts,
+      document,
+      ...change,
+    });
+  const toPasskey = { type: "ROUTE", route: "passkey", steps: 1 } as const;
+  const toPassword = { type: "ROUTE", route: "password", steps: 2 } as const;
+  /** A `passkey` route on a recipe without the button whose answer went out. */
+  function answering(fallback: number | null = 0) {
+    let attempt = transitionLoginAttempt(
+      create({ route: "passkey" }, fallback === null ? {} : { fallback }),
+      { type: "RESOLVE" },
+    );
+    attempt = transitionLoginAttempt(attempt, {
+      type: "PREPARE",
+      operationId: "answer-one",
+      kind: "click",
+      effect: "submit",
+    });
+    return transitionLoginAttempt(attempt, { type: "SUBMIT_INTENT", operationId: "answer-one" });
+  }
+
+  it("switches a password login to the passkey route before anything was submitted", () => {
+    const ready = transitionLoginAttempt(create({ route: "password", variant: 0 }), {
+      type: "RESOLVE",
+    });
+    const switched = transitionLoginAttempt(ready, toPasskey);
+    expect(switched).toMatchObject({
+      state: "ready",
+      route: "passkey",
+      // The variant it falls back to stays recorded.
+      variant: 0,
+      stepIndex: 0,
+      stepCount: 1,
+      submissions: 0,
+      maxSubmissions: 1,
+    });
+    expect(attemptRouteChoice(switched)).toEqual({ route: "passkey" });
+    // A filled field stays filled: the switch comes between steps too.
+    const filled = transitionLoginAttempt(readyToClick(), toPasskey);
+    expect(filled).toMatchObject({ state: "ready", route: "passkey", stepIndex: 0, stepCount: 1 });
+    expect(filled.usedOperationIds).toEqual(["fill-one"]);
+    // And back, while still nothing was submitted.
+    expect(transitionLoginAttempt(switched, toPassword)).toMatchObject({
+      state: "ready",
+      route: "password",
+      variant: 0,
+      stepIndex: 0,
+      stepCount: 2,
+      maxSubmissions: 1,
+    });
+  });
+
+  it("refuses a switch that is not between steps of an unsubmitted, plain login", () => {
+    const ready = transitionLoginAttempt(create({ route: "password", variant: 0 }), {
+      type: "RESOLVE",
+    });
+    // The same route, or a route of a login without a recorded variant.
+    expect(transitionLoginAttempt(ready, { ...toPassword, steps: 2 })).toEqual(ready);
+    const button: LoginRecipe = {
+      ...recipe,
+      passkey: { path: "/login", target: { by: "id", value: "passkey-login" } },
+    };
+    const clicking = transitionLoginAttempt(create({ route: "passkey" }, { recipe: button }), {
+      type: "RESOLVE",
+    });
+    expect(transitionLoginAttempt(clicking, toPassword)).toEqual(clicking);
+    // An operation under way, in its own state or prepared again.
+    const filling = transitionLoginAttempt(ready, {
+      type: "PREPARE",
+      operationId: "fill-one",
+      kind: "fill",
+    });
+    expect(transitionLoginAttempt(filling, toPasskey)).toEqual(filling);
+    // A submission, even before its result.
+    expect(transitionLoginAttempt(submitting(), toPasskey)).toEqual(submitting());
+    // A login that only fills after a logout, or one on a chooser's list.
+    const fillOnly = transitionLoginAttempt(
+      create({ route: "password", variant: 0 }, { fillOnly: true }),
+      { type: "RESOLVE" },
+    );
+    expect(transitionLoginAttempt(fillOnly, toPasskey)).toEqual(fillOnly);
+    const listed = transitionLoginAttempt(
+      create({ route: "password", variant: 0 }, { chooser: "other" }),
+      { type: "RESOLVE" },
+    );
+    expect(transitionLoginAttempt(listed, toPasskey)).toEqual(listed);
+    // A ready login with a submission behind it, or an entered handler.
+    expect(transitionLoginAttempt({ ...ready, submissions: 1 }, toPasskey)).toMatchObject({
+      route: "password",
+      submissions: 1,
+    });
+    const handled = { ...ready, stepCount: 3, handlers: [{ index: 0, start: 2 }] };
+    expect(transitionLoginAttempt(handled, toPasskey)).toMatchObject({ route: "password" });
+    // Before the login resolved.
+    const unresolved = create({ route: "password", variant: 0 });
+    expect(transitionLoginAttempt(unresolved, toPasskey)).toEqual(unresolved);
+  });
+
+  it("falls back to the recorded variant once after the answer, with the password budget", () => {
+    const answered = transitionLoginAttempt(answering(), {
+      type: "SUBMITTED",
+      operationId: "answer-one",
+    });
+    expect(answered).toMatchObject({ state: "awaiting-result", submissions: 1 });
+    const fallen = transitionLoginAttempt(answered, toPassword);
+    expect(fallen).toMatchObject({
+      state: "ready",
+      route: "password",
+      variant: 0,
+      stepIndex: 0,
+      stepCount: 2,
+      submissions: 1,
+      // The answer does not spend the password route's own budget.
+      maxSubmissions: 2,
+    });
+    expect(fallen.operationId).toBeUndefined();
+    expect(fallen.operationKind).toBeUndefined();
+    expect(fallen.outcome).toBeUndefined();
+    expect(attemptPlan(recipe, fallen)?.map(({ step }) => step)).toEqual(recipe.steps);
+    // The password route runs its fill and its submit within that budget.
+    let attempt = transitionLoginAttempt(fallen, {
+      type: "PREPARE",
+      operationId: "fill-one",
+      kind: "fill",
+    });
+    attempt = transitionLoginAttempt(attempt, { type: "MUTATION_INTENT", operationId: "fill-one" });
+    attempt = transitionLoginAttempt(attempt, { type: "OPERATION_OK", operationId: "fill-one" });
+    attempt = transitionLoginAttempt(attempt, {
+      type: "PREPARE",
+      operationId: "click-one",
+      kind: "click",
+    });
+    attempt = transitionLoginAttempt(attempt, { type: "SUBMIT_INTENT", operationId: "click-one" });
+    expect(attempt).toMatchObject({ state: "submit-intent", submissions: 2, maxSubmissions: 2 });
+    // Never back to the passkey route: it never answers twice.
+    const settled = transitionLoginAttempt(attempt, {
+      type: "SUBMITTED",
+      operationId: "click-one",
+    });
+    expect(transitionLoginAttempt(settled, toPasskey)).toEqual(settled);
+    expect(transitionLoginAttempt(fallen, toPasskey)).toEqual(fallen);
+  });
+
+  it("falls back from reconciling after a failed answer", () => {
+    const failed = transitionLoginAttempt(answering(), {
+      type: "FAILED",
+      reason: "timeout",
+      mutation: "none",
+      operationId: "answer-one",
+      document,
+    });
+    expect(failed).toMatchObject({ state: "reconciling", route: "passkey", submissions: 1 });
+    expect(transitionLoginAttempt(failed, toPassword)).toMatchObject({
+      state: "ready",
+      route: "password",
+      variant: 0,
+      stepIndex: 0,
+      maxSubmissions: 2,
+    });
+  });
+
+  it("refuses a fallback without a recorded variant, a click or a submission", () => {
+    const answered = transitionLoginAttempt(answering(null), {
+      type: "SUBMITTED",
+      operationId: "answer-one",
+    });
+    expect(answered).not.toHaveProperty("variant");
+    expect(transitionLoginAttempt(answered, toPassword)).toEqual(answered);
+    const recorded = transitionLoginAttempt(answering(), {
+      type: "SUBMITTED",
+      operationId: "answer-one",
+    });
+    // Only to the password route.
+    expect(transitionLoginAttempt(recorded, toPasskey)).toEqual(recorded);
+    // Not from the answer's own state, before its result is awaited.
+    expect(transitionLoginAttempt(answering(), toPassword)).toEqual(answering());
+    // Not after a password login's submission.
+    const password = transitionLoginAttempt(submitting(), {
+      type: "SUBMITTED",
+      operationId: "click-one",
+    });
+    expect(transitionLoginAttempt(password, toPassword)).toEqual(password);
+    // Not after a handler was entered.
+    const handled = { ...recorded, stepCount: 2, handlers: [{ index: 0, start: 1 }] };
+    expect(transitionLoginAttempt(handled, toPassword)).toMatchObject({ route: "passkey" });
+  });
+
+  it("caps the fallback's budget at the attempt's limit", () => {
+    const answered = transitionLoginAttempt(answering(), {
+      type: "SUBMITTED",
+      operationId: "answer-one",
+    });
+    expect(transitionLoginAttempt({ ...answered, maxSubmissions: 12 }, toPassword)).toMatchObject({
+      route: "password",
+      submissions: 1,
+      maxSubmissions: 12,
+    });
+    expect(transitionLoginAttempt({ ...answered, maxSubmissions: 11 }, toPassword)).toMatchObject({
+      route: "password",
+      maxSubmissions: 12,
+    });
+    // A switch before any submission leaves the budget as it was.
+    const ready = transitionLoginAttempt(create({ route: "password", variant: 0 }), {
+      type: "RESOLVE",
+    });
+    expect(
+      transitionLoginAttempt(transitionLoginAttempt(ready, toPasskey), toPassword),
+    ).toMatchObject({ maxSubmissions: 1 });
+  });
+
+  it("refuses a route event without a step", () => {
+    const ready = transitionLoginAttempt(create({ route: "password", variant: 0 }), {
+      type: "RESOLVE",
+    });
+    expect(() => transitionLoginAttempt(ready, { ...toPasskey, steps: 0 })).toThrow();
+    expect(() => transitionLoginAttempt(ready, { ...toPasskey, route: "sso" })).toThrow();
   });
 });

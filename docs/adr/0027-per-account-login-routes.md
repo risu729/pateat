@@ -22,6 +22,10 @@ confirmed evidence of a sign-in, on the `password` route) is implemented. Amende
 2026-10-12 by the owner (13:08 UTC): a top-level `password` login that ends `challenge`
 or settles as unknown is watched for 10 minutes
 ([Watching after a challenge](#watching-after-a-challenge)); implemented.
+Amended on 2026-10-12 by [ADR 0034](0034-answer-page-passkey-requests.md): a recipe
+without a passkey button gets a `passkey` route that answers the start page's own
+conditional request, chosen or switched to when the page asked, and that route falls
+back to the recorded `password` variant when the site does not sign in (implemented).
 
 Date: 2026-10-11
 
@@ -108,7 +112,9 @@ whether or not they hold a value; the two flags fix that (owner, 13:42 UTC).
 
    If none fits, the login stops with `no-route`. A login on the `passkey` route that
    reaches no signed-in page ends `challenge`; it never falls back to typing the
-   password.
+   password. The `passkey` route that answers the page's own request on a recipe without
+   a passkey button is the exception
+   ([ADR 0034](0034-answer-page-passkey-requests.md)).
 2. **The start is detected** by watching the first element of every route, without
    reading the vault, as today for one first step.
 3. **After each effect step** the executor checks, in order: the completion, the
