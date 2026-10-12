@@ -1587,15 +1587,14 @@ added the rule below, and the `e48b4e7` regeneration above reflects it and #211.
 `extractLoginObservation` (`apps/extension/src/observation/extract.ts`) builds a
 `LoginObservation` from a page's DOM for recipe generation. It reads element types,
 locators, labels, placeholders, descriptions, `autocomplete` and declared input
-constraints, plus the
-title and visible `h1`-`h3`. It never reads input values, hidden inputs or query
-strings, and refuses a path that may carry a session ID or another token: a segment,
-percent-decoded, with a matrix parameter such as `;jsessionid=`, an ASP.NET part such as
-`(S(...))`, a query (`?`, `&` or `=`, as in Magento's base64-encoded
-`/referer/<URL with ?SID=...>/`), a UUID, a run of 16 or more letters and digits that
-contains a digit, or a base64url-like run of 16 or more letters, digits, `-` and `_`
-that contains a digit and switches case or between letters and digits often. Each
-segment is checked as it is and percent-decoded up to three times.
+constraints, plus the title and visible `h1`-`h3`. It never reads input values, hidden
+inputs or query strings, and refuses a path that may carry a session ID or another
+token: a segment, percent-decoded, with a matrix parameter such as `;jsessionid=`, an
+ASP.NET part such as `(S(...))`, a query (`?`, `&` or `=`, as in Magento's
+base64-encoded `/referer/<URL with ?SID=...>/`), a UUID, a run of 16 or more letters and
+digits that contains a digit, or a base64url-like run of 16 or more letters, digits, `-`
+and `_` that contains a digit and switches case or between letters and digits often.
+Each segment is checked as it is and percent-decoded up to three times.
 `extractSignedInObservation` refuses the same paths. The rule is a heuristic: it misses
 tokens shorter than 16 characters and some plain-looking ones, and it also refuses paths
 that carry no session, such as Microsoft Entra tenant IDs
@@ -1629,62 +1628,61 @@ context links to the 48-candidate limit or to shared text. Hidden, collapsed,
 `aria-hidden` and before-the-page-start inputs are skipped as likely traps. Labels come
 from `aria-labelledby`, `aria-label`, `<label>`, the text next to a field (the preceding
 table cell, `<dt>` or sibling, at most three levels up, never across another control or
-its label), then `title`; image `alt` names buttons, including `<input type="image">`.
-A text, email, tel, number or password field also gets a `description`: the rendered
-text of the elements its `aria-describedby` names, such as `半角数字3桁` under a branch
-number field, left out when it equals the label. It reaches the generation, finite-choice
-and completion roles as untrusted page text, like labels. The owner chose on 2026-10-12
-to add only this now and to consider the rest only if field or button mapping gets worse
-on real pages. Not observed today: text after a field that no `aria-describedby` names
-(a hint printed under an input), a second label source once one is found (the text next
-to a field when a `<label>` exists), text around a button (a line above a passkey
-button, the heading of its section) and a button's `aria-describedby`, the `pattern`
-attribute, and whether a button is disabled. Whatever the model saw, the executor still
-checks a field's `maxlength` and `minlength` before it fills and the browser's validation,
-`pattern` included, before it clicks.
-Text is redacted as [architecture](architecture.md#declarative-recipes-and-ai)
-describes. Each target is the first of `id`, `name` and `data-testid` that matches
-exactly one element, as the executor resolves it; a button without one gets a text
-locator when its text matches exactly one button and redaction leaves it unchanged, and
-a script link when its text matches no button and exactly one script link. In a login
-form, a field, button or checkbox without a target, a control the executor cannot act on
-(a select, radio, text area, another input type, or a read-only, disabled, transparent
-or tiny field) or a control in a shadow root makes the observation incomplete, as do
-more than 48 candidates, so inference rejects it; a page without a field, or where
-nothing in a login form can be located or acted on, is refused. The
-login forms are those with one password field that is not `new-password`, or with a
-`username` or `one-time-code` field, as ADR 0016 detects a login; failing that, any with
-a password field; otherwise every form that holds a field. Any other form with such a
-control, such as a search form with a category select or a sign-up form with a
-birth-date select, is left out entirely, so every form the observation describes is
-complete. On the 233 observed Formasaurus login pages of the real-page corpus
-(2026-10-11), this cut the incomplete ones from 108 to 52: 55 became complete, each
-still showing the form Formasaurus labels as the login form, and one whose login form
-has no locatable control now gives no observation. A field in any open shadow root marks
-it incomplete too, as it may be the real login. Links are context only: the plan check
-accepts only a button as the page action. Known limits: a read-only username shown again
-on a password step makes that step incomplete, and honeypot inputs moved to the right or
-clipped by `overflow: hidden` stay candidates. `extractSignedInObservation` describes
-the page after a generated recipe's final submission the same way, but over the whole
-page: every field, then buttons and links up to 48 candidates, listed in document order.
-A field it cannot describe marks it incomplete, except a read-only, transparent or tiny
-field that does not look like a sign-in field, which is left out since 2026-10-12: the
-page after アパホテル's login was logged as `unfillable-field` and never judged, and a
-read-only date picker of its hotel search is the inferred cause, not yet confirmed in
-the owner's Chrome. Buttons and links past the limit or without a locator are left out,
-since they are only possible sign-in markers. Links are located by their text too, and
-those in a page header or navigation, where account menus usually sit, are kept first;
-the rank reads only the page's structure, never words of one language. A text locator
-with a digit, such as a points balance or an unread count, never names a marker there,
-and the judge is told to pick a marker whose text is the same for every account and
-visit, never the person's name, a count or a balance: its text is stored in the recipe
-and must match every later sign-in. On ポイントインカム (2026-10-12) the page after
-sign-in gave 21 candidates, all carousel controls, news tabs and an ad's close button,
-because its header links have no `id`; the judge answered `unclear`. A synthetic page of
-that shape now keeps the header's links. There, an attribute locator that redaction
-would change counts as no locator, so an account number in an `id` is never sent.
-`mise run //apps/extension:test:dom` covers these cases in Chromium with synthetic
-pages.
+its label), then `title`; image `alt` names buttons, including `<input type="image">`. A
+text, email, tel, number or password field also gets a `description`: the rendered text
+of the elements its `aria-describedby` names, such as `半角数字3桁` under a branch
+number field, left out when it equals the label. It reaches the generation,
+finite-choice and completion roles as untrusted page text, like labels. The owner chose
+on 2026-10-12 to add only this now and to consider the rest only if field or button
+mapping gets worse on real pages. Not observed today: text after a field that no
+`aria-describedby` names (a hint printed under an input), a second label source once one
+is found (the text next to a field when a `<label>` exists), text around a button (a
+line above a passkey button, the heading of its section) and a button's
+`aria-describedby`, the `pattern` attribute, and whether a button is disabled. Whatever
+the model saw, the executor still checks a field's `maxlength` and `minlength` before it
+fills and the browser's validation, `pattern` included, before it clicks. Text is
+redacted as [architecture](architecture.md#declarative-recipes-and-ai) describes. Each
+target is the first of `id`, `name` and `data-testid` that matches exactly one element,
+as the executor resolves it; a button without one gets a text locator when its text
+matches exactly one button and redaction leaves it unchanged, and a script link when its
+text matches no button and exactly one script link. In a login form, a field, button or
+checkbox without a target, a control the executor cannot act on (a select, radio, text
+area, another input type, or a read-only, disabled, transparent or tiny field) or a
+control in a shadow root makes the observation incomplete, as do more than 48
+candidates, so inference rejects it; a page without a field, or where nothing in a login
+form can be located or acted on, is refused. The login forms are those with one password
+field that is not `new-password`, or with a `username` or `one-time-code` field, as ADR
+0016 detects a login; failing that, any with a password field; otherwise every form that
+holds a field. Any other form with such a control, such as a search form with a category
+select or a sign-up form with a birth-date select, is left out entirely, so every form
+the observation describes is complete. On the 233 observed Formasaurus login pages of
+the real-page corpus (2026-10-11), this cut the incomplete ones from 108 to 52: 55
+became complete, each still showing the form Formasaurus labels as the login form, and
+one whose login form has no locatable control now gives no observation. A field in any
+open shadow root marks it incomplete too, as it may be the real login. Links are context
+only: the plan check accepts only a button as the page action. Known limits: a read-only
+username shown again on a password step makes that step incomplete, and honeypot inputs
+moved to the right or clipped by `overflow: hidden` stay candidates.
+`extractSignedInObservation` describes the page after a generated recipe's final
+submission the same way, but over the whole page: every field, then buttons and links up
+to 48 candidates, listed in document order. A field it cannot describe marks it
+incomplete, except a read-only, transparent or tiny field that does not look like a
+sign-in field, which is left out since 2026-10-12: the page after アパホテル's login was
+logged as `unfillable-field` and never judged, and a read-only date picker of its hotel
+search is the inferred cause, not yet confirmed in the owner's Chrome. Buttons and links
+past the limit or without a locator are left out, since they are only possible sign-in
+markers. Links are located by their text too, and those in a page header or navigation,
+where account menus usually sit, are kept first; the rank reads only the page's
+structure, never words of one language. A text locator with a digit, such as a points
+balance or an unread count, never names a marker there, and the judge is told to pick a
+marker whose text is the same for every account and visit, never the person's name, a
+count or a balance: its text is stored in the recipe and must match every later sign-in.
+On ポイントインカム (2026-10-12) the page after sign-in gave 21 candidates, all carousel
+controls, news tabs and an ad's close button, because its header links have no `id`; the
+judge answered `unclear`. A synthetic page of that shape now keeps the header's links.
+There, an attribute locator that redaction would change counts as no locator, so an
+account number in an `id` is never sent. `mise run //apps/extension:test:dom` covers
+these cases in Chromium with synthetic pages.
 
 Evaluation data candidates, checked 2026-10-10 (terms are as published by each
 source; confirm before use):
