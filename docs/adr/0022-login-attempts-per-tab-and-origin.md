@@ -18,6 +18,12 @@ card): a record that still holds the origin stops holding it 5 minutes after it 
 changed. Evidence: in the owner's Chrome a github.com login that had succeeded after a
 passkey step stayed `reconciling` with an unknown result in one tab, so a pick in
 another tab was refused `origin-busy` until that tab would close.
+Amended again on 2026-10-12 (bug fix applying the 02:42 UTC choice to the stopped tab
+itself): a login Pateat itself stopped with nothing in flight no longer holds its own
+tab either. Evidence: in the owner's Chrome, removing github.com's saved default stopped
+that tab's login as `policy-changed`; after a reload the page was refused for several
+matching accounts, but it had resumed the stopped record, so the toolbar popup offered
+no account choice and the tab never logged in again until it was closed.
 
 ## Context
 
@@ -43,7 +49,13 @@ fix them now; the SSO policy itself is recorded separately.
   attempt). A tab may hold records for several origins; all are deleted when the tab
   closes.
 - **A page resumes only its own origin's record**, also an ended one. A new attempt
-  starts only when the tab has no record for that origin. A finished top-level record
+  starts only when the tab has no record for that origin. A record Pateat itself
+  stopped with nothing in flight, as described under "Holding the origin in other tabs"
+  below (except `wrong-account`, released by logout detection, and `account-switched`,
+  whose exception follows), is the exception (amended 2026-10-12): a new document of
+  that origin in the tab releases it and is handled like one in a new tab, with the
+  saved default or by asking when several items match. The same document announcing
+  again, as after a restarted worker, still resumes it. A finished top-level record
   whose login form's first step shows again is released by the logout detection of ADR
   0021 (part D), which then asks for an account instead of submitting. Returning to an
   origin the tab already tried therefore never submits again, which keeps a loop such as

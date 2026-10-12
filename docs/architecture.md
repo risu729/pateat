@@ -382,7 +382,9 @@ success holds the origin until that tab closes or its record has not changed for
 minutes; an `authenticated` one, one that
 ended `interrupted` without submitting, or one Pateat itself stopped with nothing in
 flight (such as `policy-changed`) does not. A tab keeps one attempt record per
-origin and runs one attempt at a time; a page resumes only its own origin's record, and
+origin and runs one attempt at a time; a page resumes only its own origin's record,
+except that a new page releases one Pateat itself stopped with nothing in flight and
+logs in as a new tab would, and
 a top-level attempt that may have submitted ends `left-origin` when the tab moves to
 another origin ([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md)). Wider
 shared-session domains need explicit coordination before broader support, not a guessed

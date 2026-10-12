@@ -3433,6 +3433,31 @@ export function createLoginRuntime(
       if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
       recorded = undefined;
     }
+    if (
+      recorded &&
+      stoppedByPateat(recorded) &&
+      !finishedLogin(recorded) &&
+      recorded.outcome !== "account-switched" &&
+      recorded.document.documentId !== document.documentId
+    ) {
+      // A login Pateat itself stopped with nothing in flight holds no tab, its own included:
+      // a new page of the tab logs in as a new tab would, with the saved default or by
+      // asking when several accounts match (ADR 0022).
+      const released = recorded;
+      if (attempts.get(document.tabId)?.metadata.id === released.id)
+        attempts.delete(document.tabId);
+      if (picked.get(document.tabId)?.attemptId === released.id) {
+        picked.delete(document.tabId);
+        void quietly(saveSession);
+      }
+      try {
+        await forget(logoutKey);
+      } catch {
+        return refuse("storage-unavailable");
+      }
+      if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+      recorded = undefined;
+    }
     // A logout in another tab ends the shared session too, so this tab asks as well.
     const asking =
       !recorded && (logouts.has(logoutKey) || askedElsewhere(document.tabId, document.origin));
