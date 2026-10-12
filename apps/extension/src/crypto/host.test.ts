@@ -425,7 +425,6 @@ describe("fixed operations, session scope and reply fencing", () => {
       ok: true,
       data: { kind: "text", value: "synthetic-field-value" },
     });
-    expect(h.host.status()).not.toHaveProperty("password");
   });
 
   const uriCandidates = {

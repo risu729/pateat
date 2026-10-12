@@ -414,16 +414,11 @@ describe("options setup composition using the fixed real transport", () => {
     expect(h.host.deriveAuthentication).not.toHaveBeenCalled();
     expect(h.manager.accept).not.toHaveBeenCalled();
   });
-  it.each([
-    "http://vault.example",
-    "https://vault.example/path",
-    "https://user@vault.example",
-    "https://vault.example?token=private",
-  ])("rejects invalid configured root %s before permission or HTTP", async (baseUrl) => {
+  // packages/bitwarden's transport tests prove which roots are inadmissible.
+  it("rejects an invalid configured root before permission or HTTP", async () => {
     const h = harness();
-    expect(
-      (await h.caller.begin({ ...newInput(), environment: { kind: "self-hosted", baseUrl } })).ok,
-    ).toBe(false);
+    const environment = { kind: "self-hosted", baseUrl: "http://vault.example" } as const;
+    expect((await h.caller.begin({ ...newInput(), environment })).ok).toBe(false);
     expect(h.permissions.contains).not.toHaveBeenCalled();
     expect(h.fetch).not.toHaveBeenCalled();
   });
@@ -929,6 +924,8 @@ describe("durable provider sessions", () => {
     expect(status).toMatchObject({ connections: [{ providerSession: "active" }] });
     noSecrets(status);
     expect(h.fetch).toHaveBeenCalledTimes(3);
+    // The revision date is unchanged, and a manual Sync still sends a full sync.
+    expect(await h.revisions.revision(accountProfile.connectionId)).toBe(1_792_152_000_000);
     expect((await fresh.caller.sync(accountProfile.connectionId)).ok).toBe(true);
     expect(h.fetch).toHaveBeenCalledTimes(4);
     expect(h.host.deriveAuthentication).toHaveBeenCalledTimes(1);
@@ -1009,13 +1006,6 @@ describe("durable provider sessions", () => {
     );
     expect(h.sessionMemory.raw()).toBeUndefined();
   });
-  it("a manual Sync still sends a full sync for an unchanged vault", async () => {
-    const h = harness({ existing: true });
-    await connected(h);
-    const fetches = h.fetch.mock.calls.length;
-    expect((await h.restart().caller.sync(accountProfile.connectionId)).ok).toBe(true);
-    expect(h.fetch).toHaveBeenCalledTimes(fetches + 1);
-  });
   it("a manual Sync started with an automatic check waits for it and still syncs", async () => {
     const h = harness({ existing: true });
     await connected(h);
@@ -1077,20 +1067,6 @@ describe("durable provider sessions", () => {
     expect(await auto).toBe("skipped");
     expect((await signIn).ok).toBe(true);
   });
-  it("permission removal clears the stored revision date", async () => {
-    const h = harness({ existing: true });
-    await connected(h);
-    h.permission(false);
-    await h.service.permissionsRemoved();
-    expect(await h.revisions.revision(accountProfile.connectionId)).toBeUndefined();
-  });
-  it("forget clears the stored revision date", async () => {
-    const h = harness({ existing: true });
-    await connected(h);
-    expect((await h.caller.forget(accountProfile.connectionId)).ok).toBe(true);
-    expect(await h.revisions.revision(accountProfile.connectionId)).toBeUndefined();
-    expect(await h.service.autoSync(accountProfile.connectionId, hold())).toBe("skipped");
-  });
   it("a sync failure after a committed rotation keeps the rotated token", async () => {
     const h = harness({ existing: true });
     await connected(h);
@@ -1127,13 +1103,6 @@ describe("durable provider sessions", () => {
     expect(parseSetupReply(reply)).toEqual(reply);
     expect(h.sessionMemory.raw()).toMatchObject({ state: "active" });
     expect(h.durable()).toEqual(previous);
-  });
-  it("a provider HTTP failure during password setup replies with only its code", async () => {
-    const h = harness();
-    h.tokenResponses.push({ status: 503, body: {} });
-    const reply = await h.caller.begin(newInput());
-    expect(reply).toEqual({ ok: false, error: { code: "http-error" } });
-    expect(parseSetupReply(reply)).toEqual(reply);
   });
   it("a rejected access token forgets only the sync session", async () => {
     const h = harness({ existing: true });
@@ -1174,6 +1143,8 @@ describe("durable provider sessions", () => {
     });
     expect(h.fetch).toHaveBeenCalledTimes(calls);
     expect(h.sessionMemory.raw()).toBeUndefined();
+    expect(await h.revisions.revision(accountProfile.connectionId)).toBeUndefined();
+    expect(await h.service.autoSync(accountProfile.connectionId, hold())).toBe("skipped");
     expect(h.durable()?.state).toBe("active");
     expect(await h.caller.status()).toMatchObject({
       connections: [{ providerSession: "none", autoUnlock: "enabled" }],
@@ -1318,7 +1289,9 @@ describe("durable provider sessions", () => {
   it("delete removes a leftover connection whose first sign-in never completed", async () => {
     const h = harness();
     h.tokenResponses.push({ status: 503, body: {} });
-    expect(await h.caller.begin(newInput())).toEqual({ ok: false, error: { code: "http-error" } });
+    const reply = await h.caller.begin(newInput());
+    expect(reply).toEqual({ ok: false, error: { code: "http-error" } });
+    expect(parseSetupReply(reply)).toEqual(reply);
     const [connectionId] = [...h.configurations.keys()];
     if (!connectionId) throw new Error("Synthetic setup did not register");
     expect(await h.caller.status()).toMatchObject({
@@ -1513,6 +1486,7 @@ describe("durable provider sessions", () => {
     await h.service.permissionsRemoved();
     expect(h.sessionMemory.raw()).toBeUndefined();
     expect(h.durable()?.state).toBe("active");
+    expect(await h.revisions.revision(accountProfile.connectionId)).toBeUndefined();
   });
 });
 

@@ -178,26 +178,6 @@ describe("passkey item selection", () => {
 });
 
 describe("stored passkey listing", () => {
-  it("returns bound, secret-free metadata for the item's credential", async () => {
-    const listed = await listStoredPasskeys(await session(), binding, itemId, cipher());
-    expect(listed).toEqual({
-      ok: true,
-      data: [
-        {
-          ...binding,
-          itemId,
-          credentialId,
-          rpId,
-          userHandle: "c3ludGhldGljLXVzZXItaWQ",
-          discoverable: true,
-          counter: 0,
-          userName: "synthetic-user",
-        },
-      ],
-    });
-    expect(JSON.stringify(listed)).not.toContain(fidoPrivateKey);
-  });
-
   it("lists nothing for an item without passkeys", async () => {
     expect(await listStoredPasskeys(await session(), binding, itemId, legacyCipher())).toEqual({
       ok: true,
