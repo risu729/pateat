@@ -126,16 +126,16 @@ export function ChooserApp({ client }: { client: ChooserClient }) {
             <button
               type="button"
               disabled={sending}
-              className="flex w-full flex-col items-start rounded-lg border border-slate-300 bg-white px-4 py-3 text-left hover:bg-slate-100 focus-visible:ring-3 focus-visible:ring-teal-700/50 disabled:opacity-50"
+              className="flex w-full flex-col items-start rounded-lg border border-border-strong bg-surface px-4 py-3 text-left hover:bg-surface-sunken focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus disabled:opacity-50"
               onClick={() => void answer({ kind: "chosen", index })}
             >
               <span className="font-semibold break-all">{entry.item}</span>
               {entry.userName && <span className="text-sm break-all">{entry.userName}</span>}
               {entry.account && (
-                <span className="text-sm break-all text-slate-600">{entry.account}</span>
+                <span className="text-sm break-all text-ink-muted">{entry.account}</span>
               )}
               {entry.preferred && (
-                <span className="text-sm font-semibold text-teal-800">Site default</span>
+                <span className="text-sm font-semibold text-accent-ink">Site default</span>
               )}
             </button>
           </li>

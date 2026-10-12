@@ -10,6 +10,7 @@ import { BitwardenSetup } from "./bitwarden-setup";
 import type { ConnectionClient } from "./connection-client";
 import type { ServiceClient } from "./service-client";
 import { ServiceConnection } from "./service-connection";
+import { ThemeSelect } from "./theme-select";
 
 type AcceptedSettings = Extract<SettingsResponse, { ok: true }>;
 const emptySettings: LocalSettings = {
@@ -353,6 +354,9 @@ export function SettingsApp({
         </p>
       </div>
       {serviceClient && <ServiceConnection client={serviceClient} />}
+      <div className="settings-footer">
+        <ThemeSelect />
+      </div>
       <p className="note">
         <a id="diagnostics-link" href="diagnostics.html" target="_blank" rel="noreferrer">
           Diagnostics for bug reports

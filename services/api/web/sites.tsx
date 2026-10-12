@@ -64,7 +64,7 @@ export function SitesPage({ client }: { client: ManageClient }) {
     );
   if (settings.isError)
     return (
-      <p role="alert" id="settings-status" className="text-red-800">
+      <p role="alert" id="settings-status" className="text-danger">
         {describeError(settings.error)}
       </p>
     );
@@ -74,11 +74,11 @@ export function SitesPage({ client }: { client: ManageClient }) {
 
   return (
     <div className="space-y-8">
-      <output id="settings-saved" className="block text-slate-700">
+      <output id="settings-saved" className="block text-ink-muted">
         {edit.isSuccess && edit.variables.done}
       </output>
       {edit.isError && (
-        <p role="alert" id="settings-error" className="text-red-800">
+        <p role="alert" id="settings-error" className="text-danger">
           {describeError(edit.error)}
         </p>
       )}
@@ -86,20 +86,20 @@ export function SitesPage({ client }: { client: ManageClient }) {
         <h2 id="excluded-heading" className="text-xl font-semibold">
           Excluded sites
         </h2>
-        <p className="text-slate-700">
+        <p className="text-ink-muted">
           Pateat does not analyze, fill or submit anything on these sites, and does not answer
           passkey requests there. Devices apply a change on their next sync.
         </p>
         {excludedSites.length === 0 ? (
           <p>No sites are excluded.</p>
         ) : (
-          <ul id="excluded-sites" className="divide-y divide-slate-200">
+          <ul id="excluded-sites" className="divide-y divide-border">
             {excludedSites.map((site) => (
               <li key={site.hostname} className="flex items-center justify-between gap-4 py-2">
                 <span>
                   {site.hostname}
                   {site.includeSubdomains && (
-                    <span className="text-slate-600"> and its subdomains</span>
+                    <span className="text-ink-muted"> and its subdomains</span>
                   )}
                 </span>
                 <Button
@@ -137,7 +137,7 @@ export function SitesPage({ client }: { client: ManageClient }) {
               onChange={(event) => setHostname(event.target.value)}
               aria-invalid={inputError ? true : undefined}
               aria-describedby={inputError ? ids.hostnameError : undefined}
-              className="min-h-10 rounded-lg border border-slate-300 px-3"
+              className="min-h-10 rounded-lg border border-border-strong bg-surface px-3"
             />
           </div>
           <div className="flex min-h-10 items-center gap-2">
@@ -153,7 +153,7 @@ export function SitesPage({ client }: { client: ManageClient }) {
             Exclude site
           </Button>
           {inputError && (
-            <p role="alert" id={ids.hostnameError} className="w-full text-red-800">
+            <p role="alert" id={ids.hostnameError} className="w-full text-danger">
               {inputError}
             </p>
           )}
@@ -164,19 +164,19 @@ export function SitesPage({ client }: { client: ManageClient }) {
         <h2 id="defaults-heading" className="text-xl font-semibold">
           Site default accounts
         </h2>
-        <p className="text-slate-700">
+        <p className="text-ink-muted">
           The account a login uses on each exact origin. A login saves one automatically when only
           one vault item matches the site. Removing a default lets the next login choose again.
         </p>
         {siteDefaults.length === 0 ? (
           <p>No default accounts are saved.</p>
         ) : (
-          <ul id="site-defaults" className="divide-y divide-slate-200">
+          <ul id="site-defaults" className="divide-y divide-border">
             {siteDefaults.map((entry) => (
               <li key={entry.origin} className="flex items-center justify-between gap-4 py-2">
                 <span>
                   {entry.origin}: {defaultItem(entry)}{" "}
-                  <span className="text-slate-600">({vaultAccountLabel(entry)})</span>
+                  <span className="text-ink-muted">({vaultAccountLabel(entry)})</span>
                 </span>
                 <Button
                   variant="outline"

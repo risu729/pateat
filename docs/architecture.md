@@ -782,6 +782,28 @@ behind the same Access check as the page. The Worker's own HTML pages
 a `data:` URL and allow only `img-src data:`, so the icon never needs a request to a
 path that another Access application, or none, guards.
 
+## Page styles and theme
+
+The extension's pages (settings, popup, diagnostics and the passkey chooser) and the
+owner web UI take their colors, type, radii and focus ring from the
+[Pateat design system](https://claude.ai/artifact/WRXAnVi9RDw9cVWccy2fxJ) (owner,
+2026-10-12 20:53 UTC). `apps/extension/entrypoints/options/style.css` and
+`services/api/web/styles.css` each define its tokens as CSS custom properties and
+Tailwind colors, with the same values; `tests/options/design-tokens.test.tsx` fails when
+the copies differ.
+
+Each page has light and dark themes and a Theme select (System, Light, Dark): on the
+extension's settings page and in the owner web UI's footer (owner, 2026-10-12 20:54
+UTC). System, the default, follows the browser's `prefers-color-scheme`. The choice is
+presentation only: it is kept in the program's own `localStorage` under `pateat.theme`,
+not in `chrome.storage`, the service or sync, so the extension and the owner web UI keep
+separate choices and each browser profile has its own. A page applies the stored choice
+before it renders, as a `data-theme` attribute on the root element, and an open page
+follows a change made on another page of the same program through the `storage` event.
+Because MV3 pages allow no inline script, the choice is applied from the page's module,
+so a page whose stored choice differs from the browser's scheme may paint one frame in
+the browser's scheme first.
+
 ## Diagnostics
 
 `diagnostics.html`, linked from the settings page, shows per-device versions and state

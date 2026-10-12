@@ -236,6 +236,21 @@ own accounts, so they stay in the project's files rather than in this repository
   planned on 2026-10-11, and the base design tokens set with Claude Design. It starts
   now, alongside the rechecks above rather than after them (owner, 2026-10-12 20:35
   UTC).
+  - Done: the colors, type, radii and focus ring come from the
+    [Pateat design system](https://claude.ai/artifact/WRXAnVi9RDw9cVWccy2fxJ) the owner
+    approved (2026-10-12 20:53 UTC). Both stylesheets
+    (`apps/extension/entrypoints/options/style.css`, shared by every extension page,
+    and `services/api/web/styles.css`) define its tokens as CSS custom properties and
+    Tailwind colors (`bg-surface`, `text-ink-muted`, `border-border-strong`), and the
+    pages use no other colors. Page titles are 28px.
+  - Done: light and dark themes with a Theme select (System, Light, Dark) in the
+    extension's settings page and the `/manage` footer; System, the default, follows
+    the browser's `prefers-color-scheme` (owner, 2026-10-12 20:54 UTC). The choice is
+    presentation only, kept in each program's `localStorage` (`pateat.theme`), and an
+    open extension page follows a change made on another.
+  - Approved: `lucide-react` for icons in the polish (owner, 2026-10-12 20:53 UTC); the
+    first PR that uses it adds it.
+  - Next: screen layouts and copy, some still under discussion with the owner.
 - Done: `https://my.jcb.co.jp/Login` was generated again after delivery 3. The recipe
   revision the Grok Bot computer's device generated on 2026-10-12 (13:45 UTC) names both
   routes: the password steps and the passkey button on `/Login`, read from D1 at 14:26
