@@ -980,6 +980,48 @@ describe("extractLoginObservation", () => {
     ]);
   });
 
+  it("matches a known field by its name or test ID locator too, exactly (ADR 0018)", () => {
+    const form = (field: string) =>
+      page(
+        `<form id="f">${field}<input id="p" type="password"><button id="go">Log in</button></form>`,
+      );
+    const complete = (known: { by: "id" | "name" | "test-id"; value: string }[]) => {
+      const result = extractLoginObservation(document, known);
+      return result.ok && result.observation.complete;
+    };
+    form(`<input name="login" readonly>`);
+    expect(complete([{ by: "name", value: "login" }])).toBe(true);
+    expect(complete([{ by: "id", value: "login" }])).toBe(false);
+    form(`<input data-testid="login" disabled>`);
+    expect(complete([{ by: "test-id", value: "login" }])).toBe(true);
+    expect(complete([{ by: "name", value: "login" }])).toBe(false);
+    // Values compare exactly.
+    form(`<input id="Email" readonly>`);
+    expect(complete([{ by: "id", value: "email" }])).toBe(false);
+  });
+
+  it("leaves out every known read-only field, but keeps the page's other forms whole", () => {
+    page(
+      `<form id="f"><input id="email" readonly><input id="member" disabled><input id="p" type="password"><button id="go">Log in</button></form>`,
+    );
+    const result = extractLoginObservation(document, [
+      { by: "id", value: "email" },
+      { by: "id", value: "member" },
+    ]);
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.observation.complete).toBe(true);
+    expect(result.observation.candidates.map((candidate) => candidate.target.value)).toEqual([
+      "p",
+      "go",
+    ]);
+    // With the known field the only field, the page has nothing to describe.
+    page(`<form id="f"><input id="email" readonly><button id="go">Next</button></form>`);
+    expect(extractLoginObservation(document, [{ by: "id", value: "email" }])).toEqual({
+      ok: false,
+      reason: "no-candidates",
+    });
+  });
+
   it("keeps a disabled submit input as a button", () => {
     page(
       `<form id="f"><input id="u"><input id="go" type="submit" value="ログイン" disabled></form>`,

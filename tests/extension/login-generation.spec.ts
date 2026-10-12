@@ -41,7 +41,7 @@ type Prompt = { task: string; observation: { path: string; candidates: Candidate
  * input fill the account and press "Next", then mark "Sign out" as the signed-in evidence.
  * The page descriptions it receives are recorded.
  */
-function syntheticClaude() {
+function syntheticClaude({ abstainOnPassword = false }: { abstainOnPassword?: boolean } = {}) {
   const prompts: Prompt[] = [];
   function answer(path: string, payload: string): unknown {
     if (path === "/v1/oauth/token")
@@ -96,17 +96,19 @@ function syntheticClaude() {
             ? // The `link` marker variant's account link has no id, so only its text names it.
               { decision: "signed-in", marker: byTarget("My page", "text") }
             : { decision: "rejected" }
-        : passwordPage
-          ? {
-              decision: "plan",
-              fields: [{ slot: "password", candidate: byTarget("password") }],
-              action: { candidate: login(), purpose: "submit" },
-            }
-          : {
-              decision: "plan",
-              fields: [{ slot: "username", candidate: byTarget("account") }],
-              action: { candidate: byTarget("next"), purpose: "advance" },
-            };
+        : passwordPage && abstainOnPassword
+          ? { decision: "abstain", reason: "ambiguous" }
+          : passwordPage
+            ? {
+                decision: "plan",
+                fields: [{ slot: "password", candidate: byTarget("password") }],
+                action: { candidate: login(), purpose: "submit" },
+              }
+            : {
+                decision: "plan",
+                fields: [{ slot: "username", candidate: byTarget("account") }],
+                action: { candidate: byTarget("next"), purpose: "advance" },
+              };
     return {
       id: "msg_synthetic",
       type: "message",
@@ -374,6 +376,60 @@ test("an identifier form shown again where it posted is never continued (ADR 001
         expect(recipes.changes.map((change) => change.recipe)).toMatchObject([
           { revision: 1, steps: [{ kind: "fill" }, { kind: "click", purpose: "advance" }] },
         ]);
+        expect([...new Set(externalRequests)].sort()).toEqual(["https://127.0.0.1", site]);
+      },
+      { args: ["--ignore-certificate-errors"] },
+    );
+  } finally {
+    await service.close();
+    await fixture.close();
+  }
+});
+
+test("an abstained continuation settles unknown without judging the page (ADR 0018)", async () => {
+  // The login waits out the advance's ten seconds on the password page before it settles.
+  test.setTimeout(60_000);
+  const fixture = await startLoginFixture(0, { password, accountName: username });
+  const claude = syntheticClaude({ abstainOnPassword: true });
+  const service = await startSyncService({ claude: claude.answer });
+  try {
+    await withVaultProfile(
+      async (open, externalRequests) => {
+        const browser = await open();
+        await serveSite(browser.context, fixture);
+        const options = await connect(browser, service);
+
+        const page = await browser.context.newPage();
+        await page.goto(`${site}/identifier`);
+        await expect(page).toHaveURL(`${site}/identifier/password`);
+        // The password page is sent to continue the recipe; the model abstains.
+        await expect.poll(() => claude.prompts.length, { timeout: 20_000 }).toBe(2);
+        expect(claude.prompts.map((prompt) => [prompt.task, prompt.observation.path])).toEqual([
+          ["generate", "/identifier"],
+          ["generate", "/identifier/password"],
+        ]);
+        // The login settles unknown there once the advance's wait is over: the password is
+        // never typed and the page never judged.
+        await page.waitForTimeout(12_000);
+        expect(await send(options, { version: 1, type: "login.probe.status" })).toMatchObject({
+          attempts: [{ state: "reconciling", outcome: "unknown-submit", submissions: 1 }],
+        });
+        expect(claude.prompts).toHaveLength(2);
+        await expect(page.locator("#password")).toHaveValue("");
+        // A reload of the same login sends nothing again.
+        await page.reload();
+        await page.waitForTimeout(3_000);
+        expect(claude.prompts).toHaveLength(2);
+        expect(JSON.stringify(claude.prompts)).not.toContain(password);
+        expect(JSON.stringify(claude.prompts)).not.toContain(username);
+        // The stored recipe still ends at the identifier page's Next.
+        const recipes = (await (await service.request("/v1/recipes")).json()) as {
+          changes: { recipe?: { revision: number; steps: unknown[]; completion?: unknown } }[];
+        };
+        expect(recipes.changes.map((change) => change.recipe)).toMatchObject([
+          { revision: 1, steps: [{ kind: "fill" }, { kind: "click", purpose: "advance" }] },
+        ]);
+        expect(recipes.changes[0]!.recipe!.steps).toHaveLength(2);
         expect([...new Set(externalRequests)].sort()).toEqual(["https://127.0.0.1", site]);
       },
       { args: ["--ignore-certificate-errors"] },
