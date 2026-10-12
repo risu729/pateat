@@ -64,7 +64,10 @@ Chrome, on a production build of main.
   login page succeeds since build `e9144a6` (2026-10-12 07:24 UTC). The service stores,
   syncs and lists a recipe with only `entry`, and the extension caches it without
   pressing it or starting a login (local tests only); ADR 0028's `chooser` builds on
-  that contract. Next, the press, verified on pixiv in the owner's Chrome.
+  that contract. Next, the press, verified on pixiv in the owner's Chrome. That PR also
+  makes the entry path a path where a recipe starts for ADR 0016, so no page on it is
+  generated, by adding it in `offersGeneration` only: not through `starts()`, whose
+  paths runtime `startsFor` drops when more than one start shares them.
 - Continue a generated recipe on the page after an `advance` step (email, then Next,
   then password): generate the steps after Next through the generation route's `base`,
   as listed under [AI evaluation harness progress](#ai-evaluation-harness-progress). The

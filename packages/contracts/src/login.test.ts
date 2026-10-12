@@ -7,6 +7,7 @@ import {
   handlerSteps,
   handlerTargets,
   isLoginRouteRecipe,
+  loginAutocompleteTokens,
   loginEntryRecipeSchema,
   passwordVariants,
   recipeHasRoute,
@@ -32,6 +33,7 @@ import {
   type LoginAccountBinding,
   type LoginRecipe,
   type LoginTarget,
+  type StoredLoginRecipe,
 } from "./login";
 import {
   createDefaultSettings,
@@ -1605,7 +1607,7 @@ describe("entry recipes (ADR 0031)", () => {
     expect(v.is(loginRecipeSchema, entry())).toBe(false);
   });
 
-  it("accepts every allowlisted locator as the entry's target", () => {
+  it("accepts an id, name, test-id or text locator as the entry's target", () => {
     for (const target of [
       { by: "id", value: "login-link" },
       { by: "name", value: "login" },
@@ -1615,6 +1617,24 @@ describe("entry recipes (ADR 0031)", () => {
       expect(v.is(storedLoginRecipeSchema, { ...entry(), entry: { path: "/", target } })).toBe(
         true,
       );
+  });
+
+  it("refuses an autocomplete locator, which names only an input, as the entry's target", () => {
+    for (const value of loginAutocompleteTokens)
+      expect(
+        v.is(storedLoginRecipeSchema, {
+          ...entry(),
+          entry: { path: "/", target: { by: "autocomplete", value } },
+        }),
+      ).toBe(false);
+  });
+
+  it("treats only a recipe with steps as one with a login route", () => {
+    // A later kind without steps, such as ADR 0028's chooser, never passes as a route.
+    const { steps: _steps, ...rest } = recipe();
+    const other = { ...rest, chooser: {} } as unknown as StoredLoginRecipe;
+    expect(isLoginRouteRecipe(other)).toBe(false);
+    expect(() => storedRecipeStartPath(other)).toThrow("Unknown stored recipe kind");
   });
 
   it("never holds an entry beside a login route member", () => {

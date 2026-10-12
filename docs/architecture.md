@@ -842,14 +842,14 @@ the optional route members, or an entry recipe
 its identity, revision and origin is `entry`: the start path of a page without a login
 form and the control there that opens the site's login page, such as
 `{"path":"/en/","target":{"by":"text","value":"Login"}}` on pixiv's top page. `entry`
-is never beside a login route member, and the target is an allowlisted locator; only an
-`<a href>` link is to be pressed, which a `text` target names by its text as an account
-switch's does. The service validates, stores, syncs and revokes both kinds, and the
-owner web UI lists both. The press is not implemented: the extension caches an entry
-recipe but never presses it, it starts no login and fills nothing, and its path does
-not count as one where a recipe starts on the device. Recipe generation never writes
-one; a generation or judgement request whose stored recipe is an entry recipe answers
-`recipe-conflict` without a model call.
+is never beside a login route member, and the target is an `id`, `name`, `test-id` or
+`text` locator, never `autocomplete`; only an `<a href>` link is to be pressed, which a
+`text` target names by its text as an account switch's does. The service validates,
+stores, syncs and revokes both kinds, and the owner web UI lists both. The press is not
+implemented: the extension caches an entry recipe but never presses it, it starts no
+login and fills nothing, and its path does not count as one where a recipe starts on
+the device. Recipe generation never writes one; a generation or judgement request whose
+stored recipe is an entry recipe answers `recipe-conflict` without a model call.
 
 A generated recipe has no completion target until the page after its first sign-in is
 judged ([ADR 0018](adr/0018-recipe-generation-route.md)). Until then the executor

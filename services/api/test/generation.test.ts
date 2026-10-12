@@ -754,6 +754,54 @@ describe("recipe generation", () => {
     ).toEqual([]);
   });
 
+  it("generates a first page beside an entry recipe of another path, and after one is revoked", async () => {
+    const device = await owner();
+    const entryWrite = (id: string, path: string) => ({
+      version: 1,
+      expectedRevision: 0,
+      state: "active",
+      recipe: {
+        version: 1,
+        id,
+        revision: 1,
+        origin: ORIGIN,
+        entry: { path, target: { by: "text", value: "Login" } },
+      },
+    });
+    const loginId = await generatedRecipeId(ORIGIN, "/login");
+    // The top page's entry recipe leaves the login page's own recipe to be generated.
+    const topId = await generatedRecipeId(ORIGIN, "/");
+    expect((await post(device, `/v1/recipes/${topId}`, entryWrite(topId, "/"), "PUT")).status).toBe(
+      200,
+    );
+    replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    expect(await generate(device, emailPage)).toMatchObject({
+      status: "recipe",
+      change: { recipeId: loginId, revision: 1 },
+    });
+    expect(sent).toHaveLength(1);
+
+    // A revoked entry recipe is generated again from its page as the revision after its
+    // tombstone, as any revoked recipe is.
+    const other = await owner();
+    expect(
+      (await post(other, `/v1/recipes/${loginId}`, entryWrite(loginId, "/login"), "PUT")).status,
+    ).toBe(200);
+    const revoked = await post(
+      other,
+      `/v1/recipes/${loginId}`,
+      { version: 1, expectedRevision: 1, state: "revoked" },
+      "PUT",
+    );
+    expect(revoked.status).toBe(200);
+    replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    expect(await generate(other, emailPage)).toMatchObject({
+      status: "recipe",
+      change: { recipeId: loginId, revision: 3, recipe: { revision: 3, slots: ["email"] } },
+    });
+    expect(sent).toHaveLength(2);
+  });
+
   it("refuses an incomplete page without recording an attempt", async () => {
     const device = await owner();
     expect(await generate(device, { ...emailPage, complete: false })).toEqual({
