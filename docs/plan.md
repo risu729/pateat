@@ -30,8 +30,8 @@ owner to confirm.
 ### Phase 1: usable
 
 Done when Pateat logs in on the sites the owner uses every day, in the owner's installed
-Chrome, and on the sites the owner's Grok Bot checks that offer a password or passkey
-sign-in, in the Grok Bot computer's Chrome, on a production build of main.
+Chrome, and on the sites the owner's Grok Bot checks where the owner signs in with a
+password or passkey, in the Grok Bot computer's Chrome, on a production build of main.
 
 - Start from a list of those sites. It names the owner's own accounts, so it stays in
   the project's files rather than in this repository.
