@@ -26,22 +26,31 @@ runs on 2026-10-11 and 12), where each Linux shard still repeated the rest of th
 `Verify` and the Linux shards run side by side now. A main or manual run is 14 jobs (up
 to 13 at once), so it can queue on GitHub's concurrent-job limit when runs overlap; that
 delays it without failing it. A PR run skips the Windows shards (the owner's decision on
-2026-10-12): it is 8 jobs.
-A Windows-only failure therefore shows first on the main run, which then packages no
-release and starts no deployment; run the workflow manually (`workflow_dispatch`) on a
-branch to get the Windows shards before merging. `CI Check` requires `Verify` and every
-Linux shard to succeed and every Windows shard to succeed on main pushes and manual runs
-(skipped on PRs), including when an upstream job failed or was cancelled. A newer push
-to a PR cancels its older run, but each main push finishes its own run; otherwise
-frequent merges would cancel every main run before it could package a release and start
-`deploy-server.yml`. `codeql.yml` analyzes TypeScript/JavaScript and Actions separately.
-Linux jobs pin `ubuntu-26.04`; the `CI Check` aggregate only compares results, so it
-runs on the single-CPU `ubuntu-slim` runner. CodeQL needs no Actions cache: dependency
-caching is off by default in advanced setup and its TRAP cache is disabled, so the
-workflow sets `cache-mode: none`. In `ci.yml` the three jobs share their checkout, mise
-and Bun install steps through YAML anchors (`&checkout`, `&mise`, `&install`), so those
-pins appear once in `ci.yml`; zizmor warns that it audits anchored workflows on a
-best-effort basis. GitHub Code Quality is not used: since its
+2026-10-12): it is 8 jobs. A Windows-only failure therefore shows first on the main run,
+which then packages no release and starts no deployment; run the workflow manually
+(`workflow_dispatch`) on a branch to get the Windows shards before merging. `CI Check`
+requires `Verify` and every Linux shard to succeed (see `Changes` below) and every
+Windows shard to succeed on main pushes and manual runs (skipped on PRs), including when
+an upstream job failed or was cancelled. A `Changes` job (no checkout, on `ubuntu-slim`)
+decides whether a PR needs the browser tests: a PR whose changed files are all under
+`docs/` or are `AGENTS.md` or `README.md` skips the Linux shards, runs only `Verify`
+(which still checks the documentation) and passes `CI Check` with the shards skipped;
+any other change, every main push and every manual run runs them. The owner chose
+[dorny/paths-filter](https://github.com/dorny/paths-filter) (pinned at v4.0.3) on
+2026-10-12 because on a `pull_request` event it reads the changed files through the API,
+so the job needs no checkout and only `pull-requests: read`; workflow-level `paths`
+filters are not used because a skipped workflow reports no `CI Check`. If the `Changes`
+job fails, `CI Check` fails. `Changes` adds a few seconds before the Linux shards start.
+A newer push to a PR cancels its older run, but each main push finishes its own run;
+otherwise frequent merges would cancel every main run before it could package a release
+and start `deploy-server.yml`. `codeql.yml` analyzes TypeScript/JavaScript and Actions
+separately. Linux jobs pin `ubuntu-26.04`; the `CI Check` aggregate only compares
+results, so it runs on the single-CPU `ubuntu-slim` runner. CodeQL needs no Actions
+cache: dependency caching is off by default in advanced setup and its TRAP cache is
+disabled, so the workflow sets `cache-mode: none`. In `ci.yml` the three jobs share
+their checkout, mise and Bun install steps through YAML anchors (`&checkout`, `&mise`,
+`&install`), so those pins appear once in `ci.yml`; zizmor warns that it audits anchored
+workflows on a best-effort basis. GitHub Code Quality is not used: since its
 [2026-07-20 general availability](https://github.blog/changelog/2026-06-16-github-code-quality-generally-available-july-20-2026)
 it is a paid product for GitHub Team and Enterprise Cloud organizations, and this
 repository is user-owned. On 2026-10-11 the owner removed its ruleset rule here and in
