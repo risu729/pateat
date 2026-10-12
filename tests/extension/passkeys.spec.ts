@@ -374,7 +374,7 @@ async function requestWithChooser(context: BrowserContext, page: Page, spec: Spe
   });
   await page.getByRole("button", { name: "Sign in with a passkey" }).click();
   const chooser = await opened;
-  await expect(chooser.getByRole("heading", { name: "Choose a passkey" })).toBeVisible();
+  await expect(chooser.getByRole("heading", { name: /^Sign in to /u })).toBeVisible();
   return {
     chooser,
     settle: () =>
@@ -408,8 +408,8 @@ test("several matching passkeys open Pateat's chooser window", async () => {
       const first = await requestWithChooser(context, page, { challenge: chosen });
       const list = first.chooser.getByRole("list", { name: "Matching passkeys" });
       await expect(list.getByRole("button")).toHaveText([
-        "Synthetic passkey 1synthetic-user-1Probe",
-        "Synthetic passkey 2synthetic-user-2Probe",
+        "synthetic-user-1Synthetic passkey 1 in Probe",
+        "synthetic-user-2Synthetic passkey 2 in Probe",
       ]);
       await expect(
         first.chooser.getByRole("checkbox", { name: "Use this account for localhost" }),
@@ -470,11 +470,11 @@ test("after Pateat signed in a tab, the next username-less request there asks ag
       const again = challengeHex();
       const asked = await requestWithChooser(context, page, { challenge: again });
       await expect(
-        asked.chooser.getByText(/signed in to this site from this tab before/u),
+        asked.chooser.getByText("Pateat signed in here from this tab before"),
       ).toBeVisible();
       const list = asked.chooser.getByRole("list", { name: "Matching passkeys" });
       await expect(list.getByRole("button")).toHaveText([
-        "Synthetic passkey 1synthetic-user-1Probe",
+        "synthetic-user-1Synthetic passkey 1 in Probe",
       ]);
       // Saving it as the default is opt-in here: this may be a one-off switch.
       await expect(asked.chooser.getByRole("checkbox")).not.toBeChecked();

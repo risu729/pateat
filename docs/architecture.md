@@ -1370,7 +1370,10 @@ for that origin.
 When several signable passkeys match and none is the site default, the background opens
 the chooser window `passkey-picker.html`
 ([ADR 0021](adr/0021-account-choice-outside-settings.md)) with `chrome.windows.create`.
-It shows only item names, passkey user names and connection labels. The background
+It shows only item names, passkey user names and connection labels: under "Sign in to"
+the site's host, each passkey as its user name over its item and connection, with the
+site default marked **Default**, and "Pateat signed in here from this tab before" when
+the tab's earlier sign-in opened it. The background
 answers its messages only from that page, for the request token in its URL and from the
 window it opened, and keeps the worker alive while the window waits. Choosing signs with
 that passkey; a ticked checkbox then saves it as the origin's site default. When the
