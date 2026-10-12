@@ -99,7 +99,14 @@ new owner decision:
   attempt sends at most one such page while the extension's service worker runs; an
   attempt resumed after the worker restarts may send it again, within the daily limit.
 - That page is described by `extractSignedInObservation`: every field on the page, which
-  the judge needs to refuse a page that still shows a sign-in field, then buttons and
+  the judge needs to refuse a page that still shows a sign-in field. Until 2026-10-12
+  every field that could not be filled made the page incomplete; since then (added
+  after this decision) a read-only, transparent or tiny field that does not look like a
+  sign-in field is left out: not a password or email input, no `username`, `email`,
+  `current-password`, `new-password` or `one-time-code` autocomplete token, not a short
+  numeric field. A hotel search's read-only date picker is such a field. A disabled
+  field still makes the page incomplete, as a code field waiting for a timer may be
+  disabled. Then come buttons and
   links as possible markers up to the 48-candidate limit, those in the page header or
   navigation first. A link may be located by its text, and the executor then finds the
   completion marker by that text; text with a digit never locates a marker. An `id`,
