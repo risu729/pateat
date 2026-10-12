@@ -1,5 +1,6 @@
 import {
   isLoginRouteRecipe,
+  type EntryGenerationResult,
   type LoginObservation,
   type LoginRecipe,
   type ObservedCandidate,
@@ -9,7 +10,13 @@ import {
   type StoredLoginRecipe,
 } from "@pateat/contracts";
 import { env, exports } from "cloudflare:workers";
-import { completionPromptVersion, generationPromptVersion } from "@pateat/inference";
+import {
+  completionPromptVersion,
+  entryGenerationInstructions,
+  entryGenerationPromptVersion,
+  entryInstruction,
+  generationPromptVersion,
+} from "@pateat/inference";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDeviceToken, hashDeviceToken } from "../src/auth";
 import { saveWifCredential } from "../src/claude/credentials";
@@ -3010,6 +3017,366 @@ describe("account lists and chooser branches (ADR 0028)", () => {
           },
         },
       },
+    });
+  });
+});
+
+describe("sign-in entry pages (ADR 0031)", () => {
+  // A synthetic top page the site sent the visitor to before signing in: no field, a
+  // sign-up link, the sign-in link and a button.
+  const link = (id: string, text: string) => ({
+    id,
+    role: "link" as const,
+    target: { by: "text" as const, value: text },
+  });
+  const topPage = observation("/en/", [
+    link("c1", "Create account"),
+    link("c2", "Login"),
+    { id: "c3", role: "button", target: { by: "text", value: "Search" } },
+  ]);
+  const entryAnswer = (candidate: string) =>
+    JSON.stringify({ result: { decision: "entry", entry: candidate } });
+  const abstain = JSON.stringify({ result: { decision: "abstain", reason: "no-login-form" } });
+
+  async function generateEntry(device: Device, page: LoginObservation) {
+    const response = await post(device, "/v1/recipes/generate", { version: 1, observation: page });
+    expect(response.status).toBe(200);
+    return (await response.json()) as EntryGenerationResult;
+  }
+
+  it("stores the named link as the entry recipe of the page's origin and path", async () => {
+    const device = await owner();
+    const recipeId = await generatedRecipeId(ORIGIN, "/en/");
+    replies.push({ text: entryAnswer("c2") });
+    const recipe = {
+      version: 1,
+      id: recipeId,
+      revision: 1,
+      origin: ORIGIN,
+      entry: { path: "/en/", target: { by: "text", value: "Login" } },
+    };
+    const answer = await generateEntry(device, topPage);
+    expect(answer).toEqual({
+      version: 1,
+      status: "recipe",
+      change: { recipeId, revision: 1, state: "active", recipe },
+    });
+    // The entry line goes into this request only, and no slot is sent.
+    const body = sent[0]!.body as {
+      system: { text: string }[];
+      messages: { content: { text: string }[] }[];
+    };
+    expect(body.system.map((part) => part.text)).toEqual([entryGenerationInstructions]);
+    expect(entryGenerationInstructions).toContain(entryInstruction);
+    expect(JSON.parse(body.messages[0]!.content[0]!.text)).toEqual({
+      task: "entry",
+      observation: topPage,
+    });
+
+    // Asking again answers with the stored recipe without a call.
+    expect(await generateEntry(device, topPage)).toEqual(answer);
+    expect(sent).toHaveLength(1);
+    const feed = await exports.default.fetch("https://pateat.invalid/v1/recipes", {
+      headers: { Authorization: `Bearer ${device.token}` },
+    });
+    expect(await feed.json()).toMatchObject({ changes: [{ recipeId, revision: 1, recipe }] });
+
+    const log = await rows(
+      "SELECT role, path, outcome, prompt_version, request, result FROM inference_log WHERE owner_id = ?",
+      device.ownerId,
+    );
+    expect(
+      log.map((row) => ({
+        ...row,
+        request: JSON.parse(String(row.request)),
+        result: JSON.parse(String(row.result)),
+      })),
+    ).toEqual([
+      {
+        role: "generate",
+        path: "/en/",
+        outcome: "ok",
+        prompt_version: await entryGenerationPromptVersion(),
+        request: { instructions: entryGenerationInstructions, observation: topPage },
+        result: { entry: "c2" },
+      },
+    ]);
+    expect(await entryGenerationPromptVersion()).not.toBe(await generationPromptVersion());
+    expect(
+      await rows(
+        "SELECT recipe_id, path, base_revision FROM generation_attempts WHERE owner_id = ?",
+        device.ownerId,
+      ),
+    ).toEqual([{ recipe_id: recipeId, path: "/en/", base_revision: 0 }]);
+
+    // A page request never gets the entry line.
+    replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    expect(await generate(device, emailPage)).toMatchObject({ status: "recipe" });
+    expect(JSON.stringify(sent[1]!.body)).not.toContain("If the page has no sign-in fields");
+  });
+
+  it("refuses an entry for a page request and a plan for an entry request", async () => {
+    const device = await owner();
+    replies.push({ text: entryAnswer("next") });
+    expect(await generate(device, emailPage)).toEqual({
+      version: 1,
+      status: "failed",
+      error: "invalid-output",
+      rejection: { check: "plan", reason: "unexpected-entry" },
+    });
+    const other = await owner();
+    replies.push({ text: plan([["email", "c2"]], "c3", "submit") });
+    expect(await generateEntry(other, topPage)).toEqual({
+      version: 1,
+      status: "failed",
+      error: "invalid-output",
+      rejection: { check: "plan", reason: "unexpected-plan" },
+    });
+    const logged = async (each: Device) =>
+      (
+        await rows(
+          "SELECT outcome, prompt_version, result FROM inference_log WHERE owner_id = ?",
+          each.ownerId,
+        )
+      ).map((row) => ({ ...row, result: JSON.parse(String(row.result)) }));
+    expect(await logged(device)).toEqual([
+      {
+        outcome: "invalid-output",
+        prompt_version: await generationPromptVersion(),
+        result: {
+          rejection: { check: "plan", reason: "unexpected-entry" },
+          output: { result: { decision: "entry", entry: "next" } },
+        },
+      },
+    ]);
+    // The plan is kept by reference; its slot is not one the request offered.
+    expect(await logged(other)).toEqual([
+      {
+        outcome: "invalid-output",
+        prompt_version: await entryGenerationPromptVersion(),
+        result: {
+          rejection: { check: "plan", reason: "unexpected-plan" },
+          output: {
+            result: {
+              fields: [{ slot: "?", candidate: "c2" }],
+              action: { candidate: "c3", purpose: "submit" },
+            },
+          },
+        },
+      },
+    ]);
+    // Neither stored anything, and both count toward the retry window.
+    expect(await rows("SELECT * FROM recipe_heads WHERE owner_id = ?", other.ownerId)).toEqual([]);
+    expect(await generateEntry(other, topPage)).toEqual({
+      version: 1,
+      status: "unavailable",
+      reason: "recently-tried",
+    });
+  });
+
+  it.each([
+    ["a button", "c3", topPage, "incompatible-role"],
+    ["an unknown candidate", "Login", topPage, "unknown-candidate"],
+    [
+      "a link whose text may name an account",
+      "c4",
+      observation("/en/", [link("c2", "Login"), link("c4", "Continue as [email]")]),
+      "account-text",
+    ],
+    [
+      "a link whose label holds a number",
+      "c4",
+      observation("/en/", [
+        link("c2", "Login"),
+        {
+          id: "c4",
+          role: "link",
+          target: { by: "id", value: "account" },
+          label: "Member [number]",
+        },
+      ]),
+      "account-text",
+    ],
+    [
+      "a link whose label holds a masked value",
+      "c4",
+      observation("/en/", [
+        link("c2", "Login"),
+        { ...link("c4", "Account"), label: "Account [masked]" },
+      ]),
+      "account-text",
+    ],
+  ] as const)("refuses an entry that names %s", async (_name, candidate, page, reason) => {
+    const device = await owner();
+    replies.push({ text: entryAnswer(candidate) });
+    expect(await generateEntry(device, page)).toEqual({
+      version: 1,
+      status: "failed",
+      error: "invalid-output",
+      rejection: { check: "plan", reason },
+    });
+    const [row] = await rows("SELECT result FROM inference_log WHERE owner_id = ?", device.ownerId);
+    // A name that is no candidate of the page is not kept.
+    expect(JSON.parse(String(row!.result))).toMatchObject({
+      output: { result: { decision: "entry", entry: candidate === "Login" ? "?" : candidate } },
+    });
+    expect(await rows("SELECT * FROM recipe_heads WHERE owner_id = ?", device.ownerId)).toEqual([]);
+  });
+
+  it("refuses an entry request with a field, accounts or a base before any call", async () => {
+    const device = await owner();
+    const send = (body: unknown) => post(device, "/v1/recipes/generate", body);
+    const bodies = [
+      { version: 1, observation: emailPage },
+      {
+        version: 1,
+        observation: { ...topPage, accounts: ["[email]"] },
+      },
+      {
+        version: 1,
+        observation: topPage,
+        base: { recipeId: await generatedRecipeId(ORIGIN, "/en/"), revision: 1 },
+      },
+      { version: 1, observation: topPage, slots: [] },
+    ];
+    expect((await Promise.all(bodies.map(send))).map((response) => response.status)).toEqual(
+      bodies.map(() => 400),
+    );
+    expect(await generateEntry(device, { ...topPage, complete: false })).toEqual({
+      version: 1,
+      status: "failed",
+      error: "incomplete-observation",
+    });
+    expect(sent).toEqual([]);
+    expect(
+      await rows("SELECT * FROM generation_attempts WHERE owner_id = ?", device.ownerId),
+    ).toEqual([]);
+  });
+
+  it("logs an abstention and tries the page again only after ten minutes", async () => {
+    const device = await owner();
+    replies.push({ text: abstain });
+    expect(await generateEntry(device, topPage)).toEqual({
+      version: 1,
+      status: "abstained",
+      reason: "no-login-form",
+    });
+    const log = await rows(
+      "SELECT outcome, result FROM inference_log WHERE owner_id = ?",
+      device.ownerId,
+    );
+    expect(log.map((row) => ({ ...row, result: JSON.parse(String(row.result)) }))).toEqual([
+      { outcome: "abstained", result: { reason: "no-login-form" } },
+    ]);
+    expect(await rows("SELECT * FROM recipe_heads WHERE owner_id = ?", device.ownerId)).toEqual([]);
+    // The window is per origin and path, whatever kind of request tried it.
+    expect(await generateEntry(device, topPage)).toMatchObject({ reason: "recently-tried" });
+    expect(await generate(device, { ...emailPage, path: "/en/" })).toMatchObject({
+      reason: "recently-tried",
+    });
+    expect(sent).toHaveLength(1);
+
+    await env.DB.prepare("UPDATE generation_attempts SET attempted_at = ? WHERE owner_id = ?")
+      .bind(Date.now() - ATTEMPT_WINDOW_MS - 1, device.ownerId)
+      .run();
+    replies.push({ text: entryAnswer("c2") });
+    expect(await generateEntry(device, topPage)).toMatchObject({
+      status: "recipe",
+      change: { revision: 1, recipe: { entry: { path: "/en/" } } },
+    });
+  });
+
+  it("answers recipe-conflict when a login recipe starts on the entry page's path", async () => {
+    const device = await owner();
+    // A page with a form on `/en/` generated a login recipe there first.
+    replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    expect(await generate(device, { ...emailPage, path: "/en/" })).toMatchObject({
+      status: "recipe",
+    });
+    expect(await generateEntry(device, topPage)).toEqual({
+      version: 1,
+      status: "unavailable",
+      reason: "recipe-conflict",
+    });
+    // So does a chooser recipe (ADR 0028) stored there.
+    const other = await owner();
+    const recipeId = await generatedRecipeId(ORIGIN, "/en/");
+    const chooser = {
+      version: 1,
+      expectedRevision: 0,
+      state: "active",
+      recipe: {
+        version: 1,
+        id: recipeId,
+        revision: 1,
+        origin: ORIGIN,
+        chooser: { path: "/en/", other: { by: "text", value: "Use another account" } },
+      },
+    };
+    expect((await post(other, `/v1/recipes/${recipeId}`, chooser, "PUT")).status).toBe(200);
+    expect(await generateEntry(other, topPage)).toMatchObject({ reason: "recipe-conflict" });
+    expect(sent).toHaveLength(1);
+  });
+
+  it("never generates a login page on, or continues, a generated entry recipe", async () => {
+    const device = await owner();
+    const recipeId = await generatedRecipeId(ORIGIN, "/en/");
+    replies.push({ text: entryAnswer("c2") });
+    expect(await generateEntry(device, topPage)).toMatchObject({ status: "recipe" });
+    const conflict = { version: 1, status: "unavailable", reason: "recipe-conflict" };
+    expect(await generate(device, { ...emailPage, path: "/en/" })).toEqual(conflict);
+    expect(await generate(device, passwordPage, { recipeId, revision: 1 })).toEqual(conflict);
+    expect(await complete(device, recipeId, 1)).toEqual({ status: 200, body: conflict });
+    expect(sent).toHaveLength(1);
+  });
+
+  it("generates a revoked entry recipe again as the revision after its tombstone", async () => {
+    const device = await owner();
+    const recipeId = await generatedRecipeId(ORIGIN, "/en/");
+    replies.push({ text: entryAnswer("c2") });
+    expect(await generateEntry(device, topPage)).toMatchObject({ status: "recipe" });
+    const revoked = await post(
+      device,
+      `/v1/recipes/${recipeId}`,
+      { version: 1, expectedRevision: 1, state: "revoked" },
+      "PUT",
+    );
+    expect(revoked.status).toBe(200);
+    await env.DB.prepare("UPDATE generation_attempts SET attempted_at = ? WHERE owner_id = ?")
+      .bind(Date.now() - ATTEMPT_WINDOW_MS - 1, device.ownerId)
+      .run();
+    replies.push({ text: entryAnswer("c2") });
+    expect(await generateEntry(device, topPage)).toMatchObject({
+      status: "recipe",
+      change: { recipeId, revision: 3, recipe: { revision: 3 } },
+    });
+  });
+
+  it("answers with the entry recipe another device stored while the call ran", async () => {
+    const device = await owner();
+    const recipeId = await generatedRecipeId(ORIGIN, "/en/");
+    const theirs = {
+      version: 1,
+      id: recipeId,
+      revision: 1,
+      origin: ORIGIN,
+      entry: { path: "/en/", target: { by: "text", value: "Sign in" } },
+    } as const;
+    during = async () => {
+      const written = await writeRecipe(
+        env.DB,
+        device.ownerId,
+        recipeId,
+        { version: 1, state: "active", expectedRevision: 0, recipe: theirs },
+        device.deviceId,
+      );
+      expect(written.ok).toBe(true);
+    };
+    replies.push({ text: entryAnswer("c2") });
+    expect(await generateEntry(device, topPage)).toEqual({
+      version: 1,
+      status: "recipe",
+      change: { recipeId, revision: 1, state: "active", recipe: theirs },
     });
   });
 });

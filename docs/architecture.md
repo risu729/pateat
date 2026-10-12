@@ -890,8 +890,12 @@ is never beside a login route member, and the target is an `id`, `name`, `test-i
 stores, syncs and revokes both kinds, and the owner web UI lists both. The press is not
 implemented: the extension caches an entry recipe but never presses it, it starts no
 login and fills nothing, and its path does not count as one where a recipe starts on
-the device. Recipe generation never writes one; a generation or judgement request whose
-stored recipe is an entry recipe answers `recipe-conflict` without a model call.
+the device. Recipe generation writes one only for an entry request
+([API README](../services/api/README.md#recipe-generation)), a page sent without slots,
+whose answer names the link to press; nothing sends such a request yet. A request with
+slots, a continuation or a judgement whose stored recipe is an entry recipe answers
+`recipe-conflict` without a model call, as an entry request does when a login or chooser
+recipe starts on its path.
 
 A third kind is a chooser recipe
 ([ADR 0028](adr/0028-account-chooser-login-pages.md#recipe-shape)), whose only member

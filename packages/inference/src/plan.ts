@@ -5,6 +5,7 @@ import {
   loginStepSchema,
   personalDataAutocompleteTokens,
   sameLoginTarget,
+  type LoginEntryRecipe,
   type LoginObservation,
   type LoginStep,
   type LoginTarget,
@@ -364,7 +365,9 @@ export type GeneratedPageRejection =
   /** A page with several sets has a set whose action advances instead of submitting. */
   | "variant-advance"
   /** An account-list answer that failed {@link validateAccountList} (ADR 0028). */
-  | AccountListRejection;
+  | AccountListRejection
+  /** A request with slots was answered with a sign-in entry (ADR 0031). */
+  | "unexpected-entry";
 
 /**
  * A generated page plan reduced to what the request log may keep of it once the checks
@@ -634,3 +637,49 @@ export function redactAccountList(
     ...(draft.continue === undefined ? {} : { continue: candidate(draft.continue) }),
   };
 }
+
+/** The locator a sign-in entry is pressed by: never `autocomplete` (ADR 0031). */
+export type EntryTarget = LoginEntryRecipe["entry"]["target"];
+/**
+ * The generation role's entry answer (ADR 0031): the candidate that opens sign-in to an
+ * existing account on a page without a login form, and its locator.
+ */
+export type ValidatedEntry = { entry: string; target: EntryTarget };
+export type EntryRejection = Extract<
+  GeneratedPageRejection,
+  "unknown-candidate" | "incompatible-role" | "account-text"
+>;
+
+/**
+ * Checks the candidate an entry answer names (ADR 0031): a candidate of the page, a
+ * `link` (only an `<a href>` link is pressed), located by `id`, `name`, `test-id` or
+ * `text`, and with no label or locator value that may name an account, by ADR 0028's
+ * rule for the `other` button (`accountText`).
+ */
+export function validateEntry(
+  observation: Pick<LoginObservation, "candidates">,
+  candidateId: string,
+): { ok: true; entry: ValidatedEntry } | { ok: false; reason: EntryRejection } {
+  const candidate = observation.candidates.find((entry) => entry.id === candidateId);
+  if (candidate === undefined) return { ok: false, reason: "unknown-candidate" };
+  const { target } = candidate;
+  if (candidate.role !== "link" || target.by === "autocomplete")
+    return { ok: false, reason: "incompatible-role" };
+  if ([candidate.label, target.value].some((text) => text !== undefined && accountText.test(text)))
+    return { ok: false, reason: "account-text" };
+  return { ok: true, entry: { entry: candidate.id, target } };
+}
+
+/**
+ * An entry answer reduced to what the request log may keep of it once refused: the
+ * candidate ID when the request holds it, otherwise `?` (as {@link redactGeneratedPage}).
+ */
+export const redactEntry = (
+  observation: Pick<LoginObservation, "candidates">,
+  candidateId: string,
+) => ({
+  decision: "entry" as const,
+  entry: observation.candidates.some((candidate) => candidate.id === candidateId)
+    ? candidateId
+    : "?",
+});

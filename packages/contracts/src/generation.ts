@@ -1,8 +1,15 @@
 import * as v from "valibot";
-import { genericSlotIdSchema, loginObservationSchema, semanticSlotsSchema } from "./observation";
+import {
+  fillRoles,
+  genericSlotIdSchema,
+  loginObservationSchema,
+  semanticSlotsSchema,
+  type LoginObservation,
+} from "./observation";
 import {
   chooserBranchSchema,
   loginChooserRecipeSchema,
+  loginEntryRecipeSchema,
   loginRecipeSchema,
   loginRouteSchema,
   storedRecipeSlots,
@@ -26,6 +33,11 @@ const writtenRevision = v.pipe(
   v.minValue(1),
   v.maxValue(Number.MAX_SAFE_INTEGER - 1),
 );
+const sameIdentity = (change: {
+  recipeId: string;
+  revision: number;
+  recipe: { id: string; revision: number };
+}) => change.recipe.id === change.recipeId && change.recipe.revision === change.revision;
 /**
  * The active variant of `syncRecipeChangeSchema`, with the same identity check: a route
  * recipe, or a chooser recipe (ADR 0028) for an account list or one of its branches.
@@ -35,13 +47,20 @@ const activeChange = v.pipe(
     recipeId: syncRecipeIdSchema,
     revision: writtenRevision,
     state: v.literal("active"),
-    // An entry recipe (ADR 0031) is never an answer yet.
+    // An entry recipe (ADR 0031) answers only an entry request (`activeEntryChange`).
     recipe: v.union([loginRecipeSchema, loginChooserRecipeSchema]),
   }),
-  v.check(
-    (change) => change.recipe.id === change.recipeId && change.recipe.revision === change.revision,
-    "Recipe identity does not match its sync revision",
-  ),
+  v.check((change) => sameIdentity(change), "Recipe identity does not match its sync revision"),
+);
+/** The same for an entry recipe (ADR 0031), which only an entry request is answered with. */
+const activeEntryChange = v.pipe(
+  v.strictObject({
+    recipeId: syncRecipeIdSchema,
+    revision: writtenRevision,
+    state: v.literal("active"),
+    recipe: loginEntryRecipeSchema,
+  }),
+  v.check((change) => sameIdentity(change), "Recipe identity does not match its sync revision"),
 );
 
 /** Reasons the service did not call the model at all. */
@@ -121,6 +140,75 @@ export const recipeGenerationRequestSchema = v.pipe(
   v.check((request) => !request.branch || request.base !== undefined, "A branch needs a base"),
 );
 
+/**
+ * Whether an observation can be sent without slots, as a page's sign-in entry (ADR 0031):
+ * it shows no field to fill and lists no accounts (ADR 0028).
+ */
+export const isEntryObservation = (observation: LoginObservation) =>
+  observation.accounts === undefined &&
+  !observation.candidates.some((candidate) =>
+    (fillRoles as readonly string[]).includes(candidate.role),
+  );
+
+/**
+ * `POST /v1/recipes/generate` without `slots`: an entry request (ADR 0031), a page without
+ * a login form whose answer names the link that opens the site's login page. Nothing of
+ * the vault is offered, so the page shows no field to fill, and it never continues a
+ * recipe (`base`, `branch`). Every other request offers slots.
+ */
+export const entryGenerationRequestSchema = v.pipe(
+  v.strictObject({ version: v.literal(1), observation: loginObservationSchema }),
+  v.check(
+    (request) => isEntryObservation(request.observation),
+    "An entry request's page shows no field and lists no accounts",
+  ),
+);
+
+/**
+ * Every body `POST /v1/recipes/generate` takes: a page with slots, or an entry request.
+ * Strict objects keep them apart, so a request without slots is always an entry request.
+ */
+export const generationRequestSchema = v.union([
+  recipeGenerationRequestSchema,
+  entryGenerationRequestSchema,
+]);
+
+/** Answers that are not a recipe, shared by page and entry requests. */
+const generationAnswers = [
+  v.strictObject({
+    version: v.literal(1),
+    status: v.literal("abstained"),
+    reason: v.picklist([
+      "no-login-form",
+      "ambiguous",
+      "insufficient-evidence",
+      "unsafe-instructions",
+    ]),
+  }),
+  v.strictObject({
+    version: v.literal(1),
+    status: v.literal("failed"),
+    error: generationFailureSchema,
+    /** For `invalid-output`: which check refused the model's output, and why. */
+    rejection: v.optional(generationOutputRejectionSchema),
+  }),
+  v.strictObject({
+    version: v.literal(1),
+    status: v.literal("unavailable"),
+    reason: generationUnavailableReasonSchema,
+  }),
+] as const;
+const rejectsOnlyInvalidOutput = (result: {
+  status: string;
+  error?: string;
+  rejection?: unknown;
+}) =>
+  result.status !== "failed" || result.rejection === undefined || result.error === "invalid-output";
+
+/**
+ * The answer to a request with slots: a recipe with a login route or a chooser recipe,
+ * never an entry recipe (ADR 0031).
+ */
 export const recipeGenerationResultSchema = v.pipe(
   v.variant("status", [
     v.strictObject({
@@ -147,36 +235,9 @@ export const recipeGenerationResultSchema = v.pipe(
         ),
       ),
     }),
-    v.strictObject({
-      version: v.literal(1),
-      status: v.literal("abstained"),
-      reason: v.picklist([
-        "no-login-form",
-        "ambiguous",
-        "insufficient-evidence",
-        "unsafe-instructions",
-      ]),
-    }),
-    v.strictObject({
-      version: v.literal(1),
-      status: v.literal("failed"),
-      error: generationFailureSchema,
-      /** For `invalid-output`: which check refused the model's output, and why. */
-      rejection: v.optional(generationOutputRejectionSchema),
-    }),
-    v.strictObject({
-      version: v.literal(1),
-      status: v.literal("unavailable"),
-      reason: generationUnavailableReasonSchema,
-    }),
+    ...generationAnswers,
   ]),
-  v.check(
-    (result) =>
-      result.status !== "failed" ||
-      result.rejection === undefined ||
-      result.error === "invalid-output",
-    "Only invalid output has a rejection",
-  ),
+  v.check((result) => rejectsOnlyInvalidOutput(result), "Only invalid output has a rejection"),
   v.check(
     (result) =>
       result.status !== "recipe" ||
@@ -185,6 +246,22 @@ export const recipeGenerationResultSchema = v.pipe(
       ),
     "Custom slots must be recipe slots",
   ),
+);
+
+/**
+ * The answer to an entry request (ADR 0031): the entry recipe of the page's origin and
+ * path, which fills nothing and so maps no custom slot, never another kind of recipe.
+ */
+export const entryGenerationResultSchema = v.pipe(
+  v.variant("status", [
+    v.strictObject({
+      version: v.literal(1),
+      status: v.literal("recipe"),
+      change: activeEntryChange,
+    }),
+    ...generationAnswers,
+  ]),
+  v.check((result) => rejectsOnlyInvalidOutput(result), "Only invalid output has a rejection"),
 );
 
 /**
@@ -234,6 +311,8 @@ export const recipeCompletionResultSchema = v.variant("status", [
 
 export type RecipeGenerationRequest = v.InferOutput<typeof recipeGenerationRequestSchema>;
 export type RecipeGenerationResult = v.InferOutput<typeof recipeGenerationResultSchema>;
+export type EntryGenerationRequest = v.InferOutput<typeof entryGenerationRequestSchema>;
+export type EntryGenerationResult = v.InferOutput<typeof entryGenerationResultSchema>;
 export type RecipeCompletionRequest = v.InferOutput<typeof recipeCompletionRequestSchema>;
 export type RecipeCompletionResult = v.InferOutput<typeof recipeCompletionResultSchema>;
 export type GenerationOutputRejection = v.InferOutput<typeof generationOutputRejectionSchema>;

@@ -510,8 +510,9 @@ export const loginRecipeSchema = v.pipe(
  * text as an `accountSwitch` does; its target is an `id`, `name`, `test-id` or `text`
  * locator, never `autocomplete`.
  *
- * Not implemented yet: devices cache and the service stores it, but nothing presses it,
- * it starts no login and its path is not a path where a login recipe starts.
+ * The service generates it for an entry request (`entryGenerationRequestSchema`) and
+ * stores it; devices cache it, but nothing sends such a request or presses it yet, it
+ * starts no login and its path is not a path where a login recipe starts.
  */
 export const loginEntryRecipeSchema = v.strictObject({
   version: v.literal(1),

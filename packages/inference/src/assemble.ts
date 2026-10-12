@@ -3,6 +3,7 @@ import {
   fillRoles,
   handlerTargets,
   isTotpCode,
+  loginEntryRecipeSchema,
   loginRecipeSchema,
   loginStepEffect,
   passwordVariants,
@@ -10,13 +11,14 @@ import {
   routeFillTargets,
   sameLoginTarget as sameTarget,
   type LoginAttributeTarget,
+  type LoginEntryRecipe,
   type LoginObservation,
   type LoginRecipe,
   type LoginStep,
   type LoginTarget,
 } from "@pateat/contracts";
 import * as v from "valibot";
-import { registersPasskey } from "./plan";
+import { registersPasskey, type EntryTarget } from "./plan";
 
 // Generated recipes are built one page at a time (ADR 0018): each validated page plan is
 // appended as steps, and the completion target is added once the first sign-in is judged.
@@ -78,6 +80,30 @@ const routeTargets = (recipe: LoginRecipe, path: string) => [
 ];
 const filledSlots = (steps: readonly LoginStep[]) =>
   steps.flatMap((step) => (step.kind === "fill" ? step.fields.map((field) => field.slot) : []));
+
+/**
+ * The recipe of a page's sign-in entry (ADR 0031): its origin, the page's path and the
+ * link's locator, and nothing else. It never gains steps, so it is always built whole;
+ * the caller stores it with a conditional write at `revision`.
+ */
+export function entryRecipe(page: {
+  id: string;
+  revision: number;
+  origin: string;
+  path: string;
+  target: EntryTarget;
+}): { ok: true; recipe: LoginEntryRecipe } | { ok: false; reason: "invalid-recipe" } {
+  const recipe = v.safeParse(loginEntryRecipeSchema, {
+    version: 1,
+    id: page.id,
+    revision: page.revision,
+    origin: page.origin,
+    entry: { path: page.path, target: page.target },
+  });
+  return recipe.success
+    ? { ok: true, recipe: recipe.output }
+    : { ok: false, reason: "invalid-recipe" };
+}
 
 /**
  * Starts a recipe from the first page's steps, or appends a later page's steps to a
