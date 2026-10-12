@@ -55,7 +55,7 @@ const recipe = {
     { kind: "fill", path: "/password", fields: [{ slot: "password", target: target("password") }] },
     { kind: "click", path: "/password", target: target("login"), purpose: "submit" },
   ],
-  completion: { path: "/authenticated", target: target("authenticated") },
+  completion: [{ target: target("authenticated") }],
   rejection: target("rejected"),
   maxSubmissions: 2,
 };

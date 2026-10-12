@@ -230,13 +230,14 @@ for (const [button, marker] of [
           expect(recipes.changes.map((change) => change.recipe)).toMatchObject([
             {
               revision: 2,
-              completion: {
-                path: "/account",
-                target:
-                  marker === "link"
-                    ? { by: "text", value: "My page" }
-                    : { by: "id", value: "sign-out" },
-              },
+              completion: [
+                {
+                  target:
+                    marker === "link"
+                      ? { by: "text", value: "My page" }
+                      : { by: "id", value: "sign-out" },
+                },
+              ],
             },
           ]);
 
@@ -342,7 +343,7 @@ for (const { name, start, query, passwordPath } of [
                 { kind: "fill", path: passwordPath },
                 { kind: "click", path: passwordPath, purpose: "submit" },
               ],
-              completion: { path: "/account", target: { by: "id", value: "sign-out" } },
+              completion: [{ target: { by: "id", value: "sign-out" } }],
             },
           ]);
 

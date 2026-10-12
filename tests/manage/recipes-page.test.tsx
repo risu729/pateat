@@ -29,7 +29,7 @@ function recipe(id: string, revision: number): LoginRecipe {
       },
       { kind: "click", path: "/login", target: { by: "test-id", value: "go" }, purpose: "submit" },
     ],
-    completion: { path: "/home", target: { by: "id", value: "welcome" } },
+    completion: [{ target: { by: "id", value: "welcome" } }],
     rejection: { by: "id", value: "login-error" },
     maxSubmissions: 1,
   };
@@ -103,7 +103,7 @@ test("shows a recipe's steps, targets and JSON, then revokes it", async () => {
   for (const text of [
     'Fill username into id "username", password into name "pass" (prepare)',
     'Click test-id "go" to submit',
-    'id "welcome" on /home',
+    'id "welcome" on any page',
     'Rejectionid "login-error"',
     '"maxSubmissions": 1',
   ])
@@ -346,14 +346,16 @@ test("keeps the last list and says so when it cannot be refreshed after a revoca
   await expect.element(page.getByRole("heading", { name: "Recipes", exact: true })).toHaveFocus();
 });
 
-test("says when a generated recipe has no completion target yet", async () => {
+test("says when a generated recipe has no signed-in marker yet", async () => {
   const entry = active("new-signin");
   delete entry.change.recipe.completion;
   await mount(mockClient({ version: 1, recipes: [entry] }));
   await page.getByText("Steps and JSON for new-signin").click();
   await expect
     .element(page.getByRole("group").first())
-    .toMatchTextContent("CompletionNot learned yet; set from the page after the first sign-in");
+    .toMatchTextContent(
+      "Signed-in markersNot learned yet; set from the page after the first sign-in",
+    );
 });
 
 test("says when there are no recipes", async () => {
