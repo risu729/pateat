@@ -125,6 +125,20 @@ describe("diagnostics log", () => {
     expect((await restarted.summary()).debugUntil).toBeUndefined();
   });
 
+  it("turns debug logging off before the 24 hours end, across workers", async () => {
+    const { logger, deps } = setup();
+    await logger.enableDebug();
+    await logger.disableDebug();
+    await logger.log("service.sync", { outcome: "synced" }, { level: "debug" });
+    const restarted = createLogger(deps);
+    await restarted.log("service.sync", { outcome: "synced" }, { level: "debug" });
+    expect((await restarted.summary()).debugUntil).toBeUndefined();
+    expect((await restarted.entries()).map((entry) => [entry.event, entry.fields])).toEqual([
+      ["log.debug", { enabled: true, until: NOW + DEBUG_LOGGING_MS }],
+      ["log.debug", { enabled: false }],
+    ]);
+  });
+
   it("limits page-caused events per tab and origin and counts the rest", async () => {
     const { logger, advance } = setup();
     const source = { tabId: 4, origin: "https://bank.example" };
@@ -152,6 +166,36 @@ describe("diagnostics log", () => {
     expect(entries.slice(-2).map((entry) => [entry.event, entry.fields])).toEqual([
       ["log.dropped", { origin: source.origin, count: 4 }],
       ["login.refused", { origin: source.origin, reason: "tab-busy" }],
+    ]);
+  });
+
+  it("keeps a page's debug events from crowding out the rest", async () => {
+    const { logger } = setup();
+    await logger.enableDebug();
+    const source = { tabId: 4, origin: "https://hotel.example" };
+    for (let index = 0; index < PAGE_EVENTS_PER_MINUTE + 3; index += 1)
+      void logger.log(
+        "login.refused",
+        { origin: source.origin, reason: "tab-busy", frame: true },
+        { level: "debug", source },
+      );
+    await logger.log(
+      "recipe.judge",
+      { origin: source.origin, verdict: "not-sent", reason: "sign-in-shown" },
+      { source },
+    );
+    const entries = (await logger.entries()).filter((entry) => entry.event !== "log.debug");
+    expect(entries.filter((entry) => entry.event === "login.refused")).toHaveLength(
+      PAGE_EVENTS_PER_MINUTE,
+    );
+    // Only debug detail was lost, so the drop is debug detail too.
+    expect(
+      entries
+        .filter((entry) => entry.event !== "login.refused")
+        .map((entry) => [entry.event, entry.level]),
+    ).toEqual([
+      ["log.dropped", "debug"],
+      ["recipe.judge", "info"],
     ]);
   });
 
@@ -876,13 +920,26 @@ describe("unhandled errors", () => {
     });
     log.login({ type: "refused", ...site, reason: "tab-busy", frame: true });
     log.login({ type: "refused", ...site, reason: "tab-busy" });
-    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(5));
+    // Filling the form after a logout ends without pressing anything by design.
+    log.login({
+      type: "attempt",
+      ...site,
+      recipeId: "synthetic-recipe",
+      route: "password",
+      state: "blocked",
+      stepIndex: 1,
+      stepCount: 2,
+      outcome: "cancelled",
+      reason: "fill-only",
+    });
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(6));
     const entries = (await log.logger.entries()).filter((entry) => entry.event !== "log.debug");
     expect(entries.map((entry) => [entry.event, entry.level, entry.fields["settled"]])).toEqual([
       ["login.attempt", "warn", true],
       ["login.attempt", "debug", undefined],
       ["login.refused", "debug", undefined],
       ["login.refused", "info", undefined],
+      ["login.attempt", "info", undefined],
     ]);
     expect(entries[2]?.fields).toMatchObject({ reason: "tab-busy", frame: true });
     expect((await log.logger.summary()).recentWarnings).toBe(1);

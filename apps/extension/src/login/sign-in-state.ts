@@ -1,5 +1,5 @@
 // The sign-in state of ADR 0029 for the page after an effect step that no check explained.
-// Delivery 1 only logs it next to what the login does today.
+// A confirmed `signed-in` completes the login (delivery 2); the rest is logged only.
 
 /** The signs read from the page (ADR 0029). */
 export interface SignInSigns {

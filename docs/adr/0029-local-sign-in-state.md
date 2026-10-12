@@ -1,11 +1,11 @@
 # ADR 0029: Local sign-in state after an effect step, with the judge as a fallback
 
 Status: accepted by the owner on 2026-10-12 (04:54 UTC). Delivery 1 (the local check,
-logged only, as `login.state`) is implemented; delivery 2 (acting on it) waits for the
-owner's review of the delivery 1 logs. Amends
-[ADR 0018](0018-recipe-generation-route.md) (how success is decided after a generated
-recipe's submission) and [ADR 0027](0027-per-account-login-routes.md) (when a page is
-judged).
+logged only, as `login.state`) is implemented. The owner started delivery 2 (acting on
+it) on 2026-10-12 at 06:58 UTC; its first part, completing on evidence, is implemented.
+Amends [ADR 0018](0018-recipe-generation-route.md) (how success is decided after a
+generated recipe's submission) and [ADR 0027](0027-per-account-login-routes.md) (when a
+page is judged).
 
 Date: 2026-10-12
 
@@ -86,9 +86,9 @@ then answered 04:51 and 04:54 UTC):
 
 - **More page text for the judge.** The signed-in description gains the visible text of
   the header and navigation, up to 1,000 characters, as a new field, with email
-  addresses and long numbers still redacted. The owner allowed this while Pateat is for
-  their own use (04:51 UTC); what is sent is decided again before the public release
-  (phase 3).
+  addresses and every number hidden as on the rest of that page (owner, 2026-10-12).
+  The owner allowed this while Pateat is for their own use (04:51 UTC); what is sent is
+  decided again before the public release (phase 3).
 - **Failure markers are not stored yet.** The judge returns no element for `rejected`,
   and error text is not among the observed candidates, so learning one needs other
   changes. If sites that fail silently back to their top page show up in the warn logs,
@@ -118,6 +118,25 @@ sign-in inputs (the ones it filled, or those of the form it clicked in); F2 read
 anywhere and status regions inside a sign-in input's form or named by one, as the fill
 check does, skipping a region around a sign-in input and the text of buttons inside a
 region.
+
+Delivery 2, first part (2026-10-12): the owner chose, after reading the delivery 1 logs
+of アパホテル, to complete a login whose `login.state` decision is `signed-in`. There,
+at 06:29:50 UTC, the learned marker showed (E1) but the recipe's completion check did
+not pass (`recipe.judge not-sent marker-shown`), so the attempt stayed unknown; when the
+sign-in form showed again after a sign-out, the sign-out check of ADR 0021 did not apply
+to the unknown attempt and Pateat signed in again. Now a `signed-in` reading is read
+again a second later in the same document, and again a second apart while the document
+is still loading, at most ten times; the login completes as `authenticated`, with no
+model call, once such a reading is `signed-in` in a document that has finished loading
+(`document.readyState` is `complete`). Otherwise the last reading is logged and the page
+goes on as before (to the judge, or unknown). Only one `login.state` entry is logged,
+from the last reading. It applies to a later page of an attempt that already settled as
+unknown too. On the `passkey` route the reading is still only logged, since the decision
+above keeps that route's rule that anything its checks do not prove ends `challenge`. E1
+does not count on the completion's own path while one of the completion's `absent`
+elements is there, even hidden, as the completion check counts it: a sign-in form that
+hides itself again after a failure on that path is not a sign-in. The other rows of the
+outcome table still only log.
 
 ## Consequences
 

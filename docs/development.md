@@ -27,11 +27,13 @@ package. The Drizzle schema in `services/api/src/db/schema.ts` owns the D1 schem
 `mise run //services/api:generate:migrations` writes SQL to `services/api/migrations/`
 without contacting a database, and the check graph fails if committed migrations drift.
 
-`mise.toml` owns exact tool versions, installation, and task definitions. Use native
-workspace mise tasks, not package.json scripts or wrapper scripts that duplicate the
-task graph. Bun manages dependencies; pinned supported Node executes tools that require
-it, notably cf. Commit mise and Bun lockfiles after resolving them, never hand-author a
-purported installed dependency graph.
+`mise.toml` owns exact tool versions and installation. The repository-wide tasks live in
+the root `tasks.toml`, which the root `mise.toml` loads with `[task_config] includes`
+(owner decision, 2026-10-12); each project's tasks stay in its own `mise.toml`. Use
+native workspace mise tasks, not package.json scripts or wrapper scripts that duplicate
+the task graph. Bun manages dependencies; pinned supported Node executes tools that
+require it, notably cf. Commit mise and Bun lockfiles after resolving them, never
+hand-author a purported installed dependency graph.
 
 The repository is a mise monorepo (owner decision, 2026-10-11). The root `mise.toml`
 sets `monorepo_root = true` and lists `apps/extension`, `services/api`, `packages/*` and
@@ -44,12 +46,12 @@ has a `typecheck` task, so `mise run '//...:typecheck'` type-checks everything. 
 reads the Bun workspace graph, so `mise run --affected '//...:test'` tests the workspace
 packages with changes since `HEAD~1` (including uncommitted and untracked files) and the
 packages that depend on them. A change outside a workspace package, such as `docs/`,
-`scripts/`, `tests/*` or the root `mise.toml`, selects every package, and the `tests/*`
-suites are not workspace packages, so `--affected` never selects them. Repository-wide
-tasks (`install`, `check`, `fix`, `check:runtime`, `check:docs`, `check:sdk-source`,
-`test:tools`, `browser:install`, the probe servers, `render:icons` and
-`generate:oidc-key`) stay in the root. Run them by their plain names from the root, or
-as `//:check:runtime` from inside a project.
+`scripts/`, `tests/*`, the root `mise.toml` or `tasks.toml`, selects every package, and
+the `tests/*` suites are not workspace packages, so `--affected` never selects them.
+Repository-wide tasks (`install`, `check`, `fix`, `check:runtime`, `check:docs`,
+`check:sdk-source`, `test:tools`, `browser:install`, the probe servers, `render:icons`
+and `generate:oidc-key`) stay in the root `tasks.toml`. Run them by their plain names
+from the root, or as `//:check:runtime` from inside a project.
 
 `check:runtime` is one dependency graph rather than a list of separate `mise run` calls:
 it depends on `//...:typecheck`, `//...:test`, `//services/api:check:*` and
@@ -87,15 +89,15 @@ mise exec -- hk check --all --no-fail-fast
 ```
 
 The shared checks include Oxlint, Oxfmt, separate TypeScript checking,
-Markdown/TOML/YAML validation, GitHub Actions hygiene, `mise fmt` and
-`mise task validate` for `mise.toml`, `hk validate` and Pkl formatting for `hk.pkl`,
-and Betterleaks secret scanning. Betterleaks reports only medium- and high-confidence
-matches: fixtures, tests and the synthetic corpus are full of low-confidence generic
-matches such as `password: "password"`, while vendor token formats (GitHub `ghp_`,
-Anthropic `sk-ant-`, Cloudflare API tokens) are medium confidence or higher. A secret
-without a vendor prefix, such as a Bitwarden API `client_secret`, only matches the
-generic rules and is not reported. CI uses the same task
-graph. `mise run fix` applies explicit formatting/lint fixes; the check task must
+Markdown/TOML/YAML validation, GitHub Actions hygiene, `mise fmt` for `mise.toml`,
+`mise task validate` for `mise.toml` and `tasks.toml`, `hk validate` and Pkl formatting
+for `hk.pkl`, and Betterleaks secret scanning. Betterleaks reports only medium- and
+high-confidence matches: fixtures, tests and the synthetic corpus are full of
+low-confidence generic matches such as `password: "password"`, while vendor token
+formats (GitHub `ghp_`, Anthropic `sk-ant-`, Cloudflare API tokens) are medium
+confidence or higher. A secret without a vendor prefix, such as a Bitwarden API
+`client_secret`, only matches the generic rules and is not reported. CI uses the same
+task graph. `mise run fix` applies explicit formatting/lint fixes; the check task must
 not mutate source files. Renovate tracks the pinned dependencies and tooling.
 
 Focused tasks are available for diagnosis:
@@ -230,16 +232,15 @@ evidence, not real-account login evidence.
 
 ### Windows notes
 
-Quote `git rev-parse 'HEAD^{tree}'` in PowerShell. CI runs
-`mise run //tests/extension:test` on a GitHub-hosted Windows runner as well as on Linux,
-so the packaged-extension tests are expected to pass on Windows with the
-Playwright-downloaded Chromium. One local host on 2026-10-10 hit a missing SideBySide
-assembly ("side-by-side configuration is incorrect") before launch; it did not reproduce
-on the CI runner (see the [foundation progress](plan.md#foundation-progress)), so rely
-on CI for those runs. The Windows job points `TEMP` and `TMP` at the runner's work
-drive: browser profiles in the default temp directory on the system drive hit 5-25 s I/O
-stalls that timed out random tests. If browser tests time out on a slow local Windows
-disk, do the same.
+Quote `git rev-parse 'HEAD^{tree}'` in PowerShell. CI runs no Windows job (the owner's
+decision on 2026-10-12, see [delivery](delivery.md#current-foundation-workflows)). One
+local host on 2026-10-10 hit a missing SideBySide assembly ("side-by-side configuration
+is incorrect") before the downloaded Chromium launched; a clean `windows-2025` runner on
+2026-10-11 launched it and passed all 92 packaged-extension tests (see the
+[foundation progress](plan.md#foundation-progress)). If browser tests time out on a slow
+local Windows disk, point `TEMP` and `TMP` at a faster drive: on GitHub's `windows-2025`
+runners in 2026-10, profiles in the default temp directory on the system drive hit
+5-25 s I/O stalls that timed out random tests.
 
 ### Installed Chrome synthetic login probe
 
@@ -336,7 +337,8 @@ preview and click **Save file**, then attach the `.jsonl` file, or click **Copy 
 and paste the whole text. Site addresses and recipe IDs are included; check
 **Hide site addresses and recipe IDs** to replace them with `site-1` and `recipe-1`. To
 record more detail, click **Enable debug logging for 24 hours**, reproduce the problem,
-then download the logs ([local log](architecture.md#local-log)).
+then download the logs ([local log](architecture.md#local-log)). Debug logging turns
+itself off after 24 hours; **Disable debug logging** turns it off sooner.
 
 ### Why a passkey request was delegated
 
@@ -455,8 +457,8 @@ this rule; compatibility from then on needs its own decision.
 ## Dependency policy
 
 Renovate inherits the pinned `risu729/renovate-config` preset, matching the other owner
-repositories. Its GitHub App covers this repository; scanning the package files starts
-after `renovate.json` reaches the default branch. Cloudflare build and test dependencies
+repositories. Its GitHub App covers this repository and reads the configuration from
+`.github/renovate.json` on the default branch. Cloudflare build and test dependencies
 are grouped and allow prereleases. `@cloudflare/vite-plugin` versions are
 `2.0.0-beta.sha-<commit>`, which semver compares by the hash text, not by release date,
 and Renovate has no release-date ordering. It follows the `beta` dist-tag with

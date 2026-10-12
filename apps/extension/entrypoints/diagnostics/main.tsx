@@ -41,10 +41,14 @@ createRoot(root).render(
             "diagnostics.logs.clear",
             await browser.runtime.sendMessage({ version: 1, type: "diagnostics.logs.clear" }),
           ),
-        enableDebugLogs: async () =>
+        setDebugLogs: async (enabled) =>
           parseLogsResponse(
             "diagnostics.logs.debug",
-            await browser.runtime.sendMessage({ version: 1, type: "diagnostics.logs.debug" }),
+            await browser.runtime.sendMessage({
+              version: 1,
+              type: "diagnostics.logs.debug",
+              enabled,
+            }),
           ),
         // A Blob link needs no `downloads` permission (ADR 0019).
         download(text, filename) {

@@ -1,6 +1,8 @@
 import {
+  loginAutocompleteTokens,
   loginObservationSchema,
   loginTargetSchema,
+  observedAutocompleteTokens,
   type LoginObservation,
   type LoginTarget,
   type ObservedCandidate,
@@ -8,6 +10,7 @@ import {
 import * as v from "valibot";
 import { shortNumericInput } from "../login/inputs";
 import type { observationGaps } from "../login/wire";
+import { autocompleteTokens } from "../page/targets";
 import {
   buttonText,
   collapseText,
@@ -51,13 +54,6 @@ const maxHeadings = 8;
 const maxText = 120;
 const rawLimit = maxText * 4;
 const labelDepth = 3;
-const autocompleteTokens = [
-  "username",
-  "email",
-  "current-password",
-  "new-password",
-  "one-time-code",
-] as const;
 const inputModes = ["none", "text", "decimal", "numeric", "tel", "search", "email", "url"] as const;
 const fillTypes: Record<string, ObservedCandidate["role"]> = {
   text: "text",
@@ -106,7 +102,11 @@ function observedText(raw: string | null | undefined): string | undefined {
   // they cannot split a digit run.
   let text = collapseText(raw);
   for (const [pattern, replacement] of redactions) text = text.replace(pattern, replacement);
-  text = text.replace(/\s+/gu, " ").trim();
+  return bounded(text.replace(/\s+/gu, " ").trim());
+}
+
+/** At most 120 UTF-16 code units, without splitting a surrogate pair. */
+function bounded(text: string): string | undefined {
   if (text.length > maxText) {
     text = text.slice(0, maxText);
     if (/[\uD800-\uDBFF]$/u.test(text)) text = text.slice(0, -1);
@@ -114,6 +114,17 @@ function observedText(raw: string | null | undefined): string | undefined {
   }
   return text || undefined;
 }
+
+/**
+ * Observed text of a signed-in page with every number replaced by one `[number]`, whatever
+ * its length or script, digit groups joined by `.`, `,` or `'` included, and a long run
+ * the login-page rule already replaced (owner decision, 2026-10-12): such a page can show
+ * balances and points in any form, and judging whether it is signed in needs none of
+ * them. Numerals written as letters, such as most kanji, are not numbers to Unicode and stay.
+ */
+const numberPart = String.raw`(?:\p{Number}+|\[number\])`;
+const numbers = new RegExp(`${numberPart}(?:[.,，．'\u2019]${numberPart})*`, "gu");
+const withoutNumbers = (text: string) => bounded(text.replace(numbers, "[number]")) ?? "[number]";
 
 /**
  * Whether a control is on the page: `visible`, `faint` when it is rendered but
@@ -137,9 +148,13 @@ type LocatorIndex = Map<string, Map<string, number>>;
 /** Counts every locator value once, as the executor's whole-document lookup sees them. */
 function locatorIndex(document: Document): LocatorIndex {
   const index: LocatorIndex = new Map(
-    [...locators.map(([, attribute]) => attribute), "text", "script-text", "link-text"].map(
-      (key) => [key, new Map()],
-    ),
+    [
+      ...locators.map(([, attribute]) => attribute),
+      "autocomplete",
+      "text",
+      "script-text",
+      "link-text",
+    ].map((key) => [key, new Map()]),
   );
   const count = (key: string, value: string) => {
     const counts = index.get(key)!;
@@ -150,6 +165,8 @@ function locatorIndex(document: Document): LocatorIndex {
       const value = element.getAttribute(attribute);
       if (value !== null) count(attribute, value);
     }
+  for (const input of document.querySelectorAll("input[autocomplete]"))
+    for (const token of new Set(autocompleteTokens(input))) count("autocomplete", token);
   for (const element of document.querySelectorAll("button, input, a")) {
     const text = buttonText(element);
     if (text !== undefined) count(isScriptLink(element) ? "script-text" : "text", text);
@@ -162,10 +179,11 @@ function locatorIndex(document: Document): LocatorIndex {
 }
 
 /**
- * Mirrors the executor's lookup: an attribute value, or else a button's text, that
- * matches exactly one element. A script link's text must also name no native button,
- * shown or not, which the executor would take first. Button text is used only when redaction leaves
- * it unchanged, so a locator never carries an email address or a long number. With
+ * Mirrors the executor's lookup: an attribute value, or else a fillable input's
+ * `autocomplete` token, or else a button's text, that matches exactly one element. A
+ * script link's text must also name no native button, shown or not, which the executor
+ * would take first. Button text is used only when redaction leaves it unchanged, so a
+ * locator never carries an email address or a long number. With
  * `redactAttributes` the same holds for attribute values, since a signed-in page's ids
  * and names often carry the account. With `links`, a link is located by its text too,
  * which only an account switch uses: the text must name no other link and no button.
@@ -182,6 +200,14 @@ function locate(
     const target = { by, value };
     if (v.is(loginTargetSchema, target)) return target;
   }
+  // Only a field the login fills; a button is named by its own attributes or text.
+  if (element instanceof HTMLInputElement && fillTypes[element.type])
+    for (const value of autocompleteTokens(element)) {
+      if (!(loginAutocompleteTokens as readonly string[]).includes(value)) continue;
+      if (index.get("autocomplete")!.get(value) !== 1) continue;
+      const target = { by: "autocomplete" as const, value };
+      if (v.is(loginTargetSchema, target)) return target;
+    }
   if (
     element instanceof HTMLAnchorElement &&
     element.hasAttribute("href") &&
@@ -319,9 +345,9 @@ function actionLabel(element: HTMLElement): string | undefined {
 }
 
 function autocomplete(input: HTMLInputElement): ObservedCandidate["autocomplete"] {
-  const tokens = (input.getAttribute("autocomplete") ?? "").toLowerCase().trim().split(/\s+/u);
+  const tokens = autocompleteTokens(input);
   if (tokens.length === 1 && tokens[0] === "off") return "off";
-  return autocompleteTokens.find((token) => tokens.includes(token));
+  return observedAutocompleteTokens.find((token) => tokens.includes(token));
 }
 
 function constraints(input: HTMLInputElement, role: ObservedCandidate["role"]) {
@@ -688,7 +714,12 @@ export function extractLoginObservation(
 type Chosen = { form: HTMLFormElement | null; draft: Draft; target: LoginTarget };
 
 /** Numbers the chosen elements in document order and adds the page's title and headings. */
-function observe(document: Document, chosen: Chosen[], complete: boolean): ObservationResult {
+function observe(
+  document: Document,
+  chosen: Chosen[],
+  complete: boolean,
+  hide: (text: string) => string = (text) => text,
+): ObservationResult {
   const location = document.location!;
   chosen.sort((left, right) =>
     left.draft.element.compareDocumentPosition(right.draft.element) &
@@ -698,22 +729,36 @@ function observe(document: Document, chosen: Chosen[], complete: boolean): Obser
   );
 
   const groups = new Map<HTMLFormElement, string>();
-  const candidates = chosen.map(({ form, draft: { element: _element, ...rest }, target }, at) => {
-    if (form && !groups.has(form)) groups.set(form, `f${groups.size + 1}`);
-    return {
-      id: `c${at + 1}`,
-      ...rest,
-      target,
-      ...(form ? { group: groups.get(form)! } : {}),
-    } satisfies ObservedCandidate;
-  });
+  const candidates = chosen.map(
+    (
+      { form, draft: { element: _element, label, placeholder, description, ...rest }, target },
+      at,
+    ) => {
+      if (form && !groups.has(form)) groups.set(form, `f${groups.size + 1}`);
+      const shownLabel = label && hide(label);
+      const shownDescription = description && hide(description);
+      return {
+        id: `c${at + 1}`,
+        ...rest,
+        ...(shownLabel ? { label: shownLabel } : {}),
+        ...(placeholder ? { placeholder: hide(placeholder) } : {}),
+        // Still left out when it repeats the label once hidden.
+        ...(shownDescription && shownDescription !== shownLabel
+          ? { description: shownDescription }
+          : {}),
+        target,
+        ...(form ? { group: groups.get(form)! } : {}),
+      } satisfies ObservedCandidate;
+    },
+  );
 
-  const title = observedText(document.title);
+  const pageTitle = observedText(document.title);
+  const title = pageTitle && hide(pageTitle);
   const headings = [
     ...new Set(
       [...document.querySelectorAll("h1, h2, h3")].flatMap((heading) => {
         const text = visibleText(heading);
-        return text ? [text] : [];
+        return text ? [hide(text)] : [];
       }),
     ),
   ].slice(0, maxHeadings);
@@ -808,11 +853,11 @@ export function extractSignedInObservation(
   }
   const index = locatorIndex(document);
   // A marker's text locator is stored and must match every later sign-in, so text with a
-  // digit, such as a balance or an unread count, never names one.
+  // number character, such as a balance or an unread count, never names one.
   const located = (entries: typeof fieldEntries) =>
     entries.flatMap((entry) => {
       const target = locate(entry.draft.element, index, { redactAttributes: true, links: true });
-      return target && !(target.by === "text" && /\p{Decimal_Number}/u.test(target.value))
+      return target && !(target.by === "text" && /\p{Number}/u.test(target.value))
         ? [{ ...entry, target }]
         : [];
     });
@@ -829,6 +874,6 @@ export function extractSignedInObservation(
     ...ranked.slice(0, Math.max(0, maxCandidates - fieldsFound.length)),
   ];
   if (chosen.length === 0) return { ok: false, reason: "no-candidates" };
-  const result = observe(document, chosen, gap === undefined);
+  const result = observe(document, chosen, gap === undefined, withoutNumbers);
   return result.ok && gap ? { ...result, gap } : result;
 }

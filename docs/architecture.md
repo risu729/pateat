@@ -382,7 +382,9 @@ success holds the origin until that tab closes or its record has not changed for
 minutes; an `authenticated` one, one that
 ended `interrupted` without submitting, or one Pateat itself stopped with nothing in
 flight (such as `policy-changed`) does not. A tab keeps one attempt record per
-origin and runs one attempt at a time; a page resumes only its own origin's record, and
+origin and runs one attempt at a time; a page resumes only its own origin's record,
+except that a new page releases one Pateat itself stopped with nothing in flight
+before any submission and logs in as a new tab would, and
 a top-level attempt that may have submitted ends `left-origin` when the tab moves to
 another origin. An ended record of a site the tab left, including a frame's login on
 that site's page, never holds the new site's page or its frames
@@ -454,92 +456,96 @@ its elements ([ADR 0013](adr/0013-service-held-recipes-and-settings.md#recipe-lo
 The browser-provided `sender.url` keeps a document's load URL, so the executor takes a
 top-level document's current path from the tab's committed URL.
 
-MV3 workers can stop. Persist only resumable metadata, never an instruction to
-blindly replay a submit. Input and change handlers can submit without a click.
-Declare whether a fill prepares fields, advances a flow or submits it; an
-input-triggered advance or submission uses one explicit event and initially one
-field. Record intent before any field mutation or event, including preparation
-fills. An acknowledgement proves local execution, not remote acceptance.
-After interruption around a fill or click, observe the current page and
-reconcile the outcome before another attempt. An uncertain fill must not be
-repeated merely because the original fields remain visible. Only a confirmed
-failure before mutation can permit a bounded retry. Never use an observation
-timeout to fall back from an input-triggered submission to a click. Recipes for
-ordinary click flows must explicitly describe tested preparation behavior.
-Exactly-once effects at a
-remote website cannot be guaranteed by local state alone. Apply a finite retry
-budget per attempt, with a terminal outcome for lockout risk.
-The submission budget reserves each executor effect before delivery; only a
-validated failure proving that the current operation made no mutation can
-release its reservation. A separate retry budget still applies: a failure that changed
-nothing on the page (`retryable`) is tried again from the same step at most twice, and a
-spent budget ends the attempt `blocked` with `retry-limit`. A `totp` handler's click
-after its code is in is never retried, since a late click could submit an expired code;
-its failure ends the attempt `retry-limit` at once (ADR 0027). Initiated or
-possibly initiated effects remain counted, not proven server requests: one page
-handler can itself issue more than one request.
-Each fill step writes only inputs inside one form (or only inputs outside any
-form). A provider password goes only into a password input, and a TOTP code only
-into a one-time-code or short numeric input, so a recipe cannot place them in a
-search box. A Hidden custom field goes only into a password or short numeric input,
-and a Linked custom field follows the field it reads.
-Before a fill step that writes a secret but not the username (a site that remembers
-the account and asks only for the password), the background sends the selected item's
-username to the content script with that one fill. The content script compares it with
-the account identifiers shown in the form, or the page when there is no form, and the
-first eight `h1`-`h3` headings; every element boundary separates words, and `mailto:`
-links, `<address>` and `<footer>` are skipped as contact addresses. The username never
-leaves the content script or reaches status. An email username is compared with shown
-email addresses. A username of digits only is compared with masked IDs that show at
-least two characters (`****1234`), and only on a step that fills a password or Hidden
-field, because a one-time-code page usually shows the masked phone number the code was
-sent to. If comparable identifiers are shown and none fits (`myaccount@example.com` or
-`****9999` shown while `my2@example.com` or `00001234` is selected), the step fills
-nothing and the attempt ends `wrong-account` without a retry or a spent submission. A
-masked value consistent with the username (`m***@example.com`, `****1234`) proceeds,
-as does an item without a username, a username of another kind (`taro99`) or a page that
-shows no comparable identifier. A masked number that is not the account, such as a card
-number on a password page, still stops a digits-only username: a known limitation.
-A recipe can name an `accountSwitch` target: the button or `<a href>` link that switches
-to another account (`{ "by": "text", "value": "Use another account" }`; text locators
-match link text only here and in a completion target; the recipe must not use it for a
-click step or `rejection`).
-When the page shows another account, nothing was submitted in the attempt, and that
-target matches exactly one shown link or button that does not submit a form, the
-background first records the attempt as `account-switched` (blocked, no submission
+MV3 workers can stop. Persist only resumable metadata, never an instruction to blindly
+replay a submit. Input and change handlers can submit without a click. Declare whether a
+fill prepares fields, advances a flow or submits it; an input-triggered advance or
+submission uses one explicit event and initially one field. Record intent before any
+field mutation or event, including preparation fills. An acknowledgement proves local
+execution, not remote acceptance. After interruption around a fill or click, observe the
+current page and reconcile the outcome before another attempt. An uncertain fill must
+not be repeated merely because the original fields remain visible. Only a confirmed
+failure before mutation can permit a bounded retry. Never use an observation timeout to
+fall back from an input-triggered submission to a click. Recipes for ordinary click
+flows must explicitly describe tested preparation behavior. Exactly-once effects at a
+remote website cannot be guaranteed by local state alone. Apply a finite retry budget
+per attempt, with a terminal outcome for lockout risk. The submission budget reserves
+each executor effect before delivery; only a validated failure proving that the current
+operation made no mutation can release its reservation. A separate retry budget still
+applies: a failure that changed nothing on the page (`retryable`) is tried again from
+the same step at most twice, and a spent budget ends the attempt `blocked` with
+`retry-limit`. A `totp` handler's click after its code is in is never retried, since a
+late click could submit an expired code; its failure ends the attempt `retry-limit` at
+once (ADR 0027). Initiated or possibly initiated effects remain counted, not proven
+server requests: one page handler can itself issue more than one request. Each fill step
+writes only inputs inside one form (or only inputs outside any form). A provider
+password goes only into a password input, and a TOTP code only into a one-time-code or
+short numeric input, so a recipe cannot place them in a search box. A Hidden custom
+field goes only into a password or short numeric input, and a Linked custom field
+follows the field it reads. Before a fill step that writes a secret but not the username
+(a site that remembers the account and asks only for the password), the background sends
+the selected item's username to the content script with that one fill. The content
+script compares it with the account identifiers shown in the form, or the page when
+there is no form, and the first eight `h1`-`h3` headings; every element boundary
+separates words, and `mailto:` links, `<address>` and `<footer>` are skipped as contact
+addresses. The username never leaves the content script or reaches status. An email
+username is compared with shown email addresses. A username of digits only is compared
+with masked IDs that show at least two characters (`****1234`), and only on a step that
+fills a password or Hidden field, because a one-time-code page usually shows the masked
+phone number the code was sent to. If comparable identifiers are shown and none fits
+(`myaccount@example.com` or `****9999` shown while `my2@example.com` or `00001234` is
+selected), the step fills nothing and the attempt ends `wrong-account` without a retry
+or a spent submission. A masked value consistent with the username (`m***@example.com`,
+`****1234`) proceeds, as does an item without a username, a username of another kind
+(`taro99`) or a page that shows no comparable identifier. A masked number that is not
+the account, such as a card number on a password page, still stops a digits-only
+username: a known limitation. A recipe can name an `accountSwitch` target: the button or
+`<a href>` link that switches to another account
+(`{ "by": "text", "value": "Use another account" }`; text locators match link text only
+here and in a completion target; the recipe must not use it for a click step or
+`rejection`). When the page shows another account, nothing was submitted in the attempt,
+and that target matches exactly one shown link or button that does not submit a form,
+the background first records the attempt as `account-switched` (blocked, no submission
 spent) and then has the content script click it. The click happens only within 10
 seconds, on the same path, while the target still matches exactly that element;
 otherwise the record becomes `wrong-account` and keeps holding that origin in the tab.
-After the click,
-the tab's next document of that origin that reports ready starts a new attempt instead
-of resuming, so
-a recipe that starts on the page the switch leads to logs in, such as an email page at
-`/signin/id` after a password page at `/signin/pwd` that showed `myaccount@example.com`
-(owner decision, 2026-10-11). That attempt carries the switch and never clicks another:
-a page that still shows another account ends it `wrong-account`. Without the target,
-or when it is missing or ambiguous, the attempt ends `wrong-account` as above. A switch
-that changes the account in place, without loading a new document, does not continue
-the login.
-Before a fill step writes anything, the content script checks every value against its
-input ([ADR 0010](adr/0010-inference-field-hints.md)): non-empty, within the input's
+After the click, the tab's next document of that origin that reports ready starts a new
+attempt instead of resuming, so a recipe that starts on the page the switch leads to
+logs in, such as an email page at `/signin/id` after a password page at `/signin/pwd`
+that showed `myaccount@example.com` (owner decision, 2026-10-11). That attempt carries
+the switch and never clicks another: a page that still shows another account ends it
+`wrong-account`. Without the target, or when it is missing or ambiguous, the attempt
+ends `wrong-account` as above. A switch that changes the account in place, without
+loading a new document, does not continue the login. Before a fill step writes anything,
+the content script checks every value against its input
+([ADR 0010](adr/0010-inference-field-hints.md)): non-empty, within the input's
 `maxlength` and `minlength` (ignored on `number` inputs), and a valid email or number
 for those input types (`valueMismatch` in `packages/contracts/src/values.ts`). A
 22-character password and an input with `maxlength="8"` fills nothing and ends the
 attempt `value-mismatch` without a retry or a spent submission. After a preparing fill,
 the content script waits 500 ms for the page's own handlers and ends the attempt
-`fill-rejected`, without a retry or the click, when a filled input is
-invalid (`validity.valid`, which unlike `checkValidity()` fires no `invalid` event),
-became `aria-invalid="true"`, or a visible alert shows text that no such region showed
-before the fill. Alerts are `role="alert"` and `aria-live="assertive"` regions
-anywhere, and `role="status"` and polite regions inside the filled form or named by a
-filled input's `aria-describedby` or `aria-errormessage`. A message the page already
-showed and renders again is not new, nor is a mark the input had before the fill. The
-text stays in the content script; only the outcome leaves it. A fill that submits
-through its own event is checked only before filling. When a filled input was replaced
-during the wait, nothing is clicked and the attempt observes the page instead.
-Explicit credential rejection stops retries with that credential. Structural
-mismatch can request bounded repair; unknown submission outcomes require
-reconciliation before any resubmission.
+`fill-rejected`, without a retry or the click, when a filled input is invalid
+(`validity.valid`, which unlike `checkValidity()` fires no `invalid` event), became
+`aria-invalid="true"`, or a visible alert shows text that no such region showed before
+the fill. Alerts are `role="alert"` and `aria-live="assertive"` regions anywhere, and
+`role="status"` and polite regions inside the filled form or named by a filled input's
+`aria-describedby` or `aria-errormessage`. A message the page already showed and renders
+again is not new, nor is a mark the input had before the fill. The text stays in the
+content script; only the outcome leaves it. A fill that submits through its own event is
+checked only before filling. When a filled input was replaced during the wait, nothing
+is clicked and the attempt observes the page instead. A click is not made, and the
+attempt ends `structural-mismatch` and moves to reconciling, when the page emptied a
+shown input that this document's fills wrote to since the last click, or, for a
+submitting click, when a shown password input that was not writable when those fills
+began is empty. Only the clicked element's form counts (the page, for an element outside
+a form), and only once Pateat filled something in it since the last click. St.George's
+logon page (`ibanking.stgeorge.com.au`) with a remembered access number hides its
+Security Number field; typing the access number clears every field and shows it
+(2026-10-12), so the form would otherwise be sent with the access number and Security
+Number empty. A passkey button beside an empty password field, a registration panel's
+password field shown from the start, and an earlier step's field the page hid and
+cleared do not hold a click. Explicit credential rejection stops retries with that
+credential. Structural mismatch can request bounded repair; unknown submission outcomes
+require reconciliation before any resubmission.
 
 A new login reads its item's facts once and records them in its attempt
 ([ADR 0027](adr/0027-per-account-login-routes.md)): a non-empty, not excluded password
@@ -616,7 +622,11 @@ settled for up to two minutes; then it ends `challenge`. A new document of the t
 shows the `passkey` route's button again ends `challenge` at once, and so does one that
 shows a handler that already ran and no other that qualifies; a handler shown there that
 still qualifies, such as a `totp` handler beside a `passkey` handler that already ran,
-is entered. When the result settles, a page no check explains is sent to be judged
+is entered. When the result settles, the page's sign-in state
+([ADR 0029](adr/0029-local-sign-in-state.md)) is read first: on the `password` route,
+evidence of a sign-in that a reading a second later confirms in the fully loaded
+document (read again a second apart, at most ten times, while it loads) completes the
+login as `authenticated`. Otherwise a page no check explains is sent to be judged
 unless it still shows a fill field of any of the route's variants on a route path or the
 completion marker (on the `passkey` route, its button or a fill field of any `password`
 variant on its path or a `password` route path); this applies to later documents of the
@@ -666,6 +676,13 @@ installed Chrome on 2026-10-11 (main 863ad90 or later). After a full Chrome 154 
 with automatic unlock on main f7d3cf5, the icon showed the logo with no visible gray
 phase; this is expected, because the built manifest's `action.default_icon` is the
 locked icon and the worker replaces it as soon as it reads the active records.
+
+The service's pages use the same unlocked logo as their favicon (owner request,
+2026-10-12). The owner web UI links the SVG, which Vite emits under `/manage/assets/`
+behind the same Access check as the page. The Worker's own HTML pages
+(`services/api/src/pages.ts`, including `/pair/signed-in` and error pages) inline it as
+a `data:` URL and allow only `img-src data:`, so the icon never needs a request to a
+path that another Access application, or none, guards.
 
 ## Diagnostics
 
@@ -754,16 +771,16 @@ kind's check is left out and a string over 512 characters becomes `"[truncated]"
 | `vault.refresh` | debug for `refreshed`, else warn | connection pseudonym; `refreshed`, `restored` (the session was put back after a network failure, timeout, 429 or 5xx), `rejected`, `account-mismatch` or `failed` (a non-retryable error drops the claim's refresh token so the sync sign-in needs the password; a store error leaves the claim to resume; a conflict means forget or a password sign-in replaced it); the transport or store error code and HTTP status when there is one |
 | `service.sync` | debug for `synced`, `incomplete`, `not-connected`, `busy` unless a recipe was added, updated or removed, then info; info for `unreachable`; else warn | recipe and settings sync outcome; `full`, or `recipes` for a recipes-only run after a judged page; recipes added, updated and removed in the cache |
 | `settings.changed` | info | `synced` (a settings sync wrote local settings) or `saved` (the settings page); the settings revision when the entry is written. Running logins and passkey requests stop |
-| `login.attempt` | debug when a new page resumes the attempt without changing its state or outcome; otherwise info for `authenticated` and `retryable`, warn for `blocked` and when the result settles as unknown (`unknown-submit`, marked `settled`), so a login that did not finish counts as a warning, else debug | origin, recipe ID, route and `password` variant, state, step, step count, the current step's kind (`fill`, `click`, `wait`, `assert`) and effect (`prepare`, `advance`, `submit`), the entered handler the step belongs to, outcome; for `policy-changed`, its cause and a refused plan's reason |
+| `login.attempt` | debug when a new page resumes the attempt without changing its state or outcome; otherwise info for `authenticated` and `retryable` and for the end of a fill-only login after a logout, warn for other `blocked` and when the result settles as unknown (`unknown-submit`, marked `settled`), so a login that did not finish counts as a warning, else debug | origin, recipe ID, route and `password` variant, state, step, step count, the current step's kind (`fill`, `click`, `wait`, `assert`) and effect (`prepare`, `advance`, `submit`), the entered handler the step belongs to, outcome; for `policy-changed`, its cause and a refused plan's reason; else `fill-only` as the reason for a login that only fills the form after a logout (ADR 0021 D) |
 | `login.handler` | info | origin, recipe ID, handler index, kind, step count; `entered`, `shown-again` (left to the person after this login ran it), `missing-fact` (the item lacks what the handler needs, including a `totp` handler's built-in TOTP field), `code-used` (a `totp` handler in a login that already types a TOTP code) or `no-room` (the attempt's step or submission budget is spent) |
-| `login.state` | debug for a later page of an attempt that already settled as unknown, else info | origin, recipe ID, route; the page signs of [ADR 0029](adr/0029-local-sign-in-state.md) that show, as flags: a sign-in element of the route (`s1`), a password input not for a new password and not in a form with two or more shown password inputs (`s2`), a code input (`s3`), a CAPTCHA widget (`s4`), a passkey request of the top document after the step, outside conditional mediation (`s5`), a new invalid mark on the step's sign-in inputs (`f1`) or new alert text, read as the fill check reads it (`f2`), next to the sign-in fields in the submitted document, the signed-in marker on any path (`e1`), the username in the header or navigation (`e2`), the return target the sign-in page's URL named (`e3`); and what the ADR would do (`rejected`, `unknown`, `continuing`, `signed-in`, `judge`); `settled` for a later page of an attempt that already settled as unknown. Logged for a page after an effect step that no check explained, before the judge is asked; it changes nothing (delivery 1). A login in a frame is not read |
-| `login.refused` | debug for `recipe-not-found`, `stale-document`, `generating`, and `tab-busy` in a frame (a held tab refuses every frame on its page, such as ad frames); else info | origin, reason, `frame` for a frame; for `no-route` on a recipe with several `password` variants, the first variant's reason as its detail; for `logged-out`, which tab logged out (`this-tab` or `other-tab`); `not-started` when a page of an origin with a recipe shows a visible password, username or one-time-code input for 10 seconds without a ready first step and only watches, once per document and path, with why: the tab's earlier login of the origin finished and this form is not a recipe's first step on its path, so it is not taken as a logout (`logged-in`), a recipe starts on this path but its first step's elements are not found (`first-step-missing`), or the origin's recipes start only on other paths (`no-recipe-on-path`) |
-| `recipe.generate` | debug for `skipped` with `no-vault-match`, else info | origin, outcome (`recipe`, `abstained`, `failed`, `unavailable`, `skipped`) and its reason: the abstention, failure or unavailable code, `device-rejected`, `error` for a thrown error, or why nothing was sent (`sending`, `sent`, `no-vault-match`, `incomplete-observation`, the content script's refusal (`no-candidates` for no field or nothing in a login form to locate or act on, `no-locator` for a login form whose controls could not be located, `unsupported-page` for a refused path or a description that fails its schema, `extract-error` when the extractor threw, `cancelled` for a cancelled document), `extract-failed` for an answer that fails its check or never came, `no-slots`, `not-connected`, `storage-unavailable`); for `invalid-output`, the check that refused the model's output (`json`, `schema` or `plan`), the plan check's code or the output format's issue, and for a format issue where in the output it was; a page that is not sent is logged once per document |
+| `login.state` | debug for a later page of an attempt that already settled as unknown, else info | origin, recipe ID, route; the page signs of [ADR 0029](adr/0029-local-sign-in-state.md) that show, as flags: a sign-in element of the route (`s1`), a password input not for a new password and not in a form with two or more shown password inputs (`s2`), a code input (`s3`), a CAPTCHA widget (`s4`), a passkey request of the top document after the step, outside conditional mediation (`s5`), a new invalid mark on the step's sign-in inputs (`f1`) or new alert text, read as the fill check reads it (`f2`), next to the sign-in fields in the submitted document, the signed-in marker on any path (`e1`), the username in the header or navigation (`e2`), the return target the sign-in page's URL named (`e3`); and what the ADR would do (`rejected`, `unknown`, `continuing`, `signed-in`, `judge`); `settled` for a later page of an attempt that already settled as unknown. Logged for a page after an effect step that no check explained, before the judge is asked. On the `password` route a `signed-in` page is read again a second later, and a second apart while it loads (at most ten times), and the last reading is the one logged; when it is `signed-in` in the fully loaded document, the login completes without the judge (ADR 0029 delivery 2, first part). E1 does not count on the completion's own path while one of its `absent` elements is there, even hidden. The other decisions change nothing yet. A login in a frame is not read |
+| `login.refused` | debug for `recipe-not-found`, `stale-document`, `generating`, and `tab-busy` in a frame (a held tab refuses every frame on its page, such as ad frames); else info | origin, reason, `frame` for a frame; for `no-route` on a recipe with several `password` variants, the first variant's reason as its detail; for `logged-out`, which tab logged out (`this-tab` or `other-tab`), or `stopped-login` when this tab's own login stopped after a submission and its form showed again; `not-started` when a page of an origin with a recipe shows a visible password, username or one-time-code input for 10 seconds without a ready first step and only watches, once per document and path, with why: the tab's earlier login of the origin finished and this form is not a recipe's first step on its path, so it is not taken as a logout (`logged-in`), a recipe starts on this path but its first step's elements are not found (`first-step-missing`), or the origin's recipes start only on other paths (`no-recipe-on-path`), or the tab's login of the origin stopped after a submission and the page watches for its form (`stopped-login`) |
+| `recipe.generate` | debug for `skipped` with `no-vault-match`, else info | origin, outcome (`recipe`, `abstained`, `failed`, `unavailable`, `skipped`) and its reason: the abstention, failure or unavailable code, `device-rejected`, `error` for a thrown error, or why nothing was sent (`sending`, `sent`, `no-vault-match`, `incomplete-observation`, the content script's refusal (`no-candidates` for no field or nothing in a login form to locate or act on, `no-locator` for a login form whose controls could not be located, `unsupported-page` for a refused path or a description that fails its schema, `extract-error` when the extractor threw, `cancelled` for a cancelled document), `extract-failed` for an answer that fails its check or never came, `no-slots`, `not-connected`, `storage-unavailable`); for `invalid-output`, the check that refused the model's output (`json`, `schema` or `plan`), the plan check's code or the output format's issue, and for a format issue where in the output it was; a page that is not sent is logged once per document, with the last reason after up to three reads a second apart |
 | `recipe.judge` | debug for `sent`, else info | origin, recipe ID and revision, route; `sent` when the page goes out, then the verdict (`signed-in`, `rejected`, `challenge`, `unclear`, `retry`); for `unclear` and `retry`, the transport, service or model code (for example `already-judged`, `busy`, `timeout`); for a returned revision, whether this login took it over; `not-sent` when the page after an effect step is not sent to the judge, with why: the step's two pages were already sent (`page-limit`), a sign-in field of the route still shows on a sign-in path (`sign-in-shown`), the completion marker shows but does not prove the sign-in, as on another path than its own (`marker-shown`), a field in a shadow root (`shadow-field`), one that cannot be filled and is disabled or may be a sign-in field (`unfillable-field`: a password or email input, one with a `username`, `email`, `current-password`, `new-password` or `one-time-code` autocomplete token, or a short numeric field; other read-only, transparent or tiny fields, as a read-only date picker, are left out), one without a usable locator (`unlocated-field`), more than 48 fields (`too-many-fields`), nothing to describe (`no-candidates`), a refused path or a description that fails its schema (`unsupported-page`), an extractor that threw (`extract-error`), a response that fails its check (`invalid-page`), a cancelled login (`cancelled`), a page that changed meanwhile (`page-changed`) or could not be asked (`unreachable`) |
 | `passkey.request` | info | the passkey report described in [development](development.md#why-a-passkey-request-was-delegated) |
 | `error.unhandled` | error | `error` or `rejection`, class name, message only when it is a Pateat error code, up to five `file.js:line:column` positions inside the extension |
-| `log.dropped` | warn | origin, events dropped over the page limit |
-| `log.debug` | info | when debug logging ends |
+| `log.dropped` | warn; debug when only `debug` events were dropped | origin, events dropped over the page limit |
+| `log.debug` | info | whether debug logging was turned on or off, and when it ends |
 
 Connection and item IDs become HMAC pseudonyms. An origin or RP ID is kept in full only
 when a site default, binding, excluded site or cached recipe names it; any other
@@ -780,21 +797,24 @@ plan's refusal reason such as `connection-disabled`, or `account-changed`),
 was delivered) and `field-unavailable` (a vault field could not be read).
 
 Login, judgement, handler, recipe generation and passkey events are limited to 20 per
-minute per tab and origin, and unhandled errors to 20 per minute in all. The first event
-dropped in a window is logged at once as `log.dropped` with `count: 1`; the rest are
-counted when the window ends and the next event or prune runs, so a worker that stops
-first loses only that remainder. `debug` entries are written only for 24 hours after
-**Enable debug logging**. Retention: 14 days; `debug` entries for 24 hours; at most
-5,000 `debug` and `info` entries (oldest `debug` first, then `info`) and 1,000 `warn`
-and `error` entries, pruned at worker start and every 500 writes.
+minute per tab and origin, and unhandled errors to 20 per minute in all. `debug` events
+have their own 20 per minute, so a page's debug detail never crowds out its other
+events. The first event dropped in a window is logged at once as `log.dropped` with
+`count: 1`; the rest are counted when the window ends and the next event or prune runs,
+so a worker that stops first loses only that remainder. `debug` entries are written only
+for 24 hours after **Enable debug logging for 24 hours**, or until
+**Disable debug logging** turns it off sooner; either change is logged as `log.debug`
+with `enabled`. Retention: 14 days; `debug` entries for 24 hours; at most 5,000 `debug`
+and `info` entries (oldest `debug` first, then `info`) and 1,000 `warn` and `error`
+entries, pruned at worker start and every 500 writes.
 
 The diagnostics page sends `diagnostics.logs.export` (with `includeSites`),
-`diagnostics.logs.clear` and `diagnostics.logs.debug`, accepted from the same page URL
-only. **Download logs** previews the exact JSON Lines text and saves it through a `Blob`
-link (no `downloads` permission): a header line with the version, revision and export
-time, then one line per entry. **Copy all** puts the same text on the clipboard in full,
-without selecting the scrolled preview by hand, and reports how many entries it copied.
-The export shows sites and recipe IDs as logged. When
+`diagnostics.logs.clear` and `diagnostics.logs.debug` (with `enabled`), accepted from
+the same page URL only. **Download logs** previews the exact JSON Lines text and saves
+it through a `Blob` link (no `downloads` permission): a header line with the version,
+revision and export time, then one line per entry. **Copy all** puts the same text on
+the clipboard in full, without selecting the scrolled preview by hand, and reports how
+many entries it copied. The export shows sites and recipe IDs as logged. When
 **Hide site addresses and recipe IDs** is checked, every origin, pseudonymized origin
 and RP ID becomes `site-N` and every recipe ID `recipe-N`, numbered within that export.
 **Clear logs** deletes every entry and replaces the pseudonym key.
@@ -812,14 +832,17 @@ failure condition, and provenance. The vocabulary is packaged code such as fill,
 wait-for-state, and assert-state. There is no eval, remote JavaScript, arbitrary fetch,
 or model-selected secret destination.
 
-A generated recipe has no completion target until the page after its first sign-in
-is judged ([ADR 0018](adr/0018-recipe-generation-route.md)). Until then the executor
-never reports `authenticated` with it: a submission ends `credential-rejected`, moves
-to a later step, or stays unknown (`unknown-submit`), so no account choice is saved.
-An unknown attempt stays in `reconciling` until its tab closes or, for a top-level
-attempt, until the tab shows a page of another origin that Pateat may run on
-(`left-origin`, ADR 0022): meanwhile it holds the origin. The extension sends a page
-no check explains to be judged, which settles such attempts
+A generated recipe has no completion target until the page after its first sign-in is
+judged ([ADR 0018](adr/0018-recipe-generation-route.md)). Until then the executor
+reports `authenticated` with it only when the sign-in state of
+[ADR 0029](adr/0029-local-sign-in-state.md) shows confirmed evidence of a sign-in on the
+`password` route (the username in the header or navigation, or the return target the
+sign-in page's URL named); otherwise a submission ends `credential-rejected`, moves to a
+later step, or stays unknown (`unknown-submit`), so no account choice is saved. An
+unknown attempt stays in `reconciling` until its tab closes or, for a top-level attempt,
+until the tab shows a page of another origin that Pateat may run on (`left-origin`, ADR
+0022): meanwhile it holds the origin. The extension sends a page no check explains to be
+judged, which settles such attempts
 ([Background execution](#background-execution)).
 
 A login in progress keeps off the writes that would stop it. A passkey chosen in the
@@ -849,13 +872,26 @@ within one 24-element observation.
 
 A step names its element with an allowlisted locator, never CSS: an `id` or `name` (any
 ASCII except whitespace and control characters, as in `ctl00$Main$txtUserId` or
-`user[login]`), a `data-testid` (`[A-Za-z0-9_.:-]`), or, for a click or a state check
-only, a button's text: `{ "by": "text", "value": "ログイン" }` names the `<button>`
-whose rendered text (or, without any, its images' `alt`), the
-`<input type="submit|button">` whose value, or the `<input type="image">` whose `alt`
-equals the value after whitespace is collapsed (owner decision, 2026-10-11). Hidden
-buttons and hidden text inside a button do not count, and text over 120 characters gives
-no locator. A script button is a control only scripts make clickable: a script link, or
+`user[login]`), a `data-testid` (`[A-Za-z0-9_.:-]`), an `<input>`'s `autocomplete`
+token, or, for a click or a state check only, a button's text:
+`{ "by": "text", "value": "ログイン" }` names the `<button>` whose rendered text (or,
+without any, its images' `alt`), the `<input type="submit|button">` whose value, or the
+`<input type="image">` whose `alt` equals the value after whitespace is collapsed (owner
+decision, 2026-10-11). Hidden buttons and hidden text inside a button do not count, and
+text over 120 characters gives no locator. The `autocomplete` locator,
+`{ "by": "autocomplete", "value": "username" }`, names the one `<input>` whose
+`autocomplete` attribute holds that token, ignoring case and other tokens such as
+`webauthn`; the token is `username`, `email`, `current-password` or `one-time-code`,
+never `new-password`. The owner added it on 2026-10-12 for pixiv's login page, whose
+inputs carry only `autocomplete="username webauthn"` and
+`autocomplete="current-password webauthn"`. The extractor gives it only to a field that
+no `id`, `name` or `data-testid` names alone. Such a token is generic: when another form
+on the page, such as a newsletter sign-up, also carries `email`, a step that names
+`{ "by": "autocomplete", "value": "email" }` matches twice and waits, or, if the login
+form has not rendered yet, fills the other input (never with a secret, which goes only
+into an input the fill check accepts for it, such as a password or `current-password`
+input for the password); and a signed-in page that shows such an input cannot become the
+completion. A script button is a control only scripts make clickable: a script link, or
 another element with `role="button"`, but never a form control or anything inside an
 `<a href>`. A script link is an `<a>` without `href` that has an `onclick` attribute or
 `role="button"`, such as `<a id="login" onclick="document.loginForm.submit()">`, or an
@@ -901,7 +937,7 @@ A text locator is stored in the recipe, unlike observation labels, which only re
 inference. Redaction keeps email addresses and long numbers out of it, but a button
 such as "Continue as taro_y" still carries an account name, and so can a completion
 marker's link text, such as a header link showing the person's name: the judge is told
-never to pick one, and text with a digit never names a marker, but nothing enforces the
+never to pick one, and text with a number never names a marker, but nothing enforces the
 rest. Recipes are per owner today; before recipes are shared between users, such
 locators need a review.
 
@@ -946,32 +982,38 @@ Bound the full input, including candidate/question text, and reject incomplete
 observations instead of relying on provider truncation.
 
 Extract an allowlisted observation before filling. The proposed observation contract
-lives in `packages/contracts` and the offline role adapters in `packages/inference`;
-see [AI evaluation harness progress](plan.md#ai-evaluation-harness-progress).
-Exclude values, hidden inputs,
-raw HTML, screenshots, query strings, and unrelated page text by default. A page whose
-path may carry a session ID or another token is not observed, so such a path never
-reaches the service or its request log
-([AI evaluation harness progress](plan.md#ai-evaluation-harness-progress)). Labels
-can contain private data too: sanitize and bound them, with privacy fixtures and
-an abstention path when a useful safe observation cannot be constructed. The owner
-chose on 2026-10-11 to redact observed text before it is sent: email-like strings,
-including masked ones, become `[email]`; runs of three or more `*`, `●`, `•` or `＊`
-become `[masked]`; and runs of four or more ASCII or fullwidth digits become
-`[number]` (`口座番号 ****1234` becomes `口座番号 [masked][number]`). Names cannot be
-detected and stay. When such a page already shows a chosen account and offers a
-button or link to use another one, the generation role may name it as the plan's
-`accountSwitch`; it must be an observed button or link that the plan neither fills nor
-uses as its action. The generated recipe keeps the first switch a page names that no
-step clicks. Only links inside the login form are observed, so a switch link outside it
-is not named. A button whose text a link elsewhere on the page shows too, and a button
-that would submit a form, are never clicked as a switch; the attempt then ends
-`wrong-account`. Locating links by text means in-form links without an `id`, `name` or
-`data-testid` are now observed as well, with their redacted labels, and a switch
-link's redacted rendered text is stored in the recipe. Model
-output must pass structural and semantic checks on the server and again locally.
-Screenshot, audio and video collection are deferred. A provider's multimodal
-support does not enable these inputs without a separate privacy/evaluation gate.
+lives in `packages/contracts` and the offline role adapters in `packages/inference`; see
+[AI evaluation harness progress](plan.md#ai-evaluation-harness-progress). Exclude
+values, hidden inputs, raw HTML, screenshots, query strings, and unrelated page text by
+default. A page whose path may carry a session ID or another token is not observed, so
+such a path never reaches the service or its request log
+([AI evaluation harness progress](plan.md#ai-evaluation-harness-progress)). Labels can
+contain private data too: sanitize and bound them, with privacy fixtures and an
+abstention path when a useful safe observation cannot be constructed. The owner chose on
+2026-10-11 to redact observed text before it is sent: email-like strings, including
+masked ones, become `[email]`; runs of three or more `*`, `●`, `•` or `＊` become
+`[masked]`; and runs of four or more ASCII or fullwidth digits become `[number]`
+(`口座番号 ****1234` becomes `口座番号 [masked][number]`). Names cannot be detected and
+stay. On the page shown after sign-in, which the completion judge observes, the owner
+chose on 2026-10-12 to hide every number instead: each number, whatever its length or
+script, with digit groups joined by `.`, `,` or `'`, becomes one `[number]`
+(`保有ポイント 1,234pt` becomes `保有ポイント [number]pt`), because balances and points
+appear in any form and judging the sign-in needs none of them. Numerals written as
+letters, such as most kanji, stay. Login
+pages keep the four-digit rule, since hints such as `4 digits` help map fields. When a
+login page already shows a chosen account and offers a button or link to use another
+one, the generation role may name it as the plan's `accountSwitch`; it must be an
+observed button or link that the plan neither fills nor uses as its action. The
+generated recipe keeps the first switch a page names that no step clicks. Only links
+inside the login form are observed, so a switch link outside it is not named. A button
+whose text a link elsewhere on the page shows too, and a button that would submit a
+form, are never clicked as a switch; the attempt then ends `wrong-account`. Locating
+links by text means in-form links without an `id`, `name` or `data-testid` are now
+observed as well, with their redacted labels, and a switch link's redacted rendered text
+is stored in the recipe. Model output must pass structural and semantic checks on the
+server and again locally. Screenshot, audio and video collection are deferred. A
+provider's multimodal support does not enable these inputs without a separate
+privacy/evaluation gate.
 
 Use a cached compatible recipe first. On structural mismatch or repeated genuine
 recipe failure, request repair within a separate bounded inference budget. Wrong

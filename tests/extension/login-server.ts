@@ -443,7 +443,12 @@ export async function startLoginFixture(
             }[fixtureUrl.searchParams.get("password-input") ?? ""] ?? 'type="password"'
           }${
             maxLength !== null && /^\d{1,3}$/u.test(maxLength) ? ` maxlength="${maxLength}"` : ""
-          }></label><button id="login" type="button">Log in</button>${
+          }></label>${
+            // `?reject-fill=switch-form` keeps a second password field hidden until a fill.
+            fixtureUrl.searchParams.get("reject-fill") === "switch-form"
+              ? '<label>Security number<input id="security" type="password" hidden></label>'
+              : ""
+          }<button id="login" type="button">Log in</button>${
             // `?ad` embeds an unrelated frame beside the form, like an advertisement.
             fixtureUrl.searchParams.has("ad")
               ? '<iframe id="ad" title="Synthetic advertisement" src="/ad"></iframe>'
@@ -461,6 +466,10 @@ export async function startLoginFixture(
                 "document.getElementById('password').addEventListener('change', (event) => event.target.setCustomValidity('Not accepted'));",
               shown:
                 "document.getElementById('password').addEventListener('input', () => { document.getElementById('notice').innerHTML = '<p role=\"alert\">Your session expired</p>'; });",
+              // Switches the form under the fill, as St.George's logon with a remembered
+              // access number does: every field is cleared and another one shows.
+              "switch-form":
+                "document.getElementById('password').addEventListener('change', (event) => { event.target.value = ''; document.getElementById('security').hidden = false; });",
             }[fixtureUrl.searchParams.get("reject-fill") ?? ""] ?? ""
           }
           document.getElementById('login').addEventListener('click', () => {

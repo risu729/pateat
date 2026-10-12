@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { fillBaseline, inputValueMismatch, rejectsFill } from "./fill-checks";
+import { fillBaseline, inputValueMismatch, rejectsFill, unreadyForm } from "./fill-checks";
 
 afterEach(() => {
   document.body.innerHTML = "";
@@ -94,5 +94,64 @@ describe("a code fill's status messages (ADR 0027)", () => {
     expect(rejectsFill([code], before)).toBe(true);
     document.body.insertAdjacentHTML("beforeend", '<p role="alert">Wrong code</p>');
     expect(rejectsFill([code], before, { statuses: false })).toBe(true);
+  });
+});
+
+describe("unreadyForm", () => {
+  // St.George's logon with a remembered access number: typing the number shows the
+  // Security Number field and clears every field (logonSimple.js `showFullLogon`).
+  const page = (extra = "") => {
+    document.body.innerHTML = `<form>
+      <input id="access" type="text"><input id="security" type="password" hidden>
+      <input id="password" type="password">${extra}<input type="submit" value="Logon"></form>`;
+    const byId = (id: string) => document.getElementById(id) as HTMLInputElement;
+    return { access: byId("access"), security: byId("security"), password: byId("password") };
+  };
+  const inputs = () => [...document.querySelectorAll("input")];
+  const shown = (field: HTMLInputElement) => !field.hidden && field.type !== "submit";
+  const check = (filled: Set<HTMLInputElement>, before: HTMLInputElement[], submit = true) =>
+    unreadyForm(inputs(), {
+      filled: (field) => filled.has(field),
+      shownBefore: (field) => before.includes(field),
+      writable: shown,
+      submit,
+    });
+
+  it("holds a click when the page emptied a filled field or showed a new password field", () => {
+    const { access, security, password } = page();
+    const filled = new Set([access, password]);
+    const before = [password];
+    access.value = "12345678";
+    password.value = "synthetic";
+    expect(check(filled, before)).toBe(false);
+    // The page switches the form under the first fill.
+    security.hidden = false;
+    access.value = "";
+    expect(check(filled, before)).toBe(true);
+    // An emptied field holds any click; a new password field only a submitting one.
+    expect(check(filled, before, false)).toBe(true);
+    access.value = "12345678";
+    expect(check(filled, before)).toBe(true);
+    expect(check(filled, before, false)).toBe(false);
+    security.value = "1234";
+    expect(check(filled, before)).toBe(false);
+  });
+
+  it("ignores password fields shown before the fill and hidden emptied fields", () => {
+    // A registration panel in the same form, shown from the start.
+    const { access, password } = page('<input id="new" type="password">');
+    const created = document.getElementById("new") as HTMLInputElement;
+    access.value = "12345678";
+    password.value = "synthetic";
+    expect(check(new Set([access, password]), [password, created])).toBe(false);
+    // An earlier step's field that the page hid and cleared.
+    access.value = "";
+    access.hidden = true;
+    expect(check(new Set([access, password]), [password, created])).toBe(false);
+  });
+
+  it("checks only a form Pateat filled, so a passkey button beside an empty password is clicked", () => {
+    page();
+    expect(check(new Set(), [])).toBe(false);
   });
 });

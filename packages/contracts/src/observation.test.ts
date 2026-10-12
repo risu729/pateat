@@ -32,6 +32,14 @@ const base = {
 const parse = (value: unknown) => v.safeParse(loginObservationSchema, value).success;
 
 describe("observation contract", () => {
+  it("carries sign-in and personal-data autocomplete tokens only", () => {
+    const candidate = base.candidates[0]!;
+    for (const autocomplete of ["username", "new-password", "off", "given-name", "tel", "bday"])
+      expect(parse({ ...base, candidates: [{ ...candidate, autocomplete }] })).toBe(true);
+    for (const autocomplete of ["cc-number", "webauthn", "shipping tel"])
+      expect(parse({ ...base, candidates: [{ ...candidate, autocomplete }] })).toBe(false);
+  });
+
   it("rejects values, oversized or control-character text and unsafe structure", () => {
     expect(parse(base)).toBe(true);
     const candidate = base.candidates[0]!;
@@ -58,6 +66,10 @@ describe("observation contract", () => {
     // A link may be an account switch, located by its text.
     const link = { ...button, role: "link", target: { by: "text", value: "Use another account" } };
     expect(parse({ ...base, candidates: [candidate, link] })).toBe(true);
+    // An autocomplete token names a field only.
+    const token = { by: "autocomplete", value: "username" };
+    expect(parse({ ...base, candidates: [{ ...candidate, target: token }] })).toBe(true);
+    expect(parse({ ...base, candidates: [candidate, { ...button, target: token }] })).toBe(false);
     expect(parse({ ...base, path: "/login?next=/" })).toBe(false);
     expect(parse({ ...base, origin: "https://shop.example.test/login" })).toBe(false);
     expect(parse({ ...base, html: "<form></form>" })).toBe(false);

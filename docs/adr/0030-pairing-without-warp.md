@@ -27,13 +27,17 @@ a way through without WARP should stay once it works, not only for a test (05:17
   but cannot open the owner pages: no device list, revocation, settings, recipes or
   bindings.
 - **Two Allow policies.**
-  - The owner's existing reusable policy (email domain and WARP), with the same
-    identity provider as the host-wide application. The owner's Chrome passes it with
-    its existing session and is not asked for a code.
+  - The owner's existing reusable policy (email domain and WARP). The owner's Chrome
+    passes this one. Its session on the host-wide application does not carry over:
+    on 2026-10-12, its first visit to `/pair/signed-in` after "pateat pair" was
+    created asked for a One-time PIN code.
   - Include the owner's email address only, and require the One-time PIN login method.
-    No WARP. A browser without WARP can only pass this one, so no identity provider
-    session, such as Google's, is left on a vendor's machine.
-  - Login methods: that identity provider and One-time PIN.
+    No WARP. A browser without WARP can only pass this one. The login-method
+    requirement keeps it from admitting another identity provider added later, so no
+    identity provider session, such as Google's, would be left on a vendor's machine.
+  - Login methods: One-time PIN only. On 2026-10-12, before "pateat pair" was created,
+    One-time PIN was the team's only identity provider, and the host-wide application
+    signs in with it too.
 - **Other application settings.** Session Duration 15 minutes. Cookie Path Attribute on,
   so the application's `CF_Authorization` cookie is sent only below `/pair` and does not
   replace the host-wide application's cookie in the owner's Chrome. Binding Cookie on,
@@ -46,8 +50,7 @@ a way through without WARP should stay once it works, not only for a test (05:17
   one no token carries, turns the second audience off; once "pateat pair" exists, Access
   issues only its audience on `/pair`, so that would stop all pairing. The owner is
   still found by issuer and subject. Access gives one `sub` per email address in the
-  account, so a One-time PIN sign-in and an identity provider sign-in reach the same
-  owner.
+  account, so a sign-in to either application reaches the same owner.
 - **The sign-in tab opens `/pair/signed-in`.** When pairing needs a sign-in, the
   settings page opens `<service>/pair/signed-in` instead of `<service>/manage`. Access
   signs the browser in on the way, and the page says "Close this tab and go back to
@@ -102,9 +105,14 @@ a way through without WARP should stay once it works, not only for a test (05:17
 
 - With Cookie Path Attribute on, the owner's Chrome may send two `CF_Authorization`
   cookies to `/pair`, the host-wide application's and "pateat pair"'s. Cloudflare's
-  documentation does not say which one Access checks.
+  documentation does not say which one Access checks. Checked on 2026-10-12 in the
+  owner's Chrome after "pateat pair" was created: after the One-time PIN sign-in,
+  `GET /pair/signed-in` answered 200 with the "Signed in" page, `/manage` still opened
+  without another sign-in, and the already paired extension kept syncing (full syncs at
+  06:35 and 06:40 UTC, no warnings or errors after 06:33 UTC).
 - Whether `POST /pair` from the extension's service worker passes with Binding Cookie
-  on.
+  on. Not checked yet: the owner's Chrome is already paired, so the first `POST /pair`
+  through "pateat pair" is the next new pairing, on an agent's computer or in the
+  owner's Chrome. A failure there may come from Binding Cookie.
 
-Both are checked in the owner's Chrome before the first pairing without WARP, as
 ADR 0020 asks for a cookie probe whenever cookie settings change.
