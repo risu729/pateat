@@ -3929,6 +3929,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
           value.type === "attempt" ? [value] : [],
         );
         expect(attempts.filter((value) => value.settled)).toHaveLength(1);
+        expect(attempts[0]).not.toHaveProperty("repeat");
         // Each new page resumes the attempt; the log repeats it at most quietly.
         expect(attempts.slice(-2)).toMatchObject([
           { state: "reconciling", outcome: "unknown-submit", repeat: true },
