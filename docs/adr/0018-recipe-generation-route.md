@@ -119,6 +119,18 @@ new owner decision:
   answers with `recently-tried` or the written recipe if the model was called
   ([ADR 0016](0016-recipe-generation-trigger.md)).
 
+Diagnostics added on 2026-10-12, after a real page's `invalid-output` could not be told
+apart from other failures; they are implementation choices, not owner decisions:
+
+- A generation that fails `invalid-output` names the check that refused the model's
+  output in its answer and in the request log, in codes only: the output was not JSON,
+  failed the output format at a path, or failed the plan check with its code. The
+  request log also keeps a plan the plan check refused, reduced to the request's
+  candidate and slot IDs, with each name the model gave replaced by a placeholder. The
+  extension logs the check and its codes with `recipe.generate`.
+- Each request log row records the role's prompt version, a short hash of its
+  instructions and response format, so a row shows which instructions produced it.
+
 ## Consequences
 
 The service and Anthropic see, once per new recipe, the page shown right after the

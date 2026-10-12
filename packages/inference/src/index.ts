@@ -5,6 +5,7 @@ export {
   createRecipeGenerator,
   generatedPlanSchema,
   generationInstructions,
+  generationPromptVersion,
   type GenerationRequest,
 } from "./generation";
 export { buildFieldQuestions, createFieldMappingDecider, type FiniteChoiceModel } from "./decision";
@@ -14,6 +15,7 @@ export * from "./evaluate";
 export * from "./values";
 export {
   completionInstructions,
+  completionPromptVersion,
   createCompletionJudge,
   judgedPageSchema,
   type CompletionRequest,

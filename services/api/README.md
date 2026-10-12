@@ -173,7 +173,13 @@ identifiers.
 [ADR 0018](../../docs/adr/0018-recipe-generation-route.md) routes, in
 `src/recipes/generate.ts`. Both answer 200 with a `status`: `recipe` or `signed-in`
 with the stored change, `abstained`, `rejected`, `challenge` or `unclear`, `failed` with
-a code, or `unavailable` with a reason when no model was called.
+a code, or `unavailable` with a reason when no model was called. A generation that fails
+`invalid-output` because a check refused the model's output also names it as
+`rejection`, in codes only: `{ check: "json" }` for output that was not JSON,
+`{ check: "schema", issue, path }` for the first issue of the output format (such as
+`max-length` at `result.alternatives`; `unknown-key` where the model added a key, with
+the path ending before it), or `{ check: "plan", reason }` with the plan check's code
+(such as `incompatible-role`).
 
 - `POST /v1/recipes/generate` takes `{ version: 1, observation, slots, base? }`. Each
   origin and start path has one generated recipe, `gen-` and the first 32 hex digits of
@@ -259,11 +265,24 @@ passes every check is an attempt, including one the role then refuses locally fo
 size, which would be refused again. Each call first reserves its upper bound (64 KiB of
 input as tokens plus 8,192 output tokens at the ADR 0014 rates, about $0.43) and then
 corrects it from reported usage; usage the provider does not report keeps the
-reservation. The `inference_log` row stores the provider and model, the instructions and
-input as sent, the structured result, the outcome code, usage and estimated cost; a
-request refused locally before any model call is not logged. Rows older than 90 days are
-deleted whenever a call is logged and on every `GET /v1/recipes`, because routine
-releases do not apply cron triggers.
+reservation. The `inference_log` row stores the provider and model, the role's prompt
+version (`prompt_version`: the first 12 hex digits of the SHA-256 of its instructions, a
+newline and its response format's JSON Schema, computed once per role), the instructions
+and input as sent, the structured result, the outcome code, usage and estimated cost; a
+request refused locally before any model call is not logged. For `invalid-output`,
+the result is `{ rejection }` when a check named it (the judge role's
+check of its marker refuses without one, leaving the result empty) and, when the plan
+check refused a plan, that plan as `output`: a candidate or slot that is not one of the
+request's IDs becomes `?`, and each name the model gave that is not a request slot ID
+becomes `name-1`, `name-2` and so on by first appearance, so equal names stay visible.
+An unchecked string may quote the page or a field name, so the model's text is never
+stored, and the Worker logs only `Model output refused` with the role, its prompt
+version and the `rejection`. A schema `path` resolves each key where the output format
+defines it, so a key the format defines only in another object also ends the path as
+`unknown-key`; the options of a variant are read together, so a key of a sibling option
+gives that object's issue instead. Rows older than 90 days are deleted whenever a call
+is logged and on every `GET /v1/recipes`, because routine releases do not apply cron
+triggers.
 
 ## Schema and tests
 
