@@ -769,6 +769,52 @@ test("an identifier-first page that shows the password form from the start never
   }
 });
 
+test("never shows or fills the password form after an unknown-account error on an identifier-first form (ADR 0013)", async () => {
+  const fixture = await startLoginFixture();
+  try {
+    await withLoginExtension(async (context, _worker, id) => {
+      const options = await context.newPage();
+      await configure(options, id, fixture.origin);
+      const page = await context.newPage();
+      await page.goto(`${fixture.origin}/identifier-first?unknown=1`);
+      await expect(page.locator("#account-error")).toBeVisible({ timeout: 15_000 });
+      // The advance is never confirmed; it ends as unknown after its 10-second wait.
+      await expect
+        .poll(async () => await send(options, { version: 1, type: "login.probe.status" }), {
+          timeout: 20_000,
+        })
+        .toMatchObject({
+          attempts: [
+            {
+              recipeId: "demo-identifier-first",
+              state: "reconciling",
+              outcome: "unknown-submit",
+              stepIndex: 1,
+              submissions: 1,
+            },
+          ],
+        });
+      // Past the result wait, nothing is clicked or filled again.
+      await page.waitForTimeout(2000);
+      expect(
+        await page.evaluate(() => ({
+          identityClicks: Number(sessionStorage.getItem("identityClicks") || 0),
+          submitClicks: Number(sessionStorage.getItem("submitClicks") || 0),
+          identityMatched: sessionStorage.getItem("identityMatched"),
+          password: (document.getElementById("password") as HTMLInputElement).value,
+        })),
+      ).toEqual({ identityClicks: 1, submitClicks: 0, identityMatched: "true", password: "" });
+      await expect(page.locator("#password-form")).toBeHidden();
+      await expect(page.locator("#authenticated")).toHaveCount(0);
+      expect(
+        JSON.stringify(await send(options, { version: 1, type: "login.probe.status" })),
+      ).not.toContain("Pateat-synthetic-only!");
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
 test("signs in with the start page's passkey button for a discoverable passkey (ADR 0027)", async () => {
   const fixture = await startLoginFixture();
   try {

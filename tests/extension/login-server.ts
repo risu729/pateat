@@ -211,19 +211,25 @@ export async function startLoginFixture(
       // An identifier-first form (ADR 0013): Next hides the account form and, a moment
       // later, shows the password form in the same document on the same path. `?push`
       // also changes the URL with `history.pushState`, keeping the path, and `?shown` shows
-      // the password form from the start. Only those known flags are read, and the query
-      // is never written into the page.
+      // the password form from the start. `?unknown` shows the account form again with an
+      // unknown-account error instead, the password form still hidden. Only those known
+      // flags are read, and the query is never written into the page.
       const push = fixtureUrl.searchParams.has("push");
       const shown = fixtureUrl.searchParams.has("shown");
+      const unknown = fixtureUrl.searchParams.has("unknown");
       response.end(
         html(
-          `<h1>Synthetic identifier-first sign-in</h1><form id="account-form"><label>Account<input id="account" autocomplete="username"></label><button id="next" type="button">Next</button></form><form id="password-form"${shown ? "" : " hidden"}><label>Password<input id="password" type="password" autocomplete="current-password"></label><button id="login" type="button">Log in</button></form>`,
+          `<h1>Synthetic identifier-first sign-in</h1><form id="account-form"><label>Account<input id="account" autocomplete="username"></label><button id="next" type="button">Next</button></form><p id="account-error" hidden>Unknown account</p><form id="password-form"${shown ? "" : " hidden"}><label>Password<input id="password" type="password" autocomplete="current-password"></label><button id="login" type="button">Log in</button></form>`,
           `document.getElementById('next').addEventListener('click', () => {
           sessionStorage.setItem('identityClicks', String(Number(sessionStorage.getItem('identityClicks') || 0) + 1));
           sessionStorage.setItem('identityMatched', String(document.getElementById('account').value === '00001234'));
           document.getElementById('account-form').hidden = true;
           ${push ? "history.pushState({}, '', '/identifier-first?push=1&step=password');" : ""}
-          setTimeout(() => { document.getElementById('password-form').hidden = false; }, 300);
+          ${
+            unknown
+              ? "setTimeout(() => { document.getElementById('account-error').hidden = false; document.getElementById('account-form').hidden = false; }, 300);"
+              : "setTimeout(() => { document.getElementById('password-form').hidden = false; }, 300);"
+          }
           updateFixtureStatus();
         });
         document.getElementById('login').addEventListener('click', () => {
