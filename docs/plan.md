@@ -107,14 +107,23 @@ password or passkey, in the Grok Bot computer's Chrome, on a production build of
   showed). Still to do: the other rows of the ADR's outcome table (a failure next to the
   fields rejects; no sign and no evidence asks the judge once and completes when it
   cannot decide).
-- On 2026-10-12 a recipe for SBI証券 was generated in the owner's Chrome, then Pateat
-  did nothing for 30 seconds; the cause is under investigation. One possible cause, not
-  confirmed: a page that replaced the sent page in its tab, or the same page in another
-  tab, while the request was in flight was refused for want of a recipe and never asked
-  to announce again, and nothing was logged. The generic fix asks every such page to
-  announce again once the recipe returns. It logs a page that could not be asked
-  (`reconnect-failed`), and a page that resumes a stopped login and does nothing
-  (`not-started` with `stopped-login`) (local tests only). Next, a recheck on SBI証券.
+- SBI証券 after generation. Evidence, 2026-10-12: a recipe was generated in the owner's
+  Chrome, then Pateat did nothing for 30 seconds. D1 shows the recipe stored at 13:54:41
+  UTC for `/login/entry`, the page's path, and a new tab at 14:08 UTC logged in
+  automatically. The cause is under investigation; two remain:
+  - A race: a page that replaced the sent page in its tab, or the same page in another
+    tab, announced while the request was in flight. It logged `recipe.generate`
+    `skipped` `sending` at info, before the `recipe` line, then `recipe-not-found` at
+    debug, and was never asked to announce again.
+  - The recipe cache lacked the recipe when the page announced again, logging
+    `recipe-not-found` after the `recipe` line: the full sync after generation failed,
+    which `generate` in `apps/extension/src/service/generation.ts` ignores. Not fixed.
+
+  The fix for the race (local tests only) asks every tracked page of that origin and
+  path that holds no login to announce again once the recipe returns. It logs a page
+  that could not be asked (`reconnect-failed`) and a page that resumes a login held
+  after a submission and does nothing (`not-started` with `stopped-login`). Next, a
+  recheck on SBI証券.
 - Redact the account's own username from every page observation sent to the service
   (generation, its continuation after an `advance` step, and the judge): text that
   matches a matching item's username exactly, ignoring case, becomes a placeholder. The

@@ -823,7 +823,7 @@ export type LoginReport = (
       repeat?: true;
       /**
        * The page is not login-related: its origin has no recipe and no login runs in the
-       * tab, so the refusal is ordinary browsing (ADR 0019).
+       * tab, or the tab no longer shows it, so the refusal is ordinary browsing (ADR 0019).
        */
       unrelated?: true;
     }
@@ -4524,7 +4524,7 @@ export function createLoginRuntime(
         ...page,
       });
       if (result.outcome !== "recipe") return;
-      // Every tab's page still shown on this origin and path that holds no login announces
+      // Every tab's page still tracked on this origin and path that holds no login announces
       // again and starts the recipe: this document, and one refused for want of a recipe
       // while the request was in flight, such as a page that replaced this one or the same
       // page in another tab.
@@ -4532,7 +4532,6 @@ export function createLoginRuntime(
         const running = tabAttempt(other.document.tabId);
         return (
           other.document.frameId === 0 &&
-          !other.topUrl &&
           other.document.origin === live.document.origin &&
           other.path === live.path &&
           attempts.get(other.document.tabId)?.live !== other &&
@@ -4548,9 +4547,13 @@ export function createLoginRuntime(
               { documentId: other.document.documentId, frameId: other.document.frameId },
             );
           } catch {
-            // The page starts nothing until it announces again (ADR 0019).
-            if (documents.get(frameKey(other.document)) === other)
-              note(other.document, other.url, "reconnect-failed");
+            // The page starts nothing until it announces again (ADR 0019). A tab that no
+            // longer shows it has moved on, which is not worth more than a debug line.
+            if (documents.get(frameKey(other.document)) !== other) return;
+            const tab = await browser.tabs.get(other.document.tabId).catch(() => undefined);
+            const url = tab?.url ? new URL(tab.url) : undefined;
+            const shown = url?.origin === other.document.origin && url.pathname === other.path;
+            note(other.document, other.url, "reconnect-failed", undefined, !shown);
           }
         }),
       );
@@ -5593,9 +5596,14 @@ export function createLoginRuntime(
         ? { repeat: true }
         : {},
     );
-    // A page that resumes a stopped login, as one within the 5-minute hold (ADR 0022), does
-    // nothing, and says why once (ADR 0019).
-    if (previous && metadata.state === "blocked" && previous.state === "blocked")
+    // A page that resumes a login stopped after a submission while it still holds the site
+    // (ADR 0022) does nothing, and says why once (ADR 0019).
+    if (
+      previous?.state === "blocked" &&
+      metadata.state === "blocked" &&
+      previous.submissions > 0 &&
+      holdsSite(previous, Date.now())
+    )
       note(document, live.url, "not-started", "stopped-login");
     clearChoice(document.tabId);
     // A hold's tooltip no longer applies once the tab logs in.

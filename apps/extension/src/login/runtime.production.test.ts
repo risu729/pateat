@@ -2179,7 +2179,7 @@ describe("production login document admission", () => {
         fake.browser.tabs.query = query;
       }
     });
-    it("logs once per page why a page that resumes a stopped login within its hold does nothing", async () => {
+    it("logs once per page why a page that resumes a login held after a submission does nothing", async () => {
       // The resumed attempt is unchanged, so its own line is debug (ADR 0019).
       const report = vi.fn<(report: LoginReport) => void>();
       holdClicks(origin);
@@ -2203,6 +2203,11 @@ describe("production login document admission", () => {
         const restarted = twoSites({ report });
         report.mockClear();
         expect(await restarted.hello({ documentId: "next-page" })).toEqual({ ok: true });
+        // The same page announcing again carries the login: a repeat, logged at debug only.
+        expect(await restarted.hello({ documentId: "next-page" })).toEqual({
+          ok: false,
+          reason: "duplicate-document",
+        });
         expect(await restarted.hello({ documentId: "third-page" })).toEqual({ ok: true });
         const entries = report.mock.calls.map(([entry]) => entry);
         const page = {
@@ -2212,12 +2217,25 @@ describe("production login document admission", () => {
           reason: "not-started",
           detail: "stopped-login",
         };
-        expect(entries.filter((entry) => entry.type === "refused")).toEqual([page, page]);
+        expect(entries.filter((entry) => entry.type === "refused")).toEqual([
+          page,
+          { type: "refused", tabId: 1, origin, reason: "duplicate-document" },
+          page,
+        ]);
         expect(entries.filter((entry) => entry.type === "attempt")).toEqual([
           expect.objectContaining({ state: "blocked", outcome: "challenge", repeat: true }),
           expect.objectContaining({ state: "blocked", outcome: "challenge", repeat: true }),
         ]);
         expect(at(origin)).toMatchObject({ id: record!.id, outcome: "challenge" });
+        // A login that stopped before any submission is not the hold's case: a restarted
+        // worker resumes it in its own page without this line.
+        fake.state.storage["pateat.login-attempts.v3"] = [
+          { ...stored()[0]!, submissions: 0, document: { ...record!.document } },
+        ];
+        const again = twoSites({ report });
+        report.mockClear();
+        expect(await again.hello()).toEqual({ ok: true });
+        expect(report).not.toHaveBeenCalledWith(expect.objectContaining({ reason: "not-started" }));
       } finally {
         fake.browser.tabs.query = query;
       }
@@ -4271,70 +4289,161 @@ describe("production login document admission", () => {
         expect(await h.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({ ok: true });
       });
 
-      it("leaves a page that holds a login, and pages of another path or origin", async () => {
-        const { h, service, release } = pending();
+      /** Caches `value` for the origin's `/signin`, or nothing. */
+      const cache = (h: ReturnType<typeof harness>, value: LoginRecipe | undefined) => {
+        h.recipes.recipe.mockImplementation(async (at: string, path: string) =>
+          at === origin && path === "/signin" ? value : undefined,
+        );
+        h.recipes.starts.mockImplementation(async (at: string) =>
+          at === origin && value ? startsOf([value.steps[0]!]) : [],
+        );
+      };
+      /** Tab 2's page logs in with a cached recipe before this page is sent. */
+      async function loggedIn(h: ReturnType<typeof harness>) {
+        cache(h, recipe);
+        expect(await h.hello({ tab: { id: 2 }, documentId: "done" })).toEqual({ ok: true });
+        await vi.waitFor(() =>
+          expect(fake.state.storage["pateat.login-attempts.v3"]).toMatchObject([
+            { state: "authenticated" },
+          ]),
+        );
+        cache(h, undefined);
+      }
+      /** Sends tab 1's page and lets the answer arrive once `during` has run. */
+      async function generate(
+        h: ReturnType<typeof harness>,
+        service: ReturnType<typeof generation>,
+        release: () => void,
+        during: () => Promise<void> = async () => undefined,
+      ) {
         expect(await h.signIn()).toEqual({ ok: false, reason: "generating" });
         await vi.waitFor(() => expect(service.generate).toHaveBeenCalled());
         service.available.mockResolvedValue("sending");
-        // Another path of the origin, and the same path of another origin.
-        fake.state.tabUrls[2] = `${origin}/home`;
-        expect(
-          await signInFrom(h, {
-            tab: { id: 2 },
-            documentId: "other-path",
-            url: `${origin}/home`,
-          }),
-        ).toEqual({ ok: false, reason: "recipe-not-found" });
-        fake.state.tabUrls[3] = "https://other.example/signin";
-        expect(
-          await signInFrom(h, {
-            tab: { id: 3 },
-            documentId: "other-origin",
-            url: "https://other.example/signin",
-          }),
-        ).toMatchObject({ ok: false });
-        // The recipe reaches the cache first, as from another device, and a page in a fourth
-        // tab starts it before this answer arrives.
-        h.recipes.recipe.mockImplementation(async (at: string, path: string) =>
-          at === origin && path === "/signin" ? generated : undefined,
-        );
-        h.recipes.starts.mockImplementation(async (at: string) =>
-          at === origin ? startsOf([generated.steps[0]!]) : [],
-        );
-        expect(await h.hello({ tab: { id: 4 }, documentId: "running" })).toEqual({ ok: true });
+        await during();
         release();
         await vi.waitFor(() =>
-          expect(fake.state.reconnects).toEqual([
-            { tabId: 1, frameId: 0, documentId: "synthetic-document" },
-          ]),
+          expect(fake.state.reconnects).toContainEqual({
+            tabId: 1,
+            frameId: 0,
+            documentId: "synthetic-document",
+          }),
         );
         await settle();
+      }
+
+      it("leaves pages of another path or origin, and a frame on the same path", async () => {
+        const { h, service, release } = pending();
+        await generate(h, service, release, async () => {
+          fake.state.tabUrls[2] = `${origin}/home`;
+          expect(
+            await signInFrom(h, {
+              tab: { id: 2 },
+              documentId: "other-path",
+              url: `${origin}/home`,
+            }),
+          ).toEqual({ ok: false, reason: "recipe-not-found" });
+          fake.state.tabUrls[3] = "https://other.example/signin";
+          expect(
+            await signInFrom(h, {
+              tab: { id: 3 },
+              documentId: "other-origin",
+              url: "https://other.example/signin",
+            }),
+          ).toMatchObject({ ok: false });
+          expect(
+            await signInFrom(h, {
+              tab: { id: 4, url: fake.state.pageUrl },
+              frameId: 5,
+              documentId: "framed",
+            }),
+          ).toMatchObject({ ok: false, reason: "recipe-not-found" });
+        });
         expect(fake.state.reconnects).toHaveLength(1);
       });
 
-      it("logs a page that could not be asked to announce again", async () => {
-        const report = vi.fn<(report: LoginReport) => void>();
-        const { h, service, release } = pending(report);
-        expect(await h.signIn()).toEqual({ ok: false, reason: "generating" });
-        await vi.waitFor(() => expect(service.generate).toHaveBeenCalled());
-        // The page stops answering after it was sent, as when its content script is gone.
-        fake.state.gone.add("synthetic-document");
-        release();
-        await vi.waitFor(() =>
-          expect(report).toHaveBeenCalledWith({
-            type: "refused",
-            tabId: 1,
-            origin,
-            reason: "reconnect-failed",
-          }),
-        );
-        expect(report).toHaveBeenCalledWith(
-          expect.objectContaining({ type: "generation", outcome: "recipe" }),
-        );
-        expect(report).not.toHaveBeenCalledWith(
-          expect.objectContaining({ type: "generation", outcome: "skipped" }),
-        );
+      it("leaves the page that carries its tab's login, also once it finished", async () => {
+        const { h, service, release } = pending();
+        await loggedIn(h);
+        await generate(h, service, release);
+        expect(fake.state.reconnects).toHaveLength(1);
       });
+
+      it("starts a new page of a tab whose earlier login finished", async () => {
+        const { h, service, release } = pending();
+        await loggedIn(h);
+        await generate(h, service, release, async () => {
+          expect(await signInFrom(h, { tab: { id: 2 }, documentId: "after-login" })).toMatchObject({
+            ok: false,
+            reason: "logged-in",
+          });
+        });
+        expect(fake.state.reconnects).toHaveLength(2);
+        expect(fake.state.reconnects).toContainEqual({
+          tabId: 2,
+          frameId: 0,
+          documentId: "after-login",
+        });
+      });
+
+      it("leaves the page of a tab whose frame runs a login", async () => {
+        const { h, service, release } = pending();
+        // The frame's login waits on its first step, so it keeps running.
+        fake.state.onExecute = (_message, tabId) =>
+          tabId === 2 ? new Promise<void>(() => undefined) : Promise.resolve();
+        cache(h, recipe);
+        expect(
+          await h.hello({
+            tab: { id: 2, url: fake.state.pageUrl },
+            frameId: 5,
+            documentId: "frame",
+          }),
+        ).toEqual({
+          ok: true,
+        });
+        await vi.waitFor(() =>
+          expect(fake.state.messages.map((entry) => entry.type)).toContain("login.execute"),
+        );
+        cache(h, undefined);
+        await generate(h, service, release, async () => {
+          expect(await signInFrom(h, { tab: { id: 2 }, documentId: "around-frame" })).toEqual({
+            ok: false,
+            reason: "tab-busy",
+          });
+        });
+        expect(fake.state.reconnects).toHaveLength(1);
+      });
+
+      it.each([
+        ["at info while the tab still shows the page", undefined, {}],
+        ["at debug once the tab moved on", `${origin}/home`, { unrelated: true }],
+      ] as const)(
+        "logs a page that could not be asked to announce again %s",
+        async (_name, moved, level) => {
+          const report = vi.fn<(report: LoginReport) => void>();
+          const { h, service, release } = pending(report);
+          expect(await h.signIn()).toEqual({ ok: false, reason: "generating" });
+          await vi.waitFor(() => expect(service.generate).toHaveBeenCalled());
+          // The page stops answering after it was sent, as when its content script is gone.
+          fake.state.gone.add("synthetic-document");
+          if (moved) fake.state.tabUrls[1] = moved;
+          release();
+          await vi.waitFor(() =>
+            expect(report).toHaveBeenCalledWith({
+              type: "refused",
+              tabId: 1,
+              origin,
+              reason: "reconnect-failed",
+              ...level,
+            }),
+          );
+          expect(report).toHaveBeenCalledWith(
+            expect.objectContaining({ type: "generation", outcome: "recipe" }),
+          );
+          expect(report).not.toHaveBeenCalledWith(
+            expect.objectContaining({ type: "generation", outcome: "skipped" }),
+          );
+        },
+      );
     });
 
     it("sends the username's shape only when every matching item agrees", async () => {
