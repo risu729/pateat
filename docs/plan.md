@@ -96,8 +96,10 @@ password or passkey, in the Grok Bot computer's Chrome, on a production build of
   checks the page it leads to and blocks the revision on the device when that page left
   the site, showed no sign-in or identifier input (ADR 0016) or showed a sign-up form,
   logging `login.entry`; the entry path counts as a recipe start in `offersGeneration`
-  only (local tests and a synthetic browser test only). Next, verification on pixiv in
-  the owner's Chrome.
+  only (local tests and a synthetic browser test only). Verified on pixiv in the owner's
+  Chrome on build `a8350f5` (2026-10-12, reported 18:46 UTC): after a logout, Pateat
+  signed in through the top page's "Login" button, and generation on the login page it
+  led to sent the username as `[account]` and succeeded.
 - [ADR 0029](adr/0029-local-sign-in-state.md) (accepted 2026-10-12): delivery 1 logs the
   local sign-in state of the page after a submission as `login.state`. Delivery 2's
   first part is implemented: evidence of a sign-in that a second reading a second later
@@ -142,17 +144,18 @@ password or passkey, in the Grok Bot computer's Chrome, on a production build of
   field of `passkey.request`) and that Pateat signs in there with the passkey.
 - Redact the account's own username from every page observation sent to the service
   (generation, its continuation after an `advance` step, and the judge): each matching
-  item's username of three or more characters is hidden as `[account]` wherever it
-  shows as a whole text or as part of a longer one, ignoring case and width, under ADR
-  0028's rule for a listed name; a control whose locator holds one is left out, or the
-  page is refused (`username-shown`) when that would leave it incomplete; and a failed
-  username read refuses the page (`username-unread`). The username is read locally as
-  for the username shape
-  ([ADR 0016](adr/0016-recipe-generation-trigger.md#username-shape)) and never sent. The
-  page after an `advance` step, like any judged page, can show the identifier just
-  entered (continuation review, 2026-10-12). Implemented (this change, local tests
-  only; [architecture](architecture.md#declarative-recipes-and-ai)). Not covered: an
-  email username's local part shown alone, a username in the origin (a personal
+  item's username of three or more characters is hidden as `[account]` wherever it shows
+  as a whole text or as part of a longer one, ignoring case and width, under ADR 0028's
+  rule for a listed name; a control whose locator holds one is left out, or the page is
+  refused (`username-shown`) when that would leave it incomplete; and a failed username
+  read refuses the page (`username-unread`). The username is read locally as for the
+  username shape ([ADR 0016](adr/0016-recipe-generation-trigger.md#username-shape)) and
+  never sent. The page after an `advance` step, like any judged page, can show the
+  identifier just entered (continuation review, 2026-10-12). Implemented
+  ([#369](https://github.com/risu729/pateat/pull/369); local tests, and on pixiv in the
+  owner's Chrome on build `a8350f5`, where a generated page sent the username as
+  `[account]`; [architecture](architecture.md#declarative-recipes-and-ai)). Not covered:
+  an email username's local part shown alone, a username in the origin (a personal
   subdomain), and the usernames of items on a connection that could not answer. Sign-in
   entry pages ([ADR 0031](adr/0031-sign-in-entry-pages.md)) are not covered either,
   because that ADR reads nothing of the vault there beyond the URI match.
