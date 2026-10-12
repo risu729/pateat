@@ -267,6 +267,10 @@ still open on 2026-10-11.
   UTC): the [survey](research/2026-10-12-test-pruning-skills.md) compares six skills;
   the owner chose OpenClaw's `test-audit` (07:43 UTC), planned in
   [phase 1](#phase-1-usable).
+- Moving from Bun to aube for monorepo support (owner, 2026-10-12 07:58 UTC): the
+  [research note](research/2026-10-12-package-manager-aube.md) compares Bun 1.4.3, pnpm
+  12 and aube 2.7.0 and records trial installs; it proposes staying on Bun, with pnpm as
+  the fallback if a pnpm-only feature is needed (not decided).
 - Earlier research kept as dated notes:
   [identity provider screens](research/2026-10-11-identity-provider-screens.md) behind
   [ADR 0026](adr/0026-sign-in-through-identity-providers.md);
