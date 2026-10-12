@@ -1653,20 +1653,93 @@ describe("production login document admission", () => {
           await flush();
           expect(executes()).toHaveLength(sent);
           expect(at(origin)).toMatchObject({ id: record!.id, state: "blocked", outcome });
-          expect(await restarted.hello({ documentId: "next-page" })).toEqual({ ok: true });
-          if (released) {
-            await vi.waitFor(() => expect(executes().length).toBeGreaterThan(sent));
-            expect(at(origin)?.id).not.toBe(record!.id);
-          } else {
-            await flush();
-            expect(executes()).toHaveLength(sent);
+          if (!released) {
+            // A later page watches for the login form; the record is still resumed.
+            expect(await restarted.hello({ documentId: "next-page" }, false)).toMatchObject({
+              ok: false,
+              reason: "login-stopped",
+            });
             expect(at(origin)).toMatchObject({ id: record!.id, state: "blocked", outcome });
+          }
+          expect(await restarted.hello({ documentId: "next-page" })).toEqual({ ok: true });
+          await vi.waitFor(() => expect(executes().length).toBeGreaterThan(sent));
+          if (released) expect(at(origin)?.id).not.toBe(record!.id);
+          else {
+            // Once the form shows again, the tab asks like after a logout and only fills,
+            // so it never submits again (ADR 0021 D).
+            await vi.waitFor(async () => expect(await restarted.login.active()).toBe(false));
+            expect(
+              executes()
+                .slice(sent)
+                .map(
+                  (entry) =>
+                    (entry as unknown as { operation: { step: LoginStep } }).operation.step.kind,
+                ),
+            ).toEqual(["fill"]);
+            expect(at(origin)).toBeUndefined();
+            expect(fake.state.badges[1]?.title).toContain("the last login on this site stopped");
           }
         } finally {
           fake.browser.tabs.query = query;
         }
       },
     );
+    it("asks in this tab only once its stopped login's form shows again, and logs why", async () => {
+      // APA Hotel: the login stopped after its click; the tab must not stay stuck, and must
+      // not submit again either (ADR 0021 D, owner's choice 2026-10-12).
+      const report = vi.fn<(report: LoginReport) => void>();
+      holdClicks(origin);
+      const h = twoSites({ report });
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(at(origin)).toMatchObject({ state: "submit-intent" }));
+      const [record] = stored();
+      const query = fake.browser.tabs.query;
+      fake.browser.tabs.query = async () => [{ id: 1 }, { id: 2 }] as never;
+      try {
+        fake.state.storage["pateat.login-attempts.v3"] = [
+          {
+            ...record!,
+            state: "blocked",
+            outcome: "policy-changed",
+            mutationIntent: undefined,
+            ...idle,
+          },
+        ];
+        fake.state.onExecute = undefined;
+        const restarted = twoSites({ report });
+        expect(await restarted.hello({ documentId: "next-page" })).toEqual({ ok: true });
+        await vi.waitFor(async () => expect(await restarted.login.active()).toBe(false));
+        expect(
+          report.mock.calls
+            .map(([entry]) => entry)
+            .filter((entry) => entry.type === "refused")
+            .at(-1),
+        ).toMatchObject({
+          reason: "logged-out",
+          detail: "stopped-login",
+        });
+        expect(fake.state.session["pateat.login-stopped-asks.v1"]).toEqual([{ tabId: 1, origin }]);
+        expect(fake.state.session["pateat.login-logouts.v1"]).toEqual([]);
+        // Another tab of the site is not asked: it logs in, with its click.
+        const sent = executes().length;
+        fake.state.tabUrls[2] = fake.state.pageUrl;
+        expect(await restarted.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({
+          ok: true,
+        });
+        await vi.waitFor(() =>
+          expect(
+            executes()
+              .slice(sent)
+              .map(
+                (entry) =>
+                  (entry as unknown as { operation: { step: LoginStep } }).operation.step.kind,
+              ),
+          ).toContain("click"),
+        );
+      } finally {
+        fake.browser.tabs.query = query;
+      }
+    });
     it("ends another tab's hold 5 minutes after its record last changed, not after a resume", async () => {
       holdClicks(origin);
       const h = twoSites();
@@ -1691,7 +1764,7 @@ describe("production login document admission", () => {
         fake.state.onExecute = undefined;
         const restarted = twoSites();
         // Its tab's page announces again after the restart; the unchanged record keeps its time.
-        await restarted.hello({ documentId: "challenge-page" });
+        await restarted.hello({ documentId: "challenge-page" }, false);
         expect(at(origin)).toMatchObject({ state: "blocked", outcome: "challenge", changedAt });
         fake.state.tabUrls[2] = fake.state.pageUrl;
         expect(await restarted.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({
@@ -2874,6 +2947,7 @@ describe("production login document admission", () => {
           "pateat.login-choices.v1": [],
           "pateat.login-logouts.v1": [],
           "pateat.login-logout-fills.v1": [],
+          "pateat.login-stopped-asks.v1": [],
         });
         for (const listener of fake.state.removed) listener(1);
         await vi.waitFor(() =>
@@ -2882,6 +2956,7 @@ describe("production login document admission", () => {
             "pateat.login-choices.v1": [],
             "pateat.login-logouts.v1": [],
             "pateat.login-logout-fills.v1": [],
+            "pateat.login-stopped-asks.v1": [],
           }),
         );
       });

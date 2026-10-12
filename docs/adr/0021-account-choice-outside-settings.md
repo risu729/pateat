@@ -192,6 +192,33 @@ the page shows another account, the fill ends and the tab asks. The log shows su
 login as `login.attempt` with reason `fill-only`, then the asking as `login.refused`
 `logged-out` with the tab that logged out.
 
+Amended 2026-10-12 by the owner (07:41 UTC, after a decision card): a tab whose login of
+the origin stopped (`blocked`) after it submitted something, other than an account
+switch, is no longer stuck. Evidence: on APA Hotel a login stopped `policy-changed`
+after its click; every later page of the tab resumed that ended record, and after a
+worker restart the recipe's newer revision was refused `recipe-not-found`, so the tab
+never logged in again until it closed. Now a later top-level document of that origin in
+the tab (another document than the one the record belongs to) watches the recipes' first
+steps; when one shows, the record is released and the tab asks as after a logout, and
+with one account to use it fills without pressing anything, as above. Only that tab asks
+(`pateat.login-stopped-asks.v1` in `chrome.storage.session`, cleared when a login starts
+in the tab or the tab closes); other tabs of the site keep logging in. Pateat never
+submits again from that tab by itself, which is why ADR 0022 keeps resuming such
+records. A record stopped before any submission is released as ADR 0022 describes; one
+still `reconciling` (its result not known yet) is resumed as before. The log shows the
+watching page as `login.refused` `not-started` with `stopped-login` and the asking as
+`logged-out` with `stopped-login`.
+
+Constraint, set by the owner on 2026-10-12 (07:41 UTC): a site session that only expired
+must never make the user press the site's button. Pateat cannot tell an expiry from a
+logout it did not see, so a tab treats a login form as a logout only after this tab's
+own login (finished, or stopped after a submission as above) or while another tab of the
+site asks after its logout. A session carried over from a login in another tab, or from
+an earlier browser session, is therefore not detected: after a logout there, Pateat logs
+in again automatically. Rejected for this reason: counting a signed-in marker seen in
+the tab (it would make every expiry after such a page ask), and counting another tab's
+finished login (also against ADR 0022's choice that a new tab logs in).
+
 Known gaps:
 
 - Frame logins are not detected (ADR 0017).

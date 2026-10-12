@@ -1802,8 +1802,13 @@ still holds, such as a refused password; 2026-10-12) blocks it with `origin-busy
 the tab's tooltip says so; while that tab keeps its logout state, other tabs of the site
 that show a first step ask (and are filled) as well (2026-10-11). If the URI matches
 cannot be listed, the saved default alone is offered. A login whose result is still
-`reconciling` is resumed, not taken as a logout. Frame logins and sites whose logout
-page shows only a password step are not detected.
+`reconciling` is resumed, not taken as a logout. Since 2026-10-12 a tab whose own login
+stopped after a submission asks the same way, in that tab only, once a later page shows
+the login form (`pateat.login-stopped-asks.v1`). Frame logins and sites whose logout
+page shows only a password step are not detected. By the owner's constraint (2026-10-12)
+a session that only expired never needs a manual press, so a logout of a session carried
+over from another tab's login or an earlier browser session is not detected either:
+Pateat logs in again there.
 
 Later work includes independently permitted vault create/update operations, nonzero
 passkey counter writeback and passkey creation; Bitwarden provider login with passkeys,

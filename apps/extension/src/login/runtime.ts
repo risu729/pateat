@@ -132,6 +132,11 @@ const CHOICES_KEY = "pateat.login-choices.v1";
 const LOGOUTS_KEY = "pateat.login-logouts.v1";
 /** Documents filled once after a logout, as `${tabId} ${documentId}` (ADR 0021 D). */
 const LOGOUT_FILLS_KEY = "pateat.login-logout-fills.v1";
+/**
+ * Tabs whose login of an origin stopped after a submission and whose login form then
+ * showed again on a later page; they ask like a logout, in that tab only (ADR 0021 D).
+ */
+const STOPPED_ASKS_KEY = "pateat.login-stopped-asks.v1";
 const CONFIG_KEY = "pateat.login-probe-origin.v1";
 /**
  * How long another tab's login that has not succeeded holds its origin after its record
@@ -759,6 +764,8 @@ export function createLoginRuntime(
   const pending = new Map<number, PendingChoice>();
   /** By `recordKey`: tabs that logged out of an origin and have not picked an account yet. */
   const logouts = new Set<string>();
+  /** By `recordKey`: tabs that ask after their own login stopped once it submitted. */
+  const stoppedAsks = new Set<string>();
   /**
    * Documents filled once after a logout, so neither a re-announcement nor a restarted
    * worker fills over what the user typed (ADR 0021 D). The oldest go first.
@@ -784,6 +791,7 @@ export function createLoginRuntime(
       CHOICES_KEY,
       LOGOUTS_KEY,
       LOGOUT_FILLS_KEY,
+      STOPPED_ASKS_KEY,
     ]);
     const picks = v.safeParse(v.array(pickedAccountSchema), stored[PICKS_KEY] ?? []);
     if (picks.success) for (const entry of picks.output) picked.set(entry.tabId, entry);
@@ -793,22 +801,33 @@ export function createLoginRuntime(
     const left = v.safeParse(v.array(logoutSchema), stored[LOGOUTS_KEY] ?? []);
     if (left.success)
       for (const entry of left.output) logouts.add(recordKey(entry.tabId, entry.origin));
+    const stopped = v.safeParse(v.array(logoutSchema), stored[STOPPED_ASKS_KEY] ?? []);
+    if (stopped.success)
+      for (const entry of stopped.output) stoppedAsks.add(recordKey(entry.tabId, entry.origin));
     const filled = v.safeParse(
       v.pipe(v.array(v.string()), v.maxLength(256)),
       stored[LOGOUT_FILLS_KEY] ?? [],
     );
     if (filled.success) for (const entry of filled.output) logoutFills.add(entry);
   });
+  const scopes = (keys: Set<string>) =>
+    [...keys].map((key) => {
+      const at = key.indexOf(" ");
+      return { tabId: Number(key.slice(0, at)), origin: key.slice(at + 1) };
+    });
   async function saveSession(): Promise<void> {
     await browser.storage.session.set({
       [PICKS_KEY]: [...picked.values()],
       [CHOICES_KEY]: [...pending.values()],
-      [LOGOUTS_KEY]: [...logouts].map((key) => {
-        const at = key.indexOf(" ");
-        return { tabId: Number(key.slice(0, at)), origin: key.slice(at + 1) };
-      }),
+      [LOGOUTS_KEY]: scopes(logouts),
       [LOGOUT_FILLS_KEY]: [...logoutFills],
+      [STOPPED_ASKS_KEY]: scopes(stoppedAsks),
     });
+  }
+  /** Why a tab asks after a logout, for the log: which tab logged out (ADR 0021 D). */
+  function logoutDetail(key: string): "this-tab" | "stopped-login" | "other-tab" {
+    if (logouts.has(key)) return "this-tab";
+    return stoppedAsks.has(key) ? "stopped-login" : "other-tab";
   }
   /** Badges the tab and records the refused document for the popup (ADR 0021). */
   function offerChoice(
@@ -824,9 +843,14 @@ export function createLoginRuntime(
       browser.action.setTitle({
         tabId,
         title: logout
-          ? logouts.has(recordKey(tabId, document.origin))
-            ? "Pateat: you logged out of this site in this tab. Click to choose an account."
-            : "Pateat: you logged out of this site in another tab. Click to choose an account."
+          ? {
+              "this-tab":
+                "Pateat: you logged out of this site in this tab. Click to choose an account.",
+              "stopped-login":
+                "Pateat: the last login on this site stopped in this tab. Click to choose an account.",
+              "other-tab":
+                "Pateat: you logged out of this site in another tab. Click to choose an account.",
+            }[logoutDetail(recordKey(tabId, document.origin))]
           : `Pateat: ${candidates.length} accounts match this page. Click to choose one.`,
       }),
     );
@@ -1278,7 +1302,7 @@ export function createLoginRuntime(
         tabId: document.tabId,
         origin: document.origin,
         reason: "logged-out",
-        detail: logouts.has(key) ? "this-tab" : "other-tab",
+        detail: logoutDetail(key),
         ...(document.frameId === 0 ? {} : { frame: true as const }),
       });
     }
@@ -3693,9 +3717,51 @@ export function createLoginRuntime(
       if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
       recorded = undefined;
     }
+    if (
+      recorded &&
+      recorded.state === "blocked" &&
+      !finishedLogin(recorded) &&
+      recorded.outcome !== "account-switched" &&
+      recorded.submissions > 0 &&
+      recorded.document.frameId === 0 &&
+      document.frameId === 0 &&
+      recorded.document.documentId !== document.documentId
+    ) {
+      // A login that stopped after it submitted is resumed by the tab's later pages, so it
+      // never submits again. Its form showing again on one of them asks like a logout, in
+      // this tab only, and fills without pressing anything (ADR 0021 D, owner's choice
+      // 2026-10-12); until then the page watches for it.
+      if (start?.path !== live.path) {
+        const starts = await startsFor(document.origin);
+        if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+        notStarted("stopped-login");
+        return { ok: false, reason: "login-stopped", starts };
+      }
+      const released = recorded;
+      if (attempts.get(document.tabId)?.metadata.id === released.id)
+        attempts.delete(document.tabId);
+      if (picked.get(document.tabId)?.attemptId === released.id) picked.delete(document.tabId);
+      stoppedAsks.add(logoutKey);
+      try {
+        await saveSession();
+      } catch {
+        stoppedAsks.delete(logoutKey);
+        return refuse("storage-unavailable");
+      }
+      try {
+        await forget(logoutKey);
+      } catch {
+        return refuse("storage-unavailable");
+      }
+      if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+      recorded = undefined;
+    }
     // A logout in another tab ends the shared session too, so this tab asks as well.
     const asking =
-      !recorded && (logouts.has(logoutKey) || askedElsewhere(document.tabId, document.origin));
+      !recorded &&
+      (logouts.has(logoutKey) ||
+        stoppedAsks.has(logoutKey) ||
+        askedElsewhere(document.tabId, document.origin));
     // A tab runs one attempt at a time; another one still running holds it.
     const running = tabAttempt(document.tabId);
     if (running && !terminal(running) && running.id !== recorded?.id) return refuse("tab-busy");
@@ -3834,9 +3900,7 @@ export function createLoginRuntime(
           ? plan.detail
           : plan.reason === "logged-out"
             ? // Which tab logged out: this one, or another tab of the site (ADR 0021 D).
-              logouts.has(logoutKey)
-              ? "this-tab"
-              : "other-tab"
+              logoutDetail(logoutKey)
             : undefined,
       );
       // Asked while the page still holds vault replacement off, so a check started by
@@ -3977,7 +4041,10 @@ export function createLoginRuntime(
         logoutFills.delete(old);
       }
       void quietly(saveSession);
-    } else if (!previous && logouts.delete(logoutKey)) void quietly(saveSession);
+    } else if (!previous) {
+      const loggedOut = logouts.delete(logoutKey);
+      if (stoppedAsks.delete(logoutKey) || loggedOut) void quietly(saveSession);
+    }
     await save(run);
     await publish(live, metadata);
     void drive(run);
@@ -4110,8 +4177,9 @@ export function createLoginRuntime(
     void sessionLoaded.then(async () => {
       let changed = pending.delete(tabId);
       if (picked.delete(tabId)) changed = true;
-      for (const key of logouts)
-        if (key.startsWith(`${tabId} `)) changed = logouts.delete(key) || changed;
+      for (const keys of [logouts, stoppedAsks])
+        for (const key of keys)
+          if (key.startsWith(`${tabId} `)) changed = keys.delete(key) || changed;
       for (const key of logoutFills)
         if (key.startsWith(`${tabId} `)) changed = logoutFills.delete(key) || changed;
       if (changed) await quietly(saveSession);
