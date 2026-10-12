@@ -287,7 +287,9 @@ input as tokens plus 8,192 output tokens at the ADR 0014 rates, about $0.43) and
 corrects it from reported usage; usage the provider does not report keeps the
 reservation. The `inference_log` row stores the provider and model, the role's prompt
 version (`prompt_version`: the first 12 hex digits of the SHA-256 of its instructions, a
-newline and its response format's JSON Schema, computed once per role), the instructions
+newline and its response format's JSON Schema, computed once per set of instructions:
+the generate role has one for a form, one for an entry request and one for a list of
+accounts, whose instructions add one list line), the instructions
 and input as sent, the structured result, the outcome code, usage and estimated cost; a
 request refused locally before any model call is not logged. For `invalid-output`,
 the result is `{ rejection }` when a check named it (the judge role's

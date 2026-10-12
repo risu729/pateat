@@ -11,6 +11,8 @@ import {
 } from "@pateat/contracts";
 import { env, exports } from "cloudflare:workers";
 import {
+  accountListGenerationInstructions,
+  accountListGenerationPromptVersion,
   completionPromptVersion,
   entryGenerationInstructions,
   entryGenerationPromptVersion,
@@ -2634,11 +2636,17 @@ describe("account lists and chooser branches (ADR 0028)", () => {
       String.raw`\"accounts\":[\"[email] Last used\",\"[email]\"]`,
     );
     const [logged] = await rows(
-      "SELECT outcome, result FROM inference_log WHERE owner_id = ?",
+      "SELECT outcome, result, prompt_version, request FROM inference_log WHERE owner_id = ?",
       device.ownerId,
     );
     expect(logged!.outcome).toBe("ok");
     expect(JSON.parse(String(logged!.result))).toEqual({ accountList: true, other: "other" });
+    // Only a list's request carries the list line, with its own prompt version.
+    expect(logged!["prompt_version"]).toBe(await accountListGenerationPromptVersion());
+    expect(JSON.parse(String(logged!["request"]))).toMatchObject({
+      instructions: accountListGenerationInstructions,
+    });
+    expect(await accountListGenerationPromptVersion()).not.toBe(await generationPromptVersion());
     expect(
       await rows(
         "SELECT recipe_id, branch, path, base_revision FROM generation_attempts WHERE owner_id = ?",

@@ -2,6 +2,9 @@ export * from "./outcome";
 export * from "./plan";
 export { classifyInferenceError } from "./errors";
 export {
+  accountListGenerationInstructions,
+  accountListGenerationPromptVersion,
+  accountListInstruction,
   asPagePlan,
   createEntryGenerator,
   createRecipeGenerator,

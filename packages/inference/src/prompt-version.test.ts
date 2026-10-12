@@ -2,6 +2,8 @@ import { toJsonSchema } from "@valibot/to-json-schema";
 import { describe, expect, it } from "vitest";
 import { completionInstructions, completionPromptVersion, judgedPageSchema } from "./completion";
 import {
+  accountListGenerationInstructions,
+  accountListGenerationPromptVersion,
   entryGenerationInstructions,
   entryGenerationPromptVersion,
   generatedPlanSchema,
@@ -26,6 +28,11 @@ describe("prompt versions", () => {
       await promptVersion(entryGenerationInstructions, schema),
     );
     expect(await entryGenerationPromptVersion()).not.toBe(version);
+    // So does a request for a list of accounts (ADR 0028).
+    expect(await accountListGenerationPromptVersion()).toBe(
+      await promptVersion(accountListGenerationInstructions, schema),
+    );
+    expect(await accountListGenerationPromptVersion()).not.toBe(version);
   });
 
   it("changes when the instruction text or the response format changes", async () => {
