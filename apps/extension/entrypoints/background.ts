@@ -89,6 +89,7 @@ export default defineBackground(() => {
       diagnosticsLog.vaultStateMayChange();
     },
     onSync: diagnosticsLog.vaultSync,
+    onRefresh: diagnosticsLog.vaultRefresh,
   });
   // The manifest default is the locked icon; a running worker switches it.
   const actionIcon = createActionIcon({
@@ -171,7 +172,8 @@ export default defineBackground(() => {
           (id) => snapshot.settings.connections.find((entry) => entry.connectionId === id)?.enabled,
         );
     },
-    run: (connectionId, hold) => connections.service.autoSync(connectionId, hold),
+    // A stopped worker would leave a refresh claimed and require password sign-in (ADR 0008).
+    run: (connectionId, hold) => keepAlive(connections.service.autoSync(connectionId, hold)),
     loginActive: () => login.active(),
   });
   const login = createLoginRuntime(loginSettings, {

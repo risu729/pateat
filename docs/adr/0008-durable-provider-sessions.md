@@ -4,11 +4,12 @@ Status: accepted and implemented in the provider-session PR. Native browser acce
 uses synthetic providers; real-account refresh and host-access revocation were confirmed
 in installed Chrome on 2026-10-11 (see the
 [plan](../plan.md#provider-session-progress)). Amended on 2026-10-11 by the owner's
-[compatibility before release](../development.md#compatibility-before-release)
-decision: the version 1 database is no longer upgraded in place. Amended again on
-2026-10-11 by the owner's decision to restore the session after a refresh that got no
-rejection, made together with the approval of automatic vault sync, which
-[ADR 0025](0025-automatic-vault-sync.md) records.
+[compatibility before release](../development.md#compatibility-before-release) decision:
+the version 1 database is no longer upgraded in place. Amended again on 2026-10-11 by
+the owner's decision to restore the session after a refresh that got no rejection, made
+together with the approval of automatic vault sync, which [ADR
+0025](0025-automatic-vault-sync.md) records. Amended on 2026-10-12 by the owner's
+decision that a refresh interrupted by a stopped worker resumes without the password.
 
 Date: 2026-10-10
 
@@ -23,24 +24,28 @@ fails with `VersionError`. The vault record of
 also keeps the binding (user ID and email) and the narrow encrypted account fields
 the mapper needs, because refresh responses omit them.
 
-Before a refresh request, commit a token-free claim by compare-and-swap; only the writer
-whose claim committed sends the request. Keep the previous refresh token only in that
-worker's memory. When the refresh fails with a network error, a timeout, HTTP 429 or a
-5xx status, the provider has not rejected the token, so the claim is swapped back to the
+Before a refresh request, commit a claim by compare-and-swap; only the writer whose
+claim committed sends the request. The claim keeps the refresh token it sends and no
+access token. When the refresh fails with a network error, a timeout, HTTP 429 or a 5xx
+status, the provider has not rejected the token, so the claim is swapped back to the
 previous session (same refresh token, new revision) and a later sync sends it again. The
 Bitwarden server reuses refresh tokens (`TokenUsage.ReUse`), so a refresh never
 invalidates the presented token, even if the server processed the lost request.
 Vaultwarden returns a new refresh token on each refresh but keeps the old one valid
-until its own expiry, so a restore is safe there too. Any other failure, or a worker
-restart while the request is in flight, leaves the claim, which then requires password
-sign-in. Once the claim has committed, closing the options page does not abort the
-request or the rotation commit; only the transport timeout bounds them. Commit a rotated
-token before syncing and keep the captured token when the response omits it. A session
-is usable only until 60 seconds before the earlier of its receipt time plus `expires_in`
-and the access token's `exp` claim. Claim and retain writes compare the session revision
-and the current active vault record revision in one transaction, so a session is never
-pinned to an older cache; rotation commits, restores and deletes compare only the
-session revision.
+until its own expiry, so a restore is safe there too. A worker records the claims it is
+refreshing in memory only; a claim it does not hold was left by a worker that stopped
+mid-request, and the next sync resumes it with the stored token. Until then the settings
+page reports it as needing a refresh, not a password. A failure that is not retryable
+drops the token from the claim, which then requires password sign-in, as does a
+token-free claim left by an earlier build; a restore that cannot be written leaves the
+claim to resume. Once the claim has committed, closing the options page does not abort
+the request or the rotation commit; only the transport timeout bounds them. Commit a
+rotated token before syncing and keep the captured token when the response omits it. A
+session is usable only until 60 seconds before the earlier of its receipt time plus
+`expires_in` and the access token's `exp` claim. Claim and retain writes compare the
+session revision and the current active vault record revision in one transaction, so a
+session is never pinned to an older cache; rotation commits, restores and deletes
+compare only the session revision.
 
 Local forget, permission loss for that provider, a rejected refresh or access token,
 and a stored context that no longer matches the account clear only the sync session.
@@ -56,8 +61,13 @@ state; provider HTTP happens on an explicit Sync action and, since
 ## Alternatives and consequences
 
 Keeping tokens in memory, as before, required password sign-in after every service
-worker restart. `chrome.storage.local` lacks the cross-record transaction used to
-guard sessions with the cache revision. No library is added.
+worker restart. A token-free claim, the first version of this decision, required
+password sign-in whenever the worker stopped during a refresh; the owner's installed
+Chrome hit that on 2026-10-12, with 184 worker starts in 14 hours. Automatic checks also
+run under a keep-alive that calls an extension API every 20 seconds, which makes such a
+stop rarer but cannot prevent an update or crash. `chrome.storage.local` lacks the
+cross-record transaction used to guard sessions with the cache revision. No library is
+added.
 
 This retains a refresh token on the device, in the same extension-origin storage
 already accepted for the unlock key; it is not an OS keystore. No verified

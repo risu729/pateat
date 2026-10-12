@@ -1,6 +1,7 @@
 // Connects the service worker's existing decisions to the local log (ADR 0019).
 import type { LocalSettings } from "@pateat/contracts";
 import * as v from "valibot";
+import type { RefreshReport } from "../connections/sessions";
 import type { SetupReply } from "../connections/types";
 import type { LoginReport } from "../login/runtime";
 import type { PasskeyRequestReport } from "../passkeys/runtime";
@@ -172,6 +173,19 @@ export function createDiagnosticsLog(options: {
           check: reply.ok ? undefined : reply.error.check,
         },
         { level: reply.ok || outcome === "cancelled" ? "info" : "warn" },
+      );
+    },
+    /** A Bitwarden refresh request: debug when it succeeded, else warn. */
+    vaultRefresh(event: RefreshReport) {
+      void logger.log(
+        "vault.refresh",
+        {
+          connection: event.connectionId,
+          outcome: event.outcome,
+          cause: event.cause,
+          status: event.status,
+        },
+        { level: event.outcome === "refreshed" ? "debug" : "warn" },
       );
     },
     /** A routine sync is quiet unless it changed the recipe cache. */

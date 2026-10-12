@@ -80,6 +80,10 @@ export const LOG_EVENTS = {
     level: "info",
     fields: { connection: "connection", outcome: "code", check: "code" },
   },
+  "vault.refresh": {
+    level: "info",
+    fields: { connection: "connection", outcome: "code", cause: "code", status: "count" },
+  },
   "service.sync": {
     level: "info",
     fields: {
