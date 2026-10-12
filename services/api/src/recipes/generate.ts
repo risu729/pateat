@@ -36,10 +36,12 @@ import { hasRecipeRoom, readHead, writeRecipe } from "../recipe-store";
 // per origin and start path (ADR 0016), and a page no recipe check explained judged for
 // the recipe's completion or a handler (ADR 0027).
 
-const ATTEMPT_WINDOW_MS = 24 * 60 * 60 * 1000;
+/** A page tried is not sent to the model again for this long (owner, 2026-10-12). */
+export const ATTEMPT_WINDOW_MS = 10 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
 /** Judgements per recipe per UTC day, whatever the path (owner, ADR 0027). */
 export const JUDGEMENTS_PER_RECIPE_DAY = 20;
-const utcDayStart = (now: number) => now - (now % ATTEMPT_WINDOW_MS);
+const utcDayStart = (now: number) => now - (now % DAY_MS);
 
 type GenerationEnv = { DB: D1Database; OIDC_ISSUER?: string; OIDC_SIGNING_KEYS?: string };
 type Failure = Extract<RecipeGenerationResult, { status: "failed" }>["error"];
@@ -100,8 +102,17 @@ export async function generateRecipe(
    */
   const decide = async (
     head: SyncRecipeChange | null,
-  ): Promise<{ answer: RecipeGenerationResult } | { base: LoginRecipe | undefined }> => {
-    if (head?.state === "revoked") return { answer: unavailable("recipe-revoked") };
+  ): Promise<
+    { answer: RecipeGenerationResult } | { base: LoginRecipe | undefined; revoked?: number }
+  > => {
+    // A revoked recipe is generated again from its first page, as the revision after its
+    // tombstone (owner, 2026-10-12); a later page never continues it.
+    if (head?.state === "revoked") {
+      if (base) return { answer: unavailable("recipe-revoked") };
+      return (await hasRecipeRoom(env.DB, scope.ownerId))
+        ? { base: undefined, revoked: head.revision }
+        : { answer: unavailable("recipe-limit") };
+    }
     const current = active(head);
     // Only the recipe generated here answers; a device write under the ID cannot redirect it.
     if (current && !(await generatedHere(current.recipe)))
@@ -122,7 +133,8 @@ export async function generateRecipe(
   const before = await decide(await readHead(env.DB, scope.ownerId, recipeId));
   if ("answer" in before) return before.answer;
   const baseRecipe = before.base;
-  const baseRevision = baseRecipe?.revision ?? 0;
+  // The attempt key and the write follow the revision the new one replaces.
+  const baseRevision = baseRecipe?.revision ?? before.revoked ?? 0;
   let raced: RecipeGenerationResult | undefined;
 
   const call = await callClaude(env, scope.ownerId, {
@@ -137,6 +149,8 @@ export async function generateRecipe(
         raced = latest.answer;
         return "recipe-conflict";
       }
+      // A recipe generated and revoked meanwhile would make this call's write fail.
+      if ((latest.base?.revision ?? latest.revoked ?? 0) !== baseRevision) return "recipe-conflict";
       const [recent] = await db
         .select()
         .from(generationAttempts)
@@ -252,7 +266,8 @@ export async function generateRecipe(
       version: 1,
       state: "active",
       expectedRevision: baseRevision,
-      recipe: assembled.recipe,
+      // A recipe generated again follows its tombstone's revision.
+      recipe: { ...assembled.recipe, revision: baseRevision + 1 },
     },
     scope.deviceId,
   );

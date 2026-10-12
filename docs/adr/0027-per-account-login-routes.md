@@ -583,8 +583,8 @@ Not handled:
 - Paths that carry user IDs: handlers and judged paths are stored per path, so such a
   site may get several handlers, within the daily limit.
 - Recipes generated before this design gain handlers and completions, but not routes. A
-  route needs regeneration, which today means revoking the recipe, and that stops
-  generation for its path (ADR 0018).
+  route needs regeneration: revoking the recipe in the web UI has its start page
+  generated again on the next visit (ADR 0018, owner decision of 2026-10-12).
 - A passkey stored in another vault item than the login item.
 - A 2FA page path shared by several methods. A page is judged once per recipe revision
   and path, so the first account judged there decides what is learned: if a TOTP account

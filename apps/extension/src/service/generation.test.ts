@@ -102,7 +102,7 @@ function setup(
 }
 
 describe("recipe generation requests", () => {
-  it("sends a page once a day and refreshes the cache before reporting a recipe", async () => {
+  it("sends a page once per retry window and refreshes the cache before reporting a recipe", async () => {
     const h = setup();
     expect(await h.generation.available(observation.origin, "/login")).toBe(true);
     expect(await h.generation.generate(request)).toEqual({ outcome: "recipe" });
@@ -115,7 +115,7 @@ describe("recipe generation requests", () => {
     // A generated recipe takes a full sync; only a judged page pulls recipes alone.
     expect(h.refresh).not.toHaveBeenCalled();
 
-    // The same page is not sent again within a day; another path is.
+    // The same page is not sent again within the window; another path is.
     expect(await h.generation.available(observation.origin, "/login")).toBe("sent");
     expect(await h.generation.generate(request)).toEqual({ outcome: "skipped", reason: "sent" });
     expect(await h.generation.available(observation.origin, "/other")).toBe(true);
@@ -156,7 +156,7 @@ describe("recipe generation requests", () => {
       { kind: "result", result: { version: 1, status: "failed", error: "timeout" } },
       { outcome: "failed", reason: "timeout" },
     ],
-  ] as const)("keeps the page for the day after %s", async (_name, answer, outcome) => {
+  ] as const)("keeps the page for the retry window after %s", async (_name, answer, outcome) => {
     const h = setup(answer);
     expect(await h.generation.generate(request)).toEqual(outcome);
     expect(await h.generation.available(observation.origin, "/login")).toBe("sent");

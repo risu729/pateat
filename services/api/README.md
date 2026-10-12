@@ -175,32 +175,33 @@ a code, or `unavailable` with a reason when no model was called.
   the SHA-256 of the JSON `[origin, path]`; a page without `base` is the start of its
   own. Without `base`, an active recipe is returned as is; with `base`, the page's steps
   are appended after the recipe's last `advance` step. A stale `base` gets the current
-  recipe back, a revoked recipe answers `recipe-revoked`, a `base` whose recipe was not
-  generated for this origin and its start path answers `recipe-conflict`, a first page
-  that would exceed the active recipe limit answers `recipe-limit` (before the model
-  call, or after it if the last place was taken meanwhile), and a `base` that is not a
-  generated recipe ID is 400. The model maps the slots, the plan is checked with
-  `validatePagePlan`, and the steps are stored with a conditional write. Up to 20 slots
-  are accepted; a slot with a `fieldName` (and `fieldPosition` for a duplicate name) is
-  a custom-field offer, and each offer names a different field
-  ([ADR 0027](../../docs/adr/0027-per-account-login-routes.md)). The model gives each
-  offer it uses a generic ID in lowercase words, such as `branch-number`, which the
-  steps store instead of the request's slot ID. The answer that wrote the recipe adds
-  `customSlots: [{ slot, offered }]` for those slots; an answer with a recipe another
-  request stored has none. On a continuation, a generic ID the `base` recipe already
-  uses answers `failed` with `recipe-invalid`. A start page that offers several
-  identifier sets (such as branch and account numbers, or a contract number) may get up
-  to 3 `alternatives`, each with its own `slots` and `steps`, stored as further variants
-  of the recipe's `password` route; the top-level `slots` and `steps` are its first
-  variant. Each variant fills exactly its slots, starts on the start path and submits,
-  so a recipe with alternatives is never continued. No element is filled as different
-  slots in different variants, and no two variants fill the same elements. A
-  continuation's answer has its alternatives dropped before assembly. `customSlots`
-  covers the custom slots of every variant, and the request log records the alternatives
-  with the plan. The answer may also name the start page's passkey sign-in button
-  (`passkeyButton`); a candidate with the button role whose label or locator names a
-  passkey or security key, not named like a registration and not used by any set or
-  the account switch is stored as the recipe's `passkey` route, any other is
+  recipe back, a `base` whose recipe is revoked answers `recipe-revoked` while the
+  revoked recipe's start page is generated again as the revision after its tombstone, a
+  `base` whose recipe was not generated for this origin and its start path answers
+  `recipe-conflict`, a first page that would exceed the active recipe limit answers
+  `recipe-limit` (before the model call, or after it if the last place was taken
+  meanwhile), and a `base` that is not a generated recipe ID is 400. The model maps the
+  slots, the plan is checked with `validatePagePlan`, and the steps are stored with a
+  conditional write. Up to 20 slots are accepted; a slot with a `fieldName` (and
+  `fieldPosition` for a duplicate name) is a custom-field offer, and each offer names a
+  different field ([ADR 0027](../../docs/adr/0027-per-account-login-routes.md)). The
+  model gives each offer it uses a generic ID in lowercase words, such as
+  `branch-number`, which the steps store instead of the request's slot ID. The answer
+  that wrote the recipe adds `customSlots: [{ slot, offered }]` for those slots; an
+  answer with a recipe another request stored has none. On a continuation, a generic ID
+  the `base` recipe already uses answers `failed` with `recipe-invalid`. A start page
+  that offers several identifier sets (such as branch and account numbers, or a contract
+  number) may get up to 3 `alternatives`, each with its own `slots` and `steps`, stored
+  as further variants of the recipe's `password` route; the top-level `slots` and
+  `steps` are its first variant. Each variant fills exactly its slots, starts on the
+  start path and submits, so a recipe with alternatives is never continued. No element
+  is filled as different slots in different variants, and no two variants fill the same
+  elements. A continuation's answer has its alternatives dropped before assembly.
+  `customSlots` covers the custom slots of every variant, and the request log records
+  the alternatives with the plan. The answer may also name the start page's passkey
+  sign-in button (`passkeyButton`); a candidate with the button role whose label or
+  locator names a passkey or security key, not named like a registration and not used by
+  any set or the account switch is stored as the recipe's `passkey` route, any other is
   dropped without failing the call, and a continuation's is ignored. The request log
   records the kept button.
 - `POST /v1/recipes/:recipeId/completion` takes
@@ -245,18 +246,19 @@ roles counted), and only then resolves credentials: missing, refused or failed
 credentials answer `credentials-not-configured`, `credentials-rejected`,
 `issuer-unavailable` or `token-exchange-failed`. Generation also re-reads the recipe
 under the lock, answering with a recipe another device stored meanwhile, and refuses a
-page tried in the previous 24 hours, abstentions and failures included. The attempt key
-is the generated recipe ID, the path and the revision being continued (0 for a first
-page), so two recipes of one origin that lead to the same page do not block each other.
-A request that passes every check is an attempt, including one the role then refuses
-locally for its size, which would be refused again. Each call first reserves its upper
-bound (64 KiB of input as tokens plus 8,192 output tokens at the ADR 0014 rates, about
-$0.43) and then corrects it from reported usage; usage the provider does not report
-keeps the reservation. The `inference_log` row stores the provider and model, the
-instructions and input as sent, the structured result, the outcome code, usage and
-estimated cost; a request refused locally before any model call is not logged. Rows
-older than 90 days are deleted whenever a call is logged and on every `GET /v1/recipes`,
-because routine releases do not apply cron triggers.
+page tried in the previous 10 minutes (ADR 0016), abstentions and failures included. The
+attempt key is the generated recipe ID, the path and the revision being continued (0 for
+a first page, the tombstone's revision for a revoked recipe generated again), so two
+recipes of one origin that lead to the same page do not block each other. A request that
+passes every check is an attempt, including one the role then refuses locally for its
+size, which would be refused again. Each call first reserves its upper bound (64 KiB of
+input as tokens plus 8,192 output tokens at the ADR 0014 rates, about $0.43) and then
+corrects it from reported usage; usage the provider does not report keeps the
+reservation. The `inference_log` row stores the provider and model, the instructions and
+input as sent, the structured result, the outcome code, usage and estimated cost; a
+request refused locally before any model call is not logged. Rows older than 90 days are
+deleted whenever a call is logged and on every `GET /v1/recipes`, because routine
+releases do not apply cron triggers.
 
 ## Schema and tests
 

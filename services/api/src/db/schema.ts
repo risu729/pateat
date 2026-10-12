@@ -200,7 +200,7 @@ export const inferenceSpend = sqliteTable(
 );
 
 /**
- * The last generation attempt per page, for the 24-hour rule of ADR 0016. A page is
+ * The last generation attempt per page, for the retry window of ADR 0016. A page is
  * keyed by the generated recipe it starts or continues and the revision it continues (0
  * for a first page), so the next form of a login that stays on one path is not mistaken
  * for a retry (ADR 0018), nor is the same page reached through another recipe.
