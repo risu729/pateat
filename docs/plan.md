@@ -1645,23 +1645,24 @@ on a password step makes that step incomplete, and honeypot inputs moved to the 
 clipped by `overflow: hidden` stay candidates. `extractSignedInObservation` describes
 the page after a generated recipe's final submission the same way, but over the whole
 page: every field, then buttons and links up to 48 candidates, listed in document order.
-A field it cannot describe marks it incomplete, except a field that cannot be filled and
-cannot be a sign-in field either, such as the read-only date picker of a hotel search
-(left out since 2026-10-12, after アパホテル's page after the login was never judged);
-buttons and links past the limit or
-without a locator are left out, since they are only possible sign-in markers. Links are
-located by their text too, and those in a page header or navigation, where account menus
-usually sit, are kept first; the rank reads only the page's structure, never words of
-one language. A text locator with a digit, such as a points balance or an unread count,
-never names a marker there, and the judge is told to pick a marker whose text is the
-same for every account and visit, never the person's name, a count or a balance: its
-text is stored in the recipe and must match every later sign-in. On ポイントインカム
-(2026-10-12) the page after sign-in gave 21 candidates, all carousel controls, news tabs
-and an ad's close button, because its header links have no `id`; the judge answered
-`unclear`. A synthetic page of that shape now keeps the header's links. There, an
-attribute locator that redaction would change counts as no locator, so an account number
-in an `id` is never sent. `mise run //apps/extension:test:dom` covers these cases in
-Chromium with synthetic pages.
+A field it cannot describe marks it incomplete, except a read-only, transparent or tiny
+field that does not look like a sign-in field, which is left out since 2026-10-12: the
+page after アパホテル's login was logged as `unfillable-field` and never judged, and a
+read-only date picker of its hotel search is the inferred cause, not yet confirmed in
+the owner's Chrome. Buttons and links past the limit or without a locator are left out,
+since they are only possible sign-in markers. Links are located by their text too, and
+those in a page header or navigation, where account menus usually sit, are kept first;
+the rank reads only the page's structure, never words of one language. A text locator
+with a digit, such as a points balance or an unread count, never names a marker there,
+and the judge is told to pick a marker whose text is the same for every account and
+visit, never the person's name, a count or a balance: its text is stored in the recipe
+and must match every later sign-in. On ポイントインカム (2026-10-12) the page after
+sign-in gave 21 candidates, all carousel controls, news tabs and an ad's close button,
+because its header links have no `id`; the judge answered `unclear`. A synthetic page of
+that shape now keeps the header's links. There, an attribute locator that redaction
+would change counts as no locator, so an account number in an `id` is never sent.
+`mise run //apps/extension:test:dom` covers these cases in Chromium with synthetic
+pages.
 
 Evaluation data candidates, checked 2026-10-10 (terms are as published by each
 source; confirm before use):

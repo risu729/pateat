@@ -6,6 +6,7 @@ import {
   type ObservedCandidate,
 } from "@pateat/contracts";
 import * as v from "valibot";
+import { shortNumericInput } from "../login/inputs";
 import type { observationGaps } from "../login/wire";
 import {
   buttonText,
@@ -22,7 +23,7 @@ import {
 export type ObservationRefusal = "unsupported-page" | "no-candidates";
 /**
  * Why a signed-in page's observation is incomplete, for diagnostics only: a fillable field
- * in a shadow root, one that cannot be filled (read-only, disabled, transparent or tiny),
+ * in a shadow root, one that cannot be filled and is disabled or may be a sign-in field,
  * one without a usable locator, or more fields than the candidate limit.
  */
 export type ObservationGap = (typeof observationGaps)[number];
@@ -698,21 +699,18 @@ function observe(document: Document, chosen: Chosen[], complete: boolean): Obser
 const accountSignal = (draft: Draft) => (draft.element.closest(landmarks) ? 1 : 0);
 
 /**
- * Whether a field the executor cannot fill may still be a sign-in field: a password, one
- * marked for a username, a password or a one-time code, or a short numeric field as a
- * code goes in (the executor's rule for a code). Read-only password fields are common
- * with software keyboards.
+ * Whether a field the executor cannot fill may still be a sign-in field: a password or an
+ * email field, one marked for a username, an email, a password or a one-time code, or a
+ * short numeric field as a code goes in (the executor's rule). Read-only password fields
+ * are common with software keyboards.
  */
 function mayBeSignIn(input: HTMLInputElement): boolean {
-  const tokens = input.autocomplete.toLowerCase().split(/\s+/u);
+  const hint = autocomplete(input);
   return (
     input.type === "password" ||
-    ["username", "current-password", "new-password", "one-time-code"].some((token) =>
-      tokens.includes(token),
-    ) ||
-    ((input.inputMode === "numeric" || input.type === "tel" || input.type === "number") &&
-      input.maxLength >= 1 &&
-      input.maxLength <= 10)
+    input.type === "email" ||
+    (hint !== undefined && hint !== "off") ||
+    shortNumericInput(input)
   );
 }
 
@@ -726,8 +724,9 @@ function mayBeSignIn(input: HTMLInputElement): boolean {
  * The judge refuses a page that still shows a sign-in field, so every field must be
  * described: a field that cannot be located, a field in a shadow root, or more fields than
  * the limit marks the observation incomplete, and so does a field that cannot be filled
- * when it may be a sign-in field (`mayBeSignIn`). Another field that cannot be filled, such
- * as a read-only date picker in a search form, is left out. Buttons and links are only
+ * when it is disabled, as a code field waiting for a timer is, or may be a sign-in field
+ * (`mayBeSignIn`). A read-only, transparent or tiny field that may not, such as a hotel
+ * search's read-only date picker, is left out. Buttons and links are only
  * possible markers; those past the limit or without a locator are left out. A link is
  * located by its text too, as for an account switch, and the executor looks for the
  * completion marker the same way.
@@ -751,7 +750,9 @@ export function extractSignedInObservation(
   const markers: { form: HTMLFormElement | null; draft: Draft }[] = [];
   for (const entry of found) {
     if (entry.kind === "unsupported") {
-      if (entry.field && mayBeSignIn(entry.field)) gap ??= "unfillable-field";
+      // A disabled field may be a code field waiting for a timer or a sent code.
+      if (entry.field && (entry.field.disabled || mayBeSignIn(entry.field)))
+        gap ??= "unfillable-field";
     } else if (fillTypes[entry.draft.role]) fieldEntries.push(entry);
     else if (entry.draft.role !== "checkbox") markers.push(entry);
   }

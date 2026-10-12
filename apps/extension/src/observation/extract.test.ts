@@ -1064,19 +1064,39 @@ describe("extractSignedInObservation", () => {
     expect(gap()).toEqual([false, "unlocated-field"]);
     page(`<button id="logout">Sign out</button><input id="pin" type="password" readonly>`);
     expect(gap()).toEqual([false, "unfillable-field"]);
-    page(`<button id="logout">Sign out</button><input id="user" autocomplete="username" disabled>`);
+    // A disabled field may be a code field waiting for a timer or a sent code.
+    page(`<button id="logout">Sign out</button><input id="otp" name="otp" disabled>`);
     expect(gap()).toEqual([false, "unfillable-field"]);
-    page(
-      `<button id="logout">Sign out</button><input id="code" inputmode="numeric" maxlength="6" readonly>`,
-    );
-    expect(gap()).toEqual([false, "unfillable-field"]);
-    // A field that cannot be filled and is no sign-in field, such as a hotel search's
-    // read-only date picker, is left out (アパホテル, 2026-10-12).
-    page(
-      `<button id="logout">Sign out</button><form><input id="date" type="text" readonly><input id="guests" disabled></form>`,
-    );
-    expect(gap()).toEqual([true, undefined]);
-    expect(summary(signedIn()).map((entry) => entry.target.value)).toEqual(["logout"]);
+    // A read-only field that may be a sign-in field.
+    for (const field of [
+      `<input id="f" autocomplete="section-a username" readonly>`,
+      `<input id="f" autocomplete="email" readonly>`,
+      `<input id="f" type="email" readonly>`,
+      `<input id="f" autocomplete="current-password" readonly>`,
+      `<input id="f" autocomplete="new-password" readonly>`,
+      `<input id="f" autocomplete="one-time-code" readonly>`,
+      `<input id="f" inputmode="numeric" maxlength="6" readonly>`,
+      `<input id="f" type="tel" maxlength="10" readonly>`,
+      `<input id="f" type="number" maxlength="1" readonly>`,
+      `<input id="f" type="text" autocomplete="username" style="opacity: 0">`,
+    ]) {
+      page(`<button id="logout">Sign out</button>${field}`);
+      expect(gap(), field).toEqual([false, "unfillable-field"]);
+    }
+    // Any other field that cannot be filled is left out: read-only, transparent or tiny.
+    // The read-only date picker of a hotel search is the inferred case (アパホテル,
+    // 2026-10-12; the log showed only `unfillable-field`).
+    for (const field of [
+      `<input id="date" type="text" readonly>`,
+      `<input id="f" type="tel" maxlength="11" readonly>`,
+      `<input id="f" inputmode="numeric" readonly>`,
+      `<input id="f" type="text" style="opacity: 0">`,
+      `<input id="f" type="text" autocomplete="off" style="width: 1px; height: 1px; padding: 0; border: 0">`,
+    ]) {
+      page(`<button id="logout">Sign out</button><form>${field}</form>`);
+      expect(gap(), field).toEqual([true, undefined]);
+      expect(summary(signedIn()).map((entry) => entry.target.value)).toEqual(["logout"]);
+    }
     page(
       `<button id="logout">Sign out</button>${Array.from({ length: 49 }, (_, index) => `<input id="f${index}">`).join("")}`,
     );

@@ -2317,8 +2317,9 @@ export function createLoginRuntime(
   /**
    * After an effect step that no check explained, sends the resulting page so the
    * service can judge it and learn the completion or a handler (ADR 0018, ADR 0027).
-   * Returns whether the attempt settled or moved on. A page that still shows the route's
-   * fields on one of its paths, or the completion marker, is not sent. At most
+   * Returns whether the attempt settled or moved on. A page that still has the route's
+   * fields on one of its paths, shows one on another path, or shows the completion marker
+   * is not sent. At most
    * `MAX_JUDGED_PAGES` pages count per effect step: a page counts in the attempt once its
    * complete description is in hand, before the request, so a restart cannot resend
    * without bound, and is given back only for a temporary refusal before any model call.
@@ -2348,10 +2349,12 @@ export function createLoginRuntime(
     const paths = routeSignInPaths(recipe, metadata.route);
     const marker = recipe.completion ? [recipe.completion.target] : [];
     const fills = routeSignInTargets(recipe, metadata.route).slice(0, 24 - marker.length);
+    // A fill field that shows is told apart from a hidden one, which counts only on a
+    // sign-in path.
     const remaining = await observe(
       run,
       [...fills, ...marker],
-      undefined,
+      [...fills.map(() => "shown" as const), ...marker.map(() => "present" as const)],
       marker.length > 0 ? [...fills.map(() => false), true] : undefined,
     );
     if (!remaining) {
@@ -2359,9 +2362,14 @@ export function createLoginRuntime(
       if (current(run) && !terminal(run.metadata)) notSent("unreachable");
       return false;
     }
+    // On another path only a field that shows counts, as the service refuses such a page
+    // too: the observation leaves out a read-only field that does not look like a sign-in
+    // field, such as a username field a recipe names without its autocomplete hint.
+    const fillStates = remaining.targets.slice(0, fills.length);
     if (
-      paths.includes(remaining.path) &&
-      remaining.targets.slice(0, fills.length).some((state) => state !== "missing")
+      paths.includes(remaining.path)
+        ? fillStates.some((state) => state !== "missing")
+        : fillStates.includes("unique")
     )
       return notSent("sign-in-shown");
     // The marker shows, but the completion check did not prove the sign-in: another path,
