@@ -1,11 +1,11 @@
 # ADR 0029: Local sign-in state after an effect step, with the judge as a fallback
 
 Status: accepted by the owner on 2026-10-12 (04:54 UTC). Delivery 1 (the local check,
-logged only, as `login.state`) is implemented; delivery 2 (acting on it) waits for the
-owner's review of the delivery 1 logs. Amends
-[ADR 0018](0018-recipe-generation-route.md) (how success is decided after a generated
-recipe's submission) and [ADR 0027](0027-per-account-login-routes.md) (when a page is
-judged).
+logged only, as `login.state`) is implemented. The owner started delivery 2 (acting on
+it) on 2026-10-12 at 06:58 UTC; its first part, completing on evidence, is implemented.
+Amends [ADR 0018](0018-recipe-generation-route.md) (how success is decided after a
+generated recipe's submission) and [ADR 0027](0027-per-account-login-routes.md) (when a
+page is judged).
 
 Date: 2026-10-12
 
@@ -118,6 +118,20 @@ sign-in inputs (the ones it filled, or those of the form it clicked in); F2 read
 anywhere and status regions inside a sign-in input's form or named by one, as the fill
 check does, skipping a region around a sign-in input and the text of buttons inside a
 region.
+
+Delivery 2, first part (2026-10-12): the owner chose, after reading the delivery 1 logs
+of アパホテル, to complete a login whose `login.state` decision is `signed-in`. There,
+at 06:29:50 UTC, the learned marker showed (E1) but the recipe's completion check did
+not pass (`recipe.judge not-sent marker-shown`), so the attempt stayed unknown; when the
+sign-in form showed again after a sign-out, the sign-out check of ADR 0021 did not apply
+to the unknown attempt and Pateat signed in again. Now a `signed-in` reading is read a
+second time one second later in the same document; the login completes as
+`authenticated`, with no model call, only when that reading is `signed-in` too and the
+document has finished loading (`document.readyState` is `complete`). Otherwise the
+second reading is logged and the page goes on as before (to the judge, or unknown). Only
+one `login.state` entry is logged, from the last reading. This applies on both routes
+and to a later page of an attempt that already settled as unknown. The other rows of the
+outcome table still only log.
 
 ## Consequences
 

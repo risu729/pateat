@@ -108,7 +108,12 @@ import {
   type PickResponse,
 } from "./choice-wire";
 import { customFieldOffers, type CustomFieldOffer } from "./generation-slots";
-import { decideSignInState, reachedReturnTarget, type SignInSigns } from "./sign-in-state";
+import {
+  decideSignInState,
+  reachedReturnTarget,
+  type SignInDecision,
+  type SignInSigns,
+} from "./sign-in-state";
 import type { LoginSites } from "./sites";
 import {
   loginFillsUsername,
@@ -136,6 +141,12 @@ const HOLD_MS = 5 * 60_000;
  */
 const EXTRACT_READS = 3;
 const EXTRACT_RETRY_MS = 1000;
+/**
+ * How long after evidence of a sign-in the page is read again before the login completes
+ * on it (ADR 0029), so a page that is still redirecting or about to ask for a second
+ * factor does not settle the login.
+ */
+const SIGN_IN_RECHECK_MS = 1000;
 type Sender = Browser.runtime.MessageSender;
 type SettingsRuntime = {
   handle(value: unknown): Promise<SettingsResponse>;
@@ -2062,8 +2073,13 @@ export function createLoginRuntime(
       if (await enterHandler(run, observed.path)) return undefined;
     }
     if (!settleUnknown) return undefined;
-    if (effectful(run.metadata)) await logSignInState(run);
+    const state = effectful(run.metadata) ? await signInState(run) : undefined;
     if (!current(run) || terminal(run.metadata)) return undefined;
+    // Evidence of a sign-in completes the login without a model call (ADR 0029).
+    if (state === "signed-in") {
+      await change(run, { type: "OBSERVED", result: "authenticated", document: run.live.document });
+      return undefined;
+    }
     if (await learn(run)) return undefined;
     await change(run, {
       type: "OBSERVED",
@@ -2073,14 +2089,46 @@ export function createLoginRuntime(
     return undefined;
   }
   /**
-   * Logs the sign-in state of ADR 0029 for a page no check explained: its signs and what
-   * the ADR would do with it. Delivery 1 changes nothing else. A login in a frame is not
-   * read, as the ADR reads the top document. The username goes to the page's content
-   * script for its comparison only.
+   * Reads and logs the sign-in state of ADR 0029 for a page no check explained: its signs
+   * and what the ADR does with it. Returns `signed-in` only when a second reading
+   * {@link SIGN_IN_RECHECK_MS} later, in the same fully loaded document, agrees; the
+   * login then completes. Other decisions are logged only, as in delivery 1. A login in a
+   * frame is not read, as the ADR reads the top document.
    */
-  async function logSignInState(run: Execution): Promise<void> {
+  async function signInState(run: Execution): Promise<SignInDecision | undefined> {
+    const { documentId } = run.live.document;
+    let reading = await readSignInState(run);
+    let confirmed = false;
+    if (reading?.decision === "signed-in") {
+      await new Promise<void>((resolve) => setTimeout(resolve, SIGN_IN_RECHECK_MS));
+      if (!current(run) || terminal(run.metadata) || run.live.document.documentId !== documentId)
+        return undefined;
+      reading = await readSignInState(run);
+      confirmed = reading?.decision === "signed-in" && reading.loaded;
+    }
+    if (!reading) return undefined;
+    report({
+      type: "state",
+      tabId: run.live.document.tabId,
+      origin: run.live.document.origin,
+      recipeId: run.recipe.id,
+      route: run.metadata.route,
+      ...reading.signs,
+      decision: reading.decision,
+      ...(run.metadata.settled ? { settled: true as const } : {}),
+    });
+    return reading.decision === "signed-in" && !confirmed ? undefined : reading.decision;
+  }
+  /**
+   * The page's signs of ADR 0029 and the decision they give, and whether the document has
+   * finished loading. The username goes to the page's content script for its comparison
+   * only.
+   */
+  async function readSignInState(
+    run: Execution,
+  ): Promise<{ signs: SignInSigns; decision: SignInDecision; loaded: boolean } | undefined> {
     const { recipe, metadata } = run;
-    if (run.live.topUrl !== undefined) return;
+    if (run.live.topUrl !== undefined) return undefined;
     const marker = recipe.completion ? [recipe.completion.target] : [];
     const fills = routeSignInTargets(recipe, metadata.route).slice(0, 24 - marker.length);
     const observed = await observe(
@@ -2089,9 +2137,9 @@ export function createLoginRuntime(
       [...fills, ...marker].map(() => "shown" as const),
       marker.length > 0 ? [...fills.map(() => false), true] : undefined,
     );
-    if (!observed) return;
+    if (!observed) return undefined;
     const authorized = await allowed(run);
-    if (!authorized) return;
+    if (!authorized) return undefined;
     let username: string | undefined;
     const usernameField = loginUsernameFieldId(authorized.connection, metadata.account.itemId);
     if (usernameField) {
@@ -2104,7 +2152,7 @@ export function createLoginRuntime(
       } catch {
         username = undefined;
       }
-      if (!current(run)) return;
+      if (!current(run)) return undefined;
     }
     let response: unknown;
     try {
@@ -2113,11 +2161,11 @@ export function createLoginRuntime(
         ...(username ? { account: { username } } : {}),
       });
     } catch {
-      return;
+      return undefined;
     }
-    if (!current(run)) return;
+    if (!current(run)) return undefined;
     const parsed = v.safeParse(stateResultSchema, response);
-    if (!parsed.success || !parsed.output.ok) return;
+    if (!parsed.success || !parsed.output.ok) return undefined;
     const page = parsed.output.signs;
     const s1 = observed.targets.slice(0, fills.length).some((state) => state === "unique");
     const { tabId, origin: pageOrigin } = run.live.document;
@@ -2148,16 +2196,7 @@ export function createLoginRuntime(
           routeSignInPaths(recipe, metadata.route),
         ),
     };
-    report({
-      type: "state",
-      tabId: run.live.document.tabId,
-      origin: run.live.document.origin,
-      recipeId: recipe.id,
-      route: metadata.route,
-      ...signs,
-      decision: decideSignInState(signs),
-      ...(metadata.settled ? { settled: true as const } : {}),
-    });
+    return { signs, decision: decideSignInState(signs), loaded: parsed.output.loaded };
   }
   /**
    * Enters a handler of the recipe on this path all of whose elements show (ADR 0027).

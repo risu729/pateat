@@ -62,6 +62,8 @@ const fake = vi.hoisted(() => {
     extracted: {} as Record<string, unknown>,
     /** The page signs the document reports for ADR 0029; none when unset. */
     signs: undefined as undefined | Record<string, boolean>,
+    /** Whether the document says it has finished loading, with its signs. */
+    loaded: true,
     /** `chrome.storage.session`. */
     session: {} as Record<string, unknown>,
     /** Present elements that are hidden or disabled, for an observation that asks. */
@@ -152,7 +154,9 @@ const fake = vi.hoisted(() => {
           };
         if (message["type"] === "login.switch") return state.switchReply;
         if (message["type"] === "login.state")
-          return state.signs ? { ok: true, signs: state.signs } : { ok: false };
+          return state.signs
+            ? { ok: true, signs: state.signs, loaded: state.loaded }
+            : { ok: false };
         if (message["type"] === "login.extract")
           return (
             state.extracted[message["page"] as string] ?? { ok: false, reason: "no-candidates" }
@@ -496,6 +500,7 @@ describe("production login document admission", () => {
     fake.state.gone = new Set();
     fake.state.extracted = {};
     fake.state.signs = undefined;
+    fake.state.loaded = true;
   });
   it("completes a saved-default HTTPS login with a local recipe and live field", async () => {
     const h = harness();
@@ -3713,7 +3718,7 @@ describe("production login document admission", () => {
       );
     }, 10_000);
 
-    describe("the sign-in state, logged only (ADR 0029 delivery 1)", () => {
+    describe("the sign-in state (ADR 0029)", () => {
       it("logs a passkey request after the submission, but not one before it", async () => {
         fake.state.extracted = { "signed-in": homePage };
         fake.state.signs = {
@@ -3884,17 +3889,106 @@ describe("production login document admission", () => {
           setTimeout(() => void h.hello({ documentId: "document-home" }, false), 0);
         };
         expect(await h.hello()).toEqual({ ok: true });
-        await vi.waitFor(() => expect(service.judge).toHaveBeenCalled(), { timeout: 6_000 });
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+          timeout: 8_000,
+        });
         const states = report.mock.calls.flatMap(([value]) =>
           value.type === "state" ? [value] : [],
         );
         expect(states).toEqual([
           expect.objectContaining({ s1: false, s5: false, e3: true, decision: "signed-in" }),
         ]);
-        // The judge's verdict is logged right after, as today.
-        const entries = report.mock.calls.map(([value]) => value.type);
-        expect(entries.indexOf("state")).toBeLessThan(entries.indexOf("judge"));
-      }, 10_000);
+        // Read twice, a second apart, and completed without a model call.
+        expect(fake.state.messages.filter((entry) => entry.type === "login.state")).toHaveLength(2);
+        expect(service.judge).not.toHaveBeenCalled();
+      }, 12_000);
+
+      it("completes when the username shows in the header, without the judge", async () => {
+        fake.state.extracted = { "signed-in": homePage };
+        fake.state.signs = { ...noSigns, username: true };
+        const service = generation({ judge: async () => ({ verdict: "unclear" }) });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris,
+          username: true,
+          generation: service,
+          report,
+        });
+        h.recipes.recipe.mockResolvedValue(generated);
+        fake.state.present = new Set(["user", "password", "login"]);
+        fake.state.onExecute = async (message) => {
+          if ((message["operation"] as { step: { kind: string } }).step.kind !== "click") return;
+          fake.state.present = new Set();
+          fake.state.observedPath = "/home";
+        };
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+          timeout: 8_000,
+        });
+        expect(report).toHaveBeenCalledWith(
+          expect.objectContaining({ type: "state", e2: true, decision: "signed-in" }),
+        );
+        expect(service.judge).not.toHaveBeenCalled();
+      }, 12_000);
+
+      it("leaves the page to the judge while the document is still loading", async () => {
+        fake.state.extracted = { "signed-in": homePage };
+        fake.state.signs = { ...noSigns, username: true };
+        fake.state.loaded = false;
+        const service = generation({ judge: async () => ({ verdict: "unclear" }) });
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris,
+          username: true,
+          generation: service,
+        });
+        h.recipes.recipe.mockResolvedValue(generated);
+        fake.state.present = new Set(["user", "password", "login"]);
+        fake.state.onExecute = async (message) => {
+          if ((message["operation"] as { step: { kind: string } }).step.kind !== "click") return;
+          fake.state.present = new Set();
+          fake.state.observedPath = "/home";
+        };
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(service.judge).toHaveBeenCalled(), { timeout: 8_000 });
+        expect(status()).not.toMatchObject([{ state: "authenticated" }]);
+      }, 12_000);
+
+      it("leaves the page to the judge when the second reading shows no evidence", async () => {
+        fake.state.extracted = { "signed-in": homePage };
+        fake.state.signs = { ...noSigns, username: true };
+        const service = generation({ judge: async () => ({ verdict: "unclear" }) });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris,
+          username: true,
+          generation: service,
+          report,
+        });
+        h.recipes.recipe.mockResolvedValue(generated);
+        fake.state.present = new Set(["user", "password", "login"]);
+        fake.state.onExecute = async (message) => {
+          if ((message["operation"] as { step: { kind: string } }).step.kind !== "click") return;
+          fake.state.present = new Set();
+          fake.state.observedPath = "/home";
+        };
+        expect(await h.hello()).toEqual({ ok: true });
+        // The header changes after the first reading, as on a page still redirecting.
+        await vi.waitFor(
+          () =>
+            expect(
+              fake.state.messages.filter((entry) => entry.type === "login.state"),
+            ).toHaveLength(1),
+          { timeout: 6_000, interval: 10 },
+        );
+        fake.state.signs = noSigns;
+        await vi.waitFor(() => expect(service.judge).toHaveBeenCalled(), { timeout: 8_000 });
+        expect(
+          report.mock.calls.flatMap(([value]) => (value.type === "state" ? [value] : [])),
+        ).toEqual([expect.objectContaining({ e2: false, decision: "judge" })]);
+      }, 12_000);
     });
 
     describe("custom-field offers and their shapes (ADR 0027)", () => {
