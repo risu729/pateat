@@ -109,6 +109,34 @@ describe("diagnostics log", () => {
     expect(entries[0]).toMatchObject({ time: NOW, level: "info", event: "passkey.request" });
   });
 
+  it("keeps an invalid request's member and size, and only as a code and a count", async () => {
+    const { logger } = setup();
+    for (const [invalid, invalidLength] of [
+      ["allow-credentials.id", 1024],
+      // A member that fails the code check, or a size that is no count, is left out.
+      ["Owner's challenge", -1],
+    ] as const)
+      // oxlint-disable-next-line no-await-in-loop -- entries are written in order
+      await logger.log("passkey.request", {
+        origin: "https://bank.example",
+        outcome: "delegate",
+        reason: "invalid-request",
+        invalid,
+        invalidLength,
+      });
+    const entries = await logger.entries();
+    expect(entries.map((entry) => entry.fields)).toEqual([
+      {
+        origin: "https://bank.example",
+        outcome: "delegate",
+        reason: "invalid-request",
+        invalid: "allow-credentials.id",
+        invalidLength: 1024,
+      },
+      { origin: "https://bank.example", outcome: "delegate", reason: "invalid-request" },
+    ]);
+  });
+
   it("keeps a page URL's path, query and fragment only for a site named in full", async () => {
     const { logger } = setup();
     const long = `https://bank.example/signin?return=${"a".repeat(600)}`;

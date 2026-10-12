@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { INITIAL_PASSKEY_POLICY, type PasskeyPolicy } from "./policy";
-import { admitGetRequest } from "./request";
+import { admitGetRequest, describeInvalidRequest } from "./request";
 import { effectiveDomain, resolveRpId } from "./rp-id";
 import { selectPasskey } from "./select";
 
@@ -379,6 +379,129 @@ describe("required mediation (ADR 0007)", () => {
         ).toEqual({ kind: "delegate", reason: "unsupported-mediation" });
     },
   );
+});
+
+describe("invalid request description", () => {
+  const encode = (length: number) => btoa("x".repeat(length)).replace(/=+$/u, "");
+  const descriptor = { type: "public-key", id: "AQID" };
+
+  it.each([
+    [
+      "an oversized challenge",
+      { ...base, challenge: encode(1025) },
+      { member: "challenge", length: 1025 },
+    ],
+    [
+      "a challenge far over its bound",
+      { ...base, challenge: "A".repeat(1400) },
+      { member: "challenge", length: 1050 },
+    ],
+    [
+      "a short challenge",
+      { ...base, challenge: "AAECAwQFBgcICQoLDA0O" },
+      { member: "challenge", length: 15 },
+    ],
+    ["a missing challenge", { allowCredentials: [] }, { member: "challenge" }],
+    ["a long RP ID", { ...base, rpId: "a".repeat(254) }, { member: "rp-id", length: 254 }],
+    [
+      "an oversized credential ID",
+      { ...base, allowCredentials: [{ ...descriptor, id: encode(1024) }] },
+      { member: "allow-credentials.id", length: 1024 },
+    ],
+    [
+      "an oversized allow list",
+      { ...base, allowCredentials: Array.from({ length: 65 }, () => descriptor) },
+      { member: "allow-credentials", length: 65 },
+    ],
+    [
+      "a long transport",
+      { ...base, allowCredentials: [{ ...descriptor, transports: ["x".repeat(65)] }] },
+      { member: "allow-credentials.transports", length: 65 },
+    ],
+    [
+      "too many transports",
+      {
+        ...base,
+        allowCredentials: [{ ...descriptor, transports: Array.from({ length: 17 }, () => "usb") }],
+      },
+      { member: "allow-credentials.transports", length: 17 },
+    ],
+    [
+      "a long user verification",
+      { ...base, userVerification: "x".repeat(65) },
+      { member: "user-verification", length: 65 },
+    ],
+    [
+      "a long mediation",
+      { ...base, mediation: "x".repeat(65) },
+      { member: "mediation", length: 65 },
+    ],
+    ["a negative timeout", { ...base, timeout: -1 }, { member: "timeout" }],
+    [
+      "only unknown descriptor types",
+      { ...base, allowCredentials: [{ type: "future-type", id: "AQID" }] },
+      { member: "allow-credentials.type" },
+    ],
+    ["a null request", null, { member: "request" }],
+    ["a numeric request", 42, { member: "request" }],
+  ] as const)("names %s", (_name, request, expected) => {
+    expect(admit(request)).toEqual({ kind: "delegate", reason: "invalid-request" });
+    expect(describeInvalidRequest(request)).toEqual(expected);
+  });
+
+  it.each([
+    ["an unknown page key", { ...base, "owner-secret-name": {} }, "owner-secret-name"],
+    [
+      "an unknown descriptor key",
+      { ...base, allowCredentials: [{ ...descriptor, ownerSecretName: 1 }] },
+      "ownerSecretName",
+    ],
+    // Page keys spelled like a snapshot member elsewhere, or like an Object.prototype member,
+    // are still unknown page keys.
+    ["a top-level id key", { ...base, id: "AQID" }, undefined],
+    ["a top-level transports key", { ...base, transports: ["usb"] }, undefined],
+    [
+      "a challenge key in a descriptor",
+      { ...base, allowCredentials: [{ ...descriptor, challenge }] },
+      undefined,
+    ],
+    ["a constructor key", { ...base, constructor: 1 }, undefined],
+    ["a toString key", { ...base, toString: 1 }, undefined],
+    [
+      "an own __proto__ key",
+      JSON.parse(`{"challenge":"${challenge}","allowCredentials":[],"__proto__":1}`),
+      undefined,
+    ],
+  ] as const)("names %s only as other", (_name, request, key) => {
+    expect(admit(request)).toEqual({ kind: "delegate", reason: "invalid-request" });
+    const described = describeInvalidRequest(request);
+    expect(described).toMatchObject({ member: "other" });
+    expect(described?.member).toMatch(/^[a-z0-9][a-z0-9.:-]{0,63}$/u);
+    if (key !== undefined) expect(JSON.stringify(described)).not.toContain(key);
+  });
+
+  it("describes nothing for a request that is not invalid", () => {
+    for (const request of [
+      base,
+      { ...base, rpId: "example.com", mediation: "optional", timeout: 60_000 },
+      { ...base, allowCredentials: [descriptor, { type: "future-type", id: "BAUG" }] },
+      { ...base, challenge: encode(1024), allowCredentials: [{ ...descriptor, id: encode(1023) }] },
+    ]) {
+      expect(admit(request).kind).toBe("claim");
+      expect(describeInvalidRequest(request)).toBeUndefined();
+    }
+    // Other delegation reasons are not described either.
+    const silent = { ...base, mediation: "silent" };
+    expect(admit(silent)).toEqual({ kind: "delegate", reason: "unsupported-mediation" });
+    expect(describeInvalidRequest(silent)).toBeUndefined();
+  });
+
+  it("never includes the member's value", () => {
+    const secret = encode(1025);
+    expect(JSON.stringify(describeInvalidRequest({ ...base, challenge: secret }))).not.toContain(
+      secret.slice(0, 16),
+    );
+  });
 });
 
 describe("credential selection", () => {
