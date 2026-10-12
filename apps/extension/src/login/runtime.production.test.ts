@@ -2904,26 +2904,46 @@ describe("production login document admission", () => {
     it("sends nothing when no vault item matches the page", async () => {
       fake.state.extracted = { login: loginPage };
       const service = generation();
+      const report = vi.fn<(report: LoginReport) => void>();
       const h = harness(unsaved, {
         allowedOrigins: [],
         uris: async () => ({ ok: true, data: uriMatch({ candidates: [] }) }),
         username: true,
         generation: service,
+        report,
       });
       h.recipes.recipe.mockResolvedValue(undefined);
       h.recipes.starts.mockResolvedValue(startsOf([]));
       expect(await h.signIn()).toEqual({ ok: false, reason: "recipe-not-found" });
+      // The log says why the page was not sent.
+      expect(report).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "refused",
+          reason: "recipe-not-found",
+          detail: "no-item-match",
+        }),
+      );
       expect(service.generate).not.toHaveBeenCalled();
       expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.extract");
     });
 
     it("offers nothing for a page sent recently, a path a recipe starts on, a frame or an incomplete description", async () => {
       const service = generation({ available: async () => false });
-      const h = harness(unsaved, { allowedOrigins: [], uris, username: true, generation: service });
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness(unsaved, {
+        allowedOrigins: [],
+        uris,
+        username: true,
+        generation: service,
+        report,
+      });
+      const details = () =>
+        report.mock.calls.flatMap(([value]) => (value.type === "refused" ? [value.detail] : []));
       h.recipes.recipe.mockResolvedValue(undefined);
       h.recipes.starts.mockResolvedValue(startsOf([]));
       expect(await h.hello({}, false)).toEqual({ ok: false, reason: "recipe-not-found" });
       expect(await h.signIn()).toEqual({ ok: false, reason: "recipe-not-found" });
+      expect(details()).toEqual(["unavailable", "unavailable"]);
 
       service.available.mockResolvedValue(true);
       // Recipes that start on this path (two, so neither is selected), or an unreadable cache.
@@ -2932,6 +2952,7 @@ describe("production login document admission", () => {
       expect(await h.signIn()).not.toHaveProperty("generate");
       h.recipes.starts.mockRejectedValue(new Error("cache"));
       expect(await h.signIn()).toEqual({ ok: false, reason: "recipe-not-found" });
+      expect(details().at(-1)).toBe("recipes-unavailable");
       h.recipes.starts.mockResolvedValue(startsOf([]));
       expect(service.generate).not.toHaveBeenCalled();
 
@@ -3111,6 +3132,61 @@ describe("production login document admission", () => {
         expect(
           report.mock.calls.filter(([value]) => value.type === "attempt" && value.settled),
         ).toHaveLength(verdict === "unclear" ? 1 : 0);
+      },
+      10_000,
+    );
+
+    it.each([
+      [
+        "an incomplete description",
+        { ...homePage, gap: "unfillable-field" as const },
+        "unfillable-field",
+      ],
+      ["a refused description", { ok: false, reason: "no-candidates" }, "no-candidates"],
+    ])(
+      "reports why it does not send %s",
+      async (_label, extracted, reason) => {
+        fake.state.extracted = {
+          "signed-in":
+            "observation" in extracted
+              ? { ...extracted, observation: { ...extracted.observation, complete: false } }
+              : extracted,
+        };
+        const service = generation({ judge: async () => ({ verdict: "signed-in" }) });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris,
+          username: true,
+          generation: service,
+          report,
+        });
+        h.recipes.recipe.mockResolvedValue(generated);
+        fake.state.present = new Set(["user", "password", "login"]);
+        fake.state.onExecute = async (message) => {
+          if ((message["operation"] as { step: { kind: string } }).step.kind !== "click") return;
+          fake.state.present = new Set();
+          fake.state.observedPath = "/home";
+        };
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(
+          () =>
+            expect(status()).toMatchObject([{ state: "reconciling", outcome: "unknown-submit" }]),
+          { timeout: 6_000 },
+        );
+        expect(service.judge).not.toHaveBeenCalled();
+        expect(
+          report.mock.calls.flatMap(([value]) => (value.type === "judge" ? [value] : [])),
+        ).toContainEqual({
+          type: "judge",
+          tabId: 1,
+          origin,
+          recipeId: generated.id,
+          recipeRevision: generated.revision,
+          route: "password",
+          verdict: "not-sent",
+          reason,
+        });
       },
       10_000,
     );

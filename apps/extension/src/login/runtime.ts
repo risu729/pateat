@@ -553,8 +553,11 @@ export type LoginReport =
       recipeId: string;
       recipeRevision: number;
       route: LoginRoute;
-      /** `sent` when the page goes out; the service's verdict when it answers. */
-      verdict: "sent" | "signed-in" | "rejected" | "challenge" | "unclear" | "retry";
+      /**
+       * `sent` when the page goes out; the service's verdict when it answers; `not-sent`,
+       * with the reason, when the page could not be described for it.
+       */
+      verdict: "sent" | "not-sent" | "signed-in" | "rejected" | "challenge" | "unclear" | "retry";
       reason?: string;
       /** For a returned revision: whether this login took it over. */
       takenOver?: boolean;
@@ -2193,6 +2196,8 @@ export function createLoginRuntime(
     )
       return false;
     let observation: LoginObservation | undefined;
+    // Why the page was not sent, as a code for diagnostics: never page text.
+    let notSent = "unreachable";
     try {
       const extracted = v.safeParse(
         extractResultSchema,
@@ -2202,19 +2207,35 @@ export function createLoginRuntime(
         extracted.success && extracted.output.ok
           ? v.safeParse(loginObservationSchema, extracted.output.observation)
           : undefined;
-      if (
-        parsed?.success &&
-        parsed.output.complete &&
-        parsed.output.origin === run.live.document.origin &&
-        parsed.output.path === remaining.path
+      if (!extracted.success || !parsed?.success)
+        notSent =
+          extracted.success && !extracted.output.ok ? extracted.output.reason : "invalid-page";
+      else if (!parsed.output.complete)
+        notSent = (extracted.output.ok && extracted.output.gap) || "incomplete";
+      else if (
+        parsed.output.origin !== run.live.document.origin ||
+        parsed.output.path !== remaining.path
       )
-        observation = parsed.output;
+        notSent = "page-changed";
+      else observation = parsed.output;
     } catch {
-      observation = undefined;
+      // The page could not be asked: `unreachable`.
     }
     if (!current(run)) return true;
     // A page that cannot be described completely is not sent and does not count.
-    if (!observation) return false;
+    if (!observation) {
+      report({
+        type: "judge",
+        tabId: run.live.document.tabId,
+        origin: run.live.document.origin,
+        recipeId: recipe.id,
+        recipeRevision: recipe.revision,
+        route: metadata.route,
+        verdict: "not-sent",
+        reason: notSent,
+      });
+      return false;
+    }
     const pages = judgedPages(run.metadata, operationId);
     await change(run, { type: "JUDGING", operationId });
     if (!current(run)) return true;
@@ -2674,16 +2695,22 @@ export function createLoginRuntime(
     return [...unique.values()].slice(0, 32);
   }
   /**
-   * Whether this document may be sent for generation once it shows a sign-in input: a
-   * top-level page on whose path no cached recipe of its origin starts (several starting
-   * there count too), and whose path was not sent in the last day (ADR 0016).
+   * Why this document may not be sent for generation once it shows a sign-in input, as a
+   * diagnostics code, or undefined when it may: a top-level page on whose path no cached
+   * recipe of its origin starts (several starting there count too), and whose path was
+   * not sent in the last day (ADR 0016).
    */
-  async function offersGeneration(live: LiveDocument): Promise<boolean> {
-    if (!generation || !uris || live.document.frameId !== 0 || live.topUrl) return false;
-    if (probeMode && live.document.origin === origin) return false;
+  async function generationRefusal(live: LiveDocument): Promise<string | undefined> {
+    if (!generation || !uris) return "no-service";
+    if (live.document.frameId !== 0 || live.topUrl) return "frame";
+    if (probeMode && live.document.origin === origin) return "probe";
     const starts = await recipes.starts(live.document.origin).catch(() => undefined);
-    if (starts === undefined || starts.some((start) => start.path === live.path)) return false;
-    return generation.available(live.document.origin, live.path).catch(() => false);
+    if (starts === undefined) return "recipes-unavailable";
+    if (starts.some((start) => start.path === live.path)) return "recipe-starts-here";
+    // Not paired with the service, or this path was sent in the last day.
+    return (await generation.available(live.document.origin, live.path).catch(() => false))
+      ? undefined
+      : "unavailable";
   }
   /**
    * The slots to generate for when a vault item's URI matches the page, with the
@@ -3193,7 +3220,9 @@ export function createLoginRuntime(
     ) {
       const starts = await startsFor(document.origin);
       if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
-      let offer = !recipe && (await offersGeneration(live));
+      // Why generation is not offered here, for the refusal's log entry.
+      let notOffered = recipe ? undefined : await generationRefusal(live);
+      let offer = !recipe && notOffered === undefined;
       if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
       if (offer && signIn?.path === live.path) {
         const scope = await generationSlotsFor(live).catch(() => undefined);
@@ -3207,8 +3236,9 @@ export function createLoginRuntime(
         }
         // No vault item matches this page, so it is not sent.
         offer = false;
+        notOffered = "no-item-match";
       }
-      if (!recipe && !starts.length && !offer) return refuse("recipe-not-found");
+      if (!recipe && !starts.length && !offer) return refuse("recipe-not-found", notOffered);
       live.state = "watching";
       delete live.reason;
       await publish(live);

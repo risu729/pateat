@@ -6,6 +6,7 @@ import {
   type ObservedCandidate,
 } from "@pateat/contracts";
 import * as v from "valibot";
+import type { observationGaps } from "../login/wire";
 import {
   buttonText,
   collapseText,
@@ -19,8 +20,14 @@ import {
 
 /** Why no observation was produced. A page without one is never sent to inference. */
 export type ObservationRefusal = "unsupported-page" | "no-candidates";
+/**
+ * Why a signed-in page's observation is incomplete, for diagnostics only: a fillable field
+ * in a shadow root, one that cannot be filled (read-only, disabled, transparent or tiny),
+ * one without a usable locator, or more fields than the candidate limit.
+ */
+export type ObservationGap = (typeof observationGaps)[number];
 export type ObservationResult =
-  | { readonly ok: true; readonly observation: LoginObservation }
+  | { readonly ok: true; readonly observation: LoginObservation; readonly gap?: ObservationGap }
   | { readonly ok: false; readonly reason: ObservationRefusal };
 
 const maxCandidates = 48;
@@ -648,14 +655,17 @@ export function extractSignedInObservation(
   const found = [...document.querySelectorAll(observed)]
     .map(describe)
     .filter((entry) => entry !== undefined);
-  let complete = ![...document.querySelectorAll("*")].some(
+  // One gap is reported (a shadow-root field first); any gap makes it incomplete.
+  let gap: ObservationGap | undefined = [...document.querySelectorAll("*")].some(
     (host) => host.shadowRoot !== null && inShadow(host.shadowRoot, shadowFields),
-  );
+  )
+    ? "shadow-field"
+    : undefined;
   const fieldEntries: { form: HTMLFormElement | null; draft: Draft }[] = [];
   const markers: { form: HTMLFormElement | null; draft: Draft }[] = [];
   for (const entry of found) {
     if (entry.kind === "unsupported") {
-      if (entry.field) complete = false;
+      if (entry.field) gap ??= "unfillable-field";
     } else if (fillTypes[entry.draft.role]) fieldEntries.push(entry);
     else if (entry.draft.role !== "checkbox") markers.push(entry);
   }
@@ -670,8 +680,8 @@ export function extractSignedInObservation(
         : [];
     });
   const fieldsFound = located(fieldEntries);
-  if (fieldsFound.length < fieldEntries.length || fieldsFound.length > maxCandidates)
-    complete = false;
+  if (fieldsFound.length > maxCandidates) gap ??= "too-many-fields";
+  else if (fieldsFound.length < fieldEntries.length) gap ??= "unlocated-field";
   // A stable sort keeps document order within each rank; `observe` restores it overall.
   const ranked = located(markers)
     .map((entry) => ({ entry, rank: accountSignal(entry.draft) }))
@@ -682,5 +692,6 @@ export function extractSignedInObservation(
     ...ranked.slice(0, Math.max(0, maxCandidates - fieldsFound.length)),
   ];
   if (chosen.length === 0) return { ok: false, reason: "no-candidates" };
-  return observe(document, chosen, complete);
+  const result = observe(document, chosen, gap === undefined);
+  return result.ok && gap ? { ...result, gap } : result;
 }

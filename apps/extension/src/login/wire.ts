@@ -213,8 +213,20 @@ export const awaitResultSchema = v.strictObject({
   reason: v.optional(v.picklist(["timeout", "cancelled"])),
 });
 /** The page description; validated again against `loginObservationSchema` by the caller. */
+/** Why a signed-in page's observation is incomplete; see `ObservationGap`. */
+export const observationGaps = [
+  "shadow-field",
+  "unfillable-field",
+  "unlocated-field",
+  "too-many-fields",
+] as const;
 export const extractResultSchema = v.variant("ok", [
-  v.strictObject({ ok: v.literal(true), observation: v.unknown() }),
+  v.strictObject({
+    ok: v.literal(true),
+    observation: v.unknown(),
+    /** Why a signed-in page's observation is incomplete; for diagnostics only. */
+    gap: v.optional(v.picklist(observationGaps)),
+  }),
   v.strictObject({ ok: v.literal(false), reason: v.string() }),
 ]);
 export const observationSchema = v.strictObject({
