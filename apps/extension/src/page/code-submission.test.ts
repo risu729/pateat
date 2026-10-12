@@ -117,12 +117,12 @@ describe("watchCodeSubmission (ADR 0027)", () => {
   });
 
   it("catches an enable the page undoes at once to check the code itself", async () => {
-    const verify = () => document.querySelector<HTMLButtonElement>("#verify")!;
+    const button = () => document.querySelector<HTMLButtonElement>("#verify")!;
     // Within one task, before the observer runs, and across two tasks.
     const sameTask = codePage('<button id="verify" type="button" disabled>Verify</button>', () =>
       queueMicrotask(() => {
-        verify().disabled = false;
-        verify().disabled = true;
+        button().disabled = false;
+        button().disabled = true;
       }),
     );
     sameTask.type();
@@ -131,9 +131,9 @@ describe("watchCodeSubmission (ADR 0027)", () => {
     sameTask.watch.stop();
     const twoTasks = codePage('<button id="verify" type="button" disabled>Verify</button>', () =>
       queueMicrotask(() => {
-        verify().disabled = false;
+        button().disabled = false;
         setTimeout(() => {
-          verify().disabled = true;
+          button().disabled = true;
         }, 5);
       }),
     );
@@ -141,7 +141,7 @@ describe("watchCodeSubmission (ADR 0027)", () => {
     expect(twoTasks.watch.submitted()).toBe(false);
     await new Promise((resolve) => setTimeout(resolve, 20));
     // A poll that runs after the page enabled Verify again for another code.
-    verify().disabled = false;
+    button().disabled = false;
     await settle();
     twoTasks.clock.now = 1_000;
     expect(twoTasks.watch.submitted()).toBe(true);
