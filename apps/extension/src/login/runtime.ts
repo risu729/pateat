@@ -5999,7 +5999,8 @@ export function createLoginRuntime(
             undefined,
             scope ? "no-name-match" : logCode(missed.filter(Boolean).join(":")),
           );
-        if (!(listing?.names && entryOffer)) offer = false;
+        // A page whose path holds a username is not sent as a sign-in entry either.
+        if (listed?.inPath || !(listing?.names && entryOffer)) offer = false;
       }
       if (offer && entryOffer) {
         const refusal = entryPage ? await entryOfferRefusal(live) : "no-return-target";

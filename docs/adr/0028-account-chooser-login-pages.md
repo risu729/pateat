@@ -362,12 +362,15 @@ Amended by the owner on 2026-10-12 (decision card answered "exclude" at 19:45 UT
 after a github.com pull request page was read as a list because a comment showed the
 username beside its buttons: a list, of names or with an email, on a page whose path has
 a segment that holds a matching item's username, as the service-bound check refuses it
-(`username-shown`), is not read or sent. The worker compares the path with the matching
-items' usernames, which it now reads for every list, before the page is read, and logs
-it at debug level as `no-listed-account` with `username-in-path`, since such a page is a
-signed-in page under the account's own name. No site is named
-([ADR 0033](0033-no-site-specific-features.md)). Such a page was never sent before
-either; this only saves reading it and the failure its read could log.
+(`username-shown`), is not read or sent, as a list or as a sign-in entry
+([ADR 0031](0031-sign-in-entry-pages.md)). The worker compares the path with the
+matching items' usernames, which it now reads for every list, before the page is read,
+and logs it at debug level as `no-listed-account` with `username-in-path`, since such a
+page is a signed-in page under the account's own name. No site is named
+([ADR 0033](0033-no-site-specific-features.md)). A list on such a page was refused once
+read before; this saves reading it and the failure its read could log, and an entry
+offered beside such a list is no longer sent. An entry page that shows no list is
+unchanged, since the entry route reads nothing of the vault.
 
 ## Consequences
 

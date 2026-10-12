@@ -5185,7 +5185,10 @@ describe("production login document admission", () => {
         ]);
         expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.extract");
         expect(service.generate).not.toHaveBeenCalled();
-        expect(JSON.stringify(fake.state.messages)).not.toContain("risu729\"");
+        // The usernames were read for the email list too.
+        expect(h.fields).toHaveBeenCalledWith(
+          expect.objectContaining({ fieldId: "login.username" }),
+        );
       });
 
       it("logs a shown email address that is no entry, and sends only names", async () => {
@@ -5634,6 +5637,59 @@ describe("production login document admission", () => {
             expect(reports("generation")).toEqual([
               expect.objectContaining({ outcome: "sent", page: "accounts" }),
               expect.objectContaining({ outcome: "abstained", page: "accounts" }),
+            ]);
+          });
+
+          it("sends neither a list nor an entry on a page whose path holds the username", async () => {
+            const { service, h, reports } = setup();
+            fake.state.extracted = { entry: entryPage, accounts: listPage };
+            fake.state.pageUrl = `${origin}/risu729?return_to=%2Fbookmarks`;
+            h.fields.mockImplementation(async ({ fieldId }) =>
+              fieldId === "login.username" ? "risu729" : "synthetic-secret",
+            );
+            const pathHello = (names: string[]) =>
+              h.login.handle(
+                {
+                  version: 1,
+                  type: "login.document.ready",
+                  token: "synthetic-token",
+                  list: { path: "/risu729", names },
+                  entry: { path: "/risu729" },
+                },
+                sender(),
+              );
+            expect(await h.hello({}, false)).toMatchObject({ generate: true, entry: true });
+            // Whether a shown text names the item or not (owner 2026-10-12 19:45 UTC).
+            expect(await pathHello(["risu729", "Edit"])).toMatchObject({ ok: false });
+            expect(await h.hello({ documentId: "next-page" }, false)).toMatchObject({
+              generate: true,
+            });
+            expect(
+              await h.login.handle(
+                {
+                  version: 1,
+                  type: "login.document.ready",
+                  token: "synthetic-token",
+                  list: { path: "/risu729", names: ["Edit"] },
+                  entry: { path: "/risu729" },
+                },
+                sender({ documentId: "next-page" }),
+              ),
+            ).toMatchObject({ ok: false });
+            expect(service.generate).not.toHaveBeenCalled();
+            expect(service.generateEntry).not.toHaveBeenCalled();
+            expect(sent("login.extract")).toEqual([]);
+            expect(reports("generation")).toEqual([
+              expect.objectContaining({
+                outcome: "skipped",
+                reason: "no-listed-account",
+                detail: "username-in-path",
+              }),
+              expect.objectContaining({
+                outcome: "skipped",
+                reason: "no-listed-account",
+                detail: "username-in-path",
+              }),
             ]);
           });
 
