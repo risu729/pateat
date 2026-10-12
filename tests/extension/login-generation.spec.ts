@@ -276,8 +276,24 @@ for (const { name, start, query, passwordPath } of [
   },
   // Next opens the password page as a new document on another path.
   { name: "new document", start: "/identifier", query: "", passwordPath: "/identifier/password" },
+  // The account input is marked only for an email address, or only named `login`: the
+  // page is offered once the step wait ends (ADR 0016).
+  {
+    name: "email input",
+    start: "/identifier",
+    query: "?email",
+    passwordPath: "/identifier/password",
+  },
+  {
+    name: "input named login",
+    start: "/identifier",
+    query: "?login",
+    passwordPath: "/identifier/password",
+  },
 ])
   test(`a generated identifier page is continued on the password page it leads to (${name}, ADR 0018)`, async () => {
+    // An identifier input without `autocomplete="username"` waits for the step wait.
+    test.setTimeout(90_000);
     const fixture = await startLoginFixture(0, { password, accountName: username });
     const claude = syntheticClaude();
     const service = await startSyncService({ claude: claude.answer });
@@ -291,7 +307,7 @@ for (const { name, start, query, passwordPath } of [
           const page = await browser.context.newPage();
           await page.goto(`${site}${start}${query}`);
           // The account and the password both matched, after one Next and one Log in.
-          await expect(page.locator("#signed-in")).toBeVisible();
+          await expect(page.locator("#signed-in")).toBeVisible({ timeout: 60_000 });
           await expect
             .poll(() => send(options, { version: 1, type: "login.probe.status" }))
             .toMatchObject({

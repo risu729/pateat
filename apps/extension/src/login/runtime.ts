@@ -4868,7 +4868,7 @@ export function createLoginRuntime(
     sender: Sender,
     token: string,
     start?: { path: string },
-    signIn?: { path: string },
+    signIn?: { path: string; identifier?: true | undefined },
     shown?: { path: string },
     list?: ListOffer,
     entryHello?: Announced,
@@ -4916,7 +4916,7 @@ export function createLoginRuntime(
     helloKey: string,
     sequence: number,
     start?: { path: string },
-    signIn?: { path: string },
+    signIn?: { path: string; identifier?: true | undefined },
     shown?: { path: string },
     list?: ListOffer,
     entryHello?: Announced,
@@ -4961,7 +4961,7 @@ export function createLoginRuntime(
     helloKey: string,
     sequence: number,
     start?: { path: string },
-    signIn?: { path: string },
+    signIn?: { path: string; identifier?: true | undefined },
     shown?: { path: string },
     list?: ListOffer,
     entryHello?: Announced,
@@ -5504,6 +5504,12 @@ export function createLoginRuntime(
         // Logged for a list with an email or an offered entry only: short texts alone are
         // ordinary browsing.
         if (!listing.names || entryOffer) skipGeneration(live, "after-sign-in");
+        offer = false;
+      }
+      // Nor as a page that asks for an identifier alone (ADR 0016), such as a profile page
+      // with an email field.
+      if (offer && signIn?.identifier && afterSignIn.get(document.tabId) === document.documentId) {
+        skipGeneration(live, "after-sign-in");
         offer = false;
       }
       if (offer && (signIn?.path === live.path || listing)) {
