@@ -186,7 +186,12 @@ still open on 2026-10-11.
     a handler for the page that fills a field the binding names (ADR 0027's deferred
     `totp` binding field needs the same naming, but makes a code instead of filling a
     raw value), and a binding that can name a second item.
-  - Fill rules differ per value: a card code only into a password or short numeric
+  - The linked item is stored like an account binding
+    ([ADR 0013](adr/0013-service-held-recipes-and-settings.md#recipes-and-account-bindings)):
+    in the owner's settings on the service, by provider, server, user ID and item ID,
+    with custom fields by name, and never in a shared recipe.
+  - Each kind of value gets its own fill rule, as passwords and TOTP codes have, rather
+    than an exception to those: a card code only into a password or short numeric
     input, as Hidden fields are filled today. Bitwarden identities have no birth date,
     so it would sit in a custom field of the identity item, and forms often split it
     across year, month and day selects, as with the Japanese forms in the
