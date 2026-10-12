@@ -79,7 +79,11 @@ owner decisions (`loneNewPassword` and `validatePagePlan` in
 
 A sign-up form with only an email and one password still passes these checks, so the
 model's `no-login-form` abstention remains the guard there; its description in the
-response format now names sign-up and password-change forms.
+response format now names sign-up and password-change forms. The same holds for a
+widget that shows its sign-up tab while the sign-in tab is hidden, since hidden inputs
+are not observed, and for a sign-up form whose name or phone inputs carry no
+`autocomplete` token. If the model misses one, the existing username and password are
+submitted to that form, which a site usually refuses as already registered.
 
 The route follows from these and from ADRs 0013 to 0016:
 
