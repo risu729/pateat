@@ -3912,12 +3912,18 @@ describe("production login document admission", () => {
         available: vi.fn<LoginGeneration["available"]>(
           implementation.available ?? (async () => true),
         ),
-        generate: vi.fn<LoginGeneration["generate"]>(
-          implementation.generate ?? (async () => ({ outcome: "abstained", reason: "ambiguous" })),
-        ),
-        judge: vi.fn<LoginGeneration["judge"]>(
-          implementation.judge ?? (async () => ({ verdict: "unclear" })),
-        ),
+        // Like the service, each says just before the request leaves the device.
+        generate: vi.fn<LoginGeneration["generate"]>(async (request, sent) => {
+          sent?.();
+          return (
+            implementation.generate ??
+            (async () => ({ outcome: "abstained", reason: "ambiguous" }) as const)
+          )(request);
+        }),
+        judge: vi.fn<LoginGeneration["judge"]>(async (...args) => {
+          args[4]?.();
+          return (implementation.judge ?? (async () => ({ verdict: "unclear" }) as const))(...args);
+        }),
         slotFields: vi.fn<LoginGeneration["slotFields"]>(
           implementation.slotFields ?? (async () => undefined),
         ),
@@ -3959,18 +3965,21 @@ describe("production login document admission", () => {
       expect(service.available).toHaveBeenCalledWith(origin, "/signin");
       // Only slots the matching item can fill are offered.
       // The username's shape goes with its slot; the value itself never does.
-      expect(service.generate).toHaveBeenCalledWith({
-        version: 1,
-        observation: loginPage.observation,
-        slots: [
-          expect.objectContaining({
-            id: "username",
-            kind: "identifier",
-            valueShape: { length: 16, classes: ["ascii-letter", "ascii-symbol"], email: false },
-          }),
-          expect.not.objectContaining({ valueShape: expect.anything() }),
-        ],
-      });
+      expect(service.generate).toHaveBeenCalledWith(
+        {
+          version: 1,
+          observation: loginPage.observation,
+          slots: [
+            expect.objectContaining({
+              id: "username",
+              kind: "identifier",
+              valueShape: { length: 16, classes: ["ascii-letter", "ascii-symbol"], email: false },
+            }),
+            expect.not.objectContaining({ valueShape: expect.anything() }),
+          ],
+        },
+        expect.any(Function),
+      );
       expect(JSON.stringify(service.generate.mock.calls)).not.toContain("synthetic-secret");
       expect(h.fields.mock.calls.map(([request]) => request.fieldId)).toEqual(["login.username"]);
       // The document announces again and starts the generated recipe at once.
@@ -3983,6 +3992,31 @@ describe("production login document admission", () => {
       expect(fake.state.messages.find((entry) => entry.type === "login.execute")?.values).toEqual([
         { slot: "username", value: "synthetic-secret" },
         { slot: "password", value: "synthetic-secret", secret: "password" },
+      ]);
+    });
+
+    it("logs a page sent for generation, then the answer", async () => {
+      fake.state.extracted = { login: loginPage };
+      const service = generation();
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness(unsaved, {
+        allowedOrigins: [],
+        uris,
+        username: true,
+        custom: [],
+        generation: service,
+        report,
+      });
+      h.recipes.recipe.mockResolvedValue(undefined);
+      h.recipes.starts.mockResolvedValue(startsOf([]));
+      expect(await h.hello({}, false)).toMatchObject({ generate: true });
+      expect(await h.signIn()).toEqual({ ok: false, reason: "generating" });
+      const generations = () =>
+        report.mock.calls.map(([entry]) => entry).filter((entry) => entry.type === "generation");
+      await vi.waitFor(() => expect(generations()).toHaveLength(2));
+      expect(generations()).toEqual([
+        { type: "generation", tabId: 1, origin, outcome: "sent" },
+        { type: "generation", tabId: 1, origin, outcome: "abstained", reason: "ambiguous" },
       ]);
     });
 
@@ -4354,6 +4388,7 @@ describe("production login document admission", () => {
         generated.revision,
         "password",
         homePage.observation,
+        expect.any(Function),
       );
       // The automatic choice is saved with its built-in binding once signed in.
       await vi.waitFor(() => expect(h.store.update).toHaveBeenCalled());
@@ -5298,7 +5333,11 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         outcome: "skipped",
         reason: "sent",
       })),
-      judge: vi.fn<LoginGeneration["judge"]>(judge),
+      // Like the service, it says just before the request leaves the device.
+      judge: vi.fn<LoginGeneration["judge"]>(async (...args) => {
+        args[4]?.();
+        return judge(...args);
+      }),
       slotFields: vi.fn<LoginGeneration["slotFields"]>(async () => undefined),
     };
   }
@@ -5520,6 +5559,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         plain.revision,
         "password",
         homePage.observation,
+        expect.any(Function),
       );
       expect(clicks("Use security key")).toBe(1);
     });
@@ -5885,6 +5925,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         advancing.revision,
         "password",
         elsewhere.observation,
+        expect.any(Function),
       );
       expect(executed()).toHaveLength(1);
     });
@@ -5951,6 +5992,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         learned.revision,
         "password",
         welcome.observation,
+        expect.any(Function),
       );
     });
 
@@ -5984,10 +6026,11 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         if (step.target?.value === "Use security key") atClick = structuredClone(status()![0]);
         await recordAtClick(message, tabId);
       };
-      const service = generation();
-      service.judge
-        .mockResolvedValueOnce({ verdict: "challenge", recipe: taken })
-        .mockResolvedValueOnce({ verdict: "signed-in" });
+      const answers = [
+        { verdict: "challenge" as const, recipe: taken },
+        { verdict: "signed-in" as const },
+      ];
+      const service = generation(async () => answers.shift() ?? { verdict: "unclear" });
       const report = vi.fn<(report: LoginReport) => void>();
       const h = harness({}, { passkeys: withPasskey, generation: service, report });
       h.recipes.recipe.mockResolvedValue(plain);
@@ -6004,7 +6047,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         maxSubmissions: 2,
       });
       expect(clicks("Use security key")).toBe(1);
-      expect(service.judge.mock.calls).toEqual([
+      expect(service.judge.mock.calls.map((call) => call.slice(0, 4))).toEqual([
         [plain.id, 1, "password", webauthnPage.observation],
         // The page after the handler is judged for the new revision.
         [plain.id, 2, "password", homePage.observation],
@@ -7356,7 +7399,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       });
       expect(clicks("Use security key")).toBe(1);
       expect(executed().map((step) => step.kind)).toEqual(["fill", "click", "click"]);
-      expect(service.judge.mock.calls).toEqual([
+      expect(service.judge.mock.calls.map((call) => call.slice(0, 4))).toEqual([
         [plainVariants.id, 1, "password", webauthnPage.observation],
         [plainVariants.id, 2, "password", homePage.observation],
       ]);
@@ -7956,7 +7999,11 @@ describe("the start page's passkey route (ADR 0027)", () => {
         outcome: "skipped",
         reason: "sent",
       })),
-      judge: vi.fn<LoginGeneration["judge"]>(judge),
+      // Like the service, it says just before the request leaves the device.
+      judge: vi.fn<LoginGeneration["judge"]>(async (...args) => {
+        args[4]?.();
+        return judge(...args);
+      }),
       slotFields: vi.fn<LoginGeneration["slotFields"]>(async () => undefined),
     };
   }
@@ -8101,6 +8148,7 @@ describe("the start page's passkey route (ADR 0027)", () => {
       routed.revision,
       "passkey",
       homePage.observation,
+      expect.any(Function),
     );
     expect(clicks(button.value)).toBe(1);
     expect(fills()).toBe(0);
@@ -8591,7 +8639,7 @@ describe("the start page's passkey route (ADR 0027)", () => {
         submissions: 2,
       });
       expect(status()![0]).not.toHaveProperty("variant");
-      expect(service.judge.mock.calls).toEqual([
+      expect(service.judge.mock.calls.map((call) => call.slice(0, 4))).toEqual([
         [routed.id, 1, "passkey", webauthnPage.observation],
         [routed.id, 2, "passkey", homePage.observation],
       ]);

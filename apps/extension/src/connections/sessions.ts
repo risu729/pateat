@@ -40,8 +40,11 @@ const retryable = (error: { code: string; status?: number }) =>
 /** How one refresh request ended, for the local log. No token or account value. */
 export type RefreshReport = {
   connectionId: string;
-  outcome: "refreshed" | "restored" | "rejected" | "account-mismatch" | "failed";
-  /** The transport or store error code when the outcome is not `refreshed`. */
+  outcome: "refreshed" | "restored" | "rejected" | "account-mismatch" | "failed" | "not-sent";
+  /**
+   * The transport or store error code when the outcome is not `refreshed`; for `not-sent`,
+   * why no refresh request went out (ADR 0019).
+   */
   cause?: string;
   /** The HTTP status of an `http-error`. */
   status?: number;
@@ -157,23 +160,41 @@ export function createProviderSessions(deps: {
       },
     ): Promise<VaultResult<Acquired> | { ok: false; error: { code: SessionFailure } }> {
       const store = deps.storeFor(profile);
+      // No usable session was refreshed and no refresh is sent: why, for the log.
+      const notSent = <T>(cause: string, result: T): T => {
+        report({ connectionId: profile.connectionId, outcome: "not-sent", cause });
+        return result;
+      };
       const current = await store.read();
-      if (!current.ok) return current;
+      if (!current.ok) return notSent(current.error.code, current);
       const entry = current.data;
-      if (!entry) return { ok: false, error: { code: "setup-reauthentication-required" } };
+      if (!entry)
+        return notSent("no-session", {
+          ok: false,
+          error: { code: "setup-reauthentication-required" },
+        });
       if (entry.state === "refreshing") {
         // Another acquire in this worker owns the claim; a claim nobody holds is resumed.
-        if (held.has(entry.claimId)) return { ok: false, error: { code: "cancelled" } };
+        if (held.has(entry.claimId))
+          return notSent("claimed", { ok: false, error: { code: "cancelled" } });
       } else if (usable(entry))
         return {
           ok: true,
           data: { authenticated: authenticatedFrom(entry), revision: entry.revision },
         };
       const captured = entry.refreshToken;
-      if (!captured) return { ok: false, error: { code: "setup-reauthentication-required" } };
+      if (!captured)
+        return notSent("no-refresh-token", {
+          ok: false,
+          error: { code: "setup-reauthentication-required" },
+        });
       if (!(await context.permitted()))
-        return { ok: false, error: { code: "provider-permission-required" } };
-      if (context.signal.aborted) return { ok: false, error: { code: "cancelled" } };
+        return notSent("provider-permission-required", {
+          ok: false,
+          error: { code: "provider-permission-required" },
+        });
+      if (context.signal.aborted)
+        return notSent("cancelled", { ok: false, error: { code: "cancelled" } });
       const claim: ProviderSessionEntry = {
         schemaVersion: 1,
         revision: random(),
@@ -193,7 +214,7 @@ export function createProviderSessions(deps: {
       // Only the writer whose claim committed may send the refresh request.
       if (!claimed.ok) {
         held.delete(claim.claimId);
-        return claimed;
+        return notSent(claimed.error.code, claimed);
       }
       const refresh = async (): Promise<
         VaultResult<Acquired> | { ok: false; error: { code: SessionFailure } }

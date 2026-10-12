@@ -755,6 +755,15 @@ describe("unhandled errors", () => {
       verdict: "unclear",
       reason: "already-judged",
     });
+    for (const reason of ["unreachable", "not-connected"])
+      log.login({
+        type: "judge",
+        ...page,
+        recipeRevision: 1,
+        route: "password",
+        verdict: "retry",
+        reason,
+      });
     log.login({
       type: "handler",
       ...page,
@@ -815,16 +824,17 @@ describe("unhandled errors", () => {
       check: "plan",
       detail: "incompatible-role",
     });
-    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(12));
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(14));
     const entries = (await log.logger.entries()).filter((entry) => entry.event !== "log.debug");
     expect(entries.map((entry) => [entry.event, entry.level, entry.fields])).toEqual([
       // An unchanged sync is a debug entry; one that changed a recipe is info.
       ["service.sync", "debug", { outcome: "synced", scope: "full" }],
       ["service.sync", "info", { outcome: "synced", scope: "recipes", updated: 1 }],
       ["settings.changed", "info", { source: "synced", revision: 7 }],
+      // A judgement request is info: it is all that is left when no answer comes.
       [
         "recipe.judge",
-        "debug",
+        "info",
         {
           origin: recipeOrigin,
           recipe: expect.any(String),
@@ -843,6 +853,31 @@ describe("unhandled errors", () => {
           route: "password",
           verdict: "unclear",
           reason: "already-judged",
+        },
+      ],
+      // A request that failed is a problem; with no paired service nothing was sent.
+      [
+        "recipe.judge",
+        "warn",
+        {
+          origin: recipeOrigin,
+          recipe: expect.any(String),
+          recipeRevision: 1,
+          route: "password",
+          verdict: "retry",
+          reason: "unreachable",
+        },
+      ],
+      [
+        "recipe.judge",
+        "info",
+        {
+          origin: recipeOrigin,
+          recipe: expect.any(String),
+          recipeRevision: 1,
+          route: "password",
+          verdict: "retry",
+          reason: "not-connected",
         },
       ],
       [
@@ -895,7 +930,7 @@ describe("unhandled errors", () => {
       ],
       [
         "recipe.generate",
-        "info",
+        "warn",
         {
           origin: recipeOrigin,
           outcome: "failed",
@@ -907,7 +942,7 @@ describe("unhandled errors", () => {
       ],
       [
         "recipe.generate",
-        "info",
+        "warn",
         {
           origin: recipeOrigin,
           outcome: "failed",
@@ -1049,6 +1084,58 @@ describe("unhandled errors", () => {
       name: "Error",
     });
     expect(JSON.stringify(entries)).not.toContain("hunter2");
+    vi.restoreAllMocks();
+  });
+
+  it("logs each automatic vault check and why a refresh was not sent", async () => {
+    const log = createDiagnosticsLog({
+      build: { version: "0.1.0", revision: "1c42ad3" },
+      settings: async () => {
+        throw new Error("not needed");
+      },
+      recipeCache: async () => undefined,
+      connections: async () => ({ ok: true, kind: "status", connections: [] }),
+      databaseName: `log-test-${crypto.randomUUID()}`,
+      scope: { addEventListener: () => undefined } as never,
+    });
+    for (const level of ["debug", "info", "warn"] as const)
+      vi.spyOn(console, level).mockImplementation(() => undefined);
+    await log.logger.enableDebug();
+    const connectionId = "50000000-0000-4000-8000-000000000001";
+    // A repeated result, such as a sign-in that still needs the password, is only detail.
+    const outcomes = [
+      "unchanged",
+      "synced",
+      "deferred",
+      "deferred",
+      "reauthentication-required",
+      "reauthentication-required",
+    ] as const;
+    outcomes.forEach((outcome, index) =>
+      log.vaultCheck({ connectionId, outcome, previous: outcomes[index - 1] }),
+    );
+    log.vaultRefresh({ connectionId, outcome: "not-sent", cause: "no-refresh-token" });
+    log.recipeSync("busy", { scope: "full", added: 0, updated: 0, removed: 0 });
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(9));
+    const entries = (await log.logger.entries()).filter((entry) => entry.event !== "log.debug");
+    expect(
+      entries.map((entry) => [
+        entry.event,
+        entry.level,
+        entry.fields["outcome"],
+        entry.fields["cause"],
+      ]),
+    ).toEqual([
+      ["vault.check", "debug", "unchanged", undefined],
+      ["vault.check", "info", "synced", undefined],
+      ["vault.check", "info", "deferred", undefined],
+      ["vault.check", "debug", "deferred", undefined],
+      ["vault.check", "warn", "reauthentication-required", undefined],
+      ["vault.check", "debug", "reauthentication-required", undefined],
+      ["vault.refresh", "info", "not-sent", "no-refresh-token"],
+      ["service.sync", "info", "busy", undefined],
+    ]);
+    expect(JSON.stringify(entries)).not.toContain(connectionId);
     vi.restoreAllMocks();
   });
 

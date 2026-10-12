@@ -126,7 +126,12 @@ export function createVaultAutoSync(deps: {
   loginActive(): Promise<boolean>;
   online?: () => boolean;
   nowMs?: () => number;
-  report?: (event: { connectionId: string; outcome: VaultSyncOutcome }) => void;
+  /** Each check's outcome, with the stored one of the check before it. */
+  report?: (event: {
+    connectionId: string;
+    outcome: VaultSyncOutcome;
+    previous?: VaultSyncOutcome | undefined;
+  }) => void;
 }) {
   const now = deps.nowMs ?? Date.now;
   const online = deps.online ?? (() => globalThis.navigator?.onLine !== false);
@@ -252,7 +257,7 @@ export function createVaultAutoSync(deps: {
           }
       }
       try {
-        deps.report?.({ connectionId, outcome });
+        deps.report?.({ connectionId, outcome, previous: entry?.outcome });
       } catch {
         // A report never changes the schedule.
       }

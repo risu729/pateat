@@ -261,7 +261,7 @@ export function createLoginGeneration(options: {
       const attempts = await recent().catch(() => []);
       return attempts.find(same(origin, path))?.state ?? true;
     },
-    async generate(input: RecipeGenerationRequest): Promise<GenerationOutcome> {
+    async generate(input: RecipeGenerationRequest, sent): Promise<GenerationOutcome> {
       // `totp` is offered only for a page with a code field, so the slots never tell the
       // model whether an account has TOTP (ADR 0027).
       const slots = slotsForPage(input.observation, input.slots);
@@ -299,6 +299,7 @@ export function createLoginGeneration(options: {
         );
       };
       try {
+        sent?.();
         const answer = await transport.generateRecipe(
           connection.origin,
           connection.credential,
@@ -361,9 +362,11 @@ export function createLoginGeneration(options: {
       revision: number,
       route: LoginRoute,
       observation: LoginObservation,
+      sent?: () => void,
     ) {
       const connection = await connected();
       if (!connection) return { verdict: "retry", reason: "not-connected" };
+      sent?.();
       const answer = await transport.judgeCompletion(
         connection.origin,
         connection.credential,
