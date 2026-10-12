@@ -11,31 +11,35 @@ mode without the service are planned for [phase 3](plan.md#phase-3-public-releas
 and main push, and repeats the packaged-extension browser tests on Windows. The
 packaged-extension suite (`tests/extension`, 123 tests one after another in one worker)
 took about six minutes on Linux and seven on Windows, the longest step of every run
-(about 8.5 minutes in total on 2026-10-11). Both jobs therefore run as four shards
-(`Verify (1/4)` to `(4/4)` and `Windows browser (1/4)` to `(4/4)`): each shard sets
+(about 8.5 minutes in total on 2026-10-11). It therefore runs as four shards, in
+`Linux browser (1/4)` to `(4/4)` and `Windows browser (1/4)` to `(4/4)`: each shard sets
 `PATEAT_E2E_SHARD=<current>/<total>`, which `tests/extension/playwright.config.ts` turns
-into Playwright's `shard`, and the four shards together run every test once. Every Linux
-shard still runs the rest of the graph; only shard 1 packs the server artifact on a main
-push. The suite splits by test (`fullyParallel`) because splitting by file left
-`login.spec.ts` alone in a shard of about three minutes; each job still runs one worker.
-`CI Check` requires every job of both matrices to succeed, including when an upstream
-job failed, skipped or was cancelled. A newer push to a PR cancels its older run, but
-each main push finishes its own run; otherwise frequent merges would cancel every main
-run before it could package a release and start `deploy-server.yml`. `codeql.yml`
-analyzes TypeScript/JavaScript and Actions separately. Linux jobs pin `ubuntu-26.04`;
-the `CI Check` aggregate only compares results, so it runs on the single-CPU
-`ubuntu-slim` runner. CodeQL needs no Actions cache: dependency caching is off by
-default in advanced setup and its TRAP cache is disabled, so the workflow sets
-`cache-mode: none`. In `ci.yml` the two jobs share their checkout, mise and Bun install
-steps through YAML anchors (`&checkout`, `&mise`, `&install`), so those pins appear once
-in `ci.yml`; zizmor warns that it audits anchored workflows on a best-effort basis.
-GitHub Code Quality is not used: since its
+into Playwright's `shard`, and the four shards together run every test once. The suite
+splits by test (`fullyParallel`) because splitting by file left `login.spec.ts` alone in
+a shard of about three minutes; each job still runs one worker. The `Verify` job runs
+the rest of the graph (lint, typecheck, unit and component tests, build checks) with
+`PATEAT_SKIP_E2E=1`, which turns `//tests/extension:test` into a no-op there; without
+that variable, as in a local `mise run check`, the suite runs whole. With four shards
+the first sharded runs took 4 to 7 minutes (mean 4m41s over 37 runs on 2026-10-11 and
+12), where each Linux shard still repeated the rest of the graph; `Verify` and the Linux
+shards run side by side now. `CI Check` requires `Verify` and every shard of both
+browser jobs to succeed, including when an upstream job failed, skipped or was
+cancelled. A newer push to a PR cancels its older run, but each main push finishes its
+own run; otherwise frequent merges would cancel every main run before it could package a
+release and start `deploy-server.yml`. `codeql.yml` analyzes TypeScript/JavaScript and
+Actions separately. Linux jobs pin `ubuntu-26.04`; the `CI Check` aggregate only
+compares results, so it runs on the single-CPU `ubuntu-slim` runner. CodeQL needs no
+Actions cache: dependency caching is off by default in advanced setup and its TRAP cache
+is disabled, so the workflow sets `cache-mode: none`. In `ci.yml` the two jobs share
+their checkout, mise and Bun install steps through YAML anchors (`&checkout`, `&mise`,
+`&install`), so those pins appear once in `ci.yml`; zizmor warns that it audits anchored
+workflows on a best-effort basis. GitHub Code Quality is not used: since its
 [2026-07-20 general availability](https://github.blog/changelog/2026-06-16-github-code-quality-generally-available-july-20-2026)
 it is a paid product for GitHub Team and Enterprise Cloud organizations, and this
 repository is user-owned. On 2026-10-11 the owner removed its ruleset rule here and in
 the other active risu729 repositories. See [merging](#merging).
 
-Successful main-push CI packages the production Worker output that `Verify (1/4)` built
+Successful main-push CI packages the production Worker output that `Verify` built
 and checked, with repository, revision, run/attempt, tool versions and per-file hashes,
 plus the committed top-level D1 migration files (`services/api/migrations/*.sql`) and
 the D1 database ID recorded in the build. The `pateat` database was bootstrapped on
@@ -44,9 +48,9 @@ the D1 database ID recorded in the build. The `pateat` database was bootstrapped
 because cf deploy would provision a new database. Restore also checks that the
 migrations match both the manifest and the checked-out revision. The artifact name
 carries the run attempt, so a failed main run is retried with "Re-run all jobs": after
-"Re-run failed jobs" with `Verify (1/4)` green, the artifact stays on the earlier
-attempt and the deployment rejects it. The service browser tests in other shards build
-their own copy of the Worker output. The setup order below sets the release credentials
+"Re-run failed jobs" with `Verify` green, the artifact stays on the earlier attempt and
+the deployment rejects it. The service browser tests in the browser shards build their
+own copy of the Worker output. The setup order below sets the release credentials
 last, after pairing works through Access; the typed-code enrollment did when the owner
 paired on 2026-10-11. Installed Chrome first paired directly with the deployed service
 on 2026-10-11 ([device enrollment](architecture.md#device-enrollment)). A deployment
