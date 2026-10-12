@@ -62,16 +62,12 @@
       "indexes": {
         "devices_token_hash_unique": {
           "name": "devices_token_hash_unique",
-          "columns": [
-            "token_hash"
-          ],
+          "columns": ["token_hash"],
           "isUnique": true
         },
         "devices_owner_idx": {
           "name": "devices_owner_idx",
-          "columns": [
-            "owner_id"
-          ],
+          "columns": ["owner_id"],
           "isUnique": false
         }
       },
@@ -79,13 +75,9 @@
         "devices_owner_id_owners_id_fk": {
           "name": "devices_owner_id_owners_id_fk",
           "tableFrom": "devices",
-          "columnsFrom": [
-            "owner_id"
-          ],
+          "columnsFrom": ["owner_id"],
           "tableTo": "owners",
-          "columnsTo": [
-            "id"
-          ],
+          "columnsTo": ["id"],
           "onUpdate": "no action",
           "onDelete": "no action"
         }
@@ -153,26 +145,16 @@
         "generation_attempts_owner_id_owners_id_fk": {
           "name": "generation_attempts_owner_id_owners_id_fk",
           "tableFrom": "generation_attempts",
-          "columnsFrom": [
-            "owner_id"
-          ],
+          "columnsFrom": ["owner_id"],
           "tableTo": "owners",
-          "columnsTo": [
-            "id"
-          ],
+          "columnsTo": ["id"],
           "onUpdate": "no action",
           "onDelete": "no action"
         }
       },
       "compositePrimaryKeys": {
         "generation_attempts_owner_id_recipe_id_branch_path_base_revision_pk": {
-          "columns": [
-            "owner_id",
-            "recipe_id",
-            "branch",
-            "path",
-            "base_revision"
-          ],
+          "columns": ["owner_id", "recipe_id", "branch", "path", "base_revision"],
           "name": "generation_attempts_owner_id_recipe_id_branch_path_base_revision_pk"
         }
       },
@@ -237,13 +219,9 @@
         "inference_credentials_owner_id_owners_id_fk": {
           "name": "inference_credentials_owner_id_owners_id_fk",
           "tableFrom": "inference_credentials",
-          "columnsFrom": [
-            "owner_id"
-          ],
+          "columnsFrom": ["owner_id"],
           "tableTo": "owners",
-          "columnsTo": [
-            "id"
-          ],
+          "columnsTo": ["id"],
           "onUpdate": "no action",
           "onDelete": "no action"
         }
@@ -287,13 +265,9 @@
         "inference_locks_owner_id_owners_id_fk": {
           "name": "inference_locks_owner_id_owners_id_fk",
           "tableFrom": "inference_locks",
-          "columnsFrom": [
-            "owner_id"
-          ],
+          "columnsFrom": ["owner_id"],
           "tableTo": "owners",
-          "columnsTo": [
-            "id"
-          ],
+          "columnsTo": ["id"],
           "onUpdate": "no action",
           "onDelete": "no action"
         }
@@ -414,17 +388,12 @@
       "indexes": {
         "inference_log_owner_created": {
           "name": "inference_log_owner_created",
-          "columns": [
-            "owner_id",
-            "created_at"
-          ],
+          "columns": ["owner_id", "created_at"],
           "isUnique": false
         },
         "inference_log_created": {
           "name": "inference_log_created",
-          "columns": [
-            "created_at"
-          ],
+          "columns": ["created_at"],
           "isUnique": false
         }
       },
@@ -432,13 +401,9 @@
         "inference_log_owner_id_owners_id_fk": {
           "name": "inference_log_owner_id_owners_id_fk",
           "tableFrom": "inference_log",
-          "columnsFrom": [
-            "owner_id"
-          ],
+          "columnsFrom": ["owner_id"],
           "tableTo": "owners",
-          "columnsTo": [
-            "id"
-          ],
+          "columnsTo": ["id"],
           "onUpdate": "no action",
           "onDelete": "no action"
         }
@@ -489,23 +454,16 @@
         "inference_spend_owner_id_owners_id_fk": {
           "name": "inference_spend_owner_id_owners_id_fk",
           "tableFrom": "inference_spend",
-          "columnsFrom": [
-            "owner_id"
-          ],
+          "columnsFrom": ["owner_id"],
           "tableTo": "owners",
-          "columnsTo": [
-            "id"
-          ],
+          "columnsTo": ["id"],
           "onUpdate": "no action",
           "onDelete": "no action"
         }
       },
       "compositePrimaryKeys": {
         "inference_spend_owner_id_period_pk": {
-          "columns": [
-            "owner_id",
-            "period"
-          ],
+          "columns": ["owner_id", "period"],
           "name": "inference_spend_owner_id_period_pk"
         }
       },
@@ -547,9 +505,7 @@
       "indexes": {
         "owner_identities_owner_idx": {
           "name": "owner_identities_owner_idx",
-          "columns": [
-            "owner_id"
-          ],
+          "columns": ["owner_id"],
           "isUnique": false
         }
       },
@@ -557,23 +513,16 @@
         "owner_identities_owner_id_owners_id_fk": {
           "name": "owner_identities_owner_id_owners_id_fk",
           "tableFrom": "owner_identities",
-          "columnsFrom": [
-            "owner_id"
-          ],
+          "columnsFrom": ["owner_id"],
           "tableTo": "owners",
-          "columnsTo": [
-            "id"
-          ],
+          "columnsTo": ["id"],
           "onUpdate": "no action",
           "onDelete": "no action"
         }
       },
       "compositePrimaryKeys": {
         "owner_identities_issuer_subject_pk": {
-          "columns": [
-            "issuer",
-            "subject"
-          ],
+          "columns": ["issuer", "subject"],
           "name": "owner_identities_issuer_subject_pk"
         }
       },
@@ -661,11 +610,7 @@
       "indexes": {
         "page_judgements_day": {
           "name": "page_judgements_day",
-          "columns": [
-            "owner_id",
-            "recipe_id",
-            "judged_at"
-          ],
+          "columns": ["owner_id", "recipe_id", "judged_at"],
           "isUnique": false
         }
       },
@@ -673,26 +618,16 @@
         "page_judgements_owner_id_owners_id_fk": {
           "name": "page_judgements_owner_id_owners_id_fk",
           "tableFrom": "page_judgements",
-          "columnsFrom": [
-            "owner_id"
-          ],
+          "columnsFrom": ["owner_id"],
           "tableTo": "owners",
-          "columnsTo": [
-            "id"
-          ],
+          "columnsTo": ["id"],
           "onUpdate": "no action",
           "onDelete": "no action"
         }
       },
       "compositePrimaryKeys": {
         "page_judgements_owner_id_recipe_id_branch_revision_path_pk": {
-          "columns": [
-            "owner_id",
-            "recipe_id",
-            "branch",
-            "revision",
-            "path"
-          ],
+          "columns": ["owner_id", "recipe_id", "branch", "revision", "path"],
           "name": "page_judgements_owner_id_recipe_id_branch_revision_path_pk"
         }
       },
@@ -755,10 +690,7 @@
       "indexes": {
         "recipe_heads_owner_sequence_unique": {
           "name": "recipe_heads_owner_sequence_unique",
-          "columns": [
-            "owner_id",
-            "sequence"
-          ],
+          "columns": ["owner_id", "sequence"],
           "isUnique": true
         }
       },
@@ -766,23 +698,16 @@
         "recipe_heads_owner_id_owners_id_fk": {
           "name": "recipe_heads_owner_id_owners_id_fk",
           "tableFrom": "recipe_heads",
-          "columnsFrom": [
-            "owner_id"
-          ],
+          "columnsFrom": ["owner_id"],
           "tableTo": "owners",
-          "columnsTo": [
-            "id"
-          ],
+          "columnsTo": ["id"],
           "onUpdate": "no action",
           "onDelete": "no action"
         }
       },
       "compositePrimaryKeys": {
         "recipe_heads_owner_id_recipe_id_pk": {
-          "columns": [
-            "owner_id",
-            "recipe_id"
-          ],
+          "columns": ["owner_id", "recipe_id"],
           "name": "recipe_heads_owner_id_recipe_id_pk"
         }
       },
@@ -852,39 +777,25 @@
         "recipe_revisions_created_by_device_id_devices_id_fk": {
           "name": "recipe_revisions_created_by_device_id_devices_id_fk",
           "tableFrom": "recipe_revisions",
-          "columnsFrom": [
-            "created_by_device_id"
-          ],
+          "columnsFrom": ["created_by_device_id"],
           "tableTo": "devices",
-          "columnsTo": [
-            "id"
-          ],
+          "columnsTo": ["id"],
           "onUpdate": "no action",
           "onDelete": "no action"
         },
         "recipe_revisions_owner_id_recipe_id_recipe_heads_owner_id_recipe_id_fk": {
           "name": "recipe_revisions_owner_id_recipe_id_recipe_heads_owner_id_recipe_id_fk",
           "tableFrom": "recipe_revisions",
-          "columnsFrom": [
-            "owner_id",
-            "recipe_id"
-          ],
+          "columnsFrom": ["owner_id", "recipe_id"],
           "tableTo": "recipe_heads",
-          "columnsTo": [
-            "owner_id",
-            "recipe_id"
-          ],
+          "columnsTo": ["owner_id", "recipe_id"],
           "onUpdate": "no action",
           "onDelete": "no action"
         }
       },
       "compositePrimaryKeys": {
         "recipe_revisions_owner_id_recipe_id_revision_pk": {
-          "columns": [
-            "owner_id",
-            "recipe_id",
-            "revision"
-          ],
+          "columns": ["owner_id", "recipe_id", "revision"],
           "name": "recipe_revisions_owner_id_recipe_id_revision_pk"
         }
       },
@@ -940,26 +851,18 @@
         "settings_owner_id_owners_id_fk": {
           "name": "settings_owner_id_owners_id_fk",
           "tableFrom": "settings",
-          "columnsFrom": [
-            "owner_id"
-          ],
+          "columnsFrom": ["owner_id"],
           "tableTo": "owners",
-          "columnsTo": [
-            "id"
-          ],
+          "columnsTo": ["id"],
           "onUpdate": "no action",
           "onDelete": "no action"
         },
         "settings_updated_by_device_id_devices_id_fk": {
           "name": "settings_updated_by_device_id_devices_id_fk",
           "tableFrom": "settings",
-          "columnsFrom": [
-            "updated_by_device_id"
-          ],
+          "columnsFrom": ["updated_by_device_id"],
           "tableTo": "devices",
-          "columnsTo": [
-            "id"
-          ],
+          "columnsTo": ["id"],
           "onUpdate": "no action",
           "onDelete": "no action"
         }
