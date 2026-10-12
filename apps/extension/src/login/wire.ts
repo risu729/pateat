@@ -422,6 +422,7 @@ export const awaitResultSchema = v.strictObject({
 export const observationGaps = [
   "shadow-field",
   "unfillable-field",
+  "disabled-field",
   "unlocated-field",
   "too-many-fields",
 ] as const;
