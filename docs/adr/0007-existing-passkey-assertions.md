@@ -28,7 +28,8 @@ with UP and UV set as for `optional` requests, and otherwise handed on (implemen
 Amended on 2026-10-12 by the owner's choice at 19:32 UTC: a `required` request, as
 Wise's "Log back in" makes, is claimed as an `optional` one is, since a passkey request
 shows the browser's prompt either way and any page that can make one can make the
-other (implemented).
+other. As for `optional`, Pateat skips the person's confirmation the site asked for
+(implemented).
 
 Date: 2026-10-10
 
