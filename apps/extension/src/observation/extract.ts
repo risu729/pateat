@@ -1151,9 +1151,10 @@ export function extractSignedInObservation(
   const markers: { form: HTMLFormElement | null; draft: Draft }[] = [];
   for (const entry of found) {
     if (entry.kind === "unsupported") {
-      // A disabled field may be a code field waiting for a timer or a sent code.
-      if (entry.field && (entry.field.disabled || mayBeSignIn(entry.field)))
-        gap ??= "unfillable-field";
+      // A disabled field may be a code field waiting for a timer or a sent code; the log
+      // tells one that may not be a sign-in field (`disabled-field`) from one that may.
+      if (entry.field && mayBeSignIn(entry.field)) gap ??= "unfillable-field";
+      else if (entry.field?.disabled) gap ??= "disabled-field";
     } else if (fillTypes[entry.draft.role]) fieldEntries.push(entry);
     else if (entry.draft.role !== "checkbox") markers.push(entry);
   }
