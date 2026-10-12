@@ -127,7 +127,8 @@ whether or not they hold a value; the two flags fix that (owner, 13:42 UTC).
    - Each handler runs at most once per login, so a wrong TOTP code is never retried
      into a lockout. A click on the code's button that failed without changing the page
      is not retried either, since a late click could submit an expired code: the login
-     ends `retry-limit` (2026-10-12).
+     ends `retry-limit` (2026-10-12). The same holds for a route step's click after it
+     fills only the `totp` slot.
    - If the item lacks the handler's fact, the login ends `challenge`.
    - After a click (a handler's or the `passkey` route's), the page is not judged while
      the clicked button is still there. This waits out a slow WebAuthn exchange or a

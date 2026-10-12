@@ -1546,7 +1546,7 @@ describe("the totp handler in an attempt (ADR 0027)", () => {
   });
 
   it("takes it after a route's code fill when the runtime marks the code as the route's", () => {
-    const route = { type: "AUTO_SUBMITTED", operationId: "page-one", route: true } as const;
+    const route = { type: "AUTO_SUBMITTED", operationId: "page-one", routeStep: true } as const;
     let attempt = transitionLoginAttempt(detected(coded), { type: "RESOLVE" });
     // Before anything was filled there is no code to have submitted.
     expect(transitionLoginAttempt(attempt, route)).toEqual(attempt);

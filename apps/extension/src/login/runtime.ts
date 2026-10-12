@@ -776,7 +776,7 @@ function codeFieldOf(
  * Where the plan step at `index` stands in a TOTP code's entry (ADR 0027): the code fill
  * of an entered `totp` handler or of a route step that fills only the `totp` slot, or
  * the click on its button that follows the fill on the same path. A route's code fill
- * counts only when that click follows it.
+ * counts only when that click, a submit, follows it.
  */
 function codeStep(
   recipe: LoginRecipe,
@@ -805,10 +805,14 @@ function codeStep(
   if (routeCode(entry))
     return after?.handler === undefined &&
       after?.step.kind === "click" &&
+      after.step.purpose === "submit" &&
       after.step.path === entry.step.path
       ? "fill"
       : undefined;
-  return entry.step.kind === "click" && routeCode(before) && before!.step.path === entry.step.path
+  return entry.step.kind === "click" &&
+    entry.step.purpose === "submit" &&
+    routeCode(before) &&
+    before!.step.path === entry.step.path
     ? "click"
     : undefined;
 }
@@ -828,7 +832,7 @@ const autoSubmitted = (recipe: LoginRecipe, metadata: LoginAttemptMetadata) => (
   type: "AUTO_SUBMITTED" as const,
   operationId: newId(),
   ...(attemptPlan(recipe, metadata)?.[metadata.stepIndex]?.handler === undefined
-    ? { route: true as const }
+    ? { routeStep: true as const }
     : {}),
 });
 /** The step may have submitted or moved the page, so its result can show a handler. */
