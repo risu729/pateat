@@ -101,8 +101,8 @@ fix them now; the SSO policy itself is recorded separately.
   after the tab read its settings, the new login waits for the save and is checked again
   with the new settings, because the save bumps the policy revision it would otherwise
   be stopped by. A record in any other state keeps holding, for example one that is
-  running, `retryable` (it is tried again from the same step when a new page of its tab
-  shows, also after a restart, until its retries are spent), still reconciling, settled
+  running, `retryable` (it is tried again from the same step at once, or, after a restart,
+  once a new page of its tab shows, until its retries are spent), still reconciling, settled
   as unknown, ended `interrupted` after a submission, stopped by Pateat while a fill or
   click may have reached the page, or ended `credential-rejected`, `challenge`,
   `submission-limit` or `left-origin`. So a password is not submitted again while a
