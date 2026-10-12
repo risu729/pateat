@@ -26,6 +26,16 @@ const bytes = (minimum: number, maximum: number) =>
 const shortText = v.pipe(v.string(), v.maxLength(64));
 
 /**
+ * One bridged `PublicKeyCredentialDescriptor`, as the bridge snapshots `allowCredentials`
+ * and `excludeCredentials`: the ID as base64url, decoded here.
+ */
+export const credentialDescriptorSchema = v.strictObject({
+  type: shortText,
+  id: bytes(1, MAX_CREDENTIAL_ID_BYTES),
+  transports: v.optional(v.pipe(v.array(shortText), v.maxLength(16))),
+});
+
+/**
  * Bounded, page-supplied snapshot of `navigator.credentials.get({ publicKey })` options. The bridge
  * copies only these members: `hints` and `extensions` are dropped before relaying, because Pateat
  * does not interpret them. `timeout` only shortens how long the chooser window may wait
@@ -34,16 +44,7 @@ const shortText = v.pipe(v.string(), v.maxLength(64));
 export const bridgedGetRequestSchema = v.strictObject({
   challenge: bytes(MIN_CHALLENGE_BYTES, MAX_CHALLENGE_BYTES),
   rpId: v.optional(v.pipe(v.string(), v.maxLength(253))),
-  allowCredentials: v.pipe(
-    v.array(
-      v.strictObject({
-        type: shortText,
-        id: bytes(1, MAX_CREDENTIAL_ID_BYTES),
-        transports: v.optional(v.pipe(v.array(shortText), v.maxLength(16))),
-      }),
-    ),
-    v.maxLength(MAX_ALLOW_CREDENTIALS),
-  ),
+  allowCredentials: v.pipe(v.array(credentialDescriptorSchema), v.maxLength(MAX_ALLOW_CREDENTIALS)),
   userVerification: v.optional(shortText),
   mediation: v.optional(shortText),
   timeout: v.optional(v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(0xff_ff_ff_ff))),

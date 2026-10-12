@@ -30,6 +30,12 @@ Wise's "Log back in" makes, is claimed as an `optional` one is, since a passkey 
 shows the browser's prompt either way and any page that can make one can make the
 other. As for `optional`, Pateat skips the person's confirmation the site asked for
 (implemented).
+Amended on 2026-10-12 by the owner's choice at 20:56 UTC (that Pateat declines, option C
+of the proposal reviewed with the owner): `navigator.credentials.create` is wrapped as
+`get` is, and Pateat refuses a registration that lists a passkey of the vault within
+five minutes of its own sign-in to that site in the same tab; every other registration
+is handed on (see [Registration after a sign-in](#registration-after-a-sign-in);
+implemented, local tests only).
 
 Amended on 2026-10-12 under the owner's passkey-first policy of 13:58 UTC
 ([ADR 0034](0034-answer-page-passkey-requests.md)), after a log from the Grok Bot's
@@ -62,7 +68,11 @@ copy to the isolated content script, and either returns a Pateat assertion or ca
 browser's original `get` with the original arguments. Delegation is the default for
 every case Pateat does not claim, so excluded or unsupported requests keep ordinary
 browser behavior, including other installed passkey providers.
-`navigator.credentials.create` is not wrapped.
+`navigator.credentials.create` is wrapped the same way, with the accessor and fallback
+rules below kept apart from `get`'s. Pateat never answers it with a credential: it only
+refuses a registration as
+[Registration after a sign-in](#registration-after-a-sign-in) describes, and hands every
+other one on with the caller's original arguments.
 
 Pateat stays outside other passkey providers' wrappers. Chromium decides the order in
 which different extensions' MAIN-world document-start scripts run, and Pateat cannot
@@ -102,24 +112,74 @@ function is that provider's wrapper, even after it restores the browser's own.
 
 The page and MAIN world are untrusted. The isolated script independently checks
 `window.top === window`, `isSecureContext` and the `publickey-credentials-get`
-permissions policy before relaying, and reports whether the document has transient user
-activation. The background derives origin, tab, frame and document from the
-browser-supplied sender, never from page data, and accepts only frame 0 of an `https:`
-origin or `http://localhost`. Each request has a short-lived operation ID bound to that
-document, and one document may hold only a few at once. Abort, timeout and a settings
-change cancel it; a late result is discarded. A lock or connection replacement during
-signing makes the Worker's signature unavailable, so the request is delegated as a
-failed assertion. Pages on an excluded site, or with no enabled connection, are answered
-from the settings metadata without reading the vault catalog, so they do not restore a
-vault.
-Navigation does not cancel it: Chrome drops a response addressed to a replaced
-document. The wrapper delegates if the relay does not acknowledge a request
+permissions policy (`publickey-credentials-create` for a registration) before relaying,
+and for `get` reports whether the document has transient user activation. The background
+derives origin, tab, frame and document from the browser-supplied sender, never from
+page data, and accepts only frame 0 of an `https:` origin or `http://localhost`. Each
+`get` request has a short-lived operation ID bound to that document, and one document
+may hold only a few at once. Abort, timeout and a settings change cancel it; a late
+result is discarded. A registration check is not cancelled: the background runs at most
+16 at once across all tabs and hands any further one on as `busy`, and an abort or the
+page's 15-second limit only stops the page waiting. A lock or connection replacement
+during signing makes the Worker's signature unavailable, so the request is delegated as
+a failed assertion. Pages on an excluded site, or with no enabled connection, are
+answered from the settings metadata without reading the vault catalog, so they do not
+restore a vault. Navigation does not cancel it: Chrome drops a response addressed to a
+replaced document. The wrapper delegates if the relay does not acknowledge a request
 promptly, so an invalidated extension does not hold callers.
 
 The background selects the credential and builds client data. Signing runs in the
 crypto host Worker that owns the decrypted vault session, so the private key is
 imported as a non-extractable WebCrypto key there and never crosses a message
 boundary. Only the assertion fields return to the page.
+
+### Registration after a sign-in
+
+In the owner's Chrome on build `1df2d38` (2026-10-12, 20:17 to 20:43 UTC), Wise signed
+in with the Wise item's passkey through Pateat (`passkey.request` `assertion`, for both
+`conditional` and `required` requests). Afterwards the official Bitwarden extension
+(browser-v2026.6.1) sometimes opened its "Save passkey" window with "A passkey already
+exists for this application." and the Wise item. Bitwarden shows that text
+(`passkeyAlreadyExists`) only on the `navigator.credentials.create` path, and only when
+the request's `excludeCredentials` lists a passkey its vault holds. So Wise asks to
+register a passkey after sign-in and lists the one Pateat just used. After the window is
+closed, Bitwarden rejects the request. Whether Wise's call is
+`conditional` (Chrome's automatic passkey upgrade) and how long after the sign-in it
+comes are not known yet; the `passkey.create` log records both.
+
+The owner chose on 2026-10-12 at 20:56 UTC that Pateat refuses such a registration. The
+MAIN-world wrapper asks the background only for a `this === navigator.credentials`
+public-key request with a non-empty, well-formed `excludeCredentials` (at most 64
+entries), a string or absent `rp.id`, the members the browser requires (a challenge,
+`rp.name`, a user ID, `user.name`, `user.displayName` and a `pubKeyCredParams` list), a
+known or absent mediation, a genuine signal not yet aborted, and no other credential
+type; every other request goes on at once, so a malformed one still gets the browser's
+`TypeError`. The relay checks the document as
+for `get`, with the `publickey-credentials-create` policy. The background refuses the
+request only when all of these hold:
+
+- it comes from frame 0 of the tab, and its RP ID is valid for the sender's origin
+  under [Admission](#admission);
+- in that tab, within the last five minutes, Pateat signed in there: it returned an
+  assertion for that RP ID or to a page of an origin the RP ID covers, or a Pateat login
+  of such an origin reached signed in on any route. These records are kept per tab in
+  session storage, so they outlive a service worker restart but not the browser session;
+  a closed tab's records go;
+- `excludeCredentials` lists, by credential ID, a passkey of the vault that Pateat could
+  sign with for that origin and RP ID, found by the same lookup a sign-in uses.
+
+The page then gets `NotAllowedError` with Chrome's own message, as when Chrome's own
+prompt is dismissed. A page that aborts while the check runs gets the abort reason, as
+the browser gives. A locked vault, a failed or slow lookup, an excluded site or any
+other case hands the request on unchanged. Like `get`, the own `create` accessor hides
+later `CredentialsContainer.prototype.create` patches; a provider's non-configurable
+`create` is left as it is, unchecked. Each checked request logs a value-free
+`passkey.create` entry
+([development](../development.md#why-a-passkey-request-was-delegated)).
+
+Not chosen: answering `InvalidStateError` ("already exists"), which WebAuthn returns
+only after the person confirms and which the site does not see today; and creating
+passkeys in the vault, which is passkey registration and stays later work.
 
 ### Admission
 
@@ -256,6 +316,12 @@ providers. Claimed requests
 complete unattended, and relying parties receive UV that no authenticator performed; any
 script running in a top-level page of a site with a stored passkey, including injected
 script, can obtain a verified assertion for that site without any Pateat site setting.
+For five minutes after Pateat signs in to a site in a tab, a registration there that
+lists the vault's passkey is refused, so deliberately adding another authenticator to
+that account (Windows Hello, a phone or a security key) fails in that tab during that
+time; another tab, or later, still works. The site gets Chrome's own `NotAllowedError`,
+as when Chrome's prompt is dismissed. The check reads the vault only as a
+sign-in does, writes nothing and needs no new permission.
 Registration, nonzero-counter writeback, cross-origin frames, related origins and
 extensions remain later work; conditional mediation is answered through a login under
 [ADR 0034](0034-answer-page-passkey-requests.md).

@@ -5,6 +5,7 @@ import type { VaultSyncOutcome } from "../connections/auto-sync";
 import type { RefreshReport } from "../connections/sessions";
 import type { SetupReply } from "../connections/types";
 import type { LoginReport } from "../login/runtime";
+import type { PasskeyCreateReport } from "../passkeys/create";
 import type { PasskeyRequestReport } from "../passkeys/runtime";
 import type { RecipeSyncChanges, RecipeSyncOutcome } from "../service/recipes";
 import {
@@ -527,6 +528,10 @@ export function createDiagnosticsLog(options: {
     passkey(report: PasskeyRequestReport) {
       const { tabId, ...fields } = report;
       void logger.log("passkey.request", fields, { source: { tabId, origin: report.origin } });
+    },
+    passkeyCreate(report: PasskeyCreateReport) {
+      const { tabId, ...fields } = report;
+      void logger.log("passkey.create", fields, { source: { tabId, origin: report.origin } });
     },
     /** The page's log requests; never rejects. */
     async handle(
