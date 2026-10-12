@@ -3,8 +3,9 @@
 Researched: 2026-10-12, from aube's, Bun's, pnpm's and Renovate's documentation, the npm
 registry, and trial installs of the repository at `e3acb8c` (main) in a cloud container.
 The owner asked whether to migrate from Bun to aube because Bun does not support a
-monorepo the way pnpm does. Nothing in the repository was changed; this is a proposal,
-not a decision.
+monorepo the way pnpm does. Nothing in the repository was changed; the recommendation
+below was a proposal. The owner chose aube on 2026-10-12 at 08:25 UTC; see
+[ADR 0032](../adr/0032-aube-package-manager.md).
 
 ## What Pateat uses from its package manager
 
@@ -120,7 +121,10 @@ That `aube add` rewrote `bun.lock` with 295 lines added and 350 removed: aube wr
 resolved peers into each package's `dependencies` and adds nested entries such as
 `@aklinker1/rollup-plugin-visualizer/picomatch`. Bun 1.4.3 accepted the rewritten file
 with `--frozen-lockfile` and `bun install` left it unchanged, so the two can share one
-`bun.lock`, but the first aube write produces a large one-off diff.
+`bun.lock`, but the first aube write produces a large one-off diff. Found later the
+same day: aube's own `--frozen-lockfile` refused that rewritten file, because it drops
+the `@pateat/*` workspace entries (see
+[ADR 0032](../adr/0032-aube-package-manager.md)).
 
 ## Recommendation
 
