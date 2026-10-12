@@ -17,7 +17,8 @@ PROXY_PORT="${PROXY_PORT%%/*}"
 OUT_DIR="${PROBE_OUT:-/workspace/pateat-probe}"
 REPORT="$OUT_DIR/report-$(date -u +%Y%m%dT%H%M%SZ).txt"
 KNOWN_REVISIONS="a930bcc1ad1b44ec3b0084b3ddbf7bcd47d15633 7e6c024676d70a84865e0816d25f95729a188d9b"
-export EXT_ID PROFILE_ROOT PROFILE CHROME_PROXY PROXY_PORT OUT_DIR KNOWN_REVISIONS
+PROBE_PID=$$
+export PROBE_PID EXT_ID PROFILE_ROOT PROFILE CHROME_PROXY PROXY_PORT OUT_DIR KNOWN_REVISIONS
 
 trap 'rm -f "$OUT_DIR/ddtest"' EXIT INT TERM
 
@@ -118,6 +119,8 @@ if mode == "list":
     own, current = set(), str(os.getpid())
     while current not in ("0", "?", "1"):
         own.add(current)
+        if current == os.environ.get("PROBE_PID"):
+            break
         current = status_field(current, "PPid")
     for pid in sorted(pids, key=int):
         if pid in own:
@@ -265,7 +268,7 @@ cdp_list() {
 # One URL through three routes: no proxy, the environment proxy, and Chrome's proxy.
 reach() {
 	local env_proxy="${https_proxy:-${HTTPS_PROXY:-none}}"
-	case "$1" in http://*) env_proxy="${http_proxy:-${HTTP_PROXY:-none}}" ;; esac
+	case "$1" in http://*) env_proxy="${http_proxy:-none}" ;; esac
 	curl -sS -m 30 --noproxy '*' -o /dev/null -w "%{http_code} %{time_total}s no proxy\n" "$1" 2>&1
 	if [ "$env_proxy" != none ]; then
 		curl -sS -m 30 -o /dev/null -w "%{http_code} %{time_total}s environment proxy ${env_proxy##*@}\n" "$1" 2>&1
@@ -280,15 +283,16 @@ find_text() {
 	shift
 	found=$(timeout -k 5 100 find "$@" -xdev \( -name proc -o -name sys -o -name workspace \
 		-o -name chrome-profile -o -name pateat-probe -o -name sand-data -o -name .claude \) -prune \
-		-o -type f -size -64M ! -name '*.jsonl' ! -name '*.log' ! -name '*.db' ! -name '*.db-wal' \
+		-o -type f -size -400M ! -name '*.jsonl' ! -name '*.log' ! -name '*.db' ! -name '*.db-wal' \
 		! -name '*.sqlite*' ! -name 'probe*.sh' ! -name 'report-*.txt' -print0 2>/dev/null |
-		xargs -0 -r grep -lsF -- "$text" 2>/dev/null)
-	if [ -n "$found" ]; then
-		printf '%s\n' "$found" | head -10
+		xargs -0 -r grep -lsF -- "$text" 2>/dev/null; echo "find exit ${PIPESTATUS[0]} (124 = cut off at 100 s)")
+	if [ "$(printf '%s\n' "$found" | grep -vc '^find exit')" -gt 0 ]; then
+		printf '%s\n' "$found" | grep -v '^find exit' | head -10
 	else
 		echo "none found"
 	fi
-	echo "searched (readable files under 64 MiB) in: $*"
+	printf '%s\n' "$found" | grep '^find exit'
+	echo "searched (readable files under 400 MiB) in: $*"
 }
 
 seconds_since() { awk -v s="$1" -v e="$(date +%s.%N)" 'BEGIN { printf "%.2f", e - s }'; }
