@@ -204,6 +204,9 @@ function harness(options: { existing?: boolean; prelogin?: unknown } = {}) {
     generation: crypto.randomUUID(),
   };
   const policy = {
+    register: vi.fn<ConnectionSetupDependencies["policy"]["register"]>(async () => {
+      events.push("register");
+    }),
     protectedItems: vi.fn<NonNullable<ConnectionSetupDependencies["policy"]["protectedItems"]>>(
       async () => [],
     ),
@@ -576,6 +579,35 @@ describe("manual challenges and isolated caller lifetime", () => {
         .ok,
     ).toBe(false);
     expect(h.fetch).toHaveBeenCalledTimes(4);
+  });
+  it("records the add form's policy choice before the first sign-in, so a later sign-in keeps it", async () => {
+    const h = harness();
+    h.tokenResponses.push({
+      status: 400,
+      body: { error: "invalid_grant", TwoFactorProviders2: { "0": null } },
+    });
+    const challenge = await h.caller.begin({ ...newInput(), enabled: true });
+    if (!challenge.ok || challenge.kind !== "mfa-required")
+      throw new Error("Synthetic MFA challenge failed");
+    const [configuration] = [...h.configurations.values()];
+    if (!configuration) throw new Error("Synthetic connection was not registered");
+    const connectionId = configuration.profile.connectionId;
+    expect(h.policy.register.mock.calls).toEqual([[connectionId, true]]);
+    expect(h.policy.register.mock.invocationCallOrder[0]).toBeLessThan(
+      h.registry.put.mock.invocationCallOrder[0]!,
+    );
+    // The first attempt ends unfinished; the settings page then offers "Sign in again".
+    await h.caller.cancel(challenge.flowId);
+    expect(h.policy.adopt).not.toHaveBeenCalled();
+    const ready = await h.caller.begin({
+      kind: "existing",
+      connectionId,
+      password: v1Password,
+      autoUnlock: "preserve",
+    });
+    expect(ready).toMatchObject({ ok: true, kind: "ready", connectionId });
+    expect(h.policy.register).toHaveBeenCalledTimes(1);
+    expect(h.policy.adopt).toHaveBeenCalledTimes(1);
   });
   it("revoked permission between challenge and continuation prevents the next HTTP request", async () => {
     const h = harness();
@@ -1524,7 +1556,7 @@ describe("permission removal across connections", () => {
         put: vi.fn(),
         remove: vi.fn(),
       },
-      policy: { adopt: vi.fn() },
+      policy: { register: vi.fn(), adopt: vi.fn() },
       vaultFor: vi.fn(),
       sessions: createProviderSessions({
         storeFor: (profile) => memories.get(profile.connectionId)!.store,

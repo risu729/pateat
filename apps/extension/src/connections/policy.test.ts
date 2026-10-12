@@ -421,3 +421,35 @@ describe("snapshot-bound custom field policy", () => {
     },
   );
 });
+
+describe("policy choice of a new connection", () => {
+  it.each([true, false])(
+    "a sign-in that completes after registration keeps the add form's choice (enabled=%s)",
+    async (enabled) => {
+      const h = harness();
+      h.setSnapshot({ ...h.read(), settings: { ...h.read().settings, connections: [] } });
+      await h.policy.register(accountProfile.connectionId, enabled);
+      // "Sign in again" passes no choice; the first adoption must not fall back to disabled.
+      await h.adopt();
+      expect(h.read().settings.connections).toMatchObject([
+        { connectionId: accountProfile.connectionId, enabled },
+      ]);
+    },
+  );
+  it("a sign-in after registration keeps a later edit on the settings page", async () => {
+    const h = harness();
+    h.setSnapshot({ ...h.read(), settings: { ...h.read().settings, connections: [] } });
+    await h.policy.register(accountProfile.connectionId, true);
+    const edited = h.read();
+    edited.settings.connections[0]!.enabled = false;
+    h.setSnapshot(edited);
+    await h.adopt();
+    expect(h.read().settings.connections).toMatchObject([{ enabled: false }]);
+  });
+  it("registration never changes a connection that already has a policy entry", async () => {
+    const h = harness();
+    const before = h.read().settings.connections;
+    await h.policy.register(accountProfile.connectionId, true);
+    expect(h.read().settings.connections).toEqual(before);
+  });
+});

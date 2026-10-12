@@ -461,6 +461,12 @@ Saved settings, recipes and their field-policy entries are not modified; anythin
 referred to the deleted connection resolves as an unavailable connection. This is how
 a connection left over by a failed first sign-in is removed.
 
+The add form's **Enable this connection in Pateat policy** choice becomes the
+connection's entry in **Vault access policy** when the connection is added, before
+its first sign-in. If that sign-in does not finish, **Sign in again** completes the
+setup and keeps the choice. Sign-ins never change the entry; the policy is edited on
+the settings page. Like other saved settings, the entry stays after Delete connection.
+
 Connecting retains the local unlock key and encrypted cache. Disabling automatic
 unlock removes the retained key; signing in again does not implicitly re-enable
 it. A cancellation or timeout during the durable write can leave an accepted
