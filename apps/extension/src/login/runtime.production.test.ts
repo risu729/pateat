@@ -14541,57 +14541,241 @@ describe("the start page's own passkey request (ADR 0034)", () => {
     expect(await request.decision).toEqual({ kind: "delegate", reason: "login-ended" });
   });
 
-  it("hands a request on during a login that only fills after a logout", async () => {
+  describe("while the tab asks for an account after a logout (ADR 0021 D)", () => {
     const both = uriMatch({
       candidates: [
         { itemId, matches: [{ uriIndex: 0, match: 0 }] },
         { itemId: otherItemId, matches: [{ uriIndex: 0, match: 0 }] },
       ],
     });
-    // The item holds a discoverable passkey, yet the login after the logout only fills.
-    const { h, report } = start(recipe, {
-      allowedOrigins: [],
-      uris: async () => ({ ok: true, data: both }),
-    });
-    signsInOnClick();
-    expect(await h.hello()).toEqual({ ok: true });
-    await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]));
-    // The form shows again after a logout; the fill that follows never answers.
-    fake.state.present = new Set(["password", "login"]);
-    fake.state.onExecute = () => new Promise(() => undefined);
-    expect(await h.hello({ documentId: "signed-out" })).toEqual({ ok: true });
-    await vi.waitFor(() => expect(fills()).toBe(2));
-    expect(status()![0]).toMatchObject({ fillOnly: true, route: "password" });
-    const request = ask(h, { documentId: "signed-out" });
-    expect(await request.decision).toEqual({ kind: "delegate", reason: "after-logout" });
-    expect(routeChanges(report)).toEqual([]);
-  });
+    const matching = { allowedOrigins: [], uris: async () => ({ ok: true as const, data: both }) };
+    const popup = {
+      id: "synthetic-extension",
+      url: "chrome-extension://synthetic-extension/popup.html",
+    } as never;
+    const choice = (h: ReturnType<typeof harness>) =>
+      h.login.handle({ version: 1, type: "login.choice.get", tabId: 1 }, popup);
+    /** The person picks an account in the popup for the asked document. */
+    const pick = (
+      h: ReturnType<typeof harness>,
+      overrides: Partial<{ documentId: string; itemId: string }> = {},
+    ) =>
+      h.login.handle(
+        {
+          version: 1,
+          type: "login.choice.pick",
+          tabId: 1,
+          documentId: "signed-out",
+          connectionId,
+          itemId: otherItemId,
+          makeDefault: false,
+          ...overrides,
+        },
+        popup,
+      );
+    /** A login with the saved default signs in; the form then shows in a new document. */
+    const signedIn = async (live: Parameters<typeof harness>[1] = {}) => {
+      const started = start(recipe, { ...matching, ...live });
+      signsInOnClick();
+      expect(await started.h.hello()).toEqual({ ok: true });
+      await until(settled("authenticated"), 20_000);
+      fake.state.present = new Set(["password", "login"]);
+      return started;
+    };
+    /**
+     * Without a saved default, a picked account signs in; the form then shows in a new
+     * document, which only asks: the popup offers both accounts.
+     */
+    const loggedOut = async (live: Parameters<typeof harness>[1] = {}) => {
+      const started = start(recipe, { ...matching, ...live }, { siteDefaults: [], bindings: [] });
+      const { h } = started;
+      expect(await h.hello()).toEqual({ ok: false, reason: "account-ambiguous" });
+      fake.state.onReconnect = () => h.hello();
+      signsInOnClick();
+      expect(await pick(h, { documentId: "synthetic-document", itemId })).toEqual({ ok: true });
+      await until(settled("authenticated"), 20_000);
+      fake.state.present = new Set(["password", "login"]);
+      fake.state.onExecute = undefined;
+      expect(await h.hello({ documentId: "signed-out" })).toEqual({
+        ok: false,
+        reason: "logged-out",
+      });
+      expect(await choice(h)).toMatchObject({ documentId: "signed-out", logout: true });
+      fake.state.onReconnect = () => h.hello({ documentId: "signed-out" });
+      return started;
+    };
 
-  it("does not answer a login that only fills after a logout when the request came first", async () => {
-    const both = uriMatch({
-      candidates: [
-        { itemId, matches: [{ uriIndex: 0, match: 0 }] },
-        { itemId: otherItemId, matches: [{ uriIndex: 0, match: 0 }] },
-      ],
+    it("keeps a request waiting during a login that only fills after a logout, and after it", async () => {
+      vi.useFakeTimers();
+      // The item holds a discoverable passkey, yet the login after the logout only fills.
+      const { h, report } = await signedIn();
+      let release!: () => void;
+      const held = new Promise<void>((resolve) => (release = resolve));
+      fake.state.onExecute = () => held;
+      expect(await h.hello({ documentId: "signed-out" })).toEqual({ ok: true });
+      await until(() => fills() === 2, 5_000);
+      expect(status()![0]).toMatchObject({ fillOnly: true, route: "password" });
+      const request = ask(h, { documentId: "signed-out" });
+      await flush();
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(request.decided()).toBeUndefined();
+      // The fill ends and the tab asks; the request still waits for the pick.
+      release();
+      await until(() => fake.state.badges[1]?.text === "2", 5_000);
+      expect(await h.login.active()).toBe(false);
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(request.decided()).toBeUndefined();
+      expect(fills()).toBe(2);
+      expect(clicks("login")).toBe(1);
+      expect(routeChanges(report)).toEqual([]);
     });
-    const { h, report } = start(recipe, {
-      allowedOrigins: [],
-      uris: async () => ({ ok: true, data: both }),
+
+    it("does not answer a login that only fills after a logout when the request came first", async () => {
+      vi.useFakeTimers();
+      const { h, report } = await signedIn();
+      // The signed-out page asks for a passkey before its form is ready.
+      fake.state.onExecute = () => new Promise(() => undefined);
+      const request = ask(h, { documentId: "signed-out" });
+      await flush();
+      expect(await h.hello({ documentId: "signed-out" })).toEqual({ ok: true });
+      await until(() => fills() === 2, 5_000);
+      expect(status()![0]).toMatchObject({ fillOnly: true, route: "password" });
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(request.decided()).toBeUndefined();
+      expect(status()![0]).toMatchObject({ fillOnly: true, route: "password" });
+      expect(clicks("login")).toBe(1);
+      expect(routeChanges(report)).toEqual([]);
     });
-    signsInOnClick();
-    expect(await h.hello()).toEqual({ ok: true });
-    await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]));
-    // The signed-out page asks for a passkey before its form is ready.
-    fake.state.present = new Set(["password", "login"]);
-    fake.state.onExecute = () => new Promise(() => undefined);
-    const request = ask(h, { documentId: "signed-out" });
-    await flush();
-    expect(await h.hello({ documentId: "signed-out" })).toEqual({ ok: true });
-    expect(await request.decision).toEqual({ kind: "delegate", reason: "after-logout" });
-    await vi.waitFor(() => expect(fills()).toBe(2));
-    expect(status()![0]).toMatchObject({ fillOnly: true, route: "password" });
-    expect(clicks("login")).toBe(1);
-    expect(routeChanges(report)).toEqual([]);
+
+    it("answers a waiting request with the account picked in the popup, on the passkey route", async () => {
+      vi.useFakeTimers();
+      const { h, report } = await loggedOut();
+      expect(await choice(h)).toMatchObject({
+        candidates: [
+          { connectionId, itemId },
+          { connectionId, itemId: otherItemId },
+        ],
+      });
+      const request = ask(h, { documentId: "signed-out" });
+      await flush();
+      // The tab asks, so the request is not handed on after three seconds.
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(request.decided()).toBeUndefined();
+      const filled = fills();
+      expect(await pick(h)).toEqual({ ok: true });
+      await until(() => request.decided() !== undefined, 5_000);
+      expect(request.decided()).toMatchObject({
+        kind: "answer",
+        item: { connectionId, itemId: otherItemId },
+      });
+      expect(status()![0]).toMatchObject({
+        route: "passkey",
+        state: "submit-intent",
+        submissions: 1,
+        account: { connectionId, itemId: otherItemId },
+      });
+      fake.state.present = new Set(["authenticated"]);
+      (request.decided() as Extract<ConditionalDecision, { kind: "answer" }>).answered(true);
+      await until(settled("authenticated"), 20_000);
+      expect(status()![0]).toMatchObject({
+        route: "passkey",
+        account: { connectionId, itemId: otherItemId },
+      });
+      expect(fills()).toBe(filled);
+      expect(clicks("login")).toBe(1);
+      expect(
+        report.mock.calls.map(([entry]) => entry).filter((entry) => entry.type === "start"),
+      ).toEqual([
+        expect.objectContaining({ route: "password", account: "pick" }),
+        expect.objectContaining({ route: "passkey", account: "pick" }),
+      ]);
+      expect(routeChanges(report)).toEqual([]);
+    });
+
+    it("answers a request kept through a login that only filled with the account picked next", async () => {
+      vi.useFakeTimers();
+      const { h, report } = await signedIn();
+      fake.state.onExecute = undefined;
+      const request = ask(h, { documentId: "signed-out" });
+      await flush();
+      expect(await h.hello({ documentId: "signed-out" })).toEqual({ ok: true });
+      await until(() => fake.state.badges[1]?.text === "2", 5_000);
+      expect(fills()).toBe(2);
+      expect(await h.login.active()).toBe(false);
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(request.decided()).toBeUndefined();
+      fake.state.onReconnect = () => h.hello({ documentId: "signed-out" });
+      expect(await pick(h)).toEqual({ ok: true });
+      await until(() => request.decided() !== undefined, 5_000);
+      expect(request.decided()).toMatchObject({
+        kind: "answer",
+        item: { connectionId, itemId: otherItemId },
+      });
+      fake.state.present = new Set(["authenticated"]);
+      (request.decided() as Extract<ConditionalDecision, { kind: "answer" }>).answered(true);
+      await until(settled("authenticated"), 20_000);
+      expect(status()![0]).toMatchObject({
+        route: "passkey",
+        account: { connectionId, itemId: otherItemId },
+      });
+      // Nothing was pressed after the logout, and the pick filled nothing.
+      expect(fills()).toBe(2);
+      expect(clicks("login")).toBe(1);
+      expect(report.mock.calls.map(([entry]) => entry)).toContainEqual(
+        expect.objectContaining({ type: "start", route: "passkey", account: "pick" }),
+      );
+      expect(routeChanges(report)).toEqual([]);
+    });
+
+    it("withholds a request of the asked document after four minutes", async () => {
+      vi.useFakeTimers();
+      const { h } = await loggedOut();
+      const sent = executed().length;
+      const request = ask(h, { documentId: "signed-out" });
+      await flush();
+      await vi.advanceTimersByTimeAsync(235_000);
+      expect(request.decided()).toBeUndefined();
+      await until(() => request.decided() !== undefined, 10_000);
+      expect(request.decided()).toEqual({ kind: "withhold" });
+      expect(executed()).toHaveLength(sent);
+    });
+
+    it("hands on a request of another document of the tab that was not asked", async () => {
+      vi.useFakeTimers();
+      const { h } = await loggedOut();
+      const request = ask(h, { documentId: "other-page" });
+      await flush();
+      await vi.advanceTimersByTimeAsync(2_500);
+      expect(request.decided()).toBeUndefined();
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(request.decided()).toEqual({ kind: "delegate", reason: "no-login" });
+    });
+
+    it("logs a picked account without a discoverable passkey in with the password, then withholds", async () => {
+      vi.useFakeTimers();
+      const passkeys = vi.fn(async (account: unknown) =>
+        (account as { itemId: string }).itemId === otherItemId
+          ? { passkey: false, discoverable: false }
+          : { passkey: true, discoverable: true },
+      );
+      const { h, report } = await loggedOut({ passkeys });
+      const request = ask(h, { documentId: "signed-out" });
+      await flush();
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(request.decided()).toBeUndefined();
+      signsInOnClick();
+      expect(await pick(h)).toEqual({ ok: true });
+      await until(settled("authenticated"), 20_000);
+      expect(status()![0]).toMatchObject({
+        route: "password",
+        account: { connectionId, itemId: otherItemId },
+      });
+      await until(() => request.decided() !== undefined, 5_000);
+      expect(request.decided()).toEqual({ kind: "withhold" });
+      expect(fills()).toBe(2);
+      expect(clicks("login")).toBe(2);
+      expect(routeChanges(report)).toEqual([]);
+    });
   });
 
   it("falls back as a missing request when the request went away as it was answered", async () => {
