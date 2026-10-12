@@ -1010,7 +1010,16 @@ describe("production login document admission", () => {
     expect(fake.state.messages.filter((entry) => entry.type === "login.await")).toHaveLength(3);
     expect(
       report.mock.calls.map(([entry]) => (entry.type === "attempt" ? entry.state : entry.type)),
-    ).toEqual(["ready", "retryable", "ready", "retryable", "ready", "retryable", "blocked"]);
+    ).toEqual([
+      "start",
+      "ready",
+      "retryable",
+      "ready",
+      "retryable",
+      "ready",
+      "retryable",
+      "blocked",
+    ]);
     expect(h.fields).not.toHaveBeenCalled();
     expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.execute");
   });
@@ -2421,9 +2430,30 @@ describe("production login document admission", () => {
     });
     it("logs in with the only URI-matched item and saves the choice after authenticated", async () => {
       const uris = vi.fn<LiveUriMatcher>(async () => ({ ok: true, data: uriMatch() }));
-      const h = harness(unsaved, { allowedOrigins: [], uris });
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness(unsaved, { allowedOrigins: [], uris, report });
       expect(await h.hello()).toEqual({ ok: true });
       await vi.waitFor(() => expect(h.store.update).toHaveBeenCalledTimes(1));
+      // The log names how the account was chosen, and that the choice was saved.
+      const decisions = () =>
+        report.mock.calls
+          .map(([entry]) => entry)
+          .filter((entry) => entry.type === "start" || entry.type === "choice");
+      await vi.waitFor(() => expect(decisions()).toHaveLength(2));
+      expect(decisions()).toEqual([
+        {
+          type: "start",
+          tabId: 1,
+          origin,
+          recipeId: recipe.id,
+          route: "password",
+          variant: 0,
+          account: "match",
+          candidates: 1,
+          itemId,
+        },
+        { type: "choice", tabId: 1, origin, outcome: "saved" },
+      ]);
       expect(h.fields.mock.calls[0]![0]).toMatchObject({
         account: { origin, connectionId, itemId },
         fieldId: "login.password",
@@ -3592,6 +3622,23 @@ describe("production login document admission", () => {
             }),
           );
           expect(refusals().filter((entry) => entry.reason === "logged-out")).toHaveLength(2);
+          // The logout itself, and each login with how its account was chosen.
+          const decisions = report.mock.calls
+            .map(([entry]) => entry)
+            .filter((entry) => entry.type === "start" || entry.type === "logout");
+          expect(decisions).toEqual([
+            expect.objectContaining({ type: "start", tabId: 1, account: "default" }),
+            { type: "logout", tabId: 1, origin, recipeId: recipe.id },
+            expect.objectContaining({
+              type: "start",
+              tabId: 1,
+              account: "default",
+              candidates: 2,
+              fillOnly: true,
+            }),
+            expect.objectContaining({ type: "start", tabId: 2, fillOnly: true }),
+          ]);
+          expect(decisions[0]).not.toHaveProperty("itemId");
         });
         it("asks in other tabs of the site while it asks, and a pick there logs in", async () => {
           const h = await loggedOut();

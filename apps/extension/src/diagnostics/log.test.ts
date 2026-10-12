@@ -1012,6 +1012,50 @@ describe("unhandled errors", () => {
     vi.restoreAllMocks();
   });
 
+  it("logs a login's start, the account choice and a logout at info", async () => {
+    const log = createDiagnosticsLog({
+      build: { version: "0.1.0", revision: "1c42ad3" },
+      settings: async () => {
+        throw new Error("not needed");
+      },
+      recipeCache: async () => undefined,
+      connections: async () => ({ ok: true, kind: "status", connections: [] }),
+      databaseName: `log-test-${crypto.randomUUID()}`,
+      scope: { addEventListener: () => undefined } as never,
+    });
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const site = { tabId: 4, origin: "https://login.example" };
+    const itemId = "80000000-0000-4000-8000-000000000001";
+    log.login({
+      type: "start",
+      ...site,
+      recipeId: "synthetic-recipe",
+      route: "password",
+      variant: 0,
+      account: "match",
+      candidates: 1,
+      itemId,
+    });
+    log.login({ type: "choice", ...site, outcome: "saved" });
+    log.login({ type: "logout", ...site, recipeId: "synthetic-recipe" });
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(3));
+    const entries = await log.logger.entries();
+    expect(entries.map((entry) => [entry.event, entry.level])).toEqual([
+      ["login.start", "info"],
+      ["login.choice", "info"],
+      ["login.logout", "info"],
+    ]);
+    expect(entries[0]?.fields).toMatchObject({
+      route: "password",
+      variant: 0,
+      account: "match",
+      candidates: 1,
+      item: expect.stringMatching(/^item:[0-9a-f]{8}$/),
+    });
+    expect(JSON.stringify(entries)).not.toContain(itemId);
+    vi.restoreAllMocks();
+  });
+
   it("finds positions only inside this extension", () => {
     expect(
       stackPositions(

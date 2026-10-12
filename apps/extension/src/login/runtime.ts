@@ -586,9 +586,12 @@ type GenerationScope = {
  * uses `recipes`; the loopback probe adapter and its controls exist only in the probe build.
  * Account metadata comes from each live settings read; values come from `fields` per fill.
  */
+/** How a login's account was chosen (ADR 0013, ADR 0021). */
+export type AccountSource = "default" | "match" | "pick";
 /**
  * A value-free account of what the runtime decided, for the local log (ADR 0019). The
- * origin and recipe ID are reduced there; account and item IDs are never included.
+ * origin and recipe ID are reduced there; no account ID is included, and the only item ID,
+ * a `start`'s, is logged as a pseudonym.
  */
 export type LoginReport =
   | {
@@ -635,6 +638,46 @@ export type LoginReport =
        * tab, so the refusal is ordinary browsing (ADR 0019).
        */
       unrelated?: true;
+    }
+  | {
+      /** A new login started (ADR 0019). */
+      type: "start";
+      tabId: number;
+      origin: string;
+      recipeId: string;
+      route: LoginRoute;
+      variant?: number;
+      /** How the account was chosen; absent in the probe build. */
+      account?: AccountSource;
+      /** For an account found by URI match or asked after a logout: the candidate count. */
+      candidates?: number;
+      /** For an account found by URI match: the item, logged only as a pseudonym. */
+      itemId?: string;
+      /** The login fills the page without pressing anything, after a logout (ADR 0021 D). */
+      fillOnly?: true;
+    }
+  | {
+      /** The recipe's first step showed again after a finished login (ADR 0021 D). */
+      type: "logout";
+      tabId: number;
+      origin: string;
+      recipeId: string;
+    }
+  | {
+      /**
+       * Whether an automatic or picked account choice was saved after the login
+       * authenticated (ADR 0013), and why not.
+       */
+      type: "choice";
+      tabId: number;
+      origin: string;
+      outcome:
+        | "saved"
+        | "already-saved"
+        | "account-changed"
+        | "login-in-progress"
+        | "settings-unavailable"
+        | "write-failed";
     }
   | {
       /** An exception stopped a login; only its class name and message are passed on. */
@@ -1367,17 +1410,28 @@ export function createLoginRuntime(
     const choice = run.choice;
     delete run.choice;
     const { account: used } = run.metadata;
+    if (!choice || !settings.update) return;
+    const outcome = (value: Extract<LoginReport, { type: "choice" }>["outcome"]) =>
+      report({
+        type: "choice",
+        tabId: run.metadata.document.tabId,
+        origin: run.metadata.document.origin,
+        outcome: value,
+      });
+    // Only the account this attempt authenticated with may be saved.
     if (
-      !choice ||
-      !settings.update ||
-      // Only the account this attempt authenticated with may be saved.
       choice.connectionId !== used.connectionId ||
       choice.binding.itemId !== used.itemId ||
-      choice.binding.origin !== used.origin ||
-      // Saving bumps the revision every attempt checks; never stop another login with it.
-      [...attempts.values()].some((other) => other !== run && inProgress(other))
-    )
+      choice.binding.origin !== used.origin
+    ) {
+      outcome("account-changed");
       return;
+    }
+    // Saving bumps the revision every attempt checks; never stop another login with it.
+    if ([...attempts.values()].some((other) => other !== run && inProgress(other))) {
+      outcome("login-in-progress");
+      return;
+    }
     // A login another tab is admitting waits for this save, which no in-progress check above
     // can see yet (see `admit`).
     let finish!: () => void;
@@ -1386,16 +1440,32 @@ export function createLoginRuntime(
     let writing = false;
     try {
       // Writing bumps the policy revision for every attempt, so skip a choice already saved.
-      const latest = await settings.handle({ version: 1, type: "settings.get" });
-      if (!latest.ok || withChoice(latest.snapshot.settings, choice) === latest.snapshot.settings)
+      const latest = await settings
+        .handle({ version: 1, type: "settings.get" })
+        .catch((error: unknown) => {
+          outcome("settings-unavailable");
+          throw error;
+        });
+      if (!latest.ok) {
+        outcome("settings-unavailable");
         return;
+      }
+      if (withChoice(latest.snapshot.settings, choice) === latest.snapshot.settings) {
+        outcome("already-saved");
+        return;
+      }
       writing = true;
-      await settings
-        .update(run.metadata.policyRevision, (snapshot) => ({
-          ...snapshot,
-          settings: withChoice(snapshot.settings, choice),
-        }))
-        .catch(() => undefined);
+      outcome(
+        await settings
+          .update(run.metadata.policyRevision, (snapshot) => ({
+            ...snapshot,
+            settings: withChoice(snapshot.settings, choice),
+          }))
+          .then(
+            () => "saved" as const,
+            () => "write-failed" as const,
+          ),
+      );
     } finally {
       if (writing) remembered += 1;
       savingChoices.delete(saving);
@@ -1455,6 +1525,12 @@ export function createLoginRuntime(
     connectionId: string;
     itemId: string;
     saved: boolean;
+    /**
+     * How the account was chosen: the saved site default, the only provider URI match
+     * (ADR 0013) or a pick in the popup; with how many candidates there were.
+     */
+    source: AccountSource;
+    candidates?: number;
     pick?: PickedAccount;
     /** After a logout: fill the page without any step with an effect (ADR 0021 D). */
     fillOnly?: true;
@@ -1492,7 +1568,13 @@ export function createLoginRuntime(
         ? pick.documentId === live.document.documentId
         : owner?.id === pick.attemptId)
     )
-      return { connectionId: pick.connectionId, itemId: pick.itemId, saved: false, pick };
+      return {
+        connectionId: pick.connectionId,
+        itemId: pick.itemId,
+        saved: false,
+        source: "pick",
+        pick,
+      };
     const saved = snapshot.snapshot.settings.siteDefaults.find(
       (entry) => entry.origin === live.document.origin,
     );
@@ -1526,13 +1608,25 @@ export function createLoginRuntime(
           ? listed[0]
           : undefined;
       if (fill && only)
-        return { ...only, saved: Boolean(saved), fillOnly: true, asked: listed.slice(0, 100) };
+        return {
+          ...only,
+          saved: Boolean(saved),
+          source: saved ? "default" : "match",
+          candidates: listed.length,
+          fillOnly: true,
+          asked: listed.slice(0, 100),
+        };
       return { reason: "logged-out", candidates: listed.slice(0, 100), logout: true };
     }
     if (saved) {
       const connection = siteDefaultConnection(saved, snapshot.catalog);
       return connection.ok
-        ? { connectionId: connection.connectionId, itemId: saved.itemId, saved: true }
+        ? {
+            connectionId: connection.connectionId,
+            itemId: saved.itemId,
+            saved: true,
+            source: "default",
+          }
         : { reason: connection.reason };
     }
     if (!uris) return { reason: "default-not-set" };
@@ -1542,7 +1636,13 @@ export function createLoginRuntime(
     );
     const cached = live.autoChoice;
     if (cached?.snapshots === snapshots)
-      return { connectionId: cached.connectionId, itemId: cached.itemId, saved: false };
+      return {
+        connectionId: cached.connectionId,
+        itemId: cached.itemId,
+        saved: false,
+        source: "match",
+        candidates: 1,
+      };
     delete live.autoChoice;
     const found = await siteCandidates(snapshot, live);
     if ("reason" in found) return { reason: found.reason };
@@ -1564,7 +1664,13 @@ export function createLoginRuntime(
       snapshotId: only.snapshotId,
     };
     live.autoChoice = { snapshots, connectionId: only.connectionId, itemId: only.itemId };
-    return { connectionId: only.connectionId, itemId: only.itemId, saved: false };
+    return {
+      connectionId: only.connectionId,
+      itemId: only.itemId,
+      saved: false,
+      source: "match",
+      candidates: candidates.length,
+    };
   }
   /**
    * Origin scope for the chosen account of this document. A live provider URI match for
@@ -1951,6 +2057,14 @@ export function createLoginRuntime(
         ...plan,
         connection,
         route,
+        ...(chosen
+          ? {
+              chosen: {
+                source: chosen.source,
+                ...(chosen.candidates === undefined ? {} : { candidates: chosen.candidates }),
+              },
+            }
+          : {}),
         ...(choice ? { choice } : {}),
         ...(chosen?.fillOnly ? { fillOnly: true as const, asked: chosen.asked ?? [] } : {}),
       };
@@ -3906,6 +4020,14 @@ export function createLoginRuntime(
         logouts.delete(logoutKey);
         return refuse("storage-unavailable");
       }
+      // Logged once the logout is stored; a failed store undoes it, and the page's next
+      // announcement recognizes it again.
+      report({
+        type: "logout",
+        tabId: document.tabId,
+        origin: document.origin,
+        recipeId: released.recipeId,
+      });
       try {
         await forget(logoutKey);
       } catch {
@@ -4235,6 +4357,25 @@ export function createLoginRuntime(
     )
       run.inPlace = before.inPlace;
     attempts.set(document.tabId, run);
+    if (!previous)
+      report({
+        type: "start",
+        tabId: document.tabId,
+        origin: document.origin,
+        recipeId: metadata.recipeId,
+        route: metadata.route,
+        ...(metadata.variant === undefined ? {} : { variant: metadata.variant }),
+        ...("chosen" in plan && plan.chosen
+          ? {
+              account: plan.chosen.source,
+              ...(plan.chosen.candidates === undefined
+                ? {}
+                : { candidates: plan.chosen.candidates }),
+              ...(plan.chosen.source === "match" ? { itemId: metadata.account.itemId } : {}),
+            }
+          : {}),
+        ...(metadata.fillOnly ? { fillOnly: true as const } : {}),
+      });
     // Each new document of the tab resumes the attempt; only a change is news.
     reportAttempt(
       metadata,
