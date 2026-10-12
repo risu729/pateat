@@ -452,7 +452,7 @@ test("a synchronous field replacement cannot redirect the remaining values", asy
         .poll(async () =>
           JSON.stringify(await send(options, { version: 1, type: "login.probe.status" })),
         )
-        .toMatch(/cancelled|structural-mismatch/);
+        .toMatch(/cancelled|retry-limit/);
       await expect(page.locator("#decoy")).toHaveValue("");
       await expect(page.locator("#account")).toHaveValue("");
       expect(await page.evaluate(() => Number(sessionStorage.getItem("identityClicks") || 0))).toBe(
@@ -1198,6 +1198,8 @@ test("clicks the account switch once and logs in on the page it leads to", async
 });
 
 test("clicks a submit button or image button named by its text, and refuses a duplicate", async () => {
+  // The duplicate's click step waits ten seconds, then twice more on its retries.
+  test.setTimeout(90_000);
   const fixture = await startLoginFixture();
   try {
     await withLoginExtension(async (context, _worker, id) => {
@@ -1216,8 +1218,9 @@ test("clicks a submit button or image button named by its text, and refuses a du
       await authenticates("image");
       const duplicate = await context.newPage();
       await duplicate.goto(`${fixture.origin}/text-submit?button=duplicate`);
-      // An ambiguous click target is waited on like a missing one, for up to 10 s.
-      await expect.poll(status, { timeout: 15_000 }).toContain("structural-mismatch");
+      // An ambiguous click target is waited on like a missing one, for up to 10 s, and the
+      // step is tried twice more before the attempt stops.
+      await expect.poll(status, { timeout: 45_000 }).toContain("retry-limit");
       // The fill step ran, so the attempt stopped at the ambiguous click.
       await expect(duplicate.locator("#password")).not.toHaveValue("");
       expect(await clicks(duplicate)).toBe(0);
@@ -1299,27 +1302,27 @@ test("a password fills only a password input and one step stays inside one form"
         JSON.stringify(await send(options, { version: 1, type: "login.probe.status" }));
       const text = await context.newPage();
       await text.goto(`${fixture.origin}/single?password-input=text`);
-      await expect.poll(status).toContain("structural-mismatch");
+      await expect.poll(status).toContain("retry-limit");
       await expect(text.locator("#password")).toHaveValue("");
       expect(await clicks(text)).toBe(0);
       await text.close();
-      await expect.poll(status).not.toContain("structural-mismatch");
+      await expect.poll(status).not.toContain("retry-limit");
       const split = await context.newPage();
       await split.goto(`${fixture.origin}/identity?split-forms`);
-      await expect.poll(status).toContain("structural-mismatch");
+      await expect.poll(status).toContain("retry-limit");
       await expect(split.locator("#branch")).toHaveValue("");
       await expect(split.locator("#account")).toHaveValue("");
       expect(
         await split.evaluate(() => Number(sessionStorage.getItem("identityClicks") || 0)),
       ).toBe(0);
       await split.close();
-      await expect.poll(status).not.toContain("structural-mismatch");
+      await expect.poll(status).not.toContain("retry-limit");
       const mixed = await context.newPage();
       await mixed.goto(`${fixture.origin}/identity?account-form`);
-      await expect.poll(status).toContain("structural-mismatch");
+      await expect.poll(status).toContain("retry-limit");
       await expect(mixed.locator("#branch")).toHaveValue("");
       await mixed.close();
-      await expect.poll(status).not.toContain("structural-mismatch");
+      await expect.poll(status).not.toContain("retry-limit");
       // A page handler that moves the next input into another form stops the remaining writes.
       const moved = await context.newPage();
       await moved.goto(`${fixture.origin}/identity?move-on-fill`);
@@ -1640,7 +1643,9 @@ test("a later page that renders its form late continues the multi-page login", a
   }
 });
 
-test("a step whose element never appears stops after ten seconds without a click", async () => {
+test("a step whose element never appears stops after two retries of ten seconds without a click", async () => {
+  // The first wait and each of its two retries waits ten seconds for the button.
+  test.setTimeout(60_000);
   const fixture = await startLoginFixture();
   try {
     await withLoginExtension(async (context, _worker, id) => {
@@ -1651,12 +1656,12 @@ test("a step whose element never appears stops after ten seconds without a click
       await page.goto(`${fixture.origin}/slow-button?never`);
       await expect
         .poll(async () => await send(options, { version: 1, type: "login.probe.status" }), {
-          timeout: 15_000,
+          timeout: 45_000,
         })
         .toMatchObject({
-          attempts: [{ state: "retryable", outcome: "structural-mismatch", submissions: 0 }],
+          attempts: [{ state: "blocked", outcome: "retry-limit", retries: 2, submissions: 0 }],
         });
-      expect(Date.now() - started).toBeGreaterThanOrEqual(9_500);
+      expect(Date.now() - started).toBeGreaterThanOrEqual(29_500);
       expect(await clicks(page)).toBe(0);
     });
   } finally {
