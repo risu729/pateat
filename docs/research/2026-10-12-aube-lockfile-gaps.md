@@ -29,10 +29,11 @@ v9 in place ([lockfiles](https://aube.sh/package-manager/lockfiles)). It also sa
 original package manager can keep using the same file during rollout"
 ([troubleshooting](https://aube.sh/troubleshooting)). The
 [aube for Bun users](https://aube.sh/bun-users) page says aube keeps `lockfileVersion`
-`1` or `2`. All four gaps break one of those statements. Bug reports go to GitHub Issues
-(aube README). The repository has no issue template, and the troubleshooting page asks
-for the command, the first error, the error code, the versions, the OS and a minimal
-reproduction.
+`1` or `2`. All four gaps break one of those statements. Where to report is
+inconsistent: the aube README says GitHub Issues, but aube's `AGENTS.md` says issues are
+disabled and support goes to GitHub Discussions, where gap 2 was reported. The
+troubleshooting page asks for the command, the first error, the error code, the
+versions, the OS and a minimal reproduction.
 
 ## Reproductions
 
@@ -81,6 +82,7 @@ echo '{ "name": "repro", "private": true, "dependencies": { "react": "19.2.0", "
 bun install
 aube update scheduler   # any aube write; scheduler is transitive and stays 0.27.0
 bun add react@19.2.1    # later, someone bumps React with Bun
+mv node_modules node_modules.aube && bun install --frozen-lockfile   # clean layout
 ```
 
 After `aube update scheduler` (on 2.7.0 and on main), the `bun.lock` entry for react-dom
@@ -93,8 +95,10 @@ gains its resolved peer:
 
 Bun 1.4.3 accepts that file unchanged with `--frozen-lockfile` and treats the peer as an
 exact dependency. After `bun add react@19.2.1`, the file has
-`"react-dom/react": ["react@19.2.0", …]`, and
+`"react-dom/react": ["react@19.2.0", …]`, and after the clean install
 `node_modules/react-dom/node_modules/react` is React 19.2.0 next to the root's 19.2.1.
+(Without the clean install, aube's own links into its virtual store stay in
+`node_modules` and also show a nested React.)
 With Bun alone, the same steps leave one React 19.2.1. In aube's writer, the resolved
 peer sits in `pkg.dependencies` with no declared range, so
 `crates/aube-lockfile/src/bun/write.rs` (lines 285 to 297 at 1443128) writes the exact
