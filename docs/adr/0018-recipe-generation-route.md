@@ -94,23 +94,25 @@ new owner decision:
   device reads the recipe change feed, since routine releases do not apply scheduled
   triggers. Requests refused locally before any model call are not logged.
 - The extension sends the page after the final submission once the usual three-second
-  observation finds no other result. A page that still has one of the recipe's fields
-  on one of its paths, or shows one on another path, is not sent, since the sign-in has
-  not finished there. Each
+  observation finds no other result. A page that still shows one of the recipe's fields
+  on one of its paths is not sent, since the sign-in has not finished there. Each
   attempt sends at most one such page while the extension's service worker runs; an
   attempt resumed after the worker restarts may send it again, within the daily limit.
 - That page is described by `extractSignedInObservation`: every field on the page, which
-  the judge needs to refuse a page that still shows a sign-in field, except a read-only,
-  transparent or tiny field that does not look like one (no password or email type, no
-  autocomplete hint, not a short numeric field), such as a hotel search's read-only date
-  picker (2026-10-12); a disabled field always makes the page incomplete, as a code
-  field waiting for a timer may be disabled. Then come buttons and links as possible
-  markers up to the 48-candidate limit, those in the page header or navigation first. A
-  link may be located by its text, and the executor then finds the completion marker by
-  that text; text with a digit never locates a marker. An `id`, `name` or `data-testid`
-  value that the label redaction would change is never used as a locator there, since
-  signed-in pages often name the account in them: such a button or link is left out, and
-  such a field makes the page incomplete.
+  the judge needs to refuse a page that still shows a sign-in field. Until 2026-10-12
+  every field that could not be filled made the page incomplete; since then (added
+  after this decision) a read-only, transparent or tiny field that does not look like a
+  sign-in field is left out: not a password or email input, no `username`, `email`,
+  `current-password`, `new-password` or `one-time-code` autocomplete token, not a short
+  numeric field. A hotel search's read-only date picker is such a field. A disabled
+  field still makes the page incomplete, as a code field waiting for a timer may be
+  disabled. Then come buttons and
+  links as possible markers up to the 48-candidate limit, those in the page header or
+  navigation first. A link may be located by its text, and the executor then finds the
+  completion marker by that text; text with a digit never locates a marker. An `id`,
+  `name` or `data-testid` value that the label redaction would change is never used as a
+  locator there, since signed-in pages often name the account in them: such a button or
+  link is left out, and such a field makes the page incomplete.
 - While a model call runs, the extension calls an extension API every 20 seconds, so
   Chrome does not stop its service worker and lose the answer. It waits up to 90
   seconds; a page whose answer timed out is freed for its next visit, which the service

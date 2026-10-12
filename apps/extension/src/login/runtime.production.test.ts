@@ -3315,53 +3315,6 @@ describe("production login document admission", () => {
       );
     }, 10_000);
 
-    it.each([
-      ["sends the page when a fill field is only hidden", true],
-      ["does not send the page when a fill field shows", false],
-    ] as const)(
-      "on another path, %s",
-      async (_name, hidden) => {
-        fake.state.extracted = { "signed-in": homePage };
-        const service = generation({ judge: async () => ({ verdict: "signed-in" }) });
-        const report = vi.fn<(report: LoginReport) => void>();
-        const h = harness(unsaved, {
-          allowedOrigins: [],
-          uris,
-          username: true,
-          generation: service,
-          report,
-        });
-        h.recipes.recipe.mockResolvedValue(generated);
-        h.recipes.starts.mockResolvedValue(startsOf([generated.steps[0]!]));
-        fake.state.present = new Set(["user", "password", "login"]);
-        fake.state.onExecute = async (message) => {
-          if ((message["operation"] as { step: { kind: string } }).step.kind !== "click") return;
-          // The next page keeps the username field, as a read-only or a hidden copy.
-          fake.state.present = new Set(["user", "logout"]);
-          if (hidden) fake.state.unusable = new Set(["user"]);
-          fake.state.observedPath = "/home";
-        };
-        expect(await h.hello()).toEqual({ ok: true });
-        if (hidden)
-          await vi.waitFor(() => expect(service.judge).toHaveBeenCalled(), { timeout: 6_000 });
-        else {
-          await vi.waitFor(
-            () =>
-              expect(report).toHaveBeenCalledWith(
-                expect.objectContaining({
-                  type: "judge",
-                  verdict: "not-sent",
-                  reason: "sign-in-shown",
-                }),
-              ),
-            { timeout: 6_000 },
-          );
-          expect(service.judge).not.toHaveBeenCalled();
-        }
-      },
-      10_000,
-    );
-
     describe("the sign-in state, logged only (ADR 0029 delivery 1)", () => {
       it("logs a passkey request after the submission, but not one before it", async () => {
         fake.state.extracted = { "signed-in": homePage };
