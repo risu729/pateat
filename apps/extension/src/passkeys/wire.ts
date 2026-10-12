@@ -26,7 +26,10 @@ export const CHOOSER_MIN_WAIT_MS = 10_000;
  * while the relay answers (ADR 0034).
  */
 export const PAGE_MAX_WAIT_MS = CHOOSER_MAX_WAIT_MS + PAGE_TIMEOUT_MS;
-/** Upper bound on a serialized snapshot; a maximal valid snapshot is about 100,000 characters. */
+/**
+ * Upper bound on a serialized snapshot. A maximal valid snapshot with registered transport
+ * names is about 110,000 characters; a larger one is handed on.
+ */
 export const MAX_REQUEST_CHARACTERS = 131_072;
 
 const operationId = v.pipe(v.string(), v.uuid());

@@ -322,13 +322,14 @@ own accounts, so they stay in the project's files rather than in this repository
   phase 1 table). JP BANKカードWEB signed in there within 20 seconds
   with the same recipe (19:24 UTC), so why its press failed on the Grok Bot computer
   is still open.
-- Find why Pateat did not answer Google's passkey step on the Grok Bot's browser (build
-  `a8350f5`, 2026-10-12 19:49 UTC): both of the page's requests were logged as
-  `passkey.request` `delegate` `invalid-request`, so the browser offered only the
-  phone (hybrid) flow, which failed. The page's options broke one of the bounds of
-  [ADR 0007](adr/0007-existing-passkey-assertions.md#admission), which the log did not
-  say. The log now names the member and its size (`invalid`, `invalidLength`; local
-  tests only); the next Bot run on Google decides the fix.
+- Answer Google's passkey step on the Grok Bot's browser. On build `a8350f5`
+  (2026-10-12 19:49 UTC) both of the page's requests were logged as `passkey.request`
+  `delegate` `invalid-request`, so the browser offered only the phone (hybrid) flow,
+  which failed. The log now names the member and its size (`invalid`, `invalidLength`),
+  and on build `f2c68aa` (20:37 UTC) it named a 2,056-byte `challenge`, over the
+  1,024-byte bound of [ADR 0007](adr/0007-existing-passkey-assertions.md#admission).
+  The bound is now 4,096 bytes (local tests only). Next, the Bot signs in to Google
+  Play subscriptions again.
 - Debugging on the Grok Bot computer goes through the Bot today. A shell or SSH
   session for members, and a public API for messaging a Bot, are not documented;
   users report SSH over Tailscale anyway. A routine started by a webhook call, by

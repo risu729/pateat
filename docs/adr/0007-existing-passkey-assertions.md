@@ -31,6 +31,14 @@ shows the browser's prompt either way and any page that can make one can make th
 other. As for `optional`, Pateat skips the person's confirmation the site asked for
 (implemented).
 
+Amended on 2026-10-12 under the owner's passkey-first policy of 13:58 UTC
+([ADR 0034](0034-answer-page-passkey-requests.md)), after a log from the Grok Bot's
+browser (20:37 UTC, build `f2c68aa`): Google's sign-in asked with a 2,056-byte
+challenge, which the first bound of 1,024 bytes handed on (`invalid-request`, `invalid`
+`challenge`). WebAuthn sets no upper bound, so the bound is now 4,096 bytes, the size
+the page's copy of a buffer already allows. A larger challenge is still handed on, by
+the page before any log (implemented).
+
 Date: 2026-10-10
 
 ## Context
@@ -129,7 +137,7 @@ Pateat claims a request only when all of these hold; otherwise it delegates:
   already in canonical lowercase ASCII form and is equal to, or a registrable
   domain suffix of, the effective domain according to tldts with private
   suffixes. A trailing dot is significant.
-- The challenge is 16 to 1,024 bytes and at most 64 allowed credentials are
+- The challenge is 16 to 4,096 bytes and at most 64 allowed credentials are
   given. Under the initial policy `userVerification` may take any value.
 - The site is not excluded and [item selection](#item-selection) yields exactly
   one eligible credential.
