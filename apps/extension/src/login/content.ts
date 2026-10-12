@@ -125,11 +125,13 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   // What this document showed when its last effect step ran (ADR 0029: F1, F2).
   let submitted: SubmittedPage | undefined;
   /**
-   * Inputs this document's fills wrote to since the last click, and the password inputs
-   * that were writable when the first of those fills began, for the check before a click.
+   * Inputs this document's fills wrote to since the last click of the same attempt, and
+   * the password inputs that were writable when the first of those fills began, for the
+   * check before a click.
    */
   let filled = new WeakSet<HTMLInputElement>();
   let shownBefore: WeakSet<HTMLInputElement> | undefined;
+  let filledAttempt: string | undefined;
   // The account switch a `wrong-account` result reported, clicked only by `login.switch`.
   let pendingSwitch:
     | {
@@ -469,6 +471,12 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         return fail("cancelled");
       used.add(operation.operationId);
       const step = operation.step;
+      // Another attempt in this document starts from nothing filled.
+      if (operation.attemptId !== filledAttempt) {
+        filled = new WeakSet();
+        shownBefore = undefined;
+        filledAttempt = operation.attemptId;
+      }
       // With an advance whose next step is on its path, that step's elements just before
       // the click or the first input; the answer reports them (ADR 0013).
       const measureNext = () => {
