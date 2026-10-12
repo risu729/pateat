@@ -117,10 +117,11 @@ fix them now; the SSO policy itself is recorded separately.
     and clicks nothing there. A username-only form is not among those signs, and the
     failure signs next to the sign-in fields cannot apply to a new page. The page's
     announcement waits for the readings. A frame of the new page that announces first
-    leaves the move to the top page, and one that announces during the readings waits
-    for them. The completion saves an automatic account choice and releases the origin
-    like any other `authenticated` attempt; it is the one completion that needs neither
-    a completion check, ADR 0029 evidence nor the judge, also on the `passkey` route of
+    leaves the move to the top page (it is refused `tab-busy` while the attempt still
+    runs), and one that announces during the readings waits for them. The completion
+    saves an automatic account choice and releases the origin like any other
+    `authenticated` attempt; it is the one completion that needs neither a completion
+    check, ADR 0029 evidence nor the judge, also on the `passkey` route of
     [ADR 0027](0027-per-account-login-routes.md). The answer is kept in memory only, so
     after a worker restart, or with any condition not met, the attempt ends
     `left-origin` as before. A site that rejects the assertion and sends the tab to a

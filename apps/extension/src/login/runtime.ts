@@ -3645,7 +3645,8 @@ export function createLoginRuntime(
       if (document.frameId !== 0) {
         const check = passkeyMoves.get(document.tabId);
         if (check) await check;
-        else if (passkeyMoveFits(holder, document.tabId, siteOrigin)) ending = false;
+        // A check that went stale, as when the top page announced again, ended nothing.
+        if (passkeyMoveFits(holder, document.tabId, siteOrigin)) ending = false;
       } else {
         const check = signedInByPasskey(holder, live);
         passkeyMoves.set(document.tabId, check);

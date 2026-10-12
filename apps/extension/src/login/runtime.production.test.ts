@@ -1350,8 +1350,11 @@ describe("production login document admission", () => {
         const h = await submitted();
         fake.state.loaded = false;
         setTimeout(() => (fake.state.loaded = true), 1_500);
+        const reads = () => fake.state.messages.filter((entry) => entry.type === "login.state");
         await navigate(h, "https://www.login.example/home", "home-document", false);
         expect(at(origin)).toMatchObject({ state: "authenticated" });
+        // Two readings while loading, then two once loaded.
+        expect(reads().length).toBeGreaterThanOrEqual(4);
       }, 10_000);
       /** A frame of the new page at https://www.login.example/home. */
       const homeFrame = {
