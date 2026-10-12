@@ -1983,7 +1983,7 @@ the model saw, the executor still checks a field's `maxlength` and `minlength` b
 fills and the browser's validation, `pattern` included, before it clicks. Text is
 redacted as [architecture](architecture.md#declarative-recipes-and-ai) describes. Each
 target is the first of `id`, `name` and `data-testid` that matches exactly one element,
-as the executor resolves it, and for an input without one, its first `autocomplete`
+as the executor resolves it, skipping an `id` React's `useId` generated, and for an input without one, its first `autocomplete`
 token that is `username`, `email`, `current-password` or `one-time-code` and that no
 other input carries; a button without one gets a text locator when its text matches
 exactly one button and redaction leaves it unchanged, and a script link when its text

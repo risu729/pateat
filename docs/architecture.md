@@ -1155,6 +1155,15 @@ shows a second, previously hidden button with the same text stops the attempt as
 ambiguous, but if the observed button is removed and another button with the same text
 remains, that one is clicked.
 
+The extractor gives no `id` that React's `useId` generated (`:r1:`, `«r1»`, `_r_1_`,
+a hydrated `:R1aH1:`, also after a prefix such as `radix-`): it counts the components
+rendered before it, so another page of the site gives the same ID to another element.
+LinkedIn's feed gave its search box the ID of the login form's username field, so the
+signed-in page showed that field (ADR 0029's S1, 2026-10-12). An element with no other
+unique locator gets no target: a login form that needs it is incomplete, and a possible
+sign-in field on the signed-in page is reported as unlocated. Saved recipes keep their
+targets until they are generated again.
+
 A text locator is stored in the recipe, unlike observation labels, which only reach
 inference. Redaction keeps email addresses and long numbers out of it, but a button
 such as "Continue as taro_y" still carries an account name, and so can a signed-in
