@@ -84,18 +84,18 @@ The owner decided these on 2026-10-11, following the kogane repository:
   such as an agent's cloud computer, may pair permanently
   ([ADR 0030](adr/0030-pairing-without-warp.md)). A third self-hosted Access
   application, "pateat pair", covers `pateat.takuk.me` with path `pair` (and the paths
-  below it) and takes precedence there. Its Login methods are the host-wide
-  application's identity provider and One-time PIN. Policy 1 is the same reusable
-  policy as the host-wide application (email domain and WARP); Policy 2 includes the
-  owner's email address only and requires the One-time PIN login method, without WARP.
+  below it) and takes precedence there. Its Login method is One-time PIN, the team's
+  only identity provider (checked 2026-10-12), as on the host-wide application.
+  Policy 1 is the same reusable policy as the host-wide application (email domain and
+  WARP); Policy 2 includes the owner's email address only and requires the One-time PIN
+  login method, without WARP.
   Session Duration is 15 minutes, and Cookie Path Attribute and Binding Cookie are on.
   Its Application Audience (AUD) Tag is the `ACCESS_PAIR_AUD` Worker secret; the
   Worker accepts it on `/pair` and `/pair/signed-in` only, and an empty value turns
   it off while "pateat pair" does not exist; once it exists, Access issues only its
   audience on `/pair`, so emptying the secret then stops all pairing. `/manage` keeps
-  requiring WARP. One-time PIN must be enabled under
-  Integrations, Identity providers; enabling it also offers it to every Access
-  application whose Login methods accept all identity providers. After pairing on a
+  requiring WARP. If another identity provider is added under Integrations, Identity
+  providers, Policy 2 still admits One-time PIN sign-ins only. After pairing on a
   vendor's machine, open `/cdn-cgi/access/logout` there.
 - Pairing extension IDs: `PAIRING_EXTENSION_IDS` is a committed JSON variable in
   `cloudflare.config.ts` that lists Pateat's production extension ID. It is not a
