@@ -178,6 +178,12 @@ still open on 2026-10-11.
   the Worker already decrypts card items, and that it needs a handler that fills a field
   the binding names (ADR 0027's deferred `totp` binding field needs the same naming, but
   makes a code instead of filling a raw value) and a way to link the site to the card.
+  The owner chose how to link them (2026-10-12 05:27 UTC): Pateat guesses which card
+  item to use from the site being logged into and what its pages show (such as a card
+  name, brand or masked last digits), proposes that item, and records the choice for
+  the site once the owner confirms it, as the note's options C and D together. Which
+  part of the guess runs locally, and whether the AI may see card item names, is left
+  to the design; card values never leave the device.
 - GitHub's optional "Verify your two-factor authentication (2FA) settings" page after a
   login: Pateat should complete it itself (owner, 2026-10-12 04:08 UTC). Until then,
   [ADR 0029](adr/0029-local-sign-in-state.md) treats the login as complete there and
