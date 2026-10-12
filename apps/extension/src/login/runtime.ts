@@ -570,7 +570,7 @@ export type LoginReport =
       route: LoginRoute;
       /**
        * `sent` when the page goes out; the service's verdict when it answers; `not-sent`,
-       * with the reason, when the page could not be described for it.
+       * with the reason, when the page is not sent or could not be described for it.
        */
       verdict: "sent" | "not-sent" | "signed-in" | "rejected" | "challenge" | "unclear" | "retry";
       reason?: string;
@@ -2193,13 +2193,22 @@ export function createLoginRuntime(
   async function learn(run: Execution): Promise<boolean> {
     const { recipe, metadata } = run;
     const { operationId } = metadata;
-    if (
-      !generation ||
-      !effectful(metadata) ||
-      !operationId ||
-      judgedPages(metadata, operationId) >= MAX_JUDGED_PAGES
-    )
+    if (!generation || !effectful(metadata) || !operationId) return false;
+    // Why the page was not sent, as a code for diagnostics: never page text.
+    const notSent = (reason: string) => {
+      report({
+        type: "judge",
+        tabId: run.live.document.tabId,
+        origin: run.live.document.origin,
+        recipeId: recipe.id,
+        recipeRevision: recipe.revision,
+        route: metadata.route,
+        verdict: "not-sent",
+        reason,
+      });
       return false;
+    };
+    if (judgedPages(metadata, operationId) >= MAX_JUDGED_PAGES) return notSent("page-limit");
     // Every variant's fill fields and paths count, as on the service, which is never told
     // the variant; on the passkey route, its button and the password form, on its path and
     // the password route's (ADR 0027).
@@ -2212,16 +2221,22 @@ export function createLoginRuntime(
       undefined,
       marker.length > 0 ? [...fills.map(() => false), true] : undefined,
     );
-    if (!remaining) return false;
-    if (
-      (paths.includes(remaining.path) &&
-        remaining.targets.slice(0, fills.length).some((state) => state !== "missing")) ||
-      (marker.length > 0 && remaining.targets[fills.length] !== "missing")
-    )
+    if (!remaining) {
+      // A superseded run or a refused one (logged with its own cause) says nothing here.
+      if (current(run) && !terminal(run.metadata)) notSent("unreachable");
       return false;
+    }
+    if (
+      paths.includes(remaining.path) &&
+      remaining.targets.slice(0, fills.length).some((state) => state !== "missing")
+    )
+      return notSent("sign-in-shown");
+    // The marker shows, but the completion check did not prove the sign-in: another path,
+    // more than one match, or an element that must be gone still shows.
+    if (marker.length > 0 && remaining.targets[fills.length] !== "missing")
+      return notSent("marker-shown");
     let observation: LoginObservation | undefined;
-    // Why the page was not sent, as a code for diagnostics: never page text.
-    let notSent = "unreachable";
+    let unsent = "unreachable";
     try {
       const extracted = v.safeParse(
         extractResultSchema,
@@ -2232,34 +2247,22 @@ export function createLoginRuntime(
           ? v.safeParse(loginObservationSchema, extracted.output.observation)
           : undefined;
       if (!extracted.success || !parsed?.success)
-        notSent =
+        unsent =
           extracted.success && !extracted.output.ok ? extracted.output.reason : "invalid-page";
       else if (!parsed.output.complete)
-        notSent = (extracted.output.ok && extracted.output.gap) || "incomplete";
+        unsent = (extracted.output.ok && extracted.output.gap) || "incomplete";
       else if (
         parsed.output.origin !== run.live.document.origin ||
         parsed.output.path !== remaining.path
       )
-        notSent = "page-changed";
+        unsent = "page-changed";
       else observation = parsed.output;
     } catch {
       // The page could not be asked: `unreachable`.
     }
     if (!current(run)) return true;
     // A page that cannot be described completely is not sent and does not count.
-    if (!observation) {
-      report({
-        type: "judge",
-        tabId: run.live.document.tabId,
-        origin: run.live.document.origin,
-        recipeId: recipe.id,
-        recipeRevision: recipe.revision,
-        route: metadata.route,
-        verdict: "not-sent",
-        reason: notSent,
-      });
-      return false;
-    }
+    if (!observation) return notSent(unsent);
     const pages = judgedPages(run.metadata, operationId);
     await change(run, { type: "JUDGING", operationId });
     if (!current(run)) return true;
