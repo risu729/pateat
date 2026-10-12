@@ -929,6 +929,12 @@ describe("production login document admission", () => {
       },
     ];
     fake.state.awaited = { ok: true };
+    // The new page still shows the login form; the click signs in.
+    fake.state.present = new Set(["password", "login"]);
+    fake.state.onExecute = async (message) => {
+      if ((message["operation"] as { step: LoginStep }).step.kind === "click")
+        fake.state.present = new Set(["authenticated"]);
+    };
     const query = fake.browser.tabs.query;
     fake.browser.tabs.query = async () => [{ id: 1 }] as never;
     try {
@@ -936,7 +942,7 @@ describe("production login document admission", () => {
       expect(await restarted.hello({ documentId: "after-restart" })).toEqual({ ok: true });
       await vi.waitFor(() =>
         expect(fake.state.storage["pateat.login-attempts.v3"]).toMatchObject([
-          { state: "authenticated" },
+          { state: "authenticated", retries: 2 },
         ]),
       );
     } finally {
@@ -6039,19 +6045,42 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         });
         const { h } = start(coded);
         expect(await h.hello()).toEqual({ ok: true });
-        await vi.waitFor(() => expect(status()![0]!["state"]).not.toMatch(/^(ready|executing)$/u), {
-          timeout: 6_000,
+        // The click step failed for want of its button; a late click could submit an
+        // expired code, so the login ends without a retry.
+        await vi.waitFor(
+          () =>
+            expect(status()).toMatchObject([
+              {
+                state: "blocked",
+                stepIndex: 3,
+                submissions: 1,
+                retries: 0,
+                outcome: "retry-limit",
+              },
+            ]),
+          { timeout: 6_000 },
+        );
+        expect(codeFills()).toHaveLength(1);
+        expect(clicks("verify")).toBe(0);
+      }, 10_000);
+
+      it("never clicks the code's button when it returns only after the wait failed", async () => {
+        onClick({ login: toCode, verify: toHome });
+        let waits = 0;
+        onCodeFill(() => {
+          fake.state.present = new Set(["app-code"]);
+          fake.state.awaited = { ok: false, reason: "timeout" };
+          fake.state.onAwait = () => {
+            waits += 1;
+            if (waits > 1) fake.state.awaited = { ok: true };
+          };
         });
-        await new Promise((resolve) => setTimeout(resolve, 500));
-        // The click step failed for want of its button; its retries are the click, not the
-        // fill, and end the login once spent.
-        expect(status()![0]).toMatchObject({
-          state: "blocked",
-          stepIndex: 3,
-          submissions: 1,
-          retries: 2,
-          outcome: "retry-limit",
-        });
+        const { h } = start(coded);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(
+          () => expect(status()).toMatchObject([{ state: "blocked", outcome: "retry-limit" }]),
+          { timeout: 6_000 },
+        );
         expect(codeFills()).toHaveLength(1);
         expect(clicks("verify")).toBe(0);
       }, 10_000);

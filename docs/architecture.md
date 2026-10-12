@@ -468,12 +468,14 @@ timeout to fall back from an input-triggered submission to a click. Recipes for
 ordinary click flows must explicitly describe tested preparation behavior.
 Exactly-once effects at a
 remote website cannot be guaranteed by local state alone. Apply a finite retry
-budget per account/origin, with delay and a terminal outcome for lockout risk.
+budget per attempt, with a terminal outcome for lockout risk.
 The submission budget reserves each executor effect before delivery; only a
 validated failure proving that the current operation made no mutation can
 release its reservation. A separate retry budget still applies: a failure that changed
 nothing on the page (`retryable`) is tried again from the same step at most twice, and a
-spent budget ends the attempt `blocked` with `retry-limit`. Initiated or
+spent budget ends the attempt `blocked` with `retry-limit`. A `totp` handler's click
+after its code is in is never retried, since a late click could submit an expired code;
+its failure ends the attempt `retry-limit` at once (ADR 0027). Initiated or
 possibly initiated effects remain counted, not proven server requests: one page
 handler can itself issue more than one request.
 Each fill step writes only inputs inside one form (or only inputs outside any

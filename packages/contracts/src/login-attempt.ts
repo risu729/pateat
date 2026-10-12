@@ -273,7 +273,12 @@ export const loginAttemptEventSchema = v.variant("type", [
    * again. The runtime checks that the steps are a `totp` handler's fill and click.
    */
   v.strictObject({ type: v.literal("AUTO_SUBMITTED"), operationId: identifier }),
-  v.strictObject({ type: v.literal("RETRY") }),
+  /**
+   * Tries a step that failed without changing the page again. `final` ends the attempt as
+   * a spent budget does: the runtime never retries a `totp` handler's click once its code
+   * is in, since a late click could submit an expired code (ADR 0027).
+   */
+  v.strictObject({ type: v.literal("RETRY"), final: v.optional(v.literal(true)) }),
   /**
    * The login's authorization was withdrawn. `undelivered` names a prepared operation the
    * page never received, whose reserved effect is taken back so the record shows nothing
@@ -559,7 +564,8 @@ function createLoginAttemptMachine() {
         sameLoginDocument(context.document, event.document) &&
         // Only a preparing fill is checked after filling; an effectful one has submitted.
         (event.stage === "before-fill" || context.operationEffect === "prepare"),
-      retryAvailable: ({ context }) => context.retries < context.maxRetries,
+      retryAvailable: ({ context, event }) =>
+        context.retries < context.maxRetries && !(event.type === "RETRY" && event.final),
       failedPossibleMutation: ({ context, event }) =>
         context.operationKind === "click" ||
         (context.mutationIntent === true && !confirmedNoMutation(context, event)),

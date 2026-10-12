@@ -235,9 +235,9 @@ const finishedLogin = (metadata: LoginAttemptMetadata) =>
 /**
  * A login Pateat itself stopped with nothing in flight: a withdrawn authorization, a
  * cancel, a value the page would not take, another account shown, or retries spent on
- * failures that changed nothing. It does not hold the origin against other tabs (ADR 0022). A refusal by the site, a second-factor challenge, a
- * submission limit, an operation the page may have received or a result that may still
- * arrive keeps holding.
+ * failures that changed nothing. It does not hold the origin against other tabs (ADR
+ * 0022). A refusal by the site, a second-factor challenge, a submission limit, an
+ * operation the page may have received or a result that may still arrive keeps holding.
  */
 const stoppedByPateat = (metadata: LoginAttemptMetadata) =>
   metadata.state === "blocked" &&
@@ -2561,11 +2561,13 @@ export function createLoginRuntime(
     try {
       // A failure that changed nothing on the page is tried again from the same step, up
       // to the attempt's retry budget; a spent budget ends it `retry-limit` (owner
-      // decision, 2026-10-12).
+      // decision, 2026-10-12). A `totp` handler's click after its code is in is never
+      // retried: a late click could submit an expired code (ADR 0027).
       for (;;) {
         await runSteps(run);
         if (!current(run) || run.metadata.state !== "retryable") return;
-        await change(run, { type: "RETRY" });
+        const final = codeStep(run.recipe, run.metadata, run.metadata.stepIndex) === "click";
+        await change(run, final ? { type: "RETRY", final: true } : { type: "RETRY" });
       }
     } catch {
       if (current(run) && !terminal(run.metadata)) {
