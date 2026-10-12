@@ -52,18 +52,17 @@ password or passkey, in the Grok Bot computer's Chrome, on a production build of
   opened during a takeover after the connection was enabled by hand, and the Bot
   reported a MyJCB login (2026-10-12 13:45 UTC) that nobody else checked. Next: the Bot
   itself opens each site and reports the page it reaches, starting with Vpass and MyJCB.
-- Finish the fixes in flight: login attempts whose result settled as unknown no longer
-  hold settings writes for the next login, and a vault replacement no longer runs during
-  a login; diagnostics log events for sync, page judgements, handlers and the source of
-  `policy-changed`.
-- [ADR 0027](adr/0027-per-account-login-routes.md) delivery 4's deferred part: a `totp`
-  handler that reads a custom field a saved binding names for the code, once Pateat can
-  make a code from one. Until then such a binding ends `challenge`. Deliveries 1
+- Done: login attempts whose result settled as unknown no longer hold settings writes
+  for the next login, and a vault replacement no longer runs during a login
+  ([declarative recipes](architecture.md#declarative-recipes-and-ai)); diagnostics log
+  events for sync, page judgements, handlers and the cause of `policy-changed`
+  ([local log](architecture.md#local-log)).
+- [ADR 0027](adr/0027-per-account-login-routes.md) deliveries 1
   ([#240](https://github.com/risu729/pateat/pull/240)), 2
   ([#223](https://github.com/risu729/pateat/pull/223)) and 3
   ([#245](https://github.com/risu729/pateat/pull/245),
-  [#246](https://github.com/risu729/pateat/pull/246)) are merged, and so is the rest of
-  delivery 4.
+  [#246](https://github.com/risu729/pateat/pull/246)) are merged, and so is delivery 4
+  except its deferred part, which is in [phase 4](#phase-4-issues-and-work-as-needed).
 - Log in on pages that list accounts and show no form until one is chosen, such as
   Cloudflare's saved profiles at `https://dash.cloudflare.com/login`, Wise's "Welcome
   back" page and Instagram's saved profiles
@@ -114,6 +113,11 @@ password or passkey, in the Grok Bot computer's Chrome, on a production build of
   ([ADR 0016](adr/0016-recipe-generation-trigger.md#username-shape)) and never sent. The
   page after an `advance` step, like any judged page, can show the identifier just
   entered (continuation review, 2026-10-12). Not implemented yet.
+- Choosing again after a logout on the passkey side: after a finished login in a tab,
+  the login appearing again there asks for a choice for passwords, and the passkey half
+  of that is not implemented yet
+  ([settings and eligibility](architecture.md#settings-eligibility-and-operation-grants)).
+  The owner placed it in phase 1 on 2026-10-12 (14:26 UTC).
 - Installed-Chrome checks still open:
   - Continuing a generated recipe on the page after an `advance` step (email, then
     Next, then password), which the owner rated high priority: implemented with
@@ -158,11 +162,10 @@ password or passkey, in the Grok Bot computer's Chrome, on a production build of
   the deleted tests with the kept ones before each batch merges, as the skill's
   preservation review does. The suite's size and CI times in the survey are a 2026-10-12
   snapshot; re-measure them when the work starts and after each batch.
-- `https://my.jcb.co.jp/Login`: generate again once delivery 3 is merged (the retry
-  window is 10 minutes since 2026-10-12), so the first recipe names both its password
-  and passkey routes. A recipe generated earlier gets no routes
-  without being revoked ([ADR 0027](adr/0027-per-account-login-routes.md),
-  [ADR 0018](adr/0018-recipe-generation-route.md)).
+- Done: `https://my.jcb.co.jp/Login` was generated again after delivery 3. The recipe
+  revision the Grok Bot computer's device generated on 2026-10-12 (13:45 UTC) names both
+  routes: the password steps and the passkey button on `/Login`, read from D1 at 14:26
+  UTC ([ADR 0027](adr/0027-per-account-login-routes.md)).
 
 ### Phase 2: use it and fix what comes up
 
@@ -250,6 +253,10 @@ still open on 2026-10-11.
 
 - Signing in through an identity provider
   ([ADR 0026](adr/0026-sign-in-through-identity-providers.md), ADR 0027 delivery 5).
+- [ADR 0027](adr/0027-per-account-login-routes.md) delivery 4's deferred part: a `totp`
+  handler that reads a custom field a saved binding names for the code, once Pateat can
+  make a code from one. Until then such a binding ends `challenge`. The owner moved it
+  from phase 1 on 2026-10-12 (14:26 UTC).
 - Signing in with a code or link sent by email, which
   [ADR 0027](adr/0027-per-account-login-routes.md) does not handle today (such a code
   page ends `challenge`). It has the same priority as signing in through an identity
