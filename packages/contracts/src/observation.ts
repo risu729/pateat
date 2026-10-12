@@ -45,7 +45,9 @@ const textLength = v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(102
 /**
  * Autofill field names (WHATWG HTML) for personal details: names, organization, postal
  * address, birthday, sex and telephone parts. A sign-up form asks for them and a sign-in
- * form does not, so the plan check reads one in a form as a sign-up signal (ADR 0018).
+ * form rarely does, so the plan check reads one in a form as a sign-up signal (ADR 0018).
+ * A sign-in by phone number marked `tel` is therefore refused a lone `new-password`
+ * field, a conservative choice.
  */
 export const personalDataAutocompleteTokens = [
   "name",

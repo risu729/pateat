@@ -206,7 +206,8 @@ export function createFieldMappingDecider(config: {
         purpose: fields.some((field) => field.kind !== "identifier") ? "submit" : "advance",
       },
     });
-    // Options are pre-filtered, so a rejection here is a cross-form joint mapping.
+    // Options are pre-filtered, so a rejection here is a cross-form joint mapping, or a
+    // lone `new-password` field filled without an identifier of its form.
     if (!validated.ok) return { status: "abstained", reason: "inconsistent-mapping", calls, usage };
     return { status: "ok", value: validated.plan, calls, usage };
   };

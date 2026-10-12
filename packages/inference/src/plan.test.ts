@@ -324,7 +324,10 @@ describe("a lone new-password field on a sign-in form (ADR 0018, 2026-10-12)", (
   });
 
   it("refuses a plan that fills the password without an identifier", () => {
-    expect(plan(sbi(), [{ slot: "password", candidate: "c2" }])).toEqual(refused);
+    expect(plan(sbi(), [{ slot: "password", candidate: "c2" }])).toEqual({
+      ok: false,
+      reason: "lone-new-password",
+    });
     // A form with no identifier input never offers the field at all.
     const alone = sbi();
     alone.candidates = alone.candidates.slice(1);
@@ -342,6 +345,59 @@ describe("a lone new-password field on a sign-in form (ADR 0018, 2026-10-12)", (
     expect(
       plan(sbi(input("r", { group: "f2", role: "password", autocomplete: "new-password" }))),
     ).toMatchObject({ ok: true });
+  });
+
+  it.each<[string, Partial<Candidate>]>([
+    ["a username input", { autocomplete: "username" }],
+    ["a current-password input", { autocomplete: "current-password" }],
+    ["a one-time-code input", { autocomplete: "one-time-code" }],
+  ])("refuses the field when another form shows %s, as the judge reads a sign-in", (_l, extra) => {
+    expect(plan(sbi(input("x", { group: "f2", ...extra })))).toEqual(refused);
+  });
+
+  it("refuses an email and new-password sign-up form beside an identifier-first sign-in", () => {
+    // The sign-in form asks for the username first; the sign-up form beside it asks for
+    // an email and a new password only.
+    const page: LoginObservation = {
+      ...observation,
+      candidates: [
+        input("login-id", { group: "f1", autocomplete: "username" }),
+        input("next", { group: "f1", role: "button" }),
+        input("join-email", { group: "f2", role: "email", autocomplete: "email" }),
+        input("join-pass", { group: "f2", role: "password", autocomplete: "new-password" }),
+        input("join", { group: "f2", role: "button" }),
+      ],
+    };
+    expect(
+      validatePagePlan(page, slots, {
+        fields: [
+          { slot: "username", candidate: "join-email" },
+          { slot: "password", candidate: "join-pass" },
+        ],
+        action: { candidate: "join", purpose: "submit" },
+      }),
+    ).toEqual(refused);
+  });
+
+  it("refuses a form that also holds a one-time code, as a password reset does", () => {
+    expect(plan(sbi(input("c7", form({ role: "tel", autocomplete: "one-time-code" }))))).toEqual(
+      refused,
+    );
+  });
+
+  it("takes an identifier only from an input marked username, email, off or nothing", () => {
+    // The form's only text input is marked for a one-time code: the field is not offered.
+    const coded = sbi();
+    coded.candidates[0] = { ...coded.candidates[0]!, autocomplete: "one-time-code" };
+    expect(slotAcceptsOn(coded, "secret", coded.candidates[1]!)).toBe(false);
+    // With a username input too, the identifier still never goes into the code input.
+    const withCode = sbi(input("c7", form({ autocomplete: "one-time-code" })));
+    expect(
+      plan(withCode, [
+        { slot: "username", candidate: "c7" },
+        { slot: "password", candidate: "c2" },
+      ]),
+    ).toEqual(refused);
   });
 });
 

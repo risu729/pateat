@@ -49,24 +49,37 @@ The owner chose these on 2026-10-11:
   limits and fill rules.
 - **Request log retention: 90 days** for the ADR 0012 log, after which rows are
   deleted. A delete-all action comes with the web UI.
-- **A lone `new-password` field on a sign-in form takes the password** (owner,
-  2026-10-12, chosen on a decision card as "allow it when it is the only field" and
-  confirmed at 05:59 UTC, with the wish that Pateat never signs up by mistake). SBI
-  Securities' login form marks its only password field `autocomplete="new-password"`,
-  and the plan check refused Claude's correct plan for it (username, password, submit)
-  as `incompatible-role`. A password or Hidden slot may now go into such a field. The
-  checks that keep sign-up forms out were chosen with the implementation, without a
-  further owner decision; all must hold (`loneNewPassword` and `validatePagePlan` in
-  `packages/inference/src/plan.ts`): it is the only input of its form that is a
-  password input or marked `current-password` or `new-password`, so there is no
-  confirmation field; no input of its form is marked with a personal-data autofill
-  token (a name, organization, address, birthday, sex or telephone part), which a
-  sign-up form asks for; no input outside its form is a password input not marked
-  `new-password`, since such a page signs in there; and the plan fills an identifier
-  of the same form whose `autocomplete` is `username`, `email`, `off` or absent. Every
-  other `new-password` field still refuses a secret. A sign-up form with only an email
-  and one password passes these checks, so the model's `no-login-form` abstention
-  remains the guard there; the prompts are unchanged.
+
+The owner added on 2026-10-12 (chosen on a decision card as "allow it when it is the
+only field" and confirmed at 05:59 UTC, with the wish that Pateat never signs up by
+mistake): **a lone `new-password` field on a sign-in form takes the password.** SBI
+Securities' login form marks its only password field `autocomplete="new-password"`, and
+the plan check refused Claude's correct plan for it (username, password, submit) as
+`incompatible-role`. A password or Hidden slot may now go into such a field; every other
+`new-password` field still refuses a secret.
+
+The checks that keep sign-up forms out are implementation choices made with it, not
+owner decisions (`loneNewPassword` and `validatePagePlan` in
+`packages/inference/src/plan.ts`). All must hold:
+
+- It is the only input of its form that is a password input or marked
+  `current-password` or `new-password`, so there is no confirmation field.
+- No input of its form carries a personal-data autofill token (a name, organization,
+  address, birthday, sex or telephone part), which a sign-up form asks for. A sign-in
+  by phone number marked `tel` is therefore refused, a conservative choice.
+- No input of its form is marked `one-time-code`, as on a password-reset form.
+- No input outside its form shows a sign-in as the judge reads one: a password input
+  not marked `new-password`, or an input marked `username`, `current-password` or
+  `one-time-code`. Such a page signs in there, and the lone field belongs to a sign-up
+  form, as when an identifier-first sign-in sits beside an email and new-password
+  sign-up form.
+- The plan fills an identifier of the same form whose `autocomplete` is `username`,
+  `email`, `off` or absent. A plan that fills the field without one fails the plan
+  check as `lone-new-password`.
+
+A sign-up form with only an email and one password still passes these checks, so the
+model's `no-login-form` abstention remains the guard there; its description in the
+response format now names sign-up and password-change forms.
 
 The route follows from these and from ADRs 0013 to 0016:
 

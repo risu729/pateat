@@ -1610,8 +1610,8 @@ locators, labels, placeholders, descriptions, `autocomplete` (the sign-in tokens
 and the personal-data tokens that mark a sign-up form) and declared input constraints,
 plus the title and visible `h1`-`h3`. It never reads input values, hidden inputs or
 query strings, and refuses a path that may carry a session ID or another token: a
-segment, percent-decoded, with a matrix parameter such as `;jsessionid=`, an ASP.NET part
-such as `(S(...))`, a query (`?`, `&` or `=`, as in Magento's base64-encoded
+segment, percent-decoded, with a matrix parameter such as `;jsessionid=`, an ASP.NET
+part such as `(S(...))`, a query (`?`, `&` or `=`, as in Magento's base64-encoded
 `/referer/<URL with ?SID=...>/`), a UUID, a run of 16 or more letters and digits that
 contains a digit, or a base64url-like run of 16 or more letters, digits, `-` and `_`
 that contains a digit and switches case or between letters and digits often. Each

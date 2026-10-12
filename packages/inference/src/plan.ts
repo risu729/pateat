@@ -41,7 +41,12 @@ export type PlanRejection =
   | "invalid-slot-name"
   | "duplicate-candidate"
   | "incompatible-role"
-  | "mixed-groups";
+  | "mixed-groups"
+  /**
+   * A secret went into a sign-in form's lone `new-password` field, but the plan fills no
+   * identifier of that form ({@link loneNewPassword}).
+   */
+  | "lone-new-password";
 
 /**
  * A plan whose steps fill each field under its recipe slot: the generic `name` for a
@@ -107,11 +112,14 @@ const signInIdentifier = (candidate: ObservedCandidate) =>
  *    confirmation field.
  * 2. No input of its form carries a personal-data autocomplete token
  *    ({@link personalDataAutocompleteTokens}), which only a sign-up form asks for.
- * 3. No input outside its form is a password input other than a `new-password` one: on
- *    a page that also shows a sign-in password, that one signs in and the lone field
- *    belongs to a sign-up form.
- * 4. Its form holds an input that can take an identifier and is marked `username`,
- *    `email`, `off` or nothing.
+ * 3. No input of its form is marked `one-time-code`, as on a password-reset form.
+ * 4. No input outside its form shows a sign-in, as the judge reads one
+ *    (`createCompletionJudge`): a password input other than a `new-password` one, or an
+ *    input marked `username`, `current-password` or `one-time-code`. On such a page that
+ *    form signs in, and the lone field belongs to a sign-up form.
+ * 5. Its form holds an input that can take an identifier and is marked `username`,
+ *    `email`, `off` or nothing. The checks above already refuse every other token the
+ *    observation carries today; this filter keeps any token added later out as well.
  *
  * Fields outside any form count as one form, as in plan validation.
  */
@@ -130,11 +138,14 @@ export function loneNewPassword(
         other.autocomplete === "new-password",
     ) &&
     !form.some((other) => personalData.has(other.autocomplete ?? "")) &&
+    !form.some((other) => other.autocomplete === "one-time-code") &&
     !others.some(
       (other) =>
         other.group !== candidate.group &&
-        other.role === "password" &&
-        other.autocomplete !== "new-password",
+        ((other.role === "password" && other.autocomplete !== "new-password") ||
+          other.autocomplete === "username" ||
+          other.autocomplete === "current-password" ||
+          other.autocomplete === "one-time-code"),
     ) &&
     form.some(signInIdentifier)
   );
@@ -223,7 +234,7 @@ export function validatePagePlan(
         signInIdentifier(candidates.get(field.candidate)!),
     )
   )
-    return { ok: false, reason: "incompatible-role" };
+    return { ok: false, reason: "lone-new-password" };
   // The switch is clicked instead of signing in: a button or link the plan does not use.
   const accountSwitch =
     plan.accountSwitch === undefined ? undefined : candidates.get(plan.accountSwitch);
