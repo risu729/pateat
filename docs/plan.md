@@ -106,6 +106,24 @@ password or passkey, in the Grok Bot computer's Chrome, on a production build of
   showed). Still to do: the other rows of the ADR's outcome table (a failure next to the
   fields rejects; no sign and no evidence asks the judge once and completes when it
   cannot decide).
+- SBI証券 after generation. Evidence, 2026-10-12, from the owner's Chrome and its local
+  log: a recipe was generated at 13:54:41 UTC for `/login/entry` and a login started at
+  once on the `passkey` route; the page's conditional passkey request was handed to
+  Bitwarden (`passkey.request` `delegate` `unsupported-mediation`), and the login
+  stopped with `login.exception` (state `reconciling`) at 13:55:39 UTC. A new tab at
+  14:08 UTC logged in. Answering the conditional request belongs to the passkey work in
+  progress, and the `reconciling` exception, also seen after submissions on other
+  sites, is investigated separately.
+- Start pages that replaced the sent page during generation. While looking into SBI証券,
+  the code showed a race that was not its cause: a page that replaced the sent page in
+  its tab, or the same page in another tab, announced while the request was in flight,
+  logged `recipe.generate` `skipped` `sending`, then `recipe-not-found` at debug, and
+  was never asked to announce again. Once a recipe returns, every tracked page of that
+  origin and path that holds no login is now asked to announce again; a page that could
+  not be asked logs `reconnect-failed`, and a page that resumes a login held after a
+  submission and does nothing logs `not-started` with `stopped-login` (local tests
+  only). Not fixed: `generate` in `apps/extension/src/service/generation.ts` ignores a
+  failed sync after generation, so a page could still find no recipe.
 - Redact the account's own username from every page observation sent to the service
   (generation, its continuation after an `advance` step, and the judge): text that
   matches a matching item's username exactly, ignoring case, becomes a placeholder. The
