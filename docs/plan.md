@@ -286,6 +286,10 @@ own accounts, so they stay in the project's files rather than in this repository
     The popup is 360px wide. Checked with synthetic data only: the Vitest and Playwright
     Chromium tests run in the default (light) theme, and screenshots of each popup state
     were compared in light and dark.
+  - Done: the passkey chooser window is restyled with the same behavior: "Sign in to"
+    the site, each passkey as a choice led by its user name, the site default marked
+    **Default**, a one-line note after a Pateat sign-in from the tab, and the save
+    checkbox above the list.
   - Next: the other screens' layouts and copy.
 - Done: `https://my.jcb.co.jp/Login` was generated again after delivery 3. The recipe
   revision the Grok Bot computer's device generated on 2026-10-12 (13:45 UTC) names both
