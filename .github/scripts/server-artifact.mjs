@@ -153,10 +153,14 @@ async function restore() {
   assert.equal(process.env.SERVER_WORKER, manifest.worker, "Configure the exact Worker name");
   verifyHealthUrl(process.env.SERVER_HEALTH_URL, manifest.domains);
   // A fresh checkout must have no pre-existing output or implicit rebuild.
-  await assert.rejects(lstat(buildPath), { code: "ENOENT" });
+  await assert.rejects(lstat(buildPath), { code: "ENOENT" }, "Build output already exists");
   await mkdir(resolve(buildPath, ".."), { recursive: true });
   await cp(`${releasePath}/output`, buildPath, { recursive: true });
-  assert.deepEqual(await inventory(buildPath), manifest.files);
+  assert.deepEqual(
+    await inventory(buildPath),
+    manifest.files,
+    "Copied output differs from the manifest",
+  );
   if (process.env.GITHUB_OUTPUT)
     await writeFile(process.env.GITHUB_OUTPUT, `database=${manifest.database}\n`, { flag: "a" });
 }

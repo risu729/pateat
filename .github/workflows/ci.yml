@@ -178,7 +178,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           # Main often gains merges faster than CI finishes, so runs can reach this step out
-          # of order; the server never moves back and a newer run releases the newest revision.
+          # of order; the server never moves back, but a cancelled waiting run can leave it
+          # behind until the next release.
           live="$(curl -fsS --max-time 10 -H 'Cache-Control: no-cache' "${SERVER_HEALTH_URL}" | jq -r '.revision // empty' || true)"
           if [[ "${live}" =~ ^[0-9a-f]{40}$ ]]; then
             order="$(gh api "repos/${GITHUB_REPOSITORY}/compare/${live}...${GITHUB_SHA}" --jq .status)"
@@ -195,6 +196,7 @@ jobs:
                 # A retry after the activation: repeat the release so that the readback and
                 # the smoke checks run again (migrations and the version are idempotent).
                 echo "release=true" >> "${GITHUB_OUTPUT}"
+                echo "Revision ${GITHUB_SHA} is live and this is attempt ${GITHUB_RUN_ATTEMPT}; repeating the release." >> "${GITHUB_STEP_SUMMARY}"
               else
                 echo "release=false" >> "${GITHUB_OUTPUT}"
                 echo "Revision ${GITHUB_SHA} is not ahead of the live server (${order}); nothing to release." >> "${GITHUB_STEP_SUMMARY}"
@@ -214,8 +216,7 @@ jobs:
         if: ${{ steps.source.outputs.release == 'true' }}
         id: restore
         run: mise exec -- node .github/scripts/server-artifact.mjs restore
-      # Migrations must be additive so the serving Worker keeps working on the new
-      # schema. A failed migration stops the release before activation.
+      # A failed migration stops the release before activation.
       - name: Apply the released migrations to the recorded database
         if: ${{ steps.source.outputs.release == 'true' }}
         timeout-minutes: 10
