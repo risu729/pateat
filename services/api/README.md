@@ -265,15 +265,17 @@ the path ending before it), or `{ check: "plan", reason }` with the plan check's
   `addCompletion` like one on the sign-in page, and the call answers `invalid-output`.
 
 Judgements are limited under the lock, before credentials are resolved:
-`page_judgements` holds one row per recipe revision, page path and judge prompt version,
-so a repeat answers
+`page_judgements` holds one row per recipe revision, page path and judge prompt version
+(its instructions and output schema), so a repeat answers
 `already-judged` when the model answered `signed-in` or abstained (`unclear`), and
 `judged-challenge`, `judged-rejected` or `judgement-unanswered` when it judged the page
 `challenge` or `rejected` or the row has no verdict, as after the request failed or
 while it still runs past the owner's lock (the row's `verdict`, ADR 0029). A recipe
 judged 20 times since the start of the UTC day answers `judgement-limit`. A row of
-another judge prompt version does not answer a repeat, so a changed judge judges the
-page again, as one that can now keep a handler an earlier judge could not. The row is
+another judge prompt version does not answer a repeat, so a changed prompt judges the
+page again, as one that can now name a handler an earlier prompt could not. A change to
+the local checks that keep a handler alone does not; it needs a prompt change to reach
+pages already judged. The row is
 written with the spend reservation, so a request the role then refuses locally still
 uses it. Rows of older revisions or other judge prompt versions are deleted once their
 UTC day is over.

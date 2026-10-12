@@ -189,7 +189,8 @@ These rules work from any account, in any order.
     must say it is an authenticator app, not SMS or email.
   - Anything else stores nothing.
 - **Limits:** each recipe revision and page path is judged at most once per judge
-  prompt version; at most 20 judgements per recipe per day (UTC), whatever the path
+  prompt version (its instructions and output schema, not the local checks that keep a
+  handler); at most 20 judgements per recipe per day (UTC), whatever the path
   (owner, 13:45 UTC); and the existing $5 a day and $100 a month. Judging again after
   the judge changes was added on 2026-10-12, after Resend's code split into one-digit
   inputs, judged `challenge` before such codes were learned, kept answering
@@ -704,7 +705,7 @@ Not handled:
 - A 2FA page path shared by several methods. A page is judged once per recipe revision,
   path and judge prompt version, so the first account judged there decides what is
   learned: if a TOTP account is judged first, the security-key handler on that path is
-  not learned until a new revision.
+  not learned until a new revision or judge prompt version.
 - Start pages without a password input (passkey-only or SSO-only) are never generated
   (ADR 0016 condition 3); that is left to the SSO work.
 - Passkey requests the bridge already passes on: `silent` or `immediate` mediation

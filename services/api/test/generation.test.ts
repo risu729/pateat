@@ -1716,6 +1716,17 @@ describe("page judgement (ADR 0027)", () => {
       change: { revision: 3 },
     });
     expect(sent).toHaveLength(calls + 1);
+    // The earlier row keeps its verdict beside the new one.
+    expect(
+      await rows(
+        "SELECT prompt_version, verdict FROM page_judgements WHERE owner_id = ? AND path = ? ORDER BY prompt_version",
+        device.ownerId,
+        "/login/webauthn",
+      ),
+    ).toEqual([
+      { prompt_version: "", verdict: "challenge" },
+      { prompt_version: await completionPromptVersion(), verdict: "challenge" },
+    ]);
     // The current judge's own verdict still stops a repeat.
     await seed(device, change.recipeId, 3, "/home", dayStart(), {
       promptVersion: await completionPromptVersion(),

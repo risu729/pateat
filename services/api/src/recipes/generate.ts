@@ -695,9 +695,9 @@ export async function judgeCompletion(
         .limit(1);
       // A later login of the revision completes on the path only after a `signed-in` or
       // undecided verdict (ADR 0029): one judged `challenge` or `rejected`, still being
-      // judged, or whose request failed does not. A row of an earlier judge does not count:
-      // a page it judged `challenge` but kept no handler for, such as a code split into
-      // one-digit inputs before those were learned, is judged again.
+      // judged, or whose request failed does not. A row of an earlier judge prompt does not
+      // count: a page it judged `challenge` but kept no handler for, such as a code split
+      // into one-digit inputs before those were learned, is judged again.
       if (judged)
         return judged.verdict === "challenge"
           ? "judged-challenge"
