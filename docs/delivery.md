@@ -26,20 +26,20 @@ runs on 2026-10-11 and 12), where each shard still repeated the rest of the grap
 PR runs on 2026-10-12 between 06:11 and 07:24 UTC (JST 15:11 to 16:24) took 4m06s on
 average (3m19s to 5m28s) and 11 successful main runs 4m44s (3m28s to 8m00s); the slowest
 ones overlapped other runs. Every run is 9 jobs (`Changes`, `Verify`, six `Browser`
-shards, `CI Check`), or 3 for a documentation-only PR (`Changes`, `Verify`, `CI Check`).
-The owner decided on 2026-10-12 that CI runs no Windows job at all: the tests drive
-Playwright's Chromium, not the owner's Chrome, no extension code branches on the
-platform, and no Pateat defect was ever found only on Windows (the Windows failures seen
-were a local missing SideBySide assembly, system-drive I/O stalls and a 30 s timeout of
-unknown cause). Installed-Chrome behaviour on Windows is covered by the
-real-Chrome checks, not by CI. `CI Check` requires `Changes` and `Verify` to succeed and
-`Browser` to be `success`, or `skipped` exactly when `Changes` reported a
-documentation-only PR; it runs even when an upstream job failed. A `Changes` job (no
-checkout, on `ubuntu-slim`) decides whether a PR needs the browser tests: a PR whose
-changed files are all under `docs/` or are `AGENTS.md` or `README.md` skips the
-`Browser` job, runs only `Verify` (which still checks the documentation) and passes
-`CI Check` with the shards skipped; any other change, every main push and every manual
-run runs them. The owner chose
+shards, `CI Check`), or 3 for a documentation-only PR (`Changes`, `Verify`, `CI Check`);
+a main push adds a tenth, `Deploy tested server`, which a pull request skips. The owner
+decided on 2026-10-12 that CI runs no Windows job at all: the tests drive Playwright's
+Chromium, not the owner's Chrome, no extension code branches on the platform, and no
+Pateat defect was ever found only on Windows (the Windows failures seen were a local
+missing SideBySide assembly, system-drive I/O stalls and a 30 s timeout of unknown
+cause). Installed-Chrome behaviour on Windows is covered by the real-Chrome checks, not
+by CI. `CI Check` requires `Changes` and `Verify` to succeed and `Browser` to be
+`success`, or `skipped` exactly when `Changes` reported a documentation-only PR; it runs
+even when an upstream job failed. A `Changes` job (no checkout, on `ubuntu-slim`)
+decides whether a PR needs the browser tests: a PR whose changed files are all under
+`docs/` or are `AGENTS.md` or `README.md` skips the `Browser` job, runs only `Verify`
+(which still checks the documentation) and passes `CI Check` with the shards skipped;
+any other change, every main push and every manual run runs them. The owner chose
 [dorny/paths-filter](https://github.com/dorny/paths-filter) (pinned at v4.0.3) on
 2026-10-12 because on a `pull_request` event it reads the changed files through the API,
 so the job needs no checkout and only `pull-requests: read`; workflow-level `paths`
@@ -47,38 +47,39 @@ filters are not used because a skipped workflow reports no `CI Check`. If the `C
 job fails, `CI Check` fails. `Changes` adds a few seconds before the browser shards
 start. A newer push to a PR cancels its older run, but each main push finishes its own
 run; otherwise frequent merges would cancel every main run before it could package a
-release and start `deploy-server.yml`. `codeql.yml` analyzes TypeScript/JavaScript and
-Actions separately. Linux jobs pin `ubuntu-26.04`; the `CI Check` aggregate only
-compares results, so it runs on the single-CPU `ubuntu-slim` runner. CodeQL needs no
-Actions cache: dependency caching is off by default in advanced setup and its TRAP cache
-is disabled, so the workflow sets `cache-mode: none`. In `ci.yml` the `Verify` and
-`Browser` jobs share their checkout, mise and Bun install steps through YAML anchors
-(`&checkout`, `&mise`, `&install`), so those pins appear once in `ci.yml`; zizmor warns
-that it audits anchored workflows on a best-effort basis. GitHub Code Quality is not
-used: since its
+release and deploy it. `codeql.yml` analyzes TypeScript/JavaScript and Actions
+separately. Linux jobs pin `ubuntu-26.04`; the `CI Check` aggregate only compares
+results, so it runs on the single-CPU `ubuntu-slim` runner. CodeQL needs no Actions
+cache: dependency caching is off by default in advanced setup and its TRAP cache is
+disabled, so the workflow sets `cache-mode: none`. In `ci.yml` the `Verify`, `Browser`
+and `Deploy tested server` jobs share their checkout, mise and Bun install steps through
+YAML anchors (`&checkout`, `&mise`, `&install`), so those pins appear once in `ci.yml`;
+zizmor warns that it audits anchored workflows on a best-effort basis. GitHub Code
+Quality is not used: since its
 [2026-07-20 general availability](https://github.blog/changelog/2026-06-16-github-code-quality-generally-available-july-20-2026)
 it is a paid product for GitHub Team and Enterprise Cloud organizations, and this
 repository is user-owned. On 2026-10-11 the owner removed its ruleset rule here and in
 the other active risu729 repositories. See [merging](#merging).
 
-Successful main-push CI packages the production Worker output that `Verify` built
-and checked, with repository, revision, run/attempt, tool versions and per-file hashes,
-plus the committed top-level D1 migration files (`services/api/migrations/*.sql`) and
-the D1 database ID recorded in the build. The `pateat` database was bootstrapped on
-2026-10-11 in the owner's account with an APAC location hint, and its ID is in
-`cloudflare.config.ts`; packing and restore refuse a build whose `DB` binding has no ID,
-because cf deploy would provision a new database. Restore also checks that the
-migrations match both the manifest and the checked-out revision. The artifact name
-carries the run attempt, so a failed main run is retried with "Re-run all jobs": after
-"Re-run failed jobs" with `Verify` green, the artifact stays on the earlier attempt and
-the deployment rejects it. The service browser tests in the browser shards build their
-own copy of the Worker output. The setup order below sets the release credentials
-last, after pairing works through Access; the typed-code enrollment did when the owner
-paired on 2026-10-11. Installed Chrome first paired directly with the deployed service
-on 2026-10-11 ([device enrollment](architecture.md#device-enrollment)). A deployment
-also needs the `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD` and `ACCESS_PAIR_AUD` Worker
-secrets; the owner pages answer 503 without the first two, and cf refuses to deploy
-without any of them. Artifact tests reject tampering and mismatched provenance.
+A main-push `Verify` job packages the production Worker output that it built and
+checked, with repository, revision, run ID and per-file hashes, plus the committed
+top-level D1 migration files (`services/api/migrations/*.sql`), the D1 database ID and
+the Worker's Custom Domains recorded in the build, and uploads it as `server-<sha>`
+(overwritten when "Re-run all jobs" packs the revision again). The `pateat` database was
+bootstrapped on 2026-10-11 in the owner's account with an APAC location hint, and its ID
+is in `cloudflare.config.ts`; packing refuses a build whose `DB` binding has no ID,
+because cf deploy would provision a new database. The deploy job of the same run
+downloads that artifact, so no later run, attempt or branch can substitute another one;
+a failed deployment is retried with "Re-run failed jobs" (the artifact stays) or "Re-run
+all jobs"; a retry of a revision that is already live repeats the release, so the
+readback and smoke checks run again. The service browser tests in the browser shards
+build their own copy of the Worker output. The setup order below sets the release
+credentials last, after pairing works through Access; the typed-code enrollment did when
+the owner paired on 2026-10-11. Installed Chrome first paired directly with the deployed
+service on 2026-10-11 ([device enrollment](architecture.md#device-enrollment)). A
+deployment also needs the `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD` and `ACCESS_PAIR_AUD`
+Worker secrets; the owner pages answer 503 without the first two, and cf refuses to
+deploy without any of them. Artifact tests reject tampering and mismatched provenance.
 
 ### Production settings
 
@@ -135,8 +136,9 @@ The owner decided these on 2026-10-11, following the kogane repository:
   therefore: set `ACCESS_PAIR_AUD` to the placeholder `none`, which no Access token
   carries; merge the change and let it release; create "pateat pair"; then immediately
   set `ACCESS_PAIR_AUD` to its Application Audience (AUD) Tag.
-- Delivery: a successful main-push CI run starts `deploy-server.yml` automatically,
-  as in kogane; `workflow_dispatch` with a CI run ID remains for retries.
+- Delivery: the `Deploy tested server` job of `ci.yml` releases automatically after
+  `CI Check` passes on a main push (the owner chose this single workflow on
+  2026-10-12; it replaced a separate `deploy-server.yml` started by `workflow_run`).
 - Preview: there is no preview deployment for now. Without the owner web UI there is
   nothing to review in a browser: the routes outside Access are `/health`, the OIDC
   discovery documents and the device-authenticated `/v1/*`, which the
@@ -145,56 +147,65 @@ The owner decided these on 2026-10-11, following the kogane repository:
   does for its docs, when the owner web UI exists. The web UI now exists; adding the
   preview is not scheduled yet.
 
-`deploy-server.yml` has no enable switch: the owner decided on 2026-10-11 that every
-successful main-push CI run starts a release. Until the production
-credentials exist, each run fails at its first step without changing anything. Set the
-release credentials last: first bootstrap the Worker and its Custom Domain, the
-Access applications and the Worker secrets, and verify pairing through Access;
-otherwise a release would apply migrations and then fail to activate a missing Worker.
-Then set the `production` environment variables `CLOUDFLARE_ACCOUNT_ID`,
-`SERVER_WORKER=pateat-api` and `SERVER_HEALTH_URL=https://pateat.takuk.me/health`; the
-account ID is not a secret. Put the `CLOUDFLARE_API_TOKEN` secret in the `production`
-environment only. The owner chose on 2026-10-11 to use this one token for both the
-migrations and the deployment, as in kogane, because both run in the same job. It is an
-Account API token, not a user API token, so it does not depend on one person's login,
-and its scope is as narrow as Cloudflare allows (owner decision, 2026-10-11). The token
-created on 2026-10-11 is "pateat-github-actions-production" with Individual Workers
-Editor on `pateat-api` only and D1 Write for the whole account, because the dashboard
-offers no per-database D1 scope. The release limits itself to the recorded database ID,
-and routine releases do not touch the Custom Domain, so the token needs no zone
-permission. The `production` environment accepts deployments only from `main`
-(Deployment branches and tags: selected branch rule `main`, set by the owner on
-2026-10-11), so a workflow on another branch cannot read the token. This repository
-does not supply or provision them.
+The deploy job has no enable switch: the owner decided on 2026-10-11 that every
+successful main-push CI run starts a release. Until the production credentials exist,
+each run fails at the job's first step without changing anything. Set the release
+credentials last: first bootstrap the Worker and its Custom Domain, the Access
+applications and the Worker secrets, and verify pairing through Access; otherwise a
+release would apply migrations and then fail to activate a missing Worker. Then set the
+`production` environment variables `CLOUDFLARE_ACCOUNT_ID`, `SERVER_WORKER=pateat-api`
+and `SERVER_HEALTH_URL=https://pateat.takuk.me/health`; the account ID is not a secret.
+Put the `CLOUDFLARE_API_TOKEN` secret in the `production` environment only. The owner
+chose on 2026-10-11 to use this one token for both the migrations and the deployment, as
+in kogane, because both run in the same job. It is an Account API token, not a user API
+token, so it does not depend on one person's login, and its scope is as narrow as
+Cloudflare allows (owner decision, 2026-10-11). The token created on 2026-10-11 is
+"pateat-github-actions-production" with Individual Workers Editor on `pateat-api` only
+and D1 Write for the whole account, because the dashboard offers no per-database D1
+scope. The release limits itself to the recorded database ID, and routine releases do
+not touch the Custom Domain, so the token needs no zone permission. The `production`
+environment accepts deployments only from `main` (Deployment branches and tags: selected
+branch rule `main`, set by the owner on 2026-10-11), so a workflow on another branch
+cannot read the token. This repository does not supply or provision them.
 
-An automatic run releases the newest main revision whose push CI passed, not necessarily
-the one whose CI run started it: main often gains merges faster than CI finishes, main
-CI runs can finish out of order, and the release lock keeps only the newest pending run.
-Requiring the current main head instead left the server unreleased for as long as merges
-kept coming (observed on 2026-10-11). A manual dispatch releases the `ci_run_id` it is
-given for the main revision it started on. Inside a non-cancelling release lock, every
-run compares the chosen revision with the revision `/health` reports and releases only
-one that is ahead of it, so the server never moves back; a dispatch may also repeat the
-live revision. When `/health` gives no revision, only the current main head may be
-released. A live revision that is not on main fails an automatic run instead of
-skipping; after checking the server, the owner replaces it with a dispatch. The workflow
-fails before any change when the token is empty or the account ID is not a 32-character
-hex ID. It verifies the run's identity, event and conclusion, restores only its hashed
-artifact, applies the released migrations, deploys through the pinned action without
-rebuilding, and verifies returned deployment IDs and the hosted revision; it tries
-`/health` up to 30 times, 2 seconds apart, while the new version propagates. Before
-`cf d1 migrations apply`, it reads the database by the recorded ID and requires the name
-`pateat`; afterwards no migration may remain unapplied. A failed migration stops the
-release before activation. Before the first public release, migrations need not be
-additive and the previously serving Worker need not keep running on the new schema
+Each main push releases its own tested revision, but only when that revision is ahead of
+the live server. Main often gains merges faster than CI finishes, so releases can reach
+the lock out of order, and the lock keeps only one waiting job: a job that arrives later
+cancels the one already waiting, whichever revision it holds. The server can therefore
+stay on an older revision until the next main push releases; re-running the cancelled
+deploy job releases that revision if it is still ahead of the live one. Inside the
+non-cancelling lock the job compares the revision with the one `/health` reports and
+releases only one that is ahead of it, so the server never moves back; an identical or
+older revision is skipped with a note in the step summary, except that a retry (run
+attempt 2 or later) of the live revision repeats the release. When `/health` gives no
+revision, only the current main head may be released. A live revision that is not on
+main fails the run instead of skipping, and every later run fails the same way: the
+owner puts a main revision live by hand (a local `cf deploy` of that checkout with the
+production token), after which the next main push releases normally. (The earlier
+`workflow_run` design released the newest main revision whose CI had passed, which
+needed a run lookup, and `workflow_dispatch` with a CI run ID for retries and
+replacements. The owner dropped both on 2026-10-12: the job releases its own run's
+artifact, a retry is a re-run, and no dispatch replaces a live revision outside main.) A
+waiting release that is cancelled makes its run show as cancelled while its `CI Check`
+passed. The job fails before any change when the token is empty or the account ID is not
+a 32-character hex ID. It restores only the hashed artifact of its own run (revision,
+run ID, event, branch, per-file and migration digests, Worker name, the account ID and a
+health URL on the Worker's Custom Domain), applies the released migrations, deploys
+through the pinned action without rebuilding, and verifies returned deployment IDs and
+the hosted revision; it tries `/health` up to 30 times, 2 seconds apart, while the new
+version propagates. Before `cf d1 migrations apply`, it reads the database by the
+recorded ID and requires the name `pateat`; afterwards no migration may remain
+unapplied. A failed migration stops the release before activation. Before the first
+public release, migrations need not be additive and the previously serving Worker need
+not keep running on the new schema
 ([compatibility before release](development.md#compatibility-before-release)); cf
 compares applied migrations by name only, so an applied migration file is never edited.
 `cf d1 migrations` is a preview command of the pinned beta cf; recheck this step when cf
-is updated. There is no automatic retry; the next successful main CI run releases the
-newest tested revision, or retry with a dispatch. Routine releases never change the
-Custom Domain or other triggers; the bootstrap applies them once. The complete service
-release gates below remain planned, including automatic promotion/failure
-acknowledgement.
+is updated. There is no automatic retry; the next successful main CI run releases its
+revision if that is ahead of the live one, or re-run the failed main run's jobs. Routine
+releases never change the Custom Domain or other triggers; the bootstrap applies them
+once. The complete service release gates below remain planned, including automatic
+promotion/failure acknowledgement.
 
 ## Repository configuration
 
