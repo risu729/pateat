@@ -930,7 +930,7 @@ A text locator is stored in the recipe, unlike observation labels, which only re
 inference. Redaction keeps email addresses and long numbers out of it, but a button
 such as "Continue as taro_y" still carries an account name, and so can a completion
 marker's link text, such as a header link showing the person's name: the judge is told
-never to pick one, and text with a digit never names a marker, but nothing enforces the
+never to pick one, and text with a number never names a marker, but nothing enforces the
 rest. Recipes are per owner today; before recipes are shared between users, such
 locators need a review.
 
@@ -988,10 +988,11 @@ masked ones, become `[email]`; runs of three or more `*`, `●`, `•` or `＊` 
 `[masked]`; and runs of four or more ASCII or fullwidth digits become `[number]`
 (`口座番号 ****1234` becomes `口座番号 [masked][number]`). Names cannot be detected and
 stay. On the page shown after sign-in, which the completion judge observes, the owner
-chose on 2026-10-12 to hide every number instead: each number, whatever its length,
-script or digit separators, becomes one `[number]` (`保有ポイント 1,234pt` becomes
-`保有ポイント [number]pt`), because balances and points appear in any form and judging
-the sign-in needs none of them. Numerals written as letters, such as kanji, stay. Login
+chose on 2026-10-12 to hide every number instead: each number, whatever its length or
+script, with digit groups joined by `.`, `,` or `'`, becomes one `[number]`
+(`保有ポイント 1,234pt` becomes `保有ポイント [number]pt`), because balances and points
+appear in any form and judging the sign-in needs none of them. Numerals written as
+letters, such as most kanji, stay. Login
 pages keep the four-digit rule, since hints such as `4 digits` help map fields. When a
 login page already shows a chosen account and offers a button or link to use another
 one, the generation role may name it as the plan's `accountSwitch`; it must be an

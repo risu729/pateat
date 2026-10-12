@@ -117,12 +117,14 @@ function bounded(text: string): string | undefined {
 
 /**
  * Observed text of a signed-in page with every number replaced by one `[number]`, whatever
- * its length, script or digit separators (owner decision, 2026-10-12): such a page can
- * show balances and points in any form, and judging whether it is signed in needs none
- * of them. Numerals written as letters, such as kanji, are not numbers to Unicode and stay.
+ * its length or script, digit groups joined by `.`, `,` or `'` included, and a long run
+ * the login-page rule already replaced (owner decision, 2026-10-12): such a page can show
+ * balances and points in any form, and judging whether it is signed in needs none of
+ * them. Numerals written as letters, such as most kanji, are not numbers to Unicode and stay.
  */
-const withoutNumbers = (text: string) =>
-  bounded(text.replace(/\p{Number}+(?:[.,，．'\u2019]\p{Number}+)*/gu, "[number]")) ?? "[number]";
+const numberPart = String.raw`(?:\p{Number}+|\[number\])`;
+const numbers = new RegExp(`${numberPart}(?:[.,，．'\u2019]${numberPart})*`, "gu");
+const withoutNumbers = (text: string) => bounded(text.replace(numbers, "[number]")) ?? "[number]";
 
 /**
  * Whether a control is on the page: `visible`, `faint` when it is rendered but
@@ -851,7 +853,7 @@ export function extractSignedInObservation(
   }
   const index = locatorIndex(document);
   // A marker's text locator is stored and must match every later sign-in, so text with a
-  // digit, such as a balance or an unread count, never names one.
+  // number character, such as a balance or an unread count, never names one.
   const located = (entries: typeof fieldEntries) =>
     entries.flatMap((entry) => {
       const target = locate(entry.draft.element, index, { redactAttributes: true, links: true });

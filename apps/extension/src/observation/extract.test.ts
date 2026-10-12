@@ -1080,7 +1080,7 @@ describe("extractSignedInObservation", () => {
       `<header><a id="points" href="/points">保有ポイント 1,234,567pt</a>
         <a id="miles" href="/miles">850 ポイント ①</a>
         <button id="inbox" type="button" aria-label="Inbox ٣ new">✉</button></header>
-      <h1>Balance 12.50</h1><h2>Balance 7.25</h2>
+      <h1>Balance 12.50</h1><h2>Balance 7.25</h2><h3>Balance 1234.56</h3>
       <form><input id="note" type="text" aria-label="Step 2" placeholder="e.g. 7"
           aria-describedby="note-hint">
         <span id="note-hint">Step 3</span>
