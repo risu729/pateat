@@ -984,6 +984,12 @@ describe("totp handler assembly, probed independently (ADR 0027)", () => {
     ).toEqual({ ok: false, reason: "origin-mismatch" });
   });
 
+  it("refuses a handler on a path with a replaced segment, which names no real page", () => {
+    expect(
+      addHandler(recipe, at("/[id]/two-factor", code("otp"), candidate("v", verify)), totp()),
+    ).toEqual({ ok: false, reason: "redacted-path" });
+  });
+
   it("learns no completion beside the handler's code field on its path, but beside other inputs", () => {
     const added = addHandler(
       recipe,

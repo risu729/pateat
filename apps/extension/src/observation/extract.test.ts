@@ -1064,7 +1064,7 @@ describe("extractLoginObservation", () => {
     expect(observe().candidates[0]!.label).toBe("User ID");
   });
 
-  it("refuses paths that may carry a session ID or token, on both extractors", () => {
+  it("refuses paths that may carry a session ID or token, and hides them on a signed-in page", () => {
     page(`<input id="u"><input id="p" type="password"><button id="go">Log in</button>`);
     const magento = btoa("https://shop.example/en/?SID=synthetic0session1&___SID=U")
       .replaceAll("+", "-")
@@ -1085,11 +1085,22 @@ describe("extractLoginObservation", () => {
     ]) {
       history.replaceState(null, "", refused);
       expect(extractLoginObservation(), refused).toEqual({ ok: false, reason: "unsupported-page" });
-      expect(extractSignedInObservation(), refused).toEqual({
-        ok: false,
-        reason: "unsupported-page",
-      });
+      // A signed-in page is described with each such segment replaced (ADR 0029).
+      const signedIn = extractSignedInObservation();
+      if (!signedIn.ok) throw new Error(refused);
+      expect(signedIn.observation.path, refused).toContain("/[id]");
+      expect(signedIn.observation.path.split("/").length, refused).toBe(refused.split("/").length);
     }
+    history.replaceState(null, "", "/0123456789abcdef0123456789abcdef/home");
+    expect(extractSignedInObservation()).toMatchObject({
+      ok: true,
+      observation: { path: "/[id]/home" },
+    });
+    history.replaceState(null, "", "/s/0123456789abcdef0123456789abcdef/login");
+    expect(extractSignedInObservation()).toMatchObject({
+      ok: true,
+      observation: { path: "/s/[id]/login" },
+    });
     for (const allowed of [
       "/customer/account/login/",
       "/ib/login-2fa-step2",
@@ -1102,7 +1113,10 @@ describe("extractLoginObservation", () => {
     ]) {
       history.replaceState(null, "", allowed);
       expect(extractLoginObservation().ok, allowed).toBe(true);
-      expect(extractSignedInObservation().ok, allowed).toBe(true);
+      expect(extractSignedInObservation(), allowed).toMatchObject({
+        ok: true,
+        observation: { path: allowed },
+      });
     }
   });
 
@@ -1245,10 +1259,15 @@ describe("extractSignedInObservation", () => {
       { role: "button", target: { by: "id", value: "logout" }, label: "Sign out" },
     ]);
 
+    page(`<form><input id="mail-0123456789" type="email" aria-label="Email"></form>
+      <button id="logout" type="button">Sign out</button>`);
+    // A field that may be a sign-in field and cannot be located safely makes the
+    // description incomplete; another such field is left out.
+    expect(signedIn().complete).toBe(false);
     page(`<form><input id="note-0123456789" type="text" aria-label="Note"></form>
       <button id="logout" type="button">Sign out</button>`);
-    // A field that cannot be located safely makes the description incomplete.
-    expect(signedIn().complete).toBe(false);
+    expect(signedIn().complete).toBe(true);
+    expect(summary(signedIn()).map((entry) => entry.target.value)).toEqual(["logout"]);
   });
 
   it("keeps every field ahead of markers and drops markers past the limit", () => {
@@ -1342,8 +1361,32 @@ describe("extractSignedInObservation", () => {
       const result = extractSignedInObservation();
       return result.ok ? [result.observation.complete, result.gap] : result.reason;
     };
-    page(`<button id="logout">Sign out</button><input type="password">`);
-    expect(gap()).toEqual([false, "unlocated-field"]);
+    // A field nothing can locate counts only when it may be a sign-in field.
+    for (const field of [
+      `<input type="password">`,
+      `<input type="email">`,
+      `<input autocomplete="username"><input autocomplete="username">`,
+      `<input inputmode="numeric" maxlength="6">`,
+      `<input class="q"><input class="q" type="password">`,
+    ]) {
+      page(`<button id="logout">Sign out</button>${field}`);
+      expect(gap(), field).toEqual([false, "unlocated-field"]);
+    }
+    // Others, such as a search box with no ID, are left out (Grafana Cloud and Wise,
+    // 2026-10-12: `unlocated-field`; which field it was is inferred).
+    for (const field of [
+      `<input placeholder="Search">`,
+      `<input type="text" autocomplete="off">`,
+      `<input type="tel"><input type="tel">`,
+      // A password change form, as S2 reads it (JP BANKカードWEB's optional password
+      // change page, 2026-10-12: `unlocated-field`; which field it was is inferred).
+      `<input type="password"><input type="password"><input type="password">`,
+      `<input type="password" autocomplete="new-password">`,
+    ]) {
+      page(`<button id="logout">Sign out</button><form>${field}</form>`);
+      expect(gap(), field).toEqual([true, undefined]);
+      expect(summary(signedIn()).map((entry) => entry.target.value)).toEqual(["logout"]);
+    }
     page(`<button id="logout">Sign out</button><input id="pin" type="password" readonly>`);
     expect(gap()).toEqual([false, "unfillable-field"]);
     // A disabled field may be a code field waiting for a timer or a sent code.

@@ -116,7 +116,11 @@ password or passkey, in the Grok Bot computer's Chrome, on a production build of
   username cut at the limit is no longer recognised as cut and is sent (review of the
   header text, 2026-10-12). The header text is cut once, after hiding. The recipe's
   `completion` is a list of up to four signed-in markers without a path, and a later
-  page the judge answers `signed-in` for adds its marker (local tests only).
+  page the judge answers `signed-in` for adds its marker (local tests only). Pages that
+  could not be sent are now sent: a token-like path segment goes as `[id]`, and a field
+  no locator names is left out unless it may be a sign-in field (owner, 19:23 UTC, after
+  Cloudflare, Grafana Cloud, Wise and JP BANKカードWEB stayed unknown; local tests
+  only).
 - SBI証券 after generation. Evidence, 2026-10-12, from the owner's Chrome and its local
   log: a recipe was generated at 13:54:41 UTC for `/login/entry` and a login started at
   once on the `passkey` route; the page's conditional passkey request was handed to

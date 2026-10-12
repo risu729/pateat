@@ -132,6 +132,7 @@ import {
 } from "./choice-wire";
 import { customFieldOffers, type CustomFieldOffer } from "./generation-slots";
 import { emailUsername, namesUsername, type EntryMiss } from "../page/account-list";
+import { signedInPath } from "../observation/extract";
 import { withoutUsernames } from "../observation/usernames";
 import {
   decideSignInState,
@@ -3399,7 +3400,8 @@ export function createLoginRuntime(
         unsent = (extracted.output.ok && extracted.output.gap) || "incomplete";
       else if (
         parsed.output.origin !== run.live.document.origin ||
-        parsed.output.path !== remaining.path
+        // The description carries the path with any token-like segment replaced.
+        parsed.output.path !== signedInPath(remaining.path)
       )
         unsent = "page-changed";
       else observation = parsed.output;

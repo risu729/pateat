@@ -4,7 +4,8 @@ Status: accepted by the owner on 2026-10-12 (04:54 UTC). Delivery 1 (the local c
 logged only, as `login.state`) is implemented. The owner started delivery 2 (acting on
 it) on 2026-10-12 at 06:58 UTC; its outcome table is implemented (completing on
 evidence first, the other rows on 2026-10-12 after 14:22 UTC), and so are the header and
-navigation text for the judge and the list of learned markers.
+navigation text for the judge, the list of learned markers, and sendable pages with a
+token-like path or a field no locator names (owner, 19:23 UTC).
 Amended on 2026-10-12 (13:08 UTC, owner's choice) by
 [ADR 0027](0027-per-account-login-routes.md#watching-after-a-challenge): the pages of a
 login watched after `challenge` or an unknown result; see the end of the implementation
@@ -189,6 +190,21 @@ already stored when this shipped keep working: on 2026-10-12 at 18:07 UTC the ow
 chose to rewrite them once, so D1 migration 0013 turns each stored completion into a
 one-marker list, and leaves out one whose locator another element of the recipe also
 uses.
+
+Pages that could not be sent (owner, 2026-10-12 19:23 UTC): logins on Cloudflare,
+Grafana Cloud and Wise really signed in on build `a8350f5`, and on JP BANKカードWEB on
+`206f2a0` (an optional password change page), but every page after the submission was
+logged `recipe.judge not-sent` (`unsupported-page` on Cloudflare's
+`/<account ID>/home`, `unlocated-field` on the others), so each login stayed unknown.
+The owner chose to make such pages sendable rather than complete without the judge:
+the judged page's path carries `[id]` in place of each segment that may hold a token
+(the rule that refuses such a path on a login page), and a field that no locator can
+name is left out unless it may be a sign-in field, as a read-only one is. A password
+field counts as one unless S2 would skip it (a new password, or a form with two or
+more password fields). A page on a path with `[id]` never gets a handler, since the
+handler's path would match no page; its signed-in markers have no path and are learned
+as on any page. Which field was unlocated on each site is inferred; Cloudflare's reason
+is inferred from its path.
 
 Watched logins (owner, 2026-10-12 13:08 UTC,
 [ADR 0027](0027-per-account-login-routes.md#watching-after-a-challenge)): Evidence: on
