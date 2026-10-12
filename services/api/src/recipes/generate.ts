@@ -46,7 +46,7 @@ import {
   type InferenceErrorCode,
   type InferenceOutcome,
 } from "@pateat/inference";
-import { and, count, eq, gt, gte, lt } from "drizzle-orm";
+import { and, count, eq, gt, gte, lt, ne, or } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import * as v from "valibot";
 import type { DeviceScope } from "../auth";
@@ -668,13 +668,15 @@ export async function judgeCompletion(
   );
   // Each branch of a chooser is judged on its own; its limit per day is the chooser's.
   const judgedBranch = branch ?? "";
+  const promptVersion = await completionPromptVersion();
   const call = await callClaude(env, scope.ownerId, {
     role: "judge",
-    promptVersion: await completionPromptVersion(),
+    promptVersion,
     origin: observation.origin,
     path: observation.path,
     request: { instructions: completionInstructions, recipeId, route, loginPaths, observation },
-    // Each revision and path is judged once, and a recipe 20 times a UTC day (ADR 0027).
+    // Each revision and path is judged once per judge prompt version, and a recipe 20 times
+    // a UTC day (ADR 0027).
     gate: async (db, now) => {
       const stale = staleHead(await readHead(env.DB, scope.ownerId, recipeId), head.revision);
       if (stale) return stale;
@@ -687,12 +689,15 @@ export async function judgeCompletion(
             eq(pageJudgements.branch, judgedBranch),
             eq(pageJudgements.revision, head.revision),
             eq(pageJudgements.path, observation.path),
+            eq(pageJudgements.promptVersion, promptVersion),
           ),
         )
         .limit(1);
       // A later login of the revision completes on the path only after a `signed-in` or
       // undecided verdict (ADR 0029): one judged `challenge` or `rejected`, still being
-      // judged, or whose request failed does not.
+      // judged, or whose request failed does not. A row of an earlier judge prompt does not
+      // count: a page it judged `challenge` but kept no handler for, such as a code split
+      // into one-digit inputs before those were learned, is judged again.
       if (judged)
         return judged.verdict === "challenge"
           ? "judged-challenge"
@@ -708,7 +713,7 @@ export async function judgeCompletion(
       return (today?.value ?? 0) >= JUDGEMENTS_PER_RECIPE_DAY ? "judgement-limit" : undefined;
     },
     // A request the role refuses before sending still uses its slot, as a generation
-    // attempt does. Rows of older revisions go once their day is over.
+    // attempt does. Rows of older revisions or judges go once their day is over.
     reserved: (db, now) => [
       db
         .insert(pageJudgements)
@@ -718,6 +723,7 @@ export async function judgeCompletion(
           branch: judgedBranch,
           revision: head.revision,
           path: observation.path,
+          promptVersion,
           judgedAt: now,
         })
         .onConflictDoNothing(),
@@ -726,7 +732,10 @@ export async function judgeCompletion(
         .where(
           and(
             ofRecipe,
-            lt(pageJudgements.revision, head.revision),
+            or(
+              lt(pageJudgements.revision, head.revision),
+              ne(pageJudgements.promptVersion, promptVersion),
+            ),
             lt(pageJudgements.judgedAt, utcDayStart(now)),
           ),
         ),
@@ -751,6 +760,7 @@ export async function judgeCompletion(
             eq(pageJudgements.branch, judgedBranch),
             eq(pageJudgements.revision, head.revision),
             eq(pageJudgements.path, observation.path),
+            eq(pageJudgements.promptVersion, promptVersion),
           ),
         );
     } catch {

@@ -23,7 +23,8 @@ After a step with an effect, the login runtime checks, in order: the recipe's
 (including an `advance` that continues on the same path), a held click while a passkey
 prompt or chooser is open, and a learned handler (`totp`, `passkey`) on the page. When
 none explains the page, it is sent to the sign-in judge (ADR 0018, ADR 0027), at most
-two pages per step, once per recipe revision and path, and 20 times per recipe a day.
+two pages per step, once per recipe revision, path and judge prompt version, and 20
+times per recipe a day.
 Until the judge says `signed-in`, a generated recipe has no `completion`, and an
 unexplained page leaves the attempt `unknown`, so the tab keeps holding the site.
 

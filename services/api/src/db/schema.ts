@@ -254,6 +254,11 @@ export const pageJudgements = sqliteTable(
     branch: text("branch").notNull().default(""),
     revision: integer("revision").notNull(),
     path: text("path").notNull(),
+    /**
+     * The judge prompt version the page was judged with: a changed judge judges the page
+     * again, as it may now keep a handler the earlier one could not (ADR 0027).
+     */
+    promptVersion: text("prompt_version").notNull().default(""),
     judgedAt: integer("judged_at").notNull(),
     /**
      * The model's verdict once it answered (ADR 0029); empty while the page is being
@@ -263,7 +268,14 @@ export const pageJudgements = sqliteTable(
   },
   (table) => [
     primaryKey({
-      columns: [table.ownerId, table.recipeId, table.branch, table.revision, table.path],
+      columns: [
+        table.ownerId,
+        table.recipeId,
+        table.branch,
+        table.revision,
+        table.path,
+        table.promptVersion,
+      ],
     }),
     index("page_judgements_day").on(table.ownerId, table.recipeId, table.judgedAt),
   ],
