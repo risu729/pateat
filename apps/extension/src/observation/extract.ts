@@ -1,5 +1,6 @@
 import {
   REDACTED_PATH_SEGMENT,
+  isCodeField,
   loginAutocompleteTokens,
   loginObservationSchema,
   loginTargetSchema,
@@ -310,7 +311,7 @@ function referencedText(
 
 /** Regions that announce changes, such as a failed sign-in's message. */
 const liveRegions = [
-  ...["alert", "status", "log", "marquee", "timer"].map((role) => `[role='${role}']`),
+  ...["alert", "status", "log", "marquee", "timer"].map((role) => `[role~='${role}' i]`),
   "[aria-live]:not([aria-live='off'])",
 ].join(", ");
 
@@ -330,6 +331,74 @@ function fieldDescription(input: HTMLInputElement, label: string | undefined) {
     liveRegions,
   );
   return text === label ? undefined : text;
+}
+
+const nearDepth = 3;
+const maxNear = 3;
+/** Elements examined for text near a code field; a code page is small. */
+const nearScanLimit = 2000;
+/**
+ * Elements whose text is never text near a code field: live regions and error messages,
+ * which can echo a typed value (ADR 0010), editable text and output boxes, which can
+ * show it, controls, labels and links, which the observation describes as candidates,
+ * and headings, which it already carries. Such an element anywhere above the field, as
+ * a page wrapped in a live region, leaves out every text.
+ */
+const notNear = [
+  liveRegions,
+  "a, button, label, input, select, textarea, output, h1, h2, h3",
+  "[contenteditable]:not([contenteditable='false' i])",
+  ...["button", "link", "heading", "textbox", "searchbox", "combobox", "spinbutton"].map(
+    (role) => `[role~='${role}' i]`,
+  ),
+].join(", ");
+
+/**
+ * Up to three short texts a signed-in page shows near its code field, for the judge to
+ * tell where the code comes from (ADR 0027, owner decision 2026-10-12 22:04 UTC), such as
+ * an authenticator-app sentence outside the code form: each the rendered text of one
+ * shown element without child elements, within three parents of the field (never the body
+ * or above), nearest parent first and then in page order, returned in page order. Each
+ * text is normalized as `observedText` does but not cut, then passed to `keep`, which
+ * hides it, cuts it or drops it; only kept texts count, and each once. Elements matching
+ * `notNear`, those inside one and those the field's `aria-errormessage` names are left
+ * out, and a field marked `aria-invalid="true"` gets none, as its description does.
+ */
+function nearCodeTexts(field: HTMLElement, keep: (text: string) => string | undefined): string[] {
+  if (field.getAttribute("aria-invalid")?.trim().toLowerCase() === "true") return [];
+  const errors = idList(field, "aria-errormessage").flatMap((id) => {
+    const element = field.ownerDocument.getElementById(id);
+    return element ? [element] : [];
+  });
+  const found: { element: Element; text: string }[] = [];
+  let scanned = 0;
+  let inner: Element = field;
+  for (let depth = 0; depth < nearDepth && found.length < maxNear; depth += 1) {
+    const area = inner.parentElement;
+    if (!area || area === field.ownerDocument.body || area === field.ownerDocument.documentElement)
+      break;
+    for (const element of area.querySelectorAll("*")) {
+      if (found.length >= maxNear || (scanned += 1) > nearScanLimit) break;
+      if (
+        element.childElementCount > 0 ||
+        inner.contains(element) ||
+        element.closest(notNear) ||
+        errors.some((error) => error.contains(element))
+      )
+        continue;
+      const raw = observedText(renderedText(element, rawLimit), Number.POSITIVE_INFINITY);
+      const text = raw && keep(raw);
+      if (text && !found.some((entry) => entry.text === text)) found.push({ element, text });
+    }
+    inner = area;
+  }
+  return found
+    .sort((left, right) =>
+      left.element.compareDocumentPosition(right.element) & Node.DOCUMENT_POSITION_FOLLOWING
+        ? -1
+        : 1,
+    )
+    .map(({ text }) => text);
 }
 
 /** True for an element that belongs to another control: a control or its `<label for>`. */
@@ -796,7 +865,10 @@ export function extractLoginObservation(
 
 type Chosen = { form: HTMLFormElement | null; draft: Draft; target: LoginTarget };
 
-/** Numbers the chosen elements in document order and adds the page's title and headings. */
+/**
+ * Numbers the chosen elements in document order and adds the page's title and headings;
+ * with `near`, also the texts near its first code field (`nearCodeTexts`).
+ */
 function observe(
   document: Document,
   chosen: Chosen[],
@@ -805,6 +877,7 @@ function observe(
   accounts?: readonly string[],
   header?: string,
   path = document.location!.pathname,
+  near = false,
 ): ObservationResult {
   const location = document.location!;
   chosen.sort((left, right) =>
@@ -848,9 +921,28 @@ function observe(
       }),
     ),
   ].slice(0, maxHeadings);
+  // A split code's first input comes first in page order.
+  const codeAt = near ? candidates.findIndex(isCodeField) : -1;
+  const code = candidates[codeAt];
+  const repeated = new Set([title, ...headings, code?.label, code?.placeholder, code?.description]);
+  const nearCode =
+    code === undefined
+      ? []
+      : nearCodeTexts(chosen[codeAt]!.draft.element, (raw) => {
+          const text = bounded(hide(raw));
+          // A text that repeats one the page already carries, or with fewer than two
+          // letters beside its placeholders, such as a timer or one typed character in
+          // a box of its own, says nothing about the code.
+          return text !== undefined &&
+            !repeated.has(text) &&
+            (text.replace(/\[(?:email|masked|number)\]/gu, "").match(/\p{L}/gu)?.length ?? 0) >= 2
+            ? text
+            : undefined;
+        });
   const texts = [
     title ?? "",
     ...headings,
+    ...nearCode,
     ...candidates.flatMap((candidate) => [
       candidate.label ?? "",
       candidate.placeholder ?? "",
@@ -866,6 +958,7 @@ function observe(
     ...(title ? { title } : {}),
     ...(headings.length ? { headings } : {}),
     ...(header ? { headerText: header } : {}),
+    ...(nearCode.length ? { nearCode } : {}),
     complete,
     candidates,
     ...(accounts?.length ? { accounts } : {}),
@@ -1141,7 +1234,8 @@ function mayBeSignIn(input: HTMLInputElement): boolean {
  * markers; those past the limit or without a locator are left out. A link is located by
  * its text too, as for an account switch, and the executor looks for the completion
  * marker the same way. A path segment that may carry a token is sent as
- * `REDACTED_PATH_SEGMENT` (`signedInPath`).
+ * `REDACTED_PATH_SEGMENT` (`signedInPath`). A page with a code field also carries up to
+ * three texts near the first one (`nearCodeTexts`), hidden as the rest of the page.
  */
 export function extractSignedInObservation(
   document: Document = globalThis.document,
@@ -1216,6 +1310,7 @@ export function extractSignedInObservation(
     undefined,
     headerText(document),
     signedInPath(location.pathname),
+    true,
   );
   return result.ok && gap ? { ...result, gap } : result;
 }

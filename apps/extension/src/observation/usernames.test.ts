@@ -104,6 +104,26 @@ describe("withoutUsernames", () => {
     expect(JSON.stringify(result).toLowerCase()).not.toContain("taro");
   });
 
+  it("covers the texts near a code field (ADR 0027)", () => {
+    const code = {
+      id: "c3",
+      role: "text",
+      target: { by: "id", value: "otp" },
+      autocomplete: "one-time-code",
+    } as const;
+    const result = hidden(
+      observation({
+        candidates: [...observation().candidates, code],
+        nearCode: ["Code for taro from your authenticator app", "Not taro?"],
+      }),
+      ["taro"],
+    );
+    expect(result.nearCode).toEqual([
+      "Code for [account] from your authenticator app",
+      "Not [account]?",
+    ]);
+  });
+
   it("never finds a name inside a longer Latin word", () => {
     expect(
       headings(["Use another account", "Annual report", "Sign in with ann", "ANN"], ["ann"]),
