@@ -698,6 +698,12 @@ export interface LoginGeneration {
     sent?: () => void,
     /** For a chooser login (ADR 0028): the branch whose route is judged. */
     branch?: ChooserBranch,
+    /**
+     * The description left out a disabled field that may not be a sign-in field: the
+     * service keeps the model's abstention as `partial`, so a page of the path described
+     * in full is judged again (ADR 0029).
+     */
+    partial?: true,
   ): Promise<{
     /**
      * `retry` for a temporary refusal before any model call, which gives the page back:
@@ -1136,6 +1142,16 @@ export type LoginReport = (
        * completed on it (ADR 0029).
        */
       completed?: true;
+      /**
+       * The page's description left out a disabled field that may not be a sign-in field,
+       * so only `signed-in` completes the login on it (ADR 0029).
+       */
+      disabledLeftOut?: true;
+      /**
+       * Why an undecided answer that would have completed the login did not: the page's
+       * description left out a disabled field (ADR 0029).
+       */
+      notCompleted?: "disabled-left-out";
     }
   | ({
       type: "state";
@@ -3563,6 +3579,7 @@ export function createLoginRuntime(
       return notSent("marker-shown");
     let observation: LoginObservation | undefined;
     let unsent = "unreachable";
+    let disabledLeftOut = false;
     try {
       const extracted = v.safeParse(
         extractResultSchema,
@@ -3583,7 +3600,10 @@ export function createLoginRuntime(
         parsed.output.path !== signedInPath(remaining.path)
       )
         unsent = "page-changed";
-      else observation = parsed.output;
+      else {
+        observation = parsed.output;
+        disabledLeftOut = extracted.output.ok && extracted.output.disabledLeftOut === true;
+      }
     } catch {
       // The page could not be asked: `unreachable`.
     }
@@ -3604,7 +3624,12 @@ export function createLoginRuntime(
     const watchedPage = run.metadata.watch !== undefined;
     const reportJudge = (
       verdict: Extract<LoginReport, { type: "judge" }>["verdict"],
-      detail: { reason?: string; takenOver?: boolean; completed?: true } = {},
+      detail: {
+        reason?: string;
+        takenOver?: boolean;
+        completed?: true;
+        notCompleted?: "disabled-left-out";
+      } = {},
     ) =>
       report(run.live.document, {
         type: "judge",
@@ -3616,7 +3641,16 @@ export function createLoginRuntime(
         verdict,
         ...detail,
         ...(watchedPage ? { watched: true as const } : {}),
+        ...(disabledLeftOut ? { disabledLeftOut: true as const } : {}),
       });
+    // A chooser login's branch, and whether the description left a disabled field out
+    // (ADR 0029); each is passed only when there is one.
+    const branch = metadata.chooser ? chooserClickBranch(metadata.chooser.click) : undefined;
+    const judgedTail: [(ChooserBranch | undefined)?, true?] = disabledLeftOut
+      ? [branch, true]
+      : branch
+        ? [branch]
+        : [];
     const {
       verdict,
       reason,
@@ -3630,7 +3664,7 @@ export function createLoginRuntime(
       metadata.route === "passkey" && passkeyAnswersRequest(recipe) ? "password" : metadata.route,
       observation,
       () => reportJudge("sent"),
-      ...(metadata.chooser ? [chooserClickBranch(metadata.chooser.click)] : []),
+      ...judgedTail,
     );
     if (!current(run)) {
       reportJudge(verdict, {
@@ -3663,6 +3697,11 @@ export function createLoginRuntime(
       completes =
         again?.loaded === true && (again.decision === "judge" || again.decision === "signed-in");
     }
+    // A disabled field left out of the description may be a code field waiting for a timer
+    // or a sent code: such a page completes only when the judge answers `signed-in`, and
+    // otherwise settles as an unjudged page would (owner, 2026-10-12, ADR 0029).
+    const notCompleted = completes && disabledLeftOut ? ("disabled-left-out" as const) : undefined;
+    if (notCompleted) completes = false;
     // Reported before the takeover's own entries, once whether it is taken over is known.
     let reported = false;
     // A watched login only reads its pages; it never runs a learned handler (ADR 0027).
@@ -3680,6 +3719,7 @@ export function createLoginRuntime(
         ...(reason ? { reason } : {}),
         ...(added ? { takenOver: false } : {}),
         ...(completes ? { completed: true } : {}),
+        ...(notCompleted ? { notCompleted } : {}),
       });
     if (movedOn || !current(run)) return true;
     await change(run, {

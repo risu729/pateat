@@ -396,6 +396,8 @@ export function createDiagnosticsLog(options: {
             takenOver: report.takenOver,
             watched: report.watched,
             completed: report.completed,
+            disabledLeftOut: report.disabledLeftOut,
+            notCompleted: report.notCompleted,
           },
           // The answer follows, but `sent` is what is left when no answer came (ADR 0019).
           // A request that failed before the model is a problem; with no paired service
@@ -404,8 +406,10 @@ export function createDiagnosticsLog(options: {
           {
             source,
             ...((report.verdict === "retry" && report.reason !== "not-connected") ||
-            // A login completed though the judge could not decide (ADR 0029).
+            // A login completed though the judge could not decide (ADR 0029), or did not
+            // complete only because its page's description left out a disabled field.
             report.completed ||
+            report.notCompleted ||
             (report.watched &&
               (report.verdict === "unclear" ||
                 report.verdict === "challenge" ||

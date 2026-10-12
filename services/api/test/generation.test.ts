@@ -186,12 +186,19 @@ async function generate(device: Device, page: LoginObservation, base?: unknown) 
   return (await response.json()) as RecipeGenerationResult;
 }
 
-async function complete(device: Device, recipeId: string, revision: number, page = homePage) {
+async function complete(
+  device: Device,
+  recipeId: string,
+  revision: number,
+  page = homePage,
+  partial?: true,
+) {
   const response = await post(device, `/v1/recipes/${recipeId}/completion`, {
     version: 1,
     revision,
     route: "password",
     observation: page,
+    ...(partial ? { partial } : {}),
   });
   return {
     status: response.status,
@@ -1321,6 +1328,64 @@ describe("completion judgement", () => {
       (await complete(device, change.recipeId, 2, { ...homePage, path: "/welcome" })).body,
     ).toEqual({ version: 1, status: "unavailable", reason: "already-judged" });
     expect(sent).toHaveLength(calls);
+  });
+
+  // A description that left out a disabled field may hide a code field waiting for its code
+  // (owner, 2026-10-12, ADR 0029).
+  it("judges a path again in full after the model could not decide a partial page", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    const verdict = async () =>
+      (
+        await rows(
+          "SELECT verdict FROM page_judgements WHERE owner_id = ? AND path = '/home'",
+          device.ownerId,
+        )
+      ).map((row) => row["verdict"]);
+    replies.push({ text: JSON.stringify({ result: { decision: "unclear" } }) });
+    expect((await complete(device, change.recipeId, 2, homePage, true)).body).toEqual({
+      version: 1,
+      status: "unclear",
+    });
+    expect(await verdict()).toEqual(["partial"]);
+    // Left out again, the page is not judged again, and the answer never completes it.
+    const calls = sent.length;
+    expect((await complete(device, change.recipeId, 2, homePage, true)).body).toEqual({
+      version: 1,
+      status: "unavailable",
+      reason: "already-judged",
+    });
+    expect(sent).toHaveLength(calls);
+    // Described in full, the path is judged again, and its verdict is kept as usual.
+    replies.push({ text: JSON.stringify({ result: { decision: "unclear" } }) });
+    expect((await complete(device, change.recipeId, 2)).body).toEqual({
+      version: 1,
+      status: "unclear",
+    });
+    expect(sent).toHaveLength(calls + 1);
+    expect(await verdict()).toEqual(["unclear"]);
+    expect((await complete(device, change.recipeId, 2)).body).toEqual({
+      version: 1,
+      status: "unavailable",
+      reason: "already-judged",
+    });
+    expect(sent).toHaveLength(calls + 1);
+  });
+
+  it("keeps a partial page's decided verdict as for any page", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    replies.push({ text: JSON.stringify({ result: { decision: "signed-in", marker: "logout" } }) });
+    expect((await complete(device, change.recipeId, 2, homePage, true)).body).toMatchObject({
+      version: 1,
+      status: "signed-in",
+    });
+    expect(
+      await rows(
+        "SELECT verdict FROM page_judgements WHERE owner_id = ? AND path = '/home'",
+        device.ownerId,
+      ),
+    ).toEqual([{ verdict: "signed-in" }]);
   });
 
   it("logs which check refused a judgement's output, as codes only", async () => {

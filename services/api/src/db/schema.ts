@@ -236,8 +236,18 @@ export const generationAttempts = sqliteTable(
   ],
 );
 
-/** What the judge answered for a page; `unclear` when the model abstained (ADR 0029). */
-export const pageJudgementVerdicts = ["signed-in", "challenge", "rejected", "unclear"] as const;
+/**
+ * What the judge answered for a page; `unclear` when the model abstained (ADR 0029), and
+ * `partial` when it abstained on a description that left out a disabled field, so the
+ * path is judged again once it is described in full.
+ */
+export const pageJudgementVerdicts = [
+  "signed-in",
+  "challenge",
+  "rejected",
+  "unclear",
+  "partial",
+] as const;
 export type PageJudgementVerdict = (typeof pageJudgementVerdicts)[number];
 /**
  * Pages sent to the judge per recipe revision and path (ADR 0027): each is judged at most

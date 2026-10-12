@@ -146,8 +146,9 @@ new owner decision:
   sign-in field is left out: not a password or email input, no `username`, `email`,
   `current-password`, `new-password` or `one-time-code` autocomplete token, not a short
   numeric field. A hotel search's read-only date picker is such a field. A disabled
-  field still makes the page incomplete, as a code field waiting for a timer may be
-  disabled. Then come buttons and
+  one is left out too since 2026-10-12 (22:03 UTC), but as a code field waiting for a
+  timer may be disabled, such a page completes only on `signed-in`
+  ([ADR 0029](0029-local-sign-in-state.md)). Then come buttons and
   links as possible markers up to the 48-candidate limit, those in the page header or
   navigation first. A link may be located by its text, and the executor then finds the
   completion marker by that text; text with a digit never locates a marker. An `id`,

@@ -1512,19 +1512,40 @@ describe("extractSignedInObservation", () => {
     expect(gap()).toEqual([true, undefined]);
     page(`<button id="logout">Sign out</button><input id="pin" type="password" readonly>`);
     expect(gap()).toEqual([false, "unfillable-field"]);
-    // A disabled field may be a code field waiting for a timer or a sent code; the log
-    // says whether it may be a sign-in field.
+    // A disabled field that may not be a sign-in field is left out, and the result says so:
+    // it may still be a code field waiting for a timer or a sent code, so only `signed-in`
+    // completes such a page (owner, 2026-10-12, ADR 0029; Q-move's history page after a
+    // sign-in, 2026-10-12: `disabled-field`, never judged; which field it was is inferred).
     for (const field of [
       `<input id="otp" name="otp" disabled>`,
       `<input id="date" type="text" disabled>`,
+      `<input id="f" type="tel" maxlength="11" disabled>`,
     ]) {
-      page(`<button id="logout">Sign out</button>${field}`);
-      expect(gap(), field).toEqual([false, "disabled-field"]);
+      page(`<button id="logout">Sign out</button><form>${field}</form>`);
+      const result = extractSignedInObservation();
+      expect(result, field).toMatchObject({
+        ok: true,
+        observation: { complete: true },
+        disabledLeftOut: true,
+      });
+      expect(result).not.toHaveProperty("gap");
+      expect(summary(signedIn()).map((entry) => entry.target.value)).toEqual(["logout"]);
     }
-    page(
-      `<button id="logout">Sign out</button><input id="otp" autocomplete="one-time-code" disabled>`,
-    );
-    expect(gap()).toEqual([false, "unfillable-field"]);
+    // A disabled field that may be a sign-in field still makes the page incomplete.
+    for (const field of [
+      `<input id="f" autocomplete="one-time-code" disabled>`,
+      `<input id="f" autocomplete="current-password" disabled>`,
+      `<input id="f" autocomplete="username" disabled>`,
+      `<input id="f" type="password" disabled>`,
+      `<input id="f" type="email" disabled>`,
+      `<input id="f" inputmode="numeric" maxlength="6" disabled>`,
+    ]) {
+      page(`<button id="logout">Sign out</button><input id="date" disabled>${field}`);
+      expect(gap(), field).toEqual([false, "unfillable-field"]);
+    }
+    // Other fields that cannot be filled are left out without the mark.
+    page(`<button id="logout">Sign out</button><input id="date" type="text" readonly>`);
+    expect(extractSignedInObservation()).not.toHaveProperty("disabledLeftOut");
     // A read-only field that may be a sign-in field.
     for (const field of [
       `<input id="f" autocomplete="section-a username" readonly>`,

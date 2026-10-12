@@ -292,6 +292,12 @@ export const recipeCompletionRequestSchema = v.strictObject({
   /** For a chooser recipe (ADR 0028): the branch the login took, whose route is judged. */
   branch: v.optional(chooserBranchSchema),
   observation: loginObservationSchema,
+  /**
+   * The description left out a disabled field that may not be a sign-in field (ADR 0029):
+   * a page the model cannot decide is judged again when the path is next described in
+   * full.
+   */
+  partial: v.optional(v.literal(true)),
 });
 
 export const recipeCompletionResultSchema = v.variant("status", [
