@@ -191,6 +191,59 @@ describe("extractLoginObservation", () => {
     ]);
   });
 
+  it("takes field descriptions from aria-describedby, never errors or text the label repeats", () => {
+    page(
+      `<label for="branch">店番</label>
+      <input id="branch" aria-describedby="branch-hint gone">
+      <p id="branch-hint">半角数字3桁</p>
+      <input id="same" aria-labelledby="pin-label" aria-describedby="pin-label">
+      <span id="pin-label">暗証番号</span>
+      <input id="hidden-hint" aria-label="Code" aria-describedby="secret">
+      <p id="secret" hidden>Ignored</p>
+      <input id="mail" aria-label="Mail" aria-describedby="mail-hint">
+      <p id="mail-hint">Use taro@example.com or 0312345678</p>
+      <input id="invalid" aria-label="User" aria-describedby="user-hint" aria-invalid="true">
+      <p id="user-hint">User taro_y is not registered</p>
+      <input id="errors" aria-label="ID" aria-describedby="id-hint id-error id-alert"
+        aria-errormessage="id-error">
+      <p id="id-hint">6-12 letters</p><p id="id-error">taro_y is taken</p>
+      <div role="alert"><p id="id-alert">taro_y is locked</p></div>
+      <input id="nested" aria-label="PIN" aria-describedby="pin-desc">
+      <div id="pin-desc"><p>4 digits</p><p aria-live="polite">taro_y is locked</p></div>
+      <button id="go" aria-describedby="branch-hint">ログイン</button>`,
+    );
+    expect(summary(observe())).toEqual([
+      {
+        role: "text",
+        target: { by: "id", value: "branch" },
+        label: "店番",
+        description: "半角数字3桁",
+      },
+      { role: "text", target: { by: "id", value: "same" }, label: "暗証番号" },
+      { role: "text", target: { by: "id", value: "hidden-hint" }, label: "Code" },
+      {
+        role: "text",
+        target: { by: "id", value: "mail" },
+        label: "Mail",
+        description: "Use [email] or [number]",
+      },
+      { role: "text", target: { by: "id", value: "invalid" }, label: "User" },
+      {
+        role: "text",
+        target: { by: "id", value: "errors" },
+        label: "ID",
+        description: "6-12 letters",
+      },
+      {
+        role: "text",
+        target: { by: "id", value: "nested" },
+        label: "PIN",
+        description: "4 digits",
+      },
+      { role: "button", target: { by: "id", value: "go" }, label: "ログイン" },
+    ]);
+  });
+
   it("does not borrow a label across another field's area", () => {
     page(`<div><span>Customer number</span><input id="one"><input id="two"></div>`);
     expect(summary(observe())).toEqual([

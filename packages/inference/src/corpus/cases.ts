@@ -36,7 +36,14 @@ export type EvaluationCase = {
 type Extra = Partial<
   Pick<
     ObservedCandidate,
-    "label" | "placeholder" | "autocomplete" | "group" | "maxLength" | "minLength" | "inputMode"
+    | "label"
+    | "placeholder"
+    | "description"
+    | "autocomplete"
+    | "group"
+    | "maxLength"
+    | "minLength"
+    | "inputMode"
   >
 >;
 const element =
@@ -216,7 +223,11 @@ export const evaluationCorpus: EvaluationCase[] = [
       "/login",
       "ja",
       [
-        tel("branch", "支店番号", { maxLength: 3, inputMode: "numeric" }),
+        tel("branch", "支店番号", {
+          maxLength: 3,
+          inputMode: "numeric",
+          description: "半角数字3桁",
+        }),
         tel("account", "口座番号", { maxLength: 7, inputMode: "numeric" }),
         tel("contract", "または契約者番号", { maxLength: 10, inputMode: "numeric" }),
         password("pin", "ログインパスワード"),
