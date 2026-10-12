@@ -1,0 +1,20 @@
+# aube settings (ADR 0032). aube installs from bun.lock, which Bun writes (bun add --exact)
+# and Renovate's Bun manager updates.
+# Same globs as `workspaces` in package.json, which Bun (and so Renovate) reads; aube reads
+# only this list once this file exists, and a frozen install fails when the two differ.
+packages:
+  - apps/*
+  - packages/*
+  - services/*
+# Write exact versions on `aube add`, for when aube writes the lockfile.
+savePrefix: ""
+# Dependency install scripts allowed to run; any other is skipped and fails the install.
+allowBuilds:
+  esbuild: true
+  workerd: true
+# Strict security bundle: no trust downgrades, jailed dependency builds, a hard 24-hour
+# release age, required store integrity, reviewed builds only, and a fail-closed OSV
+# malicious-package check on new resolutions.
+paranoid: true
+# Also check plain lockfile installs against the OSV malicious-package list.
+advisoryBloomCheck: "on"

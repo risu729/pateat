@@ -53,10 +53,10 @@ separately. Linux jobs pin `ubuntu-26.04`; the `CI Check` aggregate only compare
 results, so it runs on the single-CPU `ubuntu-slim` runner. CodeQL needs no Actions
 cache: dependency caching is off by default in advanced setup and its TRAP cache is
 disabled, so the workflow sets `cache-mode: none`. In `ci.yml` the `Verify`, `Browser`
-and `Deploy tested server` jobs share their checkout, mise and Bun install steps through
-YAML anchors (`&checkout`, `&mise`, `&install`), so those pins appear once in `ci.yml`;
-zizmor warns that it audits anchored workflows on a best-effort basis. GitHub Code
-Quality is not used: since its
+and `Deploy tested server` jobs share their checkout, mise and aube install steps
+through YAML anchors (`&checkout`, `&mise`, `&install`), so those pins appear once in
+`ci.yml`; zizmor warns that it audits anchored workflows on a best-effort basis. GitHub
+Code Quality is not used: since its
 [2026-07-20 general availability](https://github.blog/changelog/2026-06-16-github-code-quality-generally-available-july-20-2026)
 it is a paid product for GitHub Team and Enterprise Cloud organizations, and this
 repository is user-owned. On 2026-10-11 the owner removed its ruleset rule here and in
@@ -272,8 +272,8 @@ bypass.
 ## Complete-service build and release requirements
 
 Use cloudflare.config.ts as the maintained configuration. Pin cf and the
-Cloudflare Vite plugin together. cf requires Node >=22.18; Bun remains the
-package manager, not its runtime. See [research](research/2026-10-10-feasibility.md)
+Cloudflare Vite plugin together. cf requires Node >=22.18; aube is the
+package manager and Node the runtime. See [research](research/2026-10-10-feasibility.md)
 for the typed-config/test-harness compatibility gate.
 
 1. Inside trusted main CI, produce a production-mode `.cloudflare/output/v0/`

@@ -1,16 +1,17 @@
 # Development workflow
 
-The foundation has a Bun workspace, pinned tools, local policy settings, shared
-contracts, and a settings/recipe sync Worker skeleton. A separate localhost probe
+The foundation has an aube-installed workspace, pinned tools, local policy settings,
+shared contracts, and a settings/recipe sync Worker skeleton. A separate localhost probe
 exercises the declarative login executor with synthetic values. Manual Bitwarden setup
 and local vault caching are implemented, and the settings page can pair with a sync
-service; production login activation, settings/recipe sync in the extension and
-provider inference remain unimplemented; AI roles are evaluated offline only. M1
-is not complete until its required checks and acceptance gates pass.
+service; production login activation, settings/recipe sync in the extension and provider
+inference remain unimplemented; AI roles are evaluated offline only. M1 is not complete
+until its required checks and acceptance gates pass.
 
 ## Workspace and tasks
 
-The workspace uses one Bun lockfile:
+The workspace uses one lockfile, `bun.lock`, which aube installs from
+([ADR 0032](adr/0032-aube-package-manager.md)):
 
 ```text
 apps/extension/       WXT entrypoints and extension shell
@@ -31,9 +32,19 @@ without contacting a database, and the check graph fails if committed migrations
 the root `tasks.toml`, which the root `mise.toml` loads with `[task_config] includes`
 (owner decision, 2026-10-12); each project's tasks stay in its own `mise.toml`. Use
 native workspace mise tasks, not package.json scripts or wrapper scripts that duplicate
-the task graph. Bun manages dependencies; pinned supported Node executes tools that
-require it, notably cf. Commit mise and Bun lockfiles after resolving them, never
-hand-author a purported installed dependency graph.
+the task graph. aube installs dependencies; pinned supported Node executes tools that
+require it, notably cf, and Bun writes the lockfile and runs the two inference scripts
+that use it. aube's settings are in `aube-workspace.yaml`: its
+`packages` list must match the `workspaces` globs in `package.json`, which Bun and
+Renovate read, and `paranoid: true` makes an install fail on a dependency build script
+missing from `allowBuilds`, on a version newer than 24 hours when it resolves one, and
+on an OSV malicious-package hit. Commit `mise.lock`, the aube tool locks under
+`.mise/locks/` and `bun.lock` after resolving them, never hand-author a purported
+installed dependency graph. Bun writes `bun.lock`: change dependencies with
+`bun add --exact`, `bun remove` or `bun update`, then `mise run install`, because aube
+2.7.0 rewrites `bun.lock` into a form its own frozen install refuses
+([ADR 0032](adr/0032-aube-package-manager.md)). Renovate updates `bun.lock` with Bun
+too.
 
 The repository is a mise monorepo (owner decision, 2026-10-11). The root `mise.toml`
 sets `monorepo_root = true` and lists `apps/extension`, `services/api`, `packages/*` and
@@ -43,7 +54,7 @@ root. A task's full name is its path and name, such as `//services/api:build`; i
 that directory `mise run :build` also works. Each project has a `test` task (the
 extension's `test` runs its `test:<area>` tasks) and each except `packages/contracts`
 has a `typecheck` task, so `mise run '//...:typecheck'` type-checks everything. mise
-reads the Bun workspace graph, so `mise run --affected '//...:test'` tests the workspace
+reads the workspace graph, so `mise run --affected '//...:test'` tests the workspace
 packages with changes since `HEAD~1` (including uncommitted and untracked files) and the
 packages that depend on them. A change outside a workspace package, such as `docs/`,
 `scripts/`, `tests/*`, the root `mise.toml` or `tasks.toml`, selects every package, and
@@ -69,11 +80,12 @@ A development tool used only as a command is a mise tool, not a devDependency: t
 TypeScript compiler is `npm:typescript` in `mise.toml`, so `tsc` comes from mise. A
 package that code or configuration imports stays in `package.json` even when it also has
 a command, as cf (`cloudflare.config.ts`), drizzle-kit (`drizzle.config.ts`), WXT,
-Vitest and Playwright do. Each version is pinned in one place only; Bun's version is the
-`bun` tool in `mise.toml`, with no `packageManager` field. Bun still installs TypeScript
-into its store as a peer of `@risu729/tsconfigs` and an optional peer of WXT and
-Valibot; no task uses that copy, and it can lag the mise pin until the Bun lock is
-refreshed.
+Vitest and Playwright do. Each version is pinned in one place only; aube's version is
+the `aqua:aubepkg/aube` tool in `mise.toml`, with no `packageManager` field, and mise
+installs its `npm:` tools with aube because `npm.package_manager` is left unset. aube
+still installs TypeScript into its store as a peer of `@risu729/tsconfigs` and an
+optional peer of WXT and Valibot; no task uses that copy, and it can lag the mise pin
+until the lockfile is refreshed.
 
 `hk.pkl` imports [risu729/hk-config](https://github.com/risu729/hk-config) at a pinned
 release tag. hk provides the single complete check entrypoint,

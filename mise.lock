@@ -2,6 +2,23 @@
 
 lockfile_version = 3
 
+[[tools."aqua:aubepkg/aube"]]
+version = "2.7.0"
+backend = "aqua:aubepkg/aube"
+specifiers = ["2.7.0"]
+
+[tools."aqua:aubepkg/aube"."platforms.linux-x64"]
+checksum = "sha256:1a1c1771a7ee3619e774f2108124f4c8c2aa877e7deacf747be9847b3bbc1231"
+url = "https://github.com/aubepkg/aube/releases/download/v2.7.0/aube-v2.7.0-x86_64-unknown-linux-gnu.tar.gz"
+url_api = "https://api.github.com/repos/aubepkg/aube/releases/assets/619367101"
+provenance = "github-attestations"
+
+[tools."aqua:aubepkg/aube"."platforms.windows-x64"]
+checksum = "sha256:a5eb939dbf76d83880659e45f1f05aa06c4b33d92888aa41dd7c6cca5ce7dd63"
+url = "https://github.com/aubepkg/aube/releases/download/v2.7.0/aube-v2.7.0-x86_64-pc-windows-msvc.zip"
+url_api = "https://api.github.com/repos/aubepkg/aube/releases/assets/619399033"
+provenance = "github-attestations"
+
 [[tools.betterleaks]]
 version = "1.9.0"
 backend = "aqua:betterleaks/betterleaks"
@@ -170,16 +187,19 @@ url = "https://nodejs.org/dist/v26.11.1/node-v26.11.1-win-x64.zip"
 
 [[tools."npm:oxlint"]]
 version = "1.87.0"
+aube = { path = ".mise/locks/npm-oxlint/1.87.0", digest = "sha256:fa3fe0a7d1858a740522115c9608e956f0759c35d487a1eb3822b98033a19d38" }
 backend = "npm:oxlint"
 specifiers = ["1.87.0"]
 
 [[tools."npm:typescript"]]
 version = "7.0.2"
+aube = { path = ".mise/locks/npm-typescript/7.0.2", digest = "sha256:3d06b3b23564c68cdad7815c356edb1506fab1c42bfb8c54234134fd9650ec17" }
 backend = "npm:typescript"
 specifiers = ["7.0.2"]
 
 [[tools.oxfmt]]
 version = "0.72.0"
+aube = { path = ".mise/locks/oxfmt/0.72.0", digest = "sha256:8cff19be82a82e83efe243f08fd8bf1a2a2f635f10384d070d7956209ddd9b44" }
 backend = "npm:oxfmt"
 specifiers = ["0.72.0"]
 

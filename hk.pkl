@@ -56,6 +56,17 @@ steps = (
       }
     }
   }
+  ["yaml"] {
+    steps {
+      // mise writes these aube lockfiles for its npm tools; they keep aube's own layout.
+      ["yamllint"] {
+        exclude = List(".mise/locks/**")
+      }
+      ["yamlfmt"] {
+        exclude = List(".mise/locks/**")
+      }
+    }
+  }
   ["runtime"] {
     check = "mise run check:runtime"
   }

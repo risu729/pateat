@@ -63,7 +63,7 @@ jobs:
           install_args: --locked
       - &install
         name: Install frozen dependencies
-        run: bun install --frozen-lockfile
+        run: aube ci
       - name: Install isolated browser runtime
         run: mise run browser:install --with-deps
       - name: Run the complete local verification graph
