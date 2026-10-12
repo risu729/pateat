@@ -203,6 +203,30 @@ describe("attempt identity and metadata", () => {
     });
     expect(staleReply).toEqual(intent);
   });
+
+  it("never issues or authorizes a step with an effect for a fill-only attempt", () => {
+    const ready = readyToClick();
+    const operation = nextLoginOperation(ready, recipe, document, "click-one", 1000)!;
+    const fillOnly = { ...ready, fillOnly: true as const };
+    expect(nextLoginOperation(fillOnly, recipe, document, "click-one", 1000)).toBeUndefined();
+    const intent = transitionLoginAttempt(
+      transitionLoginAttempt(fillOnly, {
+        type: "PREPARE",
+        operationId: "click-one",
+        kind: "click",
+      }),
+      { type: "SUBMIT_INTENT", operationId: "click-one" },
+    );
+    expect(validateLoginOperation(operation, intent, document, 3, 1001)).toBe(false);
+    // Its preparing fill is issued as for any login.
+    const start = {
+      ...transitionLoginAttempt(detected(), { type: "RESOLVE" }),
+      fillOnly: true as const,
+    };
+    expect(nextLoginOperation(start, recipe, document, "fill-one")).toMatchObject({
+      step: { kind: "fill" },
+    });
+  });
 });
 
 describe("submission and failure reconciliation", () => {
