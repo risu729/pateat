@@ -47,6 +47,14 @@ watched record as a logout
 (ADR 0021 D), so that tab asks and fills without pressing anything instead of being
 refused `origin-busy` (owner's request, 13:49 UTC, after the person restarted an
 expired QR approval on 三菱UFJ銀行 and Pateat did nothing until the old tab closed).
+Amended again on 2026-10-12 (21:18 UTC, owner's choice 「AI判定」 on a decision card): a
+`password` login whose tab moves to another origin of the same site right after the
+submission completes when the new page shows the account's username, and, as the next
+change, the judge decides once when it does not; see "Leaving the origin after a
+possible submission ends the attempt" below. Evidence: on モッピー at 20:52 UTC Pateat
+submitted the password on `ssl.pc.moppy.jp`, the site moved the tab to the signed-in
+`pc.moppy.jp`, and the login ended `left-origin`, so it saved no account choice and held
+the site in other tabs for 5 minutes.
 
 ## Context
 
@@ -139,6 +147,34 @@ fix them now; the SSO policy itself is recorded separately.
     `left-origin` as before. A site that rejects the assertion and sends the tab to a
     quiet page of the same site is counted as signed in; other tabs may then log in
     there again.
+  - **A move after a password submission** (amended 2026-10-12, owner's choice at 21:18
+    UTC). A top-level attempt on the `password` route ends `authenticated` instead when
+    all of these hold: its last effect step (a fill or a click that may have submitted,
+    not one that asks for a passkey) was sent to the page at most 30 seconds before the
+    move, and no passkey answer after it decides the move as above; the new top page is
+    HTTPS and on the attempt's registrable domain (as Bitwarden's Domain match compares
+    it, each name under a private suffix such as `github.io` being its own domain), so
+    `ssl.pc.moppy.jp` may move to `pc.moppy.jp`; and that page shows no password field,
+    code input or CAPTCHA, makes no passkey request at or after that step, and shows the
+    account's username in its header or navigation (E2 of
+    [ADR 0029](0029-local-sign-in-state.md)), in two readings a second apart once it has
+    loaded (at most 5 readings; a loaded page that does not show the username yet, as a
+    single-page site may render its header late, is read again).
+    The username goes to the new page's content script for that comparison only, as for
+    E2 after an effect step; it is read with the settings the login started with, so
+    after a settings change the attempt ends `left-origin`. The recipe's sign-in fields
+    (S1) and the return target (E3) are not read on the other host. Pateat fills and
+    clicks nothing there and never reopens the login URL. Frames of the new page wait
+    for or leave the move to the top page as above, and the completion saves an
+    automatic account choice and releases the origin like any other `authenticated`
+    attempt. The step's time is kept in memory only, so after a worker restart, or with
+    any condition not met, the attempt ends `left-origin` as before. Generic signs only;
+    no site is named in the code ([ADR 0033](0033-no-site-specific-features.md)).
+  - **The judge for such a move** (owner's choice at 21:18 UTC; not implemented, the
+    next change, which also needs service changes). When the new page does not show the
+    username, the sign-in judge of ADR 0029 is asked once for it: `signed-in` completes
+    the attempt and learns a signed-in marker; when the judge cannot decide, the attempt
+    ends `left-origin` as today. Pateat still fills and clicks nothing on that page.
 - **Holding the origin in other tabs** (amended 2026-10-11 and three times on
   2026-10-12). Cookies can be shared across tabs, so another tab's record of the origin
   refuses a new attempt with `origin-busy` until that tab closes or the record has not
@@ -207,7 +243,19 @@ fix them now; the SSO policy itself is recorded separately.
   a second-factor or error page on another origin of the site is such a move. The owner
   chose the passkey case only, where Pateat's own answer and the quiet new page tell it
   from one; the same for a return URL the sign-in page names was not chosen, as sites
-  also return there after a cancel or failure.
+  also return there after a cancel or failure. For a password submission the owner later
+  chose the username on the new page, with the judge as its fallback (21:18 UTC, above).
+- **After a password submission, keep ending such a move `left-origin`** (the rule
+  before 21:18 UTC on 2026-10-12). Not chosen: on モッピー the signed-in page is on
+  another host, so the login never completed and held the site in other tabs.
+- **After a password submission, complete when the new page shows no password field,
+  code input or CAPTCHA.** Rejected by the owner (21:18 UTC): a page that waits for an
+  approval in an app, or an error page, shows none of them and would complete.
+- **After a password submission, watch the new page for 10 minutes** (「10分見守る」 on
+  the owner's card): read the new page for 10 minutes, as a login is watched after a
+  `challenge` ([ADR 0027](0027-per-account-login-routes.md)), and complete on evidence
+  or the judge. The card noted that it could also complete after a second factor on the
+  new page, and that it was the largest change. The owner chose 「AI判定」 instead.
 - **Release the origin hold on `left-origin`.** Rejected: moving to another origin is
   not proof of success (an identity provider can forward to a second factor on another
   origin, or to an error page). Another tab could then submit the same password again,

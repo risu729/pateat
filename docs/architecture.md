@@ -391,11 +391,14 @@ its own origin's record, except that a new page releases one Pateat itself stopp
 nothing in flight before any submission and logs in as a new tab would, and a top-level
 attempt that may have submitted ends `left-origin` when the tab moves to another origin,
 or `authenticated` when that origin belongs to a passkey Pateat has just answered and
-its page shows no sign-in. An ended record of a site the tab left, including a frame's
-login on that site's page, never holds the new site's page or its frames
-([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md)). Wider shared-session
-domains need explicit coordination before broader support, not a guessed relationship
-between origins.
+its page shows no sign-in, or when a `password` login's tab moves, within 30 seconds of
+the login's last step that may have submitted (a fill or click), to another HTTPS origin
+of the same registrable domain whose page shows the account's username and no sign-in
+(asking the judge once when it shows no username is proposed next). An ended record of
+a site the tab left, including a frame's login on that site's page, never holds the new
+site's page or its frames ([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md)).
+Wider shared-session domains need explicit coordination before broader support, not a
+guessed relationship between origins.
 
 Credential eligibility does not grant arbitrary post-login actions. Later
 transactions/approvals require separate site/action grants and deterministic
@@ -1093,12 +1096,14 @@ reports `authenticated` with it only when the sign-in state of
 [ADR 0029](adr/0029-local-sign-in-state.md) shows confirmed evidence of a sign-in on the
 `password` route (the username in the header or navigation, or the return target the
 sign-in page's URL named), or when the tab moves on to the site of a passkey Pateat has
-just answered (ADR 0022); otherwise a submission ends `credential-rejected`, moves to a
-later step, or stays unknown (`unknown-submit`), so no account choice is saved. An
-unknown attempt stays in `reconciling` until its tab closes or, for a top-level attempt,
-until the tab shows a page of another origin that Pateat may run on (`left-origin`, ADR
-0022): meanwhile it holds the origin. A top-level `password` attempt ends sooner, after
-its 10-minute watch or when its first step shows again in a new page
+just answered, or, right after a password submission, to another origin of the site
+whose page shows the username (ADR 0022); otherwise a submission ends
+`credential-rejected`, moves to a later step, or stays unknown (`unknown-submit`), so no
+account choice is saved. An unknown attempt stays in `reconciling` until its tab closes
+or, for a top-level attempt, until the tab shows a page of another origin that Pateat
+may run on (`left-origin`, ADR 0022): meanwhile it holds the origin. A top-level
+`password` attempt ends sooner, after its 10-minute watch or when its first step shows
+again in a new page
 ([ADR 0027](adr/0027-per-account-login-routes.md#watching-after-a-challenge)). The
 extension sends a page no check explains to be judged, which settles such attempts
 ([Background execution](#background-execution)).

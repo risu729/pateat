@@ -1899,6 +1899,124 @@ describe("production login document admission", () => {
         expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
       });
     });
+    describe("right after a password submission (ADR 0022)", () => {
+      const quiet = { password: false, code: false, captcha: false, invalid: false, alert: false };
+      const signedIn = { ...quiet, username: true };
+      const reads = () => fake.state.messages.filter((entry) => entry.type === "login.state");
+      /** Submits the password on the site; the item has a username. */
+      const submitted = async () => {
+        holdClicks(origin);
+        const h = twoSites({ username: true });
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(executes()).toHaveLength(2));
+        fake.state.signs = signedIn;
+        return h;
+      };
+      it("completes when the site's other origin shows the account's username", async () => {
+        const h = await submitted();
+        await navigate(h, "https://www.login.example/home", "home-document", false);
+        expect(at(origin)).toMatchObject({ state: "authenticated", outcome: "authenticated" });
+        expect(await h.login.active()).toBe(false);
+        // Read twice once loaded, each time with the username for the page's comparison.
+        expect(reads()).toEqual([
+          expect.objectContaining({ account: { username: "synthetic-secret" } }),
+          expect.objectContaining({ account: { username: "synthetic-secret" } }),
+        ]);
+        expect(executes()).toHaveLength(2);
+      });
+      it("waits until the new page has loaded", async () => {
+        const h = await submitted();
+        fake.state.loaded = false;
+        setTimeout(() => (fake.state.loaded = true), 1_500);
+        await navigate(h, "https://www.login.example/home", "home-document", false);
+        expect(at(origin)).toMatchObject({ state: "authenticated" });
+        // Two readings while loading, then two once loaded.
+        expect(reads()).toHaveLength(4);
+      }, 10_000);
+      it("reads again while the loaded page does not show the username yet", async () => {
+        const h = await submitted();
+        fake.state.signs = quiet;
+        setTimeout(() => (fake.state.signs = signedIn), 1_500);
+        await navigate(h, "https://www.login.example/home", "home-document", false);
+        expect(at(origin)).toMatchObject({ state: "authenticated" });
+        expect(reads()).toHaveLength(4);
+      }, 10_000);
+      it("ends left-origin when the new page does not show the username", async () => {
+        const h = await submitted();
+        fake.state.signs = quiet;
+        await navigate(h, "https://www.login.example/home", "home-document", false);
+        expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
+        expect(reads()).toHaveLength(5);
+      }, 10_000);
+      it("ends left-origin without reading the page for an item without a username", async () => {
+        holdClicks(origin);
+        const h = twoSites();
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(executes()).toHaveLength(2));
+        fake.state.signs = signedIn;
+        await navigate(h, "https://www.login.example/home", "home-document", false);
+        expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
+        expect(reads()).toEqual([]);
+      });
+      it("saves the account choice and holds no other tab once it completes", async () => {
+        holdClicks(origin);
+        const uris = vi.fn<LiveUriMatcher>(async () => ({ ok: true, data: uriMatch() }));
+        const h = harness(
+          { siteDefaults: [], bindings: [] },
+          { allowedOrigins: [], uris, username: true },
+        );
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(executes()).toHaveLength(2));
+        expect(h.settings.settings.siteDefaults).toEqual([]);
+        fake.state.signs = signedIn;
+        await navigate(h, "https://www.login.example/home", "home-document", false);
+        expect(at(origin)).toMatchObject({ state: "authenticated" });
+        await vi.waitFor(() =>
+          expect(h.settings.settings.siteDefaults).toMatchObject([{ origin, itemId }]),
+        );
+        // Another tab of the site logs in rather than being refused `origin-busy`.
+        fake.state.onExecute = undefined;
+        fake.state.tabUrls[2] = fake.state.pageUrl;
+        expect(await h.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({ ok: true });
+      });
+      it("ends left-origin when the new page shows a password field", async () => {
+        const h = await submitted();
+        fake.state.signs = { ...signedIn, password: true };
+        await navigate(h, "https://www.login.example/signin", "signin-document", false);
+        expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
+      });
+      it("ends left-origin when the new page asks for a code", async () => {
+        const h = await submitted();
+        fake.state.signs = { ...signedIn, code: true };
+        await navigate(h, "https://www.login.example/verify", "verify-document", false);
+        expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
+      });
+      it("ends left-origin on another registrable domain", async () => {
+        const h = await submitted();
+        await navigate(h, "https://elsewhere.example/home", "elsewhere-document", false);
+        expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
+        expect(reads()).toEqual([]);
+      });
+      it("ends left-origin when the move comes more than 30 seconds after the submission", async () => {
+        const h = await submitted();
+        const now = Date.now.bind(Date);
+        const clock = vi.spyOn(Date, "now").mockImplementation(() => now() + 31_000);
+        onTestFinished(() => clock.mockRestore());
+        await navigate(h, "https://www.login.example/home", "home-document", false);
+        expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
+        expect(reads()).toEqual([]);
+      });
+      it("never completes on an http page of the site", async () => {
+        const h = await submitted();
+        // An http page is not admitted, so the move is not seen and the login is unchanged.
+        expect(await navigate(h, "http://www.login.example/home", "home-document", false)).toEqual({
+          ok: false,
+          reason: "unauthorized-document",
+        });
+        expect(at(origin)).toMatchObject({ state: "submit-intent" });
+        expect(reads()).toEqual([]);
+      });
+    });
     it("fills without submitting when the site's form shows again after it left", async () => {
       // site -> identity provider -> back to the site's login form (ADR 0021 D, ADR 0022).
       holdClicks(origin, second);
