@@ -178,17 +178,22 @@ export interface BesideAccount {
 }
 
 /**
- * The innermost entry-like elements of `root` outside page chrome, at most a scan of
- * 4000 elements.
+ * The innermost entry-like elements of `root`, outside page chrome unless `chrome` is
+ * set, at most a scan of 4000 elements.
  */
-export function entryControls(root: Document | Element): HTMLElement[] {
+export function entryControls(
+  root: Document | Element,
+  { chrome = false }: { chrome?: boolean } = {},
+): HTMLElement[] {
   const start = root instanceof Document ? root.body : root;
   if (!start) return [];
   const controls = [...start.querySelectorAll("*")]
     .slice(0, scanLimit)
     .filter(
       (element): element is HTMLElement =>
-        entryLike(element) && entryAround(element) === element && !element.closest(chromeSelector),
+        entryLike(element) &&
+        entryAround(element) === element &&
+        (chrome || !element.closest(chromeSelector)),
     );
   // A control holding another one is not innermost; marking ancestors keeps this linear.
   const outer = new Set<Element>();
@@ -202,29 +207,44 @@ export function entryControls(root: Document | Element): HTMLElement[] {
   return controls.filter((item) => !outer.has(item));
 }
 
+/** Elements whose text is never shown. */
+const unshownText = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE"]);
+/** Shown short texts examined, and text nodes walked, for {@link besideAccounts}. */
+const besideScan = { shown: 400, walked: 5000 };
+
 /**
  * The short texts shown beside separate buttons rather than inside them, as Wise's
  * "Welcome back" card shows the account above "Log back in" (ADR 0028, owner
  * 2026-10-12 08:36 UTC): each shown element of at most 64 characters, outside page
  * chrome and contact details and outside every entry-like element, whose nearest
- * ancestor holding an entry-like element holds at most 3 of them.
+ * ancestor holding an entry-like element holds at most 3 of them, page chrome's
+ * included. The buttons returned leave out page chrome's.
  */
 export function besideAccounts(root: Document | Element): BesideAccount[] {
   const document = root instanceof Document ? root : root.ownerDocument;
   const start = root instanceof Document ? root.body : root;
   if (!start) return [];
-  const controls = entryControls(root);
+  const controls = entryControls(root, { chrome: true });
   if (controls.length === 0) return [];
+  // How many controls each ancestor holds, counted up to one past the limit.
+  const held = new Map<Element, number>();
+  for (const item of controls)
+    for (let parent = item.parentElement; parent; parent = parent.parentElement)
+      held.set(parent, Math.min((held.get(parent) ?? 0) + 1, maxBesideButtons + 1));
   const walker = document.createTreeWalker(start, NodeFilter.SHOW_TEXT, {
     acceptNode: (node) =>
-      (node.nodeValue ?? "").trim() ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP,
+      (node.nodeValue ?? "").trim() && !unshownText.has(node.parentElement?.tagName ?? "")
+        ? NodeFilter.FILTER_ACCEPT
+        : NodeFilter.FILTER_SKIP,
   });
   const found = new Map<HTMLElement, BesideAccount>();
-  for (let index = 0; index < textNodeLimit; index += 1) {
+  let examined = 0;
+  for (let walked = 0; walked < besideScan.walked; walked += 1) {
     const node = walker.nextNode();
-    if (!node) break;
+    if (!node || examined >= besideScan.shown) break;
     const element = node.parentElement;
     if (!element || found.has(element) || !shown(element)) continue;
+    examined += 1;
     if (element.closest(`${chromeSelector}, ${contactSelector}`)) continue;
     // The text must be the element's own, not a control's or a contact link's inside it.
     if (insideControl(element) || element.querySelector(`a, button, [role], ${contactSelector}`))
@@ -234,13 +254,14 @@ export function besideAccounts(root: Document | Element): BesideAccount[] {
       .trim();
     if (!text || text.length > besideTextLimit) continue;
     let container = element.parentElement;
-    let buttons: HTMLElement[] = [];
-    for (; container && container !== start.parentElement; container = container.parentElement) {
-      buttons = controls.filter((item) => container!.contains(item));
-      if (buttons.length) break;
-    }
-    if (buttons.length === 0 || buttons.length > maxBesideButtons) continue;
-    found.set(element, { element, text, buttons });
+    while (container && container !== start.parentElement && !held.get(container))
+      container = container.parentElement;
+    const holder = container;
+    if (!holder || (held.get(holder) ?? 0) > maxBesideButtons) continue;
+    const buttons = controls.filter(
+      (item) => holder.contains(item) && !item.closest(chromeSelector),
+    );
+    if (buttons.length) found.set(element, { element, text, buttons });
   }
   return [...found.values()];
 }

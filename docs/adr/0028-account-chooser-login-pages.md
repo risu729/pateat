@@ -191,16 +191,17 @@ Neither has an entry whose text holds an email, so neither is sent. The owner de
 at 08:36 UTC, from descriptions of these pages given before the capture:
 
 - **A shown account with a separate button (Wise).** Besides a page with an entry that
-  holds an email, a page is sent when an email-shaped token outside page chrome, a
-  footer and `mailto:` links sits in a container that also holds at most three elements
-  meeting the [list entry](#list-entries) rule apart from its email requirement, none of
-  which holds the token; the container is the token's nearest ancestor that holds such
-  an element. The AI's account-list answer may then also name the button that continues
-  with the shown account, by meaning as for `other`. Pateat clicks it only when the page
-  shows exactly one account and that account fits the chosen item's username by the
-  [execution](#execution) rule; otherwise it clicks `other`, or ends
-  `account-not-listed` without one. With Wise's `w***@…`, fewer than 3 characters are
-  visible, so Pateat continues through "Use another account".
+  holds an email, a page is sent when an email-shaped token, in a text of at most 64
+  characters outside page chrome, a footer and `mailto:` links, sits in a container that
+  also holds at most three elements meeting the [list entry](#list-entries) rule apart
+  from its email requirement, none of which holds the token; the container is the
+  token's nearest ancestor that holds such an element. The AI's account-list answer may
+  then also name the button that continues with the shown account, by meaning as for
+  `other`. Pateat clicks it only when the page shows exactly one account and that
+  account fits the chosen item's username by the [execution](#execution) rule; otherwise
+  it clicks `other`, or ends `account-not-listed` without one. With Wise's `w***@…`,
+  fewer than 3 characters are visible, so Pateat continues through "Use another
+  account".
 - **Usernames that are not emails (Instagram).** When the chosen item's username is not
   email-shaped, a shown account fits when its whole text equals the username, ignoring
   case and a leading `@`; masked text never fits such a username. A shown account is an

@@ -824,7 +824,15 @@ export function extractAccountListObservation(
   // An account shown beside separate buttons, as on Wise's "Welcome back" card.
   const listed = [
     ...entries.map((entry) => entry.element),
-    ...besideEmails(document).map((account) => account.element),
+    // An entry that the beside text holds, or that holds it, is listed once, as the entry.
+    ...besideEmails(document)
+      .map((account) => account.element)
+      .filter(
+        (element) =>
+          !entries.some(
+            (entry) => entry.element.contains(element) || element.contains(entry.element),
+          ),
+      ),
   ];
   if (listed.length === 0) return { ok: false, reason: "no-candidates" };
   // A text in which an address survived redaction is left out, never sent.

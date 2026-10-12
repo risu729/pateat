@@ -194,6 +194,30 @@ describe("besideAccounts", () => {
   });
 });
 
+describe("besideAccounts limits", () => {
+  it("counts page chrome's controls but never returns them", () => {
+    document.body.innerHTML = `
+      <div>
+        <header><a href="/a">A</a><a href="/b">B</a><a href="/c">C</a></header>
+        <p>a@example.com</p><button>Continue</button>
+      </div>`;
+    expect(besideAccounts(document)).toEqual([]);
+    document.body.innerHTML = `
+      <div><nav><a href="/a">A</a></nav><p>a@example.com</p><button>Continue</button></div>`;
+    expect(besideEmails(document)[0]?.buttons.map((button) => button.textContent)).toEqual([
+      "Continue",
+    ]);
+  });
+
+  it("leaves out contact details and counts no hidden or script text", () => {
+    document.body.innerHTML = `
+      ${"<p hidden>x</p>".repeat(450)}<script>${"var a;".repeat(10)}</script>
+      <div role="contentinfo"><p>help@example.com</p><button>Help</button></div>
+      <div><p>t***@example.com</p><button>Log back in</button></div>`;
+    expect(besideEmails(document).map((account) => account.text)).toEqual(["t***@example.com"]);
+  });
+});
+
 describe("namesUsername", () => {
   it("matches a whole text, ignoring case and a leading @", () => {
     expect(namesUsername("taro.yamada", "Taro.Yamada")).toBe(true);

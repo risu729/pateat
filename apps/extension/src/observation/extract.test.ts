@@ -1357,6 +1357,20 @@ describe("extractAccountListObservation", () => {
     expect(JSON.stringify(result.observation)).not.toMatch(/[@＠]|ｅｘａｍｐｌｅ|example/u);
   });
 
+  it("takes a contact address in the page's text beside a button, for the AI to judge", () => {
+    page(`<main><button>Sign in</button><p>Contact help@example.com</p></main>`);
+    const result = extractAccountListObservation();
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.observation.accounts).toEqual(["Contact [email]"]);
+  });
+
+  it("lists an entry inside a beside text once", () => {
+    page(`<p>Signed in: <span tabindex="0">a@example.com</span></p><button>Continue</button>`);
+    const result = extractAccountListObservation();
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.observation.accounts).toEqual(["[email]"]);
+  });
+
   it("describes Wise's shown account beside its buttons", () => {
     page(
       `<h1>Welcome back</h1>
