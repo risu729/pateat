@@ -117,9 +117,11 @@ Chrome, on a production build of main.
   [browser agents and logins](research/2026-10-11-browser-agent-logins.md) found no
   documented install for the ChatGPT cloud browser. On Grok Bot's computer the owner
   loaded the unpacked build on 2026-10-12, and it stayed after the computer slept and
-  after a computer update. Pairing there is unchecked, because the service's WARP-only
-  Access policy refuses that browser; it waits on the owner's decision about a
-  temporary Access policy.
+  after a computer update. Pairing there is refused by the service's WARP-only Access
+  policy; [ADR 0029](adr/0029-pairing-without-warp.md) adds a "pateat pair" Access
+  application without WARP for pairing only. After the owner sets it up and the
+  owner's Chrome still pairs, the next check is pairing and a login with a test vault
+  on the Grok Bot computer.
 - UI improvements the owner reports from daily use of the UI polished in phase 1. Small
   fixes for broken UI still land as found.
 - Features found missing during use are added here.

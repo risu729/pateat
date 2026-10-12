@@ -77,14 +77,31 @@ The owner decided these on 2026-10-11, following the kogane repository:
   and `/.well-known/openid-configuration` and `/.well-known/jwks.json` (fetched
   anonymously by Anthropic for Workload Identity Federation). The Worker still
   verifies the Access token itself on the owner pages. `POST /pair` (direct pairing,
-  [ADR 0020](adr/0020-direct-device-pairing.md)) stays under the host-wide application
-  and must not be added to the Bypass application: it needs the owner's Access session.
+  [ADR 0020](adr/0020-direct-device-pairing.md)) must not be added to the Bypass
+  application: it needs the owner's Access session.
+- Pairing without WARP: the owner decided on 2026-10-12 that browsers without WARP,
+  such as an agent's cloud computer, may pair permanently
+  ([ADR 0029](adr/0029-pairing-without-warp.md)). A third self-hosted Access
+  application, "pateat pair", covers `pateat.takuk.me` with path `pair` (and the paths
+  below it) and takes precedence there. Its Login methods are the host-wide
+  application's identity provider and One-time PIN. Policy 1 is the same reusable
+  policy as the host-wide application (email domain and WARP); Policy 2 includes the
+  owner's email address only and requires the One-time PIN login method, without WARP.
+  Session Duration is 15 minutes, and Cookie Path Attribute and Binding Cookie are on.
+  Its Application Audience (AUD) Tag is the `ACCESS_PAIR_AUD` Worker secret; the
+  Worker accepts it on `/pair` and `/pair/signed-in` only, and an empty value turns
+  it off. `/manage` keeps requiring WARP. One-time PIN must be enabled under
+  Integrations, Identity providers; enabling it also offers it to every Access
+  application whose Login methods accept all identity providers. After pairing on a
+  vendor's machine, open `/cdn-cgi/access/logout` there.
 - Pairing extension IDs: `PAIRING_EXTENSION_IDS` is a committed JSON variable in
   `cloudflare.config.ts` that lists Pateat's production extension ID. It is not a
   secret, workflows do not synchronize it, and it needs no GitHub environment variable
   or Worker secret; a release deploys the committed list.
-- Worker secrets: `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`, `OIDC_ISSUER` and
-  `OIDC_SIGNING_KEYS` are set once during bootstrap; workflows never synchronize them.
+- Worker secrets: `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`, `ACCESS_PAIR_AUD`, `OIDC_ISSUER`
+  and `OIDC_SIGNING_KEYS` are set once during bootstrap; workflows never synchronize
+  them. `ACCESS_PAIR_AUD` was added on 2026-10-12 and must be set with
+  `cf workers secrets update` before the release that declares it.
   cf refuses to create a Worker without its declared secrets, so the first deploy
   passes all four at once with `cf deploy --prebuilt --mode production --secrets-file
   <file>` (JSON) and deletes the file afterwards; later changes use
