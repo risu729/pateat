@@ -21,6 +21,8 @@ export interface PopupHost {
     { id: number | undefined; url: string | undefined; incognito: boolean } | undefined
   >;
   openSettings(): void;
+  /** Closes the popup, as once a picked login has started. */
+  close(): void;
 }
 
 type Saved = Extract<SettingsResponse, { ok: true }>;
@@ -68,6 +70,9 @@ export function SiteApp({
     queryKey: ["popup", "choice", tabId],
     queryFn: () => choices.get(tabId!),
     enabled: tabId !== undefined && origin !== undefined,
+    // The page may be refused only after the popup opened, or announce again after a
+    // restarted worker; asking again while open shows the choice once it waits.
+    refetchInterval: (query) => (query.state.data?.ok ? false : 1000),
     staleTime: 0,
     gcTime: 0,
   });
@@ -135,11 +140,14 @@ export function SiteApp({
         itemId: selected.itemId,
         makeDefault: asDefault,
       });
-      if (response.ok)
+      if (response.ok) {
         setMessage(
           `Logging in with ${selected.label}.${asDefault ? " It becomes the default once the login succeeds." : ""}`,
         );
-      else if (response.reason === "document-gone")
+        // The login runs in the page from here; the popup has nothing left to show.
+        host.close();
+        return;
+      } else if (response.reason === "document-gone")
         setMessage("The page changed, so nothing was started. Reload it to choose again.");
       else if (response.reason === "not-started")
         setMessage(
@@ -271,6 +279,9 @@ export function SiteApp({
 
     body = (
       <>
+        {choice.isPending && choice.isEnabled && (
+          <p id="popup-choice-checking">Checking whether this page waits for an account choice…</p>
+        )}
         {offered && pickOptions.length > (offered.logout ? 0 : 1) && (
           <section aria-labelledby="popup-choice-heading">
             <h2 id="popup-choice-heading">Choose an account</h2>

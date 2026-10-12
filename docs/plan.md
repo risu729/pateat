@@ -64,7 +64,10 @@ Chrome, on a production build of main.
     [passkey progress](#passkey-progress).
   - Changing a site's exclusion or default in the toolbar popup.
   - The badge and popup choice on a site with two matches
-    ([#187](https://github.com/risu729/pateat/pull/187)).
+    ([#187](https://github.com/risu729/pateat/pull/187)). On 2026-10-12 on github.com
+    with three matches, the first popup open showed no choice and a reopen did; recheck
+    after the fix that keeps asking and waits for a restarted worker's newer
+    announcement.
   - A vault item edit picked up by the automatic sync
     ([#222](https://github.com/risu729/pateat/pull/222),
     [#224](https://github.com/risu729/pateat/pull/224)).
