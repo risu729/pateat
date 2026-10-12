@@ -17,6 +17,8 @@ Amended on 2026-10-11 by [ADR 0027](0027-per-account-login-routes.md): a page is
 after any effect step that leads nowhere known, a judgement can add a second-factor
 handler, and judgements are limited per revision and path and to 20 per recipe a day
 (implemented with the `passkey` and `totp` handlers).
+Amended on 2026-10-12 by the owner's decision on a sign-in form's lone `new-password`
+field ([Decision](#decision)), which the plan check implements.
 
 Date: 2026-10-11
 
@@ -47,6 +49,24 @@ The owner chose these on 2026-10-11:
   limits and fill rules.
 - **Request log retention: 90 days** for the ADR 0012 log, after which rows are
   deleted. A delete-all action comes with the web UI.
+- **A lone `new-password` field on a sign-in form takes the password** (owner,
+  2026-10-12, chosen on a decision card as "allow it when it is the only field" and
+  confirmed at 05:59 UTC, with the wish that Pateat never signs up by mistake). SBI
+  Securities' login form marks its only password field `autocomplete="new-password"`,
+  and the plan check refused Claude's correct plan for it (username, password, submit)
+  as `incompatible-role`. A password or Hidden slot may now go into such a field. The
+  checks that keep sign-up forms out were chosen with the implementation, without a
+  further owner decision; all must hold (`loneNewPassword` and `validatePagePlan` in
+  `packages/inference/src/plan.ts`): it is the only input of its form that is a
+  password input or marked `current-password` or `new-password`, so there is no
+  confirmation field; no input of its form is marked with a personal-data autofill
+  token (a name, organization, address, birthday, sex or telephone part), which a
+  sign-up form asks for; no input outside its form is a password input not marked
+  `new-password`, since such a page signs in there; and the plan fills an identifier
+  of the same form whose `autocomplete` is `username`, `email`, `off` or absent. Every
+  other `new-password` field still refuses a secret. A sign-up form with only an email
+  and one password passes these checks, so the model's `no-login-form` abstention
+  remains the guard there; the prompts are unchanged.
 
 The route follows from these and from ADRs 0013 to 0016:
 

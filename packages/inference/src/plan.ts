@@ -3,6 +3,7 @@ import {
   genericSlotIdSchema,
   isCodeField,
   loginStepSchema,
+  personalDataAutocompleteTokens,
   sameLoginTarget,
   type LoginObservation,
   type LoginStep,
@@ -73,14 +74,83 @@ const hiddenAccepts = (candidate: ObservedCandidate) =>
     candidate.maxLength <= 10);
 
 /**
- * True when a slot may be filled into this element; registration passwords never qualify.
- * A one-time code goes only where the executor fills a TOTP code (ADR 0013).
+ * True when a slot may be filled into this element; registration passwords never qualify
+ * here, though {@link slotAcceptsOn} takes a lone one on a sign-in form. A one-time code
+ * goes only where the executor fills a TOTP code (ADR 0013).
  */
 export const slotAccepts = (kind: SemanticSlot["kind"], candidate: ObservedCandidate) =>
   slotFitsRole(kind, candidate.role) &&
   candidate.autocomplete !== "new-password" &&
   (kind !== "hidden" || hiddenAccepts(candidate)) &&
   (kind !== "one-time-code" || isCodeField(candidate));
+
+const personalData = new Set<string>(personalDataAutocompleteTokens);
+/** Autocomplete values an identifier beside a lone `new-password` field may carry. */
+const signInIdentifierHints = new Set<ObservedCandidate["autocomplete"]>([
+  undefined,
+  "off",
+  "username",
+  "email",
+]);
+/** Whether an element could hold a sign-in identifier next to a lone `new-password` field. */
+const signInIdentifier = (candidate: ObservedCandidate) =>
+  slotAccepts("identifier", candidate) && signInIdentifierHints.has(candidate.autocomplete);
+
+/**
+ * Whether a password input marked `autocomplete="new-password"` may still take a
+ * password, as on a sign-in form that marks its only password field so (owner decision,
+ * 2026-10-12, ADR 0018). Read from the page alone; {@link validatePagePlan} also needs
+ * the plan to fill an identifier beside it. All must hold:
+ *
+ * 1. It is the only password field of its form: no other input of the group is a
+ *    password input or marked `current-password` or `new-password`, so there is no
+ *    confirmation field.
+ * 2. No input of its form carries a personal-data autocomplete token
+ *    ({@link personalDataAutocompleteTokens}), which only a sign-up form asks for.
+ * 3. No input outside its form is a password input other than a `new-password` one: on
+ *    a page that also shows a sign-in password, that one signs in and the lone field
+ *    belongs to a sign-up form.
+ * 4. Its form holds an input that can take an identifier and is marked `username`,
+ *    `email`, `off` or nothing.
+ *
+ * Fields outside any form count as one form, as in plan validation.
+ */
+export function loneNewPassword(
+  page: Pick<LoginObservation, "candidates">,
+  candidate: ObservedCandidate,
+): boolean {
+  if (candidate.role !== "password" || candidate.autocomplete !== "new-password") return false;
+  const others = page.candidates.filter((other) => other.id !== candidate.id);
+  const form = others.filter((other) => other.group === candidate.group);
+  return (
+    !form.some(
+      (other) =>
+        other.role === "password" ||
+        other.autocomplete === "current-password" ||
+        other.autocomplete === "new-password",
+    ) &&
+    !form.some((other) => personalData.has(other.autocomplete ?? "")) &&
+    !others.some(
+      (other) =>
+        other.group !== candidate.group &&
+        other.role === "password" &&
+        other.autocomplete !== "new-password",
+    ) &&
+    form.some(signInIdentifier)
+  );
+}
+
+/**
+ * {@link slotAccepts} on this page: a password or Hidden slot may also go into a lone
+ * `new-password` field of a sign-in form ({@link loneNewPassword}).
+ */
+export const slotAcceptsOn = (
+  page: Pick<LoginObservation, "candidates">,
+  kind: SemanticSlot["kind"],
+  candidate: ObservedCandidate,
+) =>
+  slotAccepts(kind, candidate) ||
+  ((kind === "secret" || kind === "hidden") && loneNewPassword(page, candidate));
 
 /** True when an observed element can carry the page action. */
 export const isActionRole = (role: ObservedCandidate["role"]) =>
@@ -109,7 +179,8 @@ export function validatePagePlan(
     if (candidate === undefined) return { ok: false, reason: "unknown-candidate" };
     if (usedSlots.has(field.slot)) return { ok: false, reason: "duplicate-slot" };
     if (usedCandidates.has(field.candidate)) return { ok: false, reason: "duplicate-candidate" };
-    if (!slotAccepts(slot.kind, candidate)) return { ok: false, reason: "incompatible-role" };
+    if (!slotAcceptsOn(observation, slot.kind, candidate))
+      return { ok: false, reason: "incompatible-role" };
     // A custom-field slot is stored under a generic name the model gave it, so the recipe
     // never carries the owner's field names (ADR 0027).
     if (slot.fieldName !== undefined && field.name === undefined)
@@ -139,6 +210,20 @@ export function validatePagePlan(
     ),
   );
   if (groups.size > 1) return { ok: false, reason: "mixed-groups" };
+  // A secret in a lone `new-password` field also needs the plan to fill an identifier of
+  // the same form there, so a form that asks for a new password alone is never signed up
+  // with.
+  if (
+    plan.fields.some(
+      (field) => !slotAccepts(requested.get(field.slot)!.kind, candidates.get(field.candidate)!),
+    ) &&
+    !plan.fields.some(
+      (field) =>
+        requested.get(field.slot)!.kind === "identifier" &&
+        signInIdentifier(candidates.get(field.candidate)!),
+    )
+  )
+    return { ok: false, reason: "incompatible-role" };
   // The switch is clicked instead of signing in: a button or link the plan does not use.
   const accountSwitch =
     plan.accountSwitch === undefined ? undefined : candidates.get(plan.accountSwitch);

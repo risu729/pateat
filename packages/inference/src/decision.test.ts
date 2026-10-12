@@ -74,6 +74,17 @@ describe("finite-choice decision role", () => {
     expect(Object.keys(questions["action"]!.criteria)).toEqual(["c:sign-in", "none"]);
   });
 
+  it("offers a sign-in form's lone new-password field for the password (ADR 0018)", () => {
+    const lone: LoginObservation = {
+      ...page.observation,
+      candidates: page.observation.candidates.map((candidate) =>
+        candidate.role === "password" ? { ...candidate, autocomplete: "new-password" } : candidate,
+      ),
+    };
+    const questions = buildFieldQuestions(lone, page.slots);
+    expect(Object.keys(questions["slot:password"]!.criteria)).toEqual(["c:password", "none"]);
+  });
+
   it("offers field names, value shapes and input constraints but never values", async () => {
     const bank = evaluationCorpus.find((item) => item.id === "ja-bank-unlabeled-lengths")!;
     const questions = buildFieldQuestions(bank.observation, bank.slots);

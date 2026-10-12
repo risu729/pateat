@@ -42,6 +42,56 @@ export const candidateRoleSchema = v.picklist([...fillRoles, ...actionRoles, "li
 
 const textLength = v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(1024));
 
+/**
+ * Autofill field names (WHATWG HTML) for personal details: names, organization, postal
+ * address, birthday, sex and telephone parts. A sign-up form asks for them and a sign-in
+ * form does not, so the plan check reads one in a form as a sign-up signal (ADR 0018).
+ */
+export const personalDataAutocompleteTokens = [
+  "name",
+  "honorific-prefix",
+  "given-name",
+  "additional-name",
+  "family-name",
+  "honorific-suffix",
+  "nickname",
+  "organization-title",
+  "organization",
+  "street-address",
+  "address-line1",
+  "address-line2",
+  "address-line3",
+  "address-level4",
+  "address-level3",
+  "address-level2",
+  "address-level1",
+  "country",
+  "country-name",
+  "postal-code",
+  "bday",
+  "bday-day",
+  "bday-month",
+  "bday-year",
+  "sex",
+  "tel",
+  "tel-country-code",
+  "tel-national",
+  "tel-area-code",
+  "tel-local",
+  "tel-local-prefix",
+  "tel-local-suffix",
+  "tel-extension",
+] as const;
+/** The autofill field names an observation carries, besides `off`. */
+export const observedAutocompleteTokens = [
+  "username",
+  "email",
+  "current-password",
+  "new-password",
+  "one-time-code",
+  ...personalDataAutocompleteTokens,
+] as const;
+
 /** One allowlisted, value-free page element. The ID is local to this observation. */
 export const observedCandidateSchema = v.strictObject({
   id: identifier,
@@ -52,9 +102,7 @@ export const observedCandidateSchema = v.strictObject({
   // Text the page ties to a fill-role field with `aria-describedby`, such as a hint that
   // the field takes three digits; left out when it repeats the label.
   description: v.optional(observedText),
-  autocomplete: v.optional(
-    v.picklist(["username", "email", "current-password", "new-password", "one-time-code", "off"]),
-  ),
+  autocomplete: v.optional(v.picklist([...observedAutocompleteTokens, "off"])),
   group: v.optional(identifier),
   // Page-declared input constraints. Lengths are UTF-16 code units, as HTML counts them.
   // The extractor omits a length outside 1-1024 (0, absent or effectively unbounded

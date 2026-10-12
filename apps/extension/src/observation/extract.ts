@@ -2,6 +2,7 @@ import {
   loginAutocompleteTokens,
   loginObservationSchema,
   loginTargetSchema,
+  observedAutocompleteTokens,
   type LoginObservation,
   type LoginTarget,
   type ObservedCandidate,
@@ -53,13 +54,6 @@ const maxHeadings = 8;
 const maxText = 120;
 const rawLimit = maxText * 4;
 const labelDepth = 3;
-const observedAutocomplete = [
-  "username",
-  "email",
-  "current-password",
-  "new-password",
-  "one-time-code",
-] as const;
 const inputModes = ["none", "text", "decimal", "numeric", "tel", "search", "email", "url"] as const;
 const fillTypes: Record<string, ObservedCandidate["role"]> = {
   text: "text",
@@ -338,7 +332,7 @@ function actionLabel(element: HTMLElement): string | undefined {
 function autocomplete(input: HTMLInputElement): ObservedCandidate["autocomplete"] {
   const tokens = autocompleteTokens(input);
   if (tokens.length === 1 && tokens[0] === "off") return "off";
-  return observedAutocomplete.find((token) => tokens.includes(token));
+  return observedAutocompleteTokens.find((token) => tokens.includes(token));
 }
 
 function constraints(input: HTMLInputElement, role: ObservedCandidate["role"]) {
