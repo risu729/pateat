@@ -1,5 +1,6 @@
 import * as v from "valibot";
 import {
+  loginAttributeTargetSchema,
   loginOperationSchema,
   loginTargetSchema,
   type LoginStep,
@@ -118,6 +119,11 @@ export const commandSchema = v.variant("type", [
      * account switch: set for a completion marker, which may be a link (ADR 0018).
      */
     links: v.optional(v.pipe(v.array(v.boolean()), v.maxLength(24))),
+    /**
+     * Also answer `signIn`: whether the page has loaded and which sign-in inputs other than
+     * `targets` it shows, to continue a recipe on (ADR 0018).
+     */
+    signIn: v.optional(v.literal(true)),
   }),
   v.strictObject({
     version: v.literal(1),
@@ -181,6 +187,12 @@ export const commandSchema = v.variant("type", [
     type: v.literal("login.extract"),
     token: id,
     page: v.picklist(["login", "signed-in"]),
+    /**
+     * For a login page that continues a recipe (ADR 0018): the fields the recipe already
+     * fills on this path. One of them shown read-only or disabled, as an email address shown
+     * again beside the password, is left out rather than making the page incomplete.
+     */
+    known: v.optional(v.pipe(v.array(loginAttributeTargetSchema), v.maxLength(24))),
   }),
   /**
    * Reads the page signs of ADR 0029 after an effect step that no check explained. The
@@ -307,6 +319,15 @@ export const stateResultSchema = v.variant("ok", [
 export const observationSchema = v.strictObject({
   path: v.string(),
   targets: v.pipe(v.array(targetStateSchema), v.maxLength(24)),
+  /**
+   * With `signIn` asked: whether the page has finished loading, and whether it shows a
+   * visible writable password input (`password`) or an email input or one marked for a
+   * username or an email address (`identifier`) that is none of the asked targets, outside
+   * any form with a `new-password` or `one-time-code` input.
+   */
+  signIn: v.optional(
+    v.strictObject({ loaded: v.boolean(), password: v.boolean(), identifier: v.boolean() }),
+  ),
 });
 export const configureSchema = v.strictObject({
   version: v.literal(1),

@@ -566,6 +566,28 @@ describe("recipe generation", () => {
     expect(await again.json()).toMatchObject({ status: "recipe", change: { revision: 2 } });
   });
 
+  it("fails a continuation that fills one of the recipe's slots again, storing nothing", async () => {
+    const device = await owner();
+    const recipeId = await generatedRecipeId(ORIGIN, "/login");
+    replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    await generate(device, emailPage);
+    // The email form shown again where it posted, as after an unknown account.
+    const again = { ...emailPage, path: "/login/identifier" };
+    replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    expect(await generate(device, again, { recipeId, revision: 1 })).toEqual({
+      version: 1,
+      status: "failed",
+      error: "recipe-invalid",
+    });
+    expect(
+      await rows(
+        "SELECT revision FROM recipe_revisions WHERE owner_id = ? AND recipe_id = ?",
+        device.ownerId,
+        recipeId,
+      ),
+    ).toEqual([{ revision: 1 }]);
+  });
+
   it("answers with another device's recipe stored during the call", async () => {
     const device = await owner();
     const recipeId = await generatedRecipeId(ORIGIN, "/login");

@@ -56,8 +56,9 @@ Chrome, on a production build of main.
   [#323](https://github.com/risu729/pateat/pull/323), and the service stores, syncs and
   lists a chooser recipe, which the extension caches but never starts
   ([#327](https://github.com/risu729/pateat/pull/327)); the trigger, answer,
-  recipe and execution build on the `advance` continuation below and the start-only
-  recipe of [ADR 0031](adr/0031-sign-in-entry-pages.md).
+  recipe and execution build on continuing a generated recipe after an `advance` step
+  (listed under [AI evaluation harness progress](#ai-evaluation-harness-progress)) and
+  the start-only recipe of [ADR 0031](adr/0031-sign-in-entry-pages.md).
 - Press a site's sign-in link on a page the site sent the visitor to before signing in,
   shown by a query value naming another path of the same site, such as pixiv's top page
   `https://www.pixiv.net/en/?return_to=%2Fbookmark_new_illust.php`, whose "Login" leads
@@ -70,12 +71,6 @@ Chrome, on a production build of main.
   makes the entry path a path where a recipe starts for ADR 0016, so no page on it is
   generated, by adding it in `offersGeneration` only: not through `starts()`, whose
   paths runtime `startsFor` drops when more than one start shares them.
-- Continue a generated recipe on the page after an `advance` step (email, then Next,
-  then password): generate the steps after Next through the generation route's `base`,
-  as listed under [AI evaluation harness progress](#ai-evaluation-harness-progress). The
-  owner rated it high priority. An existing recipe whose step after an advance is on the
-  same path, as an identifier-first form that swaps in its password form in place,
-  already continues ([#252](https://github.com/risu729/pateat/pull/252)).
 - [ADR 0029](adr/0029-local-sign-in-state.md) (accepted 2026-10-12): delivery 1 logs the
   local sign-in state of the page after a submission as `login.state`. Delivery 2's
   first part is implemented: evidence of a sign-in that a second reading a second later
@@ -84,7 +79,19 @@ Chrome, on a production build of main.
   showed). Still to do: the other rows of the ADR's outcome table (a failure next to the
   fields rejects; no sign and no evidence asks the judge once and completes when it
   cannot decide).
+- Redact the account's own username from every page observation sent to the service
+  (generation, its continuation after an `advance` step, and the judge): text that
+  matches a matching item's username exactly, ignoring case, becomes a placeholder. The
+  username is read locally as for the username shape
+  ([ADR 0016](adr/0016-recipe-generation-trigger.md#username-shape)) and never sent. The
+  page after an `advance` step, like any judged page, can show the identifier just
+  entered (continuation review, 2026-10-12). Not implemented yet.
 - Installed-Chrome checks still open:
+  - Continuing a generated recipe on the page after an `advance` step (email, then
+    Next, then password), which the owner rated high priority: implemented with
+    synthetic evidence only, as listed under
+    [AI evaluation harness progress](#ai-evaluation-harness-progress). A real site needs
+    paid generation calls, so it waits for the owner's approval.
   - M3's password login on a real site, and M4's sync against the deployed service:
     `https://www.npmjs.com` logs in with no action from the owner through a recipe the
     service generated, and a later login makes no Claude call (after
@@ -1430,21 +1437,33 @@ Remaining M4 AI work:
   deferred and ends `challenge`. Its real-Chrome check is listed with the phase 1
   installed-Chrome checks.
 - Continuing a generated recipe on the page after an `advance` step, through the
-  generation route's `base` ([ADR 0018](adr/0018-recipe-generation-route.md)). The
-  extension already sends a recipe's first page under the automatic send rule of
-  [ADR 0016](adr/0016-recipe-generation-trigger.md), runs the returned recipe at once
-  with the built-in-slot or generated binding, saves that binding with the account
-  choice after `authenticated`, and sends a page no check explains to be judged for
-  `completion` or a handler. The service routes, limits and request log are implemented.
-  A recipe that already holds the steps after the advance continues on another path,
-  and since 2026-10-12 ([#252](https://github.com/risu729/pateat/pull/252)) on the same
-  path once those steps' elements become ready
+  generation route's `base`, is implemented
+  ([ADR 0018](adr/0018-recipe-generation-route.md#continuing-after-an-advance)). A
+  recipe that already holds the steps after the advance continues on another path, and
+  since 2026-10-12 ([#252](https://github.com/risu729/pateat/pull/252)) on the same path
+  once those steps' elements become ready
   ([architecture](architecture.md#background-execution)). Runtime tests and three probe
   E2E specs on `/identifier-first` (the password form shown in place, the same after a
   `history.pushState` that keeps the path, and a page that shows the password form from
-  the start never continuing) cover it with synthetic values only; it has not run in
-  installed Chrome or on a real site. Generating the steps after Next through `base` is
-  still open.
+  the start never continuing) cover that with synthetic values only. A generated recipe
+  that ends in an `advance` is continued too: after its final `advance`, a page that has
+  loaded, shows a password, username or email input for a slot the recipe does not fill
+  yet, and stays on one path for a second is sent once per step; the running login takes
+  the continued revision over and runs its new steps, then the page after the submission
+  is judged for `completion`, and the account choice saved after `authenticated` covers
+  both pages' slots. A page that fills one of the recipe's slots again is refused by the
+  extension and the service. Contract, inference, service, service-client and runtime
+  unit tests and three probe E2E specs cover it with a local stand-in for Claude: an
+  identifier form that shows its password form in the same document, and an identifier
+  page whose Next opens the password page as a new document, each signing in after one
+  Next and one Log in, sending the identifier page, the password page with its base and
+  the signed-in page, never an input value (a page is sent as observed, so one that
+  shows the identifier just entered sends it as page text; redacting the account's own
+  username is planned in [phase 1](#phase-1-usable)), ending at revision 3 with a
+  completion, and a second visit running all four steps with no model call; and an
+  identifier form shown again where it posted, which is never continued. None of this
+  has run in installed Chrome, with a paid generation call or on a real site; that check
+  is listed with the phase 1 installed-Chrome checks.
 - A different remembered account, approved by the owner on 2026-10-11: on a step that
   fills a secret but no username, the executor compares the account shown in that
   form and the page headings with the selected account's username, locally only. If

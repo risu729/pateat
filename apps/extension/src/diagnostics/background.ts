@@ -343,11 +343,14 @@ export function createDiagnosticsLog(options: {
             origin: report.origin,
             url: report.url,
             outcome: report.outcome,
-            reason: "reason" in report ? report.reason : undefined,
+            reason: report.reason,
             // For refused model output: which check refused it, and why.
-            check: "check" in report ? report.check : undefined,
-            detail: "check" in report ? report.detail : undefined,
-            path: "check" in report ? report.path : undefined,
+            check: report.check,
+            detail: report.detail,
+            path: report.path,
+            recipe: report.recipeId,
+            baseRevision: report.baseRevision,
+            takenOver: report.takenOver,
           },
           // A login page without a matching vault item is common and not a problem; a
           // request that failed is (ADR 0019).

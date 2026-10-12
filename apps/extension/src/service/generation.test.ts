@@ -105,7 +105,7 @@ describe("recipe generation requests", () => {
   it("sends a page once per retry window and refreshes the cache before reporting a recipe", async () => {
     const h = setup();
     expect(await h.generation.available(observation.origin, "/login")).toBe(true);
-    expect(await h.generation.generate(request)).toEqual({ outcome: "recipe" });
+    expect(await h.generation.generate(request)).toMatchObject({ outcome: "recipe" });
     expect(h.transport.generateRecipe).toHaveBeenCalledWith(
       connection.origin,
       connection.credential,
@@ -138,7 +138,7 @@ describe("recipe generation requests", () => {
       ]),
     ).toEqual([
       { outcome: "abstained", reason: "no-login-form" },
-      { outcome: "skipped", reason: "sending" },
+      { outcome: "skipped", reason: "sending", retry: true },
     ]);
     expect(h.transport.generateRecipe).toHaveBeenCalledTimes(1);
     // Only the request that left the device says it was sent (ADR 0019).
@@ -270,9 +270,9 @@ describe("recipe generation requests", () => {
   ];
   it.each(freed)("may send the page again after %s", async (_name, answer, outcome, reason) => {
     const h = setup(answer);
-    expect(await h.generation.generate(request)).toEqual({ outcome, reason });
+    expect(await h.generation.generate(request)).toEqual({ outcome, reason, retry: true });
     expect(await h.generation.available(observation.origin, "/login")).toBe(true);
-    expect(await h.generation.generate(request)).toEqual({ outcome, reason });
+    expect(await h.generation.generate(request)).toEqual({ outcome, reason, retry: true });
     expect(h.transport.generateRecipe).toHaveBeenCalledTimes(2);
   });
 
@@ -303,11 +303,11 @@ describe("recipe generation requests", () => {
 
   it("keeps other pages' claims when storage cannot be read", async () => {
     const h = setup();
-    expect(await h.generation.generate(request)).toEqual({ outcome: "recipe" });
+    expect(await h.generation.generate(request)).toMatchObject({ outcome: "recipe" });
     h.storage.read.mockRejectedValueOnce(new Error("read"));
     expect(
       await h.generation.generate({ ...request, observation: { ...observation, path: "/other" } }),
-    ).toEqual({ outcome: "skipped", reason: "storage-unavailable" });
+    ).toEqual({ outcome: "skipped", reason: "storage-unavailable", retry: true });
     expect(await h.generation.available(observation.origin, "/login")).toBe("sent");
     expect(h.transport.generateRecipe).toHaveBeenCalledTimes(1);
   });
@@ -330,11 +330,13 @@ describe("recipe generation requests", () => {
     expect(await h.generation.generate(request)).toEqual({
       outcome: "skipped",
       reason: "not-connected",
+      retry: true,
     });
     h.storage.write.mockRejectedValueOnce(new Error("quota"));
     expect(await h.generation.generate(request)).toEqual({
       outcome: "skipped",
       reason: "storage-unavailable",
+      retry: true,
     });
     expect(h.transport.generateRecipe).not.toHaveBeenCalled();
   });
@@ -570,9 +572,9 @@ describe("handlers and code fields in generation requests (ADR 0027)", () => {
 
   it("offers the TOTP slot only for a page with a code field", async () => {
     const h = setup();
-    expect(await h.generation.generate({ ...request, slots: [...request.slots, totp] })).toEqual({
-      outcome: "recipe",
-    });
+    expect(
+      await h.generation.generate({ ...request, slots: [...request.slots, totp] }),
+    ).toMatchObject({ outcome: "recipe" });
     expect(h.transport.generateRecipe).toHaveBeenLastCalledWith(
       connection.origin,
       connection.credential,
@@ -592,7 +594,7 @@ describe("handlers and code fields in generation requests (ADR 0027)", () => {
       ],
     };
     const withCode = { ...request, observation: coded, slots: [...request.slots, totp] };
-    expect(await h.generation.generate(withCode)).toEqual({ outcome: "recipe" });
+    expect(await h.generation.generate(withCode)).toMatchObject({ outcome: "recipe" });
     expect(h.transport.generateRecipe).toHaveBeenLastCalledWith(
       connection.origin,
       connection.credential,
@@ -607,6 +609,419 @@ describe("handlers and code fields in generation requests (ADR 0027)", () => {
       reason: "no-slots",
     });
     expect(h.transport.generateRecipe).not.toHaveBeenCalled();
+  });
+});
+
+describe("continuing a recipe after its final advance (ADR 0018)", () => {
+  const base = { recipeId: recipeChange.recipeId, revision: 1 };
+  // The password page, sent with the revision it continues.
+  const continuation: RecipeGenerationRequest = { ...request, base };
+  const continued = {
+    ...recipeChange,
+    revision: 2,
+    recipe: { ...recipeChange.recipe, revision: 2 },
+  };
+
+  it("returns the continued recipe after pulling recipes only", async () => {
+    const h = setup({
+      kind: "result",
+      result: { version: 1, status: "recipe", change: continued },
+    });
+    expect(await h.generation.generate(continuation)).toEqual({
+      outcome: "recipe",
+      recipe: continued.recipe,
+    });
+    expect(h.transport.generateRecipe).toHaveBeenCalledWith(
+      connection.origin,
+      connection.credential,
+      continuation,
+    );
+    // A full sync could write settings and stop the login it belongs to.
+    expect(h.refresh).toHaveBeenCalledTimes(1);
+    expect(h.sync).not.toHaveBeenCalled();
+  });
+
+  it("claims the page under the revision it continues, not its path alone", async () => {
+    const h = setup();
+    // The first page of the path was sent today; its continuation is a separate claim.
+    expect(await h.generation.generate(request)).toMatchObject({ outcome: "recipe" });
+    expect(await h.generation.generate(continuation)).toMatchObject({ outcome: "recipe" });
+    expect(await h.generation.generate(continuation)).toEqual({
+      outcome: "skipped",
+      reason: "sent",
+    });
+    // A later revision of the recipe is a new claim; the path's own claim stays.
+    expect(
+      await h.generation.generate({ ...continuation, base: { ...base, revision: 2 } }),
+    ).toMatchObject({ outcome: "recipe" });
+    expect(await h.generation.available(observation.origin, "/login")).toBe("sent");
+    expect(h.transport.generateRecipe).toHaveBeenCalledTimes(3);
+    h.advance(GENERATION_RETRY_MS);
+    expect(await h.generation.generate(continuation)).toMatchObject({ outcome: "recipe" });
+  });
+
+  it("asks for a retry while the same continuation is still in flight", async () => {
+    const h = setup();
+    h.transport.generateRecipe.mockReturnValueOnce(new Promise(() => undefined));
+    void h.generation.generate(continuation);
+    await vi.waitFor(() => expect(h.transport.generateRecipe).toHaveBeenCalledTimes(1));
+    expect(await h.generation.generate(continuation)).toEqual({
+      outcome: "skipped",
+      reason: "sending",
+      retry: true,
+    });
+  });
+
+  type Answer = Awaited<ReturnType<ServiceTransport["generateRecipe"]>>;
+  it.each<[string, Answer, string, string]>([
+    ["an unreachable service", { kind: "failed", error: "unreachable" }, "failed", "unreachable"],
+    ["a timeout", { kind: "failed", error: "timeout" }, "failed", "timeout"],
+    ["a rejected device", { kind: "rejected" }, "failed", "device-rejected"],
+    [
+      "a request refused before the model",
+      { kind: "result", result: { version: 1, status: "failed", error: "input-too-large" } },
+      "failed",
+      "input-too-large",
+    ],
+    [
+      "a busy owner",
+      { kind: "result", result: { version: 1, status: "unavailable", reason: "busy" } },
+      "unavailable",
+      "busy",
+    ],
+    [
+      "the daily limit",
+      { kind: "result", result: { version: 1, status: "unavailable", reason: "daily-limit" } },
+      "unavailable",
+      "daily-limit",
+    ],
+  ])("gives the request back after %s", async (_name, answer, outcome, reason) => {
+    const h = setup(answer);
+    expect(await h.generation.generate(continuation)).toEqual({ outcome, reason, retry: true });
+    h.transport.generateRecipe.mockResolvedValueOnce({
+      kind: "result",
+      result: { version: 1, status: "recipe", change: continued },
+    });
+    expect(await h.generation.generate(continuation)).toMatchObject({ outcome: "recipe" });
+  });
+
+  it.each<[string, Answer, string, string]>([
+    [
+      "an abstention",
+      { kind: "result", result: { version: 1, status: "abstained", reason: "ambiguous" } },
+      "abstained",
+      "ambiguous",
+    ],
+    [
+      "a model failure",
+      { kind: "result", result: { version: 1, status: "failed", error: "invalid-output" } },
+      "failed",
+      "invalid-output",
+    ],
+  ])("spends the request after %s", async (_name, answer, outcome, reason) => {
+    const h = setup(answer);
+    expect(await h.generation.generate(continuation)).toEqual({ outcome, reason });
+    expect(await h.generation.generate(continuation)).toEqual({
+      outcome: "skipped",
+      reason: "sent",
+    });
+    expect(h.transport.generateRecipe).toHaveBeenCalledTimes(1);
+    expect(h.refresh).not.toHaveBeenCalled();
+  });
+
+  it.each(["recipe-revoked", "recipe-conflict"] as const)(
+    "spends a continuation answered %s, which a later document would get again",
+    async (reason) => {
+      const h = setup({
+        kind: "result",
+        result: { version: 1, status: "unavailable", reason },
+      });
+      expect(await h.generation.generate(continuation)).toEqual({
+        outcome: "unavailable",
+        reason,
+      });
+      // A recipe's first page with the same answer stays free to send again.
+      expect(await h.generation.generate(request)).toEqual({
+        outcome: "unavailable",
+        reason,
+        retry: true,
+      });
+    },
+  );
+
+  it("names the check that refused a continuation's output and spends it", async () => {
+    const h = setup({
+      kind: "result",
+      result: {
+        version: 1,
+        status: "failed",
+        error: "invalid-output",
+        rejection: { check: "schema", issue: "max-length", path: "result.steps" },
+      },
+    });
+    expect(await h.generation.generate(continuation)).toEqual({
+      outcome: "failed",
+      reason: "invalid-output",
+      check: "schema",
+      detail: "max-length",
+      path: "result.steps",
+    });
+    expect(await h.generation.generate(continuation)).toEqual({
+      outcome: "skipped",
+      reason: "sent",
+    });
+  });
+
+  it("asks for a retry without a paired service and sends nothing", async () => {
+    const h = setup();
+    h.service.connection.mockResolvedValueOnce(undefined);
+    expect(await h.generation.generate(continuation)).toEqual({
+      outcome: "skipped",
+      retry: true,
+      reason: "not-connected",
+    });
+    expect(h.transport.generateRecipe).not.toHaveBeenCalled();
+  });
+});
+
+describe("continuation claims and answers, probed independently (ADR 0018)", () => {
+  const base = { recipeId: recipeChange.recipeId, revision: 1 };
+  const continuation: RecipeGenerationRequest = { ...request, base };
+  const answerOf = (revision: number) => ({
+    kind: "result" as const,
+    result: {
+      version: 1 as const,
+      status: "recipe" as const,
+      change: { ...recipeChange, revision, recipe: { ...recipeChange.recipe, revision } },
+    },
+  });
+  const sent = { outcome: "skipped", reason: "sent" };
+
+  it("keeps a continuation's claim apart from the first page's on the same path", async () => {
+    const h = setup(answerOf(2));
+    // The continuation first: the path's first page is still free, and the reverse.
+    expect(await h.generation.generate(continuation)).toMatchObject({ outcome: "recipe" });
+    expect(await h.generation.available(observation.origin, "/login")).toBe(true);
+    expect(await h.generation.generate(request)).toMatchObject({ outcome: "recipe" });
+    expect(await h.generation.available(observation.origin, "/login")).toBe("sent");
+    // Each claim holds on its own.
+    expect(await h.generation.generate(continuation)).toEqual(sent);
+    expect(await h.generation.generate(request)).toEqual(sent);
+    expect(h.transport.generateRecipe).toHaveBeenCalledTimes(2);
+  });
+
+  it("keys the claim by recipe as well as revision and path", async () => {
+    const h = setup(answerOf(2));
+    expect(await h.generation.generate(continuation)).toMatchObject({ outcome: "recipe" });
+    const otherRecipe = {
+      ...continuation,
+      base: { recipeId: `gen-${"f".repeat(32)}`, revision: 1 },
+    };
+    expect(await h.generation.generate(otherRecipe)).toMatchObject({ outcome: "recipe" });
+    const otherPath = {
+      ...continuation,
+      observation: { ...observation, path: "/login/password" },
+    };
+    expect(await h.generation.generate(otherPath)).toMatchObject({ outcome: "recipe" });
+    expect(h.transport.generateRecipe).toHaveBeenCalledTimes(3);
+  });
+
+  it("frees only the continuation's claim, never the first page's", async () => {
+    const h = setup();
+    expect(await h.generation.generate(request)).toMatchObject({ outcome: "recipe" });
+    h.transport.generateRecipe.mockResolvedValueOnce({
+      kind: "result",
+      result: { version: 1, status: "unavailable", reason: "busy" },
+    });
+    expect(await h.generation.generate(continuation)).toEqual({
+      outcome: "unavailable",
+      reason: "busy",
+      retry: true,
+    });
+    expect(await h.generation.available(observation.origin, "/login")).toBe("sent");
+    expect(await h.generation.generate(request)).toEqual(sent);
+    expect(await h.generation.generate(continuation)).toMatchObject({ outcome: "recipe" });
+    expect(h.transport.generateRecipe).toHaveBeenCalledTimes(3);
+  });
+
+  type Answer = Awaited<ReturnType<ServiceTransport["generateRecipe"]>>;
+  // Nothing in these answers shows the model was called, so the claim is freed (#261).
+  it.each<[string, Answer, string, string]>([
+    [
+      "an incomplete observation",
+      { kind: "result", result: { version: 1, status: "failed", error: "incomplete-observation" } },
+      "failed",
+      "incomplete-observation",
+    ],
+    [
+      "an invalid request",
+      { kind: "result", result: { version: 1, status: "failed", error: "invalid-request" } },
+      "failed",
+      "invalid-request",
+    ],
+    [
+      "an unexpected transport answer",
+      { kind: "failed", error: "unexpected-response" },
+      "failed",
+      "unexpected-response",
+    ],
+    [
+      "the service's request limit",
+      { kind: "failed", error: "rate-limited" },
+      "failed",
+      "rate-limited",
+    ],
+    [
+      "the monthly limit",
+      { kind: "result", result: { version: 1, status: "unavailable", reason: "monthly-limit" } },
+      "unavailable",
+      "monthly-limit",
+    ],
+    [
+      "the service's own recently-tried",
+      { kind: "result", result: { version: 1, status: "unavailable", reason: "recently-tried" } },
+      "unavailable",
+      "recently-tried",
+    ],
+  ])("frees the claim and asks for a retry after %s", async (_n, answer, outcome, reason) => {
+    const h = setup(answer);
+    expect(await h.generation.generate(continuation)).toEqual({ outcome, reason, retry: true });
+    expect(await h.generation.generate(continuation)).toEqual({ outcome, reason, retry: true });
+    expect(h.transport.generateRecipe).toHaveBeenCalledTimes(2);
+    expect(h.sync).not.toHaveBeenCalled();
+    expect(h.refresh).not.toHaveBeenCalled();
+  });
+
+  it("asks for a retry with a rejected device connection and claims nothing", async () => {
+    const h = setup(answerOf(2));
+    h.service.connection.mockResolvedValueOnce({ ...connection, rejected: true });
+    expect(await h.generation.generate(continuation)).toEqual({
+      outcome: "skipped",
+      reason: "not-connected",
+      retry: true,
+    });
+    expect(h.storage.write).not.toHaveBeenCalled();
+    expect(await h.generation.generate(continuation)).toMatchObject({ outcome: "recipe" });
+  });
+
+  it("asks for a retry when the claim cannot be stored, and sends nothing", async () => {
+    const h = setup(answerOf(2));
+    h.storage.write.mockRejectedValueOnce(new Error("quota"));
+    expect(await h.generation.generate(continuation)).toEqual({
+      outcome: "skipped",
+      reason: "storage-unavailable",
+      retry: true,
+    });
+    expect(h.transport.generateRecipe).not.toHaveBeenCalled();
+  });
+
+  // These answers show the model was called: the claim is kept, with no retry.
+  it.each<[string, Answer, string, string]>([
+    [
+      "the model refusing",
+      { kind: "result", result: { version: 1, status: "failed", error: "refused" } },
+      "failed",
+      "refused",
+    ],
+    [
+      "a truncated answer",
+      { kind: "result", result: { version: 1, status: "failed", error: "truncated" } },
+      "failed",
+      "truncated",
+    ],
+    [
+      "a provider error",
+      { kind: "result", result: { version: 1, status: "failed", error: "provider-error" } },
+      "failed",
+      "provider-error",
+    ],
+    [
+      "an invalid recipe",
+      { kind: "result", result: { version: 1, status: "failed", error: "recipe-invalid" } },
+      "failed",
+      "recipe-invalid",
+    ],
+  ])("keeps the claim after %s", async (_name, answer, outcome, reason) => {
+    const h = setup(answer);
+    expect(await h.generation.generate(continuation)).toEqual({ outcome, reason });
+    expect(await h.generation.generate(continuation)).toEqual(sent);
+    expect(h.transport.generateRecipe).toHaveBeenCalledTimes(1);
+    expect(h.sync).not.toHaveBeenCalled();
+    expect(h.refresh).not.toHaveBeenCalled();
+  });
+
+  it("returns the current recipe the service answers for a stale base, pulling recipes only", async () => {
+    // Another device continued revision 1 first; the service answers with its revision 3.
+    const h = setup(answerOf(3));
+    const answer = await h.generation.generate(continuation);
+    expect(answer).toEqual({ outcome: "recipe", recipe: answerOf(3).result.change.recipe });
+    expect(h.refresh).toHaveBeenCalledTimes(1);
+    expect(h.sync).not.toHaveBeenCalled();
+  });
+
+  it("never syncs for a continuation, and still answers when the refresh fails", async () => {
+    const h = setup(answerOf(2));
+    h.refresh.mockRejectedValueOnce(new Error("offline"));
+    expect(await h.generation.generate(continuation)).toMatchObject({ outcome: "recipe" });
+    for (const answer of [
+      { kind: "failed", error: "unreachable" },
+      { kind: "rejected" },
+      { kind: "result", result: { version: 1, status: "abstained", reason: "ambiguous" } },
+    ] as const) {
+      h.transport.generateRecipe.mockResolvedValueOnce(answer);
+      // One answer per request, in order.
+      // eslint-disable-next-line no-await-in-loop
+      await h.generation.generate({ ...continuation, base: { ...base, revision: 5 } });
+    }
+    expect(h.sync).not.toHaveBeenCalled();
+    expect(h.refresh).toHaveBeenCalledTimes(1);
+    // A first page still syncs in full.
+    await h.generation.generate(request);
+    expect(h.sync).toHaveBeenCalledTimes(1);
+    expect(h.refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("stores the claim with its base, sending while in flight and sent once answered", async () => {
+    const h = setup();
+    let answer!: (value: Answer) => void;
+    h.transport.generateRecipe.mockReturnValueOnce(
+      new Promise<Answer>((resolve) => (answer = resolve)),
+    );
+    const pending = h.generation.generate(continuation);
+    await vi.waitFor(() => expect(h.transport.generateRecipe).toHaveBeenCalledTimes(1));
+    expect(h.storage.write).toHaveBeenLastCalledWith({
+      version: 1,
+      attempts: [
+        {
+          origin: observation.origin,
+          path: "/login",
+          base,
+          state: "sending",
+          at: expect.any(Number),
+        },
+      ],
+    });
+    answer({ kind: "result", result: { version: 1, status: "abstained", reason: "ambiguous" } });
+    expect(await pending).toEqual({ outcome: "abstained", reason: "ambiguous" });
+    expect(h.storage.write).toHaveBeenLastCalledWith({
+      version: 1,
+      attempts: [
+        { origin: observation.origin, path: "/login", base, state: "sent", at: expect.any(Number) },
+      ],
+    });
+  });
+
+  it("frees a continuation claim whose request was lost after two minutes", async () => {
+    const h = setup(answerOf(2));
+    // The worker that sent it stopped: its request never answers.
+    h.transport.generateRecipe.mockReturnValueOnce(new Promise(() => undefined));
+    void h.generation.generate(continuation);
+    await vi.waitFor(() => expect(h.transport.generateRecipe).toHaveBeenCalledTimes(1));
+    h.advance(GENERATION_SENDING_MS - 1);
+    expect(await h.generation.generate(continuation)).toMatchObject({ reason: "sending" });
+    h.advance(1);
+    expect(await h.generation.generate(continuation)).toMatchObject({ outcome: "recipe" });
+    expect(h.transport.generateRecipe).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -716,7 +1131,7 @@ describe("generated slot maps (ADR 0027)", () => {
   it("remembers the offered fields per recipe before reporting it", async () => {
     const h = slotSetup();
     expect(await h.generation.slotFields(recipeId)).toBeUndefined();
-    expect(await h.generation.generate(offered)).toEqual({ outcome: "recipe" });
+    expect(await h.generation.generate(offered)).toMatchObject({ outcome: "recipe" });
     expect(h.order).toEqual(["write", "sync"]);
     expect(h.stored()).toEqual({
       version: 1,
@@ -775,14 +1190,14 @@ describe("generated slot maps (ADR 0027)", () => {
     ["no custom slot", []],
   ])("writes nothing for a mapping that names %s", async (_label, mapping) => {
     const h = slotSetup({ customSlots: mapping });
-    expect(await h.generation.generate(offered)).toEqual({ outcome: "recipe" });
+    expect(await h.generation.generate(offered)).toMatchObject({ outcome: "recipe" });
     expect(h.slotStorage.write).not.toHaveBeenCalled();
     expect(await h.generation.slotFields(recipeId)).toBeUndefined();
   });
 
   it("keeps nothing in memory that it could not write, and still reports the recipe", async () => {
     const h = slotSetup({ failWrite: true });
-    expect(await h.generation.generate(offered)).toEqual({ outcome: "recipe" });
+    expect(await h.generation.generate(offered)).toMatchObject({ outcome: "recipe" });
     expect(h.order).toEqual(["write", "sync"]);
     expect(await h.generation.slotFields(recipeId)).toBeUndefined();
   });
@@ -842,7 +1257,7 @@ describe("generated slot maps (ADR 0027)", () => {
       customSlots: [customSlots[1]!],
       change: continued,
     });
-    expect(await h.generation.generate(continuation)).toEqual({ outcome: "recipe" });
+    expect(await h.generation.generate(continuation)).toMatchObject({ outcome: "recipe" });
     expect(await h.generation.slotFields(recipeId)).toEqual(mapped);
     expect(await h.generation.slotFields(idOf(5))).toEqual(other.slots);
     expect((h.stored() as { maps: unknown[] }).maps).toHaveLength(2);
@@ -883,7 +1298,7 @@ describe("generated slot maps (ADR 0027)", () => {
       customSlots: [customSlots[1]!],
       change: varied,
     });
-    expect(await h.generation.generate(continuation)).toEqual({ outcome: "recipe" });
+    expect(await h.generation.generate(continuation)).toMatchObject({ outcome: "recipe" });
     // The branch slot belongs to an alternative, not to the recipe's own slots.
     expect(await h.generation.slotFields(recipeId)).toEqual(mapped);
   });
@@ -921,7 +1336,7 @@ describe("generated slot maps (ADR 0027)", () => {
         maps: [ownMap(recipeId, [{ slot: "old-slot", field: { custom: "Old" } }])],
       },
     });
-    expect(await h.generation.generate(offered)).toEqual({ outcome: "recipe" });
+    expect(await h.generation.generate(offered)).toMatchObject({ outcome: "recipe" });
     expect(await h.generation.slotFields(recipeId)).toEqual(mapped);
   });
 
@@ -936,7 +1351,7 @@ describe("generated slot maps (ADR 0027)", () => {
   it("writes nothing when the maps cannot be read, so no other map is dropped", async () => {
     const other = ownMap(idOf(5), [{ slot: "old-slot", field: { custom: "Old" } }]);
     const h = slotSetup({ stored: { version: 1, maps: [other] }, failReads: 1 });
-    expect(await h.generation.generate(offered)).toEqual({ outcome: "recipe" });
+    expect(await h.generation.generate(offered)).toMatchObject({ outcome: "recipe" });
     expect(h.order).toEqual(["sync"]);
     expect(h.slotStorage.write).not.toHaveBeenCalled();
     expect(await h.generation.slotFields(idOf(5))).toEqual(other.slots);
@@ -945,7 +1360,7 @@ describe("generated slot maps (ADR 0027)", () => {
 
   it("replaces stored maps that do not parse, since no older format is kept", async () => {
     const h = slotSetup({ stored: { version: 0, maps: "synthetic" } });
-    expect(await h.generation.generate(offered)).toEqual({ outcome: "recipe" });
+    expect(await h.generation.generate(offered)).toMatchObject({ outcome: "recipe" });
     expect(h.stored()).toEqual({ version: 1, maps: [ownMap(recipeId, mapped)] });
   });
 });

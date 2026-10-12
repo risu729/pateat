@@ -802,6 +802,16 @@ describe("unhandled errors", () => {
         verdict: "retry",
         reason,
       });
+    // A continuation names the revision it continued and whether the login took it over.
+    log.login({
+      type: "generation",
+      tabId: 3,
+      origin: recipeOrigin,
+      outcome: "recipe",
+      recipeId: "synthetic-recipe",
+      baseRevision: 1,
+      takenOver: true,
+    });
     log.login({
       type: "handler",
       ...page,
@@ -862,7 +872,7 @@ describe("unhandled errors", () => {
       check: "plan",
       detail: "incompatible-role",
     });
-    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(14));
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(15));
     const entries = (await log.logger.entries()).filter((entry) => entry.event !== "log.debug");
     expect(entries.map((entry) => [entry.event, entry.level, entry.fields])).toEqual([
       // An unchanged sync is a debug entry; one that changed a recipe is info.
@@ -916,6 +926,17 @@ describe("unhandled errors", () => {
           route: "password",
           verdict: "retry",
           reason: "not-connected",
+        },
+      ],
+      [
+        "recipe.generate",
+        "info",
+        {
+          origin: recipeOrigin,
+          outcome: "recipe",
+          recipe: expect.any(String),
+          baseRevision: 1,
+          takenOver: true,
         },
       ],
       [

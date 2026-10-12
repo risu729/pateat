@@ -25,6 +25,11 @@ export type SyncService = {
   request(path: string, init?: { method?: string; body?: unknown }): Promise<Response>;
   /** Every device row, oldest first. */
   devices(): Promise<{ id: string; label: string; revoked_at: number | null }[]>;
+  /**
+   * Every page sent for generation, oldest first: its path and the recipe revision it
+   * continues (0 for a first page), from the 24-hour rule's rows (ADR 0016, ADR 0018).
+   */
+  generationAttempts(): Promise<{ path: string; base_revision: number }[]>;
   /** Stops the service; later calls wait for the same shutdown. */
   close(): Promise<void>;
 };
@@ -290,6 +295,14 @@ export async function startSyncService({
       deviceId,
       credential,
       requests,
+      generationAttempts: async () =>
+        (
+          await db
+            .prepare(
+              "SELECT path, base_revision FROM generation_attempts ORDER BY attempted_at, rowid",
+            )
+            .all<{ path: string; base_revision: number }>()
+        ).results,
       devices: async () =>
         (
           await db

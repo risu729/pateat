@@ -2,12 +2,15 @@ import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import { beginInput, settingsRequest, setupProbe, setupRequest } from "./connection-fixture";
 import { startLoginFixture } from "./login-server";
 import { startSyncService } from "./sync-service";
-import { withVaultProfile } from "./vault-fixture";
+import { withVaultProfile, type VaultBrowser } from "./vault-fixture";
 
-// The synthetic Bitwarden item stores the URI https://synthetic.example.test/login and the
-// login password "test_password". The site has no recipe; the service generates one with
-// a local stand-in for Claude, so no request reaches Anthropic or any real site.
+// The synthetic Bitwarden item stores the URI https://synthetic.example.test/login, the
+// username "test_username" and the login password "test_password". The site has no recipe;
+// the service generates one with a local stand-in for Claude, so no request reaches
+// Anthropic or any real site.
 const site = "https://synthetic.example.test";
+const username = "test_username";
+const password = "test_password";
 
 async function send(page: Page, message: unknown): Promise<unknown> {
   return page.evaluate(
@@ -34,10 +37,11 @@ type Prompt = { task: string; observation: { path: string; candidates: Candidate
 
 /**
  * Answers the Worker's token exchange and Messages API calls the way Claude would for
- * the fixture pages: fill the password and press "Log in", then mark "Sign out" as the
- * signed-in evidence. The page descriptions it receives are recorded.
+ * the fixture pages: fill the password and press "Log in", or on a page without a password
+ * input fill the account and press "Next", then mark "Sign out" as the signed-in evidence.
+ * The page descriptions it receives are recorded.
  */
-function syntheticClaude() {
+function syntheticClaude({ abstainOnPassword = false }: { abstainOnPassword?: boolean } = {}) {
   const prompts: Prompt[] = [];
   function answer(path: string, payload: string): unknown {
     if (path === "/v1/oauth/token")
@@ -76,20 +80,35 @@ function syntheticClaude() {
       )
         ? byTarget("login")
         : byTarget("Log in", "text");
+    const passwordPage = prompt.observation.candidates.some(
+      ({ target }) => target.by === "id" && target.value === "password",
+    );
+    const signedIn = prompt.observation.candidates.some(
+      ({ target }) => target.by === "id" && target.value === "sign-out",
+    );
     const result =
-      prompt.task === "generate"
-        ? {
-            decision: "plan",
-            fields: [{ slot: "password", candidate: byTarget("password") }],
-            action: { candidate: login(), purpose: "submit" },
-          }
-        : {
-            decision: "signed-in",
-            // The `link` marker variant's account link has no id, so only its text names it.
-            marker: prompt.observation.candidates.some(({ target }) => target.value === "sign-out")
-              ? byTarget("sign-out")
-              : byTarget("My page", "text"),
-          };
+      prompt.task !== "generate"
+        ? signedIn
+          ? { decision: "signed-in", marker: byTarget("sign-out") }
+          : prompt.observation.candidates.some(
+                ({ target }) => target.by === "text" && target.value === "My page",
+              )
+            ? // The `link` marker variant's account link has no id, so only its text names it.
+              { decision: "signed-in", marker: byTarget("My page", "text") }
+            : { decision: "rejected" }
+        : passwordPage && abstainOnPassword
+          ? { decision: "abstain", reason: "ambiguous" }
+          : passwordPage
+            ? {
+                decision: "plan",
+                fields: [{ slot: "password", candidate: byTarget("password") }],
+                action: { candidate: login(), purpose: "submit" },
+              }
+            : {
+                decision: "plan",
+                fields: [{ slot: "username", candidate: byTarget("account") }],
+                action: { candidate: byTarget("next"), purpose: "advance" },
+              };
     return {
       id: "msg_synthetic",
       type: "message",
@@ -104,6 +123,65 @@ function syntheticClaude() {
   return { prompts, answer };
 }
 
+/**
+ * Connects the synthetic vault and the loopback service in the profile and returns the
+ * options page that sends extension messages.
+ */
+async function connect(
+  browser: VaultBrowser,
+  service: Awaited<ReturnType<typeof startSyncService>>,
+): Promise<Page> {
+  await setupProbe(browser.page, { action: "configure", variant: "uri" });
+  const options = await browser.context.newPage();
+  await options.goto(`chrome-extension://${browser.extensionId}/options.html`);
+  const accepted = await setupRequest(options, {
+    type: "connection.begin",
+    input: beginInput(),
+  });
+  if (!accepted.ok || accepted.kind !== "ready") throw new Error("Synthetic setup failed");
+  // The probe build's demo vaults cannot answer URI queries; leave only Bitwarden.
+  const initial = await settingsRequest(options);
+  const settings = initial.snapshot.settings;
+  settings.connections = settings.connections.map((entry) => ({
+    ...entry,
+    enabled: entry.connectionId === accepted.connectionId,
+  }));
+  const saved = await settingsRequest(options, {
+    version: 1,
+    type: "settings.save",
+    expectedRevision: initial.snapshot.revision,
+    settings,
+  });
+  await browser.background.evaluate(
+    async (record) =>
+      (
+        globalThis as unknown as {
+          chrome: { storage: { local: { set(value: unknown): Promise<void> } } };
+        }
+      ).chrome.storage.local.set({ "pateat.sync-service.v1": record }),
+    {
+      version: 1,
+      kind: "connected",
+      origin: service.origin,
+      label: "Synthetic test device",
+      deviceId: service.deviceId,
+      credential: service.credential,
+    },
+  );
+  expect(await send(options, { version: 1, type: "service.get" })).toMatchObject({
+    ok: true,
+    state: { kind: "connected" },
+  });
+  // Saving settings syncs at once; the earlier save already scheduled the next one.
+  await settingsRequest(options, {
+    version: 1,
+    type: "settings.save",
+    expectedRevision: saved.snapshot.revision,
+    settings: saved.snapshot.settings,
+  });
+  return options;
+}
+
 for (const [button, marker] of [
   ["button", "button"],
   ["anchor", "button"],
@@ -111,7 +189,7 @@ for (const [button, marker] of [
   ["button", "link"],
 ] as const)
   test(`a login page without a recipe is generated on the service, logs in and learns its completion (${button}, ${marker} marker)`, async () => {
-    const fixture = await startLoginFixture(0, { password: "test_password" });
+    const fixture = await startLoginFixture(0, { password });
     const claude = syntheticClaude();
     const service = await startSyncService({ claude: claude.answer });
     try {
@@ -119,54 +197,7 @@ for (const [button, marker] of [
         async (open, externalRequests) => {
           const browser = await open();
           await serveSite(browser.context, fixture);
-          await setupProbe(browser.page, { action: "configure", variant: "uri" });
-          const options = await browser.context.newPage();
-          await options.goto(`chrome-extension://${browser.extensionId}/options.html`);
-          const accepted = await setupRequest(options, {
-            type: "connection.begin",
-            input: beginInput(),
-          });
-          if (!accepted.ok || accepted.kind !== "ready") throw new Error("Synthetic setup failed");
-          // The probe build's demo vaults cannot answer URI queries; leave only Bitwarden.
-          const initial = await settingsRequest(options);
-          const settings = initial.snapshot.settings;
-          settings.connections = settings.connections.map((entry) => ({
-            ...entry,
-            enabled: entry.connectionId === accepted.connectionId,
-          }));
-          const saved = await settingsRequest(options, {
-            version: 1,
-            type: "settings.save",
-            expectedRevision: initial.snapshot.revision,
-            settings,
-          });
-          await browser.background.evaluate(
-            async (record) =>
-              (
-                globalThis as unknown as {
-                  chrome: { storage: { local: { set(value: unknown): Promise<void> } } };
-                }
-              ).chrome.storage.local.set({ "pateat.sync-service.v1": record }),
-            {
-              version: 1,
-              kind: "connected",
-              origin: service.origin,
-              label: "Synthetic test device",
-              deviceId: service.deviceId,
-              credential: service.credential,
-            },
-          );
-          expect(await send(options, { version: 1, type: "service.get" })).toMatchObject({
-            ok: true,
-            state: { kind: "connected" },
-          });
-          // Saving settings syncs at once; the earlier save already scheduled the next one.
-          await settingsRequest(options, {
-            version: 1,
-            type: "settings.save",
-            expectedRevision: saved.snapshot.revision,
-            settings: saved.snapshot.settings,
-          });
+          const options = await connect(browser, service);
 
           const runId = fixture.createRun();
           const page = await browser.context.newPage();
@@ -189,7 +220,7 @@ for (const [button, marker] of [
             ["generate", "/sign-in"],
             ["judge-sign-in", "/account"],
           ]);
-          expect(JSON.stringify(claude.prompts)).not.toContain("test_password");
+          expect(JSON.stringify(claude.prompts)).not.toContain(password);
           const recipes = (await (await service.request("/v1/recipes")).json()) as {
             changes: { recipe?: { revision: number; completion?: unknown } }[];
           };
@@ -231,3 +262,180 @@ for (const [button, marker] of [
       await fixture.close();
     }
   });
+
+for (const { name, start, query, passwordPath } of [
+  // Next hides the account form and shows the password form on the same path.
+  {
+    name: "same document",
+    start: "/identifier-first",
+    query: "?account",
+    passwordPath: "/identifier-first",
+  },
+  // Next opens the password page as a new document on another path.
+  { name: "new document", start: "/identifier", query: "", passwordPath: "/identifier/password" },
+])
+  test(`a generated identifier page is continued on the password page it leads to (${name}, ADR 0018)`, async () => {
+    const fixture = await startLoginFixture(0, { password, accountName: username });
+    const claude = syntheticClaude();
+    const service = await startSyncService({ claude: claude.answer });
+    try {
+      await withVaultProfile(
+        async (open, externalRequests) => {
+          const browser = await open();
+          await serveSite(browser.context, fixture);
+          const options = await connect(browser, service);
+
+          const page = await browser.context.newPage();
+          await page.goto(`${site}${start}${query}`);
+          // The account and the password both matched, after one Next and one Log in.
+          await expect(page.locator("#signed-in")).toBeVisible();
+          await expect
+            .poll(() => send(options, { version: 1, type: "login.probe.status" }))
+            .toMatchObject({
+              attempts: [{ state: "authenticated", outcome: "authenticated", submissions: 2 }],
+            });
+          // The identifier page, then the password page continuing that recipe, then the
+          // signed-in page; never a value.
+          expect(claude.prompts.map((prompt) => [prompt.task, prompt.observation.path])).toEqual([
+            ["generate", start],
+            ["generate", passwordPath],
+            ["judge-sign-in", "/account"],
+          ]);
+          expect(JSON.stringify(claude.prompts)).not.toContain(password);
+          expect(JSON.stringify(claude.prompts)).not.toContain(username);
+          // One Next and one Log in; the password page continued revision 1.
+          expect(await page.locator("#fixture-status").textContent()).toContain(
+            "Identity clicks: 1; Submit clicks: 1",
+          );
+          expect(await service.generationAttempts()).toEqual([
+            { path: start, base_revision: 0 },
+            { path: passwordPath, base_revision: 1 },
+          ]);
+          const recipes = (await (await service.request("/v1/recipes")).json()) as {
+            changes: { recipe?: { revision: number; steps: unknown[]; completion?: unknown } }[];
+          };
+          expect(recipes.changes.map((change) => change.recipe)).toMatchObject([
+            {
+              revision: 3,
+              steps: [
+                { kind: "fill", path: start },
+                { kind: "click", path: start, purpose: "advance" },
+                { kind: "fill", path: passwordPath },
+                { kind: "click", path: passwordPath, purpose: "submit" },
+              ],
+              completion: { path: "/account", target: { by: "id", value: "sign-out" } },
+            },
+          ]);
+
+          // The next visit runs all four steps of the stored recipe with no model call.
+          await page.close();
+          const next = await browser.context.newPage();
+          await next.goto(`${site}${start}${query}`);
+          await expect(next.locator("#signed-in")).toBeVisible();
+          expect(claude.prompts).toHaveLength(3);
+          expect([...new Set(externalRequests)].sort()).toEqual(["https://127.0.0.1", site]);
+        },
+        { args: ["--ignore-certificate-errors"] },
+      );
+    } finally {
+      await service.close();
+      await fixture.close();
+    }
+  });
+
+test("an identifier form shown again where it posted is never continued (ADR 0018)", async () => {
+  const fixture = await startLoginFixture(0, { password, accountName: username });
+  const claude = syntheticClaude();
+  const service = await startSyncService({ claude: claude.answer });
+  try {
+    await withVaultProfile(
+      async (open, externalRequests) => {
+        const browser = await open();
+        await serveSite(browser.context, fixture);
+        const options = await connect(browser, service);
+
+        const page = await browser.context.newPage();
+        await page.goto(`${site}/identifier?again`);
+        // The site did not know the account: its form shows again on another path.
+        await expect(page.locator("#account-error")).toBeVisible();
+        await expect
+          .poll(() => send(options, { version: 1, type: "login.probe.status" }))
+          .toMatchObject({ attempts: [{ outcome: "unknown-submit", submissions: 1 }] });
+        // The form shown again is not sent to continue the recipe, and the service does not
+        // judge a page that shows a field the recipe fills, so the account is entered once,
+        // nothing is appended and no other model call is made.
+        expect(claude.prompts.map((prompt) => [prompt.task, prompt.observation.path])).toEqual([
+          ["generate", "/identifier"],
+        ]);
+        expect(await page.locator("#fixture-status").textContent()).toContain(
+          "Identity clicks: 1; Submit clicks: 0",
+        );
+        const recipes = (await (await service.request("/v1/recipes")).json()) as {
+          changes: { recipe?: { revision: number; steps: unknown[] } }[];
+        };
+        expect(recipes.changes.map((change) => change.recipe)).toMatchObject([
+          { revision: 1, steps: [{ kind: "fill" }, { kind: "click", purpose: "advance" }] },
+        ]);
+        expect([...new Set(externalRequests)].sort()).toEqual(["https://127.0.0.1", site]);
+      },
+      { args: ["--ignore-certificate-errors"] },
+    );
+  } finally {
+    await service.close();
+    await fixture.close();
+  }
+});
+
+test("an abstained continuation settles unknown without judging the page (ADR 0018)", async () => {
+  // The login waits out the advance's ten seconds on the password page before it settles.
+  test.setTimeout(60_000);
+  const fixture = await startLoginFixture(0, { password, accountName: username });
+  const claude = syntheticClaude({ abstainOnPassword: true });
+  const service = await startSyncService({ claude: claude.answer });
+  try {
+    await withVaultProfile(
+      async (open, externalRequests) => {
+        const browser = await open();
+        await serveSite(browser.context, fixture);
+        const options = await connect(browser, service);
+
+        const page = await browser.context.newPage();
+        await page.goto(`${site}/identifier`);
+        await expect(page).toHaveURL(`${site}/identifier/password`);
+        // The password page is sent to continue the recipe; the model abstains.
+        await expect.poll(() => claude.prompts.length, { timeout: 20_000 }).toBe(2);
+        expect(claude.prompts.map((prompt) => [prompt.task, prompt.observation.path])).toEqual([
+          ["generate", "/identifier"],
+          ["generate", "/identifier/password"],
+        ]);
+        // The login settles unknown there once the advance's wait is over: the password is
+        // never typed and the page never judged.
+        await page.waitForTimeout(12_000);
+        expect(await send(options, { version: 1, type: "login.probe.status" })).toMatchObject({
+          attempts: [{ state: "reconciling", outcome: "unknown-submit", submissions: 1 }],
+        });
+        expect(claude.prompts).toHaveLength(2);
+        await expect(page.locator("#password")).toHaveValue("");
+        // A reload of the same login sends nothing again.
+        await page.reload();
+        await page.waitForTimeout(3_000);
+        expect(claude.prompts).toHaveLength(2);
+        expect(JSON.stringify(claude.prompts)).not.toContain(password);
+        expect(JSON.stringify(claude.prompts)).not.toContain(username);
+        // The stored recipe still ends at the identifier page's Next.
+        const recipes = (await (await service.request("/v1/recipes")).json()) as {
+          changes: { recipe?: { revision: number; steps: unknown[]; completion?: unknown } }[];
+        };
+        expect(recipes.changes.map((change) => change.recipe)).toMatchObject([
+          { revision: 1, steps: [{ kind: "fill" }, { kind: "click", purpose: "advance" }] },
+        ]);
+        expect(recipes.changes[0]!.recipe!.steps).toHaveLength(2);
+        expect([...new Set(externalRequests)].sort()).toEqual(["https://127.0.0.1", site]);
+      },
+      { args: ["--ignore-certificate-errors"] },
+    );
+  } finally {
+    await service.close();
+    await fixture.close();
+  }
+});
