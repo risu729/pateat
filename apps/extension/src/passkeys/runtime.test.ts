@@ -212,6 +212,8 @@ describe("passkey runtime cancellation", () => {
         expect.objectContaining({ reason: "assertion-failed", cause: "account-lookup" }),
       ),
     );
+    // A login lookup that fails leaves the flag out; the report is still sent.
+    expect(lookup.mock.lastCall![0]).not.toHaveProperty("duringLogin");
   });
 });
 
