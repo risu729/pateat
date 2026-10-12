@@ -162,7 +162,10 @@ entered the One-time PIN code, the Bitwarden email and the master password. Resu
   Please login first.", because that browser's only Access cookie is sent below `/pair`.
   The team domain's `/cdn-cgi/access/logout` answered "Success! You successfully logged
   out."
-- The owner connected their existing Bitwarden account as "main" (12:57 UTC).
+- The owner connected their existing Bitwarden account as "main" and answered "done"
+  (12:57 UTC) to a request to do so once the connection showed "Local vault ready".
+  Nobody else read that state, so an unfinished connection is still a possible cause
+  below.
 - Asked to open `https://www.smbc-card.com/mem/index.jsp` (Vpass) without typing, the
   Bot reported after one minute that the page was still the Vpass login form, with no
   code or confirmation prompt, and that it had typed nothing. Pateat did not log in.
