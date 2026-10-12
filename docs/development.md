@@ -398,11 +398,13 @@ holds:
 
 - `origin`, `outcome` (`assertion`, `delegate`, `cancelled`, `not-allowed` when the
   chooser window was still open as the wait ran out, or `withheld` for a conditional
-  request kept unanswered after a Pateat login of its page signed in or after four
-  minutes of waiting) and the delegate
+  request kept unanswered after a Pateat login of its page signed in, or after four
+  minutes of waiting for that login or for a pick after a logout) and the delegate
   `reason`. A conditional request is handed on as `no-recipe` (no recipe for the site),
-  `no-login` (no login of its page started) or `login-ended` (the login did not sign
-  in) ([ADR 0034](adr/0034-answer-page-passkey-requests.md));
+  `no-login` (no login of its page started), `login-ended` (the login did not sign
+  in) or `no-pick` (the popup offered its page a choice of accounts outside a logout,
+  with an item that holds a passkey, and nothing was picked within four minutes)
+  ([ADR 0034](adr/0034-answer-page-passkey-requests.md));
 - once the request is admitted, `rpId` and `allowCredentials` (how many credential IDs
   the site listed);
 - once the vault was searched, `stored` (eligible stored passkeys with that RP ID in

@@ -182,6 +182,40 @@ export async function itemPasskeyFacts(
   return facts;
 }
 
+/**
+ * The items that hold a discoverable, usable passkey (a zero counter) for an RP ID the
+ * origin may use, by the criterion of `itemPasskeyFacts`, from one search per RP ID across
+ * every enabled connection (ADR 0034). An item a search could not reach, as in a locked
+ * vault, counts as holding none. No secret value is read.
+ */
+export async function originPasskeyItems(
+  source: Pick<PasskeySource<VaultPasskeyCandidate>, "candidates">,
+  origin: string,
+): Promise<PasskeyItem[]> {
+  const items: PasskeyItem[] = [];
+  for (const rpId of rpIdsFor(origin)) {
+    // Sequential: each query shares the bounded native host. Never aborted: the vault source
+    // does not cancel host queries.
+    // eslint-disable-next-line no-await-in-loop
+    const found = await source.candidates(origin, rpId, new AbortController().signal);
+    // Passkeys found count even when another connection or item could not be searched; those
+    // it could not count as holding none.
+    if (!found) continue;
+    for (const candidate of found.candidates) {
+      if (candidate.counter !== 0 || !candidate.discoverable || candidate.userHandle === null)
+        continue;
+      if (
+        !items.some(
+          (item) =>
+            item.connectionId === candidate.connectionId && item.itemId === candidate.itemId,
+        )
+      )
+        items.push({ connectionId: candidate.connectionId, itemId: candidate.itemId });
+    }
+  }
+  return items;
+}
+
 /** The unlocked vault of one registered connection, if it has a live handle. */
 function vaultManagerFor(connections: Pick<ConnectionRuntime, "registry" | "vaultFor">) {
   return async (connectionId: string) => {
