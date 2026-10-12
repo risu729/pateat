@@ -5126,6 +5126,68 @@ describe("production login document admission", () => {
         expect(JSON.stringify(fake.state.messages)).not.toContain("risu@example.com");
       });
 
+      it("reads no list on a page whose path holds a matching item's username", async () => {
+        const { service, h, generations } = setup();
+        h.fields.mockImplementation(async ({ fieldId }) =>
+          fieldId === "login.username" ? "risu729" : "synthetic-secret",
+        );
+        // A signed-in page under the account's own name, as a pull request page whose
+        // comment shows its author beside its buttons (owner 2026-10-12 19:45 UTC).
+        const url = `${origin}/risu729/pateat/pull/1`;
+        fake.state.pageUrl = url;
+        const pathHello = (list: Record<string, unknown>) =>
+          h.login.handle(
+            {
+              version: 1,
+              type: "login.document.ready",
+              token: "synthetic-token",
+              list: { path: "/risu729/pateat/pull/1", ...list },
+            },
+            sender({ url }),
+          );
+        expect(await h.hello({ url }, false)).toMatchObject({ generate: true });
+        expect(await pathHello({ names: ["risu729", "Edit"] })).toMatchObject({
+          ok: false,
+          reason: "recipe-not-found",
+        });
+        // Not even an email list is read there.
+        expect(await h.hello({ url, documentId: "email-page" }, false)).toMatchObject({
+          generate: true,
+        });
+        expect(
+          await h.login.handle(
+            {
+              version: 1,
+              type: "login.document.ready",
+              token: "synthetic-token",
+              list: { path: "/risu729/pateat/pull/1" },
+            },
+            sender({ url, documentId: "email-page" }),
+          ),
+        ).toMatchObject({ ok: false, reason: "recipe-not-found" });
+        expect(generations()).toEqual([
+          {
+            type: "generation",
+            tabId: 1,
+            origin,
+            outcome: "skipped",
+            reason: "no-listed-account",
+            detail: "username-in-path",
+          },
+          {
+            type: "generation",
+            tabId: 1,
+            origin,
+            outcome: "skipped",
+            reason: "no-listed-account",
+            detail: "username-in-path",
+          },
+        ]);
+        expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.extract");
+        expect(service.generate).not.toHaveBeenCalled();
+        expect(JSON.stringify(fake.state.messages)).not.toContain("risu729\"");
+      });
+
       it("logs a shown email address that is no entry, and sends only names", async () => {
         const { service, h, generations } = setup();
         const missed = (from: Record<string, unknown>, names?: string[]) =>

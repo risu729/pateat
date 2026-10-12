@@ -358,6 +358,17 @@ such as "Manage other accounts" or "Create another account", can be sent (about 
 at most once in the 10-minute window), and the AI abstains there. Not covered: a control
 worded only "Not you?", "Use a different email" or "Add account".
 
+Amended by the owner on 2026-10-12 (decision card answered "exclude" at 19:45 UTC),
+after a github.com pull request page was read as a list because a comment showed the
+username beside its buttons: a list, of names or with an email, on a page whose path has
+a segment that holds a matching item's username, as the service-bound check refuses it
+(`username-shown`), is not read or sent. The worker compares the path with the matching
+items' usernames, which it now reads for every list, before the page is read, and logs
+it at debug level as `no-listed-account` with `username-in-path`, since such a page is a
+signed-in page under the account's own name. No site is named
+([ADR 0033](0033-no-site-specific-features.md)). Such a page was never sent before
+either; this only saves reading it and the failure its read could log.
+
 ## Consequences
 
 - Cloudflare logs in with the site default's profile and no action from the owner after
