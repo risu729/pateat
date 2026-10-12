@@ -136,14 +136,14 @@ with the default listed first.
 
 Only that tab's own finished attempt record is released. Another tab's attempt for the
 origin that still holds it under [ADR 0022](0022-login-attempts-per-tab-and-origin.md)
-(running, or ended without success) blocks with `origin-busy`, because cookies are
-shared across tabs; that tab's tooltip says why. While the tab asks, other tabs of the
-origin that show a recipe's first step ask too (amended 2026-10-11; before, they were
-refused `origin-busy`), so they do not log in again behind the logout. Their tooltip
-says the logout happened in another tab.
-A result Pateat could not observe stays `reconciling` and is resumed by the next page,
-not taken as a logout. The runtime and the content script must keep watching after
-a finished attempt, including after an in-document (SPA) logout.
+(running, or ended without success in a way that still holds, such as a refused
+password) blocks with `origin-busy`, because cookies are shared across tabs; that tab's
+tooltip says why. While the tab asks, other tabs of the origin that show a recipe's
+first step ask too (amended 2026-10-11; before, they were refused `origin-busy`), so
+they do not log in again behind the logout. Their tooltip says the logout happened in
+another tab. A result Pateat could not observe stays `reconciling` and is resumed by the
+next page, not taken as a logout. The runtime and the content script must keep watching
+after a finished attempt, including after an in-document (SPA) logout.
 
 Known gaps:
 
