@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
   accountEntries,
+  accountEntryMiss,
   accountNames,
   besideAccounts,
   besideEmails,
@@ -48,6 +49,21 @@ describe("accountEntries", () => {
       "LI",
       "DIV",
     ]);
+  });
+
+  it("reads an address inside an element with display: contents", () => {
+    // Cloudflare's saved profiles, 2026-10-12.
+    const entries = list(`
+      <button data-testid="account-selector-last-used">
+        <span style="display: contents"><span style="display: block">a@example.com</span></span>
+        <span>Last used</span>
+      </button>
+      <button data-testid="account-selector-account-1">
+        <span style="display: contents"><span style="display: block">b@example.com</span></span>
+      </button>
+      <button>Sign in with another profile</button>
+    `);
+    expect(entries.map((entry) => entry.accounts)).toEqual([["a@example.com"], ["b@example.com"]]);
   });
 
   it("takes the innermost entry and leaves out page chrome", () => {
@@ -431,5 +447,35 @@ describe("listChoice", () => {
         other: named,
       }).click,
     ).toBe("other");
+  });
+});
+
+describe("accountEntryMiss", () => {
+  const miss = (html: string) => {
+    document.body.innerHTML = html;
+    expect(accountEntries(document)).toEqual([]);
+    return accountEntryMiss(document);
+  };
+
+  it("names why a shown address is not an entry", () => {
+    expect(miss("<p>Signed in as a@example.com</p>")).toBe("no-entry");
+    expect(miss("<header><button>a@example.com</button></header>")).toBe("page-chrome");
+    expect(miss('<a href="https://idp.example/"><span>a@example.com</span></a>')).toBe(
+      "inside-control",
+    );
+    expect(miss("<p>No address here</p>")).toBeUndefined();
+    expect(miss("<button><span>a</span><span>@example.com</span></button>")).toBe("split-address");
+  });
+
+  it("prefers a shown address, and otherwise names how one is hidden", () => {
+    expect(miss('<div aria-hidden="true"><button>a@example.com</button></div>')).toBe(
+      "aria-hidden",
+    );
+    expect(miss("<div inert><button>a@example.com</button></div>")).toBe("inert");
+    expect(miss("<button hidden>a@example.com</button>")).toBe("hidden");
+    expect(miss('<button style="opacity: 0">a@example.com</button>')).toBe("not-rendered");
+    expect(miss("<button hidden>a@example.com</button><p>Signed in as b@example.com</p>")).toBe(
+      "no-entry",
+    );
   });
 });

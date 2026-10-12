@@ -131,7 +131,7 @@ import {
   type PickResponse,
 } from "./choice-wire";
 import { customFieldOffers, type CustomFieldOffer } from "./generation-slots";
-import { emailUsername, namesUsername } from "../page/account-list";
+import { emailUsername, namesUsername, type EntryMiss } from "../page/account-list";
 import {
   decideSignInState,
   reachedReturnTarget,
@@ -299,11 +299,21 @@ type LiveDocument = {
   /** Why this document's sign-in entry was not pressed, each reason logged once at info. */
   entryRefusals?: string[];
 };
+/** Why a page offered for generation is not sent, for the log (ADR 0019). */
+type GenerationMiss = "no-vault-match" | "vault-unavailable" | "connection-disabled";
+/** A provider's or vault's reason as a log code, within the log's 64 characters. */
+const logCode = (reason: string) =>
+  reason
+    .toLowerCase()
+    .replace(/[^a-z0-9.:-]+/gu, "-")
+    .replace(/^[^a-z0-9]+/u, "")
+    .slice(0, 64) || "unknown";
 /**
  * A page offered as a list of accounts (ADR 0028): its path, and without an email listed,
- * the short texts that may name an account by a username that is not an email.
+ * the short texts that may name an account by a username that is not an email, and why a
+ * shown email address is not a list entry, for the log only.
  */
-type ListOffer = { path: string; names?: string[] | undefined };
+type ListOffer = { path: string; names?: string[] | undefined; missed?: EntryMiss | undefined };
 /** Whether a record holds its origin against other tabs at `now` (ADR 0022). */
 const holdsSite = (entry: LoginAttemptMetadata, now: number) =>
   entry.state !== "authenticated" &&
@@ -4119,12 +4129,19 @@ export function createLoginRuntime(
   }
   /**
    * The slots to generate for when a vault item's URI matches the page, with the
-   * matching items. No field value is read here.
+   * matching items. No field value is read here. Without them, `miss` hears why, for the
+   * log: `no-vault-match` when no item fits, or why the vault could not tell.
    */
-  async function generationSlotsFor(live: LiveDocument): Promise<GenerationScope | undefined> {
+  async function generationSlotsFor(
+    live: LiveDocument,
+    miss: (reason: GenerationMiss, detail?: string) => void = () => undefined,
+  ): Promise<GenerationScope | undefined> {
     if (!uris) return undefined;
     const snapshot = await settings.handle({ version: 1, type: "settings.get" });
-    if (!snapshot.ok) return undefined;
+    if (!snapshot.ok) {
+      miss("vault-unavailable", "settings");
+      return undefined;
+    }
     // The URL the page shows now: a same-document URL change (history.pushState) since the
     // document announced shows only in the tab's committed URL.
     let url = live.url;
@@ -4137,6 +4154,7 @@ export function createLoginRuntime(
       )
         url = tab.url;
     } catch {
+      miss("vault-unavailable", "tab");
       return undefined;
     }
     const scope = await findLiveSiteCandidates({
@@ -4145,7 +4163,10 @@ export function createLoginRuntime(
       url,
       match: uris,
     });
-    if (!scope.ok) return undefined;
+    if (!scope.ok) {
+      miss("no-vault-match", scope.reason);
+      return undefined;
+    }
     const items = scope.candidates.flatMap((candidate) => {
       const connection = snapshot.catalog.connections.find(
         (entry) => entry.id === candidate.connectionId,
@@ -4177,7 +4198,24 @@ export function createLoginRuntime(
           : [];
       }),
     );
-    if (!slots.length && !offers.length) return undefined;
+    if (!slots.length && !offers.length) {
+      const enabled = snapshot.catalog.connections.some(
+        (connection) =>
+          snapshot.snapshot.settings.connections.find(
+            (entry) => entry.connectionId === connection.id,
+          )?.enabled,
+      );
+      const unavailable = scope.unavailableConnections[0]?.reason;
+      if (items.length) miss("no-vault-match", "no-slots");
+      // A device without any vault connection is not a problem to log at info level.
+      else if (!snapshot.catalog.connections.length) miss("no-vault-match", "no-connection");
+      else if (!enabled) miss("connection-disabled");
+      else if (unavailable) miss("vault-unavailable", logCode(unavailable));
+      // An item whose URIs could not all be checked may still belong to the page.
+      else if (scope.incompleteItems.length) miss("no-vault-match", "incomplete-item");
+      else miss("no-vault-match", "no-item");
+      return undefined;
+    }
     return {
       slots: slots.map(({ slot }) => slot),
       offers,
@@ -4415,7 +4453,13 @@ export function createLoginRuntime(
     return slots;
   }
   /** Logs once per document and reason why it was not sent for generation. */
-  function skipGeneration(live: LiveDocument, reason: string, page?: "entry"): void {
+  function skipGeneration(
+    live: LiveDocument,
+    reason: string,
+    page?: "entry",
+    /** A code that tells more, such as why a vault could not tell (ADR 0019). */
+    detail?: string,
+  ): void {
     if (live.generationSkip === reason) return;
     live.generationSkip = reason;
     report(live.document, {
@@ -4425,6 +4469,7 @@ export function createLoginRuntime(
       outcome: "skipped",
       reason,
       ...(page ? { page } : {}),
+      ...(detail ? { detail } : {}),
     });
   }
   /**
@@ -5238,12 +5283,20 @@ export function createLoginRuntime(
       let offer = availability === true;
       // Only a page that was sent is held, so the log says why it is not sent again.
       if (availability === "sending" || availability === "sent") skipGeneration(live, availability);
-      const listing = !signIn && list?.path === live.path ? list : undefined;
+      // Without the service no page is sent; logged at debug level, as every page is.
+      if (availability === "not-connected") skipGeneration(live, availability);
+      const shownList = !signIn && list?.path === live.path ? list : undefined;
+      // A shown email address that is no list entry is logged only (ADR 0028).
+      if (offer && shownList?.missed)
+        skipGeneration(live, "not-a-list", undefined, shownList.missed);
+      const listing = shownList && (shownList.names || !shownList.missed) ? shownList : undefined;
       // A page whose URL names another path of its site may be sent as a sign-in entry
       // once no sign-in input showed (ADR 0031); a list of accounts goes first.
       const entryPage =
         offer && namesReturnPath(new URL(live.url), sameSiteAs(live.url)) ? true : undefined;
       const entryOffer = !signIn && entryHello?.path === live.path;
+      // A list announced only for the log is never sent, but may hold the site's entry.
+      if (shownList && !listing && !entryOffer) offer = false;
       // The page right after a sign-in is never sent as a list of accounts (ADR 0028) or as
       // a sign-in entry.
       if (offer && listing && afterSignIn.get(document.tabId) === document.documentId) {
@@ -5253,7 +5306,10 @@ export function createLoginRuntime(
         offer = false;
       }
       if (offer && (signIn?.path === live.path || listing)) {
-        const scope = await generationSlotsFor(live).catch(() => undefined);
+        let missed: [GenerationMiss, (string | undefined)?] = ["vault-unavailable", "error"];
+        const scope = await generationSlotsFor(live, (...reason) => {
+          missed = reason;
+        }).catch(() => undefined);
         if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
         // Without an email listed, a shown text must name a matching item's username.
         const names =
@@ -5268,11 +5324,19 @@ export function createLoginRuntime(
           void generateFor(live, scope, listing ? { names: names ?? [] } : undefined);
           return { ok: false, reason: "generating" };
         }
-        // No vault item matches this page, or no shown text names one, so it is not sent.
-        // A page offered only by its short texts is ordinary browsing then, and not logged
-        // (ADR 0019): most pages show a short text beside a button. Such a page may still
-        // hold the site's sign-in entry.
-        if (!listing?.names) skipGeneration(live, "no-vault-match");
+        // No vault item matches this page, the vault could not tell, or no shown text names
+        // an item's username, so it is not sent. A page offered only by its short texts is
+        // mostly ordinary browsing, so that is logged at debug level (ADR 0019): most pages
+        // show a short text beside a button. Such a page may still hold the site's sign-in
+        // entry.
+        if (!listing?.names) skipGeneration(live, missed[0], undefined, missed[1]);
+        else
+          skipGeneration(
+            live,
+            "no-listed-account",
+            undefined,
+            scope ? "no-name-match" : logCode(missed.filter(Boolean).join(":")),
+          );
         if (!(listing?.names && entryOffer)) offer = false;
       }
       if (offer && entryOffer) {

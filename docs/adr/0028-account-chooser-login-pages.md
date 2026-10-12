@@ -103,8 +103,9 @@ buttons, each at most 64 characters and without an `@`; a control's own text is 
 one. Many ordinary pages show such a text, so on a site with a vault match the worker
 reads the matching items' usernames, email usernames included, one at a time on each
 such page, and sends the page only when a text names one; a page offered only by such
-texts that is not sent is not logged, as ordinary browsing. The worker passes the naming
-texts back with the request to describe the page. The observation then lists each as
+texts that is not sent is logged at debug level only, as mostly ordinary browsing (owner
+rule that Pateat never stops silently, 2026-10-12). The worker passes the naming texts
+back with the request to describe the page. The observation then lists each as
 `[account]`, and hides the name wherever it shows, with or without a leading `@`, in any
 width or case, such as in a heading; a name starting or ending with a Latin letter or
 digit is not found inside a longer Latin word, but is found beside kana or kanji, as in
@@ -127,8 +128,18 @@ the skip; after a submission in a frame, a same-document URL change of the tab's
 not skipped, since only the frame saw the submission. A stored chooser's path counts as
 a recipe start, so the page is not sent again, and a chooser login starts there. The
 local log names a list's generation with `page: accounts`, and the skips of a list with
-an email as `after-sign-in` or `no-vault-match`. The service's check of the answer also
-refuses a control whose text holds `[account]`.
+an email as `after-sign-in` or `no-vault-match`. At debug level it also names a page
+that, once its ten seconds end without a sign-in input, holds an `@` in its text but is
+not taken as a list (`not-a-list`, with why: for its first shown address, such as
+`inside-control` or `not-rendered`; else how a hidden one is hidden; else
+`split-address`), and a page of texts that named no item (`no-listed-account`); other
+pages without a matching item stay `no-vault-match` with a detail. At info level, a page
+not sent because the vault could not tell is logged as `vault-unavailable` or
+`connection-disabled`; one not offered without the service is `not-connected` at debug
+level. An element with `display: contents` has no box, so it counts as shown when its
+parent is and renders its content, and any child element renders: Cloudflare's saved
+profiles wrap each address in one, and the list was not found before (2026-10-12). The
+service's check of the answer also refuses a control whose text holds `[account]`.
 
 ### What the AI answers
 
