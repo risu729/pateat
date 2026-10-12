@@ -896,6 +896,60 @@ export function extendsRecipe(previous: LoginRecipe, next: LoginRecipe): boolean
       canonicalJson(previous.completion) === canonicalJson(next.completion))
   );
 }
+/**
+ * Whether `added` steps fill a slot that `steps` already fill. A later page appended to a
+ * recipe never fills such a slot again (ADR 0018): a page that asks for the same account
+ * again, such as the identifier form shown again with an error, is not a next page.
+ */
+export function refillsLoginSlot(
+  steps: readonly LoginStep[],
+  added: readonly LoginStep[],
+): boolean {
+  const filled = new Set(
+    steps.flatMap((step) => (step.kind === "fill" ? step.fields.map((field) => field.slot) : [])),
+  );
+  return added.some(
+    (step) => step.kind === "fill" && step.fields.some((field) => filled.has(field.slot)),
+  );
+}
+/**
+ * Whether `next` continues `previous` on the page after its final `advance` step (ADR
+ * 0018): a newer revision of the same recipe whose steps are `previous`'s steps followed by
+ * at least one more, none of which fills a slot `previous`'s steps already fill. `previous` has no completion and no alternatives and ends in an
+ * advance; `next` has no alternatives. The `passkey` route and the rejection are unchanged,
+ * the handlers extend the old ones in order, the account switch is unchanged or newly
+ * added, and a completion may be new. A running login at its final advance takes over only
+ * such a revision, so the steps it ran keep their meaning.
+ */
+export function continuesRecipe(previous: LoginRecipe, next: LoginRecipe): boolean {
+  const last = previous.steps.at(-1);
+  if (
+    next.id !== previous.id ||
+    next.origin !== previous.origin ||
+    next.revision <= previous.revision ||
+    previous.completion !== undefined ||
+    previous.alternatives !== undefined ||
+    next.alternatives !== undefined ||
+    !last ||
+    loginStepEffect(last) !== "advance" ||
+    next.steps.length <= previous.steps.length
+  )
+    return false;
+  const same = (left: unknown, right: unknown) => canonicalJson(left) === canonicalJson(right);
+  const before = previous.handlers ?? [];
+  const after = next.handlers ?? [];
+  return (
+    previous.steps.every((step, index) => same(step, next.steps[index])) &&
+    !refillsLoginSlot(previous.steps, next.steps.slice(previous.steps.length)) &&
+    previous.slots.every((slot) => next.slots.includes(slot)) &&
+    next.maxSubmissions >= previous.maxSubmissions &&
+    same(previous.passkey ?? null, next.passkey ?? null) &&
+    same(previous.rejection ?? null, next.rejection ?? null) &&
+    (previous.accountSwitch === undefined || same(previous.accountSwitch, next.accountSwitch)) &&
+    after.length >= before.length &&
+    before.every((handler, index) => same(handler, after[index]))
+  );
+}
 /** JSON with object keys sorted, so equal values compare equal whatever their key order. */
 function canonicalJson(value: unknown): string {
   return JSON.stringify(value, (_key, entry: unknown) =>

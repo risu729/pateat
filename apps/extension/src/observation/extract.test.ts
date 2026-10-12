@@ -940,6 +940,46 @@ describe("extractLoginObservation", () => {
     expect(observe().complete).toBe(false);
   });
 
+  it("leaves out a field the continued recipe already fills when it is read-only or disabled", () => {
+    // An email address shown again, read-only, beside the password (ADR 0018).
+    const email = { by: "id" as const, value: "email" };
+    for (const state of ["readonly", "disabled"]) {
+      page(
+        `<form id="f"><input id="email" type="email" ${state} autocomplete="username"><input id="p" type="password"><button id="go">Log in</button></form>`,
+      );
+      expect(observe().complete, state).toBe(false);
+      const result = extractLoginObservation(document, [email]);
+      if (!result.ok) throw new Error(result.reason);
+      expect(result.observation.complete, state).toBe(true);
+      expect(result.observation.candidates.map((candidate) => candidate.target.value)).toEqual([
+        "p",
+        "go",
+      ]);
+    }
+    // Another read-only field, a known field under another locator, or a known locator that
+    // names two elements still makes the page incomplete.
+    for (const html of [
+      `<input id="email" readonly><input id="branch" readonly><input id="p" type="password">`,
+      `<input name="email" readonly><input id="p" type="password">`,
+      `<input id="email" readonly><input id="email" readonly><input id="p" type="password">`,
+    ]) {
+      page(`<form id="f">${html}<button id="go">Log in</button></form>`);
+      const result = extractLoginObservation(document, [email]);
+      expect(result.ok && result.observation.complete, html).toBe(false);
+    }
+    // A known field the page still lets the person edit is described as any field is.
+    page(
+      `<form id="f"><input id="email" type="email"><input id="p" type="password"><button id="go">Log in</button></form>`,
+    );
+    const editable = extractLoginObservation(document, [email]);
+    if (!editable.ok) throw new Error(editable.reason);
+    expect(editable.observation.candidates.map((candidate) => candidate.target.value)).toEqual([
+      "email",
+      "p",
+      "go",
+    ]);
+  });
+
   it("keeps a disabled submit input as a button", () => {
     page(
       `<form id="f"><input id="u"><input id="go" type="submit" value="ログイン" disabled></form>`,

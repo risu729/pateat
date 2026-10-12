@@ -280,8 +280,10 @@ export async function generateRecipe(
     ...(outcome.value.switchTarget ? { accountSwitch: outcome.value.switchTarget } : {}),
     ...(passkey ? { passkey } : {}),
   });
+  // A page that fills one of the recipe's slots again, as its identifier form shown again
+  // where it posted, is refused before anything is stored (ADR 0018).
   if (!assembled.ok)
-    return assembled.reason === "invalid-recipe"
+    return assembled.reason === "invalid-recipe" || assembled.reason === "slot-refilled"
       ? failed("recipe-invalid")
       : unavailable("recipe-conflict");
   const written = await writeRecipe(

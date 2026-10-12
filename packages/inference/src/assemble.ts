@@ -6,6 +6,7 @@ import {
   loginRecipeSchema,
   loginStepEffect,
   passwordVariants,
+  refillsLoginSlot,
   routeFillTargets,
   sameLoginTarget as sameTarget,
   type LoginAttributeTarget,
@@ -25,6 +26,11 @@ export type AssemblyRejection =
   | "already-complete"
   /** The recipe's last step submits, so no later page belongs to it. */
   | "not-advancing"
+  /**
+   * The later page fills a slot the recipe already fills, as an identifier form shown
+   * again where it posted: it is not the next page of this sign-in.
+   */
+  | "slot-refilled"
   | "origin-mismatch"
   /** The result breaks the recipe contract, such as its step, slot or submission bounds. */
   | "invalid-recipe";
@@ -105,6 +111,7 @@ export function appendPageSteps(
       return { ok: false, reason: "not-advancing" };
     // Variants and routes all start on the start page, so a later page never brings its own.
     if (alternatives.length || page.passkey) return { ok: false, reason: "invalid-recipe" };
+    if (refillsLoginSlot(base.steps, page.steps)) return { ok: false, reason: "slot-refilled" };
   }
   const steps = [...(base?.steps ?? []), ...page.steps];
   const variants = [steps, ...alternatives];

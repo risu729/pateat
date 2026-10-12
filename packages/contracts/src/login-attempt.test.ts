@@ -1931,3 +1931,188 @@ describe("totp handler attempt contracts, probed independently (ADR 0027)", () =
 });
 
 type LoginAttemptMetadataLike = ReturnType<typeof transitionLoginAttempt>;
+
+describe("a recipe continued after its final advance in an attempt (ADR 0018)", () => {
+  const email = (selected: LoginRecipe["steps"]) => ({ ...recipe, revision: 1, steps: selected });
+  // An email page that only advances; the password page is generated later.
+  const first: LoginRecipe = {
+    ...email([
+      {
+        kind: "fill",
+        effect: "prepare",
+        path: "/login",
+        fields: [{ slot: "username", target: { by: "id", value: "email" } }],
+      },
+      { kind: "click", path: "/login", target: { by: "id", value: "next" }, purpose: "advance" },
+    ]),
+    slots: ["username"],
+    completion: undefined,
+  };
+  const continued: LoginRecipe = {
+    ...first,
+    revision: 2,
+    slots: ["username", "password"],
+    steps: [
+      ...first.steps,
+      {
+        kind: "fill",
+        effect: "prepare",
+        path: "/login/password",
+        fields: [{ slot: "password", target: { by: "id", value: "password" } }],
+      },
+      {
+        kind: "click",
+        path: "/login/password",
+        target: { by: "id", value: "login" },
+        purpose: "submit",
+      },
+    ],
+    maxSubmissions: 2,
+  };
+  const passwordPage = { ...document, documentId: "document-password" };
+  const continuing = { type: "CONTINUING" as const, operationId: "next-one" };
+  const event = (change: Record<string, unknown> = {}) => ({
+    type: "CONTINUED" as const,
+    recipeRevision: 2,
+    steps: 2,
+    effects: 1,
+    document: passwordPage,
+    ...change,
+  });
+  function advanced() {
+    let attempt = transitionLoginAttempt(detected(first), { type: "RESOLVE" });
+    attempt = transitionLoginAttempt(attempt, {
+      type: "PREPARE",
+      operationId: "fill-one",
+      kind: "fill",
+    });
+    attempt = transitionLoginAttempt(attempt, { type: "MUTATION_INTENT", operationId: "fill-one" });
+    attempt = transitionLoginAttempt(attempt, { type: "OPERATION_OK", operationId: "fill-one" });
+    attempt = transitionLoginAttempt(attempt, {
+      type: "PREPARE",
+      operationId: "next-one",
+      kind: "click",
+      effect: "advance",
+    });
+    attempt = transitionLoginAttempt(attempt, { type: "SUBMIT_INTENT", operationId: "next-one" });
+    return transitionLoginAttempt(attempt, { type: "SUBMITTED", operationId: "next-one" });
+  }
+
+  it("records one request per final advance before it is sent, and gives it back", () => {
+    const before = advanced();
+    expect(before).toMatchObject({ state: "awaiting-result", stepIndex: 1, stepCount: 2 });
+    const sent = transitionLoginAttempt(before, continuing);
+    expect(sent).toEqual({ ...before, continuation: { operationId: "next-one" } });
+    // A second request for the same step is refused, also after a restart.
+    expect(transitionLoginAttempt(sent, continuing)).toEqual(sent);
+    expect(recoverLoginAttempt(sent)).toMatchObject({
+      state: "reconciling",
+      continuation: { operationId: "next-one" },
+    });
+    expect(transitionLoginAttempt(sent, { type: "UNCONTINUED", operationId: "next-one" })).toEqual(
+      before,
+    );
+    expect(
+      transitionLoginAttempt(before, { type: "UNCONTINUED", operationId: "next-one" }),
+    ).toEqual(before);
+    // Only the in-flight operation's page is sent.
+    expect(transitionLoginAttempt(before, { ...continuing, operationId: "fill-one" })).toEqual(
+      before,
+    );
+    expect(() =>
+      parseAttemptMetadata({ ...before, continuation: { operationId: "never-used" } }),
+    ).toThrow();
+  });
+
+  it("is never sent after a step that submits or before the final step", () => {
+    const submitted = transitionLoginAttempt(submitting(), {
+      type: "SUBMITTED",
+      operationId: "click-one",
+    });
+    expect(transitionLoginAttempt(submitted, { ...continuing, operationId: "click-one" })).toEqual(
+      submitted,
+    );
+    // An advance that is not the route's last step continues with the recipe's own steps.
+    let attempt = transitionLoginAttempt(detected(continued), { type: "RESOLVE" });
+    attempt = transitionLoginAttempt(attempt, {
+      type: "PREPARE",
+      operationId: "fill-one",
+      kind: "fill",
+    });
+    attempt = transitionLoginAttempt(attempt, { type: "MUTATION_INTENT", operationId: "fill-one" });
+    attempt = transitionLoginAttempt(attempt, { type: "OPERATION_OK", operationId: "fill-one" });
+    attempt = transitionLoginAttempt(attempt, {
+      type: "PREPARE",
+      operationId: "next-one",
+      kind: "click",
+      effect: "advance",
+    });
+    attempt = transitionLoginAttempt(attempt, { type: "SUBMIT_INTENT", operationId: "next-one" });
+    attempt = transitionLoginAttempt(attempt, { type: "SUBMITTED", operationId: "next-one" });
+    expect(transitionLoginAttempt(attempt, continuing)).toEqual(attempt);
+    // An advance that never got as far as its click has led to no page of its own.
+    const { mutationIntent: _intent, ...unclicked } = advanced();
+    const idle = { ...unclicked, submissions: 0 };
+    expect(transitionLoginAttempt(idle, continuing)).toEqual(idle);
+  });
+
+  it("takes over the continued revision with its steps and effects", () => {
+    const sent = transitionLoginAttempt(advanced(), continuing);
+    const taken = transitionLoginAttempt(sent, event());
+    expect(taken).toMatchObject({
+      state: "ready",
+      recipeRevision: 2,
+      stepIndex: 2,
+      stepCount: 4,
+      submissions: 1,
+      maxSubmissions: 2,
+      document: passwordPage,
+    });
+    for (const key of ["operationId", "outcome", "continuation", "settled", "retryRequired"])
+      expect(taken[key as keyof typeof taken]).toBeUndefined();
+    // The next operation is the continued page's first step, never an earlier one.
+    expect(nextLoginOperation(taken, continued, passwordPage, "password-one")).toMatchObject({
+      stepIndex: 2,
+      step: { kind: "fill", path: "/login/password" },
+    });
+    expect(nextLoginOperation(taken, first, passwordPage, "password-one")).toBeUndefined();
+    // A settled result of a new document is taken over too.
+    const navigated = transitionLoginAttempt(
+      transitionLoginAttempt(sent, { type: "OBSERVED", result: "unknown", document }),
+      { type: "NAVIGATED", document: passwordPage },
+    );
+    expect(navigated).toMatchObject({ state: "reconciling", settled: true });
+    expect(transitionLoginAttempt(navigated, event())).toMatchObject({
+      state: "ready",
+      stepIndex: 2,
+    });
+  });
+
+  it("refuses a revision without its request, an older one, or past the attempt's caps", () => {
+    const before = advanced();
+    const sent = transitionLoginAttempt(before, continuing);
+    // No request was recorded for this step.
+    expect(transitionLoginAttempt(before, event())).toEqual(before);
+    for (const change of [
+      { recipeRevision: 1 },
+      // The attempt holds at most 40 steps and 12 submissions.
+      { steps: 32, effects: 1 },
+      { steps: 2, effects: 8 },
+      // Another tab's document never takes it over.
+      { document: { ...passwordPage, tabId: 8 } },
+    ]) {
+      const larger =
+        "effects" in change && change.effects === 8
+          ? parseAttemptMetadata({ ...sent, maxSubmissions: 5 })
+          : "steps" in change && change.steps === 32
+            ? parseAttemptMetadata({ ...sent, stepCount: 9, stepIndex: 8 })
+            : sent;
+      expect(transitionLoginAttempt(larger, event(change))).toEqual(larger);
+    }
+    for (const malformed of [{ steps: 0 }, { steps: 33 }, { effects: 0 }, { effects: 9 }])
+      expect(() => transitionLoginAttempt(sent, event(malformed))).toThrow();
+    // A recorded request for an earlier step does not count for this one.
+    const stale = parseAttemptMetadata({ ...before, continuation: { operationId: "fill-one" } });
+    expect(transitionLoginAttempt(stale, event())).toEqual(stale);
+  });
+});

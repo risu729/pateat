@@ -107,6 +107,38 @@ function showsSignIn(): boolean {
     );
   });
 }
+/**
+ * The sign-in inputs the page shows that a generated recipe can continue on after its final
+ * `advance` step (ADR 0018), other than the recipe's own `targets`: `password`, a visible
+ * writable password input; `identifier`, a visible writable email input or one marked for a
+ * username or an email address. An input marked `new-password` or `one-time-code`, and
+ * every input of a form that holds one, never counts: a sign-up, password change or code
+ * form is not a sign-in page to continue on, and a code page is judged instead (ADR 0027).
+ */
+function credentialInputs(targets: readonly LoginTarget[]): {
+  password: boolean;
+  identifier: boolean;
+} {
+  const own = new Set(targets.flatMap((target) => matches(target)));
+  const tokens = (input: HTMLInputElement) => input.autocomplete.toLowerCase().split(/\s+/u);
+  const other = (input: HTMLInputElement) =>
+    tokens(input).some((token) => token === "new-password" || token === "one-time-code");
+  const inputs = [...document.querySelectorAll("input")].filter(
+    (input) =>
+      !own.has(input) &&
+      writable(input) &&
+      !other(input) &&
+      !(input.form && [...input.form.querySelectorAll("input")].some(other)),
+  );
+  return {
+    password: inputs.some((input) => input.type === "password"),
+    identifier: inputs.some(
+      (input) =>
+        input.type === "email" ||
+        tokens(input).some((token) => token === "username" || token === "email"),
+    ),
+  };
+}
 const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 /**
  * How long a preparing fill waits for the page's own input handlers before checking that
@@ -398,7 +430,9 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       let result: unknown;
       try {
         result =
-          command.page === "login" ? extractLoginObservation() : extractSignedInObservation();
+          command.page === "login"
+            ? extractLoginObservation(document, command.known)
+            : extractSignedInObservation();
       } catch {
         // A page the extractor cannot read still gets an answer the log can name.
         result = { ok: false, reason: "extract-error" };
@@ -433,6 +467,14 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         targets: command.targets.map((target, index) =>
           targetState(target, command.require?.[index], command.links?.[index] === true),
         ),
+        ...(command.signIn
+          ? {
+              signIn: {
+                loaded: document.readyState === "complete",
+                ...credentialInputs(command.targets),
+              },
+            }
+          : {}),
       });
       return false;
     }

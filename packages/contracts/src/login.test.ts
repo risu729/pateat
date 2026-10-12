@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import * as v from "valibot";
 import {
   chooseLoginRoute,
+  continuesRecipe,
   extendsRecipe,
   handlerFact,
   handlerSteps,
@@ -770,6 +771,112 @@ describe("second-factor page handlers (ADR 0027)", () => {
         extendsRecipe(handled, { ...handled, handlers: [passkeyHandler()], revision: 1 }),
       ).toBe(false);
       expect(extendsRecipe(base, base)).toBe(false);
+    });
+  });
+
+  describe("continuing after the final advance (ADR 0018)", () => {
+    const { completion, ...unlearned } = recipe();
+    const full = parseLoginRecipe(unlearned);
+    // The identity page alone, which ends in its advance; the password page follows.
+    const first = parseLoginRecipe({
+      ...full,
+      slots: ["branch", "account"],
+      steps: full.steps.slice(0, 2),
+      maxSubmissions: 1,
+    });
+    const continued = parseLoginRecipe({ ...full, revision: 2 });
+    const next = (change: Partial<LoginRecipe>) => parseLoginRecipe({ ...continued, ...change });
+
+    it("accepts a newer revision whose steps extend the advancing ones", () => {
+      expect(continuesRecipe(first, continued)).toBe(true);
+      // With a completion learned at once, a newly added account switch, or a later revision.
+      expect(continuesRecipe(first, next({ completion }))).toBe(true);
+      expect(continuesRecipe(first, next({ accountSwitch: { by: "text", value: "Switch" } }))).toBe(
+        true,
+      );
+      expect(continuesRecipe(first, next({ revision: 5 }))).toBe(true);
+      expect(continuesRecipe(first, next({ handlers: [passkeyHandler()] }))).toBe(true);
+      // The new revision may end in another advance, to be continued again.
+      const third = next({ steps: continued.steps.slice(0, 3).concat(first.steps[1]!) });
+      expect(continuesRecipe(first, third)).toBe(true);
+    });
+
+    it.each<[string, Partial<LoginRecipe>]>([
+      ["the same revision", { revision: 1 }],
+      ["another ID", { id: "bank-login-2" }],
+      ["another origin", { origin: "https://other.example" }],
+      ["no added step", { steps: first.steps, slots: first.slots, maxSubmissions: 1 }],
+      [
+        "a changed earlier step",
+        {
+          steps: continued.steps.map((step, index) =>
+            index === 1 ? { ...step, path: "/identity-next" } : step,
+          ),
+        },
+      ],
+      ["a dropped earlier slot", { slots: ["password", "account"] }],
+      [
+        // The identity form shown again where it posted, as after an unknown account.
+        "a later page that fills an earlier slot again",
+        {
+          slots: first.slots,
+          steps: [
+            ...first.steps,
+            ...first.steps.map((step) => ({ ...step, path: "/identity/again" })),
+          ],
+          maxSubmissions: 2,
+        },
+      ],
+      [
+        "alternatives",
+        {
+          alternatives: [
+            {
+              slots: ["password"],
+              steps: [
+                {
+                  kind: "fill",
+                  effect: "prepare",
+                  path: "/identity",
+                  fields: [{ slot: "password", target: { by: "id", value: "pin" } }],
+                },
+                {
+                  kind: "click",
+                  path: "/identity",
+                  target: { by: "id", value: "pin-login" },
+                  purpose: "submit",
+                },
+              ],
+            },
+          ],
+          slots: ["branch", "account", "password"],
+        },
+      ],
+      ["a changed rejection", { rejection: { by: "id", value: "error" } }],
+      [
+        "a passkey route",
+        { passkey: { path: "/identity", target: { by: "text", value: "Use a passkey" } } },
+      ],
+    ])("refuses %s", (_label, change) => {
+      expect(continuesRecipe(first, { ...continued, ...change } as LoginRecipe)).toBe(false);
+    });
+
+    it("refuses to continue a recipe that is complete, has alternatives or does not advance", () => {
+      expect(
+        continuesRecipe(parseLoginRecipe({ ...first, completion }), next({ completion })),
+      ).toBe(false);
+      expect(continuesRecipe(continued, next({ revision: 3 }))).toBe(false);
+      const switched = parseLoginRecipe({
+        ...first,
+        accountSwitch: { by: "text", value: "Switch" },
+      });
+      expect(continuesRecipe(switched, next({}))).toBe(false);
+      expect(
+        continuesRecipe(switched, next({ accountSwitch: { by: "text", value: "Switch" } })),
+      ).toBe(true);
+      const handled = parseLoginRecipe({ ...first, handlers: [passkeyHandler()] });
+      expect(continuesRecipe(handled, next({}))).toBe(false);
+      expect(continuesRecipe(handled, next({ handlers: [passkeyHandler()] }))).toBe(true);
     });
   });
 

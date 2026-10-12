@@ -597,16 +597,34 @@ function loginFormsOf(
  * left out entirely. A field in any shadow root, or more than 48 candidates, marks it
  * incomplete too, and inference rejects an incomplete observation. A page without a
  * field is refused, and so is one where nothing can be located.
+ *
+ * `known` names the fields a recipe already fills on this path, for a page that continues
+ * it after an `advance` step (ADR 0018). Such a field shown read-only or disabled, as an
+ * email address shown again beside the password, is left out instead: the recipe has
+ * filled it, and no step of this page needs it.
  */
 export function extractLoginObservation(
   document: Document = globalThis.document,
+  known: readonly LoginTarget[] = [],
 ): ObservationResult {
   const location = document.location;
   if (!location || tokenPath(location.pathname)) return { ok: false, reason: "unsupported-page" };
 
+  const index = locatorIndex(document);
+  const filled = (field: HTMLInputElement) =>
+    (field.readOnly || field.disabled) &&
+    known.some((target) => {
+      const attribute = locators.find(([by]) => by === target.by)?.[1];
+      return (
+        attribute !== undefined &&
+        field.getAttribute(attribute) === target.value &&
+        index.get(attribute)!.get(target.value) === 1
+      );
+    });
   const found = [...document.querySelectorAll(observed)]
     .map(describe)
-    .filter((entry) => entry !== undefined);
+    .filter((entry) => entry !== undefined)
+    .filter((entry) => !(entry.kind === "unsupported" && entry.field && filled(entry.field)));
   const fieldForms = new Set(
     found.flatMap((entry) =>
       (entry.kind === "candidate" && fillTypes[entry.draft.role]) ||
@@ -676,7 +694,6 @@ export function extractLoginObservation(
     else required.push(entry);
   }
 
-  const index = locatorIndex(document);
   // Links and script buttons without a locator are left out without flawing their form.
   let unlocated = false;
   const located = (entries: typeof required, { optional = false } = {}) =>

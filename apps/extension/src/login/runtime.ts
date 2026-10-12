@@ -5,6 +5,7 @@ import {
   attemptUsesCode,
   builtInLoginSlots,
   chooseLoginRoute,
+  continuesRecipe,
   createAttemptMetadata,
   defaultLoginBinding,
   effectfulStep,
@@ -32,9 +33,11 @@ import {
   recoverLoginAttempt,
   resolveBindingFields,
   resolveLoginPlan,
+  routeFillTargets,
   routeSignInPaths,
   routeSignInTargets,
   routeSlots,
+  routeSteps,
   sameLoginDocument,
   sameLoginTarget,
   saveLoginChoice,
@@ -323,6 +326,12 @@ type Execution = {
    * document, never stored.
    */
   inPlace?: { operationId: string; before: TargetState[] };
+  /**
+   * Since when the page after the final `advance` step `operationId` has shown a sign-in
+   * input on `path`, so the recipe may be continued there (ADR 0018); `refused` once this
+   * document's request was spent or its answer could not be used. Kept in memory only.
+   */
+  qualified?: { operationId: string; path: string; since: number; refused?: true };
 };
 /** An in-memory catalog copy in which one item covers `origin`; never persisted. */
 function withItemOrigin(
@@ -363,17 +372,27 @@ export const noLoginRecipes: LoginRecipes = {
 };
 
 /**
+/**
  * Why a page is not sent now: no paired service, its request is in flight, or a request
  * for it reached the model within the retry window (ADR 0016).
  */
 export type GenerationHold = "not-connected" | "sending" | "sent";
 /**
- * What came of one page offered for generation, for the local log: the model's recipe or
- * abstention, a failure or refusal with its code, or why nothing was sent.
+ * What came of one page offered for generation: the model's recipe, already in the recipe
+ * cache with the fields its custom slots name remembered for `slotFields`, or its
+ * abstention, a failure or refusal with its code, or why nothing was sent, for the local
+ * log. `retry` marks a page left free to send again: its request did not reach the model,
+ * or it was not sent because no service is paired, storage could not be written or a
+ * request for it is still in flight (ADR 0016); a continuation's login then gives its
+ * request back for a later document to send (ADR 0018).
  */
 export type GenerationOutcome =
-  | { outcome: "recipe" }
-  | { outcome: "abstained" | "failed" | "unavailable" | "skipped"; reason: string }
+  | { outcome: "recipe"; recipe: LoginRecipe }
+  | {
+      outcome: "abstained" | "failed" | "unavailable" | "skipped";
+      reason: string;
+      retry?: true;
+    }
   | {
       outcome: "failed";
       reason: "invalid-output";
@@ -383,15 +402,32 @@ export type GenerationOutcome =
       detail?: string;
       /** For an output format issue: where in the output it was. */
       path?: string;
+      /** Refused output came from a model call, so the page is never left free. */
+      retry?: never;
     };
+
+/** An outcome's fields for the local log: never the recipe itself or `retry`. */
+function outcomeFields(answer: GenerationOutcome) {
+  if (answer.outcome === "recipe") return { outcome: answer.outcome };
+  if (!("check" in answer)) return { outcome: answer.outcome, reason: answer.reason };
+  const { outcome, reason, check, detail, path } = answer;
+  return {
+    outcome,
+    reason,
+    check,
+    ...(detail === undefined ? {} : { detail }),
+    ...(path === undefined ? {} : { path }),
+  };
+}
 
 /** The service's recipe generation routes (ADR 0016, ADR 0018). */
 export interface LoginGeneration {
   /** `true` when a page may be sent, else why not. */
   available(origin: string, path: string): Promise<true | GenerationHold>;
   /**
-   * Sends one page; `recipe` once the generated recipe is in the recipe cache and the
-   * fields its custom slots name are remembered for `slotFields`. `sent` is called just
+   * Sends one page: a recipe's first page, or with `base` the page after the final
+   * `advance` step of that revision, which continues it. A continuation pulls recipes only,
+   * so the login it belongs to is not stopped by a settings write. `sent` is called just
    * before the request leaves the device, for the local log (ADR 0019).
    */
   generate(request: RecipeGenerationRequest, sent?: () => void): Promise<GenerationOutcome>;
@@ -567,6 +603,17 @@ const handlerOrder = { passkey: 0, totp: 1 } as const satisfies Record<
   number
 >;
 
+/**
+ * How long the page after a recipe's final `advance` step must keep showing a sign-in input,
+ * on one path, before it is sent to continue the recipe (ADR 0018).
+ */
+const CONTINUATION_STABLE_MS = 1000;
+/**
+ * How long a later document of the login waits for the continuation its earlier document
+ * asked for (ADR 0018); the request itself gives up after 90 seconds.
+ */
+const CONTINUATION_WAIT_MS = 100_000;
+
 /** Custom-field values read for their shapes per generation request (ADR 0027). */
 const MAX_CUSTOM_SHAPE_READS = 32;
 
@@ -702,11 +749,26 @@ export type LoginReport = (
       /** Logged only when it is one of Pateat's own error codes. */
       message?: string;
     }
-  | ({ type: "generation"; tabId: number; origin: string } & (
-      | GenerationOutcome
-      // The page went out; the outcome follows unless no answer came (ADR 0019).
-      | { outcome: "sent" }
-    ))
+  | {
+      type: "generation";
+      tabId: number;
+      origin: string;
+      /** `sent` when the page went out; the outcome follows unless no answer came (ADR 0019). */
+      outcome: GenerationOutcome["outcome"] | "sent";
+      /** Unless a recipe came back: the refusal or failure code, or why nothing was sent. */
+      reason?: string;
+      /** For refused model output: which check refused it, and why. */
+      check?: "json" | "schema" | "plan";
+      detail?: string;
+      path?: string;
+      /**
+       * For the page after a recipe's final `advance` step (ADR 0018): the recipe and the
+       * revision it continues, and for a returned recipe whether this login took it over.
+       */
+      recipeId?: string;
+      baseRevision?: number;
+      takenOver?: boolean;
+    }
   | {
       type: "judge";
       tabId: number;
@@ -897,6 +959,15 @@ export function createLoginRuntime(
   const passkeyAnswers = new Map<string, { at: number; rpId: string }>();
   /** By tab: the check of a move after a passkey answer, while its new top page is read. */
   const passkeyMoves = new Map<number, Promise<boolean>>();
+  /**
+   * The continuation each attempt asked for and the step it was asked for, by attempt ID
+   * (ADR 0018): a later document of the login may use the answer. Kept in memory only, so
+   * after a worker restart only the recipe cache can bring it.
+   */
+  const continuations = new Map<
+    string,
+    { operationId: string; answer: Promise<GenerationOutcome> }
+  >();
   /** By `recordKey`, in the order they were last written. */
   const persisted = new Map<string, LoginAttemptMetadata>();
   const picked = new Map<number, PickedAccount>();
@@ -2236,6 +2307,7 @@ export function createLoginRuntime(
     targets: LoginTarget[],
     require?: ("writable" | "clickable" | "shown" | "present")[],
     links?: boolean[],
+    signIn = false,
   ) {
     // Exclusion/default/policy checks precede even metadata observation.
     if (!(await allowed(run))) return undefined;
@@ -2245,6 +2317,7 @@ export function createLoginRuntime(
       targets,
       ...(require ? { require } : {}),
       ...(links ? { links } : {}),
+      ...(signIn ? { signIn: true } : {}),
     });
     if (!current(run)) return undefined;
     const parsed = v.safeParse(observationSchema, response);
@@ -2360,6 +2433,7 @@ export function createLoginRuntime(
         return undefined;
       }
     }
+    let continued: Awaited<ReturnType<typeof continueOn>> = "none";
     if (effectful(run.metadata)) {
       // A held click, a handler's or the passkey route's, is not judged while its button
       // still shows in the document that clicked it, whatever path a same-document URL
@@ -2389,6 +2463,8 @@ export function createLoginRuntime(
         }
       }
       if (await enterHandler(run, observed.path)) return undefined;
+      continued = await continueOn(run);
+      if (continued === "moved") return undefined;
     }
     if (!settleUnknown) return undefined;
     const state = effectful(run.metadata) ? await signInState(run) : undefined;
@@ -2398,7 +2474,9 @@ export function createLoginRuntime(
       await change(run, { type: "OBSERVED", result: "authenticated", document: run.live.document });
       return undefined;
     }
-    if (await learn(run)) return undefined;
+    // A sign-in page after the final advance is never judged: the judge cannot learn
+    // anything from it (ADR 0018).
+    if (continued !== "qualified" && (await learn(run))) return undefined;
     await change(run, {
       type: "OBSERVED",
       result: unproven(run, "unknown"),
@@ -2909,6 +2987,317 @@ export function createLoginRuntime(
     await change(run, event);
     return current(run) && (await enterHandler(run, path));
   }
+  /**
+   * Whether the attempt's in-flight step is the final `advance` step of a recipe that can be
+   * continued on the page it leads to (ADR 0018): a `password` route login on the recipe's
+   * own steps (variant 0), in the tab's own page, with recipe generation configured, whose
+   * recipe has no completion and no alternatives.
+   */
+  function continuable(run: Execution): boolean {
+    const { metadata, recipe } = run;
+    if (
+      !generation ||
+      !uris ||
+      (probeMode && metadata.account.origin === origin) ||
+      // A fill-only login after a logout ends before any advance (ADR 0021 D).
+      metadata.fillOnly === true ||
+      metadata.route !== "password" ||
+      metadata.variant !== 0 ||
+      run.live.document.frameId !== 0 ||
+      run.live.topUrl !== undefined ||
+      metadata.operationId === undefined ||
+      metadata.operationEffect !== "advance" ||
+      recipe.completion !== undefined ||
+      recipe.alternatives !== undefined
+    )
+      return false;
+    const plan = attemptPlan(recipe, metadata);
+    const inFlight = plan?.[metadata.stepIndex];
+    return (
+      plan !== undefined &&
+      plan.length === metadata.stepCount &&
+      metadata.stepIndex + 1 === plan.length &&
+      inFlight !== undefined &&
+      inFlight.handler === undefined &&
+      loginStepEffect(inFlight.step) === "advance"
+    );
+  }
+  /**
+   * After a recipe's final `advance` step, sends the page it led to so the service appends
+   * that page's steps, and takes the continued revision over (ADR 0018). The page qualifies
+   * once it has finished loading and has shown, for a second on one path, a sign-in input
+   * for a built-in slot the recipe does not fill yet, other than the recipe's own fields: a
+   * password input, or, while none of the recipe's fill fields is writable on the page, a
+   * username or email input. A complete description of it is sent once per effect step,
+   * offering only the slots the recipe does not fill yet: the request is recorded in the
+   * attempt first, and given back only after a temporary refusal before any model call, for
+   * a later document to send. A later document of the login waits for an answer still on
+   * its way. Returns `moved` once the attempt moved on or this document is no longer
+   * current, `qualified` for a qualifying page that was not continued (yet), which is never
+   * judged, and `none` for any other page.
+   */
+  async function continueOn(run: Execution): Promise<"none" | "qualified" | "moved"> {
+    if (!continuable(run) || !generation) return "none";
+    const { recipe, metadata } = run;
+    const operationId = metadata.operationId!;
+    const fills = routeFillTargets(recipe, "password").slice(0, 24);
+    const observed = await observe(
+      run,
+      fills,
+      fills.map(() => "writable" as const),
+      undefined,
+      true,
+    );
+    if (!current(run)) return "moved";
+    if (!observed) return "none";
+    const filled = new Set(
+      recipe.steps.flatMap((step) =>
+        step.kind === "fill" ? step.fields.map((field) => field.slot) : [],
+      ),
+    );
+    const shown = observed.signIn;
+    // A page that asks for the account again, such as the identifier form shown again
+    // where it posted, shows one of the recipe's fill fields writable, on any path. A
+    // revealed password input below the identifier the recipe filled still qualifies.
+    const qualifies =
+      shown?.loaded === true &&
+      ((shown.password && !filled.has("password")) ||
+        (shown.identifier &&
+          !filled.has("username") &&
+          !observed.targets.some((target) => target === "unique")));
+    if (!qualifies) {
+      if (run.qualified?.operationId === operationId) delete run.qualified;
+      return "none";
+    }
+    const now = Date.now();
+    if (run.qualified?.operationId !== operationId || run.qualified.path !== observed.path)
+      run.qualified = { operationId, path: observed.path, since: now };
+    const state = run.qualified;
+    if (state.refused) return "qualified";
+    // Spent for this step. A revision that continues the recipe and reached the cache, as
+    // after a restart during the request, is taken over; so is an answer an earlier
+    // document of the login still waits for, or that arrived after it was left. While that
+    // answer is on its way this document waits for it, past the step's ten seconds.
+    if (metadata.continuation?.operationId === operationId) {
+      const fromCache = async (): Promise<"moved" | "refused" | "none"> => {
+        const cached = await recipes
+          .recipe(run.live.document.origin, observed.path, recipe.id)
+          .catch(() => undefined);
+        if (!current(run)) return "moved";
+        if (!cached || cached.revision <= recipe.revision || !continuesRecipe(recipe, cached))
+          return "none";
+        if ((await continueWith(run, cached)) || !current(run)) return "moved";
+        return "refused";
+      };
+      const cached = await fromCache();
+      if (cached === "moved") return "moved";
+      if (cached === "refused") {
+        state.refused = true;
+        return "qualified";
+      }
+      const earlier = continuations.get(metadata.id);
+      if (earlier?.operationId !== operationId) return "qualified";
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const answer = await Promise.race([
+        earlier.answer,
+        new Promise<undefined>((resolve) => {
+          timer = setTimeout(() => resolve(undefined), CONTINUATION_WAIT_MS);
+        }),
+      ]);
+      clearTimeout(timer);
+      if (!current(run)) return "moved";
+      if (continuations.get(metadata.id) === earlier) continuations.delete(metadata.id);
+      if (answer?.outcome === "recipe") {
+        if ((await continueWith(run, answer.recipe)) || !current(run)) return "moved";
+      } else if (answer?.retry) {
+        // Given back, as the earlier document would have: this one sends it again.
+        await change(run, { type: "UNCONTINUED", operationId });
+        return current(run) ? "qualified" : "moved";
+      } else if (!answer) {
+        // No answer in time; only the cache can still bring it.
+        return (await fromCache()) === "moved" ? "moved" : "qualified";
+      }
+      state.refused = true;
+      return "qualified";
+    }
+    if (now - state.since < CONTINUATION_STABLE_MS) return "qualified";
+    // The fields the recipe already filled on this path may show again, read-only.
+    const known = recipe.steps
+      .filter((step) => step.path === observed.path)
+      .flatMap((step) => (step.kind === "fill" ? step.fields.map((field) => field.target) : []))
+      .slice(0, 24);
+    let observation: LoginObservation | undefined;
+    try {
+      const extracted = v.safeParse(
+        extractResultSchema,
+        await send(run.live, {
+          type: "login.extract",
+          page: "login",
+          ...(known.length ? { known } : {}),
+        }),
+      );
+      const parsed =
+        extracted.success && extracted.output.ok
+          ? v.safeParse(loginObservationSchema, extracted.output.observation)
+          : undefined;
+      if (
+        parsed?.success &&
+        parsed.output.complete &&
+        parsed.output.origin === run.live.document.origin &&
+        parsed.output.path === observed.path
+      )
+        observation = parsed.output;
+    } catch {
+      observation = undefined;
+    }
+    if (!current(run)) return "moved";
+    // An incomplete description is not sent and does not count; a later round tries again.
+    if (!observation) return "qualified";
+    // The login's own item must match the page, as for a recipe's first page (ADR 0016).
+    const scope = await generationSlotsFor(run.live).catch(() => undefined);
+    if (!current(run)) return "moved";
+    // The tab or the vault could not answer now; a later round asks again.
+    if (!scope) return "qualified";
+    if (
+      !scope.items.some(
+        ({ connection, item }) =>
+          connection.id === metadata.account.connectionId && item.id === metadata.account.itemId,
+      )
+    ) {
+      state.refused = true;
+      return "qualified";
+    }
+    const pageOrigin = run.live.document.origin;
+    // A slot the recipe already fills is not offered again, so the model cannot map it to a
+    // field the page still shows (the service refuses such a page too).
+    const slots = scope.slots.filter((slot) => !filled.has(slot.id));
+    const shape = await usernameShape(pageOrigin, scope);
+    const custom = await customSlots(pageOrigin, scope);
+    if (!current(run)) return "moved";
+    if (!slots.length && !custom.length) {
+      state.refused = true;
+      return "qualified";
+    }
+    // Recorded before the request, so a restart never sends this step's page again.
+    await change(run, { type: "CONTINUING", operationId });
+    if (!current(run)) return "moved";
+    if (run.metadata.continuation?.operationId !== operationId) {
+      state.refused = true;
+      return "qualified";
+    }
+    const asked = generation
+      .generate({
+        version: 1,
+        observation,
+        slots: [
+          ...slots.map((slot) =>
+            slot.id === "username" && shape ? { ...slot, valueShape: shape } : slot,
+          ),
+          ...custom,
+        ],
+        base: { recipeId: recipe.id, revision: recipe.revision },
+      })
+      // A thrown request frees its claim, so it is given back like any request that did not
+      // reach the model.
+      .catch((): GenerationOutcome => ({ outcome: "failed", reason: "error", retry: true }));
+    // Kept in memory for a later document of this login, which the form may post to
+    // before the answer arrives.
+    const request = { operationId, answer: asked };
+    continuations.set(metadata.id, request);
+    const answer = await asked;
+    const reportGeneration = (takenOver?: boolean) =>
+      report({
+        type: "generation",
+        tabId: run.live.document.tabId,
+        origin: pageOrigin,
+        ...outcomeFields(answer),
+        recipeId: recipe.id,
+        baseRevision: recipe.revision,
+        ...(takenOver === undefined ? {} : { takenOver }),
+      });
+    // Left meanwhile: the attempt's next document uses the answer.
+    if (!current(run)) {
+      reportGeneration();
+      return "moved";
+    }
+    if (continuations.get(metadata.id) === request) continuations.delete(metadata.id);
+    state.refused = true;
+    if (answer.outcome !== "recipe") {
+      reportGeneration();
+      // A request that did not reach the model, or was not sent, gives the request back
+      // for the attempt's next document to send.
+      if (answer.retry) await change(run, { type: "UNCONTINUED", operationId });
+      return current(run) ? "qualified" : "moved";
+    }
+    let reported = false;
+    const taken = await continueWith(run, answer.recipe, () => {
+      reported = true;
+      reportGeneration(true);
+    });
+    if (!reported) reportGeneration(false);
+    return taken || !current(run) ? "moved" : "qualified";
+  }
+  /**
+   * The login at its final `advance` step takes over the revision that continues its recipe
+   * on the page it is on (ADR 0018, "use immediately"): only a revision that keeps the steps
+   * it ran (`continuesRecipe`), and only when a dry run of the recorded route on it resolves
+   * to the attempt's own account. Its earlier steps never run again; the account choice to
+   * save after `authenticated` is derived again, so it covers the new slots too. Returns
+   * whether the attempt moved on.
+   */
+  async function continueWith(
+    run: Execution,
+    next: LoginRecipe,
+    taking?: () => void,
+  ): Promise<boolean> {
+    const route = attemptRouteChoice(run.metadata);
+    if (
+      !current(run) ||
+      route.route !== "password" ||
+      next.id !== run.recipe.id ||
+      !continuesRecipe(run.recipe, next)
+    )
+      return false;
+    const snapshot = await settings.handle({ version: 1, type: "settings.get" });
+    if (!current(run) || !snapshot.ok || snapshot.snapshot.revision !== run.metadata.policyRevision)
+      return false;
+    const plan = await planFor(snapshot, run.live, next, {
+      route,
+      handlerSlots: handlerSlots(next, run.metadata),
+    });
+    if (
+      !current(run) ||
+      !plan.ok ||
+      plan.account.connectionId !== run.metadata.account.connectionId ||
+      plan.account.itemId !== run.metadata.account.itemId
+    )
+      return false;
+    const added = routeSteps(next, route).slice(routeSteps(run.recipe, route).length);
+    const event: LoginAttemptEvent = {
+      type: "CONTINUED",
+      recipeRevision: next.revision,
+      steps: added.length,
+      effects: added.filter((step) => {
+        const effect = loginStepEffect(step);
+        return effect === "advance" || effect === "submit";
+      }).length,
+      document: run.live.document,
+    };
+    try {
+      if (transitionLoginAttempt(run.metadata, event).state !== "ready") return false;
+    } catch {
+      // More steps or effects than one page may add.
+      return false;
+    }
+    taking?.();
+    // The recipe is replaced before the record that names its revision is written.
+    run.recipe = next;
+    if (plan.choice) run.choice = plan.choice;
+    else delete run.choice;
+    delete run.qualified;
+    await change(run, event);
+    return current(run) && run.metadata.state === "ready";
+  }
   // State transitions, journal writes and DOM effects form an ordered protocol.
   // Parallel execution would race policy checks or repeat submission side effects.
   /* eslint-disable no-await-in-loop */
@@ -3381,10 +3770,24 @@ export function createLoginRuntime(
     if (!uris) return undefined;
     const snapshot = await settings.handle({ version: 1, type: "settings.get" });
     if (!snapshot.ok) return undefined;
+    // The URL the page shows now: a same-document URL change (history.pushState) since the
+    // document announced shows only in the tab's committed URL.
+    let url = live.url;
+    try {
+      const tab = await browser.tabs.get(live.document.tabId);
+      if (
+        live.document.frameId === 0 &&
+        tab.url &&
+        new URL(tab.url).origin === live.document.origin
+      )
+        url = tab.url;
+    } catch {
+      return undefined;
+    }
     const scope = await findLiveSiteCandidates({
       settings: snapshot.snapshot.settings,
       catalog: snapshot.catalog,
-      url: live.url,
+      url,
       match: uris,
     });
     if (!scope.ok) return undefined;
@@ -3616,7 +4019,7 @@ export function createLoginRuntime(
         type: "generation",
         tabId: live.document.tabId,
         origin: live.document.origin,
-        ...result,
+        ...outcomeFields(result),
       });
       if (result.outcome !== "recipe" || documents.get(key) !== live) return;
       await browser.tabs.sendMessage(
@@ -4291,6 +4694,16 @@ export function createLoginRuntime(
       // A cache that lags behind the attempt keeps the attempt's own recipe.
       if (held && recipe.revision < held.revision) recipe = held;
       else if (held && extendsRecipe(held, recipe)) revised = true;
+      // A revision that continues the recipe after its final advance is taken over on the
+      // page, after the same checks as an answer to the continuation (ADR 0018); until then
+      // the attempt keeps its own revision.
+      else if (
+        held &&
+        previous.operationEffect === "advance" &&
+        previous.stepIndex + 1 === previous.stepCount &&
+        continuesRecipe(held, recipe)
+      )
+        recipe = held;
       else recipe = undefined;
     }
     if (

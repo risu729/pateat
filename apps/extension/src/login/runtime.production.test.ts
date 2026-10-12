@@ -44,6 +44,12 @@ const fake = vi.hoisted(() => {
         },
     /** The document's answer to clicking an account switch. */
     switchReply: { ok: true } as { ok: boolean },
+    /**
+     * What the page shows for a continuation, when an observation asks (ADR 0018): `true`
+     * for a loaded page with a password input other than the asked targets, `false` for
+     * one still loading, or the answer's parts.
+     */
+    signIn: false as boolean | { password?: boolean; identifier?: boolean },
     granted: true,
     pageUrl: "https://login.example/signin",
     onExecute: undefined as
@@ -157,6 +163,18 @@ const fake = vi.hoisted(() => {
                   stateOf(entry.value, (message["require"] as string[] | undefined)?.[index]),
                 )
               : [...state.observed],
+            ...(message["signIn"]
+              ? {
+                  signIn:
+                    typeof state.signIn === "boolean"
+                      ? { loaded: state.signIn, password: state.signIn, identifier: false }
+                      : {
+                          loaded: true,
+                          password: state.signIn.password === true,
+                          identifier: state.signIn.identifier === true,
+                        },
+                }
+              : {}),
           };
         if (message["type"] === "login.switch") return state.switchReply;
         if (message["type"] === "login.state")
@@ -3985,7 +4003,7 @@ describe("production login document admission", () => {
       service.generate.mockImplementation(async () => {
         h.recipes.recipe.mockResolvedValue(generated);
         h.recipes.starts.mockResolvedValue(startsOf([generated.steps[0]!]));
-        return { outcome: "recipe" };
+        return { outcome: "recipe", recipe: generated };
       });
       expect(await h.signIn()).toEqual({ ok: false, reason: "generating" });
       await vi.waitFor(() =>
@@ -9519,5 +9537,703 @@ describe("an advance whose next step is on the same path (ADR 0013)", () => {
         expect(executed()).toEqual([`click:${button.value}`]);
       });
     });
+  });
+});
+
+describe("continuing a generated recipe after its final advance (ADR 0018)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    fake.state.signIn = false;
+    for (const listener of fake.state.removed.splice(0))
+      for (const tabId of [1, 2]) listener(tabId);
+  });
+  beforeEach(() => {
+    vi.useFakeTimers();
+    fake.state.storage = {};
+    fake.state.session = {};
+    fake.state.badges = {};
+    fake.state.reconnects = [];
+    fake.state.onReconnect = undefined;
+    fake.state.messages = [];
+    fake.state.granted = true;
+    fake.state.pageUrl = "https://login.example/signin";
+    fake.state.onExecute = undefined;
+    fake.state.tabUrls = {};
+    fake.state.observed = ["unique", "missing"];
+    fake.state.observedPath = "/signin";
+    // The email page: its field and Next show, and no password input yet.
+    fake.state.present = new Set(["email", "next"]);
+    fake.state.unusable = new Set();
+    fake.state.signIn = false;
+    fake.state.awaited = { ok: true };
+    fake.state.onAwait = undefined;
+    fake.state.executeReply = undefined;
+    fake.state.switchReply = { ok: true };
+    fake.state.gone = new Set();
+    fake.state.extracted = {};
+  });
+
+  /** A recipe generated from the email page: it fills the email address and clicks Next. */
+  const emailFirst = parseLoginRecipe({
+    version: 1,
+    id: "gen-synthetic-continued",
+    revision: 1,
+    origin,
+    slots: ["username"],
+    steps: [
+      { kind: "fill", path: "/signin", fields: [{ slot: "username", target: target("email") }] },
+      { kind: "click", path: "/signin", target: target("next"), purpose: "advance" },
+    ],
+    maxSubmissions: 1,
+  });
+  /** The service's next revision: the password page's steps appended. */
+  const continuedOn = (path: string, change: Partial<LoginRecipe> = {}) =>
+    parseLoginRecipe({
+      ...emailFirst,
+      revision: 2,
+      slots: ["username", "password"],
+      steps: [
+        ...emailFirst.steps,
+        { kind: "fill", path, fields: [{ slot: "password", target: target("password") }] },
+        { kind: "click", path, target: target("login"), purpose: "submit" },
+      ],
+      maxSubmissions: 2,
+      ...change,
+    });
+  const describedPage = (path: string, candidates: unknown[], complete = true) => ({
+    ok: true,
+    observation: { version: 1, origin, path, language: "en", complete, candidates },
+  });
+  const passwordPage = (path: string, complete = true) =>
+    describedPage(
+      path,
+      [
+        { id: "c1", role: "password", target: target("password"), label: "Password" },
+        { id: "c2", role: "button", target: target("login"), label: "Log in" },
+      ],
+      complete,
+    );
+  const homePage = describedPage("/home", [
+    { id: "c1", role: "button", target: target("logout"), label: "Sign out" },
+  ]);
+  const status = () =>
+    fake.state.storage["pateat.login-attempts.v3"] as Record<string, unknown>[] | undefined;
+  const executed = () =>
+    fake.state.messages
+      .filter((entry) => entry.type === "login.execute")
+      .map((entry) => {
+        const { step } = (
+          entry as unknown as {
+            operation: {
+              step: {
+                kind: string;
+                target?: { value: string };
+                fields?: { target: { value: string } }[];
+              };
+            };
+          }
+        ).operation;
+        return `${step.kind}:${step.target?.value ?? step.fields?.map((field) => field.target.value).join(",")}`;
+      });
+  async function until(check: () => boolean, maxMs = 200_000) {
+    for (let spent = 0; !check(); spent += 100) {
+      if (spent > maxMs) throw new Error("Condition not reached in fake time");
+      // eslint-disable-next-line no-await-in-loop
+      await vi.advanceTimersByTimeAsync(100);
+    }
+  }
+  const settled = (state: string, outcome?: string) => () =>
+    status()?.[0]?.["state"] === state &&
+    (outcome === undefined || status()?.[0]?.["outcome"] === outcome);
+  const uris = vi.fn<LiveUriMatcher>(async () => ({ ok: true as const, data: uriMatch() }));
+  function generation(
+    generate: LoginGeneration["generate"] = async () => ({
+      outcome: "abstained",
+      reason: "ambiguous",
+    }),
+    judge: LoginGeneration["judge"] = async () => ({ verdict: "signed-in" }),
+  ) {
+    return {
+      available: vi.fn<LoginGeneration["available"]>(async () => "sent"),
+      generate: vi.fn<LoginGeneration["generate"]>(generate),
+      judge: vi.fn<LoginGeneration["judge"]>(judge),
+      slotFields: vi.fn<LoginGeneration["slotFields"]>(async () => undefined),
+    };
+  }
+  /** A generated login: no saved account choice, the item found by its URI. */
+  function start(
+    service: ReturnType<typeof generation>,
+    options: {
+      recipe?: LoginRecipe;
+      settings?: Partial<LocalSettings>;
+      report?: LoginReport[];
+    } = {},
+  ) {
+    const reports = options.report;
+    const h = harness(options.settings ?? { siteDefaults: [], bindings: [] }, {
+      allowedOrigins: [],
+      uris,
+      username: true,
+      custom: [],
+      generation: service,
+      ...(reports ? { report: (value: LoginReport) => reports.push(value) } : {}),
+    });
+    const first = options.recipe ?? emailFirst;
+    h.recipes.recipe.mockResolvedValue(first);
+    h.recipes.starts.mockResolvedValue(startsOf([first.steps[0]!]));
+    return h;
+  }
+  /** The service appends the password page and the cache holds it before the answer. */
+  const answering = (h: () => ReturnType<typeof harness>, next: LoginRecipe) =>
+    (async () => {
+      h().recipes.recipe.mockResolvedValue(next);
+      return { outcome: "recipe" as const, recipe: next };
+    }) satisfies LoginGeneration["generate"];
+  /**
+   * What the clicks do: Next shows the password form (`next`), and Log in signs in on
+   * `/home`.
+   */
+  const onClick = (next: () => void) => {
+    fake.state.onExecute = async (message) => {
+      const step = (message["operation"] as { step: { kind: string; target?: { value: string } } })
+        .step;
+      if (step.kind !== "click") return;
+      if (step.target?.value === "next") next();
+      if (step.target?.value === "login") {
+        fake.state.observedPath = "/home";
+        fake.state.present = new Set(["logout"]);
+        fake.state.signIn = false;
+        fake.state.extracted = { "signed-in": homePage };
+      }
+    };
+  };
+  /** Next swaps the password form in, in the same document on the same path. */
+  const inPlace = (also?: () => void) =>
+    onClick(() => {
+      fake.state.unusable = new Set(["email", "next"]);
+      fake.state.present = new Set(["email", "next", "password", "login"]);
+      fake.state.signIn = true;
+      fake.state.extracted = { login: passwordPage("/signin") };
+      also?.();
+    });
+  const allSteps = ["fill:email", "click:next", "fill:password", "click:login"];
+  /** The steps that carried the next step's targets to measure with them (ADR 0013). */
+  const measured = () =>
+    fake.state.messages
+      .filter((entry) => entry.type === "login.execute" && "next" in entry)
+      .map((entry) => {
+        const { step } = (
+          entry as unknown as { operation: { step: { kind: string; target?: { value: string } } } }
+        ).operation;
+        return `${step.kind}:${step.target?.value ?? ""}`;
+      });
+
+  it("continues in the same document on the same path and saves both slots", async () => {
+    inPlace();
+    const reports: LoginReport[] = [];
+    let h!: ReturnType<typeof harness>;
+    const next = continuedOn("/signin");
+    const service = generation(answering(() => h, next));
+    h = start(service, { report: reports });
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(settled("authenticated"));
+    expect(executed()).toEqual(allSteps);
+    // The final advance had no next step when it ran, so nothing was measured with it; the
+    // takeover alone moved the login on.
+    expect(measured()).toEqual([]);
+    // One request with the revision it continues, the page's description and no value.
+    expect(service.generate).toHaveBeenCalledTimes(1);
+    const request = service.generate.mock.calls[0]![0];
+    expect(request).toMatchObject({
+      base: { recipeId: emailFirst.id, revision: 1 },
+      observation: passwordPage("/signin").observation,
+    });
+    // The recipe already fills the username, so only the password is offered.
+    expect(request.slots.map((slot) => slot.id)).toEqual(["password"]);
+    expect(JSON.stringify(service.generate.mock.calls)).not.toContain("synthetic-secret");
+    // The page after the final submission is judged under the continued revision.
+    expect(service.judge).toHaveBeenCalledTimes(1);
+    expect(service.judge.mock.calls[0]!.slice(0, 3)).toEqual([emailFirst.id, 2, "password"]);
+    expect(status()![0]).toMatchObject({
+      recipeRevision: 2,
+      stepIndex: 3,
+      stepCount: 4,
+      submissions: 2,
+      maxSubmissions: 2,
+    });
+    // The account choice saved after the sign-in binds both pages' slots.
+    expect(h.settings.settings.bindings).toEqual([
+      expect.objectContaining({
+        recipeId: emailFirst.id,
+        slots: [
+          { slot: "username", field: "username" },
+          { slot: "password", field: "password" },
+        ],
+      }),
+    ]);
+    expect(h.settings.settings.siteDefaults).toEqual([expect.objectContaining({ itemId })]);
+    expect(reports.filter((entry) => entry.type === "generation")).toEqual([
+      {
+        type: "generation",
+        tabId: 1,
+        origin,
+        outcome: "recipe",
+        recipeId: emailFirst.id,
+        baseRevision: 1,
+        takenOver: true,
+      },
+    ]);
+    // The read-only email field the recipe filled is left out of the description.
+    expect(
+      fake.state.messages.find((entry) => entry.type === "login.extract") as unknown,
+    ).toMatchObject({ page: "login", known: [target("email")] });
+  });
+
+  it("waits a second after the password form shows before sending it", async () => {
+    inPlace();
+    let h!: ReturnType<typeof harness>;
+    const service = generation(answering(() => h, continuedOn("/signin")));
+    h = start(service);
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => executed().length === 2);
+    await vi.advanceTimersByTimeAsync(700);
+    expect(service.generate).not.toHaveBeenCalled();
+    await until(() => service.generate.mock.calls.length === 1, 2_000);
+    await until(settled("authenticated"));
+  });
+
+  it("continues after a same-document URL change to another path", async () => {
+    let h!: ReturnType<typeof harness>;
+    inPlace(() => {
+      // `history.pushState`: only the tab's committed URL shows the new path.
+      fake.state.tabUrls[1] = "https://login.example/signin/password";
+      fake.state.observedPath = "/signin/password";
+      fake.state.unusable = new Set();
+      fake.state.present = new Set(["password", "login"]);
+      fake.state.extracted = { login: passwordPage("/signin/password") };
+    });
+    const service = generation(answering(() => h, continuedOn("/signin/password")));
+    h = start(service);
+    uris.mockClear();
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(settled("authenticated"));
+    expect(executed()).toEqual(allSteps);
+    expect(service.generate.mock.calls[0]![0].observation.path).toBe("/signin/password");
+    // The vault match for the request used the URL the page shows now.
+    expect(uris.mock.calls.map(([, url]) => url)).toContain(
+      "https://login.example/signin/password",
+    );
+  });
+
+  it("continues in a new document on another path", async () => {
+    let h!: ReturnType<typeof harness>;
+    onClick(() => fake.state.gone.add("synthetic-document"));
+    const service = generation(answering(() => h, continuedOn("/signin/password")));
+    h = start(service);
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => executed().length === 2);
+    await until(() => status()?.[0]?.["state"] === "reconciling");
+    expect(service.generate).not.toHaveBeenCalled();
+    // The password page loads as a new document of the tab.
+    fake.state.pageUrl = "https://login.example/signin/password";
+    fake.state.observedPath = "/signin/password";
+    fake.state.present = new Set(["password", "login"]);
+    fake.state.signIn = true;
+    fake.state.extracted = { login: passwordPage("/signin/password") };
+    expect(await h.hello({ documentId: "password-document" }, false)).toEqual({ ok: true });
+    await until(settled("authenticated"));
+    expect(executed()).toEqual(allSteps);
+    expect(service.generate).toHaveBeenCalledTimes(1);
+    expect(service.judge).toHaveBeenCalledTimes(1);
+  });
+
+  it("judges the email form shown again where it posted instead of continuing on it", async () => {
+    // An unknown account: the email form shows again on another path, beside a recovery
+    // email input that is not the recipe's.
+    const again = describedPage("/signin/identifier", [
+      { id: "c1", role: "text", target: target("email"), autocomplete: "username" },
+      { id: "c2", role: "button", target: target("next"), label: "Next" },
+    ]);
+    onClick(() => {
+      fake.state.observedPath = "/signin/identifier";
+      fake.state.present = new Set(["email", "next"]);
+      fake.state.signIn = { identifier: true };
+      fake.state.extracted = { login: again, "signed-in": again };
+    });
+    const service = generation(undefined, async () => ({ verdict: "rejected" }));
+    const h = start(service);
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => service.judge.mock.calls.length === 1);
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(service.generate).not.toHaveBeenCalled();
+    expect(service.judge).toHaveBeenCalledTimes(1);
+    expect(executed()).toEqual(allSteps.slice(0, 2));
+  });
+
+  it("judges a page whose only sign-in input is an email box once the recipe fills the username", async () => {
+    // A page with an unrelated email input, such as a newsletter box, after the email form.
+    const page = describedPage("/welcome", [
+      { id: "c1", role: "text", target: target("newsletter"), autocomplete: "email" },
+      { id: "c2", role: "button", target: target("subscribe"), label: "Subscribe" },
+    ]);
+    onClick(() => {
+      fake.state.observedPath = "/welcome";
+      fake.state.present = new Set(["newsletter", "subscribe"]);
+      fake.state.signIn = { identifier: true };
+      fake.state.extracted = { login: page, "signed-in": page };
+    });
+    const service = generation(undefined, async () => ({ verdict: "unclear" }));
+    const h = start(service);
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => service.judge.mock.calls.length === 1);
+    expect(service.generate).not.toHaveBeenCalled();
+  });
+
+  it("continues on a password input revealed below the email field it filled", async () => {
+    // A progressive form: Next keeps the email field writable and reveals the password
+    // input below it on the same path.
+    onClick(() => {
+      fake.state.present = new Set(["email", "next", "password", "login"]);
+      fake.state.signIn = { password: true };
+      fake.state.extracted = { login: passwordPage("/signin") };
+    });
+    let h!: ReturnType<typeof harness>;
+    const service = generation(answering(() => h, continuedOn("/signin")));
+    h = start(service);
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(settled("authenticated"));
+    expect(executed()).toEqual(allSteps);
+    expect(service.generate).toHaveBeenCalledTimes(1);
+    expect(service.generate.mock.calls[0]![0].slots.map((slot) => slot.id)).toEqual(["password"]);
+  });
+
+  it("sends the page only once it has loaded and shows the password input", async () => {
+    let h!: ReturnType<typeof harness>;
+    // The email form goes; the password input shows, or the page finishes loading, later.
+    onClick(() => {
+      fake.state.unusable = new Set(["email", "next"]);
+      fake.state.extracted = { login: passwordPage("/signin") };
+      setTimeout(() => (fake.state.signIn = true), 4_000);
+    });
+    const service = generation(answering(() => h, continuedOn("/signin")));
+    h = start(service);
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => executed().length === 2);
+    await vi.advanceTimersByTimeAsync(4_500);
+    expect(service.generate).not.toHaveBeenCalled();
+    await until(settled("authenticated"));
+    expect(service.generate).toHaveBeenCalledTimes(1);
+  });
+
+  it("never sends an incomplete description and never judges the page", async () => {
+    inPlace(() => (fake.state.extracted = { login: passwordPage("/signin", false) }));
+    const service = generation();
+    const h = start(service);
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(settled("reconciling", "unknown-submit"));
+    expect(service.generate).not.toHaveBeenCalled();
+    expect(service.judge).not.toHaveBeenCalled();
+    expect(status()![0]!["continuation"]).toBeUndefined();
+  });
+
+  it.each([
+    ["an abstention", { outcome: "abstained", reason: "ambiguous" }],
+    ["a page sent in the last day", { outcome: "skipped", reason: "sent" }],
+  ] as const)("settles as unknown after %s, with no judge call", async (_label, answer) => {
+    inPlace();
+    const service = generation(async () => answer);
+    const reports: LoginReport[] = [];
+    const h = start(service, { report: reports });
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(settled("reconciling", "unknown-submit"));
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(service.generate).toHaveBeenCalledTimes(1);
+    expect(service.judge).not.toHaveBeenCalled();
+    expect(executed()).toEqual(allSteps.slice(0, 2));
+    expect(status()![0]).toMatchObject({ continuation: { operationId: expect.any(String) } });
+    expect(reports.filter((entry) => entry.type === "generation")).toEqual([
+      expect.objectContaining({ outcome: answer.outcome, reason: answer.reason, baseRevision: 1 }),
+    ]);
+    // A later document of the same step sends nothing again.
+    fake.state.extracted = { login: passwordPage("/signin") };
+    expect(await h.hello({ documentId: "again" }, false)).toEqual({ ok: true });
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(service.generate).toHaveBeenCalledTimes(1);
+    expect(service.judge).not.toHaveBeenCalled();
+  });
+
+  it("gives back a request refused before any model call, for a later document", async () => {
+    inPlace();
+    let h!: ReturnType<typeof harness>;
+    const service = generation(async () => ({
+      outcome: "unavailable",
+      reason: "busy",
+      retry: true,
+    }));
+    h = start(service);
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(settled("reconciling", "unknown-submit"));
+    await vi.advanceTimersByTimeAsync(20_000);
+    // This document does not send it again; nothing is judged.
+    expect(service.generate).toHaveBeenCalledTimes(1);
+    expect(service.judge).not.toHaveBeenCalled();
+    expect(status()![0]!["continuation"]).toBeUndefined();
+    service.generate.mockImplementation(answering(() => h, continuedOn("/signin")));
+    expect(await h.hello({ documentId: "again" }, false)).toEqual({ ok: true });
+    await until(settled("authenticated"));
+    expect(service.generate).toHaveBeenCalledTimes(2);
+    expect(executed()).toEqual(allSteps);
+  });
+
+  it("never sends the page again after a worker restart during the request", async () => {
+    inPlace();
+    const lost = generation(() => new Promise(() => undefined));
+    const h = start(lost);
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => lost.generate.mock.calls.length === 1);
+    expect(status()![0]).toMatchObject({ continuation: { operationId: expect.any(String) } });
+    const query = fake.browser.tabs.query;
+    fake.browser.tabs.query = async () => [{ id: 1 }] as never;
+    try {
+      const service = generation();
+      const restarted = start(service);
+      expect(await restarted.hello({}, false)).toEqual({ ok: true });
+      await until(settled("reconciling", "unknown-submit"));
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(service.generate).not.toHaveBeenCalled();
+      expect(service.judge).not.toHaveBeenCalled();
+      // With the continued revision in the cache, the record no longer matches it.
+      const later = start(generation());
+      later.recipes.recipe.mockResolvedValue(continuedOn("/signin"));
+      expect(await later.hello({ documentId: "later" }, false)).toMatchObject({
+        ok: false,
+        reason: "recipe-not-found",
+      });
+    } finally {
+      fake.browser.tabs.query = query;
+    }
+  });
+
+  it("takes over a revision that reached the cache while a new document resumed", async () => {
+    inPlace();
+    let h!: ReturnType<typeof harness>;
+    const next = continuedOn("/signin");
+    let answer!: () => void;
+    const reports: LoginReport[] = [];
+    const service = generation(async () => {
+      h.recipes.recipe.mockResolvedValue(next);
+      await new Promise<void>((resolve) => (answer = resolve));
+      return { outcome: "recipe", recipe: next };
+    });
+    h = start(service, { report: reports });
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => service.generate.mock.calls.length === 1);
+    // The form posts back to its path before the answer; the cache already holds it.
+    fake.state.gone.add("synthetic-document");
+    expect(await h.hello({ documentId: "again" }, false)).toEqual({ ok: true });
+    await until(settled("authenticated"));
+    expect(executed()).toEqual(allSteps);
+    expect(status()![0]).toMatchObject({ recipeRevision: 2, document: { documentId: "again" } });
+    answer();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(service.generate).toHaveBeenCalledTimes(1);
+    // The answer reached the document that asked after it was left.
+    const generated = reports.filter((entry) => entry.type === "generation");
+    expect(generated).toEqual([expect.objectContaining({ outcome: "recipe" })]);
+    expect(generated[0]).not.toHaveProperty("takenOver");
+  });
+
+  it("takes over an answer that arrives after the new document's ten seconds", async () => {
+    inPlace();
+    let h!: ReturnType<typeof harness>;
+    const next = continuedOn("/signin");
+    let answer!: () => void;
+    const service = generation(async () => {
+      await new Promise<void>((resolve) => (answer = resolve));
+      return { outcome: "recipe", recipe: next };
+    });
+    h = start(service);
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => service.generate.mock.calls.length === 1);
+    // The form posts back to its path; the answer, not yet cached, comes much later.
+    fake.state.gone.add("synthetic-document");
+    expect(await h.hello({ documentId: "again" }, false)).toEqual({ ok: true });
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(executed()).toEqual(allSteps.slice(0, 2));
+    answer();
+    await until(settled("authenticated"));
+    expect(executed()).toEqual(allSteps);
+    expect(status()![0]).toMatchObject({ recipeRevision: 2, document: { documentId: "again" } });
+    expect(service.generate).toHaveBeenCalledTimes(1);
+  });
+
+  it("asks for the vault match again after a transient failure", async () => {
+    inPlace();
+    let h!: ReturnType<typeof harness>;
+    const service = generation(answering(() => h, continuedOn("/signin")));
+    h = start(service);
+    const get = fake.browser.tabs.get;
+    let failures = 0;
+    fake.browser.tabs.get = (async (id: number) => {
+      // The tab cannot be read for a moment once the password form shows.
+      if (fake.state.present?.has("password") && failures < 3) {
+        failures += 1;
+        throw new Error("tab busy");
+      }
+      return get(id);
+    }) as typeof get;
+    try {
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("authenticated"));
+      expect(failures).toBe(3);
+      expect(service.generate).toHaveBeenCalledTimes(1);
+      expect(executed()).toEqual(allSteps);
+    } finally {
+      fake.browser.tabs.get = get;
+    }
+  });
+
+  it.each<[string, LoginRecipe]>([
+    [
+      "changes a step the login ran",
+      parseLoginRecipe({
+        ...continuedOn("/signin"),
+        steps: [
+          { kind: "fill", path: "/signin", fields: [{ slot: "username", target: target("user") }] },
+          ...continuedOn("/signin").steps.slice(1),
+        ],
+      }),
+    ],
+    ["is another recipe", parseLoginRecipe({ ...continuedOn("/signin"), id: "gen-other" })],
+    ["is not newer", parseLoginRecipe({ ...continuedOn("/signin"), revision: 1 })],
+  ])("never takes over a revision that %s", async (_label, next) => {
+    inPlace();
+    let h!: ReturnType<typeof harness>;
+    const reports: LoginReport[] = [];
+    const service = generation(answering(() => h, next));
+    h = start(service, { report: reports });
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(settled("reconciling", "unknown-submit"));
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(executed()).toEqual(allSteps.slice(0, 2));
+    expect(service.judge).not.toHaveBeenCalled();
+    expect(status()![0]).toMatchObject({ recipeRevision: 1 });
+    expect(reports.filter((entry) => entry.type === "generation")).toEqual([
+      expect.objectContaining({ outcome: "recipe", takenOver: false }),
+    ]);
+  });
+
+  it("never takes over a revision the saved binding cannot fill", async () => {
+    inPlace();
+    let h!: ReturnType<typeof harness>;
+    const service = generation(answering(() => h, continuedOn("/signin")));
+    // A binding saved for the recipe holds the username slot only.
+    h = start(service, {
+      settings: {
+        bindings: [
+          {
+            ...savedBinding,
+            recipeId: emailFirst.id,
+            slots: [{ slot: "username", field: "username" }],
+          },
+        ],
+      },
+    });
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(settled("reconciling", "unknown-submit"));
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(service.generate).toHaveBeenCalledTimes(1);
+    expect(executed()).toEqual(allSteps.slice(0, 2));
+    expect(h.fields.mock.calls.map(([request]) => request.fieldId)).not.toContain("login.password");
+  });
+
+  it("judges a code page instead of continuing on it", async () => {
+    // A one-time-code input alone is not a sign-in input to continue on.
+    const codePage = describedPage("/signin/verify", [
+      {
+        id: "c1",
+        role: "text",
+        target: target("code"),
+        autocomplete: "one-time-code",
+        label: "Code",
+      },
+      { id: "c2", role: "button", target: target("verify"), label: "Verify" },
+    ]);
+    onClick(() => {
+      fake.state.observedPath = "/signin/verify";
+      fake.state.present = new Set(["code", "verify"]);
+      fake.state.signIn = false;
+      fake.state.extracted = { "signed-in": codePage };
+    });
+    const service = generation(undefined, async () => ({ verdict: "challenge" }));
+    const h = start(service);
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(settled("blocked", "challenge"));
+    expect(service.generate).not.toHaveBeenCalled();
+    expect(service.judge).toHaveBeenCalledWith(emailFirst.id, 1, "password", codePage.observation);
+  });
+
+  it("judges the page instead when the recipe already has a completion", async () => {
+    onClick(() => {
+      fake.state.observedPath = "/signin/password";
+      fake.state.present = new Set(["password", "login"]);
+      fake.state.signIn = true;
+      fake.state.extracted = { "signed-in": passwordPage("/signin/password") };
+    });
+    const learned = parseLoginRecipe({
+      ...emailFirst,
+      completion: { path: "/home", target: target("logout") },
+    });
+    const service = generation(undefined, async () => ({ verdict: "unclear" }));
+    const h = start(service, { recipe: learned });
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(settled("reconciling", "unknown-submit"));
+    expect(service.generate).not.toHaveBeenCalled();
+    expect(service.judge).toHaveBeenCalledTimes(1);
+  });
+
+  it("runs every step of a continued same-path recipe later, with no request", async () => {
+    // The swap shows the password form only after Next; the email form hides.
+    inPlace();
+    const service = generation();
+    const h = start(service, { recipe: continuedOn("/signin") });
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(settled("authenticated"));
+    expect(executed()).toEqual(allSteps);
+    // Next is now an advance with a next step on its path, measured with its click.
+    expect(measured()).toEqual(["click:next"]);
+    expect(service.generate).not.toHaveBeenCalled();
+  });
+
+  it("runs a continued progressive form later while its password input was hidden before Next", async () => {
+    // The password input exists but is hidden until Next; the email field stays writable.
+    fake.state.present = new Set(["email", "next", "password"]);
+    fake.state.unusable = new Set(["password"]);
+    onClick(() => {
+      fake.state.unusable = new Set();
+      fake.state.present = new Set(["email", "next", "password", "login"]);
+    });
+    const service = generation();
+    const h = start(service, { recipe: continuedOn("/signin") });
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(settled("authenticated"));
+    expect(executed()).toEqual(allSteps);
+    expect(measured()).toEqual(["click:next"]);
+    expect(service.generate).not.toHaveBeenCalled();
+  });
+
+  it("never continues a later run whose password input was writable before Next", async () => {
+    // A limitation of the same-path rule (ADR 0013): a password input that was already
+    // usable before Next cannot tell that Next worked.
+    fake.state.present = new Set(["email", "next", "password"]);
+    onClick(() => {
+      fake.state.present = new Set(["email", "next", "password", "login"]);
+    });
+    const service = generation();
+    const h = start(service, { recipe: continuedOn("/signin") });
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(settled("reconciling", "unknown-submit"));
+    expect(executed()).toEqual(allSteps.slice(0, 2));
+    expect(service.generate).not.toHaveBeenCalled();
   });
 });
