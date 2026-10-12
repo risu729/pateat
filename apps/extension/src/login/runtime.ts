@@ -81,6 +81,7 @@ import {
   extractResultSchema,
   helloSchema,
   observationSchema,
+  stateResultSchema,
   statusSchema,
   probeControlSchema,
   loginReadiness,
@@ -107,6 +108,7 @@ import {
   type PickResponse,
 } from "./choice-wire";
 import { customFieldOffers, type CustomFieldOffer } from "./generation-slots";
+import { decideSignInState, reachedReturnTarget, type SignInSigns } from "./sign-in-state";
 import type { LoginSites } from "./sites";
 import {
   loginFillsUsername,
@@ -264,6 +266,11 @@ type Execution = {
    * document, never stored.
    */
   inPlace?: { operationId: string; before: TargetState[] };
+  /**
+   * The URL of the document the attempt started in, for ADR 0029's E3. Kept in memory and
+   * carried to the attempt's next document, never stored.
+   */
+  startUrl?: string;
 };
 /** An in-memory catalog copy in which one item covers `origin`; never persisted. */
 function withItemOrigin(
@@ -577,6 +584,17 @@ export type LoginReport =
       /** For a returned revision: whether this login took it over. */
       takenOver?: boolean;
     }
+  | ({
+      type: "state";
+      tabId: number;
+      origin: string;
+      recipeId: string;
+      route: LoginRoute;
+      /** What ADR 0029 would do with the page; logged only (delivery 1). */
+      decision: ReturnType<typeof decideSignInState>;
+      /** A later page of an attempt whose result already settled as unknown. */
+      settled?: true;
+    } & SignInSigns)
   | {
       type: "handler";
       tabId: number;
@@ -1997,6 +2015,8 @@ export function createLoginRuntime(
       if (await enterHandler(run, observed.path)) return undefined;
     }
     if (!settleUnknown) return undefined;
+    if (effectful(run.metadata)) await logSignInState(run);
+    if (!current(run) || terminal(run.metadata)) return undefined;
     if (await learn(run)) return undefined;
     await change(run, {
       type: "OBSERVED",
@@ -2004,6 +2024,79 @@ export function createLoginRuntime(
       document: run.live.document,
     });
     return undefined;
+  }
+  /**
+   * Logs the sign-in state of ADR 0029 for a page no check explained: its signs and what
+   * the ADR would do with it. Delivery 1 changes nothing else. A login in a frame is not
+   * read, as the ADR reads the top document. The username goes to the page's content
+   * script for its comparison only.
+   */
+  async function logSignInState(run: Execution): Promise<void> {
+    const { recipe, metadata } = run;
+    if (run.live.topUrl !== undefined) return;
+    const marker = recipe.completion ? [recipe.completion.target] : [];
+    const fills = routeSignInTargets(recipe, metadata.route).slice(0, 24 - marker.length);
+    const observed = await observe(
+      run,
+      [...fills, ...marker],
+      [...fills, ...marker].map(() => "shown" as const),
+      marker.length > 0 ? [...fills.map(() => false), true] : undefined,
+    );
+    if (!observed) return;
+    const authorized = await allowed(run);
+    if (!authorized) return;
+    let username: string | undefined;
+    const usernameField = loginUsernameFieldId(authorized.connection, metadata.account.itemId);
+    if (usernameField) {
+      try {
+        username = await fields({
+          account: metadata.account,
+          connection: authorized.connection,
+          fieldId: usernameField,
+        });
+      } catch {
+        username = undefined;
+      }
+      if (!current(run)) return;
+    }
+    let response: unknown;
+    try {
+      response = await send(run.live, {
+        type: "login.state",
+        ...(username ? { account: { username } } : {}),
+      });
+    } catch {
+      return;
+    }
+    if (!current(run)) return;
+    const parsed = v.safeParse(stateResultSchema, response);
+    if (!parsed.success || !parsed.output.ok) return;
+    const page = parsed.output.signs;
+    const s1 = observed.targets.slice(0, fills.length).some((state) => state === "unique");
+    const signs: SignInSigns = {
+      s1,
+      s2: page.password,
+      s3: page.code,
+      s4: page.captcha,
+      // A failure counts only next to the sign-in fields.
+      f1: s1 && page.invalid,
+      f2: s1 && page.alert,
+      e1: marker.length > 0 && observed.targets[fills.length] === "unique",
+      e2: page.username === true,
+      e3:
+        run.startUrl !== undefined &&
+        reachedReturnTarget(run.startUrl, run.live.url, routeSignInPaths(recipe, metadata.route)),
+    };
+    report({
+      type: "state",
+      tabId: run.live.document.tabId,
+      origin: run.live.document.origin,
+      recipeId: recipe.id,
+      route: metadata.route,
+      ...signs,
+      decision: decideSignInState(signs),
+      ...(metadata.settled ? { settled: true as const } : {}),
+    });
   }
   /**
    * Enters a handler of the recipe on this path all of whose elements show (ADR 0027).
@@ -3489,6 +3582,10 @@ export function createLoginRuntime(
       before.inPlace.operationId === metadata.operationId
     )
       run.inPlace = before.inPlace;
+    // The URL the login started on, for ADR 0029's E3, follows the attempt in memory.
+    if (!previous) run.startUrl = live.url;
+    else if (before?.metadata.id === metadata.id && before.startUrl !== undefined)
+      run.startUrl = before.startUrl;
     attempts.set(document.tabId, run);
     // Each new document of the tab resumes the attempt; only a change is news.
     reportAttempt(

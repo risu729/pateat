@@ -60,6 +60,8 @@ const fake = vi.hoisted(() => {
     removed: [] as ((tabId: number) => void)[],
     /** The document's description of itself, by the page asked for. */
     extracted: {} as Record<string, unknown>,
+    /** The page signs the document reports for ADR 0029; none when unset. */
+    signs: undefined as undefined | Record<string, boolean>,
     /** `chrome.storage.session`. */
     session: {} as Record<string, unknown>,
     /** Present elements that are hidden or disabled, for an observation that asks. */
@@ -149,6 +151,8 @@ const fake = vi.hoisted(() => {
               : [...state.observed],
           };
         if (message["type"] === "login.switch") return state.switchReply;
+        if (message["type"] === "login.state")
+          return state.signs ? { ok: true, signs: state.signs } : { ok: false };
         if (message["type"] === "login.extract")
           return (
             state.extracted[message["page"] as string] ?? { ok: false, reason: "no-candidates" }
@@ -477,6 +481,7 @@ describe("production login document admission", () => {
     fake.state.switchReply = { ok: true };
     fake.state.gone = new Set();
     fake.state.extracted = {};
+    fake.state.signs = undefined;
   });
   it("completes a saved-default HTTPS login with a local recipe and live field", async () => {
     const h = harness();
@@ -3309,6 +3314,89 @@ describe("production login document admission", () => {
         expect.objectContaining({ type: "judge", verdict: "not-sent", reason: "sign-in-shown" }),
       );
     }, 10_000);
+
+    describe("the sign-in state, logged only (ADR 0029 delivery 1)", () => {
+      const noSigns = {
+        password: false,
+        code: false,
+        captcha: false,
+        invalid: false,
+        alert: false,
+      };
+
+      it("logs a failure shown next to the sign-in fields, comparing the username in the page", async () => {
+        fake.state.extracted = { "signed-in": homePage };
+        fake.state.signs = { ...noSigns, password: true, alert: true, username: false };
+        const service = generation({ judge: async () => ({ verdict: "signed-in" }) });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris,
+          username: true,
+          generation: service,
+          report,
+        });
+        h.recipes.recipe.mockResolvedValue(generated);
+        fake.state.present = new Set(["user", "password", "login"]);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(
+          () =>
+            expect(status()).toMatchObject([{ state: "reconciling", outcome: "unknown-submit" }]),
+          { timeout: 6_000 },
+        );
+        expect(report).toHaveBeenCalledWith({
+          type: "state",
+          tabId: 1,
+          origin,
+          recipeId: generated.id,
+          route: "password",
+          ...{ s1: true, s2: true, s3: false, s4: false, f1: false, f2: true },
+          ...{ e1: false, e2: false, e3: false },
+          decision: "rejected",
+        });
+        // The username goes to the page for its comparison; what happens is unchanged.
+        expect(fake.state.messages.find((entry) => entry.type === "login.state")?.account).toEqual({
+          username: "synthetic-secret",
+        });
+        expect(service.judge).not.toHaveBeenCalled();
+      }, 10_000);
+
+      it("logs reaching the return target the sign-in page's URL named, before the judge", async () => {
+        fake.state.pageUrl = `${origin}/signin?return_to=%2Fhome`;
+        fake.state.extracted = { "signed-in": homePage };
+        fake.state.signs = noSigns;
+        const service = generation({ judge: async () => ({ verdict: "signed-in" }) });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris,
+          username: true,
+          generation: service,
+          report,
+        });
+        h.recipes.recipe.mockResolvedValue(generated);
+        fake.state.present = new Set(["user", "password", "login"]);
+        fake.state.onExecute = async (message) => {
+          if ((message["operation"] as { step: { kind: string } }).step.kind !== "click") return;
+          // The click loads the return target in a new document.
+          fake.state.present = new Set();
+          fake.state.observedPath = "/home";
+          fake.state.pageUrl = `${origin}/home`;
+          setTimeout(() => void h.hello({ documentId: "document-home" }, false), 0);
+        };
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(service.judge).toHaveBeenCalled(), { timeout: 6_000 });
+        const states = report.mock.calls.flatMap(([value]) =>
+          value.type === "state" ? [value] : [],
+        );
+        expect(states).toEqual([
+          expect.objectContaining({ s1: false, e3: true, decision: "signed-in" }),
+        ]);
+        // The judge's verdict is logged right after, as today.
+        const entries = report.mock.calls.map(([value]) => value.type);
+        expect(entries.indexOf("state")).toBeLessThan(entries.indexOf("judge"));
+      }, 10_000);
+    });
 
     describe("custom-field offers and their shapes (ADR 0027)", () => {
       const thirdItemId = "80000000-0000-4000-8000-000000000003";

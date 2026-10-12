@@ -1,7 +1,8 @@
 # ADR 0029: Local sign-in state after an effect step, with the judge as a fallback
 
 Status: accepted by the owner on 2026-10-12 (04:54 UTC). Delivery 1 (the local check,
-logged only) is not implemented yet; delivery 2 (acting on it) waits for the owner's
+logged only, as `login.state`) is implemented except S5, the passkey request after the
+submission, which is not read yet; delivery 2 (acting on it) waits for the owner's
 review of the delivery 1 logs. Amends [ADR 0018](0018-recipe-generation-route.md) (how
 success is decided after a generated recipe's submission) and
 [ADR 0027](0027-per-account-login-routes.md) (when a page is judged).
@@ -96,6 +97,16 @@ then answered 04:51 and 04:54 UTC):
   happens today (the judge's verdict when it is asked), and nothing changes in
   behaviour. The owner reviews the logs from the daily-site passes, then delivery 2
   switches the runtime to this order.
+
+## Implementation notes
+
+Delivery 1 (2026-10-12) reads the page once, when the attempt's result would settle as
+unknown today (3 seconds after a submission, 10 after an advance), just before the judge
+is asked; the re-check comes with delivery 2. It writes one `login.state` entry with the
+signs that show and the ADR's outcome ([architecture](../architecture.md)). A login in a
+frame is not read. The start URL for E3 is kept in the background's memory, so a worker
+restart during the login leaves E3 unread. S5 needs the passkey bridge to tell the login
+which requests it received and is not read yet.
 
 ## Consequences
 
