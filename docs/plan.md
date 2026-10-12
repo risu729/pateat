@@ -30,17 +30,17 @@ owner to confirm.
 ### Phase 1: usable
 
 Done when Pateat logs in on the sites the owner uses every day, in the owner's installed
-Chrome, and on the sites the owner's Grok Bot checks that do not need single sign-on, in
-the Grok Bot computer's Chrome, on a production build of main.
+Chrome, and on the sites the owner's Grok Bot checks that offer a password or passkey
+sign-in, in the Grok Bot computer's Chrome, on a production build of main.
 
 - Start from a list of those sites. It names the owner's own accounts, so it stays in
   the project's files rather than in this repository.
 - Log in, in the Grok Bot computer's Chrome, on the sites the owner's Bot checks
   regularly, such as card statements and AI usage pages, so the Bot never needs a
   password (owner, 2026-10-12 14:00 UTC). Sites that sign in only through another
-  site's single sign-on wait for signing in through an identity provider (phase 4,
-  [ADR 0026](adr/0026-sign-in-through-identity-providers.md)); Microsoft's own sign-in
-  page is a target, but a site that signs in only through it is not yet. The list, like
+  site's single sign-on, or only with a code or link sent by email (owner, 14:01 UTC),
+  wait for [phase 4](#phase-4-issues-and-work-as-needed); Microsoft's own sign-in page
+  is a target, but a site that signs in only through it is not yet. The list, like
   the daily-use list, stays in the project's files. Pateat has logged in to Vpass there,
   opened during a takeover after the connection was enabled by hand, and the Bot
   reported a MyJCB login (2026-10-12 13:45 UTC) that nobody else checked. Next: the Bot
