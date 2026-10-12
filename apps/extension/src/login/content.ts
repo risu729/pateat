@@ -594,12 +594,13 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       return false;
     }
     if (command.type === "login.entry.check") {
-      // The page after an entry press: polls until a sign-in input or a first step shows.
+      // The page after an entry press: polls until a sign-in input, an input that asks for
+      // an account identifier alone (ADR 0016), or a first step shows.
       void (async () => {
         const until = Date.now() + command.timeoutMs;
         for (;;) {
           if (cancelled) return { ok: false };
-          const signIn = showsSignIn();
+          const signIn = showsSignIn() || identifierInput(document) !== undefined;
           const start = command.starts.some(ready);
           if (signIn || start || Date.now() >= until)
             return { ok: true, signIn, start, signUp: showsSignUp(document) };

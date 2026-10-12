@@ -453,7 +453,10 @@ export const entryPressResultSchema = v.strictObject({
   ok: v.boolean(),
   reason: v.optional(v.picklist(["page-changed", "target-changed", "cancelled"])),
 });
-/** The answer to `login.entry.check`, for the page after an entry press (ADR 0031). */
+/**
+ * The answer to `login.entry.check`, for the page after an entry press (ADR 0031). `signIn`
+ * also holds for an input that asks for an account identifier alone (ADR 0016).
+ */
 export const entryCheckResultSchema = v.strictObject({
   ok: v.literal(true),
   signIn: v.boolean(),

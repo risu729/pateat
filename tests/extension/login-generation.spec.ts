@@ -459,77 +459,96 @@ test("an abstained continuation settles unknown without judging the page (ADR 00
   }
 });
 
-test("a page that sent the visitor to sign in first presses its Login link to the login page (ADR 0031)", async () => {
-  // The entry page waits ten seconds for a sign-in input before it is sent.
-  test.setTimeout(90_000);
-  const fixture = await startLoginFixture(0, { password });
-  const claude = syntheticClaude();
-  const service = await startSyncService({ claude: claude.answer });
-  // A top page on another host of the site: no form, a "Create account" and a
-  // "Login" link to the login page, and a sign-in through another site.
-  const top = "https://www.synthetic.example.test";
-  try {
-    await withVaultProfile(
-      async (open, externalRequests) => {
-        const browser = await open();
-        await serveSite(browser.context, fixture);
-        const runId = fixture.createRun();
-        await browser.context.route(`${top}/**`, (route) =>
-          route.fulfill({
-            contentType: "text/html",
-            body: `<!doctype html><html lang="en"><head><title>Synthetic art</title></head><body>
+for (const { name, loginPage } of [
+  { name: "login page", loginPage: "/sign-in" },
+  // The login page asks for the account alone, by an input named only `login` (ADR 0016).
+  { name: "identifier page", loginPage: "/identifier" },
+])
+  test(`a page that sent the visitor to sign in first presses its Login link to the ${name} (ADR 0031)`, async () => {
+    // The entry page waits ten seconds for a sign-in input before it is sent, and an
+    // identifier page as long again.
+    test.setTimeout(loginPage === "/sign-in" ? 90_000 : 120_000);
+    const fixture = await startLoginFixture(0, { password, accountName: username });
+    const claude = syntheticClaude();
+    const service = await startSyncService({ claude: claude.answer });
+    // A top page on another host of the site: no form, a "Create account" and a
+    // "Login" link to the login page, and a sign-in through another site.
+    const top = "https://www.synthetic.example.test";
+    try {
+      await withVaultProfile(
+        async (open, externalRequests) => {
+          const browser = await open();
+          await serveSite(browser.context, fixture);
+          const runId = loginPage === "/sign-in" ? fixture.createRun() : undefined;
+          await browser.context.route(`${top}/**`, (route) =>
+            route.fulfill({
+              contentType: "text/html",
+              body: `<!doctype html><html lang="en"><head><title>Synthetic art</title></head><body>
               <header>
                 <a href="${site}/signup">Create account</a>
-                <a href="${site}/sign-in?runId=${runId}">Login</a>
+                <a href="${site}${runId ? `/sign-in?runId=${runId}` : "/identifier?login"}">Login</a>
                 <a href="https://other-site.test/oauth">Continue with Other</a>
               </header>
               <main><h1>Synthetic art</h1><p>Sign in to see your bookmarks.</p></main>
             </body></html>`,
-          }),
-        );
-        const options = await connect(browser, service);
-
-        const page = await browser.context.newPage();
-        await page.goto(`${top}/en/?return_to=%2Fbookmarks`);
-        // The entry page is sent, its Login link pressed, and the login page it leads to is
-        // generated and logs in.
-        await expect(page.locator("#signed-in")).toBeVisible({ timeout: 60_000 });
-        expect(fixture.evidence(runId)).toMatchObject({ posts: 1, allMatched: true });
-        // The press is no login attempt: only the login page's attempt is recorded.
-        await expect
-          .poll(() => send(options, { version: 1, type: "login.probe.status" }))
-          .toMatchObject({ attempts: [{ state: "authenticated", account: { origin: site } }] });
-        expect(claude.prompts.map((prompt) => [prompt.task, prompt.observation.path])).toEqual([
-          ["entry", "/en/"],
-          ["generate", "/sign-in"],
-          ["judge-sign-in", "/account"],
-        ]);
-        // The entry page goes without its query, values or links to another site.
-        const [entry] = claude.prompts;
-        expect(entry!.observation.candidates.map((candidate) => candidate.target)).toEqual([
-          { by: "text", value: "Create account" },
-          { by: "text", value: "Login" },
-        ]);
-        expect(JSON.stringify(claude.prompts)).not.toContain("return_to");
-        expect(JSON.stringify(claude.prompts)).not.toContain("other-site");
-        expect(JSON.stringify(claude.prompts)).not.toContain(password);
-        const recipes = (await (await service.request("/v1/recipes")).json()) as {
-          changes: { recipe?: { origin: string; entry?: unknown } }[];
-        };
-        expect(recipes.changes.map((change) => change.recipe)).toEqual(
-          expect.arrayContaining([
-            expect.objectContaining({
-              origin: top,
-              entry: { path: "/en/", target: { by: "text", value: "Login" } },
             }),
-          ]),
-        );
-        expect([...new Set(externalRequests)].sort()).toEqual(["https://127.0.0.1", site, top]);
-      },
-      { args: ["--ignore-certificate-errors"] },
-    );
-  } finally {
-    await service.close();
-    await fixture.close();
-  }
-});
+          );
+          const options = await connect(browser, service);
+
+          const page = await browser.context.newPage();
+          await page.goto(`${top}/en/?return_to=%2Fbookmarks`);
+          // The entry page is sent, its Login link pressed, and the login page it leads to is
+          // generated and logs in.
+          await expect(page.locator("#signed-in")).toBeVisible({
+            timeout: runId ? 60_000 : 90_000,
+          });
+          if (runId) expect(fixture.evidence(runId)).toMatchObject({ posts: 1, allMatched: true });
+          // One Next and one Log in, each with the matching account and password.
+          else
+            expect(await page.locator("#fixture-status").textContent()).toContain(
+              "Identity clicks: 1; Submit clicks: 1",
+            );
+          // The press is no login attempt: only the login page's attempt is recorded.
+          await expect
+            .poll(() => send(options, { version: 1, type: "login.probe.status" }))
+            .toMatchObject({ attempts: [{ state: "authenticated", account: { origin: site } }] });
+          expect(claude.prompts.map((prompt) => [prompt.task, prompt.observation.path])).toEqual([
+            ["entry", "/en/"],
+            ...(loginPage === "/sign-in"
+              ? [["generate", "/sign-in"]]
+              : [
+                  ["generate", "/identifier"],
+                  ["generate", "/identifier/password"],
+                ]),
+            ["judge-sign-in", "/account"],
+          ]);
+          // The entry page goes without its query, values or links to another site.
+          const [entry] = claude.prompts;
+          expect(entry!.observation.candidates.map((candidate) => candidate.target)).toEqual([
+            { by: "text", value: "Create account" },
+            { by: "text", value: "Login" },
+          ]);
+          expect(JSON.stringify(claude.prompts)).not.toContain("return_to");
+          expect(JSON.stringify(claude.prompts)).not.toContain("other-site");
+          expect(JSON.stringify(claude.prompts)).not.toContain(password);
+          expect(JSON.stringify(claude.prompts)).not.toContain(username);
+          const recipes = (await (await service.request("/v1/recipes")).json()) as {
+            changes: { recipe?: { origin: string; entry?: unknown } }[];
+          };
+          expect(recipes.changes.map((change) => change.recipe)).toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({
+                origin: top,
+                entry: { path: "/en/", target: { by: "text", value: "Login" } },
+              }),
+            ]),
+          );
+          expect([...new Set(externalRequests)].sort()).toEqual(["https://127.0.0.1", site, top]);
+        },
+        { args: ["--ignore-certificate-errors"] },
+      );
+    } finally {
+      await service.close();
+      await fixture.close();
+    }
+  });

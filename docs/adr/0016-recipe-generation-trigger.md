@@ -175,11 +175,10 @@ without one of the excluded words, a member-ID lookup page, or a checkout, conta
 profile page with an email input can be sent (about $0.007 a page, at most once in the
 10-minute window of condition 4), and the AI abstains there. A landing page whose only
 text input is such a field also hides the site's sign-in entry, since a sole identifier
-input goes first. Not covered: an identifier
-input of type `text` beside another text input (a company code), words in other
-languages, and compounds not on the list. A sign-in entry's check of the page it leads
-to ([ADR 0031](0031-sign-in-entry-pages.md)) still looks for a sign-in input only, so an
-entry that leads to such a page is not kept.
+input goes first. Not covered: an identifier input of type `text` beside another text
+input (a company code), words in other languages, and compounds not on the list. Since a
+later owner decision the same day, a sign-in entry whose press leads to such a page
+passes its check ([ADR 0031](0031-sign-in-entry-pages.md)).
 
 ## Username shape
 

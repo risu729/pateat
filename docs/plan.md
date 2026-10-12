@@ -85,19 +85,19 @@ password or passkey, in the Grok Bot computer's Chrome, on a production build of
 - Press a site's sign-in link on a page the site sent the visitor to before signing in,
   shown by a query value naming another path of the same site, such as pixiv's top page
   `https://www.pixiv.net/en/?return_to=%2Fbookmark_new_illust.php`, whose "Login" leads
-  to `https://accounts.pixiv.net/login`
-  ([ADR 0031](adr/0031-sign-in-entry-pages.md), accepted 2026-10-12). Generation on that
-  login page succeeds since build `e9144a6` (2026-10-12 07:24 UTC). The service stores,
-  syncs and lists a recipe with only `entry`, and the extension caches it, never as a
-  login (local tests only); ADR 0028's `chooser` builds on
-  that contract. The service generates that recipe from an entry request, a page sent
-  without slots, with the `entry` decision, its prompt line and plan checks (#336, local
-  tests with fake models only). The extension sends such pages ten seconds after
-  loading, presses a cached entry after the checks before the press, checks the page it
-  leads to and blocks the revision on the device when that page left the site, showed no
-  sign-in input or showed a sign-up form, logging `login.entry`; the entry path counts
-  as a recipe start in `offersGeneration` only (local tests and a synthetic browser test
-  only). Next, verification on pixiv in the owner's Chrome.
+  to `https://accounts.pixiv.net/login` ([ADR 0031](adr/0031-sign-in-entry-pages.md),
+  accepted 2026-10-12). Generation on that login page succeeds since build `e9144a6`
+  (2026-10-12 07:24 UTC). The service stores, syncs and lists a recipe with only
+  `entry`, and the extension caches it, never as a login (local tests only); ADR 0028's
+  `chooser` builds on that contract. The service generates that recipe from an entry
+  request, a page sent without slots, with the `entry` decision, its prompt line and
+  plan checks (#336, local tests with fake models only). The extension sends such pages
+  ten seconds after loading, presses a cached entry after the checks before the press,
+  checks the page it leads to and blocks the revision on the device when that page left
+  the site, showed no sign-in or identifier input (ADR 0016) or showed a sign-up form,
+  logging `login.entry`; the entry path counts as a recipe start in `offersGeneration`
+  only (local tests and a synthetic browser test only). Next, verification on pixiv in
+  the owner's Chrome.
 - [ADR 0029](adr/0029-local-sign-in-state.md) (accepted 2026-10-12): delivery 1 logs the
   local sign-in state of the page after a submission as `login.state`. Delivery 2's
   first part is implemented: evidence of a sign-in that a second reading a second later
