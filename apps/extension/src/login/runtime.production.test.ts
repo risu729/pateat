@@ -449,6 +449,20 @@ function harness(
     );
   return { login, store, fields, recipes, hello, signIn, snapshot: current, settings: snapshot };
 }
+/** The document reports a visible sign-in input on its path without a ready first step. */
+const shownHello = (
+  h: { login: { handle(message: unknown, sender: unknown): Promise<unknown> } },
+  from: Record<string, unknown> = {},
+) =>
+  h.login.handle(
+    {
+      version: 1,
+      type: "login.document.ready",
+      token: "synthetic-token",
+      shown: { path: new URL(fake.state.pageUrl).pathname },
+    },
+    sender(from),
+  );
 
 describe("production login document admission", () => {
   afterEach(() => {
@@ -754,6 +768,49 @@ describe("production login document admission", () => {
     await vi.waitFor(() =>
       expect(fake.state.messages.filter((entry) => entry.type === "login.execute")).toHaveLength(2),
     );
+  });
+  it("logs once when a sign-in input shows but no login starts", async () => {
+    const report = vi.fn<(report: LoginReport) => void>();
+    const h = harness({}, { report });
+    const notStarted = () =>
+      report.mock.calls.map(([entry]) => entry).filter((entry) => entry.type === "refused");
+    // Without a shown sign-in input, watching is not logged.
+    expect(await h.hello({}, false)).toMatchObject({ reason: "form-not-ready" });
+    expect(notStarted()).toEqual([]);
+    // The recipe starts on this path, but its first step's elements were not found.
+    const watching = { ok: false, reason: "form-not-ready", starts: [signinStart] };
+    expect(await shownHello(h)).toEqual(watching);
+    // The same document reporting again is not logged again.
+    expect(await shownHello(h)).toEqual(watching);
+    expect(notStarted()).toEqual([
+      {
+        type: "refused",
+        tabId: 1,
+        origin,
+        reason: "not-started",
+        detail: "first-step-missing",
+      },
+    ]);
+    // No recipe of the origin starts on this path.
+    h.recipes.recipe.mockResolvedValue(undefined);
+    expect(await shownHello(h, { documentId: "elsewhere" })).toMatchObject({
+      reason: "recipe-not-found",
+    });
+    expect(notStarted().at(-1)).toMatchObject({
+      reason: "not-started",
+      detail: "no-recipe-on-path",
+    });
+    expect(h.fields).not.toHaveBeenCalled();
+  });
+  it("does not log a sign-in input on an origin without a recipe", async () => {
+    const report = vi.fn<(report: LoginReport) => void>();
+    const h = harness({}, { report });
+    h.recipes.recipe.mockResolvedValue(undefined);
+    h.recipes.starts.mockResolvedValue([]);
+    expect(await shownHello(h)).toEqual({ ok: false, reason: "recipe-not-found" });
+    expect(report.mock.calls.map(([entry]) => entry)).toEqual([
+      { type: "refused", tabId: 1, origin, reason: "recipe-not-found" },
+    ]);
   });
   it("refuses a different content script instance in an already announced document", async () => {
     const h = harness();
@@ -2586,6 +2643,39 @@ describe("production login document admission", () => {
             reason: "logged-out",
           });
           expect(restarted.fields).not.toHaveBeenCalled();
+        });
+        it("logs a sign-in form that is not taken as a logout, and which tab logged out", async () => {
+          const report = vi.fn<(report: LoginReport) => void>();
+          const h = harness(
+            {},
+            { allowedOrigins: [], uris: async () => ({ ok: true, data: both }), report },
+          );
+          const refusals = () =>
+            report.mock.calls.map(([entry]) => entry).filter((entry) => entry.type === "refused");
+          expect(await h.hello()).toEqual({ ok: true });
+          await vi.waitFor(() => expect(attempts()).toMatchObject([{ state: "authenticated" }]));
+          // A sign-in input whose form is not the recipe's first step: still logged in.
+          const watching = { ok: false, reason: "logged-in", starts: [signinStart] };
+          expect(await shownHello(h, { documentId: "home" })).toEqual(watching);
+          expect(await shownHello(h, { documentId: "home" })).toEqual(watching);
+          expect(refusals()).toEqual([
+            { type: "refused", tabId: 1, origin, reason: "not-started", detail: "logged-in" },
+          ]);
+          expect(await h.hello({ documentId: "signed-out" })).toEqual({
+            ok: false,
+            reason: "logged-out",
+          });
+          expect(refusals().at(-1)).toMatchObject({ reason: "logged-out", detail: "this-tab" });
+          fake.state.tabUrls[2] = fake.state.pageUrl;
+          expect(await h.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({
+            ok: false,
+            reason: "logged-out",
+          });
+          expect(refusals().at(-1)).toMatchObject({
+            tabId: 2,
+            reason: "logged-out",
+            detail: "other-tab",
+          });
         });
         it("asks in other tabs of the site while it asks, and a pick there logs in", async () => {
           const h = await loggedOut();

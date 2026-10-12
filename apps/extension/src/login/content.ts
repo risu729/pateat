@@ -139,6 +139,9 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   // after loading; a form shown only later, for example after a click, is not sent.
   let generate = false;
   let offered = false;
+  // Paths where a sign-in input showed without a ready first step, reported once each so
+  // the background can log a login that did not start.
+  const shown = new Set<string>();
   let offerTimer: ReturnType<typeof setTimeout> | undefined;
   let observer: MutationObserver | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -231,13 +234,15 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       announced = false;
       retries = 0;
       // Offered once per page; the background keeps its own daily limit as well.
-      if (generate && !offered && showsSignIn()) {
-        offered = true;
-        void announce(false, true).catch(() => undefined);
+      const offering = generate && !offered;
+      if ((offering || !shown.has(location.pathname)) && showsSignIn()) {
+        if (offering) offered = true;
+        shown.add(location.pathname);
+        void announce(false, offering, true).catch(() => undefined);
       }
     }
   }
-  async function announce(start: boolean, signIn = false): Promise<unknown> {
+  async function announce(start: boolean, signIn = false, seen = false): Promise<unknown> {
     announced = start;
     const result: unknown = await browser.runtime.sendMessage({
       version: 1,
@@ -245,6 +250,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       token,
       ...(start ? { start: { path: location.pathname } } : {}),
       ...(signIn ? { signIn: { path: location.pathname } } : {}),
+      ...(seen ? { shown: { path: location.pathname } } : {}),
     });
     const parsed = v.safeParse(readySchema, result);
     if (!parsed.success || parsed.output.ok) {
