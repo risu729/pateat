@@ -384,7 +384,9 @@ ended `interrupted` without submitting, or one Pateat itself stopped with nothin
 flight (such as `policy-changed`) does not. A tab keeps one attempt record per
 origin and runs one attempt at a time; a page resumes only its own origin's record, and
 a top-level attempt that may have submitted ends `left-origin` when the tab moves to
-another origin ([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md)). Wider
+another origin. An ended record of a site the tab left, including a frame's login on
+that site's page, never holds the new site's page or its frames
+([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md)). Wider
 shared-session domains need explicit coordination before broader support, not a guessed
 relationship between origins.
 
@@ -709,18 +711,18 @@ that exact page URL and returns a value-free summary
 The worker fetches `/health` only for a paired service with site access, and
 `/v1/device` only then and while the service has not rejected the credential, with a 5 s
 timeout; that route reads the database and imports the signing key, but signs nothing
-and never exchanges a Claude token. It
-fetches `{api}/config` only for an enabled connection whose provider permission sync
-also requires, with a 5 s timeout and no credentials. It never reads the config's
-`environment` (host URLs) or a third-party server's name other than Vaultwarden.
-**Copy for bug report** shows the exact text before copying it; that text leaves out the
-unlock KDF parameters. It ends with the log's last update
-(`Updated <time> from <revision>`), its warnings and errors of the last 24 hours (newest
-10, one line each with the time, level, event and allowlisted field values) and the
-count of passkey requests left to the browser in those 24 hours by reason. The worker
-builds these lines from the log and numbers sites and recipes in them as in a download,
-but separately, so `site-1` there can be another site than in **Download logs**. Labels,
-emails, item names and IDs, URLs and host names are never part of the summary.
+and never exchanges a Claude token. It fetches `{api}/config` only for an enabled
+connection whose provider permission sync also requires, with a 5 s timeout and no
+credentials. It never reads the config's `environment` (host URLs) or a third-party
+server's name other than Vaultwarden. **Copy for bug report** shows the exact text
+before copying it; that text leaves out the unlock KDF parameters. It ends with the
+log's last update (`Updated <time> from <revision>`), its warnings and errors of the
+last 24 hours (newest 10, one line each with the time, level, event and allowlisted
+field values) and the count of passkey requests left to the browser in those 24 hours by
+reason. The worker builds these lines from the log and always numbers sites and recipes
+in them as a download does when they are hidden, but separately, so `site-1` there can
+be another site than in **Download logs**. Labels, emails, item names and IDs, URLs and
+host names are never part of the summary.
 
 The owner checked the page in installed Chrome on 2026-10-11 against production
 (extension main 8581f1d, service e48b4e7). The Bitwarden cloud server showed as
@@ -749,7 +751,7 @@ kind's check is left out and a string over 512 characters becomes `"[truncated]"
 | `login.attempt` | debug when a new page resumes the attempt without changing its state or outcome; otherwise info for `authenticated` and `retryable`, warn for `blocked` and when the result settles as unknown (`unknown-submit`, marked `settled`), so a login that did not finish counts as a warning, else debug | origin, recipe ID, route and `password` variant, state, step, step count, the current step's kind (`fill`, `click`, `wait`, `assert`) and effect (`prepare`, `advance`, `submit`), the entered handler the step belongs to, outcome; for `policy-changed`, its cause and a refused plan's reason |
 | `login.handler` | info | origin, recipe ID, handler index, kind, step count; `entered`, `shown-again` (left to the person after this login ran it), `missing-fact` (the item lacks what the handler needs, including a `totp` handler's built-in TOTP field), `code-used` (a `totp` handler in a login that already types a TOTP code) or `no-room` (the attempt's step or submission budget is spent) |
 | `login.state` | debug for a later page of an attempt that already settled as unknown, else info | origin, recipe ID, route; the page signs of [ADR 0029](adr/0029-local-sign-in-state.md) that show, as flags: a sign-in element of the route (`s1`), a password input not for a new password and not in a form with two or more shown password inputs (`s2`), a code input (`s3`), a CAPTCHA widget (`s4`), a passkey request of the top document after the step, outside conditional mediation (`s5`), a new invalid mark on the step's sign-in inputs (`f1`) or new alert text, read as the fill check reads it (`f2`), next to the sign-in fields in the submitted document, the signed-in marker on any path (`e1`), the username in the header or navigation (`e2`), the return target the sign-in page's URL named (`e3`); and what the ADR would do (`rejected`, `unknown`, `continuing`, `signed-in`, `judge`); `settled` for a later page of an attempt that already settled as unknown. Logged for a page after an effect step that no check explained, before the judge is asked; it changes nothing (delivery 1). A login in a frame is not read |
-| `login.refused` | debug for `recipe-not-found`, `stale-document`, `generating`, and `tab-busy` in a frame (a held tab refuses every frame on its page, such as ad frames); else info | origin, reason, `frame` for a frame; for `no-route` on a recipe with several `password` variants, the first variant's reason as its detail |
+| `login.refused` | debug for `recipe-not-found`, `stale-document`, `generating`, and `tab-busy` in a frame (a held tab refuses every frame on its page, such as ad frames); else info | origin, reason, `frame` for a frame; for `no-route` on a recipe with several `password` variants, the first variant's reason as its detail; for `logged-out`, which tab logged out (`this-tab` or `other-tab`); `not-started` when a page of an origin with a recipe shows a visible password, username or one-time-code input for 10 seconds without a ready first step and only watches, once per document and path, with why: the tab's earlier login of the origin finished and this form is not a recipe's first step on its path, so it is not taken as a logout (`logged-in`), a recipe starts on this path but its first step's elements are not found (`first-step-missing`), or the origin's recipes start only on other paths (`no-recipe-on-path`) |
 | `recipe.generate` | debug for `skipped` with `no-vault-match`, else info | origin, outcome (`recipe`, `abstained`, `failed`, `unavailable`, `skipped`) and its reason: the abstention, failure or unavailable code, `device-rejected`, `error` for a thrown error, or why nothing was sent (`sending`, `sent`, `no-vault-match`, `incomplete-observation`, the content script's refusal (`no-candidates` for no field or nothing in a login form to locate or act on, `no-locator` for a login form whose controls could not be located, `unsupported-page` for a refused path or a description that fails its schema, `extract-error` when the extractor threw, `cancelled` for a cancelled document), `extract-failed` for an answer that fails its check or never came, `no-slots`, `not-connected`, `storage-unavailable`); for `invalid-output`, the check that refused the model's output (`json`, `schema` or `plan`), the plan check's code or the output format's issue, and for a format issue where in the output it was; a page that is not sent is logged once per document, with the last reason after up to three reads a second apart |
 | `recipe.judge` | debug for `sent`, else info | origin, recipe ID and revision, route; `sent` when the page goes out, then the verdict (`signed-in`, `rejected`, `challenge`, `unclear`, `retry`); for `unclear` and `retry`, the transport, service or model code (for example `already-judged`, `busy`, `timeout`); for a returned revision, whether this login took it over; `not-sent` when the page after an effect step is not sent to the judge, with why: the step's two pages were already sent (`page-limit`), a sign-in field of the route still shows on a sign-in path (`sign-in-shown`), the completion marker shows but does not prove the sign-in, as on another path than its own (`marker-shown`), a field in a shadow root (`shadow-field`), one that cannot be filled and is disabled or may be a sign-in field (`unfillable-field`: a password or email input, one with a `username`, `email`, `current-password`, `new-password` or `one-time-code` autocomplete token, or a short numeric field; other read-only, transparent or tiny fields, as a read-only date picker, are left out), one without a usable locator (`unlocated-field`), more than 48 fields (`too-many-fields`), nothing to describe (`no-candidates`), a refused path or a description that fails its schema (`unsupported-page`), an extractor that threw (`extract-error`), a response that fails its check (`invalid-page`), a cancelled login (`cancelled`), a page that changed meanwhile (`page-changed`) or could not be asked (`unreachable`) |
 | `passkey.request` | info | the passkey report described in [development](development.md#why-a-passkey-request-was-delegated) |
@@ -786,9 +788,10 @@ only. **Download logs** previews the exact JSON Lines text and saves it through 
 link (no `downloads` permission): a header line with the version, revision and export
 time, then one line per entry. **Copy all** puts the same text on the clipboard in full,
 without selecting the scrolled preview by hand, and reports how many entries it copied.
-Unless **Include site addresses and recipe IDs** is checked, every origin, pseudonymized
-origin and RP ID becomes `site-N` and every recipe ID `recipe-N`, numbered within that
-export. **Clear logs** deletes every entry and replaces the pseudonym key.
+The export shows sites and recipe IDs as logged. When
+**Hide site addresses and recipe IDs** is checked, every origin, pseudonymized origin
+and RP ID becomes `site-N` and every recipe ID `recipe-N`, numbered within that export.
+**Clear logs** deletes every entry and replaces the pseudonym key.
 
 ## Declarative recipes and AI
 

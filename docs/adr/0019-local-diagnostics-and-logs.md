@@ -2,7 +2,8 @@
 
 Status: accepted by the owner on 2026-10-11 and amended the same day (see
 [Amendment: server information](#amendment-server-information)) and on 2026-10-12 (see
-[Amendment: logins that did not finish](#amendment-logins-that-did-not-finish)). The
+[Amendment: logins that did not finish](#amendment-logins-that-did-not-finish) and
+[Amendment: sites shown in log downloads](#amendment-sites-shown-in-log-downloads)). The
 diagnostics page, the logs, the Bitwarden server information, recent log lines and the
 Pateat service's record for the device are implemented.
 
@@ -77,7 +78,8 @@ The owner approved the following on 2026-10-11.
   bindings or excluded sites; any other origin is logged as `origin:7d2b91aa`, so the
   log does not become a browsing history.
 - Copy and download replace origins, passkey RP IDs and recipe IDs with `site-1` and
-  `recipe-1` within one export unless the user opts in. Self-hosted Bitwarden and Pateat
+  `recipe-1` within one export unless the user opts in (amended below: they are shown
+  unless the user hides them). Self-hosted Bitwarden and Pateat
   service host names are never shown. The unlock KDF parameters are never exported
   (amended below: the KDF family is).
 - Exceptions keep `error.name` and stack positions; `error.message` is kept only when it
@@ -169,3 +171,16 @@ happened:
   since a login can stop for reasons outside Pateat, such as a site's own challenge.
 - A `tab-busy` refusal of a frame, not the tab's page, is `debug`, and the entry marks
   `frame`. A refusal of the tab's page stays `info`.
+
+## Amendment: sites shown in log downloads
+
+On 2026-10-12 the owner asked to reverse the log download's checkbox: site addresses
+and recipe IDs are what a log is read for, and hiding them should be the choice made on
+purpose.
+
+- **Download logs** now shows origins, passkey RP IDs and recipe IDs as logged. The
+  checkbox reads **Hide site addresses and recipe IDs**; checking it numbers them as
+  `site-N` and `recipe-N` within that export, as before.
+- Origins of sites not set up when an entry was written stay pseudonymous
+  (`origin:7d2b91aa`) either way, so the log still does not become a browsing history.
+- The bug report's recent log lines keep their `site-N` and `recipe-N` numbering.

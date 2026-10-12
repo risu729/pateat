@@ -453,6 +453,20 @@ function harness(
     );
   return { login, store, fields, recipes, hello, signIn, snapshot: current, settings: snapshot };
 }
+/** The document reports a visible sign-in input on its path without a ready first step. */
+const shownHello = (
+  h: { login: { handle(message: unknown, sender: unknown): Promise<unknown> } },
+  from: Record<string, unknown> = {},
+) =>
+  h.login.handle(
+    {
+      version: 1,
+      type: "login.document.ready",
+      token: "synthetic-token",
+      shown: { path: new URL(fake.state.pageUrl).pathname },
+    },
+    sender(from),
+  );
 
 describe("production login document admission", () => {
   afterEach(() => {
@@ -760,6 +774,49 @@ describe("production login document admission", () => {
       expect(fake.state.messages.filter((entry) => entry.type === "login.execute")).toHaveLength(2),
     );
   });
+  it("logs once when a sign-in input shows but no login starts", async () => {
+    const report = vi.fn<(report: LoginReport) => void>();
+    const h = harness({}, { report });
+    const notStarted = () =>
+      report.mock.calls.map(([entry]) => entry).filter((entry) => entry.type === "refused");
+    // Without a shown sign-in input, watching is not logged.
+    expect(await h.hello({}, false)).toMatchObject({ reason: "form-not-ready" });
+    expect(notStarted()).toEqual([]);
+    // The recipe starts on this path, but its first step's elements were not found.
+    const watching = { ok: false, reason: "form-not-ready", starts: [signinStart] };
+    expect(await shownHello(h)).toEqual(watching);
+    // The same document reporting again is not logged again.
+    expect(await shownHello(h)).toEqual(watching);
+    expect(notStarted()).toEqual([
+      {
+        type: "refused",
+        tabId: 1,
+        origin,
+        reason: "not-started",
+        detail: "first-step-missing",
+      },
+    ]);
+    // No recipe of the origin starts on this path.
+    h.recipes.recipe.mockResolvedValue(undefined);
+    expect(await shownHello(h, { documentId: "elsewhere" })).toMatchObject({
+      reason: "recipe-not-found",
+    });
+    expect(notStarted().at(-1)).toMatchObject({
+      reason: "not-started",
+      detail: "no-recipe-on-path",
+    });
+    expect(h.fields).not.toHaveBeenCalled();
+  });
+  it("does not log a sign-in input on an origin without a recipe", async () => {
+    const report = vi.fn<(report: LoginReport) => void>();
+    const h = harness({}, { report });
+    h.recipes.recipe.mockResolvedValue(undefined);
+    h.recipes.starts.mockResolvedValue([]);
+    expect(await shownHello(h)).toEqual({ ok: false, reason: "recipe-not-found" });
+    expect(report.mock.calls.map(([entry]) => entry)).toEqual([
+      { type: "refused", tabId: 1, origin, reason: "recipe-not-found" },
+    ]);
+  });
   it("refuses a different content script instance in an already announced document", async () => {
     const h = harness();
     expect(await h.hello({}, false)).toMatchObject({ reason: "form-not-ready" });
@@ -932,6 +989,11 @@ describe("production login document admission", () => {
         ok: false,
         reason: "tab-busy",
       });
+      // A sign-in input reported only for the log does not log the hold again.
+      expect(await shownHello(h, { documentId: "page-document", url: top })).toEqual({
+        ok: false,
+        reason: "tab-busy",
+      });
       // The log tells a refused frame from the tab's page.
       expect(
         report.mock.calls.flatMap(([value]) =>
@@ -1050,7 +1112,7 @@ describe("production login document admission", () => {
     const stored = () => (fake.state.storage["pateat.login-attempts.v3"] ?? []) as Stored[];
     const at = (from: string) => stored().find((entry) => entry.account.origin === from);
     /** Both origins have their own recipe, binding and saved default for the same item. */
-    const twoSites = () => {
+    const twoSites = (live: Parameters<typeof harness>[1] = {}) => {
       const h = harness(
         {
           siteDefaults: [
@@ -1059,7 +1121,7 @@ describe("production login document admission", () => {
           ],
           bindings: [savedBinding, { ...savedBinding, recipeId: secondRecipe.id, origin: second }],
         },
-        { allowedOrigins: [origin, second] },
+        { allowedOrigins: [origin, second], ...live },
       );
       h.recipes.recipe.mockImplementation(async (from: string, path: string) =>
         path !== "/signin"
@@ -1139,6 +1201,112 @@ describe("production login document admission", () => {
         expect.objectContaining({ document: expect.objectContaining({ origin: second }) }),
         expect.objectContaining({ document: expect.objectContaining({ origin: second }) }),
       ]);
+    });
+    /** A page of the second site whose login form is in a frame of the same origin. */
+    const secondPage = `${second}/account`;
+    const secondFrame = () => {
+      fake.state.tabUrls[1] = secondPage;
+      return h2frame;
+    };
+    const h2frame = {
+      frameId: 3,
+      documentId: "second-frame",
+      url: secondUrl,
+      tab: { id: 1, url: secondPage },
+    };
+    it("starts the next site's framed login after the tab's login ended on another site", async () => {
+      fake.state.executeReply = { ok: false, reason: "wrong-account" };
+      const h = twoSites();
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() =>
+        expect(at(origin)).toMatchObject({ state: "blocked", outcome: "wrong-account" }),
+      );
+      fake.state.executeReply = undefined;
+      expect(await navigate(h, secondPage, "second-page", false)).toMatchObject({ ok: false });
+      // The ended login of the site the tab left never holds the next site's frame.
+      expect(await h.hello(secondFrame())).toEqual({ ok: true });
+      await vi.waitFor(() => expect(at(second)).toMatchObject({ state: "authenticated" }));
+      expect(at(origin)).toMatchObject({ state: "blocked", outcome: "wrong-account" });
+    });
+    it("lets the next site log in after the tab's framed login on another site", async () => {
+      const portal = "https://portal.example/account";
+      const h = twoSites({ allowedOrigins: [origin, second, "https://portal.example"] });
+      fake.state.tabUrls[1] = portal;
+      expect(
+        await h.hello({ frameId: 5, documentId: "portal-frame", tab: { id: 1, url: portal } }),
+      ).toEqual({ ok: true });
+      await vi.waitFor(() =>
+        expect(at(origin)).toMatchObject({
+          state: "authenticated",
+          document: { frameId: 5 },
+          pageOrigin: "https://portal.example",
+        }),
+      );
+      // After a worker restart, the next site's page and its frame are not held either.
+      const query = fake.browser.tabs.query;
+      fake.browser.tabs.query = async () => [{ id: 1 }] as never;
+      try {
+        const restarted = twoSites();
+        expect(await restarted.login.active()).toBe(false);
+        expect(await navigate(restarted, secondPage, "second-page", false)).toMatchObject({
+          reason: "recipe-not-found",
+        });
+        expect(await restarted.hello(secondFrame())).toEqual({ ok: true });
+        await vi.waitFor(() => expect(at(second)).toMatchObject({ state: "authenticated" }));
+        expect(at(origin)).toMatchObject({ state: "authenticated", document: { frameId: 5 } });
+      } finally {
+        fake.browser.tabs.query = query;
+      }
+    });
+    it("ends the left site's login when the next site's frame announces before its page", async () => {
+      holdClicks(origin);
+      const h = twoSites();
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(executes()).toHaveLength(2));
+      expect(await h.hello(secondFrame())).toEqual({ ok: true });
+      expect(at(origin)).toMatchObject({
+        state: "blocked",
+        outcome: "left-origin",
+        submissions: 1,
+      });
+      await vi.waitFor(() => expect(at(second)).toMatchObject({ state: "authenticated" }));
+      expect(await h.login.active()).toBe(false);
+    });
+    it("still holds a frame of the same page while its login runs", async () => {
+      holdClicks(origin);
+      const h = twoSites();
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(executes()).toHaveLength(2));
+      // A frame of the second site's origin inside the first site's page is not another site.
+      expect(await h.hello({ ...h2frame, tab: { id: 1, url: fake.state.pageUrl } })).toEqual({
+        ok: false,
+        reason: "tab-busy",
+      });
+      expect(at(origin)).toMatchObject({ state: "submit-intent" });
+    });
+    it("offers the next site's page for generation after the tab's login ended", async () => {
+      fake.state.executeReply = { ok: false, reason: "wrong-account" };
+      const available = vi.fn<LoginGeneration["available"]>(async () => true);
+      const h = twoSites({
+        uris: async (_connection, url) => ({
+          ok: true,
+          data: uriMatch({ targetOrigin: new URL(url).origin }),
+        }),
+        generation: {
+          available,
+          generate: vi.fn<LoginGeneration["generate"]>(),
+          judge: vi.fn<LoginGeneration["judge"]>(),
+          slotFields: vi.fn<LoginGeneration["slotFields"]>(async () => undefined),
+        },
+      });
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() =>
+        expect(at(origin)).toMatchObject({ state: "blocked", outcome: "wrong-account" }),
+      );
+      expect(
+        await navigate(h, "https://elsewhere.example/login", "elsewhere-document", false),
+      ).toEqual({ ok: false, reason: "recipe-not-found", starts: [], generate: true });
+      expect(available).toHaveBeenCalledWith("https://elsewhere.example", "/login");
     });
     it("ends a submitted attempt when the next origin has no recipe", async () => {
       holdClicks(origin);
@@ -2706,6 +2874,39 @@ describe("production login document admission", () => {
             reason: "logged-out",
           });
           expect(restarted.fields).not.toHaveBeenCalled();
+        });
+        it("logs a sign-in form that is not taken as a logout, and which tab logged out", async () => {
+          const report = vi.fn<(report: LoginReport) => void>();
+          const h = harness(
+            {},
+            { allowedOrigins: [], uris: async () => ({ ok: true, data: both }), report },
+          );
+          const refusals = () =>
+            report.mock.calls.map(([entry]) => entry).filter((entry) => entry.type === "refused");
+          expect(await h.hello()).toEqual({ ok: true });
+          await vi.waitFor(() => expect(attempts()).toMatchObject([{ state: "authenticated" }]));
+          // A sign-in input whose form is not the recipe's first step: still logged in.
+          const watching = { ok: false, reason: "logged-in", starts: [signinStart] };
+          expect(await shownHello(h, { documentId: "home" })).toEqual(watching);
+          expect(await shownHello(h, { documentId: "home" })).toEqual(watching);
+          expect(refusals()).toEqual([
+            { type: "refused", tabId: 1, origin, reason: "not-started", detail: "logged-in" },
+          ]);
+          expect(await h.hello({ documentId: "signed-out" })).toEqual({
+            ok: false,
+            reason: "logged-out",
+          });
+          expect(refusals().at(-1)).toMatchObject({ reason: "logged-out", detail: "this-tab" });
+          fake.state.tabUrls[2] = fake.state.pageUrl;
+          expect(await h.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({
+            ok: false,
+            reason: "logged-out",
+          });
+          expect(refusals().at(-1)).toMatchObject({
+            tabId: 2,
+            reason: "logged-out",
+            detail: "other-tab",
+          });
         });
         it("asks in other tabs of the site while it asks, and a pick there logs in", async () => {
           const h = await loggedOut();
