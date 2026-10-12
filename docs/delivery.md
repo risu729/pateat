@@ -193,11 +193,19 @@ run ID, event, branch, per-file and migration digests, Worker name, the account 
 health URL on the Worker's Custom Domain), applies the released migrations, deploys
 through the pinned action without rebuilding, and verifies returned deployment IDs and
 the hosted revision; it tries `/health` up to 30 times, 2 seconds apart, while the new
-version propagates. Before `cf d1 migrations apply`, it reads the database by the
-recorded ID and requires the name `pateat`; afterwards no migration may remain
-unapplied. A failed migration stops the release before activation. Before the first
-public release, migrations need not be additive and the previously serving Worker need
-not keep running on the new schema
+version propagates. The action creates the 100% deployment and then reads it back from
+the Cloudflare API within a fixed 30 seconds; it never repeats an upload or activation
+itself. On 2026-10-12, in three of four releases between 12:26 and 12:54 UTC (ffa712f,
+0a73b56, e199920), Cloudflare answered "not visible yet" (HTTP 404, error 10336) for the
+whole budget, the action failed with `deployment_readback_pending`, and the health and
+smoke steps were skipped although `/health` already reported the new revision. The job
+therefore runs the activation a second time when the first one fails; the retry must
+pass the same strict readback, and when both fail the job fails (check `/health` before
+re-running). Before `cf d1 migrations apply`, it reads the database by the recorded ID
+and requires the name `pateat`; afterwards no migration may remain unapplied. A failed
+migration stops the release before activation. Before the first public release,
+migrations need not be additive and the previously serving Worker need not keep running
+on the new schema
 ([compatibility before release](development.md#compatibility-before-release)); cf
 compares applied migrations by name only, so an applied migration file is never edited.
 `cf d1 migrations` is a preview command of the pinned beta cf; recheck this step when cf
