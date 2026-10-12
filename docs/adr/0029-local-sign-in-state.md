@@ -58,7 +58,10 @@ then answered 04:51 and 04:54 UTC):
   keep their behaviour. The new check replaces the step that sends an unexplained page
   to the judge.
 - **Signs that authentication goes on**, read from the top document, in any language:
-  - S1: one of the recipe's sign-in fields is visible.
+  - S1: one of the recipe's sign-in fields is visible. Only an input of a kind Pateat
+    fills counts as a field: on 2026-10-12 Wise's signed-in page gave the password
+    field's React ID to an empty `div`, which was read as the field. The passkey route's
+    button counts when visible, as before.
   - S2: a visible password field, except one with `autocomplete="new-password"` and the
     password fields of a form with two or more of them (a password change or
     registration form, where the current password must never go).

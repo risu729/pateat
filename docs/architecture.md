@@ -687,10 +687,12 @@ and does not count. A judged page's path carries `[id]` in place of each segment
 may hold a token, so pages that differ only there share one judgement, its locators
 never use an attribute value that may be a token, and a field no locator names is left
 out unless it may be a sign-in field (ADR 0029); no handler is learned on a path with
-`[id]`. A page where a route's sign-in field shows (S1), on any path, is not sent. A
-handler's click is a new effect step. A `challenge` verdict that added a handler hands
-back the newer revision: the attempt takes it over (`REVISED`) when it only adds
-handlers or signed-in markers, and runs the handler on the page it is on. A resumed
+`[id]`. A page where a route's sign-in field shows (S1), on any path, is not sent; only
+an input of a kind Pateat fills counts as that field, never another element its locator
+names on another page, while the passkey route's button counts as shown. A handler's
+click is a new effect step. A `challenge` verdict that added a handler hands back the
+newer revision: the attempt takes it over (`REVISED`) when it only adds handlers or
+signed-in markers, and runs the handler on the page it is on. A resumed
 attempt accepts a newer cached revision on the same terms only while the worker still
 holds its recorded revision; after a worker restart only the recorded revision resumes.
 What the judge answers settles the login on the `password` route as the ADR's outcome

@@ -111,6 +111,7 @@ import {
   START_TRY_WINDOW_MS,
   type ExecutionDetail,
   type LoginReadiness,
+  type TargetRequirement,
   type TargetState,
   type LoginSecretKind,
 } from "./wire";
@@ -2823,7 +2824,7 @@ export function createLoginRuntime(
   async function observe(
     run: Execution,
     targets: LoginTarget[],
-    require?: ("writable" | "clickable" | "shown" | "present")[],
+    require?: TargetRequirement[],
     links?: boolean[],
     signIn = false,
   ) {
@@ -3113,6 +3114,11 @@ export function createLoginRuntime(
     });
     return { decision: reading.decision, confirmed };
   }
+  /** Whether a sign-in target is the passkey route's button rather than a field (ADR 0027). */
+  function passkeyButton(run: Execution, target: LoginTarget): boolean {
+    const button = run.metadata.route === "passkey" ? run.recipe.passkey?.target : undefined;
+    return button !== undefined && sameLoginTarget(target, button);
+  }
   /**
    * The page's signs of ADR 0029 and the decision they give, and whether the document has
    * finished loading. The username goes to the page's content script for its comparison
@@ -3129,10 +3135,13 @@ export function createLoginRuntime(
     // The markers are read on their own, so they never crowd out the sign-in fields.
     const proof = markerProof(recipe);
     const fills = routeSignInTargets(recipe, metadata.route).slice(0, 24);
+    // Only a shown input counts as a field: another page may give a sign-in field's locator
+    // to another element, as Wise's signed-in page gave its React ID to an empty div
+    // (2026-10-12). The passkey route's button is no input and counts when shown.
     const observed = await observe(
       run,
       fills,
-      fills.map(() => "shown" as const),
+      fills.map((target) => (passkeyButton(run, target) ? "shown" : "shown-input")),
     );
     if (!observed) return undefined;
     const marked =
@@ -3462,7 +3471,10 @@ export function createLoginRuntime(
     const remaining = await observe(
       run,
       [...fills, ...marker],
-      [...fills.map(() => "present" as const), ...marker.map(() => "shown" as const)],
+      [
+        ...fills.map((target) => (passkeyButton(run, target) ? "present" : "input")),
+        ...marker.map(() => "shown" as const),
+      ],
       marker.length > 0 ? [...fills.map(() => false), ...marker.map(() => true)] : undefined,
     );
     if (!remaining) {
@@ -3476,7 +3488,9 @@ export function createLoginRuntime(
       reading?.decision === "unknown" ||
       reading?.decision === "rejected" ||
       (paths.includes(remaining.path) &&
-        remaining.targets.slice(0, fills.length).some((state) => state !== "missing"))
+        remaining.targets
+          .slice(0, fills.length)
+          .some((state) => state !== "missing" && state !== "unusable"))
     )
       return notSent("sign-in-shown");
     // A marker shows, but the completion check did not prove the sign-in: more than one
