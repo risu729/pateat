@@ -41,8 +41,8 @@ const landmarkSelector = 'header, nav, [role="banner"], [role="navigation"]';
 const alertReadLimit = 1000;
 /** How much of the header and navigation is read for the username. */
 const landmarkReadLimit = 4000;
-/** Shorter usernames match too much unrelated text. */
-const minUsernameLength = 3;
+/** Shorter usernames match too much unrelated text; the observation's hiding uses it too. */
+export const minUsernameLength = 3;
 /**
  * Frames of the CAPTCHA services, by host and path: reCAPTCHA (`google.com/recaptcha/`,
  * `recaptcha.net/recaptcha/`), hCaptcha and Cloudflare Turnstile.

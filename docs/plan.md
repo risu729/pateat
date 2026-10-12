@@ -125,12 +125,21 @@ password or passkey, in the Grok Bot computer's Chrome, on a production build of
   only). Not fixed: `generate` in `apps/extension/src/service/generation.ts` ignores a
   failed sync after generation, so a page could still find no recipe.
 - Redact the account's own username from every page observation sent to the service
-  (generation, its continuation after an `advance` step, and the judge): text that
-  matches a matching item's username exactly, ignoring case, becomes a placeholder. The
-  username is read locally as for the username shape
+  (generation, its continuation after an `advance` step, and the judge): each matching
+  item's username of three or more characters is hidden as `[account]` wherever it
+  shows as a whole text or as part of a longer one, ignoring case and width, under ADR
+  0028's rule for a listed name; a control whose locator holds one is left out, or the
+  page is refused (`username-shown`) when that would leave it incomplete; and a failed
+  username read refuses the page (`username-unread`). The username is read locally as
+  for the username shape
   ([ADR 0016](adr/0016-recipe-generation-trigger.md#username-shape)) and never sent. The
   page after an `advance` step, like any judged page, can show the identifier just
-  entered (continuation review, 2026-10-12). Not implemented yet.
+  entered (continuation review, 2026-10-12). Implemented (this change, local tests
+  only; [architecture](architecture.md#declarative-recipes-and-ai)). Not covered: an
+  email username's local part shown alone, a username in the origin (a personal
+  subdomain), and the usernames of items on a connection that could not answer. Sign-in
+  entry pages ([ADR 0031](adr/0031-sign-in-entry-pages.md)) are not covered either,
+  because that ADR reads nothing of the vault there beyond the URI match.
 - Choosing again after a logout on the passkey side: after a finished login in a tab,
   the login appearing again there asks for a choice for passwords, and the passkey half
   of that is not implemented yet
