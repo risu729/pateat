@@ -185,23 +185,23 @@ rejected. Secret operations do not use broadcast messages.
 The host exposes fixed authentication, session and field operations only to
 trusted background code, with no generic page-facing SDK API.
 
-Every background incarnation replaces any surviving offscreen document before
-accepting secret work. Request and session identities include fresh generation
-bindings. Disconnect, cancellation and deadlines invalidate pending results and
-terminate the affected Workers; a fresh host never replays old operations.
-A session's Worker runs one job at a time, so the host delivers a session's jobs in
-turn: a job for a busy session waits instead of failing `resource-limit`, as when a
-passkey is signed while a login matches the page's URI. A waiting job gets a full budget
-once it is delivered. A job cancelled while it waits, or whose wait outlasts its budget
-(`resource-limit`), never reaches the Worker and leaves the session open. Locking or
-closing the session fails its waiting jobs with `crypto-locked`, and the pending limit
-still refuses extra jobs with `resource-limit`.
-The initial caller remains a synthetic compatibility probe. Durable cache,
-retained unlock material and production connection setup are separate gates.
-More than one staged session may exist for a connection. Opening a new snapshot
-does not itself accept it or retire older sessions. The future cache manager must
-explicitly retire superseded handles and invalidate affected policy/recipe
-references before accepting a replacement snapshot for credential release.
+Every background incarnation replaces any surviving offscreen document before accepting
+secret work. Request and session identities include fresh generation bindings.
+Disconnect, cancellation and deadlines invalidate pending results and terminate the
+affected Workers; a fresh host never replays old operations. A session's Worker runs one
+job at a time, so the host delivers a session's jobs in turn: a job for a busy session
+waits instead of failing `resource-limit`, as when a passkey is signed while a login
+matches the page's URI. A waiting job gets a full budget once it is delivered, so it can
+take up to twice its budget in all. A job cancelled while it waits, or whose wait
+outlasts its budget (`resource-limit`), never reaches the Worker and leaves the session
+open. Locking or closing the session fails its waiting jobs with `crypto-locked`, and
+the pending limit still refuses extra jobs with `resource-limit`. The initial caller
+remains a synthetic compatibility probe. Durable cache, retained unlock material and
+production connection setup are separate gates. More than one staged session may exist
+for a connection. Opening a new snapshot does not itself accept it or retire older
+sessions. The future cache manager must explicitly retire superseded handles and
+invalidate affected policy/recipe references before accepting a replacement snapshot for
+credential release.
 
 Design later personal API key, SSO, device approval and Bitwarden passkey login
 flows without assuming every user has a master password. Authentication and

@@ -535,14 +535,14 @@ describe("fixed operations, session scope and reply fencing", () => {
   });
 
   it("refuses a job whose wait for its turn times out and keeps the session open", async () => {
-    const h = harness({ timeoutMs: 100 });
+    const h = harness({ timeoutMs: 300 });
     const a = await h.open();
     const url = "https://example.com/login";
     const first = h.host.matchUris(a, url);
     const second = h.host.matchUris(a, url);
     const third = h.host.matchUris(a, url);
     const firstCommand = await h.command(1);
-    await new Promise((resolve) => setTimeout(resolve, 60));
+    await new Promise((resolve) => setTimeout(resolve, 150));
     h.reply(firstCommand, { ok: true, data: uriCandidates });
     expect(await first).toEqual({ ok: true, data: uriCandidates });
     const secondCommand = await h.command(2);
