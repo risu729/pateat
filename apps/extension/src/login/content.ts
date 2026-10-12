@@ -124,8 +124,12 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   const used = new Set<string>();
   // What this document showed when its last effect step ran (ADR 0029: F1, F2).
   let submitted: SubmittedPage | undefined;
-  /** Inputs this document's fills wrote to, for the check before a submitting click. */
-  const filled = new WeakSet<HTMLInputElement>();
+  /**
+   * Inputs this document's fills wrote to since the last click, and the password inputs
+   * that were writable when the first of those fills began, for the check before a click.
+   */
+  let filled = new WeakSet<HTMLInputElement>();
+  let shownBefore: WeakSet<HTMLInputElement> | undefined;
   // The account switch a `wrong-account` result reported, clicked only by `login.switch`.
   let pendingSwitch:
     | {
@@ -583,6 +587,11 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             }
             // Mark uncertainty before calling into DOM/page code, including a throwing setter.
             mutated = true;
+            shownBefore ??= new WeakSet(
+              [...document.querySelectorAll("input")].filter(
+                (other) => other.type === "password" && writable(other),
+              ),
+            );
             filled.add(input);
             setter.call(input, value.value);
             if (step.effect === "prepare") {
@@ -594,6 +603,11 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
               input.dispatchEvent(new Event(step.event!, { bubbles: true }));
             }
             value.value = "";
+          }
+          // A fill that submits through its own event ends what the next click checks.
+          if (step.effect !== "prepare") {
+            filled = new WeakSet();
+            shownBefore = undefined;
           }
           // A code page that submits the code by itself must not get a click as well: the
           // button is clicked only when nothing showed a submission during the watch. Its
@@ -634,16 +648,24 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         const found = matches(step.target);
         const element = found.length === 1 ? found[0] : undefined;
         if (!clickable(element)) return fail("structural-mismatch");
-        // The click's form's inputs, or the page's for a button outside a form.
-        const formInputs = [
-          ...(isButton(element) && element.form
-            ? element.form.elements
-            : document.querySelectorAll("input")),
-        ].filter((input) => input instanceof HTMLInputElement);
-        // The page changed the form under the fill: never submit it without its values.
+        // The click's form's inputs, or the page's for an element outside a form.
+        const form = isButton(element) ? element.form : element.closest("form");
+        const formInputs = [...(form ? form.elements : document.querySelectorAll("input"))].filter(
+          (input) => input instanceof HTMLInputElement,
+        );
+        const fills = filled;
+        const passwordsBefore = shownBefore;
+        // The next fills are checked against the next click.
+        filled = new WeakSet();
+        shownBefore = undefined;
+        // The page changed the form under the fill: never send it without its values.
         if (
-          step.purpose === "submit" &&
-          unreadyForm(formInputs, (input) => filled.has(input), writable)
+          unreadyForm(formInputs, {
+            filled: (input) => fills.has(input),
+            shownBefore: (input) => passwordsBefore?.has(input) === true,
+            writable,
+            submit: step.purpose === "submit",
+          })
         )
           return fail("structural-mismatch");
         // An advance's next step is measured in this task, just before the click, and so

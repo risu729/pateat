@@ -454,97 +454,92 @@ its elements ([ADR 0013](adr/0013-service-held-recipes-and-settings.md#recipe-lo
 The browser-provided `sender.url` keeps a document's load URL, so the executor takes a
 top-level document's current path from the tab's committed URL.
 
-MV3 workers can stop. Persist only resumable metadata, never an instruction to
-blindly replay a submit. Input and change handlers can submit without a click.
-Declare whether a fill prepares fields, advances a flow or submits it; an
-input-triggered advance or submission uses one explicit event and initially one
-field. Record intent before any field mutation or event, including preparation
-fills. An acknowledgement proves local execution, not remote acceptance.
-After interruption around a fill or click, observe the current page and
-reconcile the outcome before another attempt. An uncertain fill must not be
-repeated merely because the original fields remain visible. Only a confirmed
-failure before mutation can permit a bounded retry. Never use an observation
-timeout to fall back from an input-triggered submission to a click. Recipes for
-ordinary click flows must explicitly describe tested preparation behavior.
-Exactly-once effects at a
-remote website cannot be guaranteed by local state alone. Apply a finite retry
-budget per account/origin, with delay and a terminal outcome for lockout risk.
-The submission budget reserves each executor effect before delivery; only a
-validated failure proving that the current operation made no mutation can
-release its reservation. A separate retry budget still applies. Initiated or
-possibly initiated effects remain counted, not proven server requests: one page
-handler can itself issue more than one request.
-Each fill step writes only inputs inside one form (or only inputs outside any
-form). A provider password goes only into a password input, and a TOTP code only
-into a one-time-code or short numeric input, so a recipe cannot place them in a
-search box. A Hidden custom field goes only into a password or short numeric input,
-and a Linked custom field follows the field it reads.
-Before a fill step that writes a secret but not the username (a site that remembers
-the account and asks only for the password), the background sends the selected item's
-username to the content script with that one fill. The content script compares it with
-the account identifiers shown in the form, or the page when there is no form, and the
-first eight `h1`-`h3` headings; every element boundary separates words, and `mailto:`
-links, `<address>` and `<footer>` are skipped as contact addresses. The username never
-leaves the content script or reaches status. An email username is compared with shown
-email addresses. A username of digits only is compared with masked IDs that show at
-least two characters (`****1234`), and only on a step that fills a password or Hidden
-field, because a one-time-code page usually shows the masked phone number the code was
-sent to. If comparable identifiers are shown and none fits (`myaccount@example.com` or
-`****9999` shown while `my2@example.com` or `00001234` is selected), the step fills
-nothing and the attempt ends `wrong-account` without a retry or a spent submission. A
-masked value consistent with the username (`m***@example.com`, `****1234`) proceeds,
-as does an item without a username, a username of another kind (`taro99`) or a page that
-shows no comparable identifier. A masked number that is not the account, such as a card
-number on a password page, still stops a digits-only username: a known limitation.
-A recipe can name an `accountSwitch` target: the button or `<a href>` link that switches
-to another account (`{ "by": "text", "value": "Use another account" }`; text locators
-match link text only here and in a completion target; the recipe must not use it for a
-click step or `rejection`).
-When the page shows another account, nothing was submitted in the attempt, and that
-target matches exactly one shown link or button that does not submit a form, the
-background first records the attempt as `account-switched` (blocked, no submission
+MV3 workers can stop. Persist only resumable metadata, never an instruction to blindly
+replay a submit. Input and change handlers can submit without a click. Declare whether a
+fill prepares fields, advances a flow or submits it; an input-triggered advance or
+submission uses one explicit event and initially one field. Record intent before any
+field mutation or event, including preparation fills. An acknowledgement proves local
+execution, not remote acceptance. After interruption around a fill or click, observe the
+current page and reconcile the outcome before another attempt. An uncertain fill must
+not be repeated merely because the original fields remain visible. Only a confirmed
+failure before mutation can permit a bounded retry. Never use an observation timeout to
+fall back from an input-triggered submission to a click. Recipes for ordinary click
+flows must explicitly describe tested preparation behavior. Exactly-once effects at a
+remote website cannot be guaranteed by local state alone. Apply a finite retry budget
+per account/origin, with delay and a terminal outcome for lockout risk. The submission
+budget reserves each executor effect before delivery; only a validated failure proving
+that the current operation made no mutation can release its reservation. A separate
+retry budget still applies. Initiated or possibly initiated effects remain counted, not
+proven server requests: one page handler can itself issue more than one request. Each
+fill step writes only inputs inside one form (or only inputs outside any form). A
+provider password goes only into a password input, and a TOTP code only into a
+one-time-code or short numeric input, so a recipe cannot place them in a search box. A
+Hidden custom field goes only into a password or short numeric input, and a Linked
+custom field follows the field it reads. Before a fill step that writes a secret but not
+the username (a site that remembers the account and asks only for the password), the
+background sends the selected item's username to the content script with that one fill.
+The content script compares it with the account identifiers shown in the form, or the
+page when there is no form, and the first eight `h1`-`h3` headings; every element
+boundary separates words, and `mailto:` links, `<address>` and `<footer>` are skipped as
+contact addresses. The username never leaves the content script or reaches status. An
+email username is compared with shown email addresses. A username of digits only is
+compared with masked IDs that show at least two characters (`****1234`), and only on a
+step that fills a password or Hidden field, because a one-time-code page usually shows
+the masked phone number the code was sent to. If comparable identifiers are shown and
+none fits (`myaccount@example.com` or `****9999` shown while `my2@example.com` or
+`00001234` is selected), the step fills nothing and the attempt ends `wrong-account`
+without a retry or a spent submission. A masked value consistent with the username
+(`m***@example.com`, `****1234`) proceeds, as does an item without a username, a
+username of another kind (`taro99`) or a page that shows no comparable identifier. A
+masked number that is not the account, such as a card number on a password page, still
+stops a digits-only username: a known limitation. A recipe can name an `accountSwitch`
+target: the button or `<a href>` link that switches to another account
+(`{ "by": "text", "value": "Use another account" }`; text locators match link text only
+here and in a completion target; the recipe must not use it for a click step or
+`rejection`). When the page shows another account, nothing was submitted in the attempt,
+and that target matches exactly one shown link or button that does not submit a form,
+the background first records the attempt as `account-switched` (blocked, no submission
 spent) and then has the content script click it. The click happens only within 10
 seconds, on the same path, while the target still matches exactly that element;
 otherwise the record becomes `wrong-account` and keeps holding that origin in the tab.
-After the click,
-the tab's next document of that origin that reports ready starts a new attempt instead
-of resuming, so
-a recipe that starts on the page the switch leads to logs in, such as an email page at
-`/signin/id` after a password page at `/signin/pwd` that showed `myaccount@example.com`
-(owner decision, 2026-10-11). That attempt carries the switch and never clicks another:
-a page that still shows another account ends it `wrong-account`. Without the target,
-or when it is missing or ambiguous, the attempt ends `wrong-account` as above. A switch
-that changes the account in place, without loading a new document, does not continue
-the login.
-Before a fill step writes anything, the content script checks every value against its
-input ([ADR 0010](adr/0010-inference-field-hints.md)): non-empty, within the input's
+After the click, the tab's next document of that origin that reports ready starts a new
+attempt instead of resuming, so a recipe that starts on the page the switch leads to
+logs in, such as an email page at `/signin/id` after a password page at `/signin/pwd`
+that showed `myaccount@example.com` (owner decision, 2026-10-11). That attempt carries
+the switch and never clicks another: a page that still shows another account ends it
+`wrong-account`. Without the target, or when it is missing or ambiguous, the attempt
+ends `wrong-account` as above. A switch that changes the account in place, without
+loading a new document, does not continue the login. Before a fill step writes anything,
+the content script checks every value against its input
+([ADR 0010](adr/0010-inference-field-hints.md)): non-empty, within the input's
 `maxlength` and `minlength` (ignored on `number` inputs), and a valid email or number
 for those input types (`valueMismatch` in `packages/contracts/src/values.ts`). A
 22-character password and an input with `maxlength="8"` fills nothing and ends the
 attempt `value-mismatch` without a retry or a spent submission. After a preparing fill,
 the content script waits 500 ms for the page's own handlers and ends the attempt
-`fill-rejected`, without a retry or the click, when a filled input is
-invalid (`validity.valid`, which unlike `checkValidity()` fires no `invalid` event),
-became `aria-invalid="true"`, or a visible alert shows text that no such region showed
-before the fill. Alerts are `role="alert"` and `aria-live="assertive"` regions
-anywhere, and `role="status"` and polite regions inside the filled form or named by a
-filled input's `aria-describedby` or `aria-errormessage`. A message the page already
-showed and renders again is not new, nor is a mark the input had before the fill. The
-text stays in the content script; only the outcome leaves it. A fill that submits
-through its own event is checked only before filling. When a filled input was replaced
-during the wait, nothing is clicked and the attempt observes the page instead.
-A submitting click is not made, and the attempt ends `structural-mismatch` and observes
-the page, when the clicked button's form (or the page, for a button outside a form)
-holds an input this document's fills wrote to and either such an input is now empty or
-a shown, writable password input is empty. St.George's logon page
-(`ibanking.stgeorge.com.au`) with a remembered access number hides its Security Number
-field; typing the access number clears every field and shows it (2026-10-12), so the
-form would otherwise be sent with the access number and Security Number empty. A form
-with no field Pateat filled, such as a passkey button beside an empty password field,
-is clicked as before.
-Explicit credential rejection stops retries with that credential. Structural
-mismatch can request bounded repair; unknown submission outcomes require
-reconciliation before any resubmission.
+`fill-rejected`, without a retry or the click, when a filled input is invalid
+(`validity.valid`, which unlike `checkValidity()` fires no `invalid` event), became
+`aria-invalid="true"`, or a visible alert shows text that no such region showed before
+the fill. Alerts are `role="alert"` and `aria-live="assertive"` regions anywhere, and
+`role="status"` and polite regions inside the filled form or named by a filled input's
+`aria-describedby` or `aria-errormessage`. A message the page already showed and renders
+again is not new, nor is a mark the input had before the fill. The text stays in the
+content script; only the outcome leaves it. A fill that submits through its own event is
+checked only before filling. When a filled input was replaced during the wait, nothing
+is clicked and the attempt observes the page instead. A click is not made, and the
+attempt ends `structural-mismatch` and moves to reconciling, when the page emptied a
+shown input that this document's fills wrote to since the last click, or, for a
+submitting click, when a shown password input that was not writable when those fills
+began is empty. Only the clicked element's form counts (the page, for an element outside
+a form), and only once Pateat filled something in it since the last click. St.George's
+logon page (`ibanking.stgeorge.com.au`) with a remembered access number hides its
+Security Number field; typing the access number clears every field and shows it
+(2026-10-12), so the form would otherwise be sent with the access number and Security
+Number empty. A passkey button beside an empty password field, a registration panel's
+password field shown from the start, and an earlier step's field the page hid and
+cleared do not hold a click. Explicit credential rejection stops retries with that
+credential. Structural mismatch can request bounded repair; unknown submission outcomes
+require reconciliation before any resubmission.
 
 A new login reads its item's facts once and records them in its attempt
 ([ADR 0027](adr/0027-per-account-login-routes.md)): a non-empty, not excluded password
