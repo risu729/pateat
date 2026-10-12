@@ -198,39 +198,50 @@ Implementation choices for the page after a recipe's final `advance` step, made 
     any path. So the identifier form shown again where it posted (an unknown account, a
     captcha) and a signed-in page with an unrelated email box are judged instead.
 
-  An input marked `new-password` or `one-time-code`, and every input of a form that
-  holds one, never counts: a sign-up, password change or code form is not continued, and
-  a code page is judged, which may add a `totp` handler (ADR 0027). Any other page is
-  judged as before. The email input and the `email` token widen ADR 0016's third input
-  condition for this page only, since email-first sign-in pages often mark their field
-  only as an email address.
+  Visible means visible as the page's description reads it (2026-10-12): an input hidden
+  from assistive technology (also by an ancestor, as behind a dialog), transparent, tiny
+  or moved before the page's start never counts, as a password input an email form keeps
+  for the browser to fill; a page that shows no other is judged. On the Grok Bot
+  computer (19:51 UTC), the page after Microsoft's Next was sent with only its email
+  form described; such an input making that form qualify is the inferred cause, not
+  checked on the live page. An input marked `new-password` or `one-time-code`, and every
+  input of a form that holds one, never counts: a sign-up, password change or code form
+  is not continued, and a code page is judged, which may add a `totp` handler (ADR
+  0027). Any other page is judged as before. The email input and the `email` token widen
+  ADR 0016's third input condition for this page only, since email-first sign-in pages
+  often mark their field only as an email address.
 - **One request per step.** The page is described by `extractLoginObservation` and sent
   only when the description is complete, on the login's origin and on the path that
-  qualified. The login's own vault item must still match the page, as for a first page;
-  a vault or tab that cannot answer for a moment, or a match that could not evaluate
-  every item, is asked again on the next round. The request offers only the slots the
-  recipe does not fill yet, and no custom field the recipe's generated slot map already
-  names (ADR 0027), and both the extension and the service refuse a page whose steps
-  fill one of the recipe's slots again, before anything is stored. A read-only or
-  disabled field that the recipe already fills on that path, such as an identifier the
-  page shows again, is left out instead of making the description incomplete. The
-  request is recorded in the attempt before it is sent, so a worker restart cannot send
-  that step's page again, and the login makes one model call per final advance within
-  the 10-minute retry window ([ADR 0016](0016-recipe-generation-trigger.md)). The
-  request is given back for a later document of the tab by
-  the generation claim's own rule ([ADR 0016](0016-recipe-generation-trigger.md)): when
-  its claim is freed because the request did not reach the model, or it was not sent
-  because no service is paired, storage could not be written or the same request is
-  still `sending`. A continuation answered `recipe-revoked` or `recipe-conflict` is
-  spent instead, since a later document would get the same answer. The same document
-  does not send it again, even after a path change or
-  a moment in which the page stopped qualifying. A document left while the request was
-  being recorded may leave it recorded with nothing sent; that fails closed, as a spent
-  request. A qualifying page whose request is spent or whose answer cannot be used
-  settles `unknown` without a judge call: it still asks for credentials, so the judge
-  could not learn anything from it. The log says why such a page was not sent
-  (`recipe.generate` `skipped`, once per document) and that the judge was skipped
-  (`recipe.judge` `not-sent`, `continuation`).
+  qualified, and shows an input of the kind the page qualified with: a password input
+  not marked `new-password` or `one-time-code`, or an email input or one marked
+  `username` or `email` that is not one of the recipe's fill fields. A description
+  without one, where the check and the description read the page differently, as an
+  input in a form the description leaves out, is not sent (`field-not-described`); the
+  page must then qualify for another second before it is read again. The login's own
+  vault item must still match the page, as for a first page; a vault or tab that cannot
+  answer for a moment, or a match that could not evaluate every item, is asked again on
+  the next round. The request offers only the slots the recipe does not fill yet, and no
+  custom field the recipe's generated slot map already names (ADR 0027), and both the
+  extension and the service refuse a page whose steps fill one of the recipe's slots
+  again, before anything is stored. A read-only or disabled field that the recipe
+  already fills on that path, such as an identifier the page shows again, is left out
+  instead of making the description incomplete. The request is recorded in the attempt
+  before it is sent, so a worker restart cannot send that step's page again, and the
+  login makes one model call per final advance within the 10-minute retry window
+  ([ADR 0016](0016-recipe-generation-trigger.md)). The request is given back for a later
+  document of the tab by the generation claim's own rule
+  ([ADR 0016](0016-recipe-generation-trigger.md)): when its claim is freed because the
+  request did not reach the model, or it was not sent because no service is paired,
+  storage could not be written or the same request is still `sending`. A continuation
+  answered `recipe-revoked` or `recipe-conflict` is spent instead, since a later
+  document would get the same answer. The same document does not send it again, even
+  after a path change or a moment in which the page stopped qualifying. A document left
+  while the request was being recorded may leave it recorded with nothing sent; that
+  fails closed, as a spent request. A qualifying page whose request is spent or whose
+  answer cannot be used settles `unknown` without a judge call: it still asks for
+  credentials, so the judge could not learn anything from it. The log says why such a
+  page was not sent (`recipe.generate` `skipped`, once per document) and that the judge
+  was skipped (`recipe.judge` `not-sent`, `continuation`).
 - **Recipes-only refresh.** A returned revision is pulled with recipes only, as after a
   judgement, so a settings change from the service does not stop the login that asked
   for it.

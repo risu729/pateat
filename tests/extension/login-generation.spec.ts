@@ -275,6 +275,14 @@ for (const { name, start, query, passwordPath } of [
     query: "?account",
     passwordPath: "/identifier-first",
   },
+  // Next keeps the account form, with a hidden password input for the browser to fill,
+  // while it looks the account up, then swaps the password form in on the same path.
+  {
+    name: "view swapped after a lookup",
+    start: "/identifier-first",
+    query: "?account&prefill",
+    passwordPath: "/identifier-first",
+  },
   // Next opens the password page as a new document on another path.
   { name: "new document", start: "/identifier", query: "", passwordPath: "/identifier/password" },
   // The account input is marked only for an email address, or only named `login`: the

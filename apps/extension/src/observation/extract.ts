@@ -178,7 +178,7 @@ function headerText(document: Document): string | undefined {
  * transparent or tiny (a trap, or a real input under a styled widget), or `absent`
  * when it is hidden or moved before the page's start, where trap inputs usually go.
  */
-function presence(element: HTMLElement): "visible" | "faint" | "absent" {
+export function presence(element: HTMLElement): "visible" | "faint" | "absent" {
   const view = element.ownerDocument.defaultView;
   if (!view || !shown(element, false)) return "absent";
   const rect = element.getBoundingClientRect();

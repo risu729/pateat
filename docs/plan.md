@@ -377,7 +377,12 @@ own accounts, so they stay in the project's files rather than in this repository
   before other sites (owner, 19:23 UTC); since the move, only Google is (see the
   phase 1 table). JP BANKカードWEB signed in there within 20 seconds
   with the same recipe (19:24 UTC), so why its press failed on the Grok Bot computer
-  is still open.
+  is still open. On the Bot's later round (19:51 UTC), Microsoft's page after Next was
+  sent to continue the recipe with only its email form described, and the model
+  abstained; a password input hidden there for the browser to fill counting as the
+  password page is the inferred cause. Such an input no longer counts, and a
+  description without the input the page qualified with is read again
+  ([ADR 0018](adr/0018-recipe-generation-route.md#continuing-after-an-advance)).
 - Answer Google's passkey step on the Grok Bot's browser. On build `a8350f5`
   (2026-10-12 19:49 UTC) both of the page's requests were logged as `passkey.request`
   `delegate` `invalid-request`, so the browser offered only the phone (hybrid) flow,
