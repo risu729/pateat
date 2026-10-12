@@ -1064,8 +1064,19 @@ describe("extractSignedInObservation", () => {
     expect(gap()).toEqual([false, "unlocated-field"]);
     page(`<button id="logout">Sign out</button><input id="pin" type="password" readonly>`);
     expect(gap()).toEqual([false, "unfillable-field"]);
-    page(`<button id="logout">Sign out</button><input id="date" type="text" disabled>`);
+    page(`<button id="logout">Sign out</button><input id="user" autocomplete="username" disabled>`);
     expect(gap()).toEqual([false, "unfillable-field"]);
+    page(
+      `<button id="logout">Sign out</button><input id="code" inputmode="numeric" maxlength="6" readonly>`,
+    );
+    expect(gap()).toEqual([false, "unfillable-field"]);
+    // A field that cannot be filled and is no sign-in field, such as a hotel search's
+    // read-only date picker, is left out (アパホテル, 2026-10-12).
+    page(
+      `<button id="logout">Sign out</button><form><input id="date" type="text" readonly><input id="guests" disabled></form>`,
+    );
+    expect(gap()).toEqual([true, undefined]);
+    expect(summary(signedIn()).map((entry) => entry.target.value)).toEqual(["logout"]);
     page(
       `<button id="logout">Sign out</button>${Array.from({ length: 49 }, (_, index) => `<input id="f${index}">`).join("")}`,
     );

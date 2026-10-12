@@ -1645,7 +1645,10 @@ on a password step makes that step incomplete, and honeypot inputs moved to the 
 clipped by `overflow: hidden` stay candidates. `extractSignedInObservation` describes
 the page after a generated recipe's final submission the same way, but over the whole
 page: every field, then buttons and links up to 48 candidates, listed in document order.
-A field it cannot describe marks it incomplete; buttons and links past the limit or
+A field it cannot describe marks it incomplete, except a field that cannot be filled and
+cannot be a sign-in field either, such as the read-only date picker of a hotel search
+(left out since 2026-10-12, after アパホテル's page after the login was never judged);
+buttons and links past the limit or
 without a locator are left out, since they are only possible sign-in markers. Links are
 located by their text too, and those in a page header or navigation, where account menus
 usually sit, are kept first; the rank reads only the page's structure, never words of

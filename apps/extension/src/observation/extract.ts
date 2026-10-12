@@ -698,6 +698,25 @@ function observe(document: Document, chosen: Chosen[], complete: boolean): Obser
 const accountSignal = (draft: Draft) => (draft.element.closest(landmarks) ? 1 : 0);
 
 /**
+ * Whether a field the executor cannot fill may still be a sign-in field: a password, one
+ * marked for a username, a password or a one-time code, or a short numeric field as a
+ * code goes in (the executor's rule for a code). Read-only password fields are common
+ * with software keyboards.
+ */
+function mayBeSignIn(input: HTMLInputElement): boolean {
+  const tokens = input.autocomplete.toLowerCase().split(/\s+/u);
+  return (
+    input.type === "password" ||
+    ["username", "current-password", "new-password", "one-time-code"].some((token) =>
+      tokens.includes(token),
+    ) ||
+    ((input.inputMode === "numeric" || input.type === "tel" || input.type === "number") &&
+      input.maxLength >= 1 &&
+      input.maxLength <= 10)
+  );
+}
+
+/**
  * Builds the observation of the page shown after a generated recipe's final submission,
  * which the service judges for a signed-in marker (ADR 0018). It reads the same
  * value-free details as `extractLoginObservation`, but from the whole page: every field,
@@ -705,8 +724,10 @@ const accountSignal = (draft: Draft) => (draft.element.closest(landmarks) ? 1 : 
  * navigation first (`accountSignal`), listed in document order.
  *
  * The judge refuses a page that still shows a sign-in field, so every field must be
- * described: a field that cannot be located or filled, a field in a shadow root, or more
- * fields than the limit marks the observation incomplete. Buttons and links are only
+ * described: a field that cannot be located, a field in a shadow root, or more fields than
+ * the limit marks the observation incomplete, and so does a field that cannot be filled
+ * when it may be a sign-in field (`mayBeSignIn`). Another field that cannot be filled, such
+ * as a read-only date picker in a search form, is left out. Buttons and links are only
  * possible markers; those past the limit or without a locator are left out. A link is
  * located by its text too, as for an account switch, and the executor looks for the
  * completion marker the same way.
@@ -730,7 +751,7 @@ export function extractSignedInObservation(
   const markers: { form: HTMLFormElement | null; draft: Draft }[] = [];
   for (const entry of found) {
     if (entry.kind === "unsupported") {
-      if (entry.field) gap ??= "unfillable-field";
+      if (entry.field && mayBeSignIn(entry.field)) gap ??= "unfillable-field";
     } else if (fillTypes[entry.draft.role]) fieldEntries.push(entry);
     else if (entry.draft.role !== "checkbox") markers.push(entry);
   }
