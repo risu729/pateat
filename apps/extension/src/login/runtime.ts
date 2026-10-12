@@ -98,6 +98,7 @@ import {
   executionResultSchema,
   extractResultSchema,
   helloSchema,
+  type unofferedReasons,
   observationSchema,
   stateResultSchema,
   statusSchema,
@@ -132,7 +133,7 @@ import {
   type PickResponse,
 } from "./choice-wire";
 import { customFieldOffers, type CustomFieldOffer } from "./generation-slots";
-import { emailUsername, namesUsername, type EntryMiss } from "../page/account-list";
+import { emailUsername, namesUsername, type EntryMiss, type OtherMiss } from "../page/account-list";
 import { signedInPath } from "../observation/extract";
 import { pathShowsUsername, withoutUsernames } from "../observation/usernames";
 import {
@@ -373,6 +374,7 @@ type ListOffer = {
   path: string;
   names?: string[] | undefined;
   other?: true | undefined;
+  otherMiss?: OtherMiss | undefined;
   missed?: EntryMiss | undefined;
 };
 /** Whether a record holds its origin against other tabs at `now` (ADR 0022). */
@@ -5443,6 +5445,7 @@ export function createLoginRuntime(
     entry?: true;
   };
   type Announced = { path: string } | undefined;
+  type Unoffered = { path: string; why: (typeof unofferedReasons)[number] } | undefined;
   async function ready(
     sender: Sender,
     token: string,
@@ -5451,6 +5454,7 @@ export function createLoginRuntime(
     shown?: { path: string },
     list?: ListOffer,
     entryHello?: Announced,
+    unoffered?: Unoffered,
   ): Promise<Readiness> {
     // Admission is async; a later hello from the same frame must not be overtaken by an older one.
     const helloKey = `${sender.tab?.id}:${sender.frameId}`;
@@ -5471,6 +5475,7 @@ export function createLoginRuntime(
           shown,
           list,
           entryHello,
+          unoffered,
         );
       } finally {
         leave?.();
@@ -5499,6 +5504,7 @@ export function createLoginRuntime(
     shown?: { path: string },
     list?: ListOffer,
     entryHello?: Announced,
+    unoffered?: Unoffered,
     tries = 0,
   ): Promise<Readiness> {
     const result = await admit(
@@ -5511,6 +5517,7 @@ export function createLoginRuntime(
       shown,
       list,
       entryHello,
+      unoffered,
     );
     if (result.reason !== CHOICE_SAVED) return result;
     return tries < 2
@@ -5524,6 +5531,7 @@ export function createLoginRuntime(
           shown,
           list,
           entryHello,
+          unoffered,
           tries + 1,
         )
       : { ok: false, reason: "stale-document" };
@@ -5544,6 +5552,7 @@ export function createLoginRuntime(
     shown?: { path: string },
     list?: ListOffer,
     entryHello?: Announced,
+    unoffered?: Unoffered,
   ): Promise<Readiness> {
     await loaded;
     await sessionLoaded;
@@ -5737,7 +5746,7 @@ export function createLoginRuntime(
     if (entryRefused.has(refusedKey)) return refuse("entry-blocked");
     // A report sent only for the log does not log the tab's hold again.
     if (busy)
-      return (shown || list) && !start && !signIn
+      return (shown || list || unoffered) && !start && !signIn
         ? { ok: false, reason: "tab-busy" }
         : refuse("tab-busy");
     if (!storageHealthy)
@@ -6134,7 +6143,9 @@ export function createLoginRuntime(
             live,
             "no-listed-account",
             undefined,
-            scope ? "no-name-match" : logCode(missed.filter(Boolean).join(":")),
+            scope
+              ? (listing.otherMiss ?? "no-name-match")
+              : logCode(missed.filter(Boolean).join(":")),
           );
         // A page whose path holds a username is not sent as a sign-in entry either.
         if (listed?.inPath || !(listing?.names && entryOffer)) offer = false;
@@ -6152,6 +6163,18 @@ export function createLoginRuntime(
         skipGeneration(live, refusal, "entry");
         offer = false;
       }
+      // A page offered for generation that showed nothing to send by the end of the step
+      // wait is logged with why; mostly ordinary browsing, so at debug level (ADR 0019).
+      // The tab's next document after a submitted password form is known only here.
+      if (offer && unoffered?.path === live.path && !signIn && !shownList && !entryOffer)
+        skipGeneration(
+          live,
+          "nothing-offered",
+          undefined,
+          unoffered.why === "no-list" && afterSignIn.get(document.tabId) === document.documentId
+            ? "after-sign-in"
+            : unoffered.why,
+        );
       // No recipe of the origin and no login in the tab: ordinary browsing (ADR 0019).
       if (!recipe && !starts.length && !offer) return refuse("recipe-not-found", undefined, true);
       // Only an origin with a recipe: elsewhere every sign-in page would be logged.
@@ -7141,6 +7164,7 @@ export function createLoginRuntime(
         hello.output.shown,
         hello.output.list,
         hello.output.entry,
+        hello.output.unoffered,
       );
     }
     const authorization = v.safeParse(authorizeSchema, message);

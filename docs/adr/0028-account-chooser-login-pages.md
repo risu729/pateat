@@ -104,26 +104,25 @@ one. Many ordinary pages show such a text, so on a site with a vault match the w
 reads the matching items' usernames, email usernames included, one at a time on each
 such page, and sends the page only when a text names one, or (owner, 2026-10-12 19:11
 UTC, below) when the page also shows a control to sign in with another account; a page
-offered only by such
-texts that is not sent is logged at debug level only, as mostly ordinary browsing (owner
-rule that Pateat never stops silently, 2026-10-12). The worker passes the naming texts
-back with the request to describe the page. The observation then lists each as
-`[account]`, and hides the name wherever it shows, with or without a leading `@`, in any
-width or case, such as in a heading; a name starting or ending with a Latin letter or
-digit is not found inside a longer Latin word, but is found beside kana or kanji, as in
-`taro.yamadaさん`. A control whose text or label holds it is left out, and so is the
-page when its path holds it. Every other text beside the buttons, which may name an
-account that is not in the vault, is shown as `[account]` when it is a whole heading or
-the title, and a control with such a text is left out. Not covered yet: such another
-name inside a longer text, such as "Continue as" and that name, or as a control's own
-text, still reaches the AI; and a list whose rows are buttons showing only a username,
-with no text beside them, is not found. The page right after a submitted password form
-is skipped: the content script skips its own next path, and the worker the tab's next
-document when it loads within a minute of the submission, kept in memory only, so a
-restart of the worker in between forgets it. The content script's skip ends with its
-document, so only the worker's carries to the next document. A later load, such as a
-reload after a single-page app signed in and out in one document, is not skipped (a gap
-found while checking Cloudflare, 2026-10-12); nor is a page that loads more than a
+offered only by such texts that is not sent is logged at debug level only, as mostly
+ordinary browsing (owner rule that Pateat never stops silently, 2026-10-12). The worker
+passes the naming texts back with the request to describe the page. The observation then
+lists each as `[account]`, and hides the name wherever it shows, with or without a
+leading `@`, in any width or case, such as in a heading; a name starting or ending with
+a Latin letter or digit is not found inside a longer Latin word, but is found beside
+kana or kanji, as in `taro.yamadaさん`. A control whose text or label holds it is left
+out, and so is the page when its path holds it. Every other text beside the buttons,
+which may name an account that is not in the vault, is shown as `[account]` when it is a
+whole heading or the title, and a control with such a text is left out. Not covered yet:
+such another name inside a longer text, such as "Continue as" and that name, or as a
+control's own text, still reaches the AI; and a list whose rows are buttons showing only
+a username, with no text beside them, is not found. The page right after a submitted
+password form is skipped: the content script skips its own next path, and the worker the
+tab's next document when it loads within a minute of the submission, kept in memory
+only, so a restart of the worker in between forgets it. The content script's skip ends
+with its document, so only the worker's carries to the next document. A later load, such
+as a reload after a single-page app signed in and out in one document, is not skipped (a
+gap found while checking Cloudflare, 2026-10-12); nor is a page that loads more than a
 minute after the submission because a second step in the same document took that long. A
 submission in a frame counts for the tab's page, and a next page of another origin ends
 the skip; after a submission in a frame, a same-document URL change of the tab's page is
@@ -134,14 +133,20 @@ an email as `after-sign-in` or `no-vault-match`. At debug level it also names a 
 that, once its ten seconds end without a sign-in input, holds an `@` in its text but is
 not taken as a list (`not-a-list`, with why: for its first shown address, such as
 `inside-control` or `not-rendered`; else how a hidden one is hidden; else
-`split-address`), and a page of texts that named no item (`no-listed-account`); other
-pages without a matching item stay `no-vault-match` with a detail. At info level, a page
-not sent because the vault could not tell is logged as `vault-unavailable` or
-`connection-disabled`; one not offered without the service is `not-connected` at debug
-level. An element with `display: contents` has no box, so it counts as shown when its
-parent is and renders its content, and any child element renders: Cloudflare's saved
-profiles wrap each address in one, and the list was not found before (2026-10-12). The
-service's check of the answer also refuses a control whose text holds `[account]`.
+`split-address`), and a page of texts that named no item (`no-listed-account`, with why
+a shown control for another account did not count when one showed, such as
+`other-holds-name`, `other-label-only`, `other-in-chrome` or `other-not-entry`,
+added 2026-10-12 after Instagram's list
+was not sent), and one that showed nothing to send at all (`nothing-offered`: `no-list`,
+`after-sign-in` or `sign-in-shown`; added 2026-10-12 after Instagram's saved-profile
+list left no log line); other pages without a matching item stay `no-vault-match` with a
+detail. At info level, a page not sent because the vault could not tell is logged as
+`vault-unavailable` or `connection-disabled`; one not offered without the service is
+`not-connected` at debug level. An element with `display: contents` has no box, so it
+counts as shown when its parent is and renders its content, and any child element
+renders: Cloudflare's saved profiles wrap each address in one, and the list was not
+found before (2026-10-12). The service's check of the answer also refuses a control
+whose text holds `[account]`.
 
 ### What the AI answers
 

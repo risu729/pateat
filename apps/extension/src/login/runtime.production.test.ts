@@ -5170,6 +5170,85 @@ describe("production login document admission", () => {
         return { service, h, generations };
       };
 
+      it("logs a page offered for generation that showed nothing to send, at debug level", async () => {
+        const { service, h, generations } = setup();
+        expect(await h.hello({}, false)).toMatchObject({ generate: true });
+        // The first announcement logs nothing: the page may still show a list.
+        expect(generations()).toEqual([]);
+        const unoffered = (why: string, from: Record<string, unknown> = {}) =>
+          h.login.handle(
+            {
+              version: 1,
+              type: "login.document.ready",
+              token: "synthetic-token",
+              unoffered: { path: "/signin", why },
+            },
+            sender(from),
+          );
+        expect(await unoffered("no-list")).toMatchObject({ ok: false, reason: "recipe-not-found" });
+        expect(generations()).toEqual([
+          {
+            type: "generation",
+            tabId: 1,
+            origin,
+            outcome: "skipped",
+            reason: "nothing-offered",
+            detail: "no-list",
+          },
+        ]);
+        expect(service.generate).not.toHaveBeenCalled();
+        expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.extract");
+        // Another path than the document's is not logged for it.
+        expect(await h.hello({ documentId: "next-page" }, false)).toMatchObject({ generate: true });
+        await h.login.handle(
+          {
+            version: 1,
+            type: "login.document.ready",
+            token: "synthetic-token",
+            unoffered: { path: "/elsewhere", why: "no-list" },
+          },
+          sender({ documentId: "next-page" }),
+        );
+        expect(generations()).toHaveLength(1);
+        // The tab's next document after a submitted password form says so.
+        await h.login.handle(
+          { version: 1, type: "login.document.submitted", token: "synthetic-token" },
+          sender({ documentId: "next-page" }),
+        );
+        expect(await h.hello({ documentId: "after" }, false)).toMatchObject({ generate: true });
+        await unoffered("no-list", { documentId: "after" });
+        expect(generations().at(-1)).toMatchObject({
+          reason: "nothing-offered",
+          detail: "after-sign-in",
+        });
+        // A reason outside the list is refused by the message schema.
+        expect(await unoffered("other", { documentId: "next-page" })).toBeUndefined();
+      });
+
+      it("logs why a shown control for another account did not count", async () => {
+        const { h, generations } = setup();
+        expect(await h.hello({}, false)).toMatchObject({ generate: true });
+        await h.login.handle(
+          {
+            version: 1,
+            type: "login.document.ready",
+            token: "synthetic-token",
+            list: { path: "/signin", names: ["Help"], otherMiss: "other-holds-name" },
+          },
+          sender(),
+        );
+        expect(generations()).toEqual([
+          {
+            type: "generation",
+            tabId: 1,
+            origin,
+            outcome: "skipped",
+            reason: "no-listed-account",
+            detail: "other-holds-name",
+          },
+        ]);
+      });
+
       it("sends a list with an email as a list, logging it as one", async () => {
         const { service, h, generations } = setup();
         expect(await h.hello({}, false)).toMatchObject({ generate: true });

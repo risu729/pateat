@@ -7,7 +7,7 @@ import {
   type LoginStep,
   type LoginTarget,
 } from "@pateat/contracts";
-import { entryMisses } from "../page/account-list";
+import { entryMisses, otherMisses } from "../page/account-list";
 
 const id = v.pipe(v.string(), v.minLength(1), v.maxLength(120));
 /** Which inputs a secret value may fill; see `acceptsSecret` in `inputs.ts`. */
@@ -82,6 +82,13 @@ export const LOGIN_STEP_WAIT_MS = 10000;
  * passkey", during a WebAuthn exchange; the passkey chooser's limit.
  */
 export const HELD_CLICK_WAIT_MS = 120_000;
+/**
+ * Why a page offered for generation sent nothing after the step wait: it showed no list of
+ * accounts, sign-in entry or identifier input (`no-list`), it is the page right after a
+ * submitted password form (`after-sign-in`), or a sign-in input showed only at the end of
+ * the wait (`sign-in-shown`).
+ */
+export const unofferedReasons = ["no-list", "after-sign-in", "sign-in-shown"] as const;
 export const helloSchema = v.strictObject({
   version: v.literal(1),
   type: v.literal("login.document.ready"),
@@ -105,8 +112,9 @@ export const helloSchema = v.strictObject({
    * Without one, `names` are the short texts that may name an account by a username that
    * is not an email, for the background to compare with the matching items' usernames,
    * `other` that the page also shows a control to sign in with another account, so the
-   * list is sent even when no text names an item, and `missed` why a text with an email
-   * address is not an entry, for the log only.
+   * list is sent even when no text names an item, `otherMiss` why words for another
+   * account showed but no such control counts, and `missed` why a text with an email
+   * address is not an entry, both for the log only.
    */
   list: v.optional(
     v.strictObject({
@@ -115,6 +123,7 @@ export const helloSchema = v.strictObject({
         v.pipe(v.array(v.pipe(v.string(), v.minLength(1), v.maxLength(64))), v.maxLength(32)),
       ),
       other: v.optional(v.literal(true)),
+      otherMiss: v.optional(v.picklist(otherMisses)),
       missed: v.optional(v.picklist(entryMisses)),
     }),
   ),
@@ -123,6 +132,11 @@ export const helloSchema = v.strictObject({
    * after loading, so the page may be sent as a site's sign-in entry (ADR 0031).
    */
   entry: v.optional(v.strictObject({ path })),
+  /**
+   * The page was offered for generation, but the step wait after loading found nothing to
+   * send: why, for the log only (ADR 0019).
+   */
+  unoffered: v.optional(v.strictObject({ path, why: v.picklist(unofferedReasons) })),
 });
 /**
  * A form with a password input was submitted in this document by anyone, Pateat or the

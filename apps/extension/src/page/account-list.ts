@@ -424,21 +424,99 @@ export function showsOtherAccountControl(
   document: Document,
   names: readonly string[] = [],
 ): boolean {
+  return otherAccountMiss(document, names) === undefined;
+}
+
+/** Why a shown control for another account does not count, for the log (ADR 0028). */
+export const otherMisses = [
+  "other-holds-name",
+  "other-not-clickable",
+  "other-text-long",
+  "other-label-only",
+  "other-in-chrome",
+  "other-not-entry",
+  "other-not-control",
+] as const;
+export type OtherMiss = (typeof otherMisses)[number];
+
+/** Words for another account in a control's text, as {@link showsOtherAccountControl} reads them. */
+function namesOtherAccount(text: string): boolean {
+  const words = text.toLowerCase().split(/[^\p{L}\p{N}]+/u);
+  const other =
+    words.some((word) => otherWords.has(word)) || otherParts.some((part) => text.includes(part));
+  const account =
+    words.some((word) => accountWords.has(word)) ||
+    accountParts.some((part) => text.includes(part));
+  return other && account;
+}
+
+/** Whether an element's short `aria-label` names another account. */
+function labelNamesOtherAccount(element: Element): boolean {
+  const label = (element.getAttribute("aria-label") ?? "").normalize("NFKC").trim();
+  return label.length > 0 && label.length <= otherTextLimit && namesOtherAccount(label);
+}
+
+/**
+ * Why {@link showsOtherAccountControl} finds no control to sign in with another account,
+ * for the log (ADR 0028), or undefined when it finds one. For an entry-like control with
+ * the words: it holds one of `names` in its text or label (`other-holds-name`),
+ * {@link listControls} could not click it (`other-not-clickable`), its text is over 64
+ * characters (`other-text-long`), or only its `aria-label` has them (`other-label-only`).
+ * For words outside every such control: in page chrome (`other-in-chrome`), with nothing
+ * shown, enabled and clickable around them (`other-not-entry`), or in a clickable element
+ * that is not an innermost list control, such as one holding another control
+ * (`other-not-control`); `other-label-only` again when only an element's `aria-label` has
+ * them; or nowhere (`no-other`). Only these codes leave the page, never its text.
+ */
+export function otherAccountMiss(
+  document: Document,
+  names: readonly string[] = [],
+): OtherMiss | "no-other" | undefined {
   const source = namePattern(names);
   const holds = source ? new RegExp(source, "iu") : undefined;
-  return entryControls(document).some((element) => {
+  let miss: OtherMiss | undefined;
+  for (const element of entryControls(document)) {
     const text = listControlText(element).normalize("NFKC");
-    if (!text || text.length > otherTextLimit || !clickableListControl(element)) return false;
+    if (!text || !namesOtherAccount(text)) {
+      if (labelNamesOtherAccount(element)) miss ??= "other-label-only";
+      continue;
+    }
+    if (text.length > otherTextLimit) {
+      miss ??= "other-text-long";
+      continue;
+    }
     const label = (element.getAttribute("aria-label") ?? "").normalize("NFKC");
-    if (holds && (holds.test(text) || holds.test(label))) return false;
-    const words = text.toLowerCase().split(/[^\p{L}\p{N}]+/u);
-    const other =
-      words.some((word) => otherWords.has(word)) || otherParts.some((part) => text.includes(part));
-    const account =
-      words.some((word) => accountWords.has(word)) ||
-      accountParts.some((part) => text.includes(part));
-    return other && account;
-  });
+    if (holds && (holds.test(text) || holds.test(label))) miss = "other-holds-name";
+    else if (!clickableListControl(element)) {
+      if (miss !== "other-holds-name") miss = "other-not-clickable";
+    } else return undefined;
+  }
+  if (miss) return miss;
+  // The words elsewhere on the page: an element whose whole short text, or whose label,
+  // names another account.
+  const start = document.body;
+  if (!start) return "no-other";
+  let labelled = false;
+  for (const element of [...start.querySelectorAll("*")].slice(0, scanLimit)) {
+    if (!(element instanceof HTMLElement) || unshownText.has(element.tagName)) continue;
+    if (!labelled && labelNamesOtherAccount(element)) labelled = true;
+    if (element.childElementCount > 0) continue;
+    const raw = element.textContent ?? "";
+    // A long text cannot collapse to a short label; this bounds the work per element.
+    if (raw.length > controlTextLimit) continue;
+    const text = collapseText(raw).normalize("NFKC");
+    if (!text || text.length > otherTextLimit || !namesOtherAccount(text)) continue;
+    if (element.closest(chromeSelector)) return "other-in-chrome";
+    let entry = false;
+    for (
+      let current: HTMLElement | null = element;
+      current && !entry;
+      current = current.parentElement
+    )
+      entry = isEntry(current);
+    return entry ? "other-not-control" : "other-not-entry";
+  }
+  return labelled ? "other-label-only" : "no-other";
 }
 
 /** At most this many short texts are handed over as possible account names. */
