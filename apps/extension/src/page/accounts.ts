@@ -32,7 +32,7 @@ export function shownAccounts(text: string): string[] {
  * Whether `username` fits `shown`, where each run of `*` stands for one or more unknown
  * characters, ignoring case. A linear wildcard match: a page cannot make it backtrack.
  */
-function fits(shown: string, username: string): boolean {
+export function fits(shown: string, username: string): boolean {
   // `one` is any one character and `many` any number; a `*` in the username is literal.
   const one = Symbol("one");
   const many = Symbol("many");

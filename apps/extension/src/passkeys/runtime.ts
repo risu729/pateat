@@ -181,6 +181,12 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
      * its submission (ADR 0029: S5). Never changes the answer.
      */
     requested?: (tabId: number, origin: string) => void;
+    /**
+     * Told of each assertion returned to a page, with the RP ID it was made for, so a login
+     * that then moves to that site's other origin can complete (ADR 0022). Never changes
+     * the answer.
+     */
+    answered?: (tabId: number, origin: string, rpId: string) => void;
     /** Where Pateat signed before; a username-less request there asks again (ADR 0021 D). */
     signedTabs?: SignedTabs;
   },
@@ -444,6 +450,12 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
         detail,
         after,
       );
+      if (result.kind === "assertion" && detail.rpId !== undefined)
+        try {
+          options.answered?.(sender.tab!.id!, origin, detail.rpId);
+        } catch {
+          // Never changes the answer.
+        }
       if (result.kind === "assertion" && detail.rpId !== undefined && options.signedTabs) {
         const signedTabs = options.signedTabs;
         const rpId = detail.rpId;

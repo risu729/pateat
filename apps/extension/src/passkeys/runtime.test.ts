@@ -327,6 +327,18 @@ describe("passkey runtime reports", () => {
     ]);
   });
 
+  it("tells a login of each assertion it returns, with its RP ID", async () => {
+    const answered = vi.fn(() => {
+      throw new Error("a failing listener changes nothing");
+    });
+    const runtime = createPasskeyRuntime(source(), { extensionId, answered });
+    // A delegated request returns nothing from Pateat.
+    await runtime.handle({ ...get(), request: { ...request, mediation: "required" } }, sender());
+    expect(answered).not.toHaveBeenCalled();
+    expect(await runtime.handle(get(), sender())).toMatchObject({ kind: "assertion" });
+    expect(answered.mock.calls).toEqual([[7, origin, "example.com"]]);
+  });
+
   it("reports no request from an invalid sender or a cancellation", async () => {
     const report = vi.fn();
     const runtime = createPasskeyRuntime(source(), { extensionId, report });

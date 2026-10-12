@@ -246,6 +246,7 @@ export default defineBackground(() => {
         remember: passkeyProbe.remember,
         loginAccount: login.loginAccount,
         requested: login.passkeyRequested,
+        answered: login.passkeyAnswered,
         signedTabs,
       })
     : createPasskeyRuntime(vaultPasskeys, {
@@ -258,6 +259,8 @@ export default defineBackground(() => {
         loginAccount: login.loginAccount,
         // ADR 0029: the login logs whether the page asked for a passkey after a step.
         requested: login.passkeyRequested,
+        // ADR 0022: a login that moves on to the passkey's site after an answer completes.
+        answered: login.passkeyAnswered,
         signedTabs,
       });
 

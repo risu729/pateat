@@ -145,6 +145,17 @@ describe("observation contract", () => {
   });
 });
 
+describe("account lists (ADR 0028)", () => {
+  it("allows no candidates only with an account list of 1 to 8 texts", () => {
+    const list = { ...base, candidates: [] };
+    expect(parse({ ...list, accounts: ["Taro [email] Last used"] })).toBe(true);
+    expect(parse(list)).toBe(false);
+    expect(parse({ ...list, accounts: [] })).toBe(false);
+    expect(parse({ ...list, accounts: Array.from({ length: 9 }, () => "[email]") })).toBe(false);
+    expect(parse({ ...list, accounts: ["x".repeat(121)] })).toBe(false);
+  });
+});
+
 describe("code fields on a generated page (ADR 0027)", () => {
   const field = (extra: object) => ({
     candidates: [

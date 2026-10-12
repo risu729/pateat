@@ -379,18 +379,18 @@ half of this is not implemented yet. Automatic logout/relogin when the user pick
 another account while logged in stays later. Cookies may be shared across tabs even
 during initial login. Another tab's login of the origin that is running or ended without
 success holds the origin until that tab closes or its record has not changed for 5
-minutes; an `authenticated` one, one that
-ended `interrupted` without submitting, or one Pateat itself stopped with nothing in
-flight (such as `policy-changed`) does not. A tab keeps one attempt record per
-origin and runs one attempt at a time; a page resumes only its own origin's record,
-except that a new page releases one Pateat itself stopped with nothing in flight
-before any submission and logs in as a new tab would, and
-a top-level attempt that may have submitted ends `left-origin` when the tab moves to
-another origin. An ended record of a site the tab left, including a frame's login on
-that site's page, never holds the new site's page or its frames
-([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md)). Wider
-shared-session domains need explicit coordination before broader support, not a guessed
-relationship between origins.
+minutes; an `authenticated` one, one that ended `interrupted` without submitting, or one
+Pateat itself stopped with nothing in flight (such as `policy-changed`) does not. A tab
+keeps one attempt record per origin and runs one attempt at a time; a page resumes only
+its own origin's record, except that a new page releases one Pateat itself stopped with
+nothing in flight before any submission and logs in as a new tab would, and a top-level
+attempt that may have submitted ends `left-origin` when the tab moves to another origin,
+or `authenticated` when that origin belongs to a passkey Pateat has just answered and
+its page shows no sign-in. An ended record of a site the tab left, including a frame's
+login on that site's page, never holds the new site's page or its frames
+([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md)). Wider shared-session
+domains need explicit coordination before broader support, not a guessed relationship
+between origins.
 
 Credential eligibility does not grant arbitrary post-login actions. Later
 transactions/approvals require separate site/action grants and deterministic
@@ -468,34 +468,38 @@ failure before mutation can permit a bounded retry. Never use an observation tim
 fall back from an input-triggered submission to a click. Recipes for ordinary click
 flows must explicitly describe tested preparation behavior. Exactly-once effects at a
 remote website cannot be guaranteed by local state alone. Apply a finite retry budget
-per account/origin, with delay and a terminal outcome for lockout risk. The submission
-budget reserves each executor effect before delivery; only a validated failure proving
-that the current operation made no mutation can release its reservation. A separate
-retry budget still applies. Initiated or possibly initiated effects remain counted, not
-proven server requests: one page handler can itself issue more than one request. Each
-fill step writes only inputs inside one form (or only inputs outside any form). A
-provider password goes only into a password input, and a TOTP code only into a
-one-time-code or short numeric input, so a recipe cannot place them in a search box. A
-Hidden custom field goes only into a password or short numeric input, and a Linked
-custom field follows the field it reads. Before a fill step that writes a secret but not
-the username (a site that remembers the account and asks only for the password), the
-background sends the selected item's username to the content script with that one fill.
-The content script compares it with the account identifiers shown in the form, or the
-page when there is no form, and the first eight `h1`-`h3` headings; every element
-boundary separates words, and `mailto:` links, `<address>` and `<footer>` are skipped as
-contact addresses. The username never leaves the content script or reaches status. An
-email username is compared with shown email addresses. A username of digits only is
-compared with masked IDs that show at least two characters (`****1234`), and only on a
-step that fills a password or Hidden field, because a one-time-code page usually shows
-the masked phone number the code was sent to. If comparable identifiers are shown and
-none fits (`myaccount@example.com` or `****9999` shown while `my2@example.com` or
-`00001234` is selected), the step fills nothing and the attempt ends `wrong-account`
-without a retry or a spent submission. A masked value consistent with the username
-(`m***@example.com`, `****1234`) proceeds, as does an item without a username, a
-username of another kind (`taro99`) or a page that shows no comparable identifier. A
-masked number that is not the account, such as a card number on a password page, still
-stops a digits-only username: a known limitation. A recipe can name an `accountSwitch`
-target: the button or `<a href>` link that switches to another account
+per attempt, with a terminal outcome for lockout risk. The submission budget reserves
+each executor effect before delivery; only a validated failure proving that the current
+operation made no mutation can release its reservation. A separate retry budget still
+applies: a failure that changed nothing on the page (`retryable`) is tried again from
+the same step at most twice, and a spent budget ends the attempt `blocked` with
+`retry-limit`. A `totp` handler's click after its code is in is never retried, since a
+late click could submit an expired code; its failure ends the attempt `retry-limit` at
+once (ADR 0027). Initiated or possibly initiated effects remain counted, not proven
+server requests: one page handler can itself issue more than one request. Each fill step
+writes only inputs inside one form (or only inputs outside any form). A provider
+password goes only into a password input, and a TOTP code only into a one-time-code or
+short numeric input, so a recipe cannot place them in a search box. A Hidden custom
+field goes only into a password or short numeric input, and a Linked custom field
+follows the field it reads. Before a fill step that writes a secret but not the username
+(a site that remembers the account and asks only for the password), the background sends
+the selected item's username to the content script with that one fill. The content
+script compares it with the account identifiers shown in the form, or the page when
+there is no form, and the first eight `h1`-`h3` headings; every element boundary
+separates words, and `mailto:` links, `<address>` and `<footer>` are skipped as contact
+addresses. The username never leaves the content script or reaches status. An email
+username is compared with shown email addresses. A username of digits only is compared
+with masked IDs that show at least two characters (`****1234`), and only on a step that
+fills a password or Hidden field, because a one-time-code page usually shows the masked
+phone number the code was sent to. If comparable identifiers are shown and none fits
+(`myaccount@example.com` or `****9999` shown while `my2@example.com` or `00001234` is
+selected), the step fills nothing and the attempt ends `wrong-account` without a retry
+or a spent submission. A masked value consistent with the username (`m***@example.com`,
+`****1234`) proceeds, as does an item without a username, a username of another kind
+(`taro99`) or a page that shows no comparable identifier. A masked number that is not
+the account, such as a card number on a password page, still stops a digits-only
+username: a known limitation. A recipe can name an `accountSwitch` target: the button or
+`<a href>` link that switches to another account
 (`{ "by": "text", "value": "Use another account" }`; text locators match link text only
 here and in a completion target; the recipe must not use it for a click step or
 `rejection`). When the page shows another account, nothing was submitted in the attempt,
@@ -837,7 +841,8 @@ judged ([ADR 0018](adr/0018-recipe-generation-route.md)). Until then the executo
 reports `authenticated` with it only when the sign-in state of
 [ADR 0029](adr/0029-local-sign-in-state.md) shows confirmed evidence of a sign-in on the
 `password` route (the username in the header or navigation, or the return target the
-sign-in page's URL named); otherwise a submission ends `credential-rejected`, moves to a
+sign-in page's URL named), or when the tab moves on to the site of a passkey Pateat has
+just answered (ADR 0022); otherwise a submission ends `credential-rejected`, moves to a
 later step, or stays unknown (`unknown-submit`), so no account choice is saved. An
 unknown attempt stays in `reconciling` until its tab closes or, for a top-level attempt,
 until the tab shows a page of another origin that Pateat may run on (`left-origin`, ADR

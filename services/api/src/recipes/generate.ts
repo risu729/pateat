@@ -93,6 +93,9 @@ export async function generateRecipe(
   const recipeId = base?.recipeId ?? (await generatedRecipeId(origin, path));
   if (!/^gen-[0-9a-f]{32}$/u.test(recipeId)) return undefined;
   if (!observation.complete) return failed("incomplete-observation");
+  // The model cannot answer that a page lists accounts yet (ADR 0028), so such a page
+  // costs no call.
+  if (observation.accounts) return failed("invalid-request");
   /** Whether a stored recipe is the one generated for this origin under this ID. */
   const generatedHere = async (recipe: LoginRecipe) =>
     recipe.origin === origin &&

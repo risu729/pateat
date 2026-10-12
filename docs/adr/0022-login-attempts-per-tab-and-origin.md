@@ -28,6 +28,13 @@ github.com's saved default stopped that tab's login as `policy-changed`; after a
 the page was refused for several matching accounts, but it had resumed the stopped
 record, so the toolbar popup offered no account choice and the tab never logged in again
 until it was closed.
+Amended again on 2026-10-12 (08:22 UTC, owner's choice on a decision card, proposal in
+the project notes `jal-same-site-completion-proposal.md`): a move to the site of a
+passkey Pateat has just answered completes the attempt; see "Leaving the origin after a
+possible submission ends the attempt" below. Evidence: in the owner's Chrome, JMB's
+sign-in page `jallogin.jal.co.jp` asked for a passkey after the username step, Pateat
+answered, and the site moved to `www.jal.co.jp` signed in, but the login ended
+`left-origin`, so it held the site for 5 minutes and saved no account choice.
 
 ## Context
 
@@ -98,40 +105,65 @@ fix them now; the SSO policy itself is recorded separately.
   account choice is saved, and neither is retried. For the logout detection of
   [ADR 0021](0021-account-choice-outside-settings.md) (part D), both count as finished,
   like unknown outcomes.
-- **Holding the origin in other tabs** (amended 2026-10-11 and twice on 2026-10-12).
-  Cookies can be shared across tabs, so another tab's record of the origin refuses a new
-  attempt with `origin-busy` until that tab closes or the record has not changed for 5
-  minutes (`changedAt`, written when the login's progress changes: a new page of its tab
-  or a page sent to be judged does not count, nor does a restarted worker finding it; a
-  record without it does not hold), unless it is `authenticated`, ended `interrupted`
-  without any submission, or ended `blocked` because Pateat itself stopped it with
-  nothing in flight: `policy-changed`, `value-mismatch`, `wrong-account`,
-  `account-switched`, or `cancelled` before any submission (a frame login whose page
-  went away also ends `cancelled`), without a pending mutation intent, a click the page
-  may have received, or a result settled as unknown. A withdrawn authorization before
-  the page received the prepared fill or click takes back that operation's reserved
-  effect, so such a record shows nothing in flight; a record a restarted worker finds
-  with an intent pending keeps holding. Such a record does not hold: the login form
-  showing in a new tab means the site's session has ended, as when the first tab is
-  closed, and a stop by Pateat says nothing about the password. This includes a stop on
-  a second-factor handler step after the password was accepted. The tab then logs in as
-  a new tab would, with the saved default or by asking when several items match. While
-  an automatic account choice is being saved, or if one was saved after the tab read its
-  settings, the new login waits for the save and is checked again with the new settings,
-  because the save bumps the policy revision it would otherwise be stopped by. A record
-  in any other state keeps holding, for example one that is running, `retryable` (a
-  restarted worker resumes it), still reconciling, settled as unknown, ended
-  `interrupted` after a submission, stopped by Pateat while a fill or click may have
-  reached the page, or ended `credential-rejected`, `challenge`, `submission-limit` or
-  `left-origin`. So a password is not submitted again while a first submission may still
-  be in flight or was refused, or while the user may be answering a challenge Pateat
-  does not handle. Releasing `account-switched` lets another tab start between the
-  switch click and the first tab's fresh attempt, which then waits as `origin-busy`. A
-  refused tab's tooltip says that another tab's login holds the site and that closing
-  that tab, or waiting 5 minutes and reloading, lets it log in, and is reset when the
-  tab logs in ([Background execution](../architecture.md#background-execution)). A
-  refused page does not announce again when the hold ends; reloading it starts the
-  login, as does a pick in the toolbar popup while the page waits for an account choice
+  - **A move after a passkey answer** (amended 2026-10-12). Such an attempt ends
+    `authenticated` instead when all of these hold: after its last effect step and at
+    most 30 seconds before the move, Pateat returned an assertion to a passkey request
+    of the attempt's page (its tab and origin); the new top page is HTTPS and its host
+    is the passkey's RP ID or a subdomain of it, so `jallogin.jal.co.jp` may move to
+    `www.jal.co.jp` for RP ID `jal.co.jp`; and that page, read when it announces itself,
+    shows no password field, code input or CAPTCHA and makes no passkey request of its
+    own, in two readings a second apart once it has loaded (at most 5 readings). The
+    readings are the page signs of [ADR 0029](0029-local-sign-in-state.md); Pateat fills
+    and clicks nothing there. A username-only form is not among those signs, and the
+    failure signs next to the sign-in fields cannot apply to a new page. The page's
+    announcement waits for the readings. A frame of the new page that announces first
+    leaves the move to the top page (it is refused `tab-busy` while the attempt still
+    runs), and one that announces during the readings waits for them. The completion
+    saves an automatic account choice and releases the origin like any other
+    `authenticated` attempt; it is the one completion that needs neither a completion
+    check, ADR 0029 evidence nor the judge, also on the `passkey` route of
+    [ADR 0027](0027-per-account-login-routes.md). The answer is kept in memory only, so
+    after a worker restart, or with any condition not met, the attempt ends
+    `left-origin` as before. A site that rejects the assertion and sends the tab to a
+    quiet page of the same site is counted as signed in; other tabs may then log in
+    there again.
+- **Holding the origin in other tabs** (amended 2026-10-11 and three times on
+  2026-10-12). Cookies can be shared across tabs, so another tab's record of the origin
+  refuses a new attempt with `origin-busy` until that tab closes or the record has not
+  changed for 5 minutes (`changedAt`, written when the login's progress changes: a new
+  page of its tab or a page sent to be judged does not count, nor does a restarted
+  worker finding it; a record without it does not hold), unless it is `authenticated`,
+  ended `interrupted` without any submission, or ended `blocked` because Pateat itself
+  stopped it with nothing in flight: `policy-changed`, `value-mismatch`,
+  `wrong-account`, `account-switched`, `retry-limit` (its retries spent on failures that
+  changed nothing on the page; owner, 2026-10-12), or `cancelled` before any submission
+  (a frame login whose page went away also ends `cancelled`), without a pending mutation
+  intent, a click the page may have received, or a result settled as unknown. A
+  withdrawn authorization before the page received the prepared fill or click takes back
+  that operation's reserved effect, so such a record shows nothing in flight; a record a
+  restarted worker finds with an intent pending keeps holding. Such a record does not
+  hold: the login form showing in a new tab means the site's session has ended, as when
+  the first tab is closed, and a stop by Pateat says nothing about the password. This
+  includes a stop on a second-factor handler step after the password was accepted. The
+  tab then logs in as a new tab would, with the saved default or by asking when several
+  items match. While an automatic account choice is being saved, or if one was saved
+  after the tab read its settings, the new login waits for the save and is checked again
+  with the new settings, because the save bumps the policy revision it would otherwise
+  be stopped by. A record in any other state keeps holding, for example one that is
+  running, `retryable` (it is tried again from the same step at once, or, after a
+  restart, once a new page of its tab shows, until its retries are spent), still
+  reconciling, settled as unknown, ended `interrupted` after a submission, stopped by
+  Pateat while a fill or click may have reached the page, or ended
+  `credential-rejected`, `challenge`, `submission-limit` or `left-origin`. So a password
+  is not submitted again while a first submission may still be in flight or was refused,
+  or while the user may be answering a challenge Pateat does not handle. Releasing
+  `account-switched` lets another tab start between the switch click and the first tab's
+  fresh attempt, which then waits as `origin-busy`. A refused tab's tooltip says that
+  another tab's login holds the site and that closing that tab, or waiting 5 minutes and
+  reloading, lets it log in, and is reset when the tab logs in
+  ([Background execution](../architecture.md#background-execution)). A refused page does
+  not announce again when the hold ends; reloading it starts the login, as does a pick
+  in the toolbar popup while the page waits for an account choice
   ([ADR 0021](0021-account-choice-outside-settings.md)).
 - **Generation offers.** ADR 0016's "a page is not offered while its tab holds an
   attempt record" now means a record for the page's own origin.
@@ -157,6 +189,11 @@ fix them now; the SSO policy itself is recorded separately.
   (`accounts.google.com/AddSession`), is therefore logged in to with the saved default
   even while the first tab is open, as it already was with no other tab. Telling such
   pages apart is later work with low priority.
+- **Complete any move to the same site after a submission.** Not chosen (2026-10-12):
+  a second-factor or error page on another origin of the site is such a move. The owner
+  chose the passkey case only, where Pateat's own answer and the quiet new page tell it
+  from one; the same for a return URL the sign-in page names was not chosen, as sites
+  also return there after a cancel or failure.
 - **Release the origin hold on `left-origin`.** Rejected: moving to another origin is
   not proof of success (an identity provider can forward to a second factor on another
   origin, or to an error page). Another tab could then submit the same password again,

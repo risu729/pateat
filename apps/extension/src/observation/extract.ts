@@ -21,6 +21,7 @@ import {
   renderedText,
   shown,
 } from "../page/text";
+import { accountEntries, chromeSelector, entryLike } from "../page/account-list";
 
 /**
  * Why no observation was produced. A page without one is never sent to inference.
@@ -42,7 +43,7 @@ export type ObservationResult =
 
 const maxCandidates = 48;
 /** Where account menus usually sit: the page's header and navigation. */
-const landmarks = "header, nav, [role='banner'], [role='navigation']";
+const landmarks = chromeSelector;
 /**
  * How far above a login form a button outside every form still counts as the form's,
  * such as a passkey button beside the password form (SBI Securities: form, list item,
@@ -86,7 +87,11 @@ const locators = [
  * more digits, ASCII or fullwidth, become `[number]`.
  */
 const redactions: readonly (readonly [RegExp, string])[] = [
-  [/[A-Za-z0-9._%+\-*●•＊]+[@＠][A-Za-z0-9.\-*●•＊]+/gu, "[email]"],
+  // Fullwidth letters, digits and punctuation count too: `ｔａｒｏ＠ｅｘａｍｐｌｅ．ｃｏｍ`.
+  [
+    /[A-Za-z0-9._%+\-*●•＊Ａ-Ｚａ-ｚ０-９．＿％＋－]+[@＠][A-Za-z0-9.\-*●•＊Ａ-Ｚａ-ｚ０-９．－]+/gu,
+    "[email]",
+  ],
   [/[*●•＊]{3,}/gu, "[masked]"],
   [/[0-9０-９]{4,}/gu, "[number]"],
 ];
@@ -719,6 +724,7 @@ function observe(
   chosen: Chosen[],
   complete: boolean,
   hide: (text: string) => string = (text) => text,
+  accounts?: readonly string[],
 ): ObservationResult {
   const location = document.location!;
   chosen.sort((left, right) =>
@@ -770,6 +776,7 @@ function observe(
       candidate.placeholder ?? "",
       candidate.description ?? "",
     ]),
+    ...(accounts ?? []),
   ];
   const parsed = v.safeParse(loginObservationSchema, {
     version: 1,
@@ -780,10 +787,83 @@ function observe(
     ...(headings.length ? { headings } : {}),
     complete,
     candidates,
+    ...(accounts?.length ? { accounts } : {}),
   });
   return parsed.success
     ? { ok: true, observation: parsed.output }
     : { ok: false, reason: "unsupported-page" };
+}
+
+const maxAccounts = 8;
+const atSign = /[@＠]/u;
+const maxListControls = 8;
+/** Elements examined for list controls; a list page is small. */
+const listScanLimit = 4000;
+
+/**
+ * The observation of a page without fields that lists accounts to choose from (ADR 0028),
+ * such as a saved-profile list: each entry's redacted text (`Taro [email] Last used`) and
+ * the other controls outside page chrome, by their text, as context and as the
+ * account-independent button the generator may name. A page showing a fillable field, or
+ * no entry with an email address, is refused: {@link extractLoginObservation} covers the
+ * former, and the latter is no list of accounts.
+ */
+export function extractAccountListObservation(
+  document: Document = globalThis.document,
+): ObservationResult {
+  const location = document.location;
+  if (!location || tokenPath(location.pathname)) return { ok: false, reason: "unsupported-page" };
+  const fieldShown = [...document.querySelectorAll(fields)].some((element) => {
+    const found = describe(element);
+    return found?.kind === "candidate" && fillTypes[found.draft.role] !== undefined;
+  });
+  if (fieldShown || !document.body) return { ok: false, reason: "no-candidates" };
+  const entries = accountEntries(document);
+  if (entries.length === 0) return { ok: false, reason: "no-candidates" };
+  // A text in which an address survived redaction is left out, never sent.
+  const accounts = entries
+    .slice(0, maxAccounts)
+    .map((entry) => observedText(renderedText(entry.element, rawLimit, { everyElement: true })))
+    .filter((text): text is string => text !== undefined && !atSign.test(text));
+  let complete = entries.length <= maxAccounts && accounts.length === entries.length;
+  for (const host of document.querySelectorAll("*"))
+    if (host.shadowRoot !== null && inShadow(host.shadowRoot, shadowFields)) complete = false;
+
+  // The innermost list controls that are not entries, by their whole text, which must
+  // survive redaction and name one control only.
+  const inEntry = (element: Element) =>
+    entries.some((entry) => entry.element.contains(element) || element.contains(entry.element));
+  const scanned = [...document.body.querySelectorAll("*")];
+  if (scanned.length > listScanLimit) complete = false;
+  const listControls = scanned
+    .slice(0, listScanLimit)
+    .filter(
+      (element): element is HTMLElement =>
+        entryLike(element) && !element.closest(landmarks) && !inEntry(element),
+    );
+  // A control holding another one is not innermost; marking ancestors keeps this linear.
+  const outer = new Set<Element>();
+  for (const element of listControls) {
+    let parent = element.parentElement;
+    while (parent && !outer.has(parent)) {
+      outer.add(parent);
+      parent = parent.parentElement;
+    }
+  }
+  const innermost = listControls.filter((element) => !outer.has(element));
+  const texts = innermost.map((element) => {
+    const raw = collapseText(renderedText(element, rawLimit) ?? "");
+    return raw && observedText(raw) === raw && !atSign.test(raw) ? raw : undefined;
+  });
+  const chosen: Chosen[] = innermost.flatMap((element, at) => {
+    const text = texts[at];
+    if (text === undefined || texts.filter((other) => other === text).length !== 1) return [];
+    const target = { by: "text" as const, value: text };
+    if (!v.is(loginTargetSchema, target)) return [];
+    return [{ form: null, draft: { element, role: "button", label: text }, target }];
+  });
+  if (chosen.length > maxListControls) complete = false;
+  return observe(document, chosen.slice(0, maxListControls), complete, undefined, accounts);
 }
 
 /**

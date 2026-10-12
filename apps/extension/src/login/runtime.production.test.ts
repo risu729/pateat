@@ -990,22 +990,85 @@ describe("production login document admission", () => {
     expect(report.mock.calls.at(-1)![0]).toMatchObject({ reason: "connection-disabled" });
     expect(h.fields).not.toHaveBeenCalled();
   });
-  it("stops before any vault read or page change when a step's elements never appear", async () => {
+  it("retries twice, then stops before any vault read or page change when a step's elements never appear", async () => {
     fake.state.awaited = { ok: false, reason: "timeout" };
-    const h = harness();
+    const report = vi.fn<(report: LoginReport) => void>();
+    const h = harness({}, { report });
     expect(await h.hello()).toEqual({ ok: true });
     await vi.waitFor(() =>
       expect(fake.state.storage["pateat.login-attempts.v3"]).toMatchObject([
         {
-          state: "retryable",
-          outcome: "structural-mismatch",
+          state: "blocked",
+          outcome: "retry-limit",
+          retries: 2,
           submissions: 0,
           usedOperationIds: [],
         },
       ]),
     );
+    // The first wait and one per retry, each from the same step.
+    expect(fake.state.messages.filter((entry) => entry.type === "login.await")).toHaveLength(3);
+    expect(
+      report.mock.calls.map(([entry]) => (entry.type === "attempt" ? entry.state : entry.type)),
+    ).toEqual(["ready", "retryable", "ready", "retryable", "ready", "retryable", "blocked"]);
     expect(h.fields).not.toHaveBeenCalled();
     expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.execute");
+  });
+  it("logs in when a retry finds the step's elements that the first wait did not", async () => {
+    let waits = 0;
+    fake.state.onAwait = () => {
+      waits += 1;
+      fake.state.awaited = waits === 1 ? { ok: false, reason: "timeout" } : { ok: true };
+    };
+    const h = harness();
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(fake.state.storage["pateat.login-attempts.v3"]).toMatchObject([
+        { state: "authenticated", retries: 1 },
+      ]),
+    );
+    expect(h.fields).toHaveBeenCalled();
+  });
+  it("retries a retryable attempt that a restarted worker finds once its page shows the step", async () => {
+    // A worker that stopped before retrying left the attempt waiting to be tried again.
+    fake.state.awaited = { ok: false, reason: "timeout" };
+    const first = harness();
+    expect(await first.hello()).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(fake.state.storage["pateat.login-attempts.v3"]).toMatchObject([
+        { state: "blocked", outcome: "retry-limit" },
+      ]),
+    );
+    const [record] = fake.state.storage["pateat.login-attempts.v3"] as Record<string, unknown>[];
+    fake.state.storage["pateat.login-attempts.v3"] = [
+      {
+        ...record,
+        state: "retryable",
+        outcome: "structural-mismatch",
+        retries: 1,
+        retryRequired: true,
+      },
+    ];
+    fake.state.awaited = { ok: true };
+    // The new page still shows the login form; the click signs in.
+    fake.state.present = new Set(["password", "login"]);
+    fake.state.onExecute = async (message) => {
+      if ((message["operation"] as { step: LoginStep }).step.kind === "click")
+        fake.state.present = new Set(["authenticated"]);
+    };
+    const query = fake.browser.tabs.query;
+    fake.browser.tabs.query = async () => [{ id: 1 }] as never;
+    try {
+      const restarted = harness();
+      expect(await restarted.hello({ documentId: "after-restart" })).toEqual({ ok: true });
+      await vi.waitFor(() =>
+        expect(fake.state.storage["pateat.login-attempts.v3"]).toMatchObject([
+          { state: "authenticated", retries: 2 },
+        ]),
+      );
+    } finally {
+      fake.browser.tabs.query = query;
+    }
   });
   describe("a login form inside a frame", () => {
     const executes = () => fake.state.messages.filter((entry) => entry.type === "login.execute");
@@ -1443,6 +1506,94 @@ describe("production login document admission", () => {
       expect(await h.login.active()).toBe(false);
       expect(executes()).toHaveLength(2);
     });
+    describe("after Pateat answered the site's passkey request (ADR 0022)", () => {
+      const quiet = { password: false, code: false, captcha: false, invalid: false, alert: false };
+      /** Submits on the site, then has the passkey bridge answer for `rpId` at `answerAt`. */
+      const submitted = async (rpId = "login.example") => {
+        holdClicks(origin);
+        const h = twoSites();
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(executes()).toHaveLength(2));
+        h.login.passkeyAnswered(1, origin, rpId);
+        fake.state.signs = quiet;
+        return h;
+      };
+      it("completes when the tab moves on to the passkey's site and its page is quiet", async () => {
+        const h = await submitted();
+        await navigate(h, "https://www.login.example/home", "home-document", false);
+        expect(at(origin)).toMatchObject({ state: "authenticated", outcome: "authenticated" });
+        expect(await h.login.active()).toBe(false);
+        expect(executes()).toHaveLength(2);
+      });
+      it("waits until the new page has loaded", async () => {
+        const h = await submitted();
+        fake.state.loaded = false;
+        setTimeout(() => (fake.state.loaded = true), 1_500);
+        const reads = () => fake.state.messages.filter((entry) => entry.type === "login.state");
+        await navigate(h, "https://www.login.example/home", "home-document", false);
+        expect(at(origin)).toMatchObject({ state: "authenticated" });
+        // Two readings while loading, then two once loaded.
+        expect(reads().length).toBeGreaterThanOrEqual(4);
+      }, 10_000);
+      /** A frame of the new page at https://www.login.example/home. */
+      const homeFrame = {
+        frameId: 3,
+        documentId: "home-frame",
+        url: "https://widgets.login.example/panel",
+        tab: { id: 1, url: "https://www.login.example/home" },
+      };
+      it("leaves the move to the new top page when its frame announces first", async () => {
+        const h = await submitted();
+        fake.state.tabUrls[1] = homeFrame.tab.url;
+        await h.hello(homeFrame, false);
+        expect(at(origin)).toMatchObject({ state: "submit-intent" });
+        await navigate(h, "https://www.login.example/home", "home-document", false);
+        expect(at(origin)).toMatchObject({ state: "authenticated" });
+      });
+      it("lets a frame that announces while the top page is read wait for it", async () => {
+        const h = await submitted();
+        const top = navigate(h, "https://www.login.example/home", "home-document", false);
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        await h.hello(homeFrame, false);
+        expect(await top).not.toEqual({ ok: false, reason: "stale-document" });
+        expect(at(origin)).toMatchObject({ state: "authenticated" });
+      });
+      it("ends left-origin when the new page shows a password field", async () => {
+        const h = await submitted();
+        fake.state.signs = { ...quiet, password: true };
+        await navigate(h, "https://www.login.example/signin", "signin-document", false);
+        expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
+      });
+      it("ends left-origin when the new page still asks for a code", async () => {
+        const h = await submitted();
+        fake.state.signs = { ...quiet, code: true };
+        await navigate(h, "https://www.login.example/verify", "verify-document", false);
+        expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
+      });
+      it("ends left-origin when the new page asks for a passkey again", async () => {
+        const h = await submitted();
+        // The new page's own request, as the bridge reports it before the page announces.
+        h.login.passkeyRequested(1, "https://www.login.example");
+        await navigate(h, "https://www.login.example/verify", "verify-document", false);
+        expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
+      });
+      it("ends left-origin on a host outside the passkey's RP ID", async () => {
+        const h = await submitted("www.login.example");
+        await navigate(h, "https://account.login.example/home", "home-document", false);
+        expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
+      });
+      it("ends left-origin when the answer came before the submission", async () => {
+        holdClicks(origin);
+        const h = twoSites();
+        h.login.passkeyAnswered(1, origin, "login.example");
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        fake.state.signs = quiet;
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(executes()).toHaveLength(2));
+        await navigate(h, "https://www.login.example/home", "home-document", false);
+        expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
+      });
+    });
     it("fills without submitting when the site's form shows again after it left", async () => {
       // site -> identity provider -> back to the site's login form (ADR 0021 D, ADR 0022).
       holdClicks(origin, second);
@@ -1666,6 +1817,8 @@ describe("production login document admission", () => {
         false,
       ],
       ["blocked submission-limit", "blocked", "submission-limit", idle, false],
+      // Retries spent on failures that changed nothing on the page (owner, 2026-10-12).
+      ["blocked retry-limit", "blocked", "retry-limit", idle, true],
     ] as const)(
       "decides whether another tab's %s record holds the origin",
       async (_name, state, outcome, extra, released) => {
@@ -4971,11 +5124,12 @@ describe("production login document admission", () => {
           expect(answer).toEqual({ ok: true });
           await vi.waitFor(() =>
             expect(fake.state.storage["pateat.login-attempts.v3"]).toMatchObject([
-              { state: "retryable", outcome: "structural-mismatch", submissions: 0 },
+              { state: "blocked", outcome: "retry-limit", retries: 2, submissions: 0 },
             ]),
           );
-          expect(executes()).toHaveLength(1);
-          expect(executes()[0]!.values).toEqual([
+          // The step is tried again twice, and the page refuses the same values each time.
+          expect(executes()).toHaveLength(3);
+          expect(executes()[2]!.values).toEqual([
             { slot: "branch", value: "synthetic-secret", secret: "hidden" },
             { slot: "password", value: "synthetic-secret", secret: "password" },
           ]);
@@ -6751,16 +6905,42 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         });
         const { h } = start(coded);
         expect(await h.hello()).toEqual({ ok: true });
-        await vi.waitFor(() => expect(status()![0]!["state"]).not.toMatch(/^(ready|executing)$/u), {
-          timeout: 6_000,
+        // The click step failed for want of its button; a late click could submit an
+        // expired code, so the login ends without a retry.
+        await vi.waitFor(
+          () =>
+            expect(status()).toMatchObject([
+              {
+                state: "blocked",
+                stepIndex: 3,
+                submissions: 1,
+                retries: 0,
+                outcome: "retry-limit",
+              },
+            ]),
+          { timeout: 6_000 },
+        );
+        expect(codeFills()).toHaveLength(1);
+        expect(clicks("verify")).toBe(0);
+      }, 10_000);
+
+      it("never clicks the code's button when it returns only after the wait failed", async () => {
+        onClick({ login: toCode, verify: toHome });
+        let waits = 0;
+        onCodeFill(() => {
+          fake.state.present = new Set(["app-code"]);
+          fake.state.awaited = { ok: false, reason: "timeout" };
+          fake.state.onAwait = () => {
+            waits += 1;
+            if (waits > 1) fake.state.awaited = { ok: true };
+          };
         });
-        await new Promise((resolve) => setTimeout(resolve, 500));
-        // The click step failed for want of its button; its retry is the click, not the fill.
-        expect(status()![0]).toMatchObject({
-          stepIndex: 3,
-          submissions: 1,
-          outcome: "structural-mismatch",
-        });
+        const { h } = start(coded);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(
+          () => expect(status()).toMatchObject([{ state: "blocked", outcome: "retry-limit" }]),
+          { timeout: 6_000 },
+        );
         expect(codeFills()).toHaveLength(1);
         expect(clicks("verify")).toBe(0);
       }, 10_000);
@@ -7528,7 +7708,7 @@ describe("password route variants (ADR 0027)", () => {
     expect(await h.hello({ documentId: "second-document" }, false)).toMatchObject({ starts: [] });
   });
 
-  it("stops as a structural mismatch when only another variant's first step is ready", async () => {
+  it("stops after its retries when only another variant's first step is ready", async () => {
     // The document reported the start path ready, as the branch variant's fields showed,
     // but the item fills only the contract variant, whose field never appears.
     fake.state.awaited = { ok: false, reason: "timeout" };
@@ -7536,7 +7716,7 @@ describe("password route variants (ADR 0027)", () => {
     expect(await h.hello()).toEqual({ ok: true });
     await vi.waitFor(() =>
       expect(status()).toMatchObject([
-        { variant: 1, state: "retryable", outcome: "structural-mismatch", submissions: 0 },
+        { variant: 1, state: "blocked", outcome: "retry-limit", submissions: 0 },
       ]),
     );
     const awaited = fake.state.messages.find((entry) => entry.type === "login.await") as
@@ -7836,7 +8016,7 @@ describe("the start page's passkey route (ADR 0027)", () => {
     expect(await h.hello({ documentId: "ready-document" })).toEqual({ ok: true });
     await vi.waitFor(() =>
       expect(status()).toMatchObject([
-        { route: "passkey", state: "retryable", outcome: "structural-mismatch", submissions: 0 },
+        { route: "passkey", state: "blocked", outcome: "retry-limit", submissions: 0 },
       ]),
     );
     const awaited = fake.state.messages.find((entry) => entry.type === "login.await") as

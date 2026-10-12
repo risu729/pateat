@@ -210,7 +210,16 @@ export const loginAttemptEventSchema = v.variant("type", [
     ]),
     document: v.optional(loginDocumentSchema),
   }),
-  v.strictObject({ type: v.literal("NAVIGATED"), document: loginDocumentSchema }),
+  /**
+   * `signedIn`: the runtime confirmed that a top-level move to another origin finished the
+   * sign-in, as after a passkey answer for that site (ADR 0022). Only an attempt that may
+   * have submitted then completes; any other move to another origin ends it as before.
+   */
+  v.strictObject({
+    type: v.literal("NAVIGATED"),
+    document: loginDocumentSchema,
+    signedIn: v.optional(v.literal(true)),
+  }),
   v.strictObject({ type: v.literal("INTERRUPTED") }),
   v.strictObject({
     type: v.literal("FAILED"),
@@ -278,7 +287,12 @@ export const loginAttemptEventSchema = v.variant("type", [
    * again. The runtime checks that the steps are a `totp` handler's fill and click.
    */
   v.strictObject({ type: v.literal("AUTO_SUBMITTED"), operationId: identifier }),
-  v.strictObject({ type: v.literal("RETRY") }),
+  /**
+   * Tries a step that failed without changing the page again. `final` ends the attempt as
+   * a spent budget does: the runtime never retries a `totp` handler's click once its code
+   * is in, since a late click could submit an expired code (ADR 0027).
+   */
+  v.strictObject({ type: v.literal("RETRY"), final: v.optional(v.literal(true)) }),
   /**
    * The login's authorization was withdrawn. `undelivered` names a prepared operation the
    * page never received, whose reserved effect is taken back so the record shows nothing
@@ -364,8 +378,15 @@ function record(
       };
     case "NAVIGATED":
       if (leftOrigin(context.document, event.document))
-        // The result of a submission on the previous origin cannot be observed here.
-        return { outcome: maySubmit(context) ? "left-origin" : "interrupted" };
+        // The result of a submission on the previous origin cannot be observed here, unless
+        // the runtime confirmed the sign-in.
+        return {
+          outcome: !maySubmit(context)
+            ? "interrupted"
+            : event.signedIn
+              ? "authenticated"
+              : "left-origin",
+        };
       return {
         document: sameScope(context.document, event.document) ? event.document : context.document,
         outcome: maySubmit(context) ? "unknown-submit" : "interrupted",
@@ -564,7 +585,8 @@ function createLoginAttemptMachine() {
         sameLoginDocument(context.document, event.document) &&
         // Only a preparing fill is checked after filling; an effectful one has submitted.
         (event.stage === "before-fill" || context.operationEffect === "prepare"),
-      retryAvailable: ({ context }) => context.retries < context.maxRetries,
+      retryAvailable: ({ context, event }) =>
+        context.retries < context.maxRetries && !(event.type === "RETRY" && event.final),
       failedPossibleMutation: ({ context, event }) =>
         context.operationKind === "click" ||
         (context.mutationIntent === true && !confirmedNoMutation(context, event)),
@@ -576,6 +598,11 @@ function createLoginAttemptMachine() {
         event.type === "NAVIGATED" && sameScope(context.document, event.document),
       leftOrigin: ({ context, event }) =>
         event.type === "NAVIGATED" && leftOrigin(context.document, event.document),
+      leftSignedIn: ({ context, event }) =>
+        event.type === "NAVIGATED" &&
+        event.signedIn === true &&
+        leftOrigin(context.document, event.document) &&
+        maySubmit(context),
       observedAuthenticated: ({ context, event }) =>
         event.type === "OBSERVED" &&
         event.result === "authenticated" &&
@@ -668,6 +695,7 @@ function createLoginAttemptMachine() {
       NAVIGATED: [
         { guard: "sameScope", target: ".reconciling", actions: "record" },
         // A top-level attempt ends when its tab leaves the origin; it is never resubmitted.
+        { guard: "leftSignedIn", target: ".authenticated", actions: "record" },
         { guard: "leftOrigin", target: ".blocked", actions: "record" },
         { target: ".blocked", actions: "invalidNavigation" },
       ],
