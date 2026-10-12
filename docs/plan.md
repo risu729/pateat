@@ -184,6 +184,12 @@ Chrome, on a production build of main.
 
 Once the fixes have settled:
 
+- First, before the work below that makes Pateat public: Japanese for Pateat itself
+  (owner, 2026-10-12 13:59 UTC). This covers the README, the docs and the extension's
+  UI text. The service's pages, such as `/manage`, come later. Which library or
+  mechanism translates the extension's UI text is the owner's choice and has not been
+  made. The docs here means the README and the user-facing pages; ADRs, this plan and
+  research notes stay in English.
 - The docs website (VitePress 2, see
   [decisions still requiring evidence](#decisions-still-requiring-evidence)) with
   user-facing pages for installation, setup and permissions, plus the M6 operational
