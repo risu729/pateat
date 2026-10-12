@@ -19,8 +19,14 @@ import {
   shown,
 } from "../page/text";
 
-/** Why no observation was produced. A page without one is never sent to inference. */
-export type ObservationRefusal = "unsupported-page" | "no-candidates";
+/**
+ * Why no observation was produced. A page without one is never sent to inference.
+ * `no-locator` is a login page where a control of a login form lacks a locator
+ * that names it alone, as when a hidden copy of the form shares the ids and names, and
+ * nothing else can be described; a login form with nothing to locate or act on (only
+ * fields that cannot be filled) gives `no-candidates`.
+ */
+export type ObservationRefusal = "unsupported-page" | "no-candidates" | "no-locator";
 /**
  * Why a signed-in page's observation is incomplete, for diagnostics only: a fillable field
  * in a shadow root, one that cannot be filled and is disabled or may be a sign-in field,
@@ -522,7 +528,7 @@ function loginFormsOf(
  * incomplete when it is in a login form (`loginFormsOf`); any other form with one is
  * left out entirely. A field in any shadow root, or more than 48 candidates, marks it
  * incomplete too, and inference rejects an incomplete observation. A page without a
- * field is refused.
+ * field is refused, and so is one where nothing can be located.
  */
 export function extractLoginObservation(
   document: Document = globalThis.document,
@@ -604,9 +610,11 @@ export function extractLoginObservation(
 
   const index = locatorIndex(document);
   // Links and script buttons without a locator are left out without flawing their form.
+  let unlocated = false;
   const located = (entries: typeof required, { optional = false } = {}) =>
     entries.flatMap((entry) => {
       const target = locate(entry.draft.element, index, { links: true });
+      if (!target) unlocated = true;
       if (!target && !optional) flawed.add(entry.form);
       return target ? [{ ...entry, target }] : [];
     });
@@ -636,6 +644,7 @@ export function extractLoginObservation(
     ...buttons,
     ...kept(links, { optional: true }).slice(0, Math.max(0, maxCandidates - buttons.length)),
   ];
+  if (chosen.length === 0) return { ok: false, reason: unlocated ? "no-locator" : "no-candidates" };
   return observe(document, chosen, complete);
 }
 

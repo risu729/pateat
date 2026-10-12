@@ -385,8 +385,14 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         respond({ ok: false, reason: "cancelled" });
         return false;
       }
-      const result =
-        command.page === "login" ? extractLoginObservation() : extractSignedInObservation();
+      let result: unknown;
+      try {
+        result =
+          command.page === "login" ? extractLoginObservation() : extractSignedInObservation();
+      } catch {
+        // A page the extractor cannot read still gets an answer the log can name.
+        result = { ok: false, reason: "extract-error" };
+      }
       respond(result);
       return false;
     }
