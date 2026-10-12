@@ -170,6 +170,8 @@ type LiveDocument = {
   autoChoice?: { snapshots: string; connectionId: string; itemId: string };
   /** A provider URI match for `topUrl`, valid while its snapshot is unchanged. */
   topMatch?: { connectionId: string; itemId: string; snapshotId: string };
+  /** Why generation last skipped this document, so each reason is logged once. */
+  generationSkip?: string;
 };
 /** Documents are tracked per frame; a tab still runs at most one attempt. */
 const frameKey = (document: { tabId: number; frameId: number }) =>
@@ -301,15 +303,28 @@ export const noLoginRecipes: LoginRecipes = {
   starts: async () => [],
 };
 
+/**
+ * Why a page is not sent now: no paired service, its request is in flight, or a request
+ * for it reached the model in the last day (ADR 0016).
+ */
+export type GenerationHold = "not-connected" | "sending" | "sent";
+/**
+ * What came of one page offered for generation, for the local log: the model's recipe or
+ * abstention, a failure or refusal with its code, or why nothing was sent.
+ */
+export type GenerationOutcome =
+  | { outcome: "recipe" }
+  | { outcome: "abstained" | "failed" | "unavailable" | "skipped"; reason: string };
+
 /** The service's recipe generation routes (ADR 0016, ADR 0018). */
 export interface LoginGeneration {
-  /** Whether a page may be sent: a paired service and no attempt for it in the last day. */
-  available(origin: string, path: string): Promise<boolean>;
+  /** `true` when a page may be sent, else why not. */
+  available(origin: string, path: string): Promise<true | GenerationHold>;
   /**
    * Sends one page; `recipe` once the generated recipe is in the recipe cache and the
    * fields its custom slots name are remembered for `slotFields`.
    */
-  generate(request: RecipeGenerationRequest): Promise<"recipe" | "none">;
+  generate(request: RecipeGenerationRequest): Promise<GenerationOutcome>;
   /**
    * Which vault field each custom slot of a recipe generated from this device names, from
    * the request that produced it (ADR 0027); nothing for a recipe it did not generate.
@@ -545,7 +560,7 @@ export type LoginReport =
        */
       detail?: string;
     }
-  | { type: "generation"; tabId: number; origin: string; outcome: "recipe" | "none" }
+  | ({ type: "generation"; tabId: number; origin: string } & GenerationOutcome)
   | {
       type: "judge";
       tabId: number;
@@ -2678,12 +2693,12 @@ export function createLoginRuntime(
    * top-level page on whose path no cached recipe of its origin starts (several starting
    * there count too), and whose path was not sent in the last day (ADR 0016).
    */
-  async function offersGeneration(live: LiveDocument): Promise<boolean> {
-    if (!generation || !uris || live.document.frameId !== 0 || live.topUrl) return false;
-    if (probeMode && live.document.origin === origin) return false;
+  async function offersGeneration(live: LiveDocument): Promise<true | GenerationHold | undefined> {
+    if (!generation || !uris || live.document.frameId !== 0 || live.topUrl) return undefined;
+    if (probeMode && live.document.origin === origin) return undefined;
     const starts = await recipes.starts(live.document.origin).catch(() => undefined);
-    if (starts === undefined || starts.some((start) => start.path === live.path)) return false;
-    return generation.available(live.document.origin, live.path).catch(() => false);
+    if (starts === undefined || starts.some((start) => start.path === live.path)) return undefined;
+    return generation.available(live.document.origin, live.path).catch(() => undefined);
   }
   /**
    * The slots to generate for when a vault item's URI matches the page, with the
@@ -2841,6 +2856,18 @@ export function createLoginRuntime(
     }
     return slots;
   }
+  /** Logs once per document and reason why it was not sent for generation. */
+  function skipGeneration(live: LiveDocument, reason: string): void {
+    if (live.generationSkip === reason) return;
+    live.generationSkip = reason;
+    report({
+      type: "generation",
+      tabId: live.document.tabId,
+      origin: live.document.origin,
+      outcome: "skipped",
+      reason,
+    });
+  }
   /**
    * Sends this page's observation for generation. A returned recipe is in the recipe
    * cache by then; the document announces again and starts it once its first step is
@@ -2854,7 +2881,11 @@ export function createLoginRuntime(
         extractResultSchema,
         await send(live, { type: "login.extract", page: "login" }),
       );
-      if (!extracted.success || !extracted.output.ok || documents.get(key) !== live) return;
+      if (documents.get(key) !== live) return;
+      if (!extracted.success || !extracted.output.ok) {
+        skipGeneration(live, "extract-failed");
+        return;
+      }
       const parsed = v.safeParse(loginObservationSchema, extracted.output.observation);
       // An incomplete observation is not sent (ADR 0016).
       if (
@@ -2862,28 +2893,32 @@ export function createLoginRuntime(
         !parsed.output.complete ||
         parsed.output.origin !== live.document.origin ||
         parsed.output.path !== live.path
-      )
+      ) {
+        skipGeneration(live, "incomplete-observation");
         return;
+      }
       const shape = await usernameShape(live.document.origin, scope);
       const custom = await customSlots(live.document.origin, scope);
       if (documents.get(key) !== live) return;
-      const outcome = await generation.generate({
-        version: 1,
-        observation: parsed.output,
-        slots: [
-          ...scope.slots.map((slot) =>
-            slot.id === "username" && shape ? { ...slot, valueShape: shape } : slot,
-          ),
-          ...custom,
-        ],
-      });
+      const result = await generation
+        .generate({
+          version: 1,
+          observation: parsed.output,
+          slots: [
+            ...scope.slots.map((slot) =>
+              slot.id === "username" && shape ? { ...slot, valueShape: shape } : slot,
+            ),
+            ...custom,
+          ],
+        })
+        .catch((): GenerationOutcome => ({ outcome: "failed", reason: "error" }));
       report({
         type: "generation",
         tabId: live.document.tabId,
         origin: live.document.origin,
-        outcome,
+        ...result,
       });
-      if (outcome !== "recipe" || documents.get(key) !== live) return;
+      if (result.outcome !== "recipe" || documents.get(key) !== live) return;
       await browser.tabs.sendMessage(
         live.document.tabId,
         { version: 1, type: "login.reconnect" },
@@ -3077,12 +3112,17 @@ export function createLoginRuntime(
       return { ok: false, reason: "duplicate-document" };
     if (oldLive && !sameDocument)
       await send(oldLive, { type: "login.cancel" }).catch(() => undefined);
+    const path = new URL(url).pathname;
     const live: LiveDocument = {
       document,
       token,
       url,
-      path: new URL(url).pathname,
+      path,
       ...(topUrl ? { topUrl } : {}),
+      // A document announcing again on the same path logs each generation skip once.
+      ...(sameDocument && oldLive.path === path && oldLive.generationSkip
+        ? { generationSkip: oldLive.generationSkip }
+        : {}),
     };
     documents.set(key, live);
     const refuse = async (reason: string, detail?: string) => {
@@ -3193,8 +3233,11 @@ export function createLoginRuntime(
     ) {
       const starts = await startsFor(document.origin);
       if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
-      let offer = !recipe && (await offersGeneration(live));
+      const availability = recipe ? undefined : await offersGeneration(live);
       if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+      let offer = availability === true;
+      // Only a page that was sent is held, so the log says why it is not sent again.
+      if (availability === "sending" || availability === "sent") skipGeneration(live, availability);
       if (offer && signIn?.path === live.path) {
         const scope = await generationSlotsFor(live).catch(() => undefined);
         if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
@@ -3206,6 +3249,7 @@ export function createLoginRuntime(
           return { ok: false, reason: "generating" };
         }
         // No vault item matches this page, so it is not sent.
+        skipGeneration(live, "no-vault-match");
         offer = false;
       }
       if (!recipe && !starts.length && !offer) return refuse("recipe-not-found");
