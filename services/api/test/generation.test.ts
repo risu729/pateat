@@ -411,6 +411,106 @@ describe("recipe generation", () => {
     ).toEqual([{ outcome: "provider-error", input_tokens: null }]);
   });
 
+  it("names the check that refused the output and logs the refused plan by reference", async () => {
+    const device = await owner();
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    // A password for an input the page marks `new-password`: the plan check refuses it.
+    const page = observation("/login", [
+      element("email", "email", "Email"),
+      { ...element("password", "password", "Password"), autocomplete: "new-password" },
+      element("sign-in", "button", "Sign in"),
+    ]);
+    const refused = JSON.stringify({
+      result: {
+        decision: "plan",
+        fields: [
+          { slot: "email", candidate: "email" },
+          { slot: "password", candidate: "password" },
+        ],
+        action: { candidate: "Sign in", purpose: "submit" },
+      },
+    });
+    replies.push({ text: refused, usage: { input_tokens: 2_900, output_tokens: 78 } });
+    expect(await generate(device, page)).toEqual({
+      version: 1,
+      status: "failed",
+      error: "invalid-output",
+      rejection: { check: "plan", reason: "incompatible-role" },
+    });
+    // Output the format refuses: only the issue and where it was, never the text.
+    const other = await owner();
+    replies.push({
+      text: JSON.stringify({
+        result: {
+          decision: "plan",
+          fields: [{ slot: "email", candidate: "email" }],
+          action: { candidate: "sign-in", purpose: "Sign in now" },
+        },
+      }),
+    });
+    expect(await generate(other, emailPage)).toEqual({
+      version: 1,
+      status: "failed",
+      error: "invalid-output",
+      rejection: { check: "schema", issue: "picklist", path: "result.action.purpose" },
+    });
+    const third = await owner();
+    replies.push({ text: "Sign in with the email field." });
+    expect(await generate(third, emailPage)).toMatchObject({ rejection: { check: "json" } });
+
+    const logged = (
+      await Promise.all(
+        [device, other, third].map((each) =>
+          rows(
+            "SELECT outcome, input_tokens, output_tokens, result FROM inference_log WHERE owner_id = ?",
+            each.ownerId,
+          ),
+        ),
+      )
+    ).flat();
+    expect(logged.map((row) => ({ ...row, result: JSON.parse(String(row.result)) }))).toEqual([
+      {
+        outcome: "invalid-output",
+        input_tokens: 2_900,
+        output_tokens: 78,
+        result: {
+          rejection: { check: "plan", reason: "incompatible-role" },
+          // The action's text is not a candidate of the page, so it is not kept.
+          output: {
+            result: {
+              fields: [
+                { slot: "email", candidate: "email" },
+                { slot: "password", candidate: "password" },
+              ],
+              action: { candidate: "?", purpose: "submit" },
+            },
+          },
+        },
+      },
+      {
+        outcome: "invalid-output",
+        input_tokens: 3_000,
+        output_tokens: 900,
+        result: {
+          rejection: { check: "schema", issue: "picklist", path: "result.action.purpose" },
+        },
+      },
+      {
+        outcome: "invalid-output",
+        input_tokens: 3_000,
+        output_tokens: 900,
+        result: { rejection: { check: "json" } },
+      },
+    ]);
+    expect(JSON.stringify(logged.map((row) => row.result))).not.toMatch(/Sign in/u);
+    expect(info).toHaveBeenCalledWith("Model output refused", {
+      role: "generate",
+      rejection: { check: "plan", reason: "incompatible-role" },
+    });
+    expect(JSON.stringify(info.mock.calls)).not.toMatch(/Sign in/u);
+    info.mockRestore();
+  });
+
   it("deletes log rows older than 90 days when it logs a call", async () => {
     const device = await owner();
     const insert = (id: string, age: number) =>
@@ -1862,6 +1962,7 @@ describe("password route variants (ADR 0027)", () => {
       version: 1,
       status: "failed",
       error: "invalid-output",
+      rejection: { check: "plan", reason: "variant-advance" },
     });
     const other = await owner();
     replies.push({

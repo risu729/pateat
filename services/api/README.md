@@ -168,7 +168,13 @@ identifiers.
 [ADR 0018](../../docs/adr/0018-recipe-generation-route.md) routes, in
 `src/recipes/generate.ts`. Both answer 200 with a `status`: `recipe` or `signed-in`
 with the stored change, `abstained`, `rejected`, `challenge` or `unclear`, `failed` with
-a code, or `unavailable` with a reason when no model was called.
+a code, or `unavailable` with a reason when no model was called. A generation that fails
+`invalid-output` because a check refused the model's output also names it as
+`rejection`, in codes only: `{ check: "json" }` for output that was not JSON,
+`{ check: "schema", issue, path }` for the first issue of the output format (such as
+`max-length` at `result.alternatives`; `unknown-key` where the model added a key, with
+the path ending before it), or `{ check: "plan", reason }` with the plan check's code
+(such as `incompatible-role`).
 
 - `POST /v1/recipes/generate` takes `{ version: 1, observation, slots, base? }`. Each
   origin and start path has one generated recipe, `gen-` and the first 32 hex digits of
@@ -256,7 +262,12 @@ input as tokens plus 8,192 output tokens at the ADR 0014 rates, about $0.43) and
 corrects it from reported usage; usage the provider does not report keeps the
 reservation. The `inference_log` row stores the provider and model, the instructions and
 input as sent, the structured result, the outcome code, usage and estimated cost; a
-request refused locally before any model call is not logged. Rows older than 90 days are
+request refused locally before any model call is not logged. For `invalid-output`, the
+result is the `rejection` and, when the plan check refused a plan, that plan as
+`output`, with every candidate, slot or name that is not one of the request's candidate
+or slot IDs or a generic slot ID replaced by `?`, since an unchecked string may quote
+the page or a field name. The model's text is never stored, and the Worker logs only
+`Model output refused` with the role and the `rejection`. Rows older than 90 days are
 deleted whenever a call is logged and on every `GET /v1/recipes`, because routine
 releases do not apply cron triggers.
 

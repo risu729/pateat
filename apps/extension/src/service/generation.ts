@@ -4,6 +4,7 @@ import {
   slotsForPage,
   syncRecipeIdSchema,
   vaultFieldReferenceSchema,
+  type GenerationOutputRejection,
   type LoginBindingTemplate,
   type LoginObservation,
   type LoginRoute,
@@ -116,6 +117,17 @@ function slotFieldsOf(
     };
   });
   return mapped.every((entry) => entry !== undefined) ? mapped : undefined;
+}
+
+/** Which check refused the model's output, as the local log records it. */
+function refused(rejection: GenerationOutputRejection) {
+  if (rejection.check === "plan") return { check: "plan", detail: rejection.reason } as const;
+  if (rejection.check === "json") return { check: "json" } as const;
+  return {
+    check: "schema",
+    detail: rejection.issue,
+    ...(rejection.path ? { path: rejection.path } : {}),
+  } as const;
 }
 
 /**
@@ -304,7 +316,10 @@ export function createLoginGeneration(options: {
             reason: answer.kind === "failed" ? answer.error : "device-rejected",
           };
         if (result.status === "abstained") return { outcome: "abstained", reason: result.reason };
-        if (result.status === "failed") return { outcome: "failed", reason: result.error };
+        if (result.status === "failed")
+          return result.rejection
+            ? { outcome: "failed", reason: "invalid-output", ...refused(result.rejection) }
+            : { outcome: "failed", reason: result.error };
         if (result.status === "unavailable")
           return { outcome: "unavailable", reason: result.reason };
         // The mapping arrives only with the answer that wrote the recipe; the login binds

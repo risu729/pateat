@@ -9,7 +9,12 @@ import {
   type InferenceOutcome,
   type RoleLimits,
 } from "./outcome";
-import { MAX_PAGE_ALTERNATIVES, validateGeneratedPage, type ValidatedGeneratedPage } from "./plan";
+import {
+  MAX_PAGE_ALTERNATIVES,
+  redactGeneratedPage,
+  validateGeneratedPage,
+  type ValidatedGeneratedPage,
+} from "./plan";
 import { described, runStructuredRole, type Interpreted } from "./structured";
 
 const reference = v.pipe(v.string(), v.maxLength(64));
@@ -170,7 +175,12 @@ export function createRecipeGenerator(config: {
         const validated = validateGeneratedPage(observation.output, slots.output, draft);
         return validated.ok
           ? { status: "ok", value: validated.plan }
-          : { status: "failed", error: "invalid-output", detail: validated.reason };
+          : {
+              status: "failed",
+              error: "invalid-output",
+              detail: validated.reason,
+              output: { result: redactGeneratedPage(observation.output, slots.output, draft) },
+            };
       },
     });
   };

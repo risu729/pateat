@@ -113,6 +113,12 @@ new owner decision:
   `name` or `data-testid` value that the label redaction would change is never used as a
   locator there, since signed-in pages often name the account in them: such a button or
   link is left out, and such a field makes the page incomplete.
+- A generation that fails `invalid-output` names the check that refused the model's
+  output in its answer and in the request log, in codes only (2026-10-12, after a real
+  page's failure could not be told apart): the output was not JSON, failed the output
+  format at a path, or failed the plan check with its code. The request log also keeps a
+  plan the plan check refused, reduced to the request's candidate and slot IDs and
+  generic slot IDs. The extension logs the check and its codes with `recipe.generate`.
 - While a model call runs, the extension calls an extension API every 20 seconds, so
   Chrome does not stop its service worker and lose the answer. It waits up to 90
   seconds; a page whose answer timed out is freed for its next visit, which the service

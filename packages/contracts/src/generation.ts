@@ -72,6 +72,28 @@ export const generationFailureSchema = v.picklist([
   "recipe-invalid",
 ]);
 
+const rejectionCode = v.pipe(v.string(), v.regex(/^[a-z][a-z0-9-]{0,47}$/u));
+/**
+ * Why the service refused the model's output as `invalid-output`, as codes only: `json`
+ * when the output was not JSON; `schema` with the type of the first Valibot issue of the
+ * output format, such as `max-length`, and where it was, as the output's keys in kebab
+ * case and array indexes joined by dots (empty at the top, and ending at a key the format
+ * does not define); or `plan` with the code of the plan check that refused it, such as
+ * `incompatible-role`. Never the output's text.
+ */
+export const generationOutputRejectionSchema = v.variant("check", [
+  v.strictObject({ check: v.literal("json") }),
+  v.strictObject({
+    check: v.literal("schema"),
+    issue: rejectionCode,
+    path: v.pipe(
+      v.string(),
+      v.regex(/^(?:(?:[a-z][a-z-]{0,31}|\d{1,3})(?:\.(?:[a-z][a-z-]{0,31}|\d{1,3})){0,7})?$/u),
+    ),
+  }),
+  v.strictObject({ check: v.literal("plan"), reason: rejectionCode }),
+]);
+
 /** `POST /v1/recipes/generate`: one page; `base` continues a recipe after an advance. */
 export const recipeGenerationRequestSchema = v.strictObject({
   version: v.literal(1),
@@ -120,6 +142,8 @@ export const recipeGenerationResultSchema = v.pipe(
       version: v.literal(1),
       status: v.literal("failed"),
       error: generationFailureSchema,
+      /** For `invalid-output`: which check refused the model's output, and why. */
+      rejection: v.optional(generationOutputRejectionSchema),
     }),
     v.strictObject({
       version: v.literal(1),
@@ -127,6 +151,13 @@ export const recipeGenerationResultSchema = v.pipe(
       reason: generationUnavailableReasonSchema,
     }),
   ]),
+  v.check(
+    (result) =>
+      result.status !== "failed" ||
+      result.rejection === undefined ||
+      result.error === "invalid-output",
+    "Only invalid output has a rejection",
+  ),
   v.check(
     (result) =>
       result.status !== "recipe" ||
@@ -184,4 +215,5 @@ export type RecipeGenerationRequest = v.InferOutput<typeof recipeGenerationReque
 export type RecipeGenerationResult = v.InferOutput<typeof recipeGenerationResultSchema>;
 export type RecipeCompletionRequest = v.InferOutput<typeof recipeCompletionRequestSchema>;
 export type RecipeCompletionResult = v.InferOutput<typeof recipeCompletionResultSchema>;
+export type GenerationOutputRejection = v.InferOutput<typeof generationOutputRejectionSchema>;
 export type GenerationUnavailableReason = v.InferOutput<typeof generationUnavailableReasonSchema>;

@@ -1,7 +1,8 @@
 import { valibotSchema } from "@ai-sdk/valibot";
 import { generateText, Output, wrapLanguageModel, type LanguageModel } from "ai";
 import * as v from "valibot";
-import { classifyInferenceError } from "./errors";
+import { toJsonSchema } from "@valibot/to-json-schema";
+import { classifyInferenceError, outputSchemaIssue, schemaKeys } from "./errors";
 import {
   createUsageMeter,
   normalizeUsage,
@@ -11,6 +12,7 @@ import {
   type AbstentionReason,
   type InferenceErrorCode,
   type InferenceOutcome,
+  type OutputSchemaIssue,
 } from "./outcome";
 import type { GeneratedPageRejection } from "./plan";
 
@@ -25,7 +27,13 @@ export const described = <T extends v.GenericSchema>(schema: T, description: str
 export type Interpreted<T> =
   | { status: "ok"; value: T }
   | { status: "abstained"; reason: AbstentionReason }
-  | { status: "failed"; error: InferenceErrorCode; detail?: GeneratedPageRejection };
+  | {
+      status: "failed";
+      error: InferenceErrorCode;
+      detail?: GeneratedPageRejection;
+      /** The output `detail` refused, reduced for the request log. */
+      output?: unknown;
+    };
 
 /**
  * One structured-output call with the configured model only: usage is metered across
@@ -74,7 +82,11 @@ export async function runStructuredRole<O, T>(config: {
       },
     },
   });
-  const outcome = (result: Interpreted<T>): InferenceOutcome<T> => {
+  const outcome = (
+    result:
+      | Interpreted<T>
+      | { status: "failed"; error: InferenceErrorCode; schemaIssue?: OutputSchemaIssue },
+  ): InferenceOutcome<T> => {
     const category =
       result.status === "failed" && result.error === "refused"
         ? refusalCategoryCode(config.refusalCategory?.(lastMetadata))
@@ -103,9 +115,11 @@ export async function runStructuredRole<O, T>(config: {
       return outcome({ status: "failed", error: "refused" });
     return outcome(config.interpret(result.output));
   } catch (error) {
-    return outcome({
-      status: "failed",
-      error: classifyInferenceError(error, { timeout, caller: config.abortSignal }),
-    });
+    const code = classifyInferenceError(error, { timeout, caller: config.abortSignal });
+    const issue =
+      code === "invalid-output"
+        ? outputSchemaIssue(error, schemaKeys(toJsonSchema(config.schema)))
+        : undefined;
+    return outcome({ status: "failed", error: code, ...(issue ? { schemaIssue: issue } : {}) });
   }
 }

@@ -3,6 +3,7 @@ import {
   claudeGeneration,
   createClaudeGenerationModel,
   estimateClaudeCostUsd,
+  outputRejection,
   unknownUsage,
   type InferenceOutcome,
 } from "@pateat/inference";
@@ -128,6 +129,19 @@ const credentialUnavailable = {
 } as const;
 
 /**
+ * What the request log keeps of a call's result: the structured result for `ok`, the
+ * abstention reason, and for refused output which check refused it, with the output
+ * reduced to references the request holds when the role kept one (ADR 0012).
+ */
+function loggedResult<T>(call: ClaudeCall<T>, outcome: InferenceOutcome<T>): unknown {
+  if (outcome.status === "ok") return call.logValue(outcome.value);
+  if (outcome.status === "abstained") return { reason: outcome.reason };
+  const rejection = outputRejection(outcome);
+  if (!rejection) return null;
+  return { rejection, ...(outcome.output === undefined ? {} : { output: outcome.output }) };
+}
+
+/**
  * Makes one role call for the authenticated owner. `ownerId` must come from the request
  * scope. Nothing is reserved, logged or sent unless every check passes.
  */
@@ -181,6 +195,9 @@ export async function callClaude<T>(
       await db.batch(corrections);
       return { status: "called", outcome };
     }
+    // Codes only, for the Worker's own logs; the request log row holds the rest.
+    const rejection = outcome.status === "failed" ? outputRejection(outcome) : undefined;
+    if (rejection) console.info("Model output refused", { role: call.role, rejection });
     await db.batch([
       ...corrections,
       db.insert(inferenceLog).values({
@@ -192,12 +209,7 @@ export async function callClaude<T>(
         origin: call.origin,
         path: call.path,
         request: call.request,
-        result:
-          outcome.status === "ok"
-            ? call.logValue(outcome.value)
-            : outcome.status === "abstained"
-              ? { reason: outcome.reason }
-              : null,
+        result: loggedResult(call, outcome),
         outcome: outcome.status === "failed" ? outcome.error : outcome.status,
         inputTokens: outcome.usage.inputTokens,
         outputTokens: outcome.usage.outputTokens,

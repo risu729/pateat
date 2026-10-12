@@ -24,6 +24,7 @@ import {
   createCompletionJudge,
   createRecipeGenerator,
   generationInstructions,
+  outputRejection,
   type InferenceErrorCode,
 } from "@pateat/inference";
 import { and, count, eq, gt, gte, lt } from "drizzle-orm";
@@ -213,7 +214,11 @@ export async function generateRecipe(
   });
   if (call.status === "unavailable") return raced ?? unavailable(call.reason);
   const { outcome } = call;
-  if (outcome.status === "failed") return failed(failureOf(outcome.error));
+  if (outcome.status === "failed") {
+    // Which check refused the model's output, so the device can log it (codes only).
+    const rejection = outputRejection(outcome);
+    return { ...failed(failureOf(outcome.error)), ...(rejection ? { rejection } : {}) };
+  }
   if (outcome.status === "abstained")
     return {
       version: 1,

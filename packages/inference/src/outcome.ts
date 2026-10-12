@@ -1,3 +1,4 @@
+import { generationOutputRejectionSchema, type GenerationOutputRejection } from "@pateat/contracts";
 import * as v from "valibot";
 import type { GeneratedPageRejection } from "./plan";
 
@@ -32,8 +33,16 @@ export type AbstentionReason =
   | "value-mismatch";
 
 /**
+ * Why the structured-output check refused the model's text as `invalid-output`
+ * (`generationOutputRejectionSchema`): never the text, the issue's message or the value
+ * it received, which may quote the output.
+ */
+export type OutputSchemaIssue = Exclude<GenerationOutputRejection, { check: "plan" }>;
+
+/**
  * Every role returns one of these local outcomes. Diagnostics carry codes only;
- * prompts, page text and raw model output are never included.
+ * prompts, page text and raw model output are never included. A generated plan the role's
+ * own check refused is kept only as `output`, reduced to references the request holds.
  */
 export type InferenceOutcome<T> = { calls: number; usage: InferenceUsage } & (
   | { status: "ok"; value: T }
@@ -41,11 +50,38 @@ export type InferenceOutcome<T> = { calls: number; usage: InferenceUsage } & (
   | {
       status: "failed";
       error: InferenceErrorCode;
+      /** For `invalid-output`: the code of the role's own check that refused the output. */
       detail?: GeneratedPageRejection;
+      /** For `invalid-output`: the structured-output check that refused the model's text. */
+      schemaIssue?: OutputSchemaIssue;
+      /**
+       * For `invalid-output` with a `detail`: the output that check refused, for the
+       * request log, with each string that is not a reference the request holds replaced
+       * (`redactGeneratedPage`).
+       */
+      output?: unknown;
       /** For `refused`: the provider's refusal category code when it reports one. */
       refusalCategory?: string;
     }
 );
+
+/**
+ * Which check refused a failed outcome's output, and why, as the service reports it;
+ * nothing for any other failure, or for a code the contract does not accept.
+ */
+export function outputRejection(
+  outcome: Pick<
+    Extract<InferenceOutcome<unknown>, { status: "failed" }>,
+    "error" | "detail" | "schemaIssue"
+  >,
+): GenerationOutputRejection | undefined {
+  if (outcome.error !== "invalid-output") return undefined;
+  const rejection: GenerationOutputRejection | undefined =
+    outcome.detail === undefined ? outcome.schemaIssue : { check: "plan", reason: outcome.detail };
+  return rejection !== undefined && v.is(generationOutputRejectionSchema, rejection)
+    ? rejection
+    : undefined;
+}
 
 /** Keeps a provider refusal category only when it is a short code, never free text. */
 export const refusalCategoryCode = (value: unknown): string | undefined =>
