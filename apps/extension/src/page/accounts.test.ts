@@ -112,6 +112,8 @@ describe("accountText", () => {
       "my2@example.com",
       "me@example.com",
     ]);
+    document.body.innerHTML = `<p>Signed in as ****1234</p><label>Password<input type="password"></label>`;
+    expect(shownAccounts(accountText(document, null))).toEqual(["****1234"]);
   });
 
   it("skips contact addresses and bounds what it reads", () => {
@@ -122,10 +124,5 @@ describe("accountText", () => {
     expect(shownAccounts(accountText(document, document.forms[0]!))).toEqual([]);
     document.body.innerHTML = `<p>${"a".repeat(100_000)}</p>`;
     expect(accountText(document, null).length).toBeLessThanOrEqual(4000);
-  });
-
-  it("keeps text after a block apart from the inline text that follows it", () => {
-    document.body.innerHTML = `<p>Signed in as ****1234</p><label>Password<input type="password"></label>`;
-    expect(shownAccounts(accountText(document, null))).toEqual(["****1234"]);
   });
 });

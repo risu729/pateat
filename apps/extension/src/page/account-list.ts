@@ -410,23 +410,6 @@ const accountParts = ["アカウント", "プロフィール", "ユーザー"];
 /** A control naming another account is a short label, not a paragraph. */
 const otherTextLimit = 64;
 
-/**
- * Whether the page shows a control, outside page chrome, that signs in with another
- * account (ADR 0028): its whole text, at most 64 characters, holds a word for another
- * (another, other, different, switch, 別の, 他の, ほかの, 切り替え, 切替) and one for an
- * account (account, profile, user and their plurals, アカウント, プロフィール, ユーザー),
- * and {@link listControls} could click it. Only words of the control's own text count,
- * never a site name. A control whose text holds one of `names`, which are hidden from the
- * page sent, would be left out of it, so it does not count; nor, as a precaution, does one
- * whose `aria-label` holds one.
- */
-export function showsOtherAccountControl(
-  document: Document,
-  names: readonly string[] = [],
-): boolean {
-  return otherAccountMiss(document, names) === undefined;
-}
-
 /** Why a shown control for another account does not count, for the log (ADR 0028). */
 export const otherMisses = [
   "other-holds-name",
@@ -439,7 +422,7 @@ export const otherMisses = [
 ] as const;
 export type OtherMiss = (typeof otherMisses)[number];
 
-/** Words for another account in a control's text, as {@link showsOtherAccountControl} reads them. */
+/** Words for another account in a control's text, as {@link otherAccountMiss} reads them. */
 function namesOtherAccount(text: string): boolean {
   const words = text.toLowerCase().split(/[^\p{L}\p{N}]+/u);
   const other =
@@ -457,16 +440,23 @@ function labelNamesOtherAccount(element: Element): boolean {
 }
 
 /**
- * Why {@link showsOtherAccountControl} finds no control to sign in with another account,
- * for the log (ADR 0028), or undefined when it finds one. For an entry-like control with
- * the words: it holds one of `names` in its text or label (`other-holds-name`),
- * {@link listControls} could not click it (`other-not-clickable`), its text is over 64
- * characters (`other-text-long`), or only its `aria-label` has them (`other-label-only`).
- * For words outside every such control: in page chrome (`other-in-chrome`), with nothing
- * shown, enabled and clickable around them (`other-not-entry`), or in a clickable element
- * that is not an innermost list control, such as one holding another control
- * (`other-not-control`); `other-label-only` again when only an element's `aria-label` has
- * them; or nowhere (`no-other`). Only these codes leave the page, never its text.
+ * Why the page shows no control, outside page chrome, that signs in with another account
+ * (ADR 0028), for the log, or undefined when it shows one. Such a control's whole text,
+ * at most 64 characters, holds a word for another (another, other, different, switch,
+ * 別の, 他の, ほかの, 切り替え, 切替) and one for an account (account, profile, user and their
+ * plurals, アカウント, プロフィール, ユーザー), and {@link listControls} could click it. Only words of
+ * the control's own text count, never a site name. A control whose text holds one of
+ * `names`, which are hidden from the page sent, would be left out of it, so it does not
+ * count; nor, as a precaution, does one whose `aria-label` holds one. For an entry-like
+ * control with the words: it holds one of `names` in its text or label
+ * (`other-holds-name`), {@link listControls} could not click it (`other-not-clickable`),
+ * its text is over 64 characters (`other-text-long`), or only its `aria-label` has them
+ * (`other-label-only`). For words outside every such control: in page chrome
+ * (`other-in-chrome`), with nothing shown, enabled and clickable around them
+ * (`other-not-entry`), or in a clickable element that is not an innermost list control,
+ * such as one holding another control (`other-not-control`); `other-label-only` again
+ * when only an element's `aria-label` has them; or nowhere (`no-other`). Only these
+ * codes leave the page, never its text.
  */
 export function otherAccountMiss(
   document: Document,

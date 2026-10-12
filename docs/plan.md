@@ -504,6 +504,11 @@ own accounts, so they stay in the project's files rather than in this repository
     changing (login runtime, passkeys, observation, diagnostics, popup) wait.
   - Batch 6, `apps/extension/src/service` (2026-10-12): 311 to 295 Vitest cases, the
     same statements and branches covered.
+  - Batch 7, the extension's page, diagnostics and username browser suites, apart
+    from the diagnostics log (2026-10-12): 305 to 300 Vitest cases, the same
+    statements and branches covered except one wrapper only tests called, removed.
+    Six tests that passed without reaching the rule they named were repaired, and the
+    account list's entry choice is now checked on an entry that is not the first.
 - UI improvements the owner reports from daily use of the UI polished in phase 1. Small
   fixes for broken UI still land as found.
 - Features found missing during use are added here.

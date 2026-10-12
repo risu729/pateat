@@ -6,14 +6,12 @@ import {
   besideAccounts,
   besideEmails,
   chooses,
-  entryLike,
   listChoice,
   listControls,
   namedAccounts,
   namesUsername,
   otherAccountMiss,
   pickEntry,
-  showsOtherAccountControl,
 } from "./account-list";
 
 afterEach(() => {
@@ -110,14 +108,6 @@ describe("accountEntries", () => {
   });
 });
 
-describe("entryLike", () => {
-  it("counts only the element that sets cursor: pointer", () => {
-    document.body.innerHTML = `<div id="row" style="cursor: pointer"><span id="inner">x</span></div>`;
-    expect(entryLike(document.querySelector("#row")!)).toBe(true);
-    expect(entryLike(document.querySelector("#inner")!)).toBe(false);
-  });
-});
-
 describe("chooses", () => {
   it("chooses an unmasked address only when equal", () => {
     expect(chooses("A@Example.com", "a@example.com")).toBe(true);
@@ -138,15 +128,6 @@ describe("chooses", () => {
 });
 
 describe("pickEntry", () => {
-  it("picks the one entry of the username", () => {
-    const entries = list(`
-      <button>a@example.com</button>
-      <button>b@example.com</button>
-    `);
-    expect(pickEntry(entries, "b@example.com")).toEqual({ entry: entries[1] });
-    expect(pickEntry(entries, "c@example.com")).toEqual({ reason: "none" });
-  });
-
   it("refuses several fitting entries and masks another vault account fits", () => {
     const entries = list(`
       <button>risu***@example.com</button>
@@ -158,9 +139,9 @@ describe("pickEntry", () => {
     expect(pickEntry(one, "risutaku@example.com", ["risuko@example.com"])).toEqual({
       reason: "none",
     });
-    // An unmasked address is never shared with another account.
+    // An unmasked address is never shared with another account, even one of the same username.
     const plain = list(`<button>risutaku@example.com</button>`);
-    expect(pickEntry(plain, "risutaku@example.com", ["risuko@example.com"])).toEqual({
+    expect(pickEntry(plain, "risutaku@example.com", ["risutaku@example.com"])).toEqual({
       entry: plain[0],
     });
   });
@@ -201,25 +182,17 @@ describe("besideAccounts", () => {
     expect(besideAccounts(document).map((account) => account.text)).toContain("Taro");
   });
 
-  it("finds Instagram's username beside Continue", () => {
-    document.body.innerHTML = instagram;
-    const shown = besideAccounts(document).find((account) => account.text === "taro.yamada");
-    expect(shown?.buttons.map((button) => button.textContent)).toEqual(["Continue"]);
-    expect(besideEmails(document)).toEqual([]);
-  });
-
   it("leaves out texts beside more than three buttons and inside controls", () => {
     document.body.innerHTML = `
-      <div><p>a@example.com</p><button>1</button><button>2</button><button>3</button><button>4</button></div>
-      <button disabled><span>b@example.com</span></button>`;
+      <div><p>a@example.com</p><button>1</button><button>2</button><button>3</button><button>4</button></div>`;
+    expect(besideAccounts(document).map((account) => account.text)).toEqual([]);
+    document.body.innerHTML = `<div><button disabled><span>b@example.com</span></button><button>Go</button></div>`;
     expect(besideAccounts(document).map((account) => account.text)).toEqual([]);
   });
 });
 
-describe("showsOtherAccountControl", () => {
+describe("otherAccountMiss", () => {
   it("finds a control to sign in with another account by its words, whatever its element type", () => {
-    document.body.innerHTML = instagram;
-    expect(showsOtherAccountControl(document)).toBe(true);
     for (const text of [
       "Switch accounts",
       "Log into another account",
@@ -227,36 +200,17 @@ describe("showsOtherAccountControl", () => {
       "ユーザーを切り替える",
     ]) {
       document.body.innerHTML = `<div><span>taro</span><button>Continue</button></div><a href="/x">${text}</a>`;
-      expect(showsOtherAccountControl(document)).toBe(true);
+      expect(otherAccountMiss(document), text).toBeUndefined();
     }
   });
 
-  it("leaves out a control whose text holds a shown name, which the page sent hides", () => {
-    document.body.innerHTML = instagram;
-    expect(showsOtherAccountControl(document, ["taro.yamada"])).toBe(true);
-    document.body.innerHTML = `<div><span>taro</span><button>Continue</button></div><button>Not taro? Switch accounts</button>`;
-    expect(showsOtherAccountControl(document, ["taro"])).toBe(false);
+  it("leaves out a control whose text or label holds a shown name, which the page sent hides", () => {
     document.body.innerHTML = `<div><h1>ログイン</h1><button>続ける</button></div><button>別のアカウントでログイン</button>`;
-    expect(showsOtherAccountControl(document, ["ログイン"])).toBe(false);
+    expect(otherAccountMiss(document, ["ログイン"])).toBe("other-holds-name");
     document.body.innerHTML = `<div><span>taro</span><button>Go</button></div><div role="button" aria-label="Switch from taro">Switch accounts</div>`;
-    expect(showsOtherAccountControl(document, ["taro"])).toBe(false);
+    expect(otherAccountMiss(document, ["taro"])).toBe("other-holds-name");
   });
 
-  it("leaves out other controls, page chrome and long texts", () => {
-    for (const html of [
-      `<div><span>taro</span><button>Continue</button></div><button>Other ways to sign in</button>`,
-      `<div><span>taro</span><button>Continue</button></div><button>Create new account</button>`,
-      `<header><button>Switch account</button></header><div><span>taro</span><button>Go</button></div>`,
-      `<div><span>taro</span><button>Go</button></div><button>${"Use another account ".repeat(4)}</button>`,
-      `<div><span>taro</span><button>Go</button></div><button disabled>Use another profile</button>`,
-    ]) {
-      document.body.innerHTML = html;
-      expect(showsOtherAccountControl(document)).toBe(false);
-    }
-  });
-});
-
-describe("otherAccountMiss", () => {
   it("says why no control for another account counts, for the log", () => {
     document.body.innerHTML = instagram;
     expect(otherAccountMiss(document, ["taro.yamada"])).toBeUndefined();
@@ -282,6 +236,7 @@ describe("otherAccountMiss", () => {
         `${go}<div role="button"><span>Use another profile</span><button>x</button></div>`,
         "other-not-control",
       ],
+      [`${go}<button>Other ways to sign in</button>`, "no-other"],
       [`${go}<script>/* Switch account */</script>`, "no-other"],
     ];
     for (const [html, miss] of cases) {
@@ -380,6 +335,14 @@ describe("listChoice", () => {
     });
     expect(picked.click).toBe("entry");
     expect("element" in picked && picked.element.textContent).toContain("risutaku@example.com");
+    // The entry that fits, not the first one.
+    const second = listChoice(document, {
+      username: "hanako@example.com",
+      others: [],
+      othersComplete: true,
+      other,
+    });
+    expect("element" in second && second.element.textContent).toBe("hanako@example.com");
     const missing = listChoice(document, {
       username: "jiro@example.com",
       others: [],
@@ -487,10 +450,10 @@ describe("listChoice", () => {
     } as const;
     const input = { username: "taro", others: ["hanako"], othersComplete: true, ...buttons };
     // Two accounts beside one Continue: the checked one may be another account.
-    document.body.innerHTML = `<form><label><input type="radio" name="a"> taro</label>
-      <label><input type="radio" name="a" checked> hanako</label><button>Continue</button></form>
+    document.body.innerHTML = `<div><label><input type="radio" name="a"> taro</label>
+      <label><input type="radio" name="a" checked> hanako</label><button>Continue</button></div>
       <button>Use another profile</button>`;
-    expect(listChoice(document, input).click).not.toBe("continue");
+    expect(listChoice(document, input).click).toBe("other");
     // The name sits beside another button, and Continue is elsewhere.
     document.body.innerHTML = `<div><span>taro</span><button>Follow</button></div>
       <div><button>Continue</button></div><button>Use another profile</button>`;

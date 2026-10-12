@@ -21,5 +21,18 @@ describe("browser info", () => {
     await expect(
       readBrowserInfo({ getSelf: () => Promise.reject(new Error("no management")) }),
     ).resolves.toEqual({ name: "Unknown browser", version: "", installType: "unknown" });
+    await expect(
+      readBrowserInfo({
+        getSelf: () => {
+          throw new TypeError("browser.management is undefined");
+        },
+      }),
+    ).resolves.toEqual({ name: "Unknown browser", version: "", installType: "unknown" });
+    await expect(
+      readBrowserInfo({
+        userAgentData: { getHighEntropyValues: () => Promise.reject(new Error("no hints")) },
+        getSelf: async () => ({ installType: "normal" }),
+      }),
+    ).resolves.toEqual({ name: "Unknown browser", version: "", installType: "normal" });
   });
 });
