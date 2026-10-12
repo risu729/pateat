@@ -36,11 +36,12 @@ password or passkey, in the Grok Bot computer's Chrome, on a production build of
 - Start from a list of those sites. It names the owner's own accounts, so it stays in
   the project's files rather than in this repository.
 - Sites where the owner has no password or passkey sign-in, only a code or link sent
-  by email (owner, 2026-10-12 14:01 UTC) or an identity provider (already in phase 4),
-  are out of scope for phase 1. An example is `https://claude.ai`, where the owner signs
-  in by email. Tailscale, Zenn and Vercel probably belong here too, judged from their
-  usual sign-in pages rather than checked; a passkey they offer is handled in phase 1.
-  Both kinds of sign-in are in [phase 4](#phase-4-issues-and-work-as-needed).
+  by email or an identity provider, are out of scope for phase 1 (owner, 2026-10-12
+  14:01 and 14:21 UTC). Such a site counts as done once a check shows Pateat does
+  nothing there, and waits for those sign-ins in
+  [phase 4](#phase-4-issues-and-work-as-needed). Claude, where the owner signs in by
+  email, Tailscale, Zenn and Vercel are recorded as such sites; the last three were
+  judged from their usual sign-in pages, not checked.
 - Log in, in the Grok Bot computer's Chrome, on the sites the owner's Bot checks
   regularly, such as card statements and AI usage pages, so the Bot never needs a
   password (owner, 2026-10-12 14:00 UTC). Sites that sign in only through another
