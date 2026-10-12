@@ -183,6 +183,21 @@ still open on 2026-10-11.
   has no Japanese address model, and no widely used extension covers them. It recommends
   Japanese forms as the first candidate if identity filling is designed later (not
   decided).
+- Cloudflare Clef for the finite-choice role, research only until the corpus of real
+  pages grows (owner, 2026-10-11 17:48 UTC): the
+  [research note](research/2026-10-11-clef-finite-choice.md) covers its API, where it
+  would fit in recipe generation, cost, and the open questions (Japanese, calibration,
+  who pays, abstention handover).
+- Earlier research kept as dated notes:
+  [identity provider screens](research/2026-10-11-identity-provider-screens.md) behind
+  [ADR 0026](adr/0026-sign-in-through-identity-providers.md);
+  [device credential expiry](research/2026-10-11-device-credential-expiry.md) behind the
+  90-day idle expiry, with how a Chrome Web Store item might keep the current extension
+  ID;
+  [Bitwarden passkey wrapper coexistence](research/2026-10-10-bitwarden-passkey-coexistence.md)
+  behind ADR 0007's outermost wrapper;
+  [limits on automating installed Chrome](research/2026-10-10-real-chrome-automation-limits.md);
+  and [Claude Design](research/2026-10-11-claude-design.md) for the UI polish.
 
 ### To consider, not planned
 
