@@ -8,9 +8,7 @@ monorepo_root = true
 config_roots = ["apps/extension", "services/api", "packages/*", "tests/*"]
 
 [tools]
-# aqua, not the default packslip backend: packslip also fetches aube's agent skill through
-# the GitHub API, which fails where that API is restricted.
-"aqua:aubepkg/aube" = "2.7.0"
+aube = "2.7.0"
 # Writes bun.lock (ADR 0032) and runs the inference benchmark and the Formasaurus import.
 bun = "1.4.3"
 node = "26.11.1"

@@ -19,12 +19,13 @@ can update, preferring `pnpm-lock.yaml` over Bun's or npm's.
 
 ## Decision
 
-- **aube 2.7.0 installs the dependencies.** It is a mise tool, `aqua:aubepkg/aube`.
-  mise's default `packslip` backend for aube also installs aube's agent skill through
-  the GitHub API, and that install fails where the API is restricted (cloud sessions on
-  2026-10-12), so the aqua backend, which checks the GitHub release attestation, is
-  used. `mise run install` runs `aube install --frozen-lockfile`; CI and the deployment
-  run `aube ci` (a clean frozen install).
+- **aube 2.7.0 installs the dependencies.** It is the mise tool `aube`, under its short
+  name like the other tools (the owner's rule, 13:06 UTC), so mise uses its default
+  `packslip` backend, which checks the release's Sigstore signature. That backend also
+  installs aube's agent skill through the GitHub API and fails where the API is
+  restricted (cloud sessions on 2026-10-12), as `hk` does. `mise run install` runs
+  `aube install --frozen-lockfile`; CI and the deployment run `aube ci` (a clean frozen
+  install).
 - **mise installs its `npm:` tools with aube.** `[settings.npm] package_manager` is
   gone from `mise.toml`, so mise picks aube, and `mise lock` writes an aube lockfile per
   tool under `.mise/locks/` (oxlint, TypeScript, oxfmt), referenced from `mise.lock`.
