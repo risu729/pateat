@@ -153,9 +153,13 @@ password or passkey, in the Grok Bot computer's Chrome, on a production build of
   themselves, such as Wise's ([ADR 0034](adr/0034-answer-page-passkey-requests.md),
   accepted 2026-10-12 14:19 UTC): a page's `conditional` request is answered through
   the login of its page, which falls back to the password when the site does not sign
-  in; pages without a recipe keep delegating. Implemented with local tests only. Next,
-  confirm in the owner's Chrome that Wise's request is `conditional` (the `mediation`
-  field of `passkey.request`) and that Pateat signs in there with the passkey.
+  in; pages without a recipe keep delegating. In the owner's Chrome on 2026-10-12
+  (18:30 and 18:43 UTC) Wise's requests were `conditional`, but its login ran as a
+  chooser login (ADR 0028), which the first implementation left on the password; a
+  chooser login now answers too, before its click on the list (local tests only).
+  Next, confirm that Pateat signs in to Wise with the passkey, and find where the
+  Bitwarden extension's passkey window seen at 18:31 UTC came from: no request Pateat's
+  top-document bridge saw was handed to it.
 - Redact the account's own username from every page observation sent to the service
   (generation, its continuation after an `advance` step, and the judge): each matching
   item's username of three or more characters is hidden as `[account]` wherever it shows
