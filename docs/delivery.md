@@ -8,12 +8,13 @@ mode without the service are planned for [phase 3](plan.md#phase-3-public-releas
 ## Current foundation workflows
 
 `ci.yml` runs the complete mise/hk graph, including isolated browser tests, on every PR
-and main push, split over the jobs below, and repeats the packaged-extension browser
-tests on Windows on main pushes and manual runs, not on PRs. The packaged-extension
-suite (`tests/extension`, 123 tests at the time, one after another in one worker) took
-about six minutes on Linux and seven on Windows, the longest step of every run (about
-8.5 minutes in total on 2026-10-11). It therefore runs as six shards, in
-`Linux browser (1/6)` to `(6/6)` and `Windows browser (1/6)` to `(6/6)`: each shard sets
+(except a documentation-only one, see `Changes` below) and main push, split over the
+jobs below, and repeats the packaged-extension browser tests on Windows on main pushes
+and manual runs, not on PRs. The packaged-extension suite (`tests/extension`, 123 tests
+at the time, one after another in one worker) took about six minutes on Linux and seven
+on Windows, the longest step of every run (about 8.5 minutes in total on 2026-10-11). It
+therefore runs as six shards, in `Linux browser (1/6)` to `(6/6)` and
+`Windows browser (1/6)` to `(6/6)`: each shard sets
 `PATEAT_E2E_SHARD=<current>/<total>`, which `tests/extension/playwright.config.ts` turns
 into Playwright's `shard`, and the six shards together run every test once. The suite
 splits by test (`fullyParallel`) because splitting by file left `login.spec.ts` alone in
@@ -23,11 +24,12 @@ the rest of the graph (lint, typecheck, unit and component tests, build checks) 
 no-op there; without that variable, as in a local `mise run check`, the suite runs
 whole. With four shards the first sharded runs took 4 to 7 minutes (mean 4m41s over 37
 runs on 2026-10-11 and 12), where each Linux shard still repeated the rest of the graph;
-`Verify` and the Linux shards run side by side now. A main or manual run is 14 jobs (up
+`Verify` and the Linux shards run side by side now. A main or manual run is 15 jobs (up
 to 13 at once), so it can queue on GitHub's concurrent-job limit when runs overlap; that
 delays it without failing it. A PR run skips the Windows shards (the owner's decision on
-2026-10-12): it is 8 jobs. A Windows-only failure therefore shows first on the main run,
-which then packages no release and starts no deployment; run the workflow manually
+2026-10-12): it is 9 jobs, or 3 for a documentation-only PR (`Changes`, `Verify`,
+`CI Check`). A Windows-only failure therefore shows first on the main run, which then
+packages no release and starts no deployment; run the workflow manually
 (`workflow_dispatch`) on a branch to get the Windows shards before merging. `CI Check`
 requires `Verify` and every Linux shard to succeed (see `Changes` below) and every
 Windows shard to succeed on main pushes and manual runs (skipped on PRs), including when
