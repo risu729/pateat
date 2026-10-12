@@ -528,13 +528,72 @@ export const loginEntryRecipeSchema = v.strictObject({
     ]),
   }),
 });
+/** A list control's locator: never `autocomplete`, which names only inputs. */
+const chooserTargetSchema = v.variant("by", [
+  loginAttributeTargetSchema.options[0],
+  loginAttributeTargetSchema.options[1],
+  loginTextTargetSchema,
+]);
+/**
+ * A recipe that starts on a page listing accounts to choose from (ADR 0028), such as
+ * Cloudflare's saved profiles: `chooser.path` is where the list shows. `other` is the
+ * button that continues without a listed account ("Sign in with another profile"), and
+ * `continue` the one that continues with the one account a page shows beside it ("Log
+ * back in" on Wise). The entry to click is never stored: it is found on the page from
+ * the chosen item's username each time.
+ *
+ * Each branch is the route recipe for the page the click leads to, after a listed or
+ * shown account (`afterAccount`) or after `other` (`afterOther`), under the chooser's own
+ * ID, origin and revision. A branch is absent until a login takes it and its page is
+ * generated as an ADR 0018 continuation.
+ *
+ * Not implemented yet: devices cache and the service stores it, but nothing starts it.
+ */
+export const loginChooserRecipeSchema = v.pipe(
+  v.strictObject({
+    version: v.literal(1),
+    id: identifier,
+    revision,
+    origin: loginOriginSchema,
+    chooser: v.strictObject({
+      path,
+      other: v.optional(chooserTargetSchema),
+      continue: v.optional(chooserTargetSchema),
+      afterAccount: v.optional(loginRecipeSchema),
+      afterOther: v.optional(loginRecipeSchema),
+    }),
+  }),
+  v.check(
+    ({ id, revision: current, origin, chooser }) =>
+      [chooser.afterAccount, chooser.afterOther].every(
+        (branch) =>
+          !branch || (branch.id === id && branch.revision === current && branch.origin === origin),
+      ),
+    "A chooser branch has the chooser's ID, revision and origin",
+  ),
+  v.check(
+    ({ chooser }) =>
+      !chooser.other ||
+      !chooser.continue ||
+      JSON.stringify(chooser.other) !== JSON.stringify(chooser.continue),
+    "The chooser's other and continue buttons differ",
+  ),
+  v.check(
+    ({ chooser }) => !chooser.afterOther || chooser.other !== undefined,
+    "A chooser has an other-account branch only with its button",
+  ),
+);
 /**
  * Any recipe the service stores and devices sync: a recipe with a login route
- * (`loginRecipeSchema`, which every login runs) or an entry recipe (ADR 0031). Strict
- * objects keep the two apart, so `entry` is never beside `slots`, `steps` or another
- * login route member.
+ * (`loginRecipeSchema`, which every login runs), an entry recipe (ADR 0031) or a chooser
+ * recipe (ADR 0028). Strict objects keep them apart, so `entry` or `chooser` is never
+ * beside `slots`, `steps` or another login route member.
  */
-export const storedLoginRecipeSchema = v.union([loginRecipeSchema, loginEntryRecipeSchema]);
+export const storedLoginRecipeSchema = v.union([
+  loginRecipeSchema,
+  loginEntryRecipeSchema,
+  loginChooserRecipeSchema,
+]);
 export const loginAccountSchema = v.strictObject({
   origin: loginOriginSchema,
   connectionId: identifier,
@@ -607,17 +666,20 @@ export function loginStepEffect(step: LoginStep): LoginEffect | undefined {
 }
 export type LoginRecipe = v.InferOutput<typeof loginRecipeSchema>;
 export type LoginEntryRecipe = v.InferOutput<typeof loginEntryRecipeSchema>;
+export type LoginChooserRecipe = v.InferOutput<typeof loginChooserRecipeSchema>;
 export type StoredLoginRecipe = v.InferOutput<typeof storedLoginRecipeSchema>;
 /** Whether a stored recipe has a login route: its own `steps`. */
 export const isLoginRouteRecipe = (recipe: StoredLoginRecipe): recipe is LoginRecipe =>
   "steps" in recipe;
 /**
- * The path a stored recipe starts on: its entry's (ADR 0031) or its first step's. The
- * service keeps one generated recipe per origin and start path either way. Each kind of
- * stored recipe is named, so a new kind has to say where it starts.
+ * The path a stored recipe starts on: its entry's (ADR 0031), its chooser's (ADR 0028)
+ * or its first step's. The service keeps one generated recipe per origin and start path
+ * either way. Each kind of stored recipe is named, so a new kind has to say where it
+ * starts.
  */
 export function storedRecipeStartPath(recipe: StoredLoginRecipe): string {
   if ("entry" in recipe) return recipe.entry.path;
+  if ("chooser" in recipe) return recipe.chooser.path;
   if ("steps" in recipe) return recipe.steps[0]!.path;
   const unknown: never = recipe;
   throw new Error(`Unknown stored recipe kind: ${JSON.stringify(unknown)}`);

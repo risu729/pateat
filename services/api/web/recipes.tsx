@@ -1,7 +1,7 @@
 import {
-  isLoginRouteRecipe,
   passwordVariants,
   recipeSlots,
+  type LoginChooserRecipe,
   type LoginEntryRecipe,
   type LoginRecipe,
   type ManageRecipe,
@@ -62,8 +62,41 @@ function EntryDetails({ recipe }: { recipe: LoginEntryRecipe }) {
   );
 }
 
+/** A recipe that starts on a list of accounts (ADR 0028), which devices do not start yet. */
+function ChooserDetails({ recipe }: { recipe: LoginChooserRecipe }) {
+  const { chooser } = recipe;
+  const branch = (route: LoginRecipe | undefined) =>
+    route ? `${route.steps.length} steps from ${route.steps[0]!.path}` : "Not generated yet";
+  return (
+    <details className="space-y-2">
+      <summary className="cursor-pointer text-teal-800">
+        Account list and JSON<span className="sr-only"> for {recipe.id}</span>
+      </summary>
+      <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1">
+        <dt className="font-medium">Account list</dt>
+        <dd>
+          On {chooser.path}, click the entry of the chosen item's account. Devices do not do this
+          yet.
+        </dd>
+        <dt className="font-medium">Shown account</dt>
+        <dd>{chooser.continue ? `Click ${describeTarget(chooser.continue)}` : "None"}</dd>
+        <dt className="font-medium">Another account</dt>
+        <dd>{chooser.other ? `Click ${describeTarget(chooser.other)}` : "None"}</dd>
+        <dt className="font-medium">After an account</dt>
+        <dd>{branch(chooser.afterAccount)}</dd>
+        <dt className="font-medium">After another account</dt>
+        <dd>{branch(chooser.afterOther)}</dd>
+      </dl>
+      <pre className="overflow-x-auto rounded-lg bg-slate-100 p-3 text-sm">
+        {JSON.stringify(recipe, null, 2)}
+      </pre>
+    </details>
+  );
+}
+
 function RecipeDetails({ recipe }: { recipe: StoredLoginRecipe }) {
-  if (!isLoginRouteRecipe(recipe)) return <EntryDetails recipe={recipe} />;
+  if ("entry" in recipe) return <EntryDetails recipe={recipe} />;
+  if ("chooser" in recipe) return <ChooserDetails recipe={recipe} />;
   // A password route with several identifier sets lists each with its own steps (ADR 0027).
   const variants = passwordVariants(recipe);
   return (

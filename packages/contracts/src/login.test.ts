@@ -8,6 +8,7 @@ import {
   handlerTargets,
   isLoginRouteRecipe,
   loginAutocompleteTokens,
+  loginChooserRecipeSchema,
   loginEntryRecipeSchema,
   passwordVariants,
   recipeHasRoute,
@@ -1630,9 +1631,9 @@ describe("entry recipes (ADR 0031)", () => {
   });
 
   it("treats only a recipe with steps as one with a login route", () => {
-    // A later kind without steps, such as ADR 0028's chooser, never passes as a route.
+    // A later kind without steps never passes as a route.
     const { steps: _steps, ...rest } = recipe();
-    const other = { ...rest, chooser: {} } as unknown as StoredLoginRecipe;
+    const other = { ...rest, later: {} } as unknown as StoredLoginRecipe;
     expect(isLoginRouteRecipe(other)).toBe(false);
     expect(() => storedRecipeStartPath(other)).toThrow("Unknown stored recipe kind");
   });
@@ -1669,5 +1670,76 @@ describe("entry recipes (ADR 0031)", () => {
       { path: "/en/", target: { by: "text", value: "Login" }, href: "/login" },
     ])
       expect(v.is(storedLoginRecipeSchema, { ...entry(), entry: value })).toBe(false);
+  });
+});
+
+describe("chooser recipes (ADR 0028)", () => {
+  const chooser = (extra: Record<string, unknown> = {}) => ({
+    version: 1,
+    id: recipe().id,
+    revision: recipe().revision,
+    origin: recipe().origin,
+    chooser: {
+      path: "/login",
+      other: { by: "text", value: "Sign in with another profile" },
+      ...extra,
+    },
+  });
+
+  it("stores a chooser without branches, told apart from a login route recipe", () => {
+    const stored = v.parse(storedLoginRecipeSchema, chooser());
+    expect(stored).toEqual(chooser());
+    expect(v.is(loginChooserRecipeSchema, chooser())).toBe(true);
+    expect(isLoginRouteRecipe(stored)).toBe(false);
+    expect(storedRecipeStartPath(stored)).toBe("/login");
+    expect(v.is(loginRecipeSchema, chooser())).toBe(false);
+    expect(v.is(storedLoginRecipeSchema, { ...chooser(), chooser: { path: "/login" } })).toBe(true);
+  });
+
+  it("holds each branch as a route recipe under the chooser's ID, revision and origin", () => {
+    const branch = recipe();
+    expect(
+      v.is(storedLoginRecipeSchema, chooser({ afterAccount: branch, afterOther: branch })),
+    ).toBe(true);
+    for (const changed of [
+      { id: "other-01" },
+      { revision: branch.revision + 1 },
+      { origin: "https://other.example.test" },
+    ])
+      expect(
+        v.is(storedLoginRecipeSchema, chooser({ afterAccount: { ...branch, ...changed } })),
+      ).toBe(false);
+    expect(v.is(storedLoginRecipeSchema, chooser({ afterAccount: { steps: [] } }))).toBe(false);
+  });
+
+  it("names its buttons by a non-input locator, never the same one twice", () => {
+    const shown = { by: "text", value: "Log back in" };
+    expect(v.is(storedLoginRecipeSchema, chooser({ continue: shown }))).toBe(true);
+    expect(v.is(storedLoginRecipeSchema, chooser({ continue: chooser().chooser.other }))).toBe(
+      false,
+    );
+    expect(
+      v.is(storedLoginRecipeSchema, chooser({ other: { by: "autocomplete", value: "username" } })),
+    ).toBe(false);
+    // The other-account branch needs its button.
+    const { other: _other, ...withoutOther } = chooser().chooser;
+    expect(
+      v.is(storedLoginRecipeSchema, {
+        ...chooser(),
+        chooser: { ...withoutOther, afterOther: recipe() },
+      }),
+    ).toBe(false);
+  });
+
+  it("never holds a chooser beside a login route member or an entry", () => {
+    const { slots, steps } = recipe();
+    expect(v.is(storedLoginRecipeSchema, { ...chooser(), slots, steps })).toBe(false);
+    expect(
+      v.is(storedLoginRecipeSchema, {
+        ...chooser(),
+        entry: { path: "/", target: { by: "text", value: "Login" } },
+      }),
+    ).toBe(false);
+    expect(v.is(storedLoginRecipeSchema, { ...recipe(), chooser: chooser().chooser })).toBe(false);
   });
 });

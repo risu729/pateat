@@ -676,6 +676,39 @@ describe("recipe sync", () => {
     });
   });
 
+  it("stores and syncs a chooser recipe (ADR 0028) with a branch", async () => {
+    const device = await enrollOwner();
+    const chooser = {
+      version: 1,
+      id: "bank-chooser",
+      revision: 1,
+      origin: "https://bank.example",
+      chooser: {
+        path: "/login",
+        other: { by: "text", value: "Use another account" },
+        afterAccount: recipe("bank-chooser", 1),
+      },
+    };
+    const written = await put(device, "/v1/recipes/bank-chooser", {
+      version: 1,
+      expectedRevision: 0,
+      state: "active",
+      recipe: chooser,
+    });
+    expect(written.status).toBe(200);
+    expect(await (await api(device, "/v1/recipes")).json()).toMatchObject({
+      changes: [{ recipeId: "bank-chooser", revision: 1, state: "active", recipe: chooser }],
+    });
+    const stray = await put(device, "/v1/recipes/bank-stray", {
+      version: 1,
+      expectedRevision: 0,
+      state: "active",
+      recipe: { ...chooser, id: "bank-stray" },
+    });
+    // Its branch still carries the chooser's own ID.
+    expect(stray.status).toBe(400);
+  });
+
   it("rejects an invalid recipe identifier and unsupported methods", async () => {
     const device = await enrollOwner();
     const invalid = await put(device, "/v1/recipes/bad%20id", {

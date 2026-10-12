@@ -851,6 +851,15 @@ login and fills nothing, and its path does not count as one where a recipe start
 the device. Recipe generation never writes one; a generation or judgement request whose
 stored recipe is an entry recipe answers `recipe-conflict` without a model call.
 
+A third kind is a chooser recipe
+([ADR 0028](adr/0028-account-chooser-login-pages.md#recipe-shape)), whose only member
+besides its identity, revision and origin is `chooser`: the path where a list of
+accounts shows, the optional `other` and `continue` buttons, and the optional
+`afterAccount` and `afterOther` branches, each a login recipe under the chooser's own
+ID, revision and origin. The entry to click is never stored. Like an entry recipe, it
+is validated, stored, synced, listed and revoked, never started, and answers
+`recipe-conflict` to generation; nothing writes one yet.
+
 A generated recipe has no completion target until the page after its first sign-in is
 judged ([ADR 0018](adr/0018-recipe-generation-route.md)). Until then the executor
 reports `authenticated` with it only when the sign-in state of
