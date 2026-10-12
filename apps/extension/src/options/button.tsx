@@ -3,10 +3,13 @@
 import { Button as ButtonPrimitive } from "@base-ui/react/button";
 
 const VARIANTS = {
-  default: "border-accent bg-accent text-on-accent hover:border-accent-hover hover:bg-accent-hover",
-  outline: "border-border-strong bg-surface text-ink hover:bg-surface-sunken",
+  default:
+    "gap-2 border-accent bg-accent text-on-accent hover:border-accent-hover hover:bg-accent-hover",
+  outline: "gap-2 border-border-strong bg-surface text-ink hover:bg-surface-sunken",
+  // Secondary actions inside a panel header or a row: refresh, reload.
+  ghost: "gap-2 border-transparent bg-transparent text-accent-ink hover:bg-surface-sunken",
   // Destructive actions: revoking or removing an entry.
-  danger: "border-danger bg-surface text-danger hover:bg-danger-tint",
+  danger: "gap-2 border-danger bg-surface text-danger hover:bg-danger-tint",
 } as const;
 
 export function Button({

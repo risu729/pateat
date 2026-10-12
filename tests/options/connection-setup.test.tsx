@@ -77,7 +77,7 @@ async function mount(client = mockClient()) {
   return { client, queryClient, changed };
 }
 async function fillNew() {
-  await page.getByLabelText("Connection name", { exact: true }).fill("Synthetic vault");
+  await page.getByLabelText("Name", { exact: true }).fill("Synthetic vault");
   await page.getByLabelText("Email", { exact: true }).fill("test@example.test");
   await page.getByLabelText("Master password", { exact: true }).fill(password);
 }
@@ -209,7 +209,7 @@ test("cancel closes the private lifetime and ignores a late successful begin", a
   const changes = changed.mock.calls.length;
   pending.resolve(ready());
   await expect
-    .element(page.getByText("Setup stopped. Refresh connections to confirm the latest state."))
+    .element(page.getByText("Setup stopped. Refresh to confirm the latest state."))
     .toBeVisible();
   expect(changed).toHaveBeenCalledTimes(changes);
   expect(client.list).toHaveBeenCalledTimes(1);
@@ -321,7 +321,7 @@ test.each(["storage-uncertain", "setup-unavailable"] as const)(
         <SettingsApp client={settings} connectionClient={connection} />
       </QueryClientProvider>,
     );
-    await expect.element(page.getByText("Saved settings loaded · Revision 0")).toBeVisible();
+    await expect.element(page.getByText("Saved settings loaded. Revision 0")).toBeVisible();
     // The draft's save is still pending when setup replaces the vault metadata.
     let resolveSave!: (value: SettingsResponse) => void;
     settings.saveSettings.mockReturnValueOnce(
@@ -349,7 +349,7 @@ test.each(["storage-uncertain", "setup-unavailable"] as const)(
     expect(settings.saveSettings).toHaveBeenCalledTimes(1);
     settings.getSettings.mockResolvedValue(saved(7));
     await page.getByRole("button", { name: "Reload saved settings", exact: true }).click();
-    await expect.element(page.getByText("Saved settings loaded · Revision 7")).toBeVisible();
+    await expect.element(page.getByText("Saved settings loaded. Revision 7")).toBeVisible();
     expect(document.getElementById("excluded-sites")?.textContent).not.toContain("draft.example");
     await page.getByLabelText("Hostname", { exact: true }).fill("reviewed.example");
     await page.getByRole("button", { name: "Add excluded site", exact: true }).click();
@@ -383,7 +383,7 @@ test("a challenge while adding a connection reloads a clean draft to the revisio
       <SettingsApp client={settings} connectionClient={connection} />
     </QueryClientProvider>,
   );
-  await expect.element(page.getByText("Saved settings loaded · Revision 0")).toBeVisible();
+  await expect.element(page.getByText("Saved settings loaded. Revision 0")).toBeVisible();
   settings.getSettings.mockResolvedValue(saved(1));
   await fillNew();
   await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
@@ -392,7 +392,7 @@ test("a challenge while adding a connection reloads a clean draft to the revisio
       page.getByText("Enter a manual two-step verification code. No code is sent automatically."),
     )
     .toBeVisible();
-  await expect.element(page.getByText("Saved settings loaded · Revision 1")).toBeVisible();
+  await expect.element(page.getByText("Saved settings loaded. Revision 1")).toBeVisible();
   expect(settings.getSettings).toHaveBeenCalledTimes(2);
 });
 
@@ -501,19 +501,30 @@ test("sync sign-in is shown separately from automatic unlock and forgetting it i
     .mockResolvedValueOnce({ ...status(), connections: [saved] })
     .mockResolvedValue({ ...status(), connections: [{ ...saved, providerSession: "none" }] });
   await mount(client);
-  await expect.element(page.getByText("Automatic unlock: enabled.")).toBeVisible();
-  await expect.element(page.getByText("Sync sign-in saved on this device.")).toBeVisible();
-  await page.getByRole("button", { name: "Saved vault: Forget sync sign-in", exact: true }).click();
+  await expect.element(page.getByText("Automatic unlock on", { exact: true })).toBeVisible();
+  await expect
+    .element(page.getByText("Sync sign-in saved on this device", { exact: true }))
+    .toBeVisible();
+  // Actions other than the row's main one are in its menu.
+  await page.getByRole("button", { name: "More for Saved vault", exact: true }).click();
+  await page
+    .getByRole("menuitem", { name: "Saved vault: Forget sync sign-in", exact: true })
+    .click();
   expect(client.forgetProviderSession).toHaveBeenCalledWith("saved-b");
   expect(client.requestProviderPermission).not.toHaveBeenCalled();
   await expect
     .element(page.getByText(/Sync sign-in removed from this device\. This does not sign out/))
     .toBeVisible();
-  await expect.element(page.getByText("Not signed in for sync.")).toBeVisible();
+  await expect.element(page.getByText("Not signed in for sync", { exact: true })).toBeVisible();
+  // Without a sync sign-in, signing in again comes first.
   await expect
-    .element(page.getByRole("button", { name: "Saved vault: Forget sync sign-in", exact: true }))
-    .toBeDisabled();
-  await expect.element(page.getByText("Automatic unlock: enabled.")).toBeVisible();
+    .element(page.getByRole("button", { name: "Saved vault: Sign in again", exact: true }))
+    .toBeVisible();
+  await page.getByRole("button", { name: "More for Saved vault", exact: true }).click();
+  await expect
+    .element(page.getByRole("menuitem", { name: "Saved vault: Forget sync sign-in", exact: true }))
+    .toHaveAttribute("aria-disabled", "true");
+  await expect.element(page.getByText("Automatic unlock on", { exact: true })).toBeVisible();
 });
 
 test("deleting a connection needs an explicit confirmation and then removes it from the list", async () => {
@@ -533,16 +544,24 @@ test("deleting a connection needs an explicit confirmation and then removes it f
     .mockResolvedValueOnce({ ...status(), connections: [leftover, kept] })
     .mockResolvedValue({ ...status(), connections: [kept] });
   const { changed } = await mount(client);
-  const remove = page.getByRole("button", {
+  const more = page.getByRole("button", { name: "More for Leftover vault", exact: true });
+  const remove = page.getByRole("menuitem", {
     name: "Leftover vault: Delete connection",
     exact: true,
   });
+  await more.click();
   await remove.click();
   expect(client.deleteConnection).not.toHaveBeenCalled();
   await expect.element(page.getByText(/^Delete Leftover vault\? This removes/)).toBeVisible();
+  // The confirmation takes focus, and Keep returns it to the row's menu button.
+  await expect
+    .element(page.getByRole("button", { name: "Leftover vault: Confirm delete connection" }))
+    .toHaveFocus();
   await page.getByRole("button", { name: "Leftover vault: Keep connection", exact: true }).click();
   await expect.element(page.getByText("Connection kept.")).toBeVisible();
+  await expect.element(more).toHaveFocus();
   expect(client.deleteConnection).not.toHaveBeenCalled();
+  await more.click();
   await remove.click();
   await page
     .getByRole("button", { name: "Leftover vault: Confirm delete connection", exact: true })
@@ -573,17 +592,19 @@ test("a failed delete keeps the connection listed and shows the error", async ()
   client.list.mockResolvedValue({ ...status(), connections: [leftover] });
   client.deleteConnection.mockResolvedValue({ ok: false, error: { code: "resource-limit" } });
   await mount(client);
+  await page.getByRole("button", { name: "More for Leftover vault", exact: true }).click();
   await page
-    .getByRole("button", { name: "Leftover vault: Delete connection", exact: true })
+    .getByRole("menuitem", { name: "Leftover vault: Delete connection", exact: true })
     .click();
   await page
     .getByRole("button", { name: "Leftover vault: Confirm delete connection", exact: true })
     .click();
   await expect.element(page.getByText(/reached a resource limit/)).toBeVisible();
   await expect.element(page.getByText("Leftover vault", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "More for Leftover vault", exact: true }).click();
   await expect
-    .element(page.getByRole("button", { name: "Leftover vault: Delete connection", exact: true }))
-    .toBeEnabled();
+    .element(page.getByRole("menuitem", { name: "Leftover vault: Delete connection", exact: true }))
+    .not.toHaveAttribute("aria-disabled");
 });
 
 test("sync after automatic unlock was disabled explains how to restore it", async () => {

@@ -6,7 +6,7 @@ import {
   saveThemePreference,
 } from "./theme";
 
-/** The pages' color theme; System follows the browser. */
+/** The pages' color theme; Browser setting follows the browser. */
 export function ThemeSelect() {
   const [preference, setPreference] = useState(readThemePreference);
   useEffect(() => followThemePreference(setPreference), []);
@@ -23,7 +23,7 @@ export function ThemeSelect() {
         }}
         className="min-h-10 rounded-lg border border-border-strong bg-surface px-3"
       >
-        <option value="system">System</option>
+        <option value="system">Browser setting</option>
         <option value="light">Light</option>
         <option value="dark">Dark</option>
       </select>

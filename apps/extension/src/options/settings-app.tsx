@@ -1,7 +1,9 @@
 import { localSettingsSchema, type LocalSettings, type SettingsResponse } from "@pateat/contracts";
 import { useForm, useStore } from "@tanstack/react-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Ban, Bug, Info, Link, ShieldCheck, UserRound, Vault, type LucideIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { Logo } from "../logo";
 import { Button } from "./button";
 import { SETTINGS_QUERY_KEY, type SettingsClient } from "./client";
 import { Connections } from "./connections";
@@ -11,6 +13,7 @@ import type { ConnectionClient } from "./connection-client";
 import type { ServiceClient } from "./service-client";
 import { ServiceConnection } from "./service-connection";
 import { ThemeSelect } from "./theme-select";
+import { Panel, StatusLines } from "./ui";
 
 type AcceptedSettings = Extract<SettingsResponse, { ok: true }>;
 const emptySettings: LocalSettings = {
@@ -88,7 +91,7 @@ export function SettingsApp({
         if (epoch !== catalogGeneration.current) {
           setSaveBlocked(true);
           setMessage(
-            "Vault metadata changed while settings were being saved. Your draft has been preserved. Reload saved settings before saving again.",
+            "Vault metadata changed while settings were being saved. Your draft has been preserved. Reload saved settings before saving again. Reloading discards the draft.",
           );
           return;
         }
@@ -98,15 +101,15 @@ export function SettingsApp({
           setSaveBlocked(blocked);
           setMessage(
             result.error.code === "revision-conflict"
-              ? "Settings changed in another window. Your unsaved draft has been preserved. Reload saved settings to review the latest version before saving."
-              : `${result.error.message} Your unsaved draft has been preserved.${blocked ? " Reload saved settings to retry." : ""}`,
+              ? "Settings changed in another window. Your unsaved draft has been preserved. Reload saved settings to review the latest version before saving. Reloading discards the draft."
+              : `${result.error.message} Your unsaved draft has been preserved.${blocked ? " Reload saved settings to retry. Reloading discards the draft." : ""}`,
           );
           return;
         }
         queryClient.setQueryData(SETTINGS_QUERY_KEY, result);
         lastSaveSucceeded.current = true;
         if (submitted === edits.current) {
-          accept(result, `Settings saved locally · Revision ${result.snapshot.revision}`, false);
+          accept(result, `Settings saved locally. Revision ${result.snapshot.revision}`, false);
           return;
         }
         // Edits made while this save ran stay in the draft and are saved on top of it next.
@@ -116,7 +119,7 @@ export function SettingsApp({
       } catch {
         setSaveBlocked(true);
         setMessage(
-          "Unable to confirm saved settings. Your unsaved draft has been preserved. Reload saved settings before trying again.",
+          "Unable to confirm saved settings. Your unsaved draft has been preserved. Reload saved settings before trying again. Reloading discards the draft.",
         );
       }
     },
@@ -141,11 +144,11 @@ export function SettingsApp({
     initialHandled.current = true;
     if (settings.isError || !settings.data)
       setMessage(
-        "Unable to read saved settings. Your existing draft has been preserved. Reload saved settings to retry.",
+        "Unable to read saved settings. Your existing draft has been preserved. Reload saved settings to retry. Reloading discards the draft.",
       );
     else if (!settings.data.ok)
       setMessage(
-        `${settings.data.error.message} Reload saved settings to retry. Your existing draft has been preserved.`,
+        `${settings.data.error.message} Reload saved settings to retry. Your existing draft has been preserved. Reloading discards the draft.`,
       );
     else if (catalogGeneration.current) {
       setMessage(
@@ -158,7 +161,7 @@ export function SettingsApp({
       form.reset(structuredClone(next.snapshot.settings));
       saveBlockedRef.current = false;
       setSaveBlockedState(false);
-      setMessage(`Saved settings loaded · Revision ${next.snapshot.revision}`);
+      setMessage(`Saved settings loaded. Revision ${next.snapshot.revision}`);
     }
     operation.current = undefined;
     setBusy(false);
@@ -198,20 +201,20 @@ export function SettingsApp({
       });
       if (epoch !== catalogGeneration.current) {
         setMessage(
-          "Vault metadata changed while settings were loading. Your draft has been preserved. Reload saved settings again.",
+          "Vault metadata changed while settings were loading. Your draft has been preserved. Reload saved settings again. Reloading discards the draft.",
         );
         return;
       }
       if (!result.ok) {
         setMessage(
-          `${result.error.message} Reload saved settings to retry. Your existing draft has been preserved.`,
+          `${result.error.message} Reload saved settings to retry. Your existing draft has been preserved. Reloading discards the draft.`,
         );
         return;
       }
-      accept(result, `Saved settings loaded · Revision ${result.snapshot.revision}`, true);
+      accept(result, `Saved settings loaded. Revision ${result.snapshot.revision}`, true);
     } catch {
       setMessage(
-        "Unable to read saved settings. Your existing draft has been preserved. Reload saved settings to retry.",
+        "Unable to read saved settings. Your existing draft has been preserved. Reload saved settings to retry. Reloading discards the draft.",
       );
     } finally {
       operation.current = undefined;
@@ -256,122 +259,218 @@ export function SettingsApp({
     if (dirtyRef.current || operation.current || saveBlockedRef.current) {
       setSaveBlocked(true);
       setMessage(
-        "Vault metadata changed. Your unsaved draft has been preserved. Reload saved settings to review the latest catalog before saving.",
+        "Vault metadata changed. Your unsaved draft has been preserved. Reload saved settings to review the latest catalog before saving. Reloading discards the draft.",
       );
       return;
     }
     void reload();
   }
+  const sections: NavSection[] = [
+    ...(connectionClient ? [{ id: "bitwarden", label: "Bitwarden", icon: Vault }] : []),
+    {
+      id: "vault-access",
+      label: connectionClient ? "Vault access" : "Demo vaults",
+      icon: ShieldCheck,
+    },
+    { id: "excluded-sites-panel", label: "Excluded sites", icon: Ban },
+    { id: "site-defaults-panel", label: "Default accounts", icon: UserRound },
+    ...(serviceClient ? [{ id: "sync", label: "Sync service", icon: Link }] : []),
+  ];
   return (
-    <main className="mx-auto max-w-6xl px-5 py-10 sm:px-8 sm:py-14">
-      <header className="mb-8 max-w-3xl">
-        <p className="eyebrow">Pateat · Local settings</p>
-        <h1>Settings</h1>
-        <p className="intro">
-          {connectionClient
-            ? "Connect Bitwarden and configure local vault policy. Pateat logs in on sites that have a login recipe and answers passkey sign-ins."
-            : "Configure local policy with demo vault metadata. No real vault is connected, and this preview cannot log in to websites."}
-        </p>
+    <div className="mx-auto flex max-w-[70rem] flex-col gap-8 px-6 pt-8 pb-12 max-sm:px-4">
+      <header className="flex flex-wrap items-center gap-3">
+        <Logo className="size-7 shrink-0" />
+        <h1 className="m-0 flex-1">Settings</h1>
+        <Button
+          id="reload-settings"
+          type="button"
+          variant="ghost"
+          disabled={busy || saving}
+          onClick={() => void reload()}
+        >
+          Reload saved settings
+        </Button>
       </header>
       <output
         id="settings-status"
-        className="settings-status block"
+        className="settings-status -mt-4 flex items-start gap-2 text-sm leading-5"
         aria-live="polite"
         aria-atomic="true"
       >
-        {message}
-      </output>
-      {connectionClient && (
-        <BitwardenSetup
-          client={connectionClient}
-          onCatalogChanged={catalogChanged}
-          acceptedSettings={accepted}
-          reviewBlocked={dirty || busy || saveBlocked}
-        />
-      )}
-      <fieldset id="settings-controls" disabled={busy || !accepted}>
-        <legend className="visually-hidden">Local settings</legend>
-        <section aria-labelledby="connections-heading" className="panel">
-          <h2 id="connections-heading">
-            {connectionClient ? "Vault access policy" : "Demo vault connections"}
-          </h2>
-          <p className="note">Names and field labels only. No passwords, keys or field values.</p>
-          {accepted ? (
-            <Connections
-              draft={draft}
-              catalog={accepted.catalog}
-              change={(id, update) =>
-                edit((value) => {
-                  const connection = value.connections.find((entry) => entry.connectionId === id);
-                  if (connection) update(connection);
-                })
-              }
-            />
-          ) : (
-            <div id="connections" />
-          )}
-          <p className="note">
-            Exclusions always win over selected groups and items. These controls restrict Pateat
-            use; they do not change vault permissions.
-          </p>
-        </section>
-        {accepted ? (
-          <SitePolicy
-            key={generation}
-            draft={draft}
-            catalog={accepted.catalog}
-            edit={edit}
-            findSiteAccounts={client.findSiteAccounts}
-          />
-        ) : (
+        {message && (
           <>
-            <section className="panel" aria-labelledby="sites-heading">
-              <h2 id="sites-heading">Excluded sites</h2>
-              <ul id="excluded-sites" />
-            </section>
-            <section className="panel" aria-labelledby="defaults-heading">
-              <h2 id="defaults-heading">Site default accounts</h2>
-              <ul id="site-defaults" />
-            </section>
+            <Info
+              aria-hidden
+              size={16}
+              strokeWidth={2}
+              className="mt-0.5 flex-none text-accent-ink"
+            />
+            <span>{message}</span>
           </>
         )}
-      </fieldset>
-      <div className="settings-footer">
-        <div className="flex flex-wrap gap-3">
-          <Button
-            id="reload-settings"
-            type="button"
-            variant="outline"
-            disabled={busy || saving}
-            onClick={() => void reload()}
+      </output>
+      <div className="flex flex-wrap items-start gap-8">
+        <SectionNav sections={sections} />
+        <main className="flex min-w-0 flex-[999_1_560px] flex-col gap-6">
+          {!connectionClient && (
+            <StatusLines
+              muted
+              lines={[
+                {
+                  tone: "idle",
+                  icon: Info,
+                  text: "This preview cannot collect credentials, connect to Bitwarden or an AI service, fill forms, or sign passkey requests.",
+                },
+              ]}
+            />
+          )}
+          {connectionClient && (
+            <BitwardenSetup
+              client={connectionClient}
+              onCatalogChanged={catalogChanged}
+              acceptedSettings={accepted}
+              reviewBlocked={dirty || busy || saveBlocked}
+            />
+          )}
+          <fieldset
+            id="settings-controls"
+            className="m-0 flex min-w-0 flex-col gap-6 border-0 p-0"
+            disabled={busy || !accepted}
           >
-            Reload saved settings
-          </Button>
-        </div>
-        <p className="note">
-          Each change is saved as soon as it is made. If a save fails, this page keeps the unsaved
-          draft; Reload saved settings discards it.
-        </p>
+            <legend className="visually-hidden">Local settings</legend>
+            <Panel
+              id="vault-access"
+              headingId="connections-heading"
+              title={connectionClient ? "Vault access" : "Demo vault connections"}
+            >
+              {accepted ? (
+                <Connections
+                  draft={draft}
+                  catalog={accepted.catalog}
+                  change={(id, update) =>
+                    edit((value) => {
+                      const connection = value.connections.find(
+                        (entry) => entry.connectionId === id,
+                      );
+                      if (connection) update(connection);
+                    })
+                  }
+                />
+              ) : (
+                <div id="connections" />
+              )}
+              <StatusLines
+                muted
+                lines={[
+                  {
+                    tone: "idle",
+                    icon: Info,
+                    text: "Exclusions win over selected groups and items",
+                  },
+                  {
+                    tone: "idle",
+                    icon: Info,
+                    text: "These limits apply to Pateat only and do not change vault permissions",
+                  },
+                ]}
+              />
+            </Panel>
+            {accepted ? (
+              <SitePolicy
+                key={generation}
+                draft={draft}
+                catalog={accepted.catalog}
+                edit={edit}
+                findSiteAccounts={client.findSiteAccounts}
+              />
+            ) : (
+              <>
+                <Panel id="excluded-sites-panel" headingId="sites-heading" title="Excluded sites">
+                  <ul id="excluded-sites" className="hidden" />
+                </Panel>
+                <Panel
+                  id="site-defaults-panel"
+                  headingId="defaults-heading"
+                  title="Site default accounts"
+                >
+                  <ul id="site-defaults" className="hidden" />
+                </Panel>
+              </>
+            )}
+          </fieldset>
+          {serviceClient && <ServiceConnection client={serviceClient} />}
+          <footer className="flex flex-wrap gap-4 text-[0.8125rem] leading-5 text-ink-muted">
+            <a href="legal.html" target="_blank" rel="noreferrer">
+              Licenses and source
+            </a>
+            <span>GPL-3.0-only, no warranty</span>
+          </footer>
+        </main>
       </div>
-      {serviceClient && <ServiceConnection client={serviceClient} />}
-      <div className="settings-footer">
+    </div>
+  );
+}
+
+type NavSection = { id: string; label: string; icon: LucideIcon };
+const navLinkClass =
+  "flex min-h-10 items-center gap-2.5 rounded-lg px-3 text-sm font-medium text-ink no-underline hover:bg-surface aria-[current]:bg-surface aria-[current]:font-[650] aria-[current]:text-accent-ink aria-[current]:shadow-[inset_0_0_0_1px_var(--border)]";
+
+/** The page's sections, the diagnostics page and the theme; the section in view is marked. */
+function SectionNav({ sections }: { sections: NavSection[] }) {
+  const [current, setCurrent] = useState(sections[0]?.id);
+  const ids = sections.map((section) => section.id).join(" ");
+  useEffect(() => {
+    const visible = new Map<string, boolean>();
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) visible.set(entry.target.id, entry.isIntersecting);
+        // The first section in page order that is in the upper part of the window.
+        const first = ids.split(" ").find((id) => visible.get(id));
+        if (first) setCurrent(first);
+      },
+      { rootMargin: "0px 0px -60% 0px" },
+    );
+    for (const id of ids.split(" ")) {
+      const element = document.getElementById(id);
+      if (element) observer.observe(element);
+    }
+    return () => observer.disconnect();
+  }, [ids]);
+  return (
+    <nav
+      aria-label="Sections"
+      className="flex max-w-60 flex-[1_1_200px] flex-col gap-6 lg:sticky lg:top-8"
+    >
+      <ul className="m-0 flex list-none flex-col gap-0.5 p-0">
+        {sections.map(({ id, label, icon: Icon }) => (
+          <li key={id}>
+            <a
+              href={`#${id}`}
+              className={navLinkClass}
+              aria-current={current === id ? "location" : undefined}
+              onClick={() => setCurrent(id)}
+            >
+              <Icon aria-hidden size={16} strokeWidth={2} />
+              {label}
+            </a>
+          </li>
+        ))}
+        <li>
+          <a
+            id="diagnostics-link"
+            href="diagnostics.html"
+            target="_blank"
+            rel="noreferrer"
+            className={navLinkClass}
+          >
+            <Bug aria-hidden size={16} strokeWidth={2} />
+            Diagnostics
+          </a>
+        </li>
+      </ul>
+      <div className="px-3">
         <ThemeSelect />
       </div>
-      <p className="note">
-        <a id="diagnostics-link" href="diagnostics.html" target="_blank" rel="noreferrer">
-          Diagnostics for bug reports
-        </a>
-        {" · "}
-        <a href="legal.html" target="_blank" rel="noreferrer">
-          Licenses and source
-        </a>
-        {" · "}GPLv3 · No warranty
-      </p>
-      <p className="note">
-        {connectionClient
-          ? "Provider setup is manual. Website login needs a login recipe from the paired sync service; passkey sign-ins need none."
-          : "This preview cannot collect credentials, connect to Bitwarden or an AI service, fill forms, or sign passkey requests."}
-      </p>
-    </main>
+    </nav>
   );
 }

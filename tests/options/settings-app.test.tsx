@@ -140,9 +140,9 @@ test("each change is saved at once and refreshes never replace a pending draft",
   await expect.element(control("excluded-sites")).not.toMatchTextContent("cached.example");
 
   write.resolve(saved(1, "draft.example"));
-  await expect.element(control("settings-status")).toMatchTextContent("saved locally · Revision 1");
+  await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 1");
   await page.getByLabelText("Demo work vault: Enabled", { exact: true }).click();
-  await expect.element(control("settings-status")).toMatchTextContent("saved locally · Revision 2");
+  await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 2");
   expect(client.saveSettings).toHaveBeenCalledTimes(2);
   expect(client.saveSettings.mock.calls[1]?.[0]).toMatchObject({
     expectedRevision: 1,
@@ -187,7 +187,7 @@ test("an unknown save outcome is never retried and requires a successful explici
     snapshot: { version: 1, revision: request.expectedRevision + 1, settings: request.settings },
   }));
   await addSite("next-draft.example");
-  await expect.element(control("settings-status")).toMatchTextContent("saved locally · Revision 2");
+  await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 2");
   expect(client.saveSettings).toHaveBeenCalledTimes(2);
   expect(client.saveSettings.mock.calls[1]?.[0]).toMatchObject({ expectedRevision: 1 });
 });
@@ -294,7 +294,7 @@ test("edits during a pending save are saved after it, and reloads cannot overlap
   expect(client.saveSettings).toHaveBeenCalledTimes(1);
   expect(client.getSettings).toHaveBeenCalledTimes(1);
   write.resolve(saved(1, "pending.example"));
-  await expect.element(control("settings-status")).toMatchTextContent("saved locally · Revision 2");
+  await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 2");
   expect(client.saveSettings).toHaveBeenCalledTimes(2);
   expect(client.saveSettings.mock.calls[1]?.[0]).toMatchObject({
     expectedRevision: 1,
@@ -315,7 +315,7 @@ test("edits during a pending save are saved after it, and reloads cannot overlap
   read.resolve(saved(3, "reloaded.example"));
   await expect.element(control("excluded-sites")).toMatchTextContent("reloaded.example");
   await addSite("next-draft.example");
-  await expect.element(control("settings-status")).toMatchTextContent("saved locally · Revision 4");
+  await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 4");
 });
 
 test("keyboard add forms validate locally and recover input focus after add and removal", async () => {
@@ -371,7 +371,7 @@ test("keyboard add forms validate locally and recover input focus after add and 
   await expect.element(control("site-defaults")).toMatchTextContent("Demo personal vault");
   await expect.element(control("default-origin")).toHaveFocus();
   // Each add and removal was saved without moving focus.
-  await expect.element(control("settings-status")).toMatchTextContent("saved locally · Revision 3");
+  await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 3");
   await expect.element(control("default-origin")).toHaveFocus();
   expect(client.saveSettings).toHaveBeenCalledTimes(3);
   // The saved default keeps the connection's label and the item's name for display.
@@ -399,7 +399,7 @@ test("a rejected draft is not saved again until the next change", async () => {
   await expect.element(control("settings-status")).toMatchTextContent("Synthetic invalid settings");
   expect(client.saveSettings).toHaveBeenCalledTimes(1);
   await addSite("second.example");
-  await expect.element(control("settings-status")).toMatchTextContent("saved locally · Revision 1");
+  await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 1");
   expect(client.saveSettings).toHaveBeenCalledTimes(2);
   expect(client.saveSettings.mock.calls[1]?.[0]).toMatchObject({
     expectedRevision: 0,

@@ -72,8 +72,9 @@ test("pairs in one click with an exact HTTPS address and shows no code", async (
   expect(client.requestSiteAccess).toHaveBeenCalledWith(ORIGIN);
   expect(client.pair).toHaveBeenCalledExactlyOnceWith(ORIGIN, "Work laptop");
   await expect.element(page.getByText("This device is paired.", { exact: true })).toBeVisible();
+  await expect.element(page.getByText("pateat.example.com", { exact: true })).toBeVisible();
   await expect
-    .element(page.getByText(/is paired with https:\/\/pateat\.example\.com/))
+    .element(page.getByText("Named Work laptop on the service", { exact: true }))
     .toBeVisible();
   expect(client.openSignIn).not.toHaveBeenCalled();
   // No typed-code flow remains.
@@ -216,7 +217,7 @@ test("drops the way out once the saved connection is readable again", async () =
   client.forget.mockResolvedValue({ ok: false, error: "wrong-state", state: connected });
   await render(<ServiceConnection client={client} pollMs={60_000} />);
   await page.getByRole("button", { name: "Forget saved connection", exact: true }).click();
-  await expect.element(page.getByText(/is paired with/)).toBeVisible();
+  await expect.element(page.getByText(/^Named .* on the service$/)).toBeVisible();
   await expect
     .element(page.getByRole("button", { name: "Forget saved connection" }))
     .not.toBeInTheDocument();
@@ -240,12 +241,12 @@ test("forgets an unreadable saved connection", async () => {
 test("shows when recipes last synced and when the service rejects the device", async () => {
   const synced = mockClient({ ...connected, syncedAt: Date.UTC(2026, 9, 10, 6, 0) });
   await render(<ServiceConnection client={synced} pollMs={60_000} />);
-  await expect.element(page.getByText(/Recipes and settings last synced at/)).toBeVisible();
+  await expect.element(page.getByText(/^Recipes and settings synced /)).toBeVisible();
   await cleanup();
 
   await render(<ServiceConnection client={mockClient(connected)} pollMs={60_000} />);
   await expect
-    .element(page.getByText("Recipes and settings have not finished syncing yet.", { exact: true }))
+    .element(page.getByText("Recipes and settings have not finished syncing yet", { exact: true }))
     .toBeVisible();
   await cleanup();
 
@@ -265,10 +266,10 @@ test("shows the first sync finishing without a reload", async () => {
   const client = mockClient(connected);
   await render(<ServiceConnection client={client} pollMs={20} />);
   await expect
-    .element(page.getByText("Recipes and settings have not finished syncing yet.", { exact: true }))
+    .element(page.getByText("Recipes and settings have not finished syncing yet", { exact: true }))
     .toBeVisible();
   client.get.mockResolvedValue(ok({ ...connected, syncedAt: Date.UTC(2026, 9, 10, 6, 0) }));
-  await expect.element(page.getByText(/Recipes and settings last synced at/)).toBeVisible();
+  await expect.element(page.getByText(/^Recipes and settings synced /)).toBeVisible();
   const calls = client.get.mock.calls.length;
   await new Promise((resolve) => setTimeout(resolve, 100));
   expect(client.get).toHaveBeenCalledTimes(calls);
