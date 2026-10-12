@@ -437,13 +437,15 @@ and never in incognito. Do not attach our own
 debugger in normal operation. Another installed extension can still inject a conflicting
 frame; coexistence requires an explicit compatibility test and documented settings.
 
-Use a per-document attempt state machine: detected -> resolving -> filling ->
-awaiting-result -> authenticated / retryable / blocked. One writer owns an attempt for a
-tab/document, and a tab runs one attempt across all of its frames; other tabs can
-progress independently. Revalidate origin, account binding, target elements, and
-document immediately before each fill or click. Expire late AI results after navigation
-and cancel outstanding work. Synthetic events and lack of trusted user activation may
-limit some sites. An attempt starts when a recipe's first step, that of its start-page
+Each login is an attempt state machine (`loginAttemptMachine`): detected -> ready ->
+executing -> submit-intent -> awaiting-result or reconciling -> authenticated or
+blocked, with retryable after a failure that changed nothing. Records are kept per tab
+and origin ([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md)). One writer owns
+an attempt, and a tab runs one attempt across all of its frames; other tabs can progress
+independently. Revalidate origin, account binding, target elements, and document
+immediately before each fill or click. Expire late AI results after navigation and
+cancel outstanding work. Synthetic events and lack of trusted user activation may limit
+some sites. An attempt starts when a recipe's first step, that of its start-page
 `passkey` route or of any of its `password` variants, is ready on the page, including
 after a same-document URL change, and each later fill or click waits a bounded time for
 its elements ([ADR 0013](adr/0013-service-held-recipes-and-settings.md#recipe-lookup)).
