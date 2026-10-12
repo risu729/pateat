@@ -180,7 +180,10 @@ Implementation choices for the page after a recipe's final `advance` step, made 
 - **Which logins.** Only a login on the `password` route and the recipe's own steps (its
   first variant), in the tab's own page rather than a frame, whose recipe has no
   `completion` and no `alternatives`, and only once the step in flight is the recipe's
-  last step, an `advance`. A recipe with a completion has already reached a signed-in
+  last step, an `advance`, and never a login that only fills the form after a logout,
+  which stops before the advance (ADR 0021 D). Once the result would settle as unknown,
+  confirmed sign-in evidence still completes the login before the continuation's own
+  rule applies (ADR 0029). A recipe with a completion has already reached a signed-in
   page; its later pages are judged as before
   ([ADR 0027](0027-per-account-login-routes.md)).
 - **Which page.** The page qualifies once it has finished loading

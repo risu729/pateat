@@ -9790,6 +9790,34 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
     ).toMatchObject({ page: "login", known: [target("email")] });
   });
 
+  it("after a logout, only fills the continued recipe's first page and never presses Next", async () => {
+    inPlace();
+    let h!: ReturnType<typeof harness>;
+    const next = continuedOn("/signin");
+    const service = generation(answering(() => h, next));
+    h = start(service);
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(settled("authenticated"));
+    expect(executed()).toEqual(allSteps);
+    // The site signs out and shows the email page again in the tab (ADR 0021 D).
+    h.recipes.starts.mockResolvedValue(startsOf([next.steps[0]!]));
+    fake.state.observedPath = "/signin";
+    fake.state.present = new Set(["email", "next"]);
+    fake.state.unusable = new Set();
+    fake.state.signIn = false;
+    fake.state.extracted = {};
+    onClick(() => undefined);
+    expect(await h.hello({ documentId: "signed-out" })).toEqual({ ok: true });
+    await until(() => executed().length === allSteps.length + 1);
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(executed()).toEqual([...allSteps, "fill:email"]);
+    expect(service.generate).toHaveBeenCalledTimes(1);
+    expect(service.judge).toHaveBeenCalledTimes(1);
+    // The fill-only record is forgotten and the tab asks for an account.
+    expect(status()).toEqual([]);
+    expect(fake.state.badges[1]?.text).toBe("1");
+  });
+
   it("waits a second after the password form shows before sending it", async () => {
     inPlace();
     let h!: ReturnType<typeof harness>;
