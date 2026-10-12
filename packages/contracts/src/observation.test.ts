@@ -143,6 +143,14 @@ describe("observation contract", () => {
     expect(withDescription({ description: "x".repeat(121) })).toBe(false);
     expect(withDescription({ description: "a\u202eb" })).toBe(false);
   });
+
+  it("bounds a signed-in page's header text at 1,000 characters (ADR 0029)", () => {
+    expect(parse({ ...base, headerText: "Home [account] Settings" })).toBe(true);
+    expect(parse({ ...base, headerText: "x".repeat(1000) })).toBe(true);
+    expect(parse({ ...base, headerText: "x".repeat(1001) })).toBe(false);
+    expect(parse({ ...base, headerText: "" })).toBe(false);
+    expect(parse({ ...base, headerText: "a\nb" })).toBe(false);
+  });
 });
 
 describe("account lists (ADR 0028)", () => {

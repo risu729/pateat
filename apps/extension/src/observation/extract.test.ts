@@ -1197,6 +1197,39 @@ describe("extractSignedInObservation", () => {
     ]);
   });
 
+  it("sends the visible header and navigation text, hidden as the rest of the page (ADR 0029)", () => {
+    page(
+      `<header><span>Welcome back, taro@example.com</span> <span hidden>Secret</span>
+        <nav><a href="/points">Points 1,234</a> <a href="/account">My account</a></nav></header>
+      <div role="navigation"><a href="/help">Help</a></div>
+      <main><p>Body text 99</p><button id="logout" type="button">Sign out</button></main>`,
+    );
+    expect(signedIn().headerText).toBe("Welcome back, [email] Points [number] My account Help");
+    // Every element boundary separates words.
+    page(
+      `<header><a href="/account">Account</a><span>taro.yamada</span></header>
+      <button id="logout" type="button">Sign out</button>`,
+    );
+    expect(signedIn().headerText).toBe("Account taro.yamada");
+    // Cut at 1,000 characters.
+    page(
+      `<nav>${"<a href='/x'>Menu</a> ".repeat(300)}</nav>
+      <button id="logout" type="button">Sign out</button>`,
+    );
+    const { headerText } = signedIn();
+    expect(headerText!.length).toBeLessThanOrEqual(1000);
+    expect(headerText!.startsWith("Menu Menu")).toBe(true);
+    // A page without a header or navigation sends none, and a login page never does.
+    page(`<main><button id="logout" type="button">Sign out</button></main>`);
+    expect(signedIn()).not.toHaveProperty("headerText");
+    page(
+      `<header><a href="/help">Help</a></header>
+      <form><input id="user" name="user" autocomplete="username" aria-label="Email">
+        <input id="pass" type="password" aria-label="Password"><button>Log in</button></form>`,
+    );
+    expect(observe()).not.toHaveProperty("headerText");
+  });
+
   it("never locates by an id or name that carries an email address or a long number", () => {
     page(
       `<a id="acct-0123456789" href="/a">Account</a>

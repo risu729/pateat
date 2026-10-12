@@ -56,6 +56,7 @@ describe("withoutUsernames", () => {
       observation({
         title: "taro - Example",
         headings: ["Hello taro"],
+        headerText: "Home Signed in as taro Settings",
         accounts: ["taro Last used"],
         candidates: [
           {
@@ -80,6 +81,7 @@ describe("withoutUsernames", () => {
       observation({
         title: "[account] - Example",
         headings: ["Hello [account]"],
+        headerText: "Home Signed in as [account] Settings",
         accounts: ["[account] Last used"],
         candidates: [
           {
@@ -160,6 +162,41 @@ describe("withoutUsernames", () => {
     expect(text).not.toContain("ta");
     // A shorter text was not cut, so its end is left as it is.
     expect(headings(["Hi taro.ya"], ["taro.yamada"])).toEqual(["Hi taro.ya"]);
+  });
+
+  it("hides a name cut at the end of a signed-in page's header text, at its own limit", () => {
+    const header = (text: string) =>
+      hidden(observation({ headerText: text }), ["taro.yamada"]).headerText;
+    const cut = `${"x ".repeat(495)}Hi taro.ya`;
+    expect(cut).toHaveLength(1000);
+    const text = header(cut)!;
+    expect(text.startsWith(`${"x ".repeat(495)}Hi [acc`)).toBe(true);
+    expect(text.length).toBeLessThanOrEqual(1000);
+    expect(text).not.toContain("ta");
+    // The same end in a shorter header was not cut.
+    expect(header(`${"x ".repeat(100)}Hi taro.ya`)).toBe(`${"x ".repeat(100)}Hi taro.ya`);
+    // Numbers are hidden before the one cut, so the cut name stays at the end.
+    document.body.innerHTML = `<header>${"<span>Points 1,234,567</span> ".repeat(61)}
+      <span>abcdefghijkl</span><span>Hi taro.yamada</span></header><button id="logout" type="button">Sign out</button>`;
+    const extracted = extractSignedInObservation();
+    if (!extracted.ok) throw new Error(extracted.reason);
+    expect(extracted.observation.headerText).toHaveLength(1000);
+    const shown = hidden(extracted.observation, ["taro.yamada"]).headerText!;
+    expect(shown).not.toMatch(/ta$|tar$|taro/u);
+    // Whatever the page's text before the name, the read text's own end inside the name
+    // never survives the hiding of the numbers before it.
+    for (let filler = 0; filler <= 40; filler++) {
+      document.body.innerHTML = `<header>${"<span>Points 1,234,567</span> ".repeat(57)}
+        <span>${"x".repeat(filler)}</span><span>Hi taro.yamada</span></header>
+        <button id="logout" type="button">Sign out</button>`;
+      const page = extractSignedInObservation();
+      if (!page.ok) throw new Error(page.reason);
+      const sent = hidden(page.observation, ["taro.yamada"]).headerText!;
+      expect(sent, String(filler)).not.toMatch(/taro/u);
+      expect(sent, String(filler)).not.toMatch(/\bt[a-z.]*$/u);
+    }
+    const long = `${"a ".repeat(498)}taro.yamada`;
+    expect(header(long)!.length).toBeLessThanOrEqual(1000);
   });
 
   it("keeps hidden texts within the observed-text limit", () => {

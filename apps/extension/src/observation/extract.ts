@@ -62,8 +62,10 @@ const landmarks = chromeSelector;
 const besideDepth = 2;
 const maxBeside = 4;
 const maxHeadings = 8;
-const maxText = 120;
+export const maxText = 120;
 const rawLimit = maxText * 4;
+/** How much of a signed-in page's header and navigation the judge sees (ADR 0029). */
+export const maxHeaderText = 1000;
 const labelDepth = 3;
 const inputModes = ["none", "text", "decimal", "numeric", "tel", "search", "email", "url"] as const;
 const fillTypes: Record<string, ObservedCandidate["role"]> = {
@@ -109,21 +111,21 @@ const redactions: readonly (readonly [RegExp, string])[] = [
 /**
  * Normalizes untrusted page text to the observed-text contract: whitespace collapsed,
  * control/format/separator characters removed, private-looking parts redacted, and at
- * most 120 UTF-16 code units without splitting a surrogate pair.
+ * most `limit` (120) UTF-16 code units without splitting a surrogate pair.
  */
-export function observedText(raw: string | null | undefined): string | undefined {
+export function observedText(raw: string | null | undefined, limit = maxText): string | undefined {
   if (!raw) return undefined;
   // Format characters (zero-width spaces, soft hyphens) vanish before redaction so
   // they cannot split a digit run.
   let text = collapseText(raw);
   for (const [pattern, replacement] of redactions) text = text.replace(pattern, replacement);
-  return bounded(text.replace(/\s+/gu, " ").trim());
+  return bounded(text.replace(/\s+/gu, " ").trim(), limit);
 }
 
-/** At most 120 UTF-16 code units, without splitting a surrogate pair. */
-export function bounded(text: string): string | undefined {
-  if (text.length > maxText) {
-    text = text.slice(0, maxText);
+/** At most `limit` (120) UTF-16 code units, without splitting a surrogate pair. */
+export function bounded(text: string, limit = maxText): string | undefined {
+  if (text.length > limit) {
+    text = text.slice(0, limit);
     if (/[\uD800-\uDBFF]$/u.test(text)) text = text.slice(0, -1);
     text = text.trimEnd();
   }
@@ -139,8 +141,29 @@ export function bounded(text: string): string | undefined {
  */
 const numberPart = String.raw`(?:\p{Number}+|\[number\])`;
 const numbers = new RegExp(`${numberPart}(?:[.,，．'\u2019]${numberPart})*`, "gu");
-export const withoutNumbers = (text: string) =>
-  bounded(text.replace(numbers, "[number]")) ?? "[number]";
+export const withoutNumbers = (text: string, limit = maxText) =>
+  bounded(text.replace(numbers, "[number]"), limit) ?? "[number]";
+
+/**
+ * The visible text of a signed-in page's header and navigation for the judge (ADR 0029,
+ * owner, 2026-10-12): every outermost `header`, `nav`, banner and navigation landmark in
+ * document order, redacted as the rest of that page and cut at 1,000 characters. Every
+ * element boundary separates words, as E2 reads them, so a name in its own element is
+ * never glued to the word before it; the text is cut once, after every number is hidden,
+ * so the end of a cut username stays the end of the text.
+ */
+function headerText(document: Document): string | undefined {
+  const readLimit = maxHeaderText * 4;
+  let raw = "";
+  for (const root of document.querySelectorAll(landmarks)) {
+    if (raw.length > readLimit) break;
+    if (root.parentElement?.closest(landmarks)) continue;
+    const text = renderedText(root, readLimit, { everyElement: true });
+    if (text) raw += ` ${text}`;
+  }
+  const text = observedText(raw, Number.POSITIVE_INFINITY);
+  return text && withoutNumbers(text, maxHeaderText);
+}
 
 /**
  * Whether a control is on the page: `visible`, `faint` when it is rendered but
@@ -756,6 +779,7 @@ function observe(
   complete: boolean,
   hide: (text: string) => string = (text) => text,
   accounts?: readonly string[],
+  header?: string,
 ): ObservationResult {
   const location = document.location!;
   chosen.sort((left, right) =>
@@ -816,6 +840,7 @@ function observe(
     language: language(texts),
     ...(title ? { title } : {}),
     ...(headings.length ? { headings } : {}),
+    ...(header ? { headerText: header } : {}),
     complete,
     candidates,
     ...(accounts?.length ? { accounts } : {}),
@@ -1133,6 +1158,13 @@ export function extractSignedInObservation(
     ...ranked.slice(0, Math.max(0, maxCandidates - fieldsFound.length)),
   ];
   if (chosen.length === 0) return { ok: false, reason: "no-candidates" };
-  const result = observe(document, chosen, gap === undefined, withoutNumbers);
+  const result = observe(
+    document,
+    chosen,
+    gap === undefined,
+    (text) => withoutNumbers(text),
+    undefined,
+    headerText(document),
+  );
   return result.ok && gap ? { ...result, gap } : result;
 }
