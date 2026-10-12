@@ -200,21 +200,25 @@ worker restart the recipe's newer revision was refused `recipe-not-found`, so th
 never logged in again until it closed. Now a later top-level document of that origin in
 the tab (another document than the one the record belongs to) watches the recipes' first
 steps; when one shows, the record is released and the tab asks as after a logout, and
-with one account to use it fills without pressing anything, as above. Only that tab asks
-(`pateat.login-stopped-asks.v1` in `chrome.storage.session`, cleared when a login starts
-in the tab or the tab closes); other tabs of the site keep logging in. Pateat never
-submits again from that tab by itself, which is why ADR 0022 keeps resuming such
-records. A record stopped before any submission is released as ADR 0022 describes; one
-still `reconciling` (its result not known yet) is resumed as before. The log shows the
+with one account to use it fills without pressing anything, as above. Only that tab (its
+page and that origin's frames in it) asks: `pateat.login-stopped-asks.v1` in
+`chrome.storage.session` keeps it until a login that is not fill-only starts for that
+origin in the tab, or the tab closes; other tabs of the site keep logging in. Pateat
+never submits again from that tab by itself, so ADR 0022's reason for resuming such
+records still holds. While the record still holds the site against other tabs (ADR 0022,
+5 minutes after it last changed), it is resumed as before, so the hold is not cut short.
+A record stopped before any submission is released as ADR 0022 describes; one still
+`reconciling` (its result not known yet) is resumed as before. The log shows the
 watching page as `login.refused` `not-started` with `stopped-login` and the asking as
 `logged-out` with `stopped-login`.
 
-Constraint, set by the owner on 2026-10-12 (07:41 UTC): a site session that only expired
-must never make the user press the site's button. Pateat cannot tell an expiry from a
-logout it did not see, and timing does not help: some banks end the session as soon as a
-page is opened out of their expected order (owner, 07:42 UTC), so a tab treats a login
-form as a logout only after this tab's own login (finished, or stopped after a
-submission as above) or while another tab of the site asks after its logout. A session
+Constraint, set by the owner on 2026-10-12 (07:41 UTC): beyond the cases above, where
+this tab's own Pateat login of the site is known, a site session that only expired must
+never make the user press the site's button. Pateat cannot tell an expiry from a logout
+it did not see, and timing does not help: some banks end the session as soon as a page
+is opened out of their expected order (owner, 07:42 UTC). So a tab treats a login form
+as a logout only after this tab's own login (finished, or stopped after a submission as
+above) or while another tab of the site asks after its logout. A session
 carried over from a login in another tab, or from an earlier browser session, is
 therefore not detected: after a logout there, Pateat logs in again automatically.
 Rejected for this reason: counting a signed-in marker seen in the tab (it would make

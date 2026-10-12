@@ -209,6 +209,16 @@ type LiveDocument = {
   /** Why this document's sign-in input last did not start a login, logged once. */
   notStarted?: string;
 };
+/** Whether a record holds its origin against other tabs at `now` (ADR 0022). */
+const holdsSite = (entry: LoginAttemptMetadata, now: number) =>
+  entry.state !== "authenticated" &&
+  // A fill-only login never submits (ADR 0021 D).
+  !entry.fillOnly &&
+  !(entry.state === "blocked" && entry.outcome === "interrupted" && !entry.submissions) &&
+  !stoppedByPateat(entry) &&
+  // A clock set back ends the hold rather than prolonging it.
+  now - (entry.changedAt ?? 0) >= 0 &&
+  now - (entry.changedAt ?? 0) < HOLD_MS;
 /** Documents are tracked per frame; a tab still runs at most one attempt. */
 const frameKey = (document: { tabId: number; frameId: number }) =>
   `${document.tabId}:${document.frameId}`;
@@ -993,14 +1003,7 @@ export function createLoginRuntime(
       (entry) =>
         entry.account.origin === siteOrigin &&
         entry.document.tabId !== tabId &&
-        entry.state !== "authenticated" &&
-        // A fill-only login never submits (ADR 0021 D).
-        !entry.fillOnly &&
-        !(entry.state === "blocked" && entry.outcome === "interrupted" && !entry.submissions) &&
-        !stoppedByPateat(entry) &&
-        // A clock set back ends the hold rather than prolonging it.
-        now - (entry.changedAt ?? 0) >= 0 &&
-        now - (entry.changedAt ?? 0) < HOLD_MS,
+        holdsSite(entry, now),
     );
   }
   /** Whether another tab asks for an account after a logout of the origin (ADR 0021 D). */
@@ -3701,7 +3704,8 @@ export function createLoginRuntime(
       // A login Pateat itself stopped before submitting anything holds no tab, its own
       // included: a new page of the tab logs in as a new tab would, with the saved default
       // or by asking when several accounts match (ADR 0022). One that submitted is resumed,
-      // so a site that sends the tab back to its first step never gets it again.
+      // so a site that sends the tab back to its first step never gets it again; only its
+      // form showing on a later page makes the tab ask and fill (below).
       const released = recorded;
       if (attempts.get(document.tabId)?.metadata.id === released.id)
         attempts.delete(document.tabId);
@@ -3725,7 +3729,9 @@ export function createLoginRuntime(
       recorded.submissions > 0 &&
       recorded.document.frameId === 0 &&
       document.frameId === 0 &&
-      recorded.document.documentId !== document.documentId
+      recorded.document.documentId !== document.documentId &&
+      // While it still holds the site against other tabs, it is resumed as before.
+      !holdsSite(recorded, Date.now())
     ) {
       // A login that stopped after it submitted is resumed by the tab's later pages, so it
       // never submits again. Its form showing again on one of them asks like a logout, in

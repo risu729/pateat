@@ -1642,7 +1642,15 @@ describe("production login document admission", () => {
         fake.browser.tabs.query = async () => [{ id: 1 }] as never;
         try {
           fake.state.storage["pateat.login-attempts.v3"] = [
-            { ...record!, state: "blocked", outcome, mutationIntent: undefined, ...extra },
+            {
+              ...record!,
+              state: "blocked",
+              outcome,
+              mutationIntent: undefined,
+              ...extra,
+              // Past ADR 0022's hold on other tabs, which a release would otherwise end early.
+              changedAt: Date.now() - 6 * 60_000,
+            },
           ];
           fake.state.onExecute = undefined;
           const restarted = twoSites();
@@ -1736,6 +1744,47 @@ describe("production login document admission", () => {
               ),
           ).toContain("click"),
         );
+      } finally {
+        fake.browser.tabs.query = query;
+      }
+    });
+    it("keeps resuming a stopped login while it still holds the site, so other tabs wait", async () => {
+      // A challenge just after the click holds the site for 5 minutes (ADR 0022); its tab's
+      // later login page does not end that early, and does not ask yet.
+      holdClicks(origin);
+      const h = twoSites();
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(at(origin)).toMatchObject({ state: "submit-intent" }));
+      const [record] = stored();
+      const query = fake.browser.tabs.query;
+      fake.browser.tabs.query = async () => [{ id: 1 }, { id: 2 }] as never;
+      try {
+        fake.state.storage["pateat.login-attempts.v3"] = [
+          {
+            ...record!,
+            state: "blocked",
+            outcome: "challenge",
+            mutationIntent: undefined,
+            ...idle,
+          },
+        ];
+        fake.state.onExecute = undefined;
+        const restarted = twoSites();
+        const sent = executes().length;
+        expect(await restarted.hello({ documentId: "next-page" })).toEqual({ ok: true });
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(executes()).toHaveLength(sent);
+        expect(at(origin)).toMatchObject({
+          id: record!.id,
+          state: "blocked",
+          outcome: "challenge",
+        });
+        expect(fake.state.session["pateat.login-stopped-asks.v1"] ?? []).toEqual([]);
+        fake.state.tabUrls[2] = fake.state.pageUrl;
+        expect(await restarted.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({
+          ok: false,
+          reason: "origin-busy",
+        });
       } finally {
         fake.browser.tabs.query = query;
       }
