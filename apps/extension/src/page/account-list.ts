@@ -152,3 +152,118 @@ export function pickEntry(
   if (fitting.length === 1) return { entry: fitting[0]! };
   return { reason: fitting.length ? "ambiguous" : "none" };
 }
+
+/** Page parts whose addresses are contact details, not a shown account (ADR 0028). */
+const contactSelector = "footer, [role='contentinfo' i], a[href^='mailto:' i]";
+const besideTextLimit = 64;
+/** A container with more entry-like elements than this is page content, not one account. */
+const maxBesideButtons = 3;
+/** Elements examined for entry-like controls; a sign-in page is small. */
+const scanLimit = 4000;
+
+/** Whether `element` is in a link, button or entry-like element, accepted or not. */
+function insideControl(element: HTMLElement): boolean {
+  for (let current: HTMLElement | null = element; current; current = current.parentElement)
+    if (control(current) || isEntry(current)) return true;
+  return false;
+}
+
+export interface BesideAccount {
+  /** The element whose whole text is the shown account, such as Wise's masked email. */
+  readonly element: HTMLElement;
+  /** Its rendered text, at most 64 characters. */
+  readonly text: string;
+  /** The entry-like elements beside it: at most 3, none holding the text. */
+  readonly buttons: readonly HTMLElement[];
+}
+
+/**
+ * The innermost entry-like elements of `root` outside page chrome, at most a scan of
+ * 4000 elements.
+ */
+export function entryControls(root: Document | Element): HTMLElement[] {
+  const start = root instanceof Document ? root.body : root;
+  if (!start) return [];
+  const controls = [...start.querySelectorAll("*")]
+    .slice(0, scanLimit)
+    .filter(
+      (element): element is HTMLElement =>
+        entryLike(element) && entryAround(element) === element && !element.closest(chromeSelector),
+    );
+  // A control holding another one is not innermost; marking ancestors keeps this linear.
+  const outer = new Set<Element>();
+  for (const item of controls) {
+    let parent = item.parentElement;
+    while (parent && !outer.has(parent)) {
+      outer.add(parent);
+      parent = parent.parentElement;
+    }
+  }
+  return controls.filter((item) => !outer.has(item));
+}
+
+/**
+ * The short texts shown beside separate buttons rather than inside them, as Wise's
+ * "Welcome back" card shows the account above "Log back in" (ADR 0028, owner
+ * 2026-10-12 08:36 UTC): each shown element of at most 64 characters, outside page
+ * chrome and contact details and outside every entry-like element, whose nearest
+ * ancestor holding an entry-like element holds at most 3 of them.
+ */
+export function besideAccounts(root: Document | Element): BesideAccount[] {
+  const document = root instanceof Document ? root : root.ownerDocument;
+  const start = root instanceof Document ? root.body : root;
+  if (!start) return [];
+  const controls = entryControls(root);
+  if (controls.length === 0) return [];
+  const walker = document.createTreeWalker(start, NodeFilter.SHOW_TEXT, {
+    acceptNode: (node) =>
+      (node.nodeValue ?? "").trim() ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP,
+  });
+  const found = new Map<HTMLElement, BesideAccount>();
+  for (let index = 0; index < textNodeLimit; index += 1) {
+    const node = walker.nextNode();
+    if (!node) break;
+    const element = node.parentElement;
+    if (!element || found.has(element) || !shown(element)) continue;
+    if (element.closest(`${chromeSelector}, ${contactSelector}`)) continue;
+    // The text must be the element's own, not a control's or a contact link's inside it.
+    if (insideControl(element) || element.querySelector(`a, button, [role], ${contactSelector}`))
+      continue;
+    const text = renderedText(element, besideTextLimit + 1)
+      ?.replace(/\s+/gu, " ")
+      .trim();
+    if (!text || text.length > besideTextLimit) continue;
+    let container = element.parentElement;
+    let buttons: HTMLElement[] = [];
+    for (; container && container !== start.parentElement; container = container.parentElement) {
+      buttons = controls.filter((item) => container!.contains(item));
+      if (buttons.length) break;
+    }
+    if (buttons.length === 0 || buttons.length > maxBesideButtons) continue;
+    found.set(element, { element, text, buttons });
+  }
+  return [...found.values()];
+}
+
+/**
+ * Whether a shown text is the account of a username that is not an email (ADR 0028):
+ * the whole text equals it, ignoring case and a leading `@`. Masked text never is.
+ */
+export function namesUsername(text: string, username: string): boolean {
+  const fold = (value: string) =>
+    value
+      .normalize("NFKC")
+      .trim()
+      .replace(/^[@＠]/u, "")
+      .toLowerCase();
+  const shownName = fold(text);
+  const name = fold(username);
+  return name.length > 0 && !/[*●•]/u.test(shownName) && !name.includes("@") && shownName === name;
+}
+
+/** The {@link besideAccounts} that show an email address, masked or not. */
+export function besideEmails(root: Document | Element): BesideAccount[] {
+  return besideAccounts(root).filter((account) =>
+    shownAccounts(account.text).some((shownAccount) => shownAccount.includes("@")),
+  );
+}

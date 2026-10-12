@@ -51,9 +51,10 @@ Chrome, on a production build of main.
   back" page and Instagram's saved profiles
   ([ADR 0028](adr/0028-account-chooser-login-pages.md), accepted 2026-10-12). The owner
   asked for it at 07:44 UTC 2026-10-12. Finding entries and the observation are in
-  [#314](https://github.com/risu729/pateat/pull/314); the trigger, answer, recipe and
-  execution build on the `advance` continuation below and the start-only recipe of
-  [ADR 0031](adr/0031-sign-in-entry-pages.md).
+  [#314](https://github.com/risu729/pateat/pull/314), and finding an account shown
+  beside separate buttons (Wise, Instagram) is in the PR after it; the trigger, answer,
+  recipe and execution build on the `advance` continuation below and the start-only
+  recipe of [ADR 0031](adr/0031-sign-in-entry-pages.md).
 - Press a site's sign-in link on a page the site sent the visitor to before signing in,
   shown by a query value naming another path of the same site, such as pixiv's top page
   `https://www.pixiv.net/en/?return_to=%2Fbookmark_new_illust.php`, whose "Login" leads

@@ -21,7 +21,7 @@ import {
   renderedText,
   shown,
 } from "../page/text";
-import { accountEntries, chromeSelector, entryLike } from "../page/account-list";
+import { accountEntries, besideEmails, chromeSelector, entryLike } from "../page/account-list";
 
 /**
  * Why no observation was produced. A page without one is never sent to inference.
@@ -804,8 +804,10 @@ const listScanLimit = 4000;
  * The observation of a page without fields that lists accounts to choose from (ADR 0028),
  * such as a saved-profile list: each entry's redacted text (`Taro [email] Last used`) and
  * the other controls outside page chrome, by their text, as context and as the
- * account-independent button the generator may name. A page showing a fillable field, or
- * no entry with an email address, is refused: {@link extractLoginObservation} covers the
+ * account-independent button the generator may name. An email shown beside at most three
+ * separate buttons, as on Wise's "Welcome back" card, counts as a listed account too. A
+ * page showing a fillable field, or no email address in an entry or beside buttons, is
+ * refused: {@link extractLoginObservation} covers the
  * former, and the latter is no list of accounts.
  */
 export function extractAccountListObservation(
@@ -819,13 +821,18 @@ export function extractAccountListObservation(
   });
   if (fieldShown || !document.body) return { ok: false, reason: "no-candidates" };
   const entries = accountEntries(document);
-  if (entries.length === 0) return { ok: false, reason: "no-candidates" };
+  // An account shown beside separate buttons, as on Wise's "Welcome back" card.
+  const listed = [
+    ...entries.map((entry) => entry.element),
+    ...besideEmails(document).map((account) => account.element),
+  ];
+  if (listed.length === 0) return { ok: false, reason: "no-candidates" };
   // A text in which an address survived redaction is left out, never sent.
-  const accounts = entries
+  const accounts = listed
     .slice(0, maxAccounts)
-    .map((entry) => observedText(renderedText(entry.element, rawLimit, { everyElement: true })))
+    .map((element) => observedText(renderedText(element, rawLimit, { everyElement: true })))
     .filter((text): text is string => text !== undefined && !atSign.test(text));
-  let complete = entries.length <= maxAccounts && accounts.length === entries.length;
+  let complete = listed.length <= maxAccounts && accounts.length === listed.length;
   for (const host of document.querySelectorAll("*"))
     if (host.shadowRoot !== null && inShadow(host.shadowRoot, shadowFields)) complete = false;
 

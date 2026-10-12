@@ -1323,10 +1323,14 @@ describe("extractAccountListObservation", () => {
     expect(JSON.stringify(observation)).not.toContain("example.com");
   });
 
-  it("refuses a page with a field or without an account entry", () => {
+  it("refuses a page with a field or without a shown account", () => {
     page(`<button>taro@example.com</button><input type="password">`);
     expect(extractAccountListObservation()).toEqual({ ok: false, reason: "no-candidates" });
-    page(`<button>Sign in</button><p>Contact help@example.com</p>`);
+    page(`<button>Sign in</button><footer>Contact help@example.com</footer>`);
+    expect(extractAccountListObservation()).toEqual({ ok: false, reason: "no-candidates" });
+    page(
+      `<button>Sign in</button><p>Contact <a href="mailto:help@example.com">help@example.com</a></p>`,
+    );
     expect(extractAccountListObservation()).toEqual({ ok: false, reason: "no-candidates" });
     page(`<nav><a href="/me">taro@example.com</a></nav>`);
     expect(extractAccountListObservation()).toEqual({ ok: false, reason: "no-candidates" });
@@ -1351,6 +1355,24 @@ describe("extractAccountListObservation", () => {
     if (!result.ok) throw new Error(result.reason);
     expect(result.observation.accounts).toEqual(["[email]", "[email]", "Not [email]?"]);
     expect(JSON.stringify(result.observation)).not.toMatch(/[@＠]|ｅｘａｍｐｌｅ|example/u);
+  });
+
+  it("describes Wise's shown account beside its buttons", () => {
+    page(
+      `<h1>Welcome back</h1>
+      <div><div>TY</div><h3>Taro</h3><p>t***@example.com</p>
+        <button><span>Log back in</span></button><button><span>Use another account</span></button>
+      </div>`,
+      "Log in | Example",
+    );
+    const result = extractAccountListObservation();
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.observation.accounts).toEqual(["[email]"]);
+    expect(summary(result.observation).map((candidate) => candidate.label)).toEqual([
+      "Log back in",
+      "Use another account",
+    ]);
+    expect(JSON.stringify(result.observation)).not.toContain("example.com");
   });
 
   it("is incomplete when list controls are left out", () => {
