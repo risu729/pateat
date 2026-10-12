@@ -107,6 +107,12 @@ const fillSettleMs = 500;
  * button); 2 seconds also covers one that verifies first and then moves on.
  */
 const codeSettleMs = 2_000;
+/**
+ * How soon a Verify button disabled until the code is typed must be enabled once it is
+ * in; the page's own handlers run at once or within a render. One still disabled after
+ * this is checking the code itself (ADR 0027).
+ */
+const codeEnableMs = 500;
 const busySelector = '[aria-busy="true"], [role="progressbar"], progress';
 /**
  * Watches the page for signs that it submits a code by itself, from before the code is
@@ -115,7 +121,10 @@ const busySelector = '[aria-busy="true"], [role="progressbar"], progress';
  * the submit button gone, hidden, busy or disabled after it was enabled, or a new busy
  * indicator in the form. A button the page renders again at the same locator, still shown
  * and enabled, and a status message alone, such as a digit counter or "Looks good", are
- * not signs. `submitted` reads the page once the code is in; `stop` removes the listeners.
+ * not signs. A button not enabled within `codeEnableMs` of the code going in is a sign
+ * too: a page that keeps Verify disabled with the code typed is checking the code itself,
+ * and may enable Verify again only to take another code. `submitted` reads the page once
+ * the code is in; `stop` removes the listeners.
  */
 function watchCodeSubmission(
   input: HTMLInputElement,
@@ -133,6 +142,9 @@ function watchCodeSubmission(
   const found = matches(submit);
   const initial = found.length === 1 ? flags(found[0]!) : undefined;
   let enabledSeen = initial?.enabled === true;
+  // Whether the button showed enabled soon after the code went in.
+  let enabledAfter = false;
+  let typedAt: number | undefined;
   let idleSeen = initial !== undefined && !initial.busy;
   const busyBefore = new Set(form ? form.querySelectorAll(busySelector) : []);
   let event = false;
@@ -150,6 +162,7 @@ function watchCodeSubmission(
   navigation?.addEventListener("navigate", mark);
   return {
     submitted: () => {
+      typedAt ??= Date.now();
       if (event || location.pathname !== path) return true;
       const current = matches(field);
       if (current.length !== 1 || current[0] !== input || !input.isConnected) return true;
@@ -175,11 +188,13 @@ function watchCodeSubmission(
       const button = buttons[0]!;
       if (!(button instanceof HTMLElement) || !visible(button)) return true;
       const now = flags(button);
-      if (now.enabled) enabledSeen = true;
-      else if (enabledSeen) return true;
+      if (now.enabled) {
+        enabledSeen = true;
+        if (Date.now() - typedAt <= codeEnableMs) enabledAfter = true;
+      } else if (enabledSeen) return true;
       if (!now.busy) idleSeen = true;
       else if (idleSeen) return true;
-      return false;
+      return !enabledAfter && Date.now() - typedAt > codeEnableMs;
     },
     stop: () => {
       document.removeEventListener("submit", onSubmit, true);

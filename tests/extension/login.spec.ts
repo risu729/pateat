@@ -918,6 +918,43 @@ for (const [mode, query] of [
     }
   });
 
+for (const [result, query] of [
+  ["signs in", "ui=disauto"],
+  ["is held when the code is wrong", "ui=disauto&wrong"],
+] as const)
+  test(`a code page that checks the code itself with Verify kept disabled is never clicked: ${result} (ADR 0027)`, async () => {
+    const fixture = await startLoginFixture();
+    try {
+      await withLoginExtension(async (context, _worker, id) => {
+        const options = await context.newPage();
+        await configure(options, id, fixture.origin, true, undefined, true);
+        const status = async () =>
+          JSON.stringify(await send(options, { version: 1, type: "login.probe.status" }));
+        const page = await context.newPage();
+        await page.goto(`${fixture.origin}/totp?${query}`);
+        if (query.endsWith("wrong")) {
+          // The page enables Verify again for another code. The login holds the page for
+          // the person and never clicks it, past the click step's own 10-second wait.
+          await expect(page.locator("#verify")).toBeEnabled();
+          await expect.poll(status).toContain('"state":"reconciling"');
+          await page.waitForTimeout(11_000);
+          expect(await status()).toContain('"state":"reconciling"');
+        } else {
+          await expect(page.locator("#authenticated")).toBeVisible();
+          await expect.poll(status).toContain('"authenticated"');
+        }
+        expect(await codeEvidence(page)).toEqual({
+          codeInputs: 1,
+          verifyClicks: 0,
+          autoSubmits: 1,
+          codeMatched: "true",
+        });
+      });
+    } finally {
+      await fixture.close();
+    }
+  });
+
 for (const [mode, query] of [
   ["a new document after a slow verification", "auto&slow"],
   ["a status message and a disabled button in the same document", "auto&spa=status"],

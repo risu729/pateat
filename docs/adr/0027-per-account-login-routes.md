@@ -492,16 +492,17 @@ new owner decision:
   before it is typed, and the login treats the code as submitted on any of: a `submit`
   event of the field's form; `beforeunload`, `pagehide` or a Navigation API `navigate`
   event; a change of path; the field or its form disabled, read-only, inert, busy,
-  removed or replaced; the field cleared; the button gone, hidden, busy, or disabled
-  after it was enabled; or a new visible busy indicator (`aria-busy`, `progressbar`,
-  `progress`) in the form. A button the page renders again at the same locator, still
-  shown, enabled and not busy, is not a sign, nor is a status message on its own, since
-  ordinary pages count digits or confirm the format in live regions. It also does so
-  when, before the click, the page has left the
-  path or shows the completion or the rejection without the button, and when a new
-  document of the tab resumes a login whose code fill went in, or may have, and whose
-  click has not run. Only a button that still shows after a quiet watch is clicked,
-  once.
+  removed or replaced; the field cleared; the button gone, hidden, busy, disabled after
+  it was enabled, or still disabled half a second after the code went in, since a page
+  that keeps Verify disabled with the code typed is checking it itself and may enable
+  Verify again only for another code; or a new visible busy indicator (`aria-busy`,
+  `progressbar`, `progress`) in the form. A button the page renders again at the same
+  locator, still shown, enabled and not busy, is not a sign, nor is a status message on
+  its own, since ordinary pages count digits or confirm the format in live regions. It
+  also does so when, before the click, the page has left the path or shows the
+  completion or the rejection without the button, and when a new document of the tab
+  resumes a login whose code fill went in, or may have, and whose click has not run.
+  Only a button that still shows after a quiet watch is clicked, once.
 - **Synthetic TOTP fact.** The probe build's configure message takes an optional
   `totp: true`, which gives the synthetic dummy item a `totp` field with the fixed code
   `012345` and sets its `totp` fact; no TOTP secret or real code is used.
@@ -517,6 +518,11 @@ new owner decision:
   with a background request and shows none of the signs above for 2 seconds is clicked
   as well, and so gets the code twice. That includes a page that only writes
   "Verifying…" into a status region while its field and button stay as they were.
+- **Known limitation: a Verify button enabled late.** A page that enables a disabled
+  Verify button only on `keyup` or `blur`, which the fill does not send, or more than
+  half a second after the code goes in, reads as checking the code itself: the login
+  holds the page for two minutes and ends `challenge` without a click. This fails
+  closed.
 - **Known limitation: a same-form code page that keeps the password input.** A form that
   asks for the code after the password and still shows the password input is a sign-in
   page to the service (`not-judgeable`) and to the extension, so its `totp` handler is
