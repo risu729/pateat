@@ -558,7 +558,8 @@ export type LoginReport =
       frame?: true;
       /**
        * For `no-route` on a recipe with several password variants: why its first variant
-       * did not fit, such as `binding-not-found` (ADR 0027).
+       * did not fit, such as `binding-not-found` (ADR 0027). For `logged-out`, which tab
+       * logged out; for `not-started`, why a shown sign-in input did not start a login.
        */
       detail?: string;
     }
@@ -3223,7 +3224,9 @@ export function createLoginRuntime(
         ...(document.frameId === 0 ? {} : { frame: true as const }),
       });
     };
-    if (busy) return refuse("tab-busy");
+    // A report sent only for the log does not log the tab's hold again.
+    if (busy)
+      return shown && !start && !signIn ? { ok: false, reason: "tab-busy" } : refuse("tab-busy");
     if (!storageHealthy) return refuse("storage-unavailable");
     const holder = tabAttempt(document.tabId);
     if (

@@ -984,6 +984,11 @@ describe("production login document admission", () => {
         ok: false,
         reason: "tab-busy",
       });
+      // A sign-in input reported only for the log does not log the hold again.
+      expect(await shownHello(h, { documentId: "page-document", url: top })).toEqual({
+        ok: false,
+        reason: "tab-busy",
+      });
       // The log tells a refused frame from the tab's page.
       expect(
         report.mock.calls.flatMap(([value]) =>
