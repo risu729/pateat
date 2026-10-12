@@ -1327,6 +1327,55 @@ describe("production login document admission", () => {
       expect(await h.login.active()).toBe(false);
       expect(executes()).toHaveLength(2);
     });
+    describe("after Pateat answered the site's passkey request (ADR 0022)", () => {
+      const quiet = { password: false, code: false, captcha: false, invalid: false, alert: false };
+      /** Submits on the site, then has the passkey bridge answer for `rpId` at `answerAt`. */
+      const submitted = async (rpId = "login.example") => {
+        holdClicks(origin);
+        const h = twoSites();
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(executes()).toHaveLength(2));
+        h.login.passkeyAnswered(1, origin, rpId);
+        fake.state.signs = quiet;
+        return h;
+      };
+      it("completes when the tab moves on to the passkey's site and its page is quiet", async () => {
+        const h = await submitted();
+        await navigate(h, "https://www.login.example/home", "home-document", false);
+        expect(at(origin)).toMatchObject({ state: "authenticated", outcome: "authenticated" });
+        expect(await h.login.active()).toBe(false);
+        expect(executes()).toHaveLength(2);
+      });
+      it("ends left-origin when the new page still asks for a code", async () => {
+        const h = await submitted();
+        fake.state.signs = { ...quiet, code: true };
+        await navigate(h, "https://www.login.example/verify", "verify-document", false);
+        expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
+      });
+      it("ends left-origin when the new page asks for a passkey again", async () => {
+        const h = await submitted();
+        // The new page's own request, as the bridge reports it before the page announces.
+        h.login.passkeyRequested(1, "https://www.login.example");
+        await navigate(h, "https://www.login.example/verify", "verify-document", false);
+        expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
+      });
+      it("ends left-origin on a host outside the passkey's RP ID", async () => {
+        const h = await submitted("www.login.example");
+        await navigate(h, "https://account.login.example/home", "home-document", false);
+        expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
+      });
+      it("ends left-origin when the answer came before the submission", async () => {
+        holdClicks(origin);
+        const h = twoSites();
+        h.login.passkeyAnswered(1, origin, "login.example");
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        fake.state.signs = quiet;
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(executes()).toHaveLength(2));
+        await navigate(h, "https://www.login.example/home", "home-document", false);
+        expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
+      });
+    });
     it("fills without submitting when the site's form shows again after it left", async () => {
       // site -> identity provider -> back to the site's login form (ADR 0021 D, ADR 0022).
       holdClicks(origin, second);
