@@ -23,7 +23,7 @@ keep the current ID. Nothing was uploaded.
 | Tailscale node key | no (not activity-based) | 180 days default, admin-set 1-180 days, renewed on re-auth; can be disabled per device; disabled by default for tagged devices | key renewed at re-auth | connections stop; `tailscale up --force-reauth` (browser login) |
 | Syncthing device | none: identity is a self-signed certificate hash | not documented as enforced | no | n/a (remove device manually) |
 
-Firefox Sync was not researched (optional item).
+Firefox Sync was not researched.
 
 ### Google OAuth 2.0
 
@@ -242,7 +242,7 @@ private key.
 ## 3. What was decided
 
 The research recommended idle expiry of 90 days renewed on each authenticated use, no
-absolute lifetime and no rotation, with immediate revocation on the management page.
+absolute lifetime and no rotation, with revocation on the management page.
 The owner adopted that on 2026-10-11; the current behaviour is recorded in the
 architecture's [device enrollment](../architecture.md#device-enrollment) section and
 [ADR 0020](../adr/0020-direct-device-pairing.md).

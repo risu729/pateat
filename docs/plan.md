@@ -183,8 +183,9 @@ still open on 2026-10-11.
   has no Japanese address model, and no widely used extension covers them. It recommends
   Japanese forms as the first candidate if identity filling is designed later (not
   decided).
-- Cloudflare Clef for the finite-choice role, research only until the corpus of real
-  pages grows (owner, 2026-10-11 17:48 UTC): the
+- Cloudflare Clef for the finite-choice role, chosen for
+  [phase 3](#phase-3-public-release) but not planned until the corpus of real pages
+  grows (owner, 2026-10-11 17:48 UTC): the
   [research note](research/2026-10-11-clef-finite-choice.md) covers its API, where it
   would fit in recipe generation, cost, and the open questions (Japanese, calibration,
   who pays, abstention handover).

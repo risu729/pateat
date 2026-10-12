@@ -4,8 +4,8 @@ Researched: 2026-10-10, from Claude Code, Claude in Chrome and Chrome documentat
 public issue reports, after a session on the owner's PC was refused full control of
 Chrome. Nothing was worked around. It explains why the installed Chrome checks in
 [development](../development.md#installed-chrome-synthetic-login-probe) keep steps for
-the owner, and why the rule in [AGENTS.md](../../AGENTS.md) not to work around refused
-`chrome://` and `chrome-extension://` pages exists. It grants no capability.
+the owner, and relates to the rule in [AGENTS.md](../../AGENTS.md) not to work around
+refused `chrome://` and `chrome-extension://` pages. It grants no capability.
 
 ## Findings
 
@@ -31,7 +31,7 @@ the owner, and why the rule in [AGENTS.md](../../AGENTS.md) not to work around r
   and the `debugger` API cannot attach to another extension's pages (Chromium's
   [debugger API tests](https://crrev.com/4dafc317b6e614bdd86ea3e2f5c2fc2e8518a877/chrome/browser/extensions/api/debugger/debugger_apitest.cc)).
   Claude in Chrome is an extension, so it is expected to be bound by this (inferred).
-  So `chrome://extensions` and Pateat's own settings page need the owner's hands in
+  If so, `chrome://extensions` and Pateat's own settings page need the owner's hands in
   installed Chrome.
 - **Branded Chrome cannot load an unpacked extension from the command line.** Chrome
   137 and later ignore `--load-extension`

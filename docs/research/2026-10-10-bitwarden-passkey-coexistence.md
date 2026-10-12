@@ -81,6 +81,12 @@ without a restart was not tried. The Chrome Web Store ID of the Bitwarden extens
 folder path, so the order on a given machine could not be relied on. That is why
 ADR 0007 makes Pateat outermost whatever the order.
 
+## Scope differences
+
+Per ADR 0007, Pateat's wrapper is installed in top-level frames only, while Bitwarden
+runs in all frames, so requests from iframes go to Bitwarden or the browser. Pateat
+never wraps `create`, so passkey registration is unaffected.
+
 ## Left open
 
 - In the owner's Chrome on 2026-10-10, with Bitwarden outside, a request without a UV
@@ -91,6 +97,3 @@ ADR 0007 makes Pateat outermost whatever the order.
   an extension.
 - Whether stopping Bitwarden's MV3 service worker disconnects the port and runs
   `destroy()`.
-- Pateat stays top-frame only, while Bitwarden runs in all frames; requests from
-  iframes go to Bitwarden or the browser. Pateat never wraps `create`, so passkey
-  registration is unaffected.

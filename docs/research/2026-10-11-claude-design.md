@@ -21,14 +21,15 @@ Design during the UI polish. It grants no capability.
 - Its use counts toward the Claude subscription's usage, not the Claude API, so it does
   not touch the service's Claude Console workspace or the spending caps of
   [ADR 0014](../adr/0014-claude-generation-provider.md).
-- In this project's Claude sessions it appears as the artifact types "Design" (a canvas
-  for screens) and "Design System" (tokens and components); no connector is needed.
 
 ## How the UI polish could use it
 
+The roadmap only sets the base design tokens with Claude Design. Going further is an
+owner choice; possible steps:
+
 1. Build a Design System from `apps/extension` and the service web UI code.
-2. Lay out options for the popup, the passkey chooser window and the recipe editor on a
-   Design canvas for the owner to choose from.
+2. Lay out options for the popup, the passkey chooser window and the service web UI
+   pages on a Design canvas for the owner to choose from.
 3. Implement the chosen option in code.
 
 [stop-describing-ui](https://github.com/artouc/stop-describing-ui), which the roadmap

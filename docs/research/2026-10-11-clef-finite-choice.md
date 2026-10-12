@@ -1,10 +1,10 @@
 # Cloudflare Clef for the finite-choice role
 
 Researched: 2026-10-11, from Cloudflare documentation, the Workers AI schemas, package
-sources and the repository's own corpus. Research only: not a plan, an evaluation or an
-adoption. The owner asked on 2026-10-11 at 17:48 UTC to stop at research that assumes
-Clef, because the Claude baseline needs a larger corpus of real pages first. No model
-was called. It updates the
+sources and the repository's own corpus. The owner chose Clef for the finite-choice role
+in [phase 3](../plan.md#phase-3-public-release), and asked on 2026-10-11 at 17:48 UTC to
+stop at research that assumes Clef until a larger corpus of real pages exists. This note
+is that research: not a plan or an evaluation. No model was called. It updates the
 [Clef section](2026-10-10-feasibility.md#clef-update-reviewed-2026-10-10) of the
 feasibility research and grants no capability.
 
@@ -46,11 +46,11 @@ Terms used below:
 - [ADR 0015](../adr/0015-per-owner-claude-credentials.md):
   "Each owner brings their own Claude credentials. The operator never pays for another
   owner's inference."
-- [docs/plan.md](../plan.md): "the
-  finite-choice role" is an open M4 item; Clef-flash, Clef and Jev are "optional later
-  candidates", and "evaluating a candidate does not authorize adopting it". The plain
-  Formasaurus forms "cannot tell a finite-choice model apart from Claude; the synthetic
-  and Japanese pages carry that comparison."
+- [docs/plan.md](../plan.md): "the owner chose Clef for phase 3, and Clef-flash and Jev
+  remain candidates"; "On 2026-10-11 the owner asked for a larger corpus of real pages
+  before planning it"; and "evaluating a candidate does not authorize adopting it". The
+  plain Formasaurus forms "cannot tell a finite-choice model apart from Claude; the
+  synthetic and Japanese pages carry that comparison."
 - [docs/development.md](../development.md):
   the role uses `experimental_decide` from the pinned `ai` package; "A Clef or Jev
   adapter implements that `doDecide` contract or replaces it with a direct typed
