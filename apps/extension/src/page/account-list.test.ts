@@ -335,6 +335,14 @@ describe("listChoice", () => {
     });
     expect(picked.click).toBe("entry");
     expect("element" in picked && picked.element.textContent).toContain("risutaku@example.com");
+    // The entry that fits, not the first one.
+    const second = listChoice(document, {
+      username: "hanako@example.com",
+      others: [],
+      othersComplete: true,
+      other,
+    });
+    expect("element" in second && second.element.textContent).toBe("hanako@example.com");
     const missing = listChoice(document, {
       username: "jiro@example.com",
       others: [],
