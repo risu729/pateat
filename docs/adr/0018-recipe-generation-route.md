@@ -98,8 +98,9 @@ new owner decision:
   left out, and such a field makes the page incomplete.
 - While a model call runs, the extension calls an extension API every 20 seconds, so
   Chrome does not stop its service worker and lose the answer. It waits up to 90
-  seconds; a page whose answer timed out stays claimed for the day, since the service
-  may have called the model.
+  seconds; a page whose answer timed out is freed for its next visit, which the service
+  answers with `recently-tried` or the written recipe if the model was called
+  ([ADR 0016](0016-recipe-generation-trigger.md)).
 
 ## Consequences
 

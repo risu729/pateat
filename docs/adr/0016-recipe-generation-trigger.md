@@ -67,9 +67,24 @@ new owner decision:
 - The vault match is checked only once the input shows, and only matching items'
   built-in fields decide which of the `username`, `password` and `totp` slots are
   offered.
-- The extension remembers a page as attempted when it sends it. It forgets the attempt
-  only when the service could not be reached or answered `busy`, since no model call
-  was made.
+- The extension claims a page as `sending` just before it sends it, so another tab on
+  the same page does not send it too. The claim becomes `sent`, which holds the page for
+  24 hours, only when the answer shows the request reached the model: a recipe, an
+  abstention, or a `failed` code other than `incomplete-observation`, `invalid-request`
+  and `input-too-large`. Every other end frees the page for its next visit: an
+  `unavailable` answer (including `busy` and `recently-tried`), a refusal before the
+  model, an unreachable service or its request limit, a rejected device, a timeout, an
+  unexpected answer and a thrown error. A timed-out request may still have reached the
+  model; the service then answers its next send with `recently-tried`, or with the
+  recipe it wrote, without another model call. A `sending` claim expires after two
+  minutes, longer than the 90-second request timeout, so a request lost with a stopped
+  or reloaded service worker frees the page soon after. The rule was set on 2026-10-12
+  after Moppy and LinkedIn stayed claimed for the day by a send that never reached the
+  model; claims in the earlier record shape are dropped.
+- Each page offered for generation is logged as `recipe.generate` with its outcome
+  (`recipe`, `abstained`, `failed`, `unavailable` or `skipped`) and reason, including a
+  page not sent because it is `sending` or `sent`, once per document
+  ([local log](../architecture.md#local-log)).
 - A page is not offered while its tab holds an attempt record for the page's origin
   ([ADR 0022](0022-login-attempts-per-tab-and-origin.md)), which an executing or
   ended attempt keeps until the tab closes, even when no recipe starts on its path. The

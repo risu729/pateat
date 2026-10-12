@@ -221,8 +221,17 @@ export function createDiagnosticsLog(options: {
       else if (report.type === "generation")
         void logger.log(
           "recipe.generate",
-          { origin: report.origin, outcome: report.outcome },
-          { source },
+          {
+            origin: report.origin,
+            outcome: report.outcome,
+            reason: "reason" in report ? report.reason : undefined,
+          },
+          // A login page without a matching vault item is common and not a problem.
+          {
+            source,
+            level:
+              report.outcome === "skipped" && report.reason === "no-vault-match" ? "debug" : "info",
+          },
         );
       else if (report.type === "judge")
         void logger.log(

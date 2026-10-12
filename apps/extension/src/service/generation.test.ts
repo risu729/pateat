@@ -1,6 +1,11 @@
 import type { LoginObservation, RecipeGenerationRequest } from "@pateat/contracts";
 import { describe, expect, it, vi } from "vitest";
-import { createLoginGeneration, GENERATION_RETRY_MS, MAX_GENERATED_SLOT_MAPS } from "./generation";
+import {
+  createLoginGeneration,
+  GENERATION_RETRY_MS,
+  GENERATION_SENDING_MS,
+  MAX_GENERATED_SLOT_MAPS,
+} from "./generation";
 import type { ServiceConnection } from "./runtime";
 import type { InferenceResult, ServiceTransport } from "./transport";
 
@@ -89,6 +94,7 @@ function setup(
     storage,
     sync,
     refresh,
+    now: () => now,
     advance: (ms: number) => {
       now += ms;
     },
@@ -99,7 +105,7 @@ describe("recipe generation requests", () => {
   it("sends a page once a day and refreshes the cache before reporting a recipe", async () => {
     const h = setup();
     expect(await h.generation.available(observation.origin, "/login")).toBe(true);
-    expect(await h.generation.generate(request)).toBe("recipe");
+    expect(await h.generation.generate(request)).toEqual({ outcome: "recipe" });
     expect(h.transport.generateRecipe).toHaveBeenCalledWith(
       connection.origin,
       connection.credential,
@@ -109,9 +115,9 @@ describe("recipe generation requests", () => {
     // A generated recipe takes a full sync; only a judged page pulls recipes alone.
     expect(h.refresh).not.toHaveBeenCalled();
 
-    // The same page is not sent again within a day, whatever came of it; another path is.
-    expect(await h.generation.available(observation.origin, "/login")).toBe(false);
-    expect(await h.generation.generate(request)).toBe("none");
+    // The same page is not sent again within a day; another path is.
+    expect(await h.generation.available(observation.origin, "/login")).toBe("sent");
+    expect(await h.generation.generate(request)).toEqual({ outcome: "skipped", reason: "sent" });
     expect(await h.generation.available(observation.origin, "/other")).toBe(true);
     expect(h.transport.generateRecipe).toHaveBeenCalledTimes(1);
 
@@ -126,44 +132,135 @@ describe("recipe generation requests", () => {
     });
     expect(
       await Promise.all([h.generation.generate(request), h.generation.generate(request)]),
-    ).toEqual(["none", "none"]);
+    ).toEqual([
+      { outcome: "abstained", reason: "no-login-form" },
+      { outcome: "skipped", reason: "sending" },
+    ]);
     expect(h.transport.generateRecipe).toHaveBeenCalledTimes(1);
     expect(h.sync).not.toHaveBeenCalled();
   });
 
   it.each([
-    ["an unreachable service", { kind: "failed", error: "unreachable" }],
-    ["the service's request limit", { kind: "failed", error: "rate-limited" }],
     [
-      "a busy owner",
-      { kind: "result", result: { version: 1, status: "unavailable", reason: "busy" } },
+      "an abstention",
+      { kind: "result", result: { version: 1, status: "abstained", reason: "ambiguous" } },
+      { outcome: "abstained", reason: "ambiguous" },
     ],
-  ] as const)("may send the page again after %s", async (_name, answer) => {
+    [
+      "a model failure",
+      { kind: "result", result: { version: 1, status: "failed", error: "invalid-output" } },
+      { outcome: "failed", reason: "invalid-output" },
+    ],
+    [
+      "the model call's timeout",
+      { kind: "result", result: { version: 1, status: "failed", error: "timeout" } },
+      { outcome: "failed", reason: "timeout" },
+    ],
+  ] as const)("keeps the page for the day after %s", async (_name, answer, outcome) => {
     const h = setup(answer);
-    expect(await h.generation.generate(request)).toBe("none");
-    expect(await h.generation.available(observation.origin, "/login")).toBe(true);
+    expect(await h.generation.generate(request)).toEqual(outcome);
+    expect(await h.generation.available(observation.origin, "/login")).toBe("sent");
+    h.advance(GENERATION_RETRY_MS - 1);
+    expect(await h.generation.available(observation.origin, "/login")).toBe("sent");
   });
 
-  it.each([
-    ["a timeout", { kind: "failed", error: "timeout" }],
-    ["an unexpected answer", { kind: "failed", error: "unexpected-response" }],
-  ] as const)(
-    "keeps the page claimed after %s, which may follow a model call",
-    async (_name, answer) => {
-      const h = setup(answer);
-      expect(await h.generation.generate(request)).toBe("none");
-      expect(await h.generation.available(observation.origin, "/login")).toBe(false);
-    },
-  );
+  type Answer = Awaited<ReturnType<ServiceTransport["generateRecipe"]>>;
+  const freed: [string, Answer, string, string][] = [
+    ["an unreachable service", { kind: "failed", error: "unreachable" }, "failed", "unreachable"],
+    [
+      "the service's request limit",
+      { kind: "failed", error: "rate-limited" },
+      "failed",
+      "rate-limited",
+    ],
+    // The answer may be lost after a model call; the service then answers `recently-tried`.
+    ["a timeout", { kind: "failed", error: "timeout" }, "failed", "timeout"],
+    [
+      "an unexpected answer",
+      { kind: "failed", error: "unexpected-response" },
+      "failed",
+      "unexpected-response",
+    ],
+    ["a rejected device", { kind: "rejected" }, "failed", "device-rejected"],
+    [
+      "a request the service refused before the model",
+      { kind: "result", result: { version: 1, status: "failed", error: "input-too-large" } },
+      "failed",
+      "input-too-large",
+    ],
+    ...(
+      [
+        "busy",
+        "recently-tried",
+        "credentials-not-configured",
+        "token-exchange-failed",
+        "daily-limit",
+        "recipe-limit",
+      ] as const
+    ).map((reason): [string, Answer, string, string] => [
+      `the service's ${reason}`,
+      { kind: "result", result: { version: 1, status: "unavailable", reason } },
+      "unavailable",
+      reason,
+    ]),
+  ];
+  it.each(freed)("may send the page again after %s", async (_name, answer, outcome, reason) => {
+    const h = setup(answer);
+    expect(await h.generation.generate(request)).toEqual({ outcome, reason });
+    expect(await h.generation.available(observation.origin, "/login")).toBe(true);
+    expect(await h.generation.generate(request)).toEqual({ outcome, reason });
+    expect(h.transport.generateRecipe).toHaveBeenCalledTimes(2);
+  });
+
+  it("frees a page whose request threw or never answered", async () => {
+    const h = setup();
+    h.transport.generateRecipe.mockRejectedValueOnce(new Error("transport"));
+    await expect(h.generation.generate(request)).rejects.toThrow("transport");
+    expect(await h.generation.available(observation.origin, "/login")).toBe(true);
+
+    // A worker stopped or reloaded mid-request never runs its answer's code: the claim
+    // holds only while the request could still be in flight.
+    h.transport.generateRecipe.mockReturnValueOnce(new Promise(() => undefined));
+    void h.generation.generate(request);
+    await vi.waitFor(() => expect(h.transport.generateRecipe).toHaveBeenCalledTimes(2));
+    const restarted = createLoginGeneration({
+      service: h.service,
+      transport: h.transport,
+      storage: h.storage,
+      slotStorage: { read: async () => undefined, write: async () => undefined },
+      sync: h.sync,
+      refresh: h.refresh,
+      now: h.now,
+    });
+    expect(await restarted.available(observation.origin, "/login")).toBe("sending");
+    h.advance(GENERATION_SENDING_MS);
+    expect(await restarted.available(observation.origin, "/login")).toBe(true);
+  });
+
+  it("ignores pages claimed in the earlier record shape", async () => {
+    const h = setup();
+    h.storage.write.mockClear();
+    await h.storage.write({
+      version: 1,
+      attempts: [{ origin: observation.origin, path: "/login", at: h.now() }],
+    });
+    expect(await h.generation.available(observation.origin, "/login")).toBe(true);
+  });
 
   it("sends nothing without a paired, accepted device or when it cannot remember", async () => {
     const h = setup();
     h.service.connection.mockResolvedValueOnce(undefined);
-    expect(await h.generation.available(observation.origin, "/login")).toBe(false);
+    expect(await h.generation.available(observation.origin, "/login")).toBe("not-connected");
     h.service.connection.mockResolvedValueOnce({ ...connection, rejected: true });
-    expect(await h.generation.generate(request)).toBe("none");
+    expect(await h.generation.generate(request)).toEqual({
+      outcome: "skipped",
+      reason: "not-connected",
+    });
     h.storage.write.mockRejectedValueOnce(new Error("quota"));
-    expect(await h.generation.generate(request)).toBe("none");
+    expect(await h.generation.generate(request)).toEqual({
+      outcome: "skipped",
+      reason: "storage-unavailable",
+    });
     expect(h.transport.generateRecipe).not.toHaveBeenCalled();
   });
 
@@ -398,9 +495,9 @@ describe("handlers and code fields in generation requests (ADR 0027)", () => {
 
   it("offers the TOTP slot only for a page with a code field", async () => {
     const h = setup();
-    expect(await h.generation.generate({ ...request, slots: [...request.slots, totp] })).toBe(
-      "recipe",
-    );
+    expect(await h.generation.generate({ ...request, slots: [...request.slots, totp] })).toEqual({
+      outcome: "recipe",
+    });
     expect(h.transport.generateRecipe).toHaveBeenLastCalledWith(
       connection.origin,
       connection.credential,
@@ -420,7 +517,7 @@ describe("handlers and code fields in generation requests (ADR 0027)", () => {
       ],
     };
     const withCode = { ...request, observation: coded, slots: [...request.slots, totp] };
-    expect(await h.generation.generate(withCode)).toBe("recipe");
+    expect(await h.generation.generate(withCode)).toEqual({ outcome: "recipe" });
     expect(h.transport.generateRecipe).toHaveBeenLastCalledWith(
       connection.origin,
       connection.credential,
@@ -430,7 +527,10 @@ describe("handlers and code fields in generation requests (ADR 0027)", () => {
 
   it("sends no request whose only slot is a TOTP the page has no field for", async () => {
     const h = setup();
-    expect(await h.generation.generate({ ...request, slots: [totp] })).toBe("none");
+    expect(await h.generation.generate({ ...request, slots: [totp] })).toEqual({
+      outcome: "skipped",
+      reason: "no-slots",
+    });
     expect(h.transport.generateRecipe).not.toHaveBeenCalled();
   });
 });
@@ -541,7 +641,7 @@ describe("generated slot maps (ADR 0027)", () => {
   it("remembers the offered fields per recipe before reporting it", async () => {
     const h = slotSetup();
     expect(await h.generation.slotFields(recipeId)).toBeUndefined();
-    expect(await h.generation.generate(offered)).toBe("recipe");
+    expect(await h.generation.generate(offered)).toEqual({ outcome: "recipe" });
     expect(h.order).toEqual(["write", "sync"]);
     expect(h.stored()).toEqual({
       version: 1,
@@ -600,14 +700,14 @@ describe("generated slot maps (ADR 0027)", () => {
     ["no custom slot", []],
   ])("writes nothing for a mapping that names %s", async (_label, mapping) => {
     const h = slotSetup({ customSlots: mapping });
-    expect(await h.generation.generate(offered)).toBe("recipe");
+    expect(await h.generation.generate(offered)).toEqual({ outcome: "recipe" });
     expect(h.slotStorage.write).not.toHaveBeenCalled();
     expect(await h.generation.slotFields(recipeId)).toBeUndefined();
   });
 
   it("keeps nothing in memory that it could not write, and still reports the recipe", async () => {
     const h = slotSetup({ failWrite: true });
-    expect(await h.generation.generate(offered)).toBe("recipe");
+    expect(await h.generation.generate(offered)).toEqual({ outcome: "recipe" });
     expect(h.order).toEqual(["write", "sync"]);
     expect(await h.generation.slotFields(recipeId)).toBeUndefined();
   });
@@ -667,7 +767,7 @@ describe("generated slot maps (ADR 0027)", () => {
       customSlots: [customSlots[1]!],
       change: continued,
     });
-    expect(await h.generation.generate(continuation)).toBe("recipe");
+    expect(await h.generation.generate(continuation)).toEqual({ outcome: "recipe" });
     expect(await h.generation.slotFields(recipeId)).toEqual(mapped);
     expect(await h.generation.slotFields(idOf(5))).toEqual(other.slots);
     expect((h.stored() as { maps: unknown[] }).maps).toHaveLength(2);
@@ -708,7 +808,7 @@ describe("generated slot maps (ADR 0027)", () => {
       customSlots: [customSlots[1]!],
       change: varied,
     });
-    expect(await h.generation.generate(continuation)).toBe("recipe");
+    expect(await h.generation.generate(continuation)).toEqual({ outcome: "recipe" });
     // The branch slot belongs to an alternative, not to the recipe's own slots.
     expect(await h.generation.slotFields(recipeId)).toEqual(mapped);
   });
@@ -746,7 +846,7 @@ describe("generated slot maps (ADR 0027)", () => {
         maps: [ownMap(recipeId, [{ slot: "old-slot", field: { custom: "Old" } }])],
       },
     });
-    expect(await h.generation.generate(offered)).toBe("recipe");
+    expect(await h.generation.generate(offered)).toEqual({ outcome: "recipe" });
     expect(await h.generation.slotFields(recipeId)).toEqual(mapped);
   });
 
@@ -761,7 +861,7 @@ describe("generated slot maps (ADR 0027)", () => {
   it("writes nothing when the maps cannot be read, so no other map is dropped", async () => {
     const other = ownMap(idOf(5), [{ slot: "old-slot", field: { custom: "Old" } }]);
     const h = slotSetup({ stored: { version: 1, maps: [other] }, failReads: 1 });
-    expect(await h.generation.generate(offered)).toBe("recipe");
+    expect(await h.generation.generate(offered)).toEqual({ outcome: "recipe" });
     expect(h.order).toEqual(["sync"]);
     expect(h.slotStorage.write).not.toHaveBeenCalled();
     expect(await h.generation.slotFields(idOf(5))).toEqual(other.slots);
@@ -770,7 +870,7 @@ describe("generated slot maps (ADR 0027)", () => {
 
   it("replaces stored maps that do not parse, since no older format is kept", async () => {
     const h = slotSetup({ stored: { version: 0, maps: "synthetic" } });
-    expect(await h.generation.generate(offered)).toBe("recipe");
+    expect(await h.generation.generate(offered)).toEqual({ outcome: "recipe" });
     expect(h.stored()).toEqual({ version: 1, maps: [ownMap(recipeId, mapped)] });
   });
 });

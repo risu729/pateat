@@ -2724,7 +2724,7 @@ describe("production login document admission", () => {
           implementation.available ?? (async () => true),
         ),
         generate: vi.fn<LoginGeneration["generate"]>(
-          implementation.generate ?? (async () => "none"),
+          implementation.generate ?? (async () => ({ outcome: "abstained", reason: "ambiguous" })),
         ),
         judge: vi.fn<LoginGeneration["judge"]>(
           implementation.judge ?? (async () => ({ verdict: "unclear" })),
@@ -2761,7 +2761,7 @@ describe("production login document admission", () => {
       service.generate.mockImplementation(async () => {
         h.recipes.recipe.mockResolvedValue(generated);
         h.recipes.starts.mockResolvedValue(startsOf([generated.steps[0]!]));
-        return "recipe";
+        return { outcome: "recipe" };
       });
       expect(await h.signIn()).toEqual({ ok: false, reason: "generating" });
       await vi.waitFor(() =>
@@ -2894,26 +2894,48 @@ describe("production login document admission", () => {
     it("sends nothing when no vault item matches the page", async () => {
       fake.state.extracted = { login: loginPage };
       const service = generation();
+      const report = vi.fn<(report: LoginReport) => void>();
       const h = harness(unsaved, {
         allowedOrigins: [],
         uris: async () => ({ ok: true, data: uriMatch({ candidates: [] }) }),
         username: true,
         generation: service,
+        report,
       });
       h.recipes.recipe.mockResolvedValue(undefined);
       h.recipes.starts.mockResolvedValue(startsOf([]));
       expect(await h.signIn()).toEqual({ ok: false, reason: "recipe-not-found" });
+      expect(report).toHaveBeenCalledWith({
+        type: "generation",
+        tabId: 1,
+        origin,
+        outcome: "skipped",
+        reason: "no-vault-match",
+      });
       expect(service.generate).not.toHaveBeenCalled();
       expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.extract");
     });
 
     it("offers nothing for a page sent recently, a path a recipe starts on, a frame or an incomplete description", async () => {
-      const service = generation({ available: async () => false });
-      const h = harness(unsaved, { allowedOrigins: [], uris, username: true, generation: service });
+      const service = generation({ available: async () => "sent" as const });
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness(unsaved, {
+        allowedOrigins: [],
+        uris,
+        username: true,
+        generation: service,
+        report,
+      });
       h.recipes.recipe.mockResolvedValue(undefined);
       h.recipes.starts.mockResolvedValue(startsOf([]));
       expect(await h.hello({}, false)).toEqual({ ok: false, reason: "recipe-not-found" });
       expect(await h.signIn()).toEqual({ ok: false, reason: "recipe-not-found" });
+      // The log says once per document why a page with no recipe is not sent.
+      const generations = () =>
+        report.mock.calls.flatMap(([value]) => (value.type === "generation" ? [value] : []));
+      expect(generations()).toEqual([
+        { type: "generation", tabId: 1, origin, outcome: "skipped", reason: "sent" },
+      ]);
 
       service.available.mockResolvedValue(true);
       // Recipes that start on this path (two, so neither is selected), or an unreadable cache.
@@ -2934,6 +2956,13 @@ describe("production login document admission", () => {
       );
       await new Promise((resolve) => setTimeout(resolve, 20));
       expect(service.generate).not.toHaveBeenCalled();
+      expect(generations().at(-1)).toEqual({
+        type: "generation",
+        tabId: 1,
+        origin,
+        outcome: "skipped",
+        reason: "incomplete-observation",
+      });
 
       fake.state.tabUrls = { 1: "https://top.example/" };
       expect(
@@ -3336,7 +3365,7 @@ describe("production login document admission", () => {
         overrides: Partial<LocalSettings> = {},
       ) {
         const service = generation({
-          available: async () => false,
+          available: async () => "sent" as const,
           slotFields: async () => {
             if (map instanceof Error) throw map;
             return map;
@@ -3581,8 +3610,11 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
   const toHome = { path: "/home", present: ["logout"], extracted: homePage };
   function generation(judge: LoginGeneration["judge"] = async () => ({ verdict: "unclear" })) {
     return {
-      available: vi.fn<LoginGeneration["available"]>(async () => false),
-      generate: vi.fn<LoginGeneration["generate"]>(async () => "none"),
+      available: vi.fn<LoginGeneration["available"]>(async () => "sent"),
+      generate: vi.fn<LoginGeneration["generate"]>(async () => ({
+        outcome: "skipped",
+        reason: "sent",
+      })),
       judge: vi.fn<LoginGeneration["judge"]>(judge),
       slotFields: vi.fn<LoginGeneration["slotFields"]>(async () => undefined),
     };
@@ -5351,7 +5383,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       "offers no password when the matching item's password %s",
       async (_label, excluded, empty) => {
         fake.state.extracted = { login: loginPage };
-        const service = { ...generation(), available: vi.fn(async () => true) };
+        const service = { ...generation(), available: vi.fn(async (): Promise<true> => true) };
         const h = harness(
           {
             ...unsaved,
@@ -5731,8 +5763,11 @@ describe("password route variants (ADR 0027)", () => {
     // A generated map could fill the branch variant, but the item's own binding names the
     // contract variant only.
     const service = {
-      available: vi.fn<LoginGeneration["available"]>(async () => false),
-      generate: vi.fn<LoginGeneration["generate"]>(async () => "none"),
+      available: vi.fn<LoginGeneration["available"]>(async () => "sent"),
+      generate: vi.fn<LoginGeneration["generate"]>(async () => ({
+        outcome: "skipped",
+        reason: "sent",
+      })),
       judge: vi.fn<LoginGeneration["judge"]>(async () => ({ verdict: "unclear" })),
       slotFields: vi.fn<LoginGeneration["slotFields"]>(async () => [
         { slot: "branch", field: { custom: "Branch" } },
@@ -5761,8 +5796,11 @@ describe("password route variants (ADR 0027)", () => {
 
   it("builds each variant's binding from the generated map when none is saved", async () => {
     const service = {
-      available: vi.fn<LoginGeneration["available"]>(async () => false),
-      generate: vi.fn<LoginGeneration["generate"]>(async () => "none"),
+      available: vi.fn<LoginGeneration["available"]>(async () => "sent"),
+      generate: vi.fn<LoginGeneration["generate"]>(async () => ({
+        outcome: "skipped",
+        reason: "sent",
+      })),
       judge: vi.fn<LoginGeneration["judge"]>(async () => ({ verdict: "unclear" })),
       slotFields: vi.fn<LoginGeneration["slotFields"]>(async () => [
         { slot: "branch", field: { custom: "Gone" } },
@@ -5827,8 +5865,11 @@ describe("password route variants (ADR 0027)", () => {
   it("refuses no-route with the first variant's reason when no variant fits", async () => {
     const slotFields = vi.fn<LoginGeneration["slotFields"]>(async () => undefined);
     const service = {
-      available: vi.fn<LoginGeneration["available"]>(async () => false),
-      generate: vi.fn<LoginGeneration["generate"]>(async () => "none"),
+      available: vi.fn<LoginGeneration["available"]>(async () => "sent"),
+      generate: vi.fn<LoginGeneration["generate"]>(async () => ({
+        outcome: "skipped",
+        reason: "sent",
+      })),
       judge: vi.fn<LoginGeneration["judge"]>(async () => ({ verdict: "unclear" })),
       slotFields,
     };
@@ -6172,8 +6213,11 @@ describe("the start page's passkey route (ADR 0027)", () => {
   };
   function generation(judge: LoginGeneration["judge"] = async () => ({ verdict: "unclear" })) {
     return {
-      available: vi.fn<LoginGeneration["available"]>(async () => false),
-      generate: vi.fn<LoginGeneration["generate"]>(async () => "none"),
+      available: vi.fn<LoginGeneration["available"]>(async () => "sent"),
+      generate: vi.fn<LoginGeneration["generate"]>(async () => ({
+        outcome: "skipped",
+        reason: "sent",
+      })),
       judge: vi.fn<LoginGeneration["judge"]>(judge),
       slotFields: vi.fn<LoginGeneration["slotFields"]>(async () => undefined),
     };

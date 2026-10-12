@@ -410,7 +410,8 @@ access ([ADR 0009](adr/0009-install-time-https-site-access.md)). A frame also ne
 tab's page admitted, and its account must match the tab's URL as well as the frame's
 ([ADR 0017](adr/0017-login-forms-in-frames.md)). The exception is recipe generation: a
 tab's own page on whose path no recipe starts that shows a login field within 10 seconds
-and has a vault URI match is observed and sent at most once a day per origin and path,
+and has a vault URI match is observed and sent, and not again for a day per origin and
+path once a request for it reached the model,
 unless the tab holds an attempt record other than an account switch on that origin
 ([ADR 0016](adr/0016-recipe-generation-trigger.md)). The request also offers one slot
 per custom field a matching item allows (Text, Hidden, or Linked with an allowed
@@ -744,7 +745,7 @@ kind's check is left out and a string over 512 characters becomes `"[truncated]"
 | `login.attempt` | info for `authenticated` and `retryable`, warn for `blocked`, else debug | origin, recipe ID, route and `password` variant, state, step, step count, the current step's kind (`fill`, `click`, `wait`, `assert`) and effect (`prepare`, `advance`, `submit`), the entered handler the step belongs to, outcome; for `policy-changed`, its cause and a refused plan's reason |
 | `login.handler` | info | origin, recipe ID, handler index, kind, step count; `entered`, `shown-again` (left to the person after this login ran it), `missing-fact` (the item lacks what the handler needs, including a `totp` handler's built-in TOTP field), `code-used` (a `totp` handler in a login that already types a TOTP code) or `no-room` (the attempt's step or submission budget is spent) |
 | `login.refused` | debug for `recipe-not-found`, `stale-document`, `generating`; else info | origin, reason; for `no-route` on a recipe with several `password` variants, the first variant's reason as its detail |
-| `recipe.generate` | info | origin, `recipe` or `none` |
+| `recipe.generate` | debug for `skipped` with `no-vault-match`, else info | origin, outcome (`recipe`, `abstained`, `failed`, `unavailable`, `skipped`) and its reason: the abstention, failure or unavailable code, `device-rejected`, or why nothing was sent (`sending`, `sent`, `no-vault-match`, `incomplete-observation`, `extract-failed`, `no-slots`, `not-connected`, `storage-unavailable`); a skip is logged once per document and reason |
 | `recipe.judge` | debug for `sent`, else info | origin, recipe ID and revision, route; `sent` when the page goes out, then the verdict (`signed-in`, `rejected`, `challenge`, `unclear`, `retry`); for `unclear` and `retry`, the transport, service or model code (for example `already-judged`, `busy`, `timeout`); for a returned revision, whether this login took it over |
 | `passkey.request` | info | the passkey report described in [development](development.md#why-a-passkey-request-was-delegated) |
 | `error.unhandled` | error | `error` or `rejection`, class name, message only when it is a Pateat error code, up to five `file.js:line:column` positions inside the extension |
