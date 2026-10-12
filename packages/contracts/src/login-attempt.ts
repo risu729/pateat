@@ -122,6 +122,11 @@ export const attemptMetadataSchema = v.pipe(
     ),
     /** This attempt follows an account switch in its tab; it never clicks another one. */
     accountSwitched: v.optional(v.literal(true)),
+    /**
+     * When the stored record last changed, in epoch milliseconds; another tab's login
+     * that has not succeeded holds its origin for a limited time after it (ADR 0022).
+     */
+    changedAt: v.optional(v.pipe(v.number(), v.integer(), v.minValue(0))),
   }),
   v.check(
     (metadata) =>

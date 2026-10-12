@@ -629,7 +629,7 @@ describe("unhandled errors", () => {
     vi.restoreAllMocks();
   });
 
-  it("logs what a sync changed, a judged page, a handler and what stopped a login", async () => {
+  it("logs what a sync changed, a judged page, a handler, what stopped a login and refused output", async () => {
     const recipeOrigin = "https://login.example";
     const log = createDiagnosticsLog({
       build: { version: "0.1.0", revision: "1c42ad3" },
@@ -679,6 +679,16 @@ describe("unhandled errors", () => {
       outcome: "entered",
       steps: 1,
     });
+    // ADR 0029's sign-in state: only the signs that show are written.
+    const signs = { s1: true, s2: true, s3: false, s4: false, s5: false, f1: false, f2: true };
+    log.login({
+      type: "state",
+      ...page,
+      route: "password",
+      ...signs,
+      ...{ e1: false, e2: false, e3: false },
+      decision: "rejected",
+    });
     log.login({
       type: "attempt",
       ...page,
@@ -701,7 +711,27 @@ describe("unhandled errors", () => {
       reason: "no-route",
       detail: "binding-not-found",
     });
-    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(9));
+    // Model output the service refused names the check, without the output.
+    log.login({
+      type: "generation",
+      tabId: 3,
+      origin: recipeOrigin,
+      outcome: "failed",
+      reason: "invalid-output",
+      check: "schema",
+      detail: "max-length",
+      path: "result.alternatives",
+    });
+    log.login({
+      type: "generation",
+      tabId: 3,
+      origin: recipeOrigin,
+      outcome: "failed",
+      reason: "invalid-output",
+      check: "plan",
+      detail: "incompatible-role",
+    });
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(12));
     const entries = (await log.logger.entries()).filter((entry) => entry.event !== "log.debug");
     expect(entries.map((entry) => [entry.event, entry.level, entry.fields])).toEqual([
       // An unchanged sync is a debug entry; one that changed a recipe is info.
@@ -744,6 +774,19 @@ describe("unhandled errors", () => {
         },
       ],
       [
+        "login.state",
+        "info",
+        {
+          origin: recipeOrigin,
+          recipe: expect.any(String),
+          route: "password",
+          decision: "rejected",
+          s1: true,
+          s2: true,
+          f2: true,
+        },
+      ],
+      [
         "login.attempt",
         "warn",
         {
@@ -765,6 +808,29 @@ describe("unhandled errors", () => {
         "login.refused",
         "info",
         { origin: recipeOrigin, reason: "no-route", detail: "binding-not-found" },
+      ],
+      [
+        "recipe.generate",
+        "info",
+        {
+          origin: recipeOrigin,
+          outcome: "failed",
+          reason: "invalid-output",
+          check: "schema",
+          detail: "max-length",
+          path: "result.alternatives",
+        },
+      ],
+      [
+        "recipe.generate",
+        "info",
+        {
+          origin: recipeOrigin,
+          outcome: "failed",
+          reason: "invalid-output",
+          check: "plan",
+          detail: "incompatible-role",
+        },
       ],
     ]);
     vi.restoreAllMocks();

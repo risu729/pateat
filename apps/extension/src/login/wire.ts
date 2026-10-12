@@ -165,6 +165,17 @@ export const commandSchema = v.variant("type", [
     token: id,
     page: v.picklist(["login", "signed-in"]),
   }),
+  /**
+   * Reads the page signs of ADR 0029 after an effect step that no check explained. The
+   * username, when given, is compared with the header and navigation and never leaves the
+   * content script.
+   */
+  v.strictObject({
+    version: v.literal(1),
+    type: v.literal("login.state"),
+    token: id,
+    account: v.optional(v.strictObject({ username: v.pipe(v.string(), v.maxLength(4096)) })),
+  }),
   v.strictObject({
     version: v.literal(1),
     type: v.literal("login.status"),
@@ -228,6 +239,21 @@ export const extractResultSchema = v.variant("ok", [
     gap: v.optional(v.picklist(observationGaps)),
   }),
   v.strictObject({ ok: v.literal(false), reason: v.string() }),
+]);
+/** The answer to `login.state`: the page signs as flags only (ADR 0029). */
+export const stateResultSchema = v.variant("ok", [
+  v.strictObject({
+    ok: v.literal(true),
+    signs: v.strictObject({
+      password: v.boolean(),
+      code: v.boolean(),
+      captcha: v.boolean(),
+      invalid: v.boolean(),
+      alert: v.boolean(),
+      username: v.optional(v.boolean()),
+    }),
+  }),
+  v.strictObject({ ok: v.literal(false) }),
 ]);
 export const observationSchema = v.strictObject({
   path: v.string(),

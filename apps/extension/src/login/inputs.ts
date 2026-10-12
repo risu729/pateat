@@ -12,7 +12,8 @@ function tokens(input: SecretInput): string[] {
 function passwordInput(input: SecretInput): boolean {
   return input.type === "password" || tokens(input).includes("current-password");
 }
-function shortNumericInput(input: SecretInput): boolean {
+/** A short numeric field, as a code or a PIN goes in. */
+export function shortNumericInput(input: SecretInput): boolean {
   return (
     (input.inputMode === "numeric" || input.type === "tel" || input.type === "number") &&
     input.maxLength >= 1 &&

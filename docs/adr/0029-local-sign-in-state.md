@@ -1,10 +1,11 @@
 # ADR 0029: Local sign-in state after an effect step, with the judge as a fallback
 
 Status: accepted by the owner on 2026-10-12 (04:54 UTC). Delivery 1 (the local check,
-logged only) is not implemented yet; delivery 2 (acting on it) waits for the owner's
-review of the delivery 1 logs. Amends [ADR 0018](0018-recipe-generation-route.md) (how
-success is decided after a generated recipe's submission) and
-[ADR 0027](0027-per-account-login-routes.md) (when a page is judged).
+logged only, as `login.state`) is implemented; delivery 2 (acting on it) waits for the
+owner's review of the delivery 1 logs. Amends
+[ADR 0018](0018-recipe-generation-route.md) (how success is decided after a generated
+recipe's submission) and [ADR 0027](0027-per-account-login-routes.md) (when a page is
+judged).
 
 Date: 2026-10-12
 
@@ -96,6 +97,27 @@ then answered 04:51 and 04:54 UTC):
   happens today (the judge's verdict when it is asked), and nothing changes in
   behaviour. The owner reviews the logs from the daily-site passes, then delivery 2
   switches the runtime to this order.
+
+## Implementation notes
+
+Delivery 1 (2026-10-12) reads the page once, when the attempt's result would settle as
+unknown today (3 seconds after a submission, 10 after an advance), just before the judge
+is asked; the re-check comes with delivery 2. It writes one `login.state` entry with the
+signs that show and the ADR's outcome ([architecture](../architecture.md)). A login in a
+frame is not read. The sign-in page's URL for E3 is the URL of the document the
+attempt's first fill ran in, compared with the document's current path, so a single-page
+site's route change after the submission counts. It and S5's times are kept in the
+background's memory, so a worker restart during the login leaves E3 and S5 unread; a
+login with no fill, as on the `passkey` route, has no E3. For S5 the passkey bridge
+tells the login of each request of a top document that is not for conditional mediation,
+whether Pateat answers it or leaves it to the browser; one at or after the time the step
+was sent to the page counts, except after a step that asks for a passkey itself (the
+`passkey` route, or a `passkey` handler's click). S2 counts only shown password inputs
+for the two-or-more rule, and inputs outside any form as one form. F1 reads the step's
+sign-in inputs (the ones it filled, or those of the form it clicked in); F2 reads alerts
+anywhere and status regions inside a sign-in input's form or named by one, as the fill
+check does, skipping a region around a sign-in input and the text of buttons inside a
+region.
 
 ## Consequences
 

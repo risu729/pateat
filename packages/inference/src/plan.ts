@@ -268,6 +268,43 @@ export type GeneratedPageRejection =
   /** A page with several sets has a set whose action advances instead of submitting. */
   | "variant-advance";
 
+/**
+ * A generated page plan reduced to what the request log may keep of it once the checks
+ * refused it (ADR 0012): candidate and slot references the request holds stay and any
+ * other becomes `?`; a name that is not a request slot ID becomes `name-1`, `name-2` and
+ * so on by first appearance, so equal names stay equal. A string the model chose may
+ * quote the page or the user's field names, which the plan itself must never carry.
+ */
+export function redactGeneratedPage(
+  observation: Pick<LoginObservation, "candidates">,
+  slots: readonly Pick<SemanticSlot, "id">[],
+  draft: GeneratedPagePlan,
+): GeneratedPagePlan {
+  const candidates = new Set(observation.candidates.map((candidate) => candidate.id));
+  const slotIds = new Set(slots.map((slot) => slot.id));
+  const candidate = (id: string) => (candidates.has(id) ? id : "?");
+  const names = new Map<string, string>();
+  const name = (value: string) => {
+    if (slotIds.has(value)) return value;
+    if (!names.has(value)) names.set(value, `name-${names.size + 1}`);
+    return names.get(value)!;
+  };
+  const set = ({ fields, action }: PageAlternative): PageAlternative => ({
+    fields: fields.map((field) => ({
+      slot: slotIds.has(field.slot) ? field.slot : "?",
+      candidate: candidate(field.candidate),
+      ...(field.name === undefined ? {} : { name: name(field.name) }),
+    })),
+    action: { candidate: candidate(action.candidate), purpose: action.purpose },
+  });
+  return {
+    ...set(draft),
+    ...(draft.accountSwitch === undefined ? {} : { accountSwitch: candidate(draft.accountSwitch) }),
+    ...(draft.alternatives === undefined ? {} : { alternatives: draft.alternatives.map(set) }),
+    ...(draft.passkeyButton === undefined ? {} : { passkeyButton: candidate(draft.passkeyButton) }),
+  };
+}
+
 /** At most 3 alternatives, so a password route has at most 4 variants (ADR 0027). */
 export const MAX_PAGE_ALTERNATIVES = 3;
 

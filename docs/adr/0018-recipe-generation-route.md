@@ -99,7 +99,14 @@ new owner decision:
   attempt sends at most one such page while the extension's service worker runs; an
   attempt resumed after the worker restarts may send it again, within the daily limit.
 - That page is described by `extractSignedInObservation`: every field on the page, which
-  the judge needs to refuse a page that still shows a sign-in field, then buttons and
+  the judge needs to refuse a page that still shows a sign-in field. Until 2026-10-12
+  every field that could not be filled made the page incomplete; since then (added
+  after this decision) a read-only, transparent or tiny field that does not look like a
+  sign-in field is left out: not a password or email input, no `username`, `email`,
+  `current-password`, `new-password` or `one-time-code` autocomplete token, not a short
+  numeric field. A hotel search's read-only date picker is such a field. A disabled
+  field still makes the page incomplete, as a code field waiting for a timer may be
+  disabled. Then come buttons and
   links as possible markers up to the 48-candidate limit, those in the page header or
   navigation first. A link may be located by its text, and the executor then finds the
   completion marker by that text; text with a digit never locates a marker. An `id`,
@@ -111,6 +118,18 @@ new owner decision:
   seconds; a page whose answer timed out is freed for its next visit, which the service
   answers with `recently-tried` or the written recipe if the model was called
   ([ADR 0016](0016-recipe-generation-trigger.md)).
+
+Diagnostics added on 2026-10-12, after a real page's `invalid-output` could not be told
+apart from other failures; they are implementation choices, not owner decisions:
+
+- A generation that fails `invalid-output` names the check that refused the model's
+  output in its answer and in the request log, in codes only: the output was not JSON,
+  failed the output format at a path, or failed the plan check with its code. The
+  request log also keeps a plan the plan check refused, reduced to the request's
+  candidate and slot IDs, with each name the model gave replaced by a placeholder. The
+  extension logs the check and its codes with `recipe.generate`.
+- Each request log row records the role's prompt version, a short hash of its
+  instructions and response format, so a row shows which instructions produced it.
 
 ## Consequences
 

@@ -81,6 +81,7 @@ import {
   extractResultSchema,
   helloSchema,
   observationSchema,
+  stateResultSchema,
   statusSchema,
   probeControlSchema,
   loginReadiness,
@@ -107,6 +108,7 @@ import {
   type PickResponse,
 } from "./choice-wire";
 import { customFieldOffers, type CustomFieldOffer } from "./generation-slots";
+import { decideSignInState, reachedReturnTarget, type SignInSigns } from "./sign-in-state";
 import type { LoginSites } from "./sites";
 import {
   loginFillsUsername,
@@ -123,6 +125,11 @@ const PICKS_KEY = "pateat.login-picks.v1";
 const CHOICES_KEY = "pateat.login-choices.v1";
 const LOGOUTS_KEY = "pateat.login-logouts.v1";
 const CONFIG_KEY = "pateat.login-probe-origin.v1";
+/**
+ * How long another tab's login that has not succeeded holds its origin after its record
+ * last changed (ADR 0022, owner's choice on 2026-10-12).
+ */
+const HOLD_MS = 5 * 60_000;
 type Sender = Browser.runtime.MessageSender;
 type SettingsRuntime = {
   handle(value: unknown): Promise<SettingsResponse>;
@@ -314,7 +321,17 @@ export type GenerationHold = "not-connected" | "sending" | "sent";
  */
 export type GenerationOutcome =
   | { outcome: "recipe" }
-  | { outcome: "abstained" | "failed" | "unavailable" | "skipped"; reason: string };
+  | { outcome: "abstained" | "failed" | "unavailable" | "skipped"; reason: string }
+  | {
+      outcome: "failed";
+      reason: "invalid-output";
+      /** Which check refused the model's output (`json`, `schema` or `plan`). */
+      check: "json" | "schema" | "plan";
+      /** The plan check's code or the output format's issue. */
+      detail?: string;
+      /** For an output format issue: where in the output it was. */
+      path?: string;
+    };
 
 /** The service's recipe generation routes (ADR 0016, ADR 0018). */
 export interface LoginGeneration {
@@ -577,6 +594,17 @@ export type LoginReport =
       /** For a returned revision: whether this login took it over. */
       takenOver?: boolean;
     }
+  | ({
+      type: "state";
+      tabId: number;
+      origin: string;
+      recipeId: string;
+      route: LoginRoute;
+      /** What ADR 0029 would do with the page; logged only (delivery 1). */
+      decision: ReturnType<typeof decideSignInState>;
+      /** A later page of an attempt whose result already settled as unknown. */
+      settled?: true;
+    } & SignInSigns)
   | {
       type: "handler";
       tabId: number;
@@ -687,6 +715,16 @@ export function createLoginRuntime(
   let probeTotp = false;
   const documents = new Map<string, LiveDocument>();
   const attempts = new Map<number, Execution>();
+  // ADR 0029's sign-in state reads these, kept in memory only and never stored.
+  /**
+   * By tab: when the attempt last delivered an effect step, and whether the step itself asks
+   * for a passkey (the `passkey` route, or a `passkey` handler's click), so S5 skips it.
+   */
+  const effects = new Map<number, { attemptId: string; at: number; passkey: boolean }>();
+  /** By tab: the URL of the document the attempt's first fill ran in, for E3. */
+  const signInUrls = new Map<number, { attemptId: string; url: string }>();
+  /** By tab and origin: the last passkey request of the top document, outside conditional mediation. */
+  const passkeyRequests = new Map<string, number>();
   /** By `recordKey`, in the order they were last written. */
   const persisted = new Map<string, LoginAttemptMetadata>();
   const picked = new Map<number, PickedAccount>();
@@ -876,18 +914,23 @@ export function createLoginRuntime(
   /**
    * Whether another tab's login still holds the origin. Cookies can be shared across tabs,
    * so a login that is running, awaits its result, or ended without success there keeps this
-   * tab from submitting until that tab closes (ADR 0022). One that authenticated, ended
-   * without ever submitting, or was stopped by Pateat with nothing in flight does not: the
-   * login form showing in this tab then means the site's session has ended.
+   * tab from submitting until that tab closes or its record has not changed for
+   * `HOLD_MS` (ADR 0022). One that authenticated, ended without ever submitting, or was
+   * stopped by Pateat with nothing in flight does not: the login form showing in this tab
+   * then means the site's session has ended.
    */
   function heldElsewhere(tabId: number, siteOrigin: string): boolean {
+    const now = Date.now();
     return [...persisted.values()].some(
       (entry) =>
         entry.account.origin === siteOrigin &&
         entry.document.tabId !== tabId &&
         entry.state !== "authenticated" &&
         !(entry.state === "blocked" && entry.outcome === "interrupted" && !entry.submissions) &&
-        !stoppedByPateat(entry),
+        !stoppedByPateat(entry) &&
+        // A clock set back ends the hold rather than prolonging it.
+        now - (entry.changedAt ?? 0) >= 0 &&
+        now - (entry.changedAt ?? 0) < HOLD_MS,
     );
   }
   /** Whether another tab asks for an account after a logout of the origin (ADR 0021 D). */
@@ -902,7 +945,7 @@ export function createLoginRuntime(
       browser.action.setTitle({
         tabId,
         title:
-          "Pateat: another tab's login to this site is running or did not succeed. Close that tab to log in here.",
+          "Pateat: another tab's login to this site is running or did not succeed. Close that tab, or wait 5 minutes and reload this page, to log in here.",
       }),
     );
   }
@@ -1076,9 +1119,22 @@ export function createLoginRuntime(
   }
   async function keep(metadata: LoginAttemptMetadata): Promise<void> {
     const key = recordKey(metadata.document.tabId, metadata.account.origin);
+    const previous = persisted.get(key);
+    const next = parseAttemptMetadata({ ...metadata, changedAt: undefined });
+    // Only the login's own progress counts as a change. A new page of its tab (another
+    // `documentId`) or a page sent to be judged keeps the time, so a tab left browsing the
+    // site after a login that did not succeed stops holding it.
+    const progress = (record: LoginAttemptMetadata) =>
+      JSON.stringify({
+        ...record,
+        document: { ...record.document, documentId: undefined },
+        judged: undefined,
+        changedAt: undefined,
+      });
+    const unchanged = previous?.changedAt !== undefined && progress(previous) === progress(next);
     // Re-inserted, so the last record of a tab is the one it wrote last.
     persisted.delete(key);
-    persisted.set(key, parseAttemptMetadata(metadata));
+    persisted.set(key, { ...next, changedAt: unchanged ? previous.changedAt : Date.now() });
     await write();
   }
   /** Releases one tab's record for one origin after a logout (ADR 0021 D). */
@@ -1997,6 +2053,8 @@ export function createLoginRuntime(
       if (await enterHandler(run, observed.path)) return undefined;
     }
     if (!settleUnknown) return undefined;
+    if (effectful(run.metadata)) await logSignInState(run);
+    if (!current(run) || terminal(run.metadata)) return undefined;
     if (await learn(run)) return undefined;
     await change(run, {
       type: "OBSERVED",
@@ -2004,6 +2062,93 @@ export function createLoginRuntime(
       document: run.live.document,
     });
     return undefined;
+  }
+  /**
+   * Logs the sign-in state of ADR 0029 for a page no check explained: its signs and what
+   * the ADR would do with it. Delivery 1 changes nothing else. A login in a frame is not
+   * read, as the ADR reads the top document. The username goes to the page's content
+   * script for its comparison only.
+   */
+  async function logSignInState(run: Execution): Promise<void> {
+    const { recipe, metadata } = run;
+    if (run.live.topUrl !== undefined) return;
+    const marker = recipe.completion ? [recipe.completion.target] : [];
+    const fills = routeSignInTargets(recipe, metadata.route).slice(0, 24 - marker.length);
+    const observed = await observe(
+      run,
+      [...fills, ...marker],
+      [...fills, ...marker].map(() => "shown" as const),
+      marker.length > 0 ? [...fills.map(() => false), true] : undefined,
+    );
+    if (!observed) return;
+    const authorized = await allowed(run);
+    if (!authorized) return;
+    let username: string | undefined;
+    const usernameField = loginUsernameFieldId(authorized.connection, metadata.account.itemId);
+    if (usernameField) {
+      try {
+        username = await fields({
+          account: metadata.account,
+          connection: authorized.connection,
+          fieldId: usernameField,
+        });
+      } catch {
+        username = undefined;
+      }
+      if (!current(run)) return;
+    }
+    let response: unknown;
+    try {
+      response = await send(run.live, {
+        type: "login.state",
+        ...(username ? { account: { username } } : {}),
+      });
+    } catch {
+      return;
+    }
+    if (!current(run)) return;
+    const parsed = v.safeParse(stateResultSchema, response);
+    if (!parsed.success || !parsed.output.ok) return;
+    const page = parsed.output.signs;
+    const s1 = observed.targets.slice(0, fills.length).some((state) => state === "unique");
+    const { tabId, origin: pageOrigin } = run.live.document;
+    const effect = effects.get(tabId);
+    const requested = passkeyRequests.get(`${tabId} ${pageOrigin}`);
+    const signInUrl = signInUrls.get(tabId);
+    const signs: SignInSigns = {
+      s1,
+      s2: page.password,
+      s3: page.code,
+      s4: page.captcha,
+      s5:
+        effect?.attemptId === metadata.id &&
+        !effect.passkey &&
+        requested !== undefined &&
+        requested >= effect.at,
+      // A failure counts only next to the sign-in fields.
+      f1: s1 && page.invalid,
+      f2: s1 && page.alert,
+      e1: marker.length > 0 && observed.targets[fills.length] === "unique",
+      e2: page.username === true,
+      // The document's path now, which follows a route change of a single-page site.
+      e3:
+        signInUrl?.attemptId === metadata.id &&
+        reachedReturnTarget(
+          signInUrl.url,
+          `${pageOrigin}${observed.path}`,
+          routeSignInPaths(recipe, metadata.route),
+        ),
+    };
+    report({
+      type: "state",
+      tabId: run.live.document.tabId,
+      origin: run.live.document.origin,
+      recipeId: recipe.id,
+      route: metadata.route,
+      ...signs,
+      decision: decideSignInState(signs),
+      ...(metadata.settled ? { settled: true as const } : {}),
+    });
   }
   /**
    * Enters a handler of the recipe on this path all of whose elements show (ADR 0027).
@@ -2577,6 +2722,25 @@ export function createLoginRuntime(
               ? after.target
               : undefined;
           run.delivered = true;
+          const { tabId } = run.live.document;
+          if (
+            operation.step.kind === "click" ||
+            (operation.step.kind === "fill" && operation.step.effect !== "prepare")
+          ) {
+            const handler = attemptPlan(run.recipe, run.metadata)?.[operation.stepIndex]?.handler;
+            effects.set(tabId, {
+              attemptId: run.metadata.id,
+              at: Date.now(),
+              passkey:
+                run.metadata.route === "passkey" ||
+                (handler !== undefined && run.recipe.handlers?.[handler]?.kind === "passkey"),
+            });
+          }
+          if (
+            operation.step.kind === "fill" &&
+            signInUrls.get(tabId)?.attemptId !== run.metadata.id
+          )
+            signInUrls.set(tabId, { attemptId: run.metadata.id, url: run.live.url });
           response = await send(run.live, {
             type: "login.execute",
             operation,
@@ -2937,7 +3101,12 @@ export function createLoginRuntime(
       );
       if (documents.get(key) !== live) return;
       if (!extracted.success || !extracted.output.ok) {
-        skipGeneration(live, "extract-failed");
+        // The content script's refusal, such as `no-locator` or `extract-error`;
+        // `extract-failed` for an answer that fails its check or never came.
+        skipGeneration(
+          live,
+          extracted.success && !extracted.output.ok ? extracted.output.reason : "extract-failed",
+        );
         return;
       }
       const parsed = v.safeParse(loginObservationSchema, extracted.output.observation);
@@ -3647,6 +3816,10 @@ export function createLoginRuntime(
     for (const key of hellos.keys()) if (key.startsWith(`${tabId}:`)) hellos.delete(key);
     for (const [key, live] of documents) if (live.document.tabId === tabId) documents.delete(key);
     attempts.delete(tabId);
+    effects.delete(tabId);
+    signInUrls.delete(tabId);
+    for (const key of passkeyRequests.keys())
+      if (key.startsWith(`${tabId} `)) passkeyRequests.delete(key);
     void sessionLoaded.then(async () => {
       let changed = pending.delete(tabId);
       if (picked.delete(tabId)) changed = true;
@@ -3723,5 +3896,9 @@ export function createLoginRuntime(
       ? { connectionId: metadata.account.connectionId, itemId: metadata.account.itemId }
       : undefined;
   }
-  return { handle, settingsChanged, active, loginAccount };
+  /** The passkey bridge saw a request of this tab's top document (ADR 0029: S5). */
+  function passkeyRequested(tabId: number, siteOrigin: string): void {
+    passkeyRequests.set(`${tabId} ${siteOrigin}`, Date.now());
+  }
+  return { handle, settingsChanged, active, loginAccount, passkeyRequested };
 }

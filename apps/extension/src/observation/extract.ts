@@ -6,6 +6,7 @@ import {
   type ObservedCandidate,
 } from "@pateat/contracts";
 import * as v from "valibot";
+import { shortNumericInput } from "../login/inputs";
 import type { observationGaps } from "../login/wire";
 import {
   buttonText,
@@ -18,11 +19,17 @@ import {
   shown,
 } from "../page/text";
 
-/** Why no observation was produced. A page without one is never sent to inference. */
-export type ObservationRefusal = "unsupported-page" | "no-candidates";
+/**
+ * Why no observation was produced. A page without one is never sent to inference.
+ * `no-locator` is a login page where a control of a login form lacks a locator
+ * that names it alone, as when a hidden copy of the form shares the ids and names, and
+ * nothing else can be described; a login form with nothing to locate or act on (only
+ * fields that cannot be filled) gives `no-candidates`.
+ */
+export type ObservationRefusal = "unsupported-page" | "no-candidates" | "no-locator";
 /**
  * Why a signed-in page's observation is incomplete, for diagnostics only: a fillable field
- * in a shadow root, one that cannot be filled (read-only, disabled, transparent or tiny),
+ * in a shadow root, one that cannot be filled and is disabled or may be a sign-in field,
  * one without a usable locator, or more fields than the candidate limit.
  */
 export type ObservationGap = (typeof observationGaps)[number];
@@ -521,7 +528,7 @@ function loginFormsOf(
  * incomplete when it is in a login form (`loginFormsOf`); any other form with one is
  * left out entirely. A field in any shadow root, or more than 48 candidates, marks it
  * incomplete too, and inference rejects an incomplete observation. A page without a
- * field is refused.
+ * field is refused, and so is one where nothing can be located.
  */
 export function extractLoginObservation(
   document: Document = globalThis.document,
@@ -603,9 +610,11 @@ export function extractLoginObservation(
 
   const index = locatorIndex(document);
   // Links and script buttons without a locator are left out without flawing their form.
+  let unlocated = false;
   const located = (entries: typeof required, { optional = false } = {}) =>
     entries.flatMap((entry) => {
       const target = locate(entry.draft.element, index, { links: true });
+      if (!target) unlocated = true;
       if (!target && !optional) flawed.add(entry.form);
       return target ? [{ ...entry, target }] : [];
     });
@@ -635,6 +644,7 @@ export function extractLoginObservation(
     ...buttons,
     ...kept(links, { optional: true }).slice(0, Math.max(0, maxCandidates - buttons.length)),
   ];
+  if (chosen.length === 0) return { ok: false, reason: unlocated ? "no-locator" : "no-candidates" };
   return observe(document, chosen, complete);
 }
 
@@ -698,6 +708,22 @@ function observe(document: Document, chosen: Chosen[], complete: boolean): Obser
 const accountSignal = (draft: Draft) => (draft.element.closest(landmarks) ? 1 : 0);
 
 /**
+ * Whether a field the executor cannot fill may still be a sign-in field: a password or an
+ * email field, one marked for a username, an email, a password or a one-time code, or a
+ * short numeric field as a code goes in (the executor's rule). Read-only password fields
+ * are common with software keyboards.
+ */
+function mayBeSignIn(input: HTMLInputElement): boolean {
+  const hint = autocomplete(input);
+  return (
+    input.type === "password" ||
+    input.type === "email" ||
+    (hint !== undefined && hint !== "off") ||
+    shortNumericInput(input)
+  );
+}
+
+/**
  * Builds the observation of the page shown after a generated recipe's final submission,
  * which the service judges for a signed-in marker (ADR 0018). It reads the same
  * value-free details as `extractLoginObservation`, but from the whole page: every field,
@@ -705,8 +731,11 @@ const accountSignal = (draft: Draft) => (draft.element.closest(landmarks) ? 1 : 
  * navigation first (`accountSignal`), listed in document order.
  *
  * The judge refuses a page that still shows a sign-in field, so every field must be
- * described: a field that cannot be located or filled, a field in a shadow root, or more
- * fields than the limit marks the observation incomplete. Buttons and links are only
+ * described: a field that cannot be located, a field in a shadow root, or more fields than
+ * the limit marks the observation incomplete, and so does a field that cannot be filled
+ * when it is disabled, as a code field waiting for a timer is, or may be a sign-in field
+ * (`mayBeSignIn`). A read-only, transparent or tiny field that may not, such as a hotel
+ * search's read-only date picker, is left out. Buttons and links are only
  * possible markers; those past the limit or without a locator are left out. A link is
  * located by its text too, as for an account switch, and the executor looks for the
  * completion marker the same way.
@@ -730,7 +759,9 @@ export function extractSignedInObservation(
   const markers: { form: HTMLFormElement | null; draft: Draft }[] = [];
   for (const entry of found) {
     if (entry.kind === "unsupported") {
-      if (entry.field) gap ??= "unfillable-field";
+      // A disabled field may be a code field waiting for a timer or a sent code.
+      if (entry.field && (entry.field.disabled || mayBeSignIn(entry.field)))
+        gap ??= "unfillable-field";
     } else if (fillTypes[entry.draft.role]) fieldEntries.push(entry);
     else if (entry.draft.role !== "checkbox") markers.push(entry);
   }

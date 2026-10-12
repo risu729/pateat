@@ -342,7 +342,7 @@ export function ServiceConnection({
                   receive(
                     response,
                     response.ok && response.revoked === false
-                      ? `Disconnected on this device, but the service could not confirm it. Revoke this device from ${state.origin}/manage.`
+                      ? `Disconnected on this device, but the service could not confirm it. Revoke this device from ${state.origin}/manage in a browser that can open it.`
                       : "Disconnected. The service no longer accepts this device.",
                   );
                 })

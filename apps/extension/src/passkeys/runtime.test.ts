@@ -310,6 +310,23 @@ describe("passkey runtime reports", () => {
     expect(report).toHaveBeenCalledTimes(2);
   });
 
+  it("tells a login of each request outside conditional mediation, from a top frame only", async () => {
+    const requested = vi.fn(() => {
+      throw new Error("a failing listener changes nothing");
+    });
+    const runtime = createPasskeyRuntime(source(), { extensionId, requested });
+    await runtime.handle({ ...get(), request: { ...request, mediation: "conditional" } }, sender());
+    await runtime.handle(get(), sender({ frameId: 3 }));
+    expect(requested).not.toHaveBeenCalled();
+    expect(await runtime.handle(get(), sender())).toMatchObject({ kind: "assertion" });
+    // A delegated request counts too: the page still asked.
+    await runtime.handle({ ...get(), request: { ...request, mediation: "required" } }, sender());
+    expect(requested.mock.calls).toEqual([
+      [7, origin],
+      [7, origin],
+    ]);
+  });
+
   it("reports no request from an invalid sender or a cancellation", async () => {
     const report = vi.fn();
     const runtime = createPasskeyRuntime(source(), { extensionId, report });

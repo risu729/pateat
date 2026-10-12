@@ -251,6 +251,10 @@ export function createDiagnosticsLog(options: {
             origin: report.origin,
             outcome: report.outcome,
             reason: "reason" in report ? report.reason : undefined,
+            // For refused model output: which check refused it, and why.
+            check: "check" in report ? report.check : undefined,
+            detail: "check" in report ? report.detail : undefined,
+            path: "check" in report ? report.path : undefined,
           },
           // A login page without a matching vault item is common and not a problem.
           {
@@ -273,6 +277,25 @@ export function createDiagnosticsLog(options: {
           },
           // The answer follows; the request alone matters only when no answer came.
           { source, level: report.verdict === "sent" ? "debug" : "info" },
+        );
+      else if (report.type === "state")
+        void logger.log(
+          "login.state",
+          {
+            origin: report.origin,
+            recipe: report.recipeId,
+            route: report.route,
+            decision: report.decision,
+            // Only the signs that show, to keep the entry short.
+            ...Object.fromEntries(
+              (["s1", "s2", "s3", "s4", "s5", "f1", "f2", "e1", "e2", "e3"] as const).map(
+                (sign) => [sign, report[sign] || undefined],
+              ),
+            ),
+            settled: report.settled,
+          },
+          // Later pages of a settled attempt repeat what its first page showed.
+          { source, level: report.settled ? "debug" : "info" },
         );
       else if (report.type === "handler")
         void logger.log(
