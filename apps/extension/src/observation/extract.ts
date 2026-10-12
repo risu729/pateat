@@ -619,7 +619,7 @@ export function extractLoginObservation(
     requiredFound.filter((entry) => entry.draft.role === "button").map((entry) => entry.form),
   );
   for (const entry of icons)
-    if (!submitting.has(entry.form) && !iconsFound.some((found) => found.draft === entry.draft))
+    if (!submitting.has(entry.form) && !iconsFound.some((icon) => icon.draft === entry.draft))
       flawed.add(entry.form);
   const described = keep(requiredFound);
   if ([...flawed].some((form) => loginForms.has(form)) || described.length > maxCandidates)
