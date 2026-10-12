@@ -1,5 +1,17 @@
 import { useQuery } from "@tanstack/react-query";
+import {
+  CircleCheck,
+  CircleX,
+  Copy,
+  Download,
+  Info,
+  Lock,
+  RefreshCw,
+  Trash,
+  TriangleAlert,
+} from "lucide-react";
 import { useRef, useState } from "react";
+import { Logo } from "../logo";
 import { Button } from "../options/button";
 import {
   deviceFailureLabel,
@@ -10,6 +22,7 @@ import {
   serverLabel,
   syncSignIn,
 } from "./labels";
+import { LOG_RETENTION_MS } from "./log";
 import { formatReport, shortRevision, utcMinute, type BrowserInfo } from "./report";
 import type {
   DiagnosticsCheck,
@@ -30,12 +43,28 @@ export type DiagnosticsClient = {
   download(text: string, filename: string): void;
 };
 
-const LEVEL_MARK: Record<DiagnosticsCheck["level"], string> = {
-  ok: "✓",
-  info: "·",
-  warn: "!",
-  error: "✗",
+/** Each check is a status line led by its level's icon; the level is also read out. */
+const LEVELS: Record<
+  DiagnosticsCheck["level"],
+  { icon: typeof CircleCheck; name: string; color: string }
+> = {
+  ok: { icon: CircleCheck, name: "OK", color: "text-accent-ink" },
+  info: { icon: Info, name: "Info", color: "text-ink-muted" },
+  warn: { icon: TriangleAlert, name: "Warning", color: "text-warning" },
+  error: { icon: CircleX, name: "Error", color: "text-danger" },
 };
+
+const PANEL = "panel m-0 flex min-w-0 flex-col gap-4";
+const HEADING = "m-0 text-xl/7 font-[650]";
+/** Facts as label and value rows: muted labels, monospace values. */
+const FACTS =
+  "m-0 [&_dd]:font-mono [&_dd]:text-[13px] [&_dd]:wrap-anywhere [&_dt]:text-sm [&_dt]:font-normal [&_dt]:text-ink-muted [&_dd]:min-w-0 [&>div]:py-2.5 [&>div:first-child]:border-t-0 [&>div:first-child]:pt-0";
+const TWO_PANELS = "grid grid-cols-[repeat(auto-fit,minmax(min(300px,100%),1fr))] gap-6";
+const PREVIEW =
+  "m-0 overflow-auto rounded-lg border border-border bg-surface-sunken p-3 font-mono text-[13px] whitespace-pre-wrap";
+const NOTE = "m-0 text-[13px]/5 text-ink-muted";
+const DANGER = "border-danger! text-danger!";
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** UTC first, as in the copied report, then the local time for reading. */
 function time(ms: number | undefined): string {
@@ -55,13 +84,15 @@ function Row({ term, children, id }: { term: string; children: React.ReactNode; 
 function Version({ status, browser }: { status: DiagnosticsStatus; browser: BrowserInfo }) {
   const { build } = status;
   return (
-    <section aria-labelledby="version-heading" className="panel">
-      <h2 id="version-heading">Version</h2>
-      <dl>
+    <section aria-labelledby="version-heading" className={PANEL}>
+      <h2 id="version-heading" className={HEADING}>
+        Version
+      </h2>
+      <dl className={FACTS}>
         <Row term="Pateat" id="diagnostics-version">
-          {build.version} ({shortRevision(build.revision)}) · {build.mode} build
+          {build.version} ({shortRevision(build.revision)}) {build.mode} build
         </Row>
-        <Row term="Install type">
+        <Row term="Install">
           {installLabel(browser.installType)} ({browser.installType})
         </Row>
         <Row term="Browser" id="diagnostics-browser">
@@ -87,14 +118,33 @@ function Version({ status, browser }: { status: DiagnosticsStatus; browser: Brow
 
 function Checks({ checks }: { checks: readonly DiagnosticsCheck[] }) {
   return (
-    <section aria-labelledby="checks-heading" className="panel">
-      <h2 id="checks-heading">Checks</h2>
-      <ul id="diagnostics-checks" className="list-none p-0">
-        {checks.map((check) => (
-          <li key={check.id} data-level={check.level} className="py-1 font-mono text-sm">
-            <span aria-label={check.level}>{LEVEL_MARK[check.level]}</span> {check.detail}
-          </li>
-        ))}
+    <section aria-labelledby="checks-heading" className={PANEL}>
+      <h2 id="checks-heading" className={HEADING}>
+        Checks
+      </h2>
+      <ul id="diagnostics-checks" className="m-0 flex list-none flex-col gap-2 p-0">
+        {checks.map((check) => {
+          const level = LEVELS[check.level];
+          const Icon = level.icon;
+          return (
+            <li
+              key={check.id}
+              data-level={check.level}
+              className="flex items-start gap-2 text-sm/5 wrap-anywhere"
+            >
+              <Icon
+                aria-hidden
+                size={16}
+                strokeWidth={2}
+                className={`mt-0.5 shrink-0 ${level.color}`}
+              />
+              <span>
+                <span className="visually-hidden">{level.name} </span>
+                {check.detail}
+              </span>
+            </li>
+          );
+        })}
       </ul>
     </section>
   );
@@ -102,11 +152,17 @@ function Checks({ checks }: { checks: readonly DiagnosticsCheck[] }) {
 
 function Connections({ status }: { status: DiagnosticsStatus }) {
   return (
-    <section aria-labelledby="bitwarden-heading" className="panel">
-      <h2 id="bitwarden-heading">Bitwarden connections</h2>
-      {status.connections.length === 0 && <p className="note">No connections.</p>}
-      {status.connections.map((entry) => (
-        <dl key={entry.id} aria-label={entry.id}>
+    <section aria-labelledby="bitwarden-heading" className={PANEL}>
+      <h2 id="bitwarden-heading" className={HEADING}>
+        Bitwarden connections
+      </h2>
+      {status.connections.length === 0 && <p className={NOTE}>No connections.</p>}
+      {status.connections.map((entry, index) => (
+        <dl
+          key={entry.id}
+          aria-label={entry.id}
+          className={`${FACTS} ${index > 0 ? "border-t border-border pt-4" : ""}`}
+        >
           <Row term="Connection">{entry.id}</Row>
           <Row term="Environment">{entry.environment}</Row>
           {entry.server && <Row term="Server">{serverLabel(entry.server)}</Row>}
@@ -116,7 +172,7 @@ function Connections({ status }: { status: DiagnosticsStatus }) {
           </Row>
           <Row term="Automatic unlock">{entry.autoUnlock}</Row>
           <Row term="Sync sign-in">{syncSignIn(entry.providerSession)}</Row>
-          <Row term="Last vault sync">{time(entry.acceptedAt)}</Row>
+          <Row term="Vault synced">{time(entry.acceptedAt)}</Row>
           {entry.items && (
             <Row term="Items">
               {entry.items.total} (login {entry.items.login}, TOTP {entry.items.totp}, passkey{" "}
@@ -135,9 +191,11 @@ function Connections({ status }: { status: DiagnosticsStatus }) {
 function Service({ status }: { status: DiagnosticsStatus }) {
   const { service } = status;
   return (
-    <section aria-labelledby="service-heading" className="panel">
-      <h2 id="service-heading">Pateat service</h2>
-      <dl>
+    <section aria-labelledby="service-heading" className={PANEL}>
+      <h2 id="service-heading" className={HEADING}>
+        Pateat service
+      </h2>
+      <dl className={FACTS}>
         <Row term="Pairing" id="diagnostics-service">
           {service.kind}
           {service.rejected && " (rejected)"}
@@ -155,8 +213,8 @@ function Service({ status }: { status: DiagnosticsStatus }) {
         )}
         {service.kind === "connected" && (
           <>
-            <Row term="Last recipe sync">{time(service.syncedAt)}</Row>
-            <Row term="Next recipe sync">{time(service.nextSyncAt)}</Row>
+            <Row term="Last sync">{time(service.syncedAt)}</Row>
+            <Row term="Next sync">{time(service.nextSyncAt)}</Row>
             <Row term="Settings revision">{service.settingsRevision ?? "—"}</Row>
             <Row term="Settings waiting for a login">{time(service.holdSince)}</Row>
             <Row term="Cached recipes">
@@ -190,9 +248,11 @@ function Service({ status }: { status: DiagnosticsStatus }) {
 
 function Local({ status }: { status: DiagnosticsStatus }) {
   return (
-    <section aria-labelledby="local-heading" className="panel">
-      <h2 id="local-heading">Settings and storage</h2>
-      <dl>
+    <section aria-labelledby="local-heading" className={PANEL}>
+      <h2 id="local-heading" className={HEADING}>
+        Settings and storage
+      </h2>
+      <dl className={FACTS}>
         {status.settings && (
           <Row term="Settings">
             excluded sites {status.settings.excludedSites}, site defaults{" "}
@@ -273,37 +333,84 @@ function Logs({
         : "Copy failed. Use Save file instead.",
     );
   }
+  const debugOff = logs?.debugUntil === undefined;
   return (
-    <section aria-labelledby="logs-heading" className="panel">
-      <h2 id="logs-heading">Logs</h2>
-      <p className="note">
-        Kept on this device for 14 days. A site you had not set up when an entry was written is
-        stored as <code>origin:7d2b91aa</code> or <code>rp:7d2b91aa</code>, so it stays pseudonymous
-        even with site addresses included. With them, an entry also names its page&apos;s path,
-        query and fragment, which can hold a code, an email address or another site&apos;s address;
-        check the preview before sharing a download.
-      </p>
-      <dl>
+    <section aria-labelledby="logs-heading" className={PANEL}>
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <h2 id="logs-heading" className={HEADING}>
+          Logs
+        </h2>
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Sites and recipes are shown unless the person hides them (owner, 2026-10-12). */}
+          <Button
+            id="download-logs"
+            type="button"
+            variant="outline"
+            className="gap-2"
+            onClick={() => void open(true)}
+          >
+            <Download aria-hidden size={16} strokeWidth={2} />
+            Download logs
+          </Button>
+          {confirmClear ? (
+            <Button
+              id="confirm-clear-logs"
+              type="button"
+              variant="outline"
+              className={`gap-2 ${DANGER}`}
+              onClick={() =>
+                void client
+                  .clearLogs()
+                  .catch(() => undefined)
+                  .then((response) => {
+                    setConfirmClear(false);
+                    latest.current += 1;
+                    setPending(undefined);
+                    setPreview(undefined);
+                    setMessage(response?.ok ? "Logs cleared." : "Unable to clear the logs.");
+                    changed();
+                    return undefined;
+                  })
+              }
+            >
+              <Trash aria-hidden size={16} strokeWidth={2} />
+              Delete all log entries
+            </Button>
+          ) : (
+            <Button
+              id="clear-logs"
+              type="button"
+              variant="outline"
+              className={`gap-2 ${DANGER}`}
+              onClick={() => setConfirmClear(true)}
+            >
+              <Trash aria-hidden size={16} strokeWidth={2} />
+              Clear logs
+            </Button>
+          )}
+        </div>
+      </div>
+      <dl className={FACTS}>
         <Row term="Entries" id="diagnostics-logs">
           {logs ? `${logs.entries} (${Math.ceil(logs.bytes / 1024)} KB)` : "unreadable"}
         </Row>
-        {logs && <Row term="Problems in the last 24 h">{problemCounts(logs)}</Row>}
-        <Row term="Debug logging">
-          {logs?.debugUntil === undefined ? "off" : `on until ${time(logs.debugUntil)}`}
-        </Row>
+        {logs && <Row term="Last 24 h">{problemCounts(logs)}</Row>}
+        <Row term="Kept for">{LOG_RETENTION_MS / DAY_MS} days</Row>
       </dl>
-      <div className="mb-4 flex flex-wrap gap-3">
-        {/* Sites and recipes are shown unless the person hides them (owner, 2026-10-12). */}
-        <Button id="download-logs" type="button" onClick={() => void open(true)}>
-          Download logs
-        </Button>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <span id="diagnostics-debug">
+          Debug logging{" "}
+          <span className="text-[13px] text-ink-muted">
+            {debugOff ? "off" : `on until ${time(logs?.debugUntil)}`}
+          </span>
+        </span>
         <Button
           id="debug-logs"
           type="button"
           variant="outline"
           onClick={() => {
             // On turns itself off after 24 hours; off takes effect at once (owner, 2026-10-12).
-            const enable = logs?.debugUntil === undefined;
+            const enable = debugOff;
             void client
               .setDebugLogs(enable)
               .catch(() => undefined)
@@ -320,49 +427,29 @@ function Logs({
               });
           }}
         >
-          {logs?.debugUntil === undefined
-            ? "Enable debug logging for 24 hours"
-            : "Disable debug logging"}
+          {debugOff ? "Turn on debug logging for 24 hours" : "Turn off debug logging"}
         </Button>
-        {confirmClear ? (
-          <Button
-            id="confirm-clear-logs"
-            type="button"
-            variant="outline"
-            onClick={() =>
-              void client
-                .clearLogs()
-                .catch(() => undefined)
-                .then((response) => {
-                  setConfirmClear(false);
-                  latest.current += 1;
-                  setPending(undefined);
-                  setPreview(undefined);
-                  setMessage(response?.ok ? "Logs cleared." : "Unable to clear the logs.");
-                  changed();
-                  return undefined;
-                })
-            }
-          >
-            Delete all log entries
-          </Button>
-        ) : (
-          <Button
-            id="clear-logs"
-            type="button"
-            variant="outline"
-            onClick={() => setConfirmClear(true)}
-          >
-            Clear logs
-          </Button>
-        )}
+      </div>
+      <div className="flex items-start gap-2 rounded-xl bg-warning-tint px-3 py-2.5 text-sm/5">
+        <TriangleAlert
+          aria-hidden
+          size={16}
+          strokeWidth={2}
+          className="mt-0.5 shrink-0 text-warning"
+        />
+        <span>
+          With site addresses included, a download names page paths, queries and fragments, which
+          can hold a code, an email address or another site&apos;s address. A site you had not set
+          up when an entry was written stays pseudonymous, as <code>origin:7d2b91aa</code> or{" "}
+          <code>rp:7d2b91aa</code>. Check the preview before sharing.
+        </span>
       </div>
       {preview !== undefined && (
-        <div>
-          <p className="note">
+        <div className="flex flex-col gap-3">
+          <p className={NOTE}>
             This exact text is saved or copied. Check it before attaching it to a bug report.
           </p>
-          <label className="mb-3 flex items-center gap-2">
+          <label className="m-0 flex items-start gap-2">
             <input
               id="hide-sites"
               type="checkbox"
@@ -371,28 +458,32 @@ function Logs({
             />
             Hide site addresses and recipe IDs
           </label>
-          <pre id="logs-preview" className="max-h-96 overflow-auto text-xs whitespace-pre-wrap">
+          <pre id="logs-preview" className={`${PREVIEW} max-h-96`}>
             {preview.text}
           </pre>
-          <div className="flex flex-wrap gap-3">
+          <div className="flex flex-wrap gap-2">
             <Button
               id="save-logs"
               type="button"
+              className="gap-2"
               disabled={pending !== undefined}
               onClick={() => {
                 client.download(preview.text, logFilename(Date.now()));
                 setMessage("Download started.");
               }}
             >
+              <Download aria-hidden size={16} strokeWidth={2} />
               Save file
             </Button>
             <Button
               id="copy-logs"
               type="button"
               variant="outline"
+              className="gap-2"
               disabled={pending !== undefined}
               onClick={() => void copy(preview.text)}
             >
+              <Copy aria-hidden size={16} strokeWidth={2} />
               Copy all
             </Button>
             <Button
@@ -409,7 +500,7 @@ function Logs({
           </div>
         </div>
       )}
-      <output id="logs-status" className="block" aria-live="polite">
+      <output id="logs-status" className="block empty:absolute" aria-live="polite">
         {message}
       </output>
     </section>
@@ -452,37 +543,41 @@ export function DiagnosticsApp({ client }: { client: DiagnosticsClient }) {
     }
   }
   return (
-    <main className="mx-auto max-w-6xl px-5 py-10 sm:px-8 sm:py-14">
-      <header className="mb-8 max-w-3xl">
-        <p className="eyebrow">Pateat · This device</p>
-        <h1>Diagnostics</h1>
-        <p className="intro">
-          Versions, state and logs for bug reports. No passwords, keys, field values, names or
-          emails are shown, copied or saved.
+    <main className="mx-auto flex max-w-220 flex-col gap-6 px-4 py-8 sm:px-6">
+      <header className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <Logo className="size-7 shrink-0" />
+          <h1 className="m-0 flex-1">Diagnostics</h1>
+          <button
+            id="refresh-diagnostics"
+            type="button"
+            aria-label="Refresh"
+            title="Refresh"
+            disabled={state.kind === "loading"}
+            className="inline-flex size-10 items-center justify-center rounded-lg text-ink-muted hover:bg-surface-sunken disabled:opacity-50"
+            onClick={refresh}
+          >
+            <RefreshCw aria-hidden size={16} strokeWidth={2} />
+          </button>
+          <Button
+            id="copy-report"
+            type="button"
+            className="gap-2"
+            disabled={state.kind !== "ready"}
+            onClick={() => {
+              if (state.kind === "ready") setPreview(formatReport(state.status, state.browser));
+            }}
+          >
+            <Copy aria-hidden size={16} strokeWidth={2} />
+            Copy for bug report
+          </Button>
+        </div>
+        <p className="m-0 flex items-center gap-1.5 text-[13px]/5 text-ink-muted">
+          <Lock aria-hidden size={14} strokeWidth={2} className="shrink-0" />
+          No passwords, keys, field values, names or emails
         </p>
       </header>
-      <div className="mb-6 flex flex-wrap gap-3">
-        <Button
-          id="copy-report"
-          type="button"
-          disabled={state.kind !== "ready"}
-          onClick={() => {
-            if (state.kind === "ready") setPreview(formatReport(state.status, state.browser));
-          }}
-        >
-          Copy for bug report
-        </Button>
-        <Button
-          id="refresh-diagnostics"
-          type="button"
-          variant="outline"
-          disabled={state.kind === "loading"}
-          onClick={refresh}
-        >
-          Refresh
-        </Button>
-      </div>
-      <output id="diagnostics-status" className="block" aria-live="polite">
+      <output id="diagnostics-status" className="block empty:absolute" aria-live="polite">
         {state.kind === "loading"
           ? "Collecting diagnostics…"
           : state.kind === "failed"
@@ -490,17 +585,25 @@ export function DiagnosticsApp({ client }: { client: DiagnosticsClient }) {
             : ""}
       </output>
       {preview !== undefined && (
-        <section aria-labelledby="preview-heading" className="panel">
-          <h2 id="preview-heading">Bug report text</h2>
-          <p className="note">
+        <section aria-labelledby="preview-heading" className={PANEL}>
+          <h2 id="preview-heading" className={HEADING}>
+            Bug report text
+          </h2>
+          <p className={NOTE}>
             This exact text is copied. Check it before posting. Sites are numbered here, separately
             from a hidden <strong>Download logs</strong>, so <code>site-1</code> may differ.
           </p>
-          <pre id="report-preview" className="overflow-x-auto text-sm whitespace-pre-wrap">
+          <pre id="report-preview" className={PREVIEW}>
             {preview}
           </pre>
-          <div className="flex flex-wrap gap-3">
-            <Button id="confirm-copy" type="button" onClick={() => void copy(preview)}>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              id="confirm-copy"
+              type="button"
+              className="gap-2"
+              onClick={() => void copy(preview)}
+            >
+              <Copy aria-hidden size={16} strokeWidth={2} />
               Copy
             </Button>
             <Button
@@ -514,7 +617,7 @@ export function DiagnosticsApp({ client }: { client: DiagnosticsClient }) {
               Close
             </Button>
           </div>
-          <output id="copy-status" className="block" aria-live="polite">
+          <output id="copy-status" className="block empty:absolute" aria-live="polite">
             {message}
           </output>
         </section>
@@ -522,10 +625,14 @@ export function DiagnosticsApp({ client }: { client: DiagnosticsClient }) {
       {state.kind === "ready" && (
         <>
           <Checks checks={state.status.checks} />
-          <Version status={state.status} browser={state.browser} />
-          <Connections status={state.status} />
-          <Service status={state.status} />
-          <Local status={state.status} />
+          <div className={TWO_PANELS}>
+            <Version status={state.status} browser={state.browser} />
+            <Local status={state.status} />
+          </div>
+          <div className={TWO_PANELS}>
+            <Connections status={state.status} />
+            <Service status={state.status} />
+          </div>
           <Logs
             status={state.status}
             client={client}

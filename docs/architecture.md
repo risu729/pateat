@@ -859,6 +859,11 @@ that exact page URL and returns a value-free summary
   there is an error, info for warnings only). Reworded states keep the
   raw code in parentheses.
 
+The page lists the checks first, each as a line led by its level's icon with the level
+read out to screen readers, then the Version and Settings and storage panels, the
+Bitwarden connections and Pateat service panels, and Logs. Values are shown as the
+summary has them, in a monospace face.
+
 The worker fetches `/health` only for a paired service with site access, and
 `/v1/device` only then and while the service has not rejected the credential, with a 5 s
 timeout; that route reads the database and imports the signing key, but signs nothing
@@ -949,7 +954,7 @@ event and how many of it were dropped. The first drop of each event in a window 
 logged at once and also logs the drops not yet counted; the rest are counted when the
 window ends and the next event or prune runs, so a worker that stops first loses only
 that remainder. `debug` entries are written only for 24 hours after
-**Enable debug logging for 24 hours**, or until **Disable debug logging** turns it off
+**Turn on debug logging for 24 hours**, or until **Turn off debug logging** turns it off
 sooner; either change is logged as `log.debug` with `enabled`. Retention: 14 days;
 `debug` entries for 24 hours; at most 14,000 `debug` and `info` entries (oldest `debug`
 first, then `info`) and 1,000 `warn` and `error` entries, pruned at worker start and

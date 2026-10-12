@@ -250,6 +250,10 @@ own accounts, so they stay in the project's files rather than in this repository
     open extension page follows a change made on another.
   - Approved: `lucide-react` for icons in the polish (owner, 2026-10-12 20:53 UTC); the
     first PR that uses it adds it.
+  - Done: the diagnostics page keeps its structure, with only its visuals and copy
+    changed (owner, 2026-10-12 21:08 UTC): icon-led check lines, two-column panels,
+    and in Logs the retention, debug logging's end time with **Turn off debug
+    logging**, and the privacy warning as a notice above the download.
   - Next: screen layouts and copy, some still under discussion with the owner.
 - Done: `https://my.jcb.co.jp/Login` was generated again after delivery 3. The recipe
   revision the Grok Bot computer's device generated on 2026-10-12 (13:45 UTC) names both
