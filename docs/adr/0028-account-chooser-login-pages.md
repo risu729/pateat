@@ -284,9 +284,11 @@ released as a stop by Pateat. When the account's username cannot be read, the lo
 not start and the log names `field-unavailable` with `list-username`. Each later page of
 a chooser login resumes the route of its recorded click. The local log's `login.start`
 names the click as `list`. After a logout, the tab's fill-only login presses nothing, so
-it does nothing on a list. Not covered yet: the branch's pages, and the page judged
-after the sign-in, are sent as for any login, so a username that is not an email shown
-there, such as in a heading beside the password, reaches the AI.
+it does nothing on a list. The branch's pages, and the page judged after the sign-in,
+are sent as for any login; since the roadmap's redaction of the account's own username
+(2026-10-12), a username shown there, such as in a heading beside the password, is
+hidden as `[account]` by the same rule
+([architecture](../architecture.md#declarative-recipes-and-ai)).
 
 ### A shown account with a separate button, and usernames that are not emails
 

@@ -420,6 +420,36 @@ export function accountNames(root: Document | Element): string[] {
 export const foldName = (text: string) =>
   text.normalize("NFKC").trim().replace(/^@/u, "").toLowerCase();
 
+/** Letters and digits a Latin name may not touch (ADR 0028). */
+export const latinWord = /[\p{Script=Latin}\p{N}]/u;
+/** {@link latinWord} as a pattern source, for a lookbehind or lookahead. */
+export const latinEdge = "[\\p{Script=Latin}\\p{N}]";
+/** `text` matched literally in a regular expression. */
+export const escapePattern = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+
+/**
+ * Where `names` show in a text normalized with NFKC, as ADR 0028 hides them: each folded
+ * by {@link foldName}, with or without a leading `@`, in any case, and longest first, so a
+ * name inside a longer one never leaves part of the longer one. A name is a word of its
+ * own script: one starting or ending with a Latin letter or digit may touch kana or kanji,
+ * as in `taro.yamadaさん`, but not another Latin letter or digit, as `an` in `another`.
+ * `undefined` without a name.
+ */
+export function namePattern(names: readonly string[]): string | undefined {
+  const folded = [...new Set(names.map(foldName).filter(Boolean))].sort(
+    (left, right) => right.length - left.length,
+  );
+  if (!folded.length) return undefined;
+  return folded
+    .map(
+      (name) =>
+        `${latinWord.test(name[0]!) ? `(?<!${latinEdge})` : ""}@?${escapePattern(name)}${
+          latinWord.test(name.at(-1)!) ? `(?!${latinEdge})` : ""
+        }`,
+    )
+    .join("|");
+}
+
 /**
  * The texts beside separate buttons that name one of `names` (ADR 0028), compared as
  * {@link foldName} folds them, and the other texts beside buttons, which may name

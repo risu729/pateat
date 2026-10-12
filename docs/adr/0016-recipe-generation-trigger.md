@@ -209,6 +209,14 @@ could not answer, an item's URI rules could not be evaluated, a username read fa
 a username is too long to shape (over 1,024 characters), no shape is sent. The username
 itself never leaves the extension.
 
+Note added on 2026-10-12 with the roadmap's redaction of the account's own username
+([architecture](../architecture.md#declarative-recipes-and-ai)): the same reads also
+hide each username from the page as `[account]` before it is sent. As an implementation
+consequence of the roadmap's "never sent", not a new decision, a username read that
+fails now sends no page at all, not only no shape, since a username that was not read
+cannot be hidden. An item whose username is empty or absent is flagged `empty` in the
+catalog and is not read, so it still does not count and blocks nothing.
+
 ## Consequences
 
 The service and the provider see the login pages of sites the owner has vault items
