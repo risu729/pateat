@@ -3438,11 +3438,13 @@ export function createLoginRuntime(
       stoppedByPateat(recorded) &&
       !finishedLogin(recorded) &&
       recorded.outcome !== "account-switched" &&
+      recorded.submissions === 0 &&
       recorded.document.documentId !== document.documentId
     ) {
-      // A login Pateat itself stopped with nothing in flight holds no tab, its own included:
-      // a new page of the tab logs in as a new tab would, with the saved default or by
-      // asking when several accounts match (ADR 0022).
+      // A login Pateat itself stopped before submitting anything holds no tab, its own
+      // included: a new page of the tab logs in as a new tab would, with the saved default
+      // or by asking when several accounts match (ADR 0022). One that submitted is resumed,
+      // so a site that sends the tab back to its first step never gets it again.
       const released = recorded;
       if (attempts.get(document.tabId)?.metadata.id === released.id)
         attempts.delete(document.tabId);

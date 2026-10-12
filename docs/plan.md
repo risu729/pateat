@@ -321,7 +321,8 @@ replays an uncertain mutation or pending submit. Another tab's attempt of the sa
 origin that is running or ended without success holds the origin until that tab closes
 or its record has not changed for 5 minutes;
 an `authenticated` one, or one Pateat itself stopped with nothing in flight, does not,
-and a new page of the stopped tab logs in as a new tab would. A tab keeps one record per
+and a new page of a tab whose login Pateat stopped before any submission logs in as a
+new tab would. A tab keeps one record per
 origin
 ([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md)).
 

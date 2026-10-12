@@ -12,18 +12,18 @@ another tab no longer holds the origin; see "Holding the origin in other tabs" b
 Amended again on 2026-10-12 (02:42 UTC, owner's choice on a decision card): a login
 Pateat itself stopped no longer holds the origin either. Evidence: in the owner's Chrome
 a `policy-changed` record from a transient vault error kept a new npm tab from logging
-in for 8 hours, across an extension reload.
-Amended again on 2026-10-12 (05:08 UTC, owner's choice in the thread after a decision
-card): a record that still holds the origin stops holding it 5 minutes after it last
-changed. Evidence: in the owner's Chrome a github.com login that had succeeded after a
-passkey step stayed `reconciling` with an unknown result in one tab, so a pick in
-another tab was refused `origin-busy` until that tab would close.
-Amended again on 2026-10-12 (bug fix applying the 02:42 UTC choice to the stopped tab
-itself): a login Pateat itself stopped with nothing in flight no longer holds its own
-tab either. Evidence: in the owner's Chrome, removing github.com's saved default stopped
-that tab's login as `policy-changed`; after a reload the page was refused for several
-matching accounts, but it had resumed the stopped record, so the toolbar popup offered
-no account choice and the tab never logged in again until it was closed.
+in for 8 hours, across an extension reload. Amended again on 2026-10-12 (05:08 UTC,
+owner's choice in the thread after a decision card): a record that still holds the
+origin stops holding it 5 minutes after it last changed. Evidence: in the owner's Chrome
+a github.com login that had succeeded after a passkey step stayed `reconciling` with an
+unknown result in one tab, so a pick in another tab was refused `origin-busy` until that
+tab would close. Amended again on 2026-10-12 (bug fix applying the 02:42 UTC choice to
+the stopped tab itself): a login Pateat itself stopped with nothing in flight and before
+any submission no longer holds its own tab either. Evidence: in the owner's Chrome,
+removing github.com's saved default stopped that tab's login as `policy-changed`; after
+a reload the page was refused for several matching accounts, but it had resumed the
+stopped record, so the toolbar popup offered no account choice and the tab never logged
+in again until it was closed.
 
 ## Context
 
@@ -49,18 +49,21 @@ fix them now; the SSO policy itself is recorded separately.
   attempt). A tab may hold records for several origins; all are deleted when the tab
   closes.
 - **A page resumes only its own origin's record**, also an ended one. A new attempt
-  starts only when the tab has no record for that origin. A record Pateat itself
-  stopped with nothing in flight, as described under "Holding the origin in other tabs"
-  below (except `wrong-account`, released by logout detection, and `account-switched`,
-  whose exception follows), is the exception (amended 2026-10-12): a new document of
-  that origin in the tab releases it and is handled like one in a new tab, with the
-  saved default or by asking when several items match. The same document announcing
-  again, as after a restarted worker, still resumes it. A finished top-level record
-  whose login form's first step shows again is released by the logout detection of ADR
-  0021 (part D), which then asks for an account instead of submitting. Returning to an
-  origin the tab already tried therefore never submits again, which keeps a loop such as
-  site → identity provider error → site → identity provider from resubmitting
-  credentials. The `account-switched` exception of ADR 0016 stays.
+  starts only when the tab has no record for that origin. A record Pateat itself stopped
+  with nothing in flight, as described under "Holding the origin in other tabs" below,
+  before any submission is the exception (amended 2026-10-12; `wrong-account` stays with
+  logout detection and `account-switched` with its own exception below): a new top-level
+  page of that origin in the tab, or a new document in the record's frame, releases it
+  and is handled like one in a new tab, with the saved default or by asking when several
+  items match. The same document announcing again, as after a restarted worker, still
+  resumes it. A stop after a submission is resumed, unlike in another tab: this tab's
+  new pages arrive without the user, so a site that sends the tab back to its first step
+  would otherwise get the credentials again each time. A finished top-level record whose
+  login form's first step shows again is released by the logout detection of ADR 0021
+  (part D), which then asks for an account instead of submitting. Returning to an origin
+  the tab already tried therefore never submits again, which keeps a loop such as site →
+  identity provider error → site → identity provider from resubmitting credentials. The
+  `account-switched` exception of ADR 0016 stays.
 - **A tab still runs one attempt at a time.** When a new top-level page of another
   origin arrives while the tab's top-level attempt has not ended, that attempt ends
   first (`NAVIGATED`) and keeps its record; then the new top-level page is handled like

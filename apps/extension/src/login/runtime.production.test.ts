@@ -1408,9 +1408,22 @@ describe("production login document admission", () => {
       },
     );
     it.each([
-      ["blocked policy-changed after an observed step", "policy-changed", idle, true],
-      ["blocked value-mismatch", "value-mismatch", idle, true],
+      [
+        "blocked policy-changed before any submission",
+        "policy-changed",
+        { ...idle, submissions: 0 },
+        true,
+      ],
+      [
+        "blocked value-mismatch before any submission",
+        "value-mismatch",
+        { ...idle, submissions: 0 },
+        true,
+      ],
       ["blocked cancelled before any submission", "cancelled", { ...idle, submissions: 0 }, true],
+      // A stop after a submission resumes: the site may send the tab back to its first step.
+      ["blocked policy-changed after an observed step", "policy-changed", idle, false],
+      ["blocked value-mismatch after a submission", "value-mismatch", idle, false],
       ["blocked cancelled after a submission", "cancelled", idle, false],
       [
         "blocked policy-changed with a click the page may have received",
@@ -1434,7 +1447,7 @@ describe("production login document admission", () => {
     ] as const)(
       "decides whether the tab's own %s record lets a new page of it log in",
       async (_name, outcome, extra, released) => {
-        // A login Pateat itself stopped with nothing in flight holds no tab, its own
+        // A login Pateat itself stopped before any submission holds no tab, its own
         // included; any other ended record is resumed and never submits again (ADR 0022).
         const flush = () => new Promise((resolve) => setTimeout(resolve, 50));
         holdClicks(origin);
