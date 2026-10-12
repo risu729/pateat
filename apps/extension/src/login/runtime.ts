@@ -2670,6 +2670,8 @@ export function createLoginRuntime(
       }));
       const fits: boolean[] = [];
       const refusals: (string | undefined)[] = [];
+      /** For a `no-route` refusal, which fact was missing (never a value). */
+      const missing: (string | undefined)[] = [];
       // Variants are tried in recipe order and the first that fits stops the search, so the
       // facts and the generated map are read once.
       /* eslint-disable no-await-in-loop */
@@ -2687,17 +2689,16 @@ export function createLoginRuntime(
           (entry) => entry.id === resolved.account.itemId,
         );
         const known = facts;
-        if (
-          !resolved.binding.slots.every(({ fieldId }) => {
-            const source = item ? loginFieldSource(item, fieldId) : fieldId;
-            return source === "login.password"
-              ? known.password
-              : source === "login.totp-code"
-                ? known.totp
-                : true;
-          })
-        ) {
+        const unheld = resolved.binding.slots
+          .map(({ fieldId }) => (item ? loginFieldSource(item, fieldId) : fieldId))
+          .find(
+            (source) =>
+              (source === "login.password" && !known.password) ||
+              (source === "login.totp-code" && !known.totp),
+          );
+        if (unheld) {
           refusals[index] = "no-route";
+          missing[index] = unheld === "login.password" ? "no-password" : "no-totp";
           continue;
         }
         fits[index] = true;
@@ -2707,13 +2708,17 @@ export function createLoginRuntime(
         // The first variant that fits decides; without the item's password none is taken.
         // The passkey route, when the facts choose it here, did not resolve, so nothing is.
         refusals[index] = "no-route";
+        missing[index] = taken?.route === "passkey" ? "passkey-unresolved" : "no-password";
         break;
       }
       /* eslint-enable no-await-in-loop */
       const first = refusals[0] ?? "no-route";
+      // A `no-route` names the fact the first variant missed, so the log tells an item
+      // without a password from one without its TOTP secret.
+      const detail = first === "no-route" ? missing[0] : first;
       return routes.length === 1
-        ? { ok: false as const, reason: first }
-        : { ok: false as const, reason: "no-route" as const, detail: first };
+        ? { ok: false as const, reason: first, ...(detail && detail !== first ? { detail } : {}) }
+        : { ok: false as const, reason: "no-route" as const, ...(detail ? { detail } : {}) };
     }
   }
   type Authorized = {

@@ -8062,13 +8062,18 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
     });
 
     it("refuses a login whose bound password is empty as no-route", async () => {
-      const h = harness({}, { passkeys: withPasskey });
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness({}, { passkeys: withPasskey, report });
       editFields(h, (fields) =>
         fields.map((field) =>
           field["id"] === "login.password" ? { ...field, empty: true } : field,
         ),
       );
       expect(await h.hello()).toEqual({ ok: false, reason: "no-route" });
+      // The log names the missing fact, never a value.
+      expect(report).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "refused", reason: "no-route", detail: "no-password" }),
+      );
       expect(h.fields).not.toHaveBeenCalled();
       expect(executed()).toEqual([]);
       expect(status() ?? []).toEqual([]);
