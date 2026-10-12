@@ -342,7 +342,7 @@ itself off after 24 hours; **Disable debug logging** turns it off sooner.
 
 ### Why a passkey request was delegated
 
-The production build logs one `passkey.request` entry per bridged request, at most 20
+The production build logs one `passkey.request` entry per bridged request, at most 30
 per minute per tab and origin. Download the logs from the diagnostics page, or open the
 service worker console, which shows a `Pateat passkey.request` line for each entry
 written while it is open: turn on **Developer mode** in `chrome://extensions`, click

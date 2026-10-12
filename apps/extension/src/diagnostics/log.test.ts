@@ -2,7 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import { createDiagnosticsLog } from "./background";
 import {
   DEBUG_LOGGING_MS,
+  LOG_EVENTS,
   LOG_RETENTION_MS,
+  PAGE_DEBUG_EVENTS_PER_MINUTE,
   PAGE_EVENTS_PER_MINUTE,
   TRUNCATED,
   createLogger,
@@ -182,12 +184,14 @@ describe("diagnostics log", () => {
   it("limits page-caused events per tab and origin and counts the rest", async () => {
     const { logger, advance } = setup();
     const source = { tabId: 4, origin: "https://bank.example" };
-    for (let index = 0; index < PAGE_EVENTS_PER_MINUTE + 5; index += 1)
+    for (let index = 0; index < PAGE_EVENTS_PER_MINUTE + 3; index += 1)
       void logger.log(
         "login.refused",
         { origin: source.origin, reason: "origin-busy" },
         { source },
       );
+    for (let index = 0; index < 2; index += 1)
+      void logger.log("recipe.judge", { origin: source.origin, verdict: "not-sent" }, { source });
     // Another tab has its own allowance.
     await logger.log(
       "login.refused",
@@ -196,24 +200,58 @@ describe("diagnostics log", () => {
     );
     // The first drop is logged at once, in case the worker stops before the window ends.
     const first = await logger.entries();
-    expect(first).toHaveLength(PAGE_EVENTS_PER_MINUTE + 2);
+    expect(first).toHaveLength(PAGE_EVENTS_PER_MINUTE + 4);
+    // Each dropped event is named; another event's first drop also counts the drops so far.
     expect(
       first.filter((entry) => entry.event === "log.dropped").map((entry) => entry.fields),
-    ).toEqual([{ origin: source.origin, count: 1 }]);
+    ).toEqual([
+      { origin: source.origin, dropped: "login.refused", count: 1 },
+      { origin: source.origin, dropped: "login.refused", count: 2 },
+      { origin: source.origin, dropped: "recipe.judge", count: 1 },
+    ]);
     advance(60_000);
     await logger.log("login.refused", { origin: source.origin, reason: "tab-busy" }, { source });
     const entries = await logger.entries();
     expect(entries.slice(-2).map((entry) => [entry.event, entry.fields])).toEqual([
-      ["log.dropped", { origin: source.origin, count: 4 }],
+      ["log.dropped", { origin: source.origin, dropped: "recipe.judge", count: 1 }],
       ["login.refused", { origin: source.origin, reason: "tab-busy" }],
     ]);
+    // A download keeps the entry's own event name next to the dropped one.
+    const context = { version: "0.1.0", revision: "1c42ad3", exportedAt: NOW };
+    const exported = formatLogExport(entries, { ...context, includeSites: true })
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as Record<string, unknown>)
+      .filter((line) => line["dropped"] !== undefined);
+    expect(exported.map((line) => [line["event"], line["dropped"]])).toContainEqual([
+      "log.dropped",
+      "recipe.judge",
+    ]);
+  });
+
+  it("names no field like an export line's own keys, and every event passes the code check", () => {
+    for (const [event, definition] of Object.entries(LOG_EVENTS)) {
+      expect(event).toMatch(/^[a-z0-9][a-z0-9.:-]{0,63}$/u);
+      for (const reserved of ["time", "level", "event"])
+        expect(Object.keys(definition.fields)).not.toContain(reserved);
+    }
+  });
+
+  it("keeps a caller's own allowance, as unhandled errors share 20 a minute", async () => {
+    const { logger } = setup();
+    const source = { tabId: -1, origin: "", perMinute: 20 };
+    for (let index = 0; index < 25; index += 1)
+      void logger.log("error.unhandled", { source: "error", name: "TypeError" }, { source });
+    await logger.log("log.debug", { enabled: false });
+    const entries = await logger.entries();
+    expect(entries.filter((entry) => entry.event === "error.unhandled")).toHaveLength(20);
   });
 
   it("keeps a page's debug events from crowding out the rest", async () => {
     const { logger } = setup();
     await logger.enableDebug();
     const source = { tabId: 4, origin: "https://hotel.example" };
-    for (let index = 0; index < PAGE_EVENTS_PER_MINUTE + 3; index += 1)
+    for (let index = 0; index < PAGE_DEBUG_EVENTS_PER_MINUTE + 3; index += 1)
       void logger.log(
         "login.refused",
         { origin: source.origin, reason: "tab-busy", frame: true },
@@ -226,7 +264,7 @@ describe("diagnostics log", () => {
     );
     const entries = (await logger.entries()).filter((entry) => entry.event !== "log.debug");
     expect(entries.filter((entry) => entry.event === "login.refused")).toHaveLength(
-      PAGE_EVENTS_PER_MINUTE,
+      PAGE_DEBUG_EVENTS_PER_MINUTE,
     );
     // Only debug detail was lost, so the drop is debug detail too.
     expect(

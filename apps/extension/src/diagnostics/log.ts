@@ -22,13 +22,18 @@ const HOUR_MS = 60 * MINUTE_MS;
 export const LOG_RETENTION_MS = 14 * 24 * HOUR_MS;
 export const DEBUG_RETENTION_MS = 24 * HOUR_MS;
 export const DEBUG_LOGGING_MS = 24 * HOUR_MS;
-/** `debug` and `info` entries kept at most; the oldest `debug` entries go first. */
-export const LOG_ENTRY_LIMIT = 5_000;
+/**
+ * `debug` and `info` entries kept at most; the oldest `debug` entries go first. About 14
+ * days at an estimated 1,000 a day on a testing day (ADR 0019).
+ */
+export const LOG_ENTRY_LIMIT = 14_000;
 /** `warn` and `error` entries have their own allowance, so routine entries cannot evict them. */
 export const LOG_PROBLEM_LIMIT = 1_000;
 export const PRUNE_EVERY_WRITES = 500;
-/** Events caused by a web page, per tab and origin. */
-export const PAGE_EVENTS_PER_MINUTE = 20;
+/** Events other than `debug` caused by a web page, per tab and origin; a login writes 6 to 8. */
+export const PAGE_EVENTS_PER_MINUTE = 30;
+/** `debug` events caused by a web page, per tab and origin, counted on their own. */
+export const PAGE_DEBUG_EVENTS_PER_MINUTE = 20;
 export const MAX_FIELD_LENGTH = 512;
 export const TRUNCATED = "[truncated]";
 
@@ -240,7 +245,10 @@ export const LOG_EVENTS = {
     level: "error",
     fields: { source: "code", name: "name", message: "code", stack: "stack" },
   },
-  "log.dropped": { level: "warn", fields: { origin: "origin", count: "count" } },
+  "log.dropped": {
+    level: "warn",
+    fields: { origin: "origin", dropped: "code", count: "count" },
+  },
   "log.debug": { level: "info", fields: { enabled: "flag", until: "time" } },
 } as const satisfies Record<string, EventDefinition>;
 export type LogEventName = keyof typeof LOG_EVENTS;
@@ -389,8 +397,10 @@ export function createLogger(deps: LoggerDependencies) {
     {
       start: number;
       count: number;
-      dropped: number;
-      reported: number;
+      limit: number;
+      /** Events dropped and already logged as dropped, per event name. */
+      dropped: Map<string, number>;
+      reported: Map<string, number>;
       origin: string;
       debug: boolean;
     }
@@ -534,14 +544,15 @@ export function createLogger(deps: LoggerDependencies) {
     for (const [key, window] of windows) {
       const ended = at - window.start >= MINUTE_MS;
       if (!ended && !all) continue;
-      const pending = window.dropped - window.reported;
-      if (pending > 0) {
-        window.reported = window.dropped;
+      for (const [event, dropped] of window.dropped) {
+        const pending = dropped - (window.reported.get(event) ?? 0);
+        if (pending <= 0) continue;
+        window.reported.set(event, dropped);
         // Losing debug detail is itself debug detail; losing more is a problem.
         void serial(() =>
           record(
             "log.dropped",
-            { origin: window.origin, count: pending },
+            { origin: window.origin, dropped: event, count: pending },
             window.debug ? "debug" : "warn",
           ),
         ).catch(() => undefined);
@@ -553,9 +564,14 @@ export function createLogger(deps: LoggerDependencies) {
   /**
    * Counts a page-caused event against its tab and origin; false when over the limit.
    * `debug` events have an allowance of their own, so they never crowd out the rest.
-   * The first drop in a window is logged at once, since a stopped worker loses the rest.
+   * The first drop of each event in a window is logged at once, since a stopped worker
+   * loses the rest. `perMinute` replaces the allowance of events other than `debug`.
    */
-  function admit(source: { tabId: number; origin: string }, debug: boolean): boolean {
+  function admit(
+    source: { tabId: number; origin: string; perMinute?: number },
+    debug: boolean,
+    event: string,
+  ): boolean {
     flushDrops();
     const at = now();
     const band = debug ? "debug" : "rest";
@@ -568,19 +584,26 @@ export function createLogger(deps: LoggerDependencies) {
       window = {
         start: at,
         count: 0,
-        dropped: 0,
-        reported: 0,
+        // The shared overflow window keeps the page allowance, whoever opened it.
+        limit: debug
+          ? PAGE_DEBUG_EVENTS_PER_MINUTE
+          : overflow
+            ? PAGE_EVENTS_PER_MINUTE
+            : (source.perMinute ?? PAGE_EVENTS_PER_MINUTE),
+        dropped: new Map(),
+        reported: new Map(),
         origin: overflow ? "" : source.origin,
         debug,
       };
       windows.set(key, window);
     }
-    if (window.count < PAGE_EVENTS_PER_MINUTE) {
+    if (window.count < window.limit) {
       window.count += 1;
       return true;
     }
-    window.dropped += 1;
-    if (window.dropped === 1) flushDrops(true);
+    const dropped = (window.dropped.get(event) ?? 0) + 1;
+    window.dropped.set(event, dropped);
+    if (dropped === 1) flushDrops(true);
     return false;
   }
 
@@ -591,13 +614,17 @@ export function createLogger(deps: LoggerDependencies) {
   function log<E extends LogEventName>(
     event: E,
     fields: LogFields<E>,
-    options: { level?: LogLevel; source?: { tabId: number; origin: string } } = {},
+    options: {
+      level?: LogLevel;
+      source?: { tabId: number; origin: string; perMinute?: number };
+    } = {},
   ): Promise<void> {
     const level = options.level ?? LOG_EVENTS[event].level;
     // Checked before queueing, so a stalled database cannot collect page events.
     if (level === "debug" && knownDebugUntil !== undefined && now() >= knownDebugUntil)
       return Promise.resolve();
-    if (options.source && !admit(options.source, level === "debug")) return Promise.resolve();
+    if (options.source && !admit(options.source, level === "debug", event))
+      return Promise.resolve();
     // A log failure never changes what the caller does.
     return serial(() => record(event, fields, level)).catch(() => undefined);
   }
