@@ -27,6 +27,7 @@ async function configure(
   origin: string,
   selectAccount = true,
   passkey?: "discoverable" | "second-factor",
+  totp = false,
 ) {
   await options.goto(`chrome-extension://${extensionId}/options.html`);
   await expect(options.locator("#settings-status")).toContainText("Saved settings loaded");
@@ -36,6 +37,7 @@ async function configure(
       type: "login.probe.configure",
       origin,
       ...(passkey ? { passkey } : {}),
+      ...(totp ? { totp: true } : {}),
     }),
   ).toMatchObject({ ok: true });
   const response = (await send(options, { version: 1, type: "settings.get" })) as SettingsResponse;
@@ -773,6 +775,216 @@ test("a passkey that is only a second factor signs in with the password (ADR 002
     await fixture.close();
   }
 });
+
+/** What the synthetic code page recorded: counts and whether the code matched, never the code. */
+async function codeEvidence(page: Page) {
+  return page.evaluate(() => ({
+    codeInputs: Number(sessionStorage.getItem("codeInputs") || 0),
+    verifyClicks: Number(sessionStorage.getItem("verifyClicks") || 0),
+    autoSubmits: Number(sessionStorage.getItem("autoSubmits") || 0),
+    codeMatched: sessionStorage.getItem("codeMatched"),
+  }));
+}
+
+test("fills the TOTP code on the code page and clicks Verify once (ADR 0027)", async () => {
+  const fixture = await startLoginFixture();
+  try {
+    await withLoginExtension(async (context, _worker, id) => {
+      const options = await context.newPage();
+      await configure(options, id, fixture.origin, true, undefined, true);
+      const status = async () =>
+        JSON.stringify(await send(options, { version: 1, type: "login.probe.status" }));
+      const page = await context.newPage();
+      await page.goto(`${fixture.origin}/totp`);
+      await expect(page.locator("#authenticated")).toBeVisible();
+      await expect.poll(status).toContain('"authenticated"');
+      expect(await codeEvidence(page)).toEqual({
+        codeInputs: 1,
+        verifyClicks: 1,
+        autoSubmits: 0,
+        codeMatched: "true",
+      });
+      expect(await clicks(page)).toBe(1);
+      const text = await status();
+      expect(text).toContain('"recipeId":"demo-totp"');
+      expect(text).toContain('"handlers":[{"index":0,"start":2}]');
+      expect(text).not.toContain("012345");
+      expect(text).not.toContain("Pateat-synthetic-only!");
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("a code page shown again after Verify ends as a challenge without a second code (ADR 0027)", async () => {
+  const fixture = await startLoginFixture();
+  try {
+    await withLoginExtension(async (context, _worker, id) => {
+      const options = await context.newPage();
+      await configure(options, id, fixture.origin, true, undefined, true);
+      const status = async () =>
+        JSON.stringify(await send(options, { version: 1, type: "login.probe.status" }));
+      const page = await context.newPage();
+      await page.goto(`${fixture.origin}/totp?wrong`);
+      await expect.poll(status).toContain('"challenge"');
+      await expect(page.locator("#code")).toHaveValue("");
+      expect(await codeEvidence(page)).toEqual({
+        codeInputs: 1,
+        verifyClicks: 1,
+        autoSubmits: 0,
+        codeMatched: "true",
+      });
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("an item without a TOTP secret leaves the code page to the person (ADR 0027)", async () => {
+  const fixture = await startLoginFixture();
+  try {
+    await withLoginExtension(async (context, _worker, id) => {
+      const options = await context.newPage();
+      await configure(options, id, fixture.origin);
+      const status = async () =>
+        JSON.stringify(await send(options, { version: 1, type: "login.probe.status" }));
+      const page = await context.newPage();
+      await page.goto(`${fixture.origin}/totp`);
+      await expect.poll(status).toContain('"challenge"');
+      await expect(page.locator("#code")).toHaveValue("");
+      expect(await codeEvidence(page)).toEqual({
+        codeInputs: 0,
+        verifyClicks: 0,
+        autoSubmits: 0,
+        codeMatched: null,
+      });
+      expect(await status()).toContain('"handlers":[]');
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("a code page that submits on its last digit signs in without a click (ADR 0027)", async () => {
+  const fixture = await startLoginFixture();
+  try {
+    await withLoginExtension(async (context, _worker, id) => {
+      const options = await context.newPage();
+      await configure(options, id, fixture.origin, true, undefined, true);
+      const status = async () =>
+        JSON.stringify(await send(options, { version: 1, type: "login.probe.status" }));
+      const page = await context.newPage();
+      await page.goto(`${fixture.origin}/totp?auto`);
+      await expect(page.locator("#authenticated")).toBeVisible();
+      await expect.poll(status).toContain('"authenticated"');
+      expect(await codeEvidence(page)).toEqual({
+        codeInputs: 1,
+        verifyClicks: 0,
+        autoSubmits: 1,
+        codeMatched: "true",
+      });
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
+for (const [mode, query] of [
+  ["a Verify button disabled until the code is in", "ui=disabled"],
+  ["a Verify button rendered again on every digit", "ui=rerender"],
+  ["a digit counter in a live region", "ui=counter"],
+] as const)
+  test(`an ordinary code page gets the code and one Verify click: ${mode} (ADR 0027)`, async () => {
+    const fixture = await startLoginFixture();
+    try {
+      await withLoginExtension(async (context, _worker, id) => {
+        const options = await context.newPage();
+        await configure(options, id, fixture.origin, true, undefined, true);
+        const status = async () =>
+          JSON.stringify(await send(options, { version: 1, type: "login.probe.status" }));
+        const page = await context.newPage();
+        await page.goto(`${fixture.origin}/totp?${query}`);
+        await expect(page.locator("#authenticated")).toBeVisible();
+        await expect.poll(status).toContain('"authenticated"');
+        expect(await codeEvidence(page)).toEqual({
+          codeInputs: 1,
+          verifyClicks: 1,
+          autoSubmits: 0,
+          codeMatched: "true",
+        });
+      });
+    } finally {
+      await fixture.close();
+    }
+  });
+
+for (const [result, query] of [
+  ["signs in", "ui=disauto"],
+  ["is held when the code is wrong", "ui=disauto&wrong"],
+  ["signs in after enabling Verify for a moment", "ui=flicker"],
+  ["is held when the code is wrong after enabling Verify for a moment", "ui=flicker&wrong"],
+] as const)
+  test(`a code page that checks the code itself with Verify kept disabled is never clicked: ${result} (ADR 0027)`, async () => {
+    const fixture = await startLoginFixture();
+    try {
+      await withLoginExtension(async (context, _worker, id) => {
+        const options = await context.newPage();
+        await configure(options, id, fixture.origin, true, undefined, true);
+        const status = async () =>
+          JSON.stringify(await send(options, { version: 1, type: "login.probe.status" }));
+        const page = await context.newPage();
+        await page.goto(`${fixture.origin}/totp?${query}`);
+        if (query.endsWith("wrong")) {
+          // The page enables Verify again for another code. The login holds the page for
+          // the person and never clicks it, past the click step's own 10-second wait.
+          await expect(page.locator("#verify")).toBeEnabled();
+          await expect.poll(status).toContain('"state":"reconciling"');
+          await page.waitForTimeout(11_000);
+          expect(await status()).toContain('"state":"reconciling"');
+        } else {
+          await expect(page.locator("#authenticated")).toBeVisible();
+          await expect.poll(status).toContain('"authenticated"');
+        }
+        expect(await codeEvidence(page)).toEqual({
+          codeInputs: 1,
+          verifyClicks: 0,
+          autoSubmits: 1,
+          codeMatched: "true",
+        });
+      });
+    } finally {
+      await fixture.close();
+    }
+  });
+
+for (const [mode, query] of [
+  ["a new document after a slow verification", "auto&slow"],
+  ["a status message and a disabled button in the same document", "auto&spa=status"],
+  ["a form rendered again as verifying", "auto&spa=replace"],
+] as const)
+  test(`a code page that verifies its own submission for over a second is never clicked: ${mode} (ADR 0027)`, async () => {
+    const fixture = await startLoginFixture();
+    try {
+      await withLoginExtension(async (context, _worker, id) => {
+        const options = await context.newPage();
+        await configure(options, id, fixture.origin, true, undefined, true);
+        const status = async () =>
+          JSON.stringify(await send(options, { version: 1, type: "login.probe.status" }));
+        const page = await context.newPage();
+        await page.goto(`${fixture.origin}/totp?${query}`);
+        await expect(page.locator("#authenticated")).toBeVisible();
+        await expect.poll(status).toContain('"authenticated"');
+        expect(await codeEvidence(page)).toEqual({
+          codeInputs: 1,
+          verifyClicks: 0,
+          autoSubmits: 1,
+          codeMatched: "true",
+        });
+      });
+    } finally {
+      await fixture.close();
+    }
+  });
 
 test("abstains without a saved account and does not try another eligible item", async () => {
   const fixture = await startLoginFixture();

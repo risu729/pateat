@@ -62,6 +62,8 @@ const fake = vi.hoisted(() => {
     extracted: {} as Record<string, unknown>,
     /** `chrome.storage.session`. */
     session: {} as Record<string, unknown>,
+    /** Present elements that are hidden or disabled, for an observation that asks. */
+    unusable: new Set<string>(),
     /** Tab-specific toolbar badge text and title. */
     badges: {} as Record<number, { text?: string; title?: string }>,
     /** Each `login.reconnect` and the document it was sent to. */
@@ -130,8 +132,14 @@ const fake = vi.hoisted(() => {
           return {
             path: state.observedPath,
             targets: state.present
-              ? (message["targets"] as { value: string }[]).map((entry) =>
-                  state.present!.has(entry.value) ? "unique" : "missing",
+              ? (message["targets"] as { value: string }[]).map((entry, index) =>
+                  !state.present!.has(entry.value)
+                    ? "missing"
+                    : [undefined, "present"].includes(
+                          (message["require"] as string[] | undefined)?.[index],
+                        ) === false && state.unusable.has(entry.value)
+                      ? "unusable"
+                      : "unique",
                 )
               : [...state.observed],
           };
@@ -448,6 +456,7 @@ describe("production login document admission", () => {
     fake.state.observed = ["unique", "missing"];
     fake.state.observedPath = "/signin";
     fake.state.present = undefined;
+    fake.state.unusable = new Set();
     fake.state.awaited = { ok: true };
     fake.state.onAwait = undefined;
     fake.state.executeReply = undefined;
@@ -3368,6 +3377,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
     fake.state.observed = ["unique", "missing"];
     fake.state.observedPath = "/signin";
     fake.state.present = new Set(["password", "login"]);
+    fake.state.unusable = new Set();
     fake.state.awaited = { ok: true };
     fake.state.onAwait = undefined;
     fake.state.executeReply = undefined;
@@ -4269,6 +4279,923 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         expect(status()![0]).toMatchObject({ recipeRevision, handlers: [{ index: 0, start: 2 }] });
       },
     );
+  });
+
+  describe("the totp handler", () => {
+    const codeHandler = {
+      kind: "totp" as const,
+      path: "/two-factor",
+      field: target("app-code"),
+      target: target("verify"),
+    };
+    const coded = parseLoginRecipe({ ...unlearned, completion: home, handlers: [codeHandler] });
+    const toCode = { path: "/two-factor", present: ["app-code", "verify"] };
+    const noPasskey = vi.fn(async () => ({ passkey: false, discoverable: false }));
+    /** Adds the item's built-in TOTP field, as the catalog lists it. */
+    const withTotp = (h: ReturnType<typeof harness>, empty = false) =>
+      editFields(h, (fields) => [
+        ...fields,
+        {
+          id: "login.totp-code",
+          label: "Verification code",
+          name: null,
+          kind: "otp",
+          ...(empty ? { empty: true } : {}),
+        },
+      ]);
+    /** A synthetic code for the TOTP field and a synthetic secret for every other one. */
+    const codes = (h: ReturnType<typeof harness>) =>
+      h.fields.mockImplementation(async ({ fieldId }) =>
+        fieldId === "login.totp-code" ? "012345" : "synthetic-secret",
+      );
+    const codeFills = () =>
+      fake.state.messages.filter(
+        (entry) =>
+          entry.type === "login.execute" && entry.values?.some((value) => value.slot === "totp"),
+      );
+    /** Runs `then` when the code is filled, as the page reacts to it. */
+    const onCodeFill = (then: () => void | Promise<void>) => {
+      const clicked = fake.state.onExecute;
+      fake.state.onExecute = async (message, tabId) => {
+        fake.state.executeReply = undefined;
+        const step = (message["operation"] as { step: LoginStep }).step;
+        if (step.kind === "fill" && step.fields.some((field) => field.slot === "totp"))
+          await then();
+        await clicked?.(message, tabId);
+      };
+    };
+    const handlerReports = (report: ReturnType<typeof vi.fn<(report: LoginReport) => void>>) =>
+      report.mock.calls.flatMap(([value]) =>
+        value.type === "handler" ? [[value.handler, value.kind, value.outcome, value.steps]] : [],
+      );
+
+    it("fills the item's TOTP code into the code field and clicks its button once", async () => {
+      onClick({ login: toCode, verify: toHome });
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness({}, { passkeys: noPasskey, report });
+      withTotp(h);
+      codes(h);
+      h.recipes.recipe.mockResolvedValue(coded);
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+        timeout: 6_000,
+      });
+      expect(executed().map((step) => step.kind)).toEqual(["fill", "click", "fill", "click"]);
+      expect(clicks("verify")).toBe(1);
+      // The code fills only a code input, and is read from the built-in field.
+      expect(codeFills().map((entry) => entry.values)).toEqual([
+        [{ slot: "totp", value: "012345", secret: "otp" }],
+      ]);
+      expect(h.fields.mock.calls.map(([request]) => request.fieldId)).toEqual([
+        "login.password",
+        "login.totp-code",
+      ]);
+      expect(status()![0]).toMatchObject({
+        facts: { totp: true },
+        handlers: [{ index: 0, start: 2 }],
+        stepCount: 4,
+        submissions: 2,
+        maxSubmissions: 2,
+      });
+      // Both of its elements are observed before it is entered.
+      expect(fake.state.messages).toContainEqual(
+        expect.objectContaining({
+          type: "login.observe",
+          targets: [target("app-code"), target("verify")],
+        }),
+      );
+      expect(handlerReports(report)).toEqual([[0, "totp", "entered", 2]]);
+      // The binding saved after the login names the route's slots only.
+      expect(h.store.update).not.toHaveBeenCalled();
+    }, 10_000);
+
+    it.each([
+      ["has no TOTP field", undefined],
+      ["has an empty TOTP field", true],
+    ])("ends as a challenge without filling when the item %s", async (_label, empty) => {
+      onClick({ login: toCode, verify: toHome });
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness({}, { passkeys: noPasskey, report });
+      if (empty !== undefined) withTotp(h, empty);
+      h.recipes.recipe.mockResolvedValue(coded);
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() =>
+        expect(status()).toMatchObject([{ state: "blocked", outcome: "challenge" }]),
+      );
+      expect(codeFills()).toEqual([]);
+      expect(clicks("verify")).toBe(0);
+      expect(handlerReports(report)).toEqual([[0, "totp", "missing-fact", 2]]);
+    });
+
+    it("never types a custom field a saved binding names for the code", async () => {
+      onClick({ login: toCode, verify: toHome });
+      const report = vi.fn<(report: LoginReport) => void>();
+      const bindings = [
+        {
+          ...savedBinding,
+          slots: [
+            { slot: "password", field: "password" as const },
+            { slot: "totp", field: { custom: "Branch" } },
+          ],
+        },
+      ];
+      const h = harness({ bindings }, { passkeys: noPasskey, report });
+      withTotp(h);
+      h.recipes.recipe.mockResolvedValue(coded);
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() =>
+        expect(status()).toMatchObject([{ state: "blocked", outcome: "challenge" }]),
+      );
+      expect(codeFills()).toEqual([]);
+      expect(h.fields.mock.calls.map(([request]) => request.fieldId)).toEqual(["login.password"]);
+      expect(handlerReports(report)).toEqual([[0, "totp", "missing-fact", 2]]);
+    });
+
+    it("is not entered while only its field or only its button shows", async () => {
+      onClick({ login: { path: "/two-factor", present: ["app-code"] } });
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness({}, { passkeys: noPasskey, report });
+      withTotp(h);
+      h.recipes.recipe.mockResolvedValue(coded);
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(
+        () => expect(status()).toMatchObject([{ state: "reconciling", outcome: "unknown-submit" }]),
+        { timeout: 6_000 },
+      );
+      expect(codeFills()).toEqual([]);
+      expect(handlerReports(report)).toEqual([]);
+    }, 10_000);
+
+    it("is not entered while its field is hidden or disabled", async () => {
+      onClick({ login: toCode });
+      fake.state.unusable = new Set(["app-code"]);
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness({}, { passkeys: noPasskey, report });
+      withTotp(h);
+      h.recipes.recipe.mockResolvedValue(coded);
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(
+        () => expect(status()).toMatchObject([{ state: "reconciling", outcome: "unknown-submit" }]),
+        { timeout: 6_000 },
+      );
+      expect(fake.state.messages).toContainEqual(
+        expect.objectContaining({
+          type: "login.observe",
+          targets: [target("app-code"), target("verify")],
+          require: ["writable", "shown"],
+        }),
+      );
+      expect(codeFills()).toEqual([]);
+      expect(handlerReports(report)).toEqual([]);
+    }, 10_000);
+
+    it("enters a passkey handler before a totp handler shown with it", async () => {
+      const key = { kind: "passkey" as const, path: "/two-factor", target: securityKey };
+      // The recipe lists the code first; the passkey still goes first.
+      const both = parseLoginRecipe({
+        ...unlearned,
+        completion: home,
+        handlers: [codeHandler, key],
+      });
+      const shown = { path: "/two-factor", present: ["app-code", "verify", "Use security key"] };
+      onClick({ login: shown, "Use security key": toHome, verify: toHome });
+      const h = harness({}, { passkeys: withPasskey });
+      withTotp(h);
+      codes(h);
+      h.recipes.recipe.mockResolvedValue(both);
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+        timeout: 6_000,
+      });
+      expect(clicks("Use security key")).toBe(1);
+      expect(codeFills()).toEqual([]);
+      // An item without a passkey takes the code instead.
+      fake.state.messages = [];
+      for (const listener of fake.state.removed.splice(0)) listener(1);
+      fake.state.observedPath = "/signin";
+      fake.state.present = new Set(["password", "login"]);
+      const coded2 = harness({}, { passkeys: noPasskey });
+      withTotp(coded2);
+      codes(coded2);
+      coded2.recipes.recipe.mockResolvedValue(both);
+      expect(await coded2.hello({ documentId: "second" })).toEqual({ ok: true });
+      await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+        timeout: 6_000,
+      });
+      expect(clicks("Use security key")).toBe(0);
+      expect(codeFills()).toHaveLength(1);
+      expect(clicks("verify")).toBe(1);
+    }, 15_000);
+
+    it("types one code per login and leaves a second code page to the person", async () => {
+      const again = {
+        kind: "totp" as const,
+        path: "/two-factor/again",
+        field: target("app-code"),
+        target: target("confirm"),
+      };
+      const twice = parseLoginRecipe({ ...unlearned, handlers: [codeHandler, again] });
+      onClick({
+        login: toCode,
+        verify: { path: "/two-factor/again", present: ["app-code", "confirm"] },
+      });
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness({}, { passkeys: noPasskey, report });
+      withTotp(h);
+      codes(h);
+      h.recipes.recipe.mockResolvedValue(twice);
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(
+        () => expect(status()).toMatchObject([{ state: "blocked", outcome: "challenge" }]),
+        { timeout: 6_000 },
+      );
+      expect(codeFills()).toHaveLength(1);
+      expect(clicks("confirm")).toBe(0);
+      expect(handlerReports(report)).toEqual([
+        [0, "totp", "entered", 2],
+        [1, "totp", "code-used", 2],
+      ]);
+    }, 10_000);
+
+    it.each([
+      ["", false],
+      [" with its field disabled", true],
+    ])(
+      "leaves the code page shown again in a new document%s to the person",
+      async (_label, unusable) => {
+        vi.useFakeTimers();
+        onClick({ login: toCode, verify: toCode });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness({}, { passkeys: noPasskey, report });
+        withTotp(h);
+        codes(h);
+        h.recipes.recipe.mockResolvedValue(coded);
+        expect(await h.hello()).toEqual({ ok: true });
+        await until(() => clicks("verify") === 1);
+        // A wrong code: the page loads the code form again. A handler that ran counts as
+        // shown again whatever state its elements are in.
+        if (unusable) fake.state.unusable = new Set(["app-code", "verify"]);
+        fake.state.pageUrl = `${origin}/two-factor`;
+        await h.hello({ documentId: "again" }, false);
+        await until(settled("blocked", "challenge"), 5_000);
+        expect(codeFills()).toHaveLength(1);
+        expect(clicks("verify")).toBe(1);
+        expect(handlerReports(report)).toEqual([
+          [0, "totp", "entered", 2],
+          [0, "totp", "shown-again", 2],
+        ]);
+      },
+    );
+
+    describe("a code page that submits by itself", () => {
+      it("settles a form replaced by the code fill without a click", async () => {
+        onClick({ login: toCode, verify: toHome });
+        onCodeFill(() => {
+          // The page posts the code and replaces its form, as the content script reports.
+          fake.state.executeReply = {
+            ok: false,
+            reason: "structural-mismatch",
+            mutation: "possible",
+          };
+          fake.state.observedPath = "/home";
+          fake.state.present = new Set(["logout"]);
+        });
+        const h = harness({}, { passkeys: noPasskey });
+        withTotp(h);
+        codes(h);
+        h.recipes.recipe.mockResolvedValue(coded);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+          timeout: 6_000,
+        });
+        expect(codeFills()).toHaveLength(1);
+        expect(clicks("verify")).toBe(0);
+        // The page's own submission took the click's place in the budget.
+        expect(status()![0]).toMatchObject({ stepIndex: 3, submissions: 2, maxSubmissions: 2 });
+      }, 10_000);
+
+      it("holds a page that reports its own submission while the button still shows", async () => {
+        onClick({ login: toCode, verify: toHome });
+        onCodeFill(() => {
+          // The content script saw the page submit the code; the form now says "Verifying".
+          fake.state.executeReply = { ok: false, reason: "submitted", mutation: "possible" };
+        });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness({}, { passkeys: noPasskey, report });
+        withTotp(h);
+        codes(h);
+        h.recipes.recipe.mockResolvedValue(coded);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(codeFills()).toHaveLength(1), { timeout: 6_000 });
+        // The fill named the button, so the page's own submission is watched for.
+        expect(codeFills()[0]).toMatchObject({ code: { submit: target("verify") } });
+        await new Promise((done) => setTimeout(done, 1_500));
+        expect(status()).toMatchObject([{ state: "reconciling", stepIndex: 3 }]);
+        expect(handlerReports(report)).toEqual([[0, "totp", "entered", 2]]);
+        fake.state.observedPath = "/home";
+        fake.state.present = new Set(["logout"]);
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+          timeout: 6_000,
+        });
+        expect(clicks("verify")).toBe(0);
+      }, 15_000);
+
+      it("settles a page that moved to another path before the click", async () => {
+        onClick({ login: toCode, verify: toHome });
+        onCodeFill(() => {
+          fake.state.observedPath = "/home";
+          fake.state.present = new Set(["logout"]);
+        });
+        const h = harness({}, { passkeys: noPasskey });
+        withTotp(h);
+        codes(h);
+        h.recipes.recipe.mockResolvedValue(coded);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+          timeout: 6_000,
+        });
+        expect(codeFills()).toHaveLength(1);
+        expect(clicks("verify")).toBe(0);
+      }, 10_000);
+
+      it("settles the new document the code fill led to, never filling it again", async () => {
+        onClick({ login: toCode, verify: toHome });
+        onCodeFill(() => {
+          // The page navigates during the fill, so the document never answers.
+          fake.state.gone.add("synthetic-document");
+          throw new Error("Could not establish connection. Receiving end does not exist.");
+        });
+        const service = generation(async () => ({ verdict: "signed-in" }));
+        const h = harness({}, { passkeys: noPasskey, generation: service });
+        withTotp(h);
+        codes(h);
+        h.recipes.recipe.mockResolvedValue(coded);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(codeFills()).toHaveLength(1));
+        await vi.waitFor(() =>
+          expect(status()).toMatchObject([{ state: "reconciling", stepIndex: 2 }]),
+        );
+        fake.state.pageUrl = `${origin}/home`;
+        fake.state.observedPath = "/home";
+        fake.state.present = new Set(["logout"]);
+        expect(await h.hello({ documentId: "signed-in" }, false)).toEqual({ ok: true });
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+          timeout: 6_000,
+        });
+        expect(status()![0]).toMatchObject({ stepIndex: 3, submissions: 2 });
+        expect(codeFills()).toHaveLength(1);
+        expect(clicks("verify")).toBe(0);
+        expect(service.judge).not.toHaveBeenCalled();
+      }, 10_000);
+
+      it("ends as a challenge when the new document shows the code page again", async () => {
+        onClick({ login: toCode, verify: toHome });
+        onCodeFill(() => {
+          fake.state.gone.add("synthetic-document");
+          throw new Error("Could not establish connection. Receiving end does not exist.");
+        });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness({}, { passkeys: noPasskey, report });
+        withTotp(h);
+        codes(h);
+        h.recipes.recipe.mockResolvedValue(coded);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() =>
+          expect(status()).toMatchObject([{ state: "reconciling", stepIndex: 2 }]),
+        );
+        fake.state.pageUrl = `${origin}/two-factor`;
+        expect(await h.hello({ documentId: "again" }, false)).toEqual({ ok: true });
+        await vi.waitFor(() =>
+          expect(status()).toMatchObject([{ state: "blocked", outcome: "challenge" }]),
+        );
+        expect(codeFills()).toHaveLength(1);
+        expect(clicks("verify")).toBe(0);
+        expect(handlerReports(report)).toEqual([
+          [0, "totp", "entered", 2],
+          [0, "totp", "shown-again", 2],
+        ]);
+      });
+    });
+  });
+
+  describe("the totp handler, probed independently", () => {
+    const CODE = "012345";
+    const codeHandler = {
+      kind: "totp" as const,
+      path: "/two-factor",
+      field: target("app-code"),
+      target: target("verify"),
+    };
+    const coded = parseLoginRecipe({ ...unlearned, completion: home, handlers: [codeHandler] });
+    const toCode = { path: "/two-factor", present: ["app-code", "verify"] };
+    const noPasskey = () => vi.fn(async () => ({ passkey: false, discoverable: false }));
+    const totpField = (empty = false) => ({
+      id: "login.totp-code",
+      label: "Verification code",
+      name: null,
+      kind: "otp",
+      ...(empty ? { empty: true } : {}),
+    });
+    const withTotp = (h: ReturnType<typeof harness>, empty = false) =>
+      editFields(h, (fields) => [...fields, totpField(empty)]);
+    /** Synthetic values only: a fixed code, a username and a secret. */
+    const values = (h: ReturnType<typeof harness>) =>
+      h.fields.mockImplementation(async ({ fieldId }) =>
+        fieldId === "login.totp-code"
+          ? CODE
+          : fieldId === "login.username"
+            ? "synthetic-user"
+            : "synthetic-secret",
+      );
+    const reads = (h: ReturnType<typeof harness>) =>
+      h.fields.mock.calls.map(([request]) => request.fieldId);
+    const codeFills = () =>
+      fake.state.messages.filter(
+        (entry) =>
+          entry.type === "login.execute" && entry.values?.some((value) => value.slot === "totp"),
+      );
+    const handlerOutcomes = (report: ReturnType<typeof vi.fn<(report: LoginReport) => void>>) =>
+      report.mock.calls.flatMap(([value]) =>
+        value.type === "handler" ? [[value.handler, value.kind, value.outcome]] : [],
+      );
+    /** Runs `then` when the code is filled, as the page reacts to it. */
+    const onCodeFill = (then: () => unknown) => {
+      const clicked = fake.state.onExecute;
+      fake.state.onExecute = async (message, tabId) => {
+        fake.state.executeReply = undefined;
+        const step = (message["operation"] as { step: LoginStep }).step;
+        if (step.kind === "fill" && step.fields.some((field) => field.slot === "totp"))
+          await then();
+        await clicked?.(message, tabId);
+      };
+    };
+    function start(
+      used: LoginRecipe,
+      live: Parameters<typeof harness>[1] = {},
+      overrides: Partial<LocalSettings> = {},
+      totp: "set" | "empty" | "none" = "set",
+    ) {
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness(overrides, { passkeys: noPasskey(), report, ...live });
+      if (totp !== "none") withTotp(h, totp === "empty");
+      values(h);
+      h.recipes.recipe.mockResolvedValue(used);
+      return { h, report };
+    }
+    /** Runs the other runtime of a worker restart on the same storage. */
+    async function restarted<T>(run: () => Promise<T>): Promise<T> {
+      const query = fake.browser.tabs.query;
+      fake.browser.tabs.query = async () => [{ id: 1 }] as never;
+      try {
+        return await run();
+      } finally {
+        fake.browser.tabs.query = query;
+      }
+    }
+
+    it.each([
+      ["has no TOTP field", "none"],
+      ["has an empty TOTP field", "empty"],
+    ] as const)("reads nothing for the code when the item %s", async (_label, totp) => {
+      onClick({ login: toCode, verify: toHome });
+      const { h, report } = start(coded, {}, {}, totp);
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() =>
+        expect(status()).toMatchObject([{ state: "blocked", outcome: "challenge" }]),
+      );
+      expect(status()![0]).toMatchObject({ facts: { totp: false }, handlers: [] });
+      expect(reads(h)).toEqual(["login.password"]);
+      expect(codeFills()).toEqual([]);
+      expect(handlerOutcomes(report)).toEqual([[0, "totp", "missing-fact"]]);
+    });
+
+    it("stops as a policy change without reading the code when its field is excluded after entry", async () => {
+      onClick({ login: toCode, verify: toHome });
+      let h!: ReturnType<typeof harness>;
+      const report = vi.fn<(report: LoginReport) => void>((value) => {
+        // The owner excludes the TOTP field once the handler joined the login.
+        if (value.type === "handler" && value.outcome === "entered")
+          h.settings.settings.connections[0]!.excludedFields = [
+            { itemId, fieldId: "login.totp-code" },
+          ];
+      });
+      h = harness({}, { passkeys: noPasskey(), report });
+      withTotp(h);
+      values(h);
+      h.recipes.recipe.mockResolvedValue(coded);
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() =>
+        expect(status()).toMatchObject([{ state: "blocked", outcome: "policy-changed" }]),
+      );
+      expect(report.mock.calls.at(-1)![0]).toMatchObject({
+        type: "attempt",
+        cause: "plan",
+        reason: "binding-field-excluded",
+      });
+      expect(reads(h)).toEqual(["login.password"]);
+      expect(codeFills()).toEqual([]);
+      expect(clicks("verify")).toBe(0);
+    });
+
+    it("passes the handler over without reading when its field is excluded before entry", async () => {
+      onClick({ login: toCode, verify: toHome });
+      const { h, report } = start(coded);
+      // Excluded after the login started, before the code page shows.
+      const original = fake.state.onExecute!;
+      fake.state.onExecute = async (message, tabId) => {
+        if ((message["operation"] as { step: LoginStep }).step.kind === "click")
+          h.settings.settings.connections[0]!.excludedFields = [
+            { itemId, fieldId: "login.totp-code" },
+          ];
+        await original(message, tabId);
+      };
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() =>
+        expect(status()).toMatchObject([{ state: "blocked", outcome: "challenge" }]),
+      );
+      expect(status()![0]).toMatchObject({ facts: { totp: true }, handlers: [] });
+      expect(handlerOutcomes(report)).toEqual([[0, "totp", "missing-fact"]]);
+      expect(reads(h)).toEqual(["login.password"]);
+      expect(codeFills()).toEqual([]);
+    });
+
+    it("sends the code as an OTP secret with the item's username for the account check", async () => {
+      onClick({ login: toCode, verify: toHome });
+      const { h } = start(coded, { username: true });
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+        timeout: 6_000,
+      });
+      expect(codeFills()).toHaveLength(1);
+      expect(codeFills()[0]).toMatchObject({
+        values: [{ slot: "totp", value: CODE, secret: "otp" }],
+        account: { username: "synthetic-user" },
+      });
+      // The TOTP fill rule accepts a code input and refuses a password input.
+      const numeric: SecretInput = {
+        type: "text",
+        autocomplete: "",
+        inputMode: "numeric",
+        maxLength: 6,
+      };
+      const password: SecretInput = {
+        type: "password",
+        autocomplete: "",
+        inputMode: "",
+        maxLength: -1,
+      };
+      expect(acceptsSecret(numeric, "otp")).toBe(true);
+      expect(acceptsSecret(password, "otp")).toBe(false);
+    }, 10_000);
+
+    it("ends as wrong-account without a click when the code page shows another account", async () => {
+      onClick({ login: toCode, verify: toHome });
+      onCodeFill(() => {
+        fake.state.executeReply = { ok: false, reason: "wrong-account" };
+      });
+      const { h } = start(coded, { username: true });
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() =>
+        expect(status()).toMatchObject([{ state: "blocked", outcome: "wrong-account" }]),
+      );
+      expect(codeFills()).toHaveLength(1);
+      expect(clicks("verify")).toBe(0);
+    });
+
+    it("leaves a code page that keeps its form in the same document to the person after two minutes", async () => {
+      vi.useFakeTimers();
+      // A wrong code: the page shows its error beside the same form, without a new document.
+      onClick({ login: toCode, verify: toCode });
+      const service = generation(async () => ({ verdict: "signed-in" }));
+      const { h, report } = start(coded, { generation: service });
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(() => clicks("verify") === 1);
+      await vi.advanceTimersByTimeAsync(100_000);
+      expect(status()![0]).toMatchObject({ state: "awaiting-result" });
+      await until(settled("blocked", "challenge"), 30_000);
+      expect(codeFills()).toHaveLength(1);
+      expect(clicks("verify")).toBe(1);
+      expect(service.judge).not.toHaveBeenCalled();
+      expect(handlerOutcomes(report)).toEqual([[0, "totp", "entered"]]);
+    });
+
+    it("never types a second code after a code the start page's route filled", async () => {
+      const withCode = parseLoginRecipe({
+        ...unlearned,
+        completion: home,
+        slots: ["password", "totp"],
+        steps: [
+          {
+            kind: "fill",
+            path: "/signin",
+            fields: [
+              { slot: "password", target: target("password") },
+              { slot: "totp", target: target("start-code") },
+            ],
+          },
+          recipe.steps[1]!,
+        ],
+        handlers: [codeHandler],
+      });
+      const bindings = [
+        {
+          ...savedBinding,
+          recipeId: withCode.id,
+          slots: [
+            { slot: "password", field: "password" as const },
+            { slot: "totp", field: "totp" as const },
+          ],
+        },
+      ];
+      fake.state.present = new Set(["password", "start-code", "login"]);
+      onClick({ login: toCode, verify: toHome });
+      const { h, report } = start(withCode, {}, { bindings });
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() =>
+        expect(status()).toMatchObject([{ state: "blocked", outcome: "challenge" }]),
+      );
+      // One code, typed by the route on the start page.
+      expect(codeFills()).toHaveLength(1);
+      expect(executed().map((step) => step.kind)).toEqual(["fill", "click"]);
+      expect(clicks("verify")).toBe(0);
+      expect(handlerOutcomes(report)).toEqual([[0, "totp", "code-used"]]);
+      expect(reads(h).filter((fieldId) => fieldId === "login.totp-code")).toHaveLength(1);
+    });
+
+    it("waits out a passkey click on a page with both handlers and never types the code there", async () => {
+      vi.useFakeTimers();
+      const key = { kind: "passkey" as const, path: "/two-factor", target: securityKey };
+      const both = parseLoginRecipe({
+        ...unlearned,
+        completion: home,
+        handlers: [codeHandler, key],
+      });
+      const shown = { path: "/two-factor", present: ["app-code", "verify", securityKey.value] };
+      // The security key is cancelled: the same document keeps both forms.
+      onClick({ login: shown, [securityKey.value]: shown });
+      const { h, report } = start(both, { passkeys: withPasskey });
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(() => clicks(securityKey.value) === 1);
+      await until(settled("blocked", "challenge"), 200_000);
+      expect(codeFills()).toEqual([]);
+      expect(clicks("verify")).toBe(0);
+      expect(handlerOutcomes(report)).toEqual([[1, "passkey", "entered"]]);
+    });
+
+    it("falls back to the code when a new document shows both handlers after the passkey ran", async () => {
+      vi.useFakeTimers();
+      const key = { kind: "passkey" as const, path: "/two-factor", target: securityKey };
+      const both = parseLoginRecipe({
+        ...unlearned,
+        completion: home,
+        handlers: [key, codeHandler],
+      });
+      const shown = { path: "/two-factor", present: ["app-code", "verify", securityKey.value] };
+      onClick({ login: shown, [securityKey.value]: shown, verify: toHome });
+      const { h, report } = start(both, { passkeys: withPasskey });
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(() => clicks(securityKey.value) === 1);
+      // The page reloads after the key and offers both again.
+      fake.state.pageUrl = `${origin}/two-factor`;
+      await h.hello({ documentId: "reloaded" }, false);
+      await until(() => settled("authenticated")() || settled("blocked")(), 20_000);
+      // As ADR 0027 states: the passkey is passed over as shown again, the code is not.
+      expect(handlerOutcomes(report)).toEqual([
+        [0, "passkey", "entered"],
+        [1, "totp", "entered"],
+      ]);
+      expect(codeFills()).toHaveLength(1);
+      expect(clicks(securityKey.value)).toBe(1);
+      expect(clicks("verify")).toBe(1);
+      expect(status()![0]).toMatchObject({ state: "authenticated", submissions: 3 });
+    });
+
+    it("takes over a revision that adds a totp handler and types the code once", async () => {
+      vi.useFakeTimers();
+      const codePage = observation("/two-factor", [
+        {
+          id: "c1",
+          role: "text",
+          target: target("app-code"),
+          label: "Code",
+          inputMode: "numeric",
+          maxLength: 6,
+        },
+        { id: "c2", role: "button", target: target("verify"), label: "Verify" },
+      ]);
+      onClick({ login: { ...toCode, extracted: codePage }, verify: toHome });
+      const next = parseLoginRecipe({ ...unlearned, revision: 2, handlers: [codeHandler] });
+      const service = generation();
+      service.judge
+        .mockResolvedValueOnce({ verdict: "challenge", recipe: next })
+        .mockResolvedValueOnce({ verdict: "signed-in" });
+      const { h, report } = start(plain, { generation: service });
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("authenticated"));
+      expect(status()![0]).toMatchObject({
+        recipeRevision: 2,
+        handlers: [{ index: 0, start: 2 }],
+        stepCount: 4,
+        submissions: 2,
+        maxSubmissions: 2,
+      });
+      expect(codeFills()).toHaveLength(1);
+      expect(clicks("verify")).toBe(1);
+      expect(service.judge.mock.calls.map((call) => [call[1], call[3]])).toEqual([
+        [1, codePage.observation],
+        [2, homePage.observation],
+      ]);
+      expect(handlerOutcomes(report)).toEqual([[0, "totp", "entered"]]);
+    });
+
+    describe("a code page that submits by itself", () => {
+      it("settles a completion shown on the code page's own path without a click", async () => {
+        const samePath = parseLoginRecipe({
+          ...unlearned,
+          completion: { path: "/two-factor", target: target("logout") },
+          handlers: [codeHandler],
+        });
+        onClick({ login: toCode });
+        onCodeFill(() => {
+          fake.state.present = new Set(["logout"]);
+        });
+        const { h } = start(samePath);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+          timeout: 6_000,
+        });
+        expect(codeFills()).toHaveLength(1);
+        expect(clicks("verify")).toBe(0);
+        expect(status()![0]).toMatchObject({ stepIndex: 3, submissions: 2 });
+      }, 10_000);
+
+      it("settles a rejection shown in place of the form as a rejected credential", async () => {
+        const rejecting = parseLoginRecipe({
+          ...coded,
+          rejection: target("rejected"),
+        });
+        onClick({ login: toCode });
+        onCodeFill(() => {
+          fake.state.present = new Set(["rejected"]);
+        });
+        const { h } = start(rejecting);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() =>
+          expect(status()).toMatchObject([{ state: "blocked", outcome: "credential-rejected" }]),
+        );
+        expect(status()![0]).toMatchObject({ stepIndex: 3, submissions: 2 });
+        expect(codeFills()).toHaveLength(1);
+        expect(clicks("verify")).toBe(0);
+      });
+
+      it("settles a page that leaves the path while the click waits for its button", async () => {
+        onClick({ login: toCode });
+        onCodeFill(() => {
+          // The page shows a spinner in place of the form and moves on during the wait.
+          fake.state.present = new Set(["app-code"]);
+          fake.state.awaited = { ok: false, reason: "timeout" };
+          fake.state.onAwait = () => {
+            fake.state.observedPath = "/home";
+            fake.state.present = new Set(["logout"]);
+          };
+        });
+        const { h } = start(coded);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+          timeout: 6_000,
+        });
+        expect(status()![0]).toMatchObject({ stepIndex: 3, submissions: 2 });
+        expect(codeFills()).toHaveLength(1);
+        expect(clicks("verify")).toBe(0);
+      }, 10_000);
+
+      it("never fills the code again when the button never returns on the same path", async () => {
+        onClick({ login: toCode });
+        onCodeFill(() => {
+          fake.state.present = new Set(["app-code"]);
+          fake.state.awaited = { ok: false, reason: "timeout" };
+        });
+        const { h } = start(coded);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(status()![0]!["state"]).not.toMatch(/^(ready|executing)$/u), {
+          timeout: 6_000,
+        });
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        // The click step failed for want of its button; its retry is the click, not the fill.
+        expect(status()![0]).toMatchObject({
+          stepIndex: 3,
+          submissions: 1,
+          outcome: "structural-mismatch",
+        });
+        expect(codeFills()).toHaveLength(1);
+        expect(clicks("verify")).toBe(0);
+      }, 10_000);
+
+      it("does not treat the route's own fill whose form went away as a submission", async () => {
+        // The password page replaces its form after the fill; only a code fill counts.
+        fake.state.onExecute = async (message) => {
+          const step = (message["operation"] as { step: LoginStep }).step;
+          if (step.kind !== "fill") return;
+          fake.state.executeReply = {
+            ok: false,
+            reason: "structural-mismatch",
+            mutation: "possible",
+          };
+          fake.state.observedPath = "/home";
+          fake.state.present = new Set(["logout"]);
+        };
+        const { h } = start(coded);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(status()![0]!["state"]).not.toMatch(/^(ready|executing)$/u));
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        // The route's click was never counted as done by the page.
+        expect(status()![0]).toMatchObject({ stepIndex: 0, submissions: 0 });
+        expect(clicks("login")).toBe(0);
+      });
+    });
+
+    describe("a worker restart", () => {
+      it("never fills the code again when the worker restarts during the code fill", async () => {
+        onClick({ login: toCode, verify: toHome });
+        // The code fill never answers; the worker stops meanwhile.
+        onCodeFill(() => new Promise<void>(() => undefined));
+        const { h } = start(coded);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(codeFills()).toHaveLength(1));
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "executing" }]));
+        fake.state.onExecute = undefined;
+        await restarted(async () => {
+          const again = start(coded);
+          // The same document announces itself to the new worker.
+          await again.h.hello({}, false);
+          await vi.waitFor(() =>
+            expect(status()).toMatchObject([{ state: "reconciling", outcome: "unknown-submit" }]),
+          );
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          expect(again.h.fields).not.toHaveBeenCalled();
+        });
+        expect(codeFills()).toHaveLength(1);
+        expect(clicks("verify")).toBe(0);
+      });
+
+      it("takes a new document after a restart during the code fill as the page's submission", async () => {
+        onClick({ login: toCode, verify: toHome });
+        onCodeFill(() => new Promise<void>(() => undefined));
+        const { h } = start(coded);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "executing" }]));
+        fake.state.onExecute = undefined;
+        fake.state.pageUrl = `${origin}/home`;
+        fake.state.observedPath = "/home";
+        fake.state.present = new Set(["logout"]);
+        await restarted(async () => {
+          const again = start(coded);
+          expect(await again.h.hello({ documentId: "signed-in" }, false)).toEqual({ ok: true });
+          await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]));
+          expect(again.h.fields).not.toHaveBeenCalled();
+        });
+        expect(status()![0]).toMatchObject({ stepIndex: 3, submissions: 2 });
+        expect(codeFills()).toHaveLength(1);
+        expect(clicks("verify")).toBe(0);
+      });
+
+      it("leaves the code page to the person after a restart during the verify click", async () => {
+        onClick({ login: toCode, verify: "hang" });
+        const { h, report } = start(coded);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(clicks("verify")).toBe(1));
+        fake.state.onExecute = undefined;
+        await restarted(async () => {
+          const again = start(coded);
+          await again.h.hello({}, false);
+          await vi.waitFor(() =>
+            expect(status()).toMatchObject([{ state: "blocked", outcome: "challenge" }]),
+          );
+          expect(again.h.fields).not.toHaveBeenCalled();
+          expect(handlerOutcomes(again.report)).toEqual([[0, "totp", "shown-again"]]);
+        });
+        expect(handlerOutcomes(report)).toEqual([[0, "totp", "entered"]]);
+        expect(codeFills()).toHaveLength(1);
+        expect(clicks("verify")).toBe(1);
+      });
+    });
+
+    it("keeps the code out of reports, records, badges and every other message", async () => {
+      onClick({ login: toCode, verify: toHome });
+      const { h, report } = start(coded, { username: true });
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+        timeout: 6_000,
+      });
+      expect(codeFills()).toHaveLength(1);
+      expect(JSON.stringify(report.mock.calls)).not.toContain(CODE);
+      expect(JSON.stringify(fake.state.storage)).not.toContain(CODE);
+      expect(JSON.stringify(fake.state.session)).not.toContain(CODE);
+      expect(JSON.stringify(fake.state.badges)).not.toContain(CODE);
+      expect(JSON.stringify(h.settings)).not.toContain(CODE);
+      const others = fake.state.messages.filter((entry) => !codeFills().includes(entry));
+      expect(JSON.stringify(others)).not.toContain(CODE);
+    }, 10_000);
   });
 
   describe("generation slots", () => {
@@ -5446,6 +6373,152 @@ describe("the start page's passkey route (ADR 0027)", () => {
     const serialized = JSON.stringify(report.mock.calls);
     for (const key of ['"facts"', '"discoverablePasskey"', '"discoverable"', '"totp"'])
       expect(serialized).not.toContain(key);
+  });
+
+  describe("a totp handler after the passkey click, probed independently", () => {
+    const codeHandler = {
+      kind: "totp" as const,
+      path: "/two-factor",
+      field: target("app-code"),
+      target: target("verify"),
+    };
+    const toCode = { path: "/two-factor", present: ["app-code", "verify"] };
+    const withCode = parseLoginRecipe({ ...learned, handlers: [codeHandler] });
+    const codeFills = () =>
+      fake.state.messages.filter(
+        (entry) =>
+          entry.type === "login.execute" && entry.values?.some((value) => value.slot === "totp"),
+      );
+    const handlerOutcomes = (report: ReturnType<typeof vi.fn<(report: LoginReport) => void>>) =>
+      report.mock.calls.flatMap(([value]) =>
+        value.type === "handler" ? [[value.handler, value.kind, value.outcome]] : [],
+      );
+    /** Adds the item's built-in TOTP field and answers its read with a synthetic code. */
+    const withTotp = (h: ReturnType<typeof harness>) => {
+      const original = h.store.handle.getMockImplementation()!;
+      h.store.handle.mockImplementation(async () => {
+        const response = await original();
+        if (response.ok)
+          response.catalog.connections[0]!.items[0]!.fields.push({
+            id: "login.totp-code",
+            label: "Verification code",
+            name: null,
+            kind: "otp",
+          });
+        return response;
+      });
+      h.fields.mockImplementation(async ({ fieldId }) =>
+        fieldId === "login.totp-code" ? "012345" : "synthetic-secret",
+      );
+    };
+
+    it("types the code on the page after the passkey click and keeps the route", async () => {
+      onClick({ [button.value]: toCode, verify: toHome });
+      const { h, report } = start(withCode);
+      withTotp(h);
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+        timeout: 6_000,
+      });
+      expect(status()![0]).toMatchObject({
+        route: "passkey",
+        facts: { totp: true },
+        handlers: [{ index: 0, start: 1 }],
+        stepCount: 3,
+        submissions: 2,
+      });
+      expect(
+        executed().map((step) => (step.kind === "click" ? step.target.value : step.kind)),
+      ).toEqual([button.value, "fill", "verify"]);
+      expect(codeFills().map((entry) => entry.values)).toEqual([
+        [{ slot: "totp", value: "012345", secret: "otp" }],
+      ]);
+      // Only the code is read; no password is.
+      expect(h.fields.mock.calls.map(([request]) => request.fieldId)).toEqual(["login.totp-code"]);
+      expect(handlerOutcomes(report)).toEqual([[0, "totp", "entered"]]);
+      // Nothing is saved for the passkey route's login.
+      expect(h.settings.settings.bindings).toEqual([savedBinding]);
+    }, 10_000);
+
+    it("never types a custom field a saved binding names for the code on this route", async () => {
+      onClick({ [button.value]: toCode, verify: toHome });
+      const bindings = [
+        {
+          ...savedBinding,
+          recipeId: withCode.id,
+          slots: [
+            { slot: "password", field: "password" as const },
+            { slot: "totp", field: { custom: "Branch" } },
+          ],
+        },
+      ];
+      const { h, report } = start(withCode, {}, { bindings });
+      withTotp(h);
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() =>
+        expect(status()).toMatchObject([{ state: "blocked", outcome: "challenge" }]),
+      );
+      expect(status()![0]).toMatchObject({ route: "passkey" });
+      expect(h.fields).not.toHaveBeenCalled();
+      expect(codeFills()).toEqual([]);
+      expect(handlerOutcomes(report)).toEqual([[0, "totp", "missing-fact"]]);
+    });
+
+    it("takes over a revision that adds a totp handler on the passkey route", async () => {
+      vi.useFakeTimers();
+      const codePage = observation("/two-factor", [
+        {
+          id: "c1",
+          role: "text",
+          target: target("app-code"),
+          label: "Code",
+          autocomplete: "one-time-code",
+        },
+        { id: "c2", role: "button", target: target("verify"), label: "Verify" },
+      ]);
+      onClick({ [button.value]: { ...toCode, extracted: codePage }, verify: toHome });
+      const taken = parseLoginRecipe({ ...routed, revision: 2, handlers: [codeHandler] });
+      const service = generation();
+      service.judge
+        .mockResolvedValueOnce({ verdict: "challenge", recipe: taken })
+        .mockResolvedValueOnce({ verdict: "signed-in" });
+      const { h } = start(routed, { generation: service });
+      withTotp(h);
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("authenticated"));
+      expect(status()![0]).toMatchObject({
+        route: "passkey",
+        recipeRevision: 2,
+        handlers: [{ index: 0, start: 1 }],
+        stepCount: 3,
+        submissions: 2,
+      });
+      expect(service.judge.mock.calls.map((call) => [call[1], call[2]])).toEqual([
+        [1, "passkey"],
+        [2, "passkey"],
+      ]);
+      expect(codeFills()).toHaveLength(1);
+      expect(clicks("verify")).toBe(1);
+      expect(clicks(button.value)).toBe(1);
+    });
+
+    it("leaves a code page shown again in a new document to the person on this route", async () => {
+      vi.useFakeTimers();
+      onClick({ [button.value]: toCode, verify: toCode });
+      const { h, report } = start(withCode);
+      withTotp(h);
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(() => clicks("verify") === 1);
+      fake.state.pageUrl = `${origin}/two-factor`;
+      await h.hello({ documentId: "again" }, false);
+      await until(settled("blocked", "challenge"), 5_000);
+      expect(codeFills()).toHaveLength(1);
+      expect(clicks("verify")).toBe(1);
+      expect(handlerOutcomes(report)).toEqual([
+        [0, "totp", "entered"],
+        [0, "totp", "shown-again"],
+      ]);
+    });
   });
 
   describe("the held click", () => {

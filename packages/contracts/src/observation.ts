@@ -257,22 +257,51 @@ export const customFieldSlotDescriptions = {
 } as const satisfies Record<SemanticSlot["kind"], string>;
 
 /**
- * Whether the page shows an input the executor would fill a TOTP code into (ADR 0013, the
- * extension's `acceptsSecret`): `autocomplete="one-time-code"`, or a numeric, tel or number
- * input whose `maxlength` is 1 to 10. Observations omit lengths on number inputs, so a
- * number input counts only with the autocomplete hint.
+ * Whether the executor would fill a TOTP code into this element (ADR 0013, the extension's
+ * `acceptsSecret`): `autocomplete="one-time-code"`, or a numeric, tel or number input whose
+ * `maxlength` is 1 to 10. Observations omit lengths on number inputs, so a number input
+ * counts only with the autocomplete hint.
  */
-export function showsCodeField(observation: Pick<LoginObservation, "candidates">): boolean {
-  return observation.candidates.some(
-    (candidate) =>
-      candidate.autocomplete === "one-time-code" ||
-      ((candidate.inputMode === "numeric" ||
-        candidate.role === "tel" ||
-        candidate.role === "number") &&
-        candidate.maxLength !== undefined &&
-        candidate.maxLength >= 1 &&
-        candidate.maxLength <= 10),
+export function isCodeField(candidate: ObservedCandidate): boolean {
+  return (
+    candidate.autocomplete === "one-time-code" ||
+    ((candidate.inputMode === "numeric" ||
+      candidate.role === "tel" ||
+      candidate.role === "number") &&
+      candidate.maxLength !== undefined &&
+      candidate.maxLength >= 1 &&
+      candidate.maxLength <= 10)
   );
+}
+
+/**
+ * Whether `field` and `button` of this page may be a `totp` handler's code field and the
+ * button that submits it (ADR 0027): a fill-role input located by an attribute that
+ * {@link isCodeField} accepts, with at least 6 characters when it limits them, and the only
+ * such input in its form, so split one-digit inputs never qualify; and a button of that
+ * form. The judge and the recipe assembly both check this.
+ */
+export function isTotpCode(
+  page: Pick<LoginObservation, "candidates">,
+  field: ObservedCandidate,
+  button: ObservedCandidate,
+): boolean {
+  return (
+    (fillRoles as readonly string[]).includes(field.role) &&
+    field.target.by !== "text" &&
+    isCodeField(field) &&
+    (field.maxLength === undefined || field.maxLength >= 6) &&
+    !page.candidates.some(
+      (other) => other !== field && other.group === field.group && isCodeField(other),
+    ) &&
+    button.role === "button" &&
+    button.group === field.group
+  );
+}
+
+/** Whether the page shows an input the executor would fill a TOTP code into. */
+export function showsCodeField(observation: Pick<LoginObservation, "candidates">): boolean {
+  return observation.candidates.some(isCodeField);
 }
 
 /**

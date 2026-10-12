@@ -67,9 +67,10 @@ function RecipeDetails({ recipe }: { recipe: LoginRecipe }) {
         <dd>
           {recipe.handlers?.length
             ? recipe.handlers
-                .map(
-                  (handler) =>
-                    `${handler.kind}: click ${describeTarget(handler.target)} on ${handler.path}`,
+                .map((handler) =>
+                  handler.kind === "totp"
+                    ? `totp: fill ${describeTarget(handler.field)}, click ${describeTarget(handler.target)} on ${handler.path}`
+                    : `${handler.kind}: click ${describeTarget(handler.target)} on ${handler.path}`,
                 )
                 .join("; ")
             : "None"}

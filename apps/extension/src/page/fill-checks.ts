@@ -49,7 +49,10 @@ const validityFlags = [
 const ariaInvalid = (input: HTMLInputElement) =>
   input.getAttribute("aria-invalid")?.trim().toLowerCase() === "true";
 
-function feedbackTexts(inputs: readonly HTMLInputElement[]): Set<string> {
+function feedbackTexts(
+  inputs: readonly HTMLInputElement[],
+  regions: "all" | "alert" = "all",
+): Set<string> {
   const root = inputs[0]?.ownerDocument ?? document;
   const form = inputs[0]?.form;
   const named = new Set(
@@ -59,14 +62,14 @@ function feedbackTexts(inputs: readonly HTMLInputElement[]): Set<string> {
       ),
     ),
   );
-  const regions = [
+  const shown = [
     ...root.querySelectorAll(alertSelector),
-    ...[...root.querySelectorAll(statusSelector)].filter(
+    ...(regions === "alert" ? [] : [...root.querySelectorAll(statusSelector)]).filter(
       (element) => form?.contains(element) || named.has(element.id),
     ),
   ];
   const texts = new Set<string>();
-  for (const element of regions) {
+  for (const element of shown) {
     // A region around the inputs changes with any text of the form, such as a password
     // visibility toggle; visually hidden announcements still count as rendered.
     if (
@@ -97,9 +100,15 @@ export function fillBaseline(inputs: readonly HTMLInputElement[]): FillBaseline 
  * or an alert or relevant live region shows text that none showed before the fill. A
  * mark the input already had before the fill, such as one left by an earlier failed
  * sign-in that no script clears, is not the page's answer. The caller handles a filled
- * input that is no longer connected first.
+ * input that is no longer connected first. Without `statuses`, only alerts and the inputs'
+ * own marks count, for a fill whose status regions may announce the page's own
+ * submission.
  */
-export function rejectsFill(inputs: readonly HTMLInputElement[], before: FillBaseline): boolean {
+export function rejectsFill(
+  inputs: readonly HTMLInputElement[],
+  before: FillBaseline,
+  { statuses = true }: { statuses?: boolean } = {},
+): boolean {
   const rejected = inputs.some((input, index) => {
     const previous = before.inputs[index]!;
     if (ariaInvalid(input) && !previous.ariaInvalid) return true;
@@ -115,5 +124,6 @@ export function rejectsFill(inputs: readonly HTMLInputElement[], before: FillBas
   });
   // Compared by text, so a page that re-renders a message it already showed is not a
   // new message.
-  return rejected || [...feedbackTexts(inputs)].some((text) => !before.texts.has(text));
+  const texts = feedbackTexts(inputs, statuses ? "all" : "alert");
+  return rejected || [...texts].some((text) => !before.texts.has(text));
 }

@@ -38,10 +38,14 @@ Chrome, on a production build of main.
   hold settings writes for the next login, and a vault replacement no longer runs during
   a login; diagnostics log events for sync, page judgements, handlers and the source of
   `policy-changed`.
-- [ADR 0027](adr/0027-per-account-login-routes.md) deliveries 1 (custom-field names and
-  Text shapes in generation), 3 (start-page routes) and 4 (the `totp` handler), merged
-  in that order. Delivery 2 is merged
-  ([#223](https://github.com/risu729/pateat/pull/223)).
+- [ADR 0027](adr/0027-per-account-login-routes.md) delivery 4's deferred part: a `totp`
+  handler that reads a custom field a saved binding names for the code, once Pateat can
+  make a code from one. Until then such a binding ends `challenge`. Deliveries 1
+  ([#240](https://github.com/risu729/pateat/pull/240)), 2
+  ([#223](https://github.com/risu729/pateat/pull/223)) and 3
+  ([#245](https://github.com/risu729/pateat/pull/245),
+  [#246](https://github.com/risu729/pateat/pull/246)) are merged, and so is the rest of
+  delivery 4.
 - Continue a generated recipe on the page after an `advance` step (email, then Next,
   then password), as listed under
   [AI evaluation harness progress](#ai-evaluation-harness-progress). The owner rated it
@@ -61,6 +65,11 @@ Chrome, on a production build of main.
   - A vault item edit picked up by the automatic sync
     ([#222](https://github.com/risu729/pateat/pull/222),
     [#224](https://github.com/risu729/pateat/pull/224)).
+  - The `totp` handler ([ADR 0027](adr/0027-per-account-login-routes.md) delivery 4) on
+    a site whose code page says the code comes from an authenticator app, such as
+    npmjs.com: a judged code page adds the handler and the same login types one code.
+    It needs a paid judge call and a real account's code, so it waits for the owner's
+    approval.
 - Polish the UI, in phase 1 so that phase 2's feedback is on the improved UI (owner,
   2026-10-11 18:33 UTC): the extension and the service web UI in one pass with
   [stop-describing-ui](https://github.com/artouc/stop-describing-ui), as the owner
@@ -1228,7 +1237,28 @@ not recur; no refusal occurred, so no category was observed. Remaining M4 AI wor
   the button, a reload that shows it again ends `challenge`, a second-factor passkey
   fills the password) cover it with a synthetic passkey fact; no WebAuthn exchange, paid
   generation call or real-account login has used it. Its real-Chrome check on MyJCB
-  needs the paid regeneration listed in phase 1, with the owner's approval.
+  needs the paid regeneration listed in phase 1, with the owner's approval. Delivery 4
+  is implemented: the `totp` handler (one code field and its button on a path), learned
+  from a judge answer that names a code the page says comes from an authenticator app,
+  in a single code field of at least 6 characters with a button of its form; entered
+  when all its elements show and are usable, after a `passkey` handler shown with it, at
+  most one code per login, filling the item's built-in TOTP field under the TOTP fill
+  rule and clicking once after a 2-second watch; and a code page that submits by itself
+  counts as the click and is held while it verifies. A judged completion is never a page
+  of a handler's path that shows its code field, and generation maps a one-time-code
+  slot only to an input the TOTP fill rule accepts. Unit, service and extension runtime
+  tests and fourteen probe E2E specs (the code filled and verified, a wrong code ending
+  `challenge` after one click, an item without TOTP leaving the field untouched, a page
+  that submits on the last digit, three pages that verify their own submission for over
+  a second: a new document, a status message with a disabled button and a form rendered
+  again, and three ordinary pages clicked once: Verify disabled until the code is in,
+  Verify rendered again on every digit and a digit counter, and a page that checks the
+  code itself with Verify kept disabled, or disabled again after enabling it for a
+  moment, signing in or held on a wrong code without a click) cover it with a synthetic
+  TOTP fact and the fixed code `012345`; no paid judge call, real authenticator code or
+  real-account login has used it. A binding that names a custom field for the code is
+  deferred and ends `challenge`. Its real-Chrome check is listed with the phase 1
+  installed-Chrome checks.
 - Continuing a generated recipe on the page after an `advance` step, through the
   generation route's `base` ([ADR 0018](adr/0018-recipe-generation-route.md)). The
   extension already sends a recipe's first page under the automatic send rule of

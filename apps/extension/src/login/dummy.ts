@@ -32,6 +32,7 @@ const PROBE_PATHS = [
   "/text-submit",
   "/variants",
   "/passkey",
+  "/totp",
 ];
 /** Where every synthetic recipe starts, which a fixture document watches for. */
 export function probeStarts(origin: string): LoginRecipeStart[] {
@@ -69,9 +70,33 @@ function variantsRecipe(origin: string, path: string): LoginRecipe {
     maxSubmissions: 1,
   });
 }
+/**
+ * A password page followed by an authenticator app code page (ADR 0027): the `totp`
+ * handler fills the code into `#code` and clicks `#verify`.
+ */
+function totpRecipe(origin: string, path: string): LoginRecipe {
+  return parseLoginRecipe({
+    version: 1,
+    id: "demo-totp",
+    revision: 1,
+    origin,
+    slots: ["password"],
+    steps: [
+      { kind: "fill", path, fields: [{ slot: "password", target: target("password") }] },
+      { kind: "click", path, target: target("login"), purpose: "submit" },
+    ],
+    handlers: [
+      { kind: "totp", path: "/totp-code", field: target("code"), target: target("verify") },
+    ],
+    completion: { path: "/authenticated", target: target("authenticated") },
+    rejection: target("rejected"),
+    maxSubmissions: 1,
+  });
+}
 export function probeRecipe(origin: string, path: string): LoginRecipe | undefined {
   if (!PROBE_PATHS.includes(path)) return undefined;
   if (path === "/variants") return variantsRecipe(origin, path);
+  if (path === "/totp") return totpRecipe(origin, path);
   const multi = path === "/identity";
   const inputAdvance = path === "/input-advance";
   const inputSubmit = path === "/input-submit" || path === "/change-submit";
@@ -218,7 +243,9 @@ export function probeBinding(
 }
 /**
  * Synthetic origin grant for the loopback fixture only. Live provider URI matching
- * supplies production origins; this never derives an origin from vault data.
+ * supplies production origins; this never derives an origin from vault data. A bundled
+ * demo item also gets a synthetic TOTP field in the copy, which a `totp` handler fills
+ * (ADR 0027).
  */
 export function grantProbeOrigin(
   catalog: VaultCatalog,
@@ -226,10 +253,11 @@ export function grantProbeOrigin(
   account: Pick<ProbeAccount, "connectionId" | "itemId">,
 ): VaultCatalog {
   const granted = structuredClone(catalog);
-  const item = granted.connections
-    .find((entry) => entry.id === account.connectionId)
-    ?.items.find((entry) => entry.id === account.itemId);
+  const connection = granted.connections.find((entry) => entry.id === account.connectionId);
+  const item = connection?.items.find((entry) => entry.id === account.itemId);
   if (item && !item.allowedOrigins.includes(origin)) item.allowedOrigins.push(origin);
+  if (connection?.provider === "dummy" && item && !item.fields.some((field) => field.id === "totp"))
+    item.fields.push({ id: "totp", label: "TOTP", name: null, kind: "otp" });
   return granted;
 }
 
@@ -238,5 +266,7 @@ export function resolveDummyField(fieldId: string): string | undefined {
   if (fieldId === "branch") return "007";
   if (fieldId === "username") return "00001234";
   if (fieldId === "password") return "Pateat-synthetic-only!";
+  // A fixed synthetic code; the probe vault holds no TOTP secret.
+  if (fieldId === "totp") return "012345";
   return undefined;
 }

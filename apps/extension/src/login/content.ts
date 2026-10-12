@@ -4,6 +4,7 @@ import { browser } from "wxt/browser";
 import { accountText, showsOtherAccount, shownAccounts } from "../page/accounts";
 import { isButton, isScriptButton } from "../page/text";
 import { findTargets } from "../page/targets";
+import { CODE_SETTLE_MS, visible, watchCodeSubmission } from "../page/code-submission";
 import { fillBaseline, inputValueMismatch, rejectsFill } from "../page/fill-checks";
 import { extractLoginObservation, extractSignedInObservation } from "../observation/extract";
 import { acceptsSecret } from "./inputs";
@@ -18,16 +19,6 @@ import {
 /** Fixed locators deliberately reject duplicates rather than taking the first match. */
 function matches(target: LoginTarget): Element[] {
   return findTargets(document, target);
-}
-function visible(element: HTMLElement): boolean {
-  const style = getComputedStyle(element);
-  return (
-    element.isConnected &&
-    !element.hidden &&
-    style.display !== "none" &&
-    style.visibility !== "hidden" &&
-    element.getClientRects().length > 0
-  );
 }
 function writable(element: Element | undefined): element is HTMLInputElement {
   return (
@@ -100,7 +91,6 @@ const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
  * the page accepted the values (ADR 0010).
  */
 const fillSettleMs = 500;
-
 export interface LoginContentOptions {
   /** Echo attempt status to the page; only the synthetic probe fixture page may see it. */
   readonly probeStatus?: boolean;
@@ -352,9 +342,15 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       }
       respond({
         path: location.pathname,
-        targets: command.targets.map((target) => {
-          const count = matches(target).length;
-          return count === 0 ? "missing" : count === 1 ? "unique" : "ambiguous";
+        targets: command.targets.map((target, index) => {
+          const found = matches(target);
+          if (found.length !== 1) return found.length === 0 ? "missing" : "ambiguous";
+          const require = command.require?.[index];
+          return (require === "writable" && !writable(found[0])) ||
+            (require === "clickable" && !clickable(found[0])) ||
+            (require === "shown" && !(found[0] instanceof HTMLElement && visible(found[0])))
+            ? "unusable"
+            : "unique";
         }),
       });
       return false;
@@ -369,7 +365,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           | "cancelled"
           | "wrong-account"
           | "value-mismatch"
-          | "fill-rejected",
+          | "fill-rejected"
+          | "submitted",
       ) => ({
         ok: false,
         reason,
@@ -469,45 +466,80 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         if (!setter) return fail("structural-mismatch");
         // Messages already shown are not the page's answer to this fill.
         const baseline = step.effect === "prepare" ? fillBaseline(writableInputs) : undefined;
-        for (const [index, field] of step.fields.entries()) {
-          const input = inputs[index] as HTMLInputElement;
-          // Each mutation repeats scope/connected checks; events may synchronously change the page.
-          const current = matches(field.target);
-          const value = command.values.find((entry) => entry.slot === field.slot)!;
-          if (
-            cancelled ||
-            location.pathname !== step.path ||
-            current.length !== 1 ||
-            current[0] !== input ||
-            !writable(input) ||
-            input.form !== form ||
-            !acceptsSecret(input, value.secret) ||
-            inputValueMismatch(input, value.value) !== undefined
-          )
-            return fail("cancelled");
-          // Mark uncertainty before calling into DOM/page code, including a throwing setter.
-          mutated = true;
-          setter.call(input, value.value);
-          if (step.effect === "prepare") {
-            input.dispatchEvent(new Event("input", { bubbles: true }));
-            input.dispatchEvent(new Event("change", { bubbles: true }));
-          } else {
-            input.dispatchEvent(new Event(step.event!, { bubbles: true }));
+        // A code field fills alone; its watch starts before the code goes in (ADR 0027).
+        const code =
+          command.code && step.effect === "prepare" && step.fields.length === 1
+            ? watchCodeSubmission(
+                writableInputs[0]!,
+                step.fields[0]!.target,
+                command.code.submit,
+                step.path,
+              )
+            : undefined;
+        if (command.code && !code) return fail("structural-mismatch");
+        try {
+          for (const [index, field] of step.fields.entries()) {
+            const input = inputs[index] as HTMLInputElement;
+            // Each mutation repeats scope/connected checks; events may synchronously change the page.
+            const current = matches(field.target);
+            const value = command.values.find((entry) => entry.slot === field.slot)!;
+            if (
+              cancelled ||
+              location.pathname !== step.path ||
+              current.length !== 1 ||
+              current[0] !== input ||
+              !writable(input) ||
+              input.form !== form ||
+              !acceptsSecret(input, value.secret) ||
+              inputValueMismatch(input, value.value) !== undefined
+            )
+              return fail("cancelled");
+            // Mark uncertainty before calling into DOM/page code, including a throwing setter.
+            mutated = true;
+            setter.call(input, value.value);
+            if (step.effect === "prepare") {
+              // The code goes in now; the page's own reaction is measured from here.
+              code?.typed();
+              input.dispatchEvent(new Event("input", { bubbles: true }));
+              input.dispatchEvent(new Event("change", { bubbles: true }));
+            } else {
+              input.dispatchEvent(new Event(step.event!, { bubbles: true }));
+            }
+            value.value = "";
           }
-          value.value = "";
+          // A code page that submits the code by itself must not get a click as well: the
+          // button is clicked only when nothing showed a submission during the watch. Its
+          // status regions may announce that submission, so only alerts and the field's own
+          // marks reject the code (ADR 0027).
+          if (code && baseline) {
+            const until = Date.now() + CODE_SETTLE_MS;
+            // eslint-disable-next-line no-unmodified-loop-condition
+            while (!cancelled && Date.now() < until) {
+              if (code.submitted()) return fail("submitted");
+              // eslint-disable-next-line no-await-in-loop
+              await pause(50);
+            }
+            if (cancelled) return fail("cancelled");
+            if (code.submitted()) return fail("submitted");
+            if (rejectsFill(writableInputs, baseline, { statuses: false }))
+              return fail("fill-rejected");
+            return { ok: true, mutation: "possible" };
+          }
+          // A preparing fill is followed by a click; the page's own validation must accept
+          // the values first. An effectful fill has already submitted through its event.
+          if (baseline) {
+            await pause(fillSettleMs);
+            if (cancelled) return fail("cancelled");
+            // The page replaced the form, perhaps signing in by itself; the background
+            // observes the page instead of clicking.
+            if (writableInputs.some((input) => !input.isConnected))
+              return fail("structural-mismatch");
+            if (rejectsFill(writableInputs, baseline)) return fail("fill-rejected");
+          }
+          return { ok: true, mutation: "possible" };
+        } finally {
+          code?.stop();
         }
-        // A preparing fill is followed by a click; the page's own validation must accept
-        // the values first. An effectful fill has already submitted through its event.
-        if (baseline) {
-          await pause(fillSettleMs);
-          if (cancelled) return fail("cancelled");
-          // The page replaced the form, perhaps signing in by itself; the background
-          // observes the page instead of clicking.
-          if (writableInputs.some((input) => !input.isConnected))
-            return fail("structural-mismatch");
-          if (rejectsFill(writableInputs, baseline)) return fail("fill-rejected");
-        }
-        return { ok: true, mutation: "possible" };
       }
       if (command.values.length) return fail("structural-mismatch");
       if (step.kind === "click") {

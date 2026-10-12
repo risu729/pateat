@@ -1,6 +1,7 @@
 import {
   actionRoles,
   genericSlotIdSchema,
+  isCodeField,
   loginStepSchema,
   sameLoginTarget,
   type LoginObservation,
@@ -71,11 +72,15 @@ const hiddenAccepts = (candidate: ObservedCandidate) =>
     candidate.maxLength !== undefined &&
     candidate.maxLength <= 10);
 
-/** True when a slot may be filled into this element; registration passwords never qualify. */
+/**
+ * True when a slot may be filled into this element; registration passwords never qualify.
+ * A one-time code goes only where the executor fills a TOTP code (ADR 0013).
+ */
 export const slotAccepts = (kind: SemanticSlot["kind"], candidate: ObservedCandidate) =>
   slotFitsRole(kind, candidate.role) &&
   candidate.autocomplete !== "new-password" &&
-  (kind !== "hidden" || hiddenAccepts(candidate));
+  (kind !== "hidden" || hiddenAccepts(candidate)) &&
+  (kind !== "one-time-code" || isCodeField(candidate));
 
 /** True when an observed element can carry the page action. */
 export const isActionRole = (role: ObservedCandidate["role"]) =>

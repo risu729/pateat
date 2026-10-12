@@ -80,3 +80,19 @@ describe("rejectsFill", () => {
     expect(rejectsFill([field], before)).toBe(true);
   });
 });
+
+describe("a code fill's status messages (ADR 0027)", () => {
+  it("never reads a new status of the form as a rejection of the code", () => {
+    document.body.innerHTML =
+      '<form><input id="code" autocomplete="one-time-code"><p role="status" id="state"></p></form>';
+    const code = document.querySelector<HTMLInputElement>("#code")!;
+    const before = fillBaseline([code]);
+    code.value = "012345";
+    document.querySelector("#state")!.textContent = "6 of 6 digits";
+    expect(rejectsFill([code], before, { statuses: false })).toBe(false);
+    // A fill whose statuses count still reads it as a rejection, and alerts always count.
+    expect(rejectsFill([code], before)).toBe(true);
+    document.body.insertAdjacentHTML("beforeend", '<p role="alert">Wrong code</p>');
+    expect(rejectsFill([code], before, { statuses: false })).toBe(true);
+  });
+});

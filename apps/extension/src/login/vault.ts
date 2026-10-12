@@ -73,7 +73,8 @@ export function loginSecretKind(
   itemId: string,
   fieldId: string,
 ): LoginSecretKind | undefined {
-  if (connection.provider === "dummy") return fieldId === "password" ? "password" : undefined;
+  if (connection.provider === "dummy")
+    return fieldId === "password" ? "password" : fieldId === "totp" ? "otp" : undefined;
   if (connection.provider !== "bitwarden") return undefined;
   const field = connection.items
     .find((item) => item.id === itemId)

@@ -5,6 +5,7 @@ import {
   genericSlotIdSchema,
   loginObservationSchema,
   semanticSlotsSchema,
+  isCodeField,
   showsCodeField,
   slotsForPage,
 } from "./observation";
@@ -138,6 +139,7 @@ describe("code fields on a generated page (ADR 0027)", () => {
     const page = field(extra);
     expect(parse({ ...base, ...page })).toBe(true);
     expect(showsCodeField(page as never)).toBe(true);
+    expect(isCodeField(page.candidates.at(-1) as never)).toBe(true);
     expect(slotsForPage(page as never, slots)).toEqual(slots);
   });
 
@@ -154,10 +156,37 @@ describe("code fields on a generated page (ADR 0027)", () => {
     const page = field(extra);
     expect(parse({ ...base, ...page })).toBe(true);
     expect(showsCodeField(page as never)).toBe(false);
+    expect(isCodeField(page.candidates.at(-1) as never)).toBe(false);
     expect(slotsForPage(page as never, slots)).toEqual([
       builtInLoginSlots.username,
       builtInLoginSlots.password,
     ]);
+  });
+
+  it("judges each element on its own, as the executor's TOTP fill rule does", () => {
+    const candidate = (extra: object) =>
+      ({ id: "x", role: "text", target: { by: "id", value: "x" }, ...extra }) as never;
+    // The bounds of the length rule.
+    expect(isCodeField(candidate({ inputMode: "numeric", maxLength: 1 }))).toBe(true);
+    expect(isCodeField(candidate({ role: "tel", maxLength: 10 }))).toBe(true);
+    expect(isCodeField(candidate({ role: "tel", maxLength: 11 }))).toBe(false);
+    // The hint alone counts, on any input the executor fills.
+    expect(isCodeField(candidate({ role: "password", autocomplete: "one-time-code" }))).toBe(true);
+    expect(isCodeField(candidate({ autocomplete: "current-password", maxLength: 6 }))).toBe(false);
+    // One code field among other inputs makes the page show one.
+    const page = {
+      candidates: [
+        candidate({}),
+        candidate({
+          id: "y",
+          inputMode: "numeric",
+          maxLength: 6,
+          target: { by: "id", value: "y" },
+        }),
+      ],
+    };
+    expect(showsCodeField(page)).toBe(true);
+    expect(showsCodeField({ candidates: [] })).toBe(false);
   });
 
   it("keeps every other slot, including custom ones, and may leave none", () => {

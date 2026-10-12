@@ -85,6 +85,14 @@ export const commandSchema = v.variant("type", [
     token: id,
     path: v.string(),
     targets: v.pipe(v.array(loginTargetSchema), v.maxLength(24)),
+    /**
+     * Per target, what its one element must be to count as `unique`: a shown writable
+     * input, a shown enabled button, or any shown element; otherwise it is `unusable`.
+     * Without it, any one element counts, hidden or not.
+     */
+    require: v.optional(
+      v.pipe(v.array(v.picklist(["writable", "clickable", "shown", "present"])), v.maxLength(24)),
+    ),
   }),
   v.strictObject({
     version: v.literal(1),
@@ -109,6 +117,11 @@ export const commandSchema = v.variant("type", [
     account: v.optional(v.strictObject({ username: v.pipe(v.string(), v.maxLength(4096)) })),
     /** The recipe's account switch, clicked when the page shows another account. */
     accountSwitch: v.optional(loginTargetSchema),
+    /**
+     * With a `totp` handler's code fill (ADR 0027): the button that submits the code. The
+     * fill then watches for the page submitting the code by itself before it answers.
+     */
+    code: v.optional(v.strictObject({ submit: loginTargetSchema })),
   }),
   v.strictObject({
     version: v.literal(1),
@@ -156,6 +169,8 @@ export const executionResultSchema = v.strictObject({
    * `value-mismatch`: a value does not fit its input, and nothing was filled.
    * `fill-rejected`: after a preparing fill the page marked a filled input invalid or
    * showed a new alert (ADR 0010).
+   * `submitted`: after a `totp` handler's code fill the page showed that it submits the
+   * code by itself (ADR 0027); nothing was clicked.
    */
   reason: v.optional(
     v.picklist([
@@ -165,6 +180,7 @@ export const executionResultSchema = v.strictObject({
       "wrong-account",
       "value-mismatch",
       "fill-rejected",
+      "submitted",
     ]),
   ),
   /**
@@ -184,7 +200,10 @@ export const extractResultSchema = v.variant("ok", [
 ]);
 export const observationSchema = v.strictObject({
   path: v.string(),
-  targets: v.pipe(v.array(v.picklist(["missing", "unique", "ambiguous"])), v.maxLength(24)),
+  targets: v.pipe(
+    v.array(v.picklist(["missing", "unique", "ambiguous", "unusable"])),
+    v.maxLength(24),
+  ),
 });
 export const configureSchema = v.strictObject({
   version: v.literal(1),
@@ -217,6 +236,11 @@ export const configureSchema = v.strictObject({
    * passkey, so this stands in for the vault search; no key is created or used.
    */
   passkey: v.optional(v.picklist(["discoverable", "second-factor"])),
+  /**
+   * Probe-only TOTP fact for the synthetic item (ADR 0027): its synthetic `totp` field then
+   * counts as holding a TOTP secret. The field's value is a fixed synthetic code.
+   */
+  totp: v.optional(v.literal(true)),
 });
 export const statusSchema = v.strictObject({
   version: v.literal(1),

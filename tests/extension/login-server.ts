@@ -92,6 +92,24 @@ export async function startLoginFixture(
       });
       return;
     }
+    if (path === "/totp-verify") {
+      // A slow code verification (ADR 0027): the code page stays until the answer arrives.
+      const to = fixtureUrl.searchParams.get("to");
+      setTimeout(() => {
+        response.writeHead(302, {
+          // Only fixed locations, never the query's own value.
+          location:
+            to === "/authenticated"
+              ? "/authenticated"
+              : to === "/totp-code?wrong"
+                ? "/totp-code?wrong"
+                : "/totp-code",
+          "cache-control": "no-store",
+        });
+        response.end();
+      }, 1200);
+      return;
+    }
     response.writeHead(200, {
       "content-type": "text/html; charset=utf-8",
       "cache-control": "no-store",
@@ -222,6 +240,119 @@ export async function startLoginFixture(
           sessionStorage.setItem('passkeyClicks', String(Number(sessionStorage.getItem('passkeyClicks') || 0) + 1));
           ${stay ? "location.reload();" : "setTimeout(() => { document.getElementById('app').innerHTML = '<p id=\"authenticated\">Authenticated</p>'; }, 250);"}
         });`,
+        ),
+      );
+    } else if (path === "/totp") {
+      // Only the known flags go on, never the query as written.
+      const flags = new URLSearchParams();
+      for (const flag of ["wrong", "auto", "slow"])
+        if (fixtureUrl.searchParams.has(flag)) flags.set(flag, "");
+      const spa = fixtureUrl.searchParams.get("spa");
+      if (spa === "status" || spa === "replace") flags.set("spa", spa);
+      const ui = fixtureUrl.searchParams.get("ui");
+      if (
+        ui === "disabled" ||
+        ui === "rerender" ||
+        ui === "counter" ||
+        ui === "disauto" ||
+        ui === "flicker"
+      )
+        flags.set("ui", ui);
+      const next = flags.size === 0 ? "/totp-code" : `/totp-code?${flags.toString()}`;
+      // A password page followed by an authenticator app code page (ADR 0027). The query
+      // goes on to the code page: `?wrong` shows it again after Verify, `?auto` submits the
+      // code by itself on its sixth digit, as some sites do. With `?auto`, `slow` verifies
+      // it for 1.2 seconds before the next document loads, `spa=status` says "Verifying…"
+      // in the form and disables Verify for that long and `spa=replace` renders the form
+      // again as verifying, before both sign in without a new document. Without `?auto`,
+      // `ui` makes an ordinary page that only Verify submits: `disabled` keeps Verify
+      // disabled until six digits are in, `rerender` replaces it on every input, and
+      // `counter` counts the digits in a polite live region. `ui=disauto` keeps Verify
+      // disabled and checks the code itself on its sixth digit for a second; a right code
+      // signs in, a wrong one (`wrong`) enables Verify again for another code. `ui=flicker`
+      // does the same after enabling Verify for 5 ms, as a page whose Verify is disabled
+      // while the code is short or while it checks the code does.
+      response.end(
+        html(
+          '<h1>Synthetic sign-in with a code</h1><label>Password<input id="password" type="password"></label><button id="login" type="button">Log in</button>',
+          `document.getElementById('login').addEventListener('click', () => {
+          sessionStorage.setItem('submitClicks', String(Number(sessionStorage.getItem('submitClicks') || 0) + 1));
+          sessionStorage.setItem('identityMatched', 'true');
+          sessionStorage.setItem('passwordMatched', String(document.getElementById('password').value === ${JSON.stringify(password)}));
+          location.href = ${JSON.stringify(next)};
+        });`,
+        ),
+      );
+    } else if (path === "/totp-code") {
+      // Records how often the code was typed, submitted by the page and Verify clicked, and
+      // whether the code was the synthetic one; never the code itself.
+      const auto = fixtureUrl.searchParams.has("auto");
+      const slow = fixtureUrl.searchParams.has("slow");
+      const spa = fixtureUrl.searchParams.get("spa");
+      const ui = fixtureUrl.searchParams.get("ui");
+      const again = fixtureUrl.searchParams.has("wrong") ? "/totp-code?wrong" : "/totp-code";
+      response.end(
+        html(
+          `<h1>Two-factor authentication</h1><p>Enter the code from your authenticator app.</p><form id="code-form"><label>Authentication code<input id="code" autocomplete="one-time-code" inputmode="numeric" maxlength="6"></label><button id="verify" type="button"${ui === "disabled" || ui === "disauto" || ui === "flicker" ? " disabled" : ""}>Verify</button><p role="status" id="code-status"></p>${ui === "counter" ? '<p id="code-counter" aria-live="polite"></p>' : ""}</form>`,
+          `const code = document.getElementById('code');
+          function count(name) {
+            sessionStorage.setItem(name, String(Number(sessionStorage.getItem(name) || 0) + 1));
+          }
+          function submitCode(source) {
+            count(source);
+            count('codeSubmits');
+            sessionStorage.setItem('codeMatched', String(code.value === '012345'));
+            const signedIn = code.value === '012345' && ${JSON.stringify(again)} === '/totp-code';
+            ${
+              spa
+                ? `${
+                    spa === "replace"
+                      ? `document.getElementById('code-form').innerHTML = '<input id="code" autocomplete="one-time-code" inputmode="numeric" maxlength="6" disabled><button id="verify" type="button" disabled>Verify</button><p>Verifying…</p>';`
+                      : `document.getElementById('code-status').textContent = 'Verifying…';
+                        document.getElementById('verify').disabled = true;`
+                  }
+                setTimeout(() => {
+                  history.pushState({}, '', '/authenticated');
+                  document.body.innerHTML = signedIn
+                    ? '<h2 id="authenticated">Authenticated synthetic account</h2>'
+                    : '<h2 id="rejected">Code rejected</h2>';
+                }, 1200);`
+                : `location.href = ${slow ? "'/totp-verify?to=' + encodeURIComponent(signedIn ? '/authenticated' : " + JSON.stringify(again) + ")" : `signedIn ? '/authenticated' : ${JSON.stringify(again)}`};`
+            }
+          }
+          function wire(button) {
+            button.addEventListener('click', () => submitCode('verifyClicks'));
+          }
+          code.addEventListener('input', () => {
+            count('codeInputs');
+            ${ui === "disabled" ? "document.getElementById('verify').disabled = code.value.length !== 6;" : ""}
+            ${ui === "rerender" ? "const old = document.getElementById('verify'); const button = old.cloneNode(true); old.replaceWith(button); wire(button);" : ""}
+            ${ui === "counter" ? "document.getElementById('code-counter').textContent = code.value.length + ' of 6 digits';" : ""}
+            ${auto ? "if (code.value.length === 6) submitCode('autoSubmits');" : ""}
+            ${
+              ui === "disauto" || ui === "flicker"
+                ? `if (code.value.length === 6) {
+                ${
+                  ui === "flicker"
+                    ? `Promise.resolve().then(() => {
+                  document.getElementById('verify').disabled = false;
+                  setTimeout(() => { document.getElementById('verify').disabled = true; }, 5);
+                });`
+                    : ""
+                }
+                count('autoSubmits');
+                count('codeSubmits');
+                sessionStorage.setItem('codeMatched', String(code.value === '012345'));
+                const signedIn = code.value === '012345' && ${JSON.stringify(again)} === '/totp-code';
+                setTimeout(() => {
+                  if (signedIn) location.href = '/authenticated';
+                  else document.getElementById('verify').disabled = false;
+                }, 1000);
+              }`
+                : ""
+            }
+          });
+          wire(document.getElementById('verify'));`,
         ),
       );
     } else if (path === "/password") {

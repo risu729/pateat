@@ -543,17 +543,41 @@ variant's reason as the logged refusal's detail. A running or resumed login chec
 its recorded variant and never reads the facts again
 ([ADR 0027](adr/0027-per-account-login-routes.md#implementation-choices)). After each
 effect step the executor checks the completion, the rejection and the plan's next step,
-then the recipe's handlers on the page's path: a handler whose first element is unique
-is entered once per login, its steps follow the effect step and grow the attempt's step
-and submission budget (at most 4 handlers, 40 steps and 12 submissions). The `passkey`
-handler clicks a button such as "Use security key" only for an item with a usable
-passkey; otherwise, and when a handler's page shows again after it ran, the attempt ends
-`challenge`. While a handler's or the `passkey` route's clicked button still shows in
-the document that clicked it, the page is neither judged nor settled for up to two
-minutes; then it ends `challenge`. A new document of the tab that shows the button of a
-handler that already ran, or the `passkey` route's button again, ends `challenge` at
-once. When the result settles, a page no check explains is sent to be judged unless it
-still shows a fill field of any of the route's variants on a route path or the
+then the recipe's handlers on the page's path. A handler that has not run is entered
+once per login when all its elements are unique and usable: its code field a shown
+writable input, its button shown, enabled or not, since many code pages enable Verify
+only once the code is typed (the click step waits for it to be enabled). Its steps
+follow the effect step and grow the attempt's step and submission budget (at most 4
+handlers, 40 steps and 12 submissions). A `totp` handler whose button is also a route
+step's on that path is entered only while none of the route's fill fields there shows. A
+handler that already ran counts as shown again when its elements are present at all,
+hidden or disabled. The `passkey` handler clicks a button such as "Use security key"
+only for an item with a usable passkey. The `totp` handler fills a code from the item's
+built-in TOTP field into its code field under the TOTP fill rule and clicks its button
+once; it needs the TOTP fact and that field allowed for the account, and a binding that
+names another field for the code ends `challenge`, since Pateat cannot make a code from
+a custom field yet. When several handlers show, the first that qualifies is entered, a
+`passkey` handler before a `totp` handler; one is passed over when it already ran, the
+item lacks its fact, or, for a `totp` handler, the login already types a TOTP code
+(`code-used`), since a login types at most one code. When every shown handler is passed
+over, the attempt ends `challenge`. After the code goes in, the content script watches
+the page for 2 seconds before the click: a submit event, the document unloading or
+navigating, the field or form disabled, removed or replaced, the field cleared, the
+button gone, hidden, busy, disabled after it was enabled or still disabled half a second
+after the code went in, or a new busy indicator in the form each mean the page submitted
+the code by itself. So do a page that leaves the path or shows the completion or the
+rejection without the button before the click, and a new document after the fill. Each
+counts as the handler's click (`AUTO_SUBMITTED`); the code is never filled again or
+followed by a click. A button rendered again at the same locator and a status message
+alone, such as a digit counter, are not signs, and a status message never refuses the
+code. While a handler's or the `passkey` route's clicked button, or the button of a code
+the page submitted itself, still shows in that document, the page is neither judged nor
+settled for up to two minutes; then it ends `challenge`. A new document of the tab that
+shows the `passkey` route's button again ends `challenge` at once, and so does one that
+shows a handler that already ran and no other that qualifies; a handler shown there that
+still qualifies, such as a `totp` handler beside a `passkey` handler that already ran,
+is entered. When the result settles, a page no check explains is sent to be judged
+unless it still shows a fill field of any of the route's variants on a route path or the
 completion marker (on the `passkey` route, its button or a fill field of any `password`
 variant on its path or a `password` route path); this applies to later documents of the
 tab too, while the attempt has not ended. At most 2 pages count per effect step: the
@@ -689,7 +713,7 @@ kind's check is left out and a string over 512 characters becomes `"[truncated]"
 | `service.sync` | debug for `synced`, `incomplete`, `not-connected`, `busy` unless a recipe was added, updated or removed, then info; info for `unreachable`; else warn | recipe and settings sync outcome; `full`, or `recipes` for a recipes-only run after a judged page; recipes added, updated and removed in the cache |
 | `settings.changed` | info | `synced` (a settings sync wrote local settings) or `saved` (the settings page); the settings revision when the entry is written. Running logins and passkey requests stop |
 | `login.attempt` | info for `authenticated` and `retryable`, warn for `blocked`, else debug | origin, recipe ID, route and `password` variant, state, step, step count, the current step's kind (`fill`, `click`, `wait`, `assert`) and effect (`prepare`, `advance`, `submit`), the entered handler the step belongs to, outcome; for `policy-changed`, its cause and a refused plan's reason |
-| `login.handler` | info | origin, recipe ID, handler index, kind, step count; `entered`, `shown-again` (left to the person after this login ran it), `missing-fact` (the item lacks what the handler needs) or `no-room` (the attempt's step or submission budget is spent) |
+| `login.handler` | info | origin, recipe ID, handler index, kind, step count; `entered`, `shown-again` (left to the person after this login ran it), `missing-fact` (the item lacks what the handler needs, including a `totp` handler's built-in TOTP field), `code-used` (a `totp` handler in a login that already types a TOTP code) or `no-room` (the attempt's step or submission budget is spent) |
 | `login.refused` | debug for `recipe-not-found`, `stale-document`, `generating`; else info | origin, reason; for `no-route` on a recipe with several `password` variants, the first variant's reason as its detail |
 | `recipe.generate` | info | origin, `recipe` or `none` |
 | `recipe.judge` | debug for `sent`, else info | origin, recipe ID and revision, route; `sent` when the page goes out, then the verdict (`signed-in`, `rejected`, `challenge`, `unclear`, `retry`); for `unclear` and `retry`, the transport, service or model code (for example `already-judged`, `busy`, `timeout`); for a returned revision, whether this login took it over |
