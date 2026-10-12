@@ -258,6 +258,8 @@ describe("splitCodeInputs (ADR 0027, owner decision 2026-10-12)", () => {
   it("takes inputs outside any form together, and tel or one-time-code inputs", () => {
     document.body.innerHTML = `${boxes(3, 'type="tel" maxlength="1"')}${boxes(8, 'autocomplete="one-time-code" maxlength="1"').replace(/id="d/gu, 'id="e')}`;
     expect(splitCodeInputs(first(), 6, usable)).toBeUndefined();
+    document.body.innerHTML = `${boxes(3, 'type="tel" maxlength="1"')}${boxes(3, 'autocomplete="one-time-code" maxlength="1"').replace(/id="d/gu, 'id="e')}`;
+    expect(splitCodeInputs(first(), 6, usable)).toHaveLength(6);
     document.body.innerHTML = boxes(8, 'type="tel" maxlength="1"');
     expect(splitCodeInputs(first(), 8, usable)).toHaveLength(8);
   });
@@ -276,7 +278,7 @@ describe("splitCodeInputs (ADR 0027, owner decision 2026-10-12)", () => {
   it("refuses a first input that is not the first usable one", () => {
     document.body.innerHTML = `<form>${boxes(6)}</form>`;
     const second = document.querySelector<HTMLInputElement>("#d2")!;
-    expect(splitCodeInputs(second, 5, usable)).toBeUndefined();
+    expect(splitCodeInputs(second, 6, usable)).toBeUndefined();
     expect(splitCodeInputs(first(), 6, (input) => input.id !== "d4")).toBeUndefined();
   });
 
