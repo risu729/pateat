@@ -510,7 +510,9 @@ export function createDiagnosticsLog(options: {
                     report.reason === "fill-only") ||
                   // A submit that replaced the document leaves no receiver; any other
                   // unanswered message may be a fault, so it shows without debug logging.
-                  (report.cause === "document-gone" && report.reason !== "no-receiver")
+                  (report.cause === "document-gone" && report.reason !== "no-receiver") ||
+                  // A click left to the person under a CAPTCHA explains a later challenge.
+                  report.cause === "captcha-shown"
                 ? "info"
                 : report.state === "blocked" || report.state === "watching" || report.settled
                   ? "warn"

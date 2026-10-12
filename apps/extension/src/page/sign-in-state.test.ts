@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { pageSigns, submittedPage } from "./sign-in-state";
+import { pageSigns, passedCaptcha, submittedPage } from "./sign-in-state";
 
 afterEach(() => {
   document.body.innerHTML = "";
@@ -54,6 +54,17 @@ describe("pageSigns", () => {
       document.body.innerHTML = html;
       expect(pageSigns(document), html).toEqual(none);
     }
+  });
+
+  it("tells a CAPTCHA that passed by its service's token field", () => {
+    for (const name of ["g-recaptcha-response", "h-captcha-response", "cf-turnstile-response"]) {
+      document.body.innerHTML = `<textarea name="${name}"></textarea>`;
+      expect(passedCaptcha(document), name).toBe(false);
+      document.body.innerHTML = `<input type="hidden" name="${name}" value="token">`;
+      expect(passedCaptcha(document), name).toBe(true);
+    }
+    document.body.innerHTML = '<input type="hidden" name="captcha" value="token">';
+    expect(passedCaptcha(document)).toBe(false);
   });
 
   it("reads new invalid marks and alerts only against the submitted document", () => {

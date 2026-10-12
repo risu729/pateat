@@ -506,6 +506,12 @@ export async function startLoginFixture(
             fixtureUrl.searchParams.has("ad")
               ? '<iframe id="ad" title="Synthetic advertisement" src="/ad"></iframe>'
               : ""
+          }${
+            // `?captcha` shows a CAPTCHA widget's frame beside the form; the test serves its
+            // address, so no request leaves the test browser.
+            fixtureUrl.searchParams.has("captcha")
+              ? '<iframe id="captcha" title="Synthetic CAPTCHA" src="https://www.google.com/recaptcha/api2/anchor?k=synthetic" width="304" height="78"></iframe>'
+              : ""
           }`,
           `${
             // `?reject-fill` makes the page's own input handler reject any value: with a new

@@ -534,7 +534,9 @@ still open on 2026-10-11.
   has no Japanese address model, and no widely used extension covers them. It recommends
   Japanese forms as the first candidate if identity filling is designed later (not
   decided).
-- CAPTCHA solving is out of scope because it is heavy (owner, 2026-10-12 05:35 UTC). The
+- CAPTCHA solving is out of scope because it is heavy (owner, 2026-10-12 05:35 UTC). A
+  login page that shows a CAPTCHA is filled and its button left to the person (owner,
+  2026-10-12 20:23 UTC, [ADR 0029](adr/0029-local-sign-in-state.md)). The
   [survey](research/2026-10-12-captcha-solving-landscape.md) records the existing
   approaches (paid solver services, audio speech-to-text, object detection, LLM agents,
   and ways to avoid the challenge such as Private Access Tokens) and their reported

@@ -1174,7 +1174,8 @@ type PolicyChange = { cause: PolicyChangeCause; reason?: string };
  * page did not answer or its answer failed its check (`no-answer`), a code page said it
  * submitted the code itself but no check confirmed it (`page-submitted`), the document
  * could not be reached, as when a submit replaced it (`document-gone`), the login's item
- * could not answer its page's own passkey request (`answer-failed`, ADR 0034), or the
+ * could not answer its page's own passkey request (`answer-failed`, ADR 0034), the page
+ * showed a CAPTCHA, so its click was left to the person (`captcha-shown`, ADR 0029), or the
  * page's own reason (`ExecutionDetail`).
  */
 export type StopCause =
@@ -1187,6 +1188,7 @@ export type StopCause =
   | "no-answer"
   | "page-submitted"
   | "document-gone"
+  | "captcha-shown"
   | ExecutionDetail;
 
 /**
@@ -4438,10 +4440,16 @@ export function createLoginRuntime(
         result.success &&
         result.output.operationId === operation.operationId &&
         result.output.documentId === run.live.document.documentId;
+      // A click left to the person under a CAPTCHA is then observed as Pateat's own click.
+      const leftToPerson =
+        matchedResult &&
+        !result.output.ok &&
+        result.output.reason === "captcha" &&
+        operation.step.kind === "click";
       // Without the measurement the advance can only be confirmed on another path.
       if (
         matchedResult &&
-        result.output.ok &&
+        (result.output.ok || leftToPerson) &&
         inPlace &&
         result.output.before?.length === inPlace.targets.length
       )
@@ -4512,6 +4520,21 @@ export function createLoginRuntime(
         (await codeSubmitted(run))
       )
         continue;
+      if (leftToPerson) {
+        await change(
+          run,
+          { type: "SUBMITTED", operationId: operation.operationId },
+          undefined,
+          "captcha-shown",
+        );
+        // Its button is held until the person presses it or the hold ends (ADR 0029, S4),
+        // and a rejection the page already showed is not taken as the person's.
+        run.heldClick = operation.stepIndex;
+        run.staleRejection = true;
+        await reconcileBounded(run);
+        if (run.metadata.state !== "ready") return;
+        continue;
+      }
       if (!matchedResult || !result.output.ok) {
         await change(
           run,

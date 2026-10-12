@@ -362,6 +362,8 @@ export const executionResultSchema = v.strictObject({
    * showed a new alert (ADR 0010).
    * `submitted`: after a `totp` handler's code fill the page showed that it submits the
    * code by itself (ADR 0027); nothing was clicked.
+   * `captcha`: the page showed a CAPTCHA before a click, so the click was left to the
+   * person (ADR 0029, S4); nothing was clicked.
    */
   reason: v.optional(
     v.picklist([
@@ -372,6 +374,7 @@ export const executionResultSchema = v.strictObject({
       "value-mismatch",
       "fill-rejected",
       "submitted",
+      "captcha",
     ]),
   ),
   /**

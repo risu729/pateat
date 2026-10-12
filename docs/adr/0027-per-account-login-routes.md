@@ -394,7 +394,10 @@ new owner decision:
   neither judged nor settled for up to two minutes, then the login ends `challenge`.
   This applies to a handler's click too. A new document of the tab that shows the
   button again on its path, as after a reload back to the start page, ends `challenge`
-  at once; the button is never clicked again or judged.
+  at once; the button is never clicked again or judged. A click left to the person
+  because a CAPTCHA shows is held the same way while its button shows in that document
+  ([ADR 0029](0029-local-sign-in-state.md), S4); a new document, or the same one after a
+  worker restart, is read as after Pateat's own click.
   The hold lives in the service worker's memory, so a worker restart during the hold
   treats the same document as a new one and ends `challenge`; a click whose delivery
   failed while the button still shows also ends `challenge`. Both fail closed.
