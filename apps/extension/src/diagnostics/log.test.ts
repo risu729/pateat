@@ -236,14 +236,14 @@ describe("diagnostics log", () => {
     expect(after).not.toBe(before);
   });
 
-  it("summarizes the size and the errors of the last 24 hours", async () => {
+  it("summarizes the size and the errors and warnings of the last 24 hours", async () => {
     const { logger, advance } = setup();
     await logger.log("error.unhandled", { name: "TypeError" });
     advance(25 * 60 * 60 * 1000);
     await logger.log("error.unhandled", { name: "TypeError" });
     await logger.log("service.sync", { outcome: "rejected" }, { level: "warn" });
     const summary = await logger.summary();
-    expect(summary).toMatchObject({ entries: 3, recentErrors: 1 });
+    expect(summary).toMatchObject({ entries: 3, recentErrors: 1, recentWarnings: 1 });
     expect(summary.bytes).toBeGreaterThan(0);
   });
 });
@@ -720,6 +720,46 @@ describe("unhandled errors", () => {
         { origin: recipeOrigin, reason: "no-route", detail: "binding-not-found" },
       ],
     ]);
+    vi.restoreAllMocks();
+  });
+
+  it("warns for a login that settled as unknown and keeps a held tab's frames quiet", async () => {
+    const log = createDiagnosticsLog({
+      build: { version: "0.1.0", revision: "1c42ad3" },
+      settings: async () => {
+        throw new Error("not needed");
+      },
+      recipeCache: async () => undefined,
+      connections: async () => ({ ok: true, kind: "status", connections: [] }),
+      databaseName: `log-test-${crypto.randomUUID()}`,
+      scope: { addEventListener: () => undefined } as never,
+    });
+    for (const level of ["debug", "info", "warn"] as const)
+      vi.spyOn(console, level).mockImplementation(() => undefined);
+    await log.logger.enableDebug();
+    const site = { tabId: 4, origin: "https://login.example" };
+    log.login({
+      type: "attempt",
+      ...site,
+      recipeId: "synthetic-recipe",
+      route: "password",
+      state: "reconciling",
+      stepIndex: 1,
+      stepCount: 2,
+      outcome: "unknown-submit",
+      settled: true,
+    });
+    log.login({ type: "refused", ...site, reason: "tab-busy", frame: true });
+    log.login({ type: "refused", ...site, reason: "tab-busy" });
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(4));
+    const entries = (await log.logger.entries()).filter((entry) => entry.event !== "log.debug");
+    expect(entries.map((entry) => [entry.event, entry.level, entry.fields["settled"]])).toEqual([
+      ["login.attempt", "warn", true],
+      ["login.refused", "debug", undefined],
+      ["login.refused", "info", undefined],
+    ]);
+    expect(entries[1]?.fields).toMatchObject({ reason: "tab-busy", frame: true });
+    expect((await log.logger.summary()).recentWarnings).toBe(1);
     vi.restoreAllMocks();
   });
 

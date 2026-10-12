@@ -135,7 +135,7 @@ function dependencies(overrides: Partial<DiagnosticsDependencies> = {}): Diagnos
         siteDefaults: [],
         bindings: [],
       }) as never,
-    logs: async () => ({ entries: 120, bytes: 18_000, recentErrors: 2 }),
+    logs: async () => ({ entries: 120, bytes: 18_000, recentErrors: 2, recentWarnings: 3 }),
     recentLog: async () => ({
       problems: [
         "2026-10-11T09:20Z warn login.attempt site-1 recipe-1 blocked structural-mismatch",
@@ -208,7 +208,12 @@ describe("diagnostics status", () => {
       level: "warn",
       detail: "clock 95 s behind the service",
     });
-    expect(status.logs).toEqual({ entries: 120, bytes: 18_000, recentErrors: 2 });
+    expect(status.logs).toEqual({
+      entries: 120,
+      bytes: 18_000,
+      recentErrors: 2,
+      recentWarnings: 3,
+    });
     expect(status.checks).toContainEqual({
       id: `vault-age:${connection!.id}`,
       level: "info",
@@ -217,7 +222,7 @@ describe("diagnostics status", () => {
     expect(status.checks).toContainEqual({
       id: "logs",
       level: "warn",
-      detail: "2 errors logged in the last 24 h",
+      detail: "2 errors, 3 warnings logged in the last 24 h",
     });
     const [url, init] = vi.mocked(deps.fetch).mock.calls[0] ?? [];
     expect(String(url)).toBe(`${SERVICE_ORIGIN}/health`);
@@ -487,6 +492,17 @@ describe("diagnostics status", () => {
       id: "logs",
       level: "error",
       detail: "logs unreadable",
+    });
+    // A login that did not finish is a warning, so the summary does not read as all clear.
+    const warned = await collectDiagnostics(
+      dependencies({
+        logs: async () => ({ entries: 9, bytes: 900, recentErrors: 0, recentWarnings: 1 }),
+      }),
+    );
+    expect(warned.checks).toContainEqual({
+      id: "logs",
+      level: "info",
+      detail: "0 errors, 1 warning logged in the last 24 h",
     });
     expect(unpaired.checks).toContainEqual({
       id: "service",

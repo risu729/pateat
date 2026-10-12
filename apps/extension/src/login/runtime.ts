@@ -486,12 +486,16 @@ export type LoginReport =
       /** For a `policy-changed` outcome: its cause, and a refused plan's reason. */
       cause?: PolicyChangeCause;
       reason?: string;
+      /** The result of the current effect step just settled as unknown (`unknown-submit`). */
+      settled?: true;
     }
   | {
       type: "refused";
       tabId: number;
       origin: string;
       reason: string;
+      /** The refused document is a frame, not the tab's page. */
+      frame?: true;
       /**
        * For `no-route` on a recipe with several password variants: why its first variant
        * did not fit, such as `binding-not-found` (ADR 0027).
@@ -591,6 +595,7 @@ export function createLoginRuntime(
     metadata: LoginAttemptMetadata,
     recipe: LoginRecipe | undefined,
     policy?: PolicyChange,
+    settled?: true,
   ) => {
     // Handler steps sit inside the plan, so the plan names the handler a step belongs to.
     const handler =
@@ -612,6 +617,7 @@ export function createLoginRuntime(
       ...(handler === undefined ? {} : { handler }),
       ...(metadata.outcome ? { outcome: metadata.outcome } : {}),
       ...(policy && metadata.outcome === "policy-changed" ? policy : {}),
+      ...(settled ? { settled } : {}),
     });
   };
   let origin = DEFAULT_PROBE_ORIGIN;
@@ -1023,7 +1029,9 @@ export function createLoginRuntime(
       run.metadata,
       undelivered ? { type: "POLICY_CHANGED", undelivered } : event,
     );
-    if (run.metadata.state !== previous.state)
+    // Settling as unknown keeps the state, but it is how a login ends without a result.
+    const settled = run.metadata.settled === true && previous.settled !== true ? true : undefined;
+    if (run.metadata.state !== previous.state || settled)
       // The log still names the step that was withdrawn.
       reportAttempt(
         undelivered
@@ -1035,6 +1043,7 @@ export function createLoginRuntime(
           : run.metadata,
         run.recipe,
         policy,
+        settled,
       );
     if (
       import.meta.env.MODE === "probe" &&
@@ -2996,6 +3005,7 @@ export function createLoginRuntime(
         origin: document.origin,
         reason,
         ...(detail ? { detail } : {}),
+        ...(document.frameId === 0 ? {} : { frame: true as const }),
       });
       live.state = "denied";
       live.reason = reason;

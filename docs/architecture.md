@@ -678,7 +678,8 @@ that exact page URL and returns a value-free summary
   generation (info without Claude credentials, warn when the issuer is missing or a
   spend limit is reached), whether the cached recipes and settings revision match the
   service (info when they differ, since the next sync catches up), a recipe sync
-  older than 24 hours and errors logged in the last 24 hours. Reworded states keep the
+  older than 24 hours and the errors and warnings logged in the last 24 hours (warn when
+there is an error, info for warnings only). Reworded states keep the
   raw code in parentheses.
 
 The worker fetches `/health` only for a paired service with site access, and
@@ -720,9 +721,9 @@ kind's check is left out and a string over 512 characters becomes `"[truncated]"
 | `vault.sync` | info for a result and for `cancelled`, else warn | connection pseudonym, the settings-page Sync's result kind or error code, and the account mismatch check when there is one |
 | `service.sync` | debug for `synced`, `incomplete`, `not-connected`, `busy` unless a recipe was added, updated or removed, then info; info for `unreachable`; else warn | recipe and settings sync outcome; `full`, or `recipes` for a recipes-only run after a judged page; recipes added, updated and removed in the cache |
 | `settings.changed` | info | `synced` (a settings sync wrote local settings) or `saved` (the settings page); the settings revision when the entry is written. Running logins and passkey requests stop |
-| `login.attempt` | info for `authenticated` and `retryable`, warn for `blocked`, else debug | origin, recipe ID, route and `password` variant, state, step, step count, the current step's kind (`fill`, `click`, `wait`, `assert`) and effect (`prepare`, `advance`, `submit`), the entered handler the step belongs to, outcome; for `policy-changed`, its cause and a refused plan's reason |
+| `login.attempt` | info for `authenticated` and `retryable`; warn for `blocked` and when the result settles as unknown (`unknown-submit`, marked `settled`), so a login that did not finish counts as a warning; else debug | origin, recipe ID, route and `password` variant, state, step, step count, the current step's kind (`fill`, `click`, `wait`, `assert`) and effect (`prepare`, `advance`, `submit`), the entered handler the step belongs to, outcome; for `policy-changed`, its cause and a refused plan's reason |
 | `login.handler` | info | origin, recipe ID, handler index, kind, step count; `entered`, `shown-again` (left to the person after this login ran it), `missing-fact` (the item lacks what the handler needs, including a `totp` handler's built-in TOTP field), `code-used` (a `totp` handler in a login that already types a TOTP code) or `no-room` (the attempt's step or submission budget is spent) |
-| `login.refused` | debug for `recipe-not-found`, `stale-document`, `generating`; else info | origin, reason; for `no-route` on a recipe with several `password` variants, the first variant's reason as its detail |
+| `login.refused` | debug for `recipe-not-found`, `stale-document`, `generating`, and `tab-busy` in a frame (a held tab refuses every frame on its page, such as ad frames); else info | origin, reason, `frame` for a frame; for `no-route` on a recipe with several `password` variants, the first variant's reason as its detail |
 | `recipe.generate` | info | origin, `recipe` or `none` |
 | `recipe.judge` | debug for `sent`, else info | origin, recipe ID and revision, route; `sent` when the page goes out, then the verdict (`signed-in`, `rejected`, `challenge`, `unclear`, `retry`); for `unclear` and `retry`, the transport, service or model code (for example `already-judged`, `busy`, `timeout`); for a returned revision, whether this login took it over |
 | `passkey.request` | info | the passkey report described in [development](development.md#why-a-passkey-request-was-delegated) |

@@ -37,6 +37,11 @@ export function syncSignIn(state: DiagnosticsConnection["providerSession"]): str
   }
 }
 
+/** `0 errors, 3 warnings`: the log's problems in its last 24 hours. */
+export function problemCounts(logs: { recentErrors: number; recentWarnings: number }): string {
+  return `${plural(logs.recentErrors, "error")}, ${plural(logs.recentWarnings, "warning")}`;
+}
+
 /** `1 recipe`, `2 recipes`: a count with its English noun. */
 export function plural(value: number, noun: string, nouns = `${noun}s`): string {
   return `${value} ${value === 1 ? noun : nouns}`;

@@ -14,6 +14,7 @@ import {
   deviceFailureLabel,
   generationLabel,
   plural,
+  problemCounts,
   serverLabel,
   syncSignIn,
 } from "./labels";
@@ -517,13 +518,13 @@ export async function collectDiagnostics(
     ...serviceChecks(serviceStatus, collectedAt),
     !logs
       ? { id: "logs", level: "error", detail: "logs unreadable" }
-      : logs.recentErrors > 0
+      : logs.recentErrors + logs.recentWarnings > 0
         ? {
             id: "logs",
-            level: "warn",
-            detail: `${plural(logs.recentErrors, "error")} logged in the last 24 h`,
+            level: logs.recentErrors > 0 ? "warn" : "info",
+            detail: `${problemCounts(logs)} logged in the last 24 h`,
           }
-        : { id: "logs", level: "ok", detail: "no errors logged in the last 24 h" },
+        : { id: "logs", level: "ok", detail: "no errors or warnings logged in the last 24 h" },
   ];
   return {
     version: 1,

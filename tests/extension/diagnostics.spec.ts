@@ -57,7 +57,9 @@ test("production diagnostics show the build, checks and a value-free bug report"
     );
     expect(report).toContain("Permissions: alarms, storage, offscreen, https://*/*");
     expect(report).toContain("Pateat service: not-configured");
-    expect(report).toMatch(/\nLogs: \d+ entr(?:y|ies) \(\d+ KB\), 0 errors in 24 h\n/u);
+    expect(report).toMatch(
+      /\nLogs: \d+ entr(?:y|ies) \(\d+ KB\), 0 errors, \d+ warnings? in 24 h\n/u,
+    );
 
     // Debug logging, the exact saved text, and clearing.
     await page.getByRole("button", { name: "Enable debug logging for 24 hours" }).click();
