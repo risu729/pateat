@@ -113,7 +113,11 @@ test("shows every panel's facts, with the build mode and no separators", async (
   await expect.element(page.getByText("PBKDF2-SHA256 600000")).toBeVisible();
   await expect.element(page.getByText("14 days")).toBeVisible();
   await expect
-    .element(page.getByText("No passwords, keys, field values, names or emails"))
+    .element(
+      page.getByText(
+        "No passwords, keys, field values, names or emails are shown, copied or saved",
+      ),
+    )
     .toBeVisible();
   // The privacy warning stays above the download.
   await expect

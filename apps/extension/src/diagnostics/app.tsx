@@ -394,8 +394,8 @@ function Logs({
         <Row term="Entries" id="diagnostics-logs">
           {logs ? `${logs.entries} (${Math.ceil(logs.bytes / 1024)} KB)` : "unreadable"}
         </Row>
-        {logs && <Row term="Last 24 h">{problemCounts(logs)}</Row>}
-        <Row term="Kept for">{LOG_RETENTION_MS / DAY_MS} days</Row>
+        {logs && <Row term="Problems in the last 24 h">{problemCounts(logs)}</Row>}
+        <Row term="Kept on this device">{LOG_RETENTION_MS / DAY_MS} days</Row>
       </dl>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <span id="diagnostics-debug">
@@ -554,7 +554,7 @@ export function DiagnosticsApp({ client }: { client: DiagnosticsClient }) {
             aria-label="Refresh"
             title="Refresh"
             disabled={state.kind === "loading"}
-            className="inline-flex size-10 items-center justify-center rounded-lg text-ink-muted hover:bg-surface-sunken disabled:opacity-50"
+            className="inline-flex size-10 items-center justify-center rounded-lg text-ink-muted hover:bg-surface-sunken disabled:opacity-50 disabled:hover:bg-transparent"
             onClick={refresh}
           >
             <RefreshCw aria-hidden size={16} strokeWidth={2} />
@@ -574,7 +574,7 @@ export function DiagnosticsApp({ client }: { client: DiagnosticsClient }) {
         </div>
         <p className="m-0 flex items-center gap-1.5 text-[13px]/5 text-ink-muted">
           <Lock aria-hidden size={14} strokeWidth={2} className="shrink-0" />
-          No passwords, keys, field values, names or emails
+          No passwords, keys, field values, names or emails are shown, copied or saved
         </p>
       </header>
       <output id="diagnostics-status" className="block empty:absolute" aria-live="polite">
