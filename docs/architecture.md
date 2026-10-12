@@ -670,41 +670,45 @@ device, or a request that failed before the model). Permanent refusals such as
 rate limit, a timeout and an unexpected answer, which may follow a model call; so a
 settled login sends at most 2 counted pages per effect step plus retries after temporary
 refusals. A page whose description is incomplete, failed or of another path is not sent
-and does not count. A handler's click is a new effect step. A `challenge` verdict that
-added a handler hands back the newer revision: the attempt takes it over (`REVISED`)
-when it only adds handlers or signed-in markers, and runs the handler on the page it is
-on. A resumed attempt accepts a newer cached revision on the same terms only while the
-worker still holds its recorded revision; after a worker restart only the recorded
-revision resumes. What the judge answers settles the login on the `password` route as
-the ADR's outcome table says: `signed-in` completes it, `rejected` ends it
-`credential-rejected`, and `challenge` ends it `challenge`. An `unclear` answer
-completes it, as a warning marked `completed`, only when the page confirmed no sign and
-no evidence (S1 to S5, E1 to E3) before the request and still shows none in the loaded
-document after the answer, the login is not watched, and the model abstained or the
-service answered `already-judged`, `judgement-limit`, `daily-limit` or `monthly-limit`.
-An `unclear` answer on a page with a confirmed sign of another sign-in step (S2 to S5),
-or the service's `judged-challenge` for a path judged `challenge` before in the
-revision, ends it `challenge`. Anything else, including the service's `judged-rejected`
-for a path judged `rejected` before, its `judgement-unanswered` for a path whose earlier
-request has no verdict, and a page that was not sent, leaves it unknown. After a
-recipe's final `advance` step on its first `password` variant, a page that has loaded
-and shows, for a second on one path, a password input other than the recipe's own fields
-while the recipe fills no password, or a username or email input while the recipe fills
-no username and none of its fill fields is writable on the page, outside any form with a
-`new-password` or `one-time-code` input, is not judged: it is sent once per step to
-continue the recipe, offering only the slots the recipe does not fill yet and no custom
-field its generated slot map already names (`CONTINUING`, recorded before the request
-and given back by `UNCONTINUED` only when the generation claim is freed or the request
-was not sent, as for the first page, and not after `recipe-revoked` or
-`recipe-conflict`; the document that sent it never sends it again). The attempt takes
-the returned revision over (`CONTINUED`) when it keeps every step of the recorded one,
-only appends steps that fill none of its slots again, and a dry run of its route still
-resolves to its account; its step and submission budget grows by the appended steps and
-effects. The advance that the continued revision now follows had no next step when it
-ran, so it was measured with nothing and the takeover alone moves the login on. The
-request is kept in the worker's memory, so a later document of the login waits up to 100
-seconds for its answer. A spent or unusable request on such a page settles `unknown`
-without a judge call
+and does not count. A judged page's path carries `[id]` in place of each segment that
+may hold a token, so pages that differ only there share one judgement, its locators
+never use an attribute value that may be a token, and a field no locator names is left
+out unless it may be a sign-in field (ADR 0029); no handler is learned on a path with
+`[id]`. A page where a route's sign-in field shows (S1), on any path, is not sent. A
+handler's click is a new effect step. A `challenge` verdict that added a handler hands
+back the newer revision: the attempt takes it over (`REVISED`) when it only adds
+handlers or signed-in markers, and runs the handler on the page it is on. A resumed
+attempt accepts a newer cached revision on the same terms only while the worker still
+holds its recorded revision; after a worker restart only the recorded revision resumes.
+What the judge answers settles the login on the `password` route as the ADR's outcome
+table says: `signed-in` completes it, `rejected` ends it `credential-rejected`, and
+`challenge` ends it `challenge`. An `unclear` answer completes it, as a warning marked
+`completed`, only when the page confirmed no sign and no evidence (S1 to S5, E1 to E3)
+before the request and still shows none in the loaded document after the answer, the
+login is not watched, and the model abstained or the service answered `already-judged`,
+`judgement-limit`, `daily-limit` or `monthly-limit`. An `unclear` answer on a page with
+a confirmed sign of another sign-in step (S2 to S5), or the service's `judged-challenge`
+for a path judged `challenge` before in the revision, ends it `challenge`. Anything
+else, including the service's `judged-rejected` for a path judged `rejected` before, its
+`judgement-unanswered` for a path whose earlier request has no verdict, and a page that
+was not sent, leaves it unknown. After a recipe's final `advance` step on its first
+`password` variant, a page that has loaded and shows, for a second on one path, a
+password input other than the recipe's own fields while the recipe fills no password, or
+a username or email input while the recipe fills no username and none of its fill fields
+is writable on the page, outside any form with a `new-password` or `one-time-code`
+input, is not judged: it is sent once per step to continue the recipe, offering only the
+slots the recipe does not fill yet and no custom field its generated slot map already
+names (`CONTINUING`, recorded before the request and given back by `UNCONTINUED` only
+when the generation claim is freed or the request was not sent, as for the first page,
+and not after `recipe-revoked` or `recipe-conflict`; the document that sent it never
+sends it again). The attempt takes the returned revision over (`CONTINUED`) when it
+keeps every step of the recorded one, only appends steps that fill none of its slots
+again, and a dry run of its route still resolves to its account; its step and submission
+budget grows by the appended steps and effects. The advance that the continued revision
+now follows had no next step when it ran, so it was measured with nothing and the
+takeover alone moves the login on. The request is kept in the worker's memory, so a
+later document of the login waits up to 100 seconds for its answer. A spent or unusable
+request on such a page settles `unknown` without a judge call
 ([ADR 0018](adr/0018-recipe-generation-route.md#continuing-after-an-advance)).
 
 A top-level `password` login whose result stops at `challenge`, for any reason, or
@@ -874,7 +878,7 @@ kind's check is left out and a string over 512 characters becomes `"[truncated]"
 | `login.choice` | info | origin and whether the account a login authenticated with was saved afterwards: `saved`, `already-saved`, or why not: `account-changed`, `login-in-progress` (another login runs, and saving would stop it), `settings-unavailable` or `write-failed`; logged only when the login's site default or binding was not saved yet: an account found by URI match, one picked to become the default, or a saved default whose binding is new |
 | `login.exception` | warn | origin, recipe ID, route, the state the login was left in and its step, the exception's class name, its message only when it is a Pateat error code, and up to five of its stack positions inside the extension's own files; logged when an exception stops a running login. A document that stops answering is no exception: `login.attempt` logs it with `document-gone` |
 | `recipe.generate` | debug for `skipped` with `no-vault-match`, `not-connected`, `not-a-list` or `no-listed-account`, warn for `failed`, else info | origin, outcome (`sent` when the page goes out, then `recipe`, `abstained`, `failed`, `unavailable`, `skipped`) and its reason: the abstention, failure or unavailable code, `device-rejected`, `error` for a thrown error, or why nothing was sent (`sending`, `sent`, `no-vault-match` with a detail (`no-item`, `no-slots`, `no-connection`, `incomplete-item`, `site-excluded`, `invalid-url`), `vault-unavailable` with the vault's reason (or `settings`, `tab`, `error`), `connection-disabled` when every vault connection is turned off, `not-a-list` with why a page whose text holds an `@` is not a list of accounts (ADR 0028: `aria-hidden`, `inert`, `hidden`, `not-rendered`, `page-chrome`, `inside-control`, `no-entry`, `unread-text`, `split-address`), `no-listed-account` when no short text beside the buttons named an item (`no-name-match` when the page also shows no control to sign in with another account, or the vault's reason), `incomplete-observation`, the content script's refusal (`no-candidates` for no field or nothing in a login form to locate or act on, `no-locator` for a login form whose controls could not be located, `unsupported-page` for a refused path or a description that fails its schema, `extract-error` when the extractor threw, `cancelled` for a cancelled document), `extract-failed` for an answer that fails its check or never came, `exception` when reading the page or the vault for it threw while the page still shows, `no-slots`, `not-connected`, `storage-unavailable`, `username-unread` when a matching item's username could not be read to hide it, `username-shown` when a username shows in the page's path or a field's locator, where it cannot be hidden, for the page after a final `advance` step `scope-incomplete` while the vault match could not evaluate every item, `after-sign-in` for the tab's next page after a submitted password form when it lists accounts, offers an entry or asks for an identifier alone, and for a page offered as a site's sign-in entry `no-return-target`, `site-record`, `logged-out` and `no-entry-link` when its description lists no link); `page` (also for a page that asks for an account identifier alone, [ADR 0016](adr/0016-recipe-generation-trigger.md#pages-that-ask-for-an-identifier-alone)), `accounts` for a list of accounts (ADR 0028) or `entry` for a page sent as a site's sign-in entry (ADR 0031); for `invalid-output`, the check that refused the model's output (`json`, `schema` or `plan`), the plan check's code or the output format's issue, and for a format issue where in the output it was; a page that is not sent is logged once per document, with the last reason after up to three reads a second apart; for the page after a final `advance` step, the recipe ID and the revision it continues, and for a returned revision whether this login took it over, left out when the page that asked was left before the answer |
-| `recipe.judge` | warn for `retry` after a request that failed (any reason but `not-connected`, where nothing was sent), for an undecided answer that completed the login (`completed`, ADR 0029), and for a watched login's `unclear` or `challenge` or its `not-sent` `page-limit`, which leave it without a result (ADR 0027), else info; `unclear` stays info even with a failure code such as `timeout`, since it also covers permanent refusals such as `already-judged`, and its reason tells them apart; `sent` is logged just before the request leaves the device and is kept because it is all that is left when no answer comes | origin, recipe ID and revision, route; `sent` when the page goes out, then the verdict (`signed-in`, `rejected`, `challenge`, `unclear`, `retry`); for `unclear` and `retry`, the transport, service or model code (for example `already-judged`, `busy`, `timeout`); for a returned revision, whether this login took it over; `watched` for a page of a watched login; `completed` when the judge did not decide a page with no sign and no evidence and the login completed on it; `not-sent` when the page after an effect step is not sent to the judge, with why: the step's two pages, or the watch's, were already sent (`page-limit`), a sign-in field of the route still shows on a sign-in path (`sign-in-shown`), a signed-in marker shows but does not prove the sign-in, as more than once or beside one of its `absent` elements (`marker-shown`), a field in a shadow root (`shadow-field`), one that cannot be filled and is disabled or may be a sign-in field (`unfillable-field`: a password or email input, one with a `username`, `email`, `current-password`, `new-password` or `one-time-code` autocomplete token, or a short numeric field; other read-only, transparent or tiny fields, as a read-only date picker, are left out), one without a usable locator (`unlocated-field`), more than 48 fields (`too-many-fields`), nothing to describe (`no-candidates`), a refused path or a description that fails its schema (`unsupported-page`), an extractor that threw (`extract-error`), a response that fails its check (`invalid-page`), a cancelled login (`cancelled`), a page that changed meanwhile (`page-changed`) or could not be asked (`unreachable`), a username that could not be read to hide it (`username-unread`) or that shows where it cannot be hidden (`username-shown`), or a sign-in page after a recipe's final `advance` step, which is sent to continue the recipe instead (`continuation`) |
+| `recipe.judge` | warn for `retry` after a request that failed (any reason but `not-connected`, where nothing was sent), for an undecided answer that completed the login (`completed`, ADR 0029), and for a watched login's `unclear` or `challenge` or its `not-sent` `page-limit`, which leave it without a result (ADR 0027), else info; `unclear` stays info even with a failure code such as `timeout`, since it also covers permanent refusals such as `already-judged`, and its reason tells them apart; `sent` is logged just before the request leaves the device and is kept because it is all that is left when no answer comes | origin, recipe ID and revision, route; `sent` when the page goes out, then the verdict (`signed-in`, `rejected`, `challenge`, `unclear`, `retry`); for `unclear` and `retry`, the transport, service or model code (for example `already-judged`, `busy`, `timeout`); for a returned revision, whether this login took it over; `watched` for a page of a watched login; `completed` when the judge did not decide a page with no sign and no evidence and the login completed on it; `not-sent` when the page after an effect step is not sent to the judge, with why: the step's two pages, or the watch's, were already sent (`page-limit`), a sign-in field of the route still shows on a sign-in path (`sign-in-shown`), a signed-in marker shows but does not prove the sign-in, as more than once or beside one of its `absent` elements (`marker-shown`), a field in a shadow root (`shadow-field`), one that cannot be filled and is disabled or may be a sign-in field (`unfillable-field`: a password or email input, one with a `username`, `email`, `current-password`, `new-password` or `one-time-code` autocomplete token, or a short numeric field; other read-only, transparent or tiny fields, as a read-only date picker, are left out), one that may be a sign-in field without a usable locator, as above, except a password field of a form with two or more of them or for a new password (`unlocated-field`; other fields without one are left out), more than 48 fields (`too-many-fields`), nothing to describe (`no-candidates`), a description that fails its schema (`unsupported-page`; a path that may carry a token is sent with `[id]` instead), an extractor that threw (`extract-error`), a response that fails its check (`invalid-page`), a cancelled login (`cancelled`), a page that changed meanwhile (`page-changed`) or could not be asked (`unreachable`), a username that could not be read to hide it (`username-unread`) or that shows where it cannot be hidden (`username-shown`), or a sign-in page after a recipe's final `advance` step, which is sent to continue the recipe instead (`continuation`) |
 | `passkey.request` | info | the passkey report described in [development](development.md#why-a-passkey-request-was-delegated) |
 | `error.unhandled` | error | `error` or `rejection`, class name, message only when it is a Pateat error code, up to five `file.js:line:column` positions inside the extension |
 | `log.dropped` | warn; debug when only `debug` events were dropped | origin, the dropped event's name (`dropped`) and how many of it were dropped over the page limit |

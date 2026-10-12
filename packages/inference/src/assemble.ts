@@ -2,6 +2,7 @@ import {
   extendsRecipe,
   fillRoles,
   handlerTargets,
+  hasRedactedSegment,
   isTotpCode,
   loginEntryRecipeSchema,
   loginRecipeSchema,
@@ -248,6 +249,11 @@ export function addCompletion(
 
 export type HandlerRejection =
   | "origin-mismatch"
+  /**
+   * The page's path has a segment the extension replaced (`REDACTED_PATH_SEGMENT`), so
+   * the handler's path would never match the page.
+   */
+  | "redacted-path"
   /** The button is not a button of the judged page. */
   | "not-on-page"
   /** The button registers, adds or sets up a passkey rather than signing in with one. */
@@ -287,6 +293,7 @@ export function addHandler(
     | { kind: "totp"; field: LoginAttributeTarget; target: LoginTarget },
 ): { ok: true; recipe: LoginRecipe } | { ok: false; reason: HandlerRejection } {
   if (base.origin !== page.origin) return { ok: false, reason: "origin-mismatch" };
+  if (hasRedactedSegment(page.path)) return { ok: false, reason: "redacted-path" };
   const button = page.candidates.find(
     (candidate) => candidate.role === "button" && sameTarget(candidate.target, handler.target),
   );

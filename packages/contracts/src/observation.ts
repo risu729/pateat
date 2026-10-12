@@ -39,6 +39,16 @@ const path = v.pipe(
 const unique = (values: string[]) => new Set(values).size === values.length;
 
 /**
+ * The path segment a signed-in page's observation carries in place of one that may hold
+ * a session ID, an account ID or another token (ADR 0029), such as Cloudflare's
+ * `/<account ID>/home`, sent as `/[id]/home`.
+ */
+export const REDACTED_PATH_SEGMENT = "[id]";
+/** Whether a path has a segment the extension replaced, so it names no real page. */
+export const hasRedactedSegment = (value: string) =>
+  value.split("/").includes(REDACTED_PATH_SEGMENT);
+
+/**
  * Element roles an observation may describe. Fill roles accept a slot value; action
  * roles are clicked. Links and checkboxes are context (a reset or sign-up link), except
  * that a recipe's account switch may be a link.

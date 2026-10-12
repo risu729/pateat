@@ -1,4 +1,5 @@
 import {
+  REDACTED_PATH_SEGMENT,
   loginAutocompleteTokens,
   loginObservationSchema,
   loginTargetSchema,
@@ -224,7 +225,8 @@ function locatorIndex(document: Document): LocatorIndex {
  * would take first. Button text is used only when redaction leaves it unchanged, so a
  * locator never carries an email address or a long number. With
  * `redactAttributes` the same holds for attribute values, since a signed-in page's ids
- * and names often carry the account. With `links`, a link is located by its text too,
+ * and names often carry the account, and a value that may be a token (`tokenSegment`),
+ * such as an account ID, is skipped too. With `links`, a link is located by its text too,
  * which only an account switch uses: the text must name no other link and no button.
  */
 function locate(
@@ -235,7 +237,7 @@ function locate(
   for (const [by, attribute] of locators) {
     const value = element.getAttribute(attribute);
     if (value === null || index.get(attribute)!.get(value) !== 1) continue;
-    if (redactAttributes && observedText(value) !== value) continue;
+    if (redactAttributes && (observedText(value) !== value || tokenSegment(value))) continue;
     const target = { by, value };
     if (v.is(loginTargetSchema, target)) return target;
   }
@@ -534,37 +536,50 @@ function scrambled(run: string): boolean {
 }
 
 /**
- * True for a path that may carry a session ID or another token, which the observation
- * would send to the service and its request log. Any segment counts, as it is and
- * percent-decoded up to three times, when it holds a matrix parameter such as
+ * True for a path segment that may carry a session ID or another token, which the
+ * observation would send to the service and its request log: as it is or
+ * percent-decoded up to three times, it holds a matrix parameter such as
  * `;jsessionid=`, an ASP.NET cookieless part such as `(S(lit3py55t21z5))`, a query
  * such as Magento's base64-encoded `referer/<URL with ?SID=...>` (`?`, `&` or `=`), a
  * UUID, a run of 16 or more letters and digits that contains a digit, or a run of 16 or
  * more letters, digits, `-` and `_` that contains a digit and switches between them as
  * often as a base64url token does. Short or plain-looking tokens are missed.
  */
-function tokenPath(pathname: string): boolean {
-  return pathname.split("/").some((raw) => {
-    const forms = [raw];
-    for (let round = 0; round < 3; round += 1) {
-      try {
-        const decoded = decodeURIComponent(forms.at(-1)!);
-        if (decoded === forms.at(-1)) break;
-        forms.push(decoded);
-      } catch {
-        // A malformed escape is checked as it is.
-        break;
-      }
+function tokenSegment(raw: string): boolean {
+  const forms = [raw];
+  for (let round = 0; round < 3; round += 1) {
+    try {
+      const decoded = decodeURIComponent(forms.at(-1)!);
+      if (decoded === forms.at(-1)) break;
+      forms.push(decoded);
+    } catch {
+      // A malformed escape is checked as it is.
+      break;
     }
-    return forms.some(
-      (segment) =>
-        /[;?&=]|\([A-Z]\(/u.test(segment) ||
-        /[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}/iu.test(segment) ||
-        (segment.match(/[A-Za-z\d]{16,}/gu) ?? []).some((run) => /\d/u.test(run)) ||
-        (segment.match(/[\w-]{16,}/gu) ?? []).some((run) => /\d/u.test(run) && scrambled(run)),
-    );
-  });
+  }
+  return forms.some(
+    (segment) =>
+      /[;?&=]|\([A-Z]\(/u.test(segment) ||
+      /[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}/iu.test(segment) ||
+      (segment.match(/[A-Za-z\d]{16,}/gu) ?? []).some((run) => /\d/u.test(run)) ||
+      (segment.match(/[\w-]{16,}/gu) ?? []).some((run) => /\d/u.test(run) && scrambled(run)),
+  );
 }
+
+/** True for a path with a segment that may carry a token (`tokenSegment`). */
+const tokenPath = (pathname: string) => pathname.split("/").some(tokenSegment);
+
+/**
+ * A signed-in page's path as its observation carries it (ADR 0029): each segment that
+ * may carry a token is replaced by `REDACTED_PATH_SEGMENT`, so a page whose path names an
+ * account, such as `/<account ID>/home`, can still be judged. The judge never learns a
+ * handler on such a path, which names no real page.
+ */
+export const signedInPath = (pathname: string) =>
+  pathname
+    .split("/")
+    .map((segment) => (tokenSegment(segment) ? REDACTED_PATH_SEGMENT : segment))
+    .join("/");
 
 function language(texts: readonly string[]): LoginObservation["language"] {
   const joined = texts.join(" ").replace(/\[(?:email|masked|number)\]/gu, " ");
@@ -780,6 +795,7 @@ function observe(
   hide: (text: string) => string = (text) => text,
   accounts?: readonly string[],
   header?: string,
+  path = document.location!.pathname,
 ): ObservationResult {
   const location = document.location!;
   chosen.sort((left, right) =>
@@ -836,7 +852,7 @@ function observe(
   const parsed = v.safeParse(loginObservationSchema, {
     version: 1,
     origin: location.origin,
-    path: location.pathname,
+    path,
     language: language(texts),
     ...(title ? { title } : {}),
     ...(headings.length ? { headings } : {}),
@@ -1106,21 +1122,23 @@ function mayBeSignIn(input: HTMLInputElement): boolean {
  * then buttons and links up to the candidate limit, those in the page header or
  * navigation first (`byLandmark`), listed in document order.
  *
- * The judge refuses a page that still shows a sign-in field, so every field must be
- * described: a field that cannot be located, a field in a shadow root, or more fields than
- * the limit marks the observation incomplete, and so does a field that cannot be filled
- * when it is disabled, as a code field waiting for a timer is, or may be a sign-in field
- * (`mayBeSignIn`). A read-only, transparent or tiny field that may not, such as a hotel
- * search's read-only date picker, is left out. Buttons and links are only
- * possible markers; those past the limit or without a locator are left out. A link is
- * located by its text too, as for an account switch, and the executor looks for the
- * completion marker the same way.
+ * The judge refuses a page that still shows a sign-in field, so every field that may be
+ * one must be described: a field in a shadow root, or more fields than the limit marks
+ * the observation incomplete, and so does a field that may be a sign-in field
+ * (`mayBeSignIn`) but cannot be located, or one that cannot be filled when it is
+ * disabled, as a code field waiting for a timer is, or may be a sign-in field. A field
+ * that may not, such as a search box with no ID, a password change form's field or a
+ * hotel search's read-only date picker, is left out (owner, 2026-10-12, ADR 0029). Buttons and links are only possible
+ * markers; those past the limit or without a locator are left out. A link is located by
+ * its text too, as for an account switch, and the executor looks for the completion
+ * marker the same way. A path segment that may carry a token is sent as
+ * `REDACTED_PATH_SEGMENT` (`signedInPath`).
  */
 export function extractSignedInObservation(
   document: Document = globalThis.document,
 ): ObservationResult {
   const location = document.location;
-  if (!location || tokenPath(location.pathname)) return { ok: false, reason: "unsupported-page" };
+  if (!location) return { ok: false, reason: "unsupported-page" };
 
   const found = describeAll(document);
   // One gap is reported (a shadow-root field first); any gap makes it incomplete.
@@ -1151,7 +1169,29 @@ export function extractSignedInObservation(
     });
   const fieldsFound = located(fieldEntries);
   if (fieldsFound.length > maxCandidates) gap ??= "too-many-fields";
-  else if (fieldsFound.length < fieldEntries.length) gap ??= "unlocated-field";
+  // A field nothing can locate is left out unless it may be a sign-in field, as a search
+  // box with no ID or a password change form's fields are not (S2 of ADR 0029: a new
+  // password, or a form with two or more password fields; fields outside a form count as
+  // one form).
+  else if (
+    fieldEntries.some(
+      ({ form, draft: { element } }) =>
+        element instanceof HTMLInputElement &&
+        mayBeSignIn(element) &&
+        !(
+          element.type === "password" &&
+          (autocompleteTokens(element).includes("new-password") ||
+            fieldEntries.filter(
+              (other) =>
+                other.form === form &&
+                other.draft.element instanceof HTMLInputElement &&
+                other.draft.element.type === "password",
+            ).length >= 2)
+        ) &&
+        !fieldsFound.some((kept) => kept.draft.element === element),
+    )
+  )
+    gap ??= "unlocated-field";
   const ranked = byLandmark(located(markers));
   const chosen = [
     ...fieldsFound.slice(0, maxCandidates),
@@ -1165,6 +1205,7 @@ export function extractSignedInObservation(
     (text) => withoutNumbers(text),
     undefined,
     headerText(document),
+    signedInPath(location.pathname),
   );
   return result.ok && gap ? { ...result, gap } : result;
 }
