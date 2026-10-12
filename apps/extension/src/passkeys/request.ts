@@ -4,7 +4,9 @@ import type { PasskeyPolicy } from "./policy";
 import { resolveRpId } from "./rp-id";
 
 const MIN_CHALLENGE_BYTES = 16;
-const MAX_CHALLENGE_BYTES = 1024;
+// WebAuthn sets no upper bound. Google's sign-in asks with 2,056 bytes (2026-10-12), so this
+// takes the page's own copy limit, which still fits the reply's client data bound.
+const MAX_CHALLENGE_BYTES = 4096;
 const MAX_CREDENTIAL_ID_BYTES = 1023;
 export const MAX_ALLOW_CREDENTIALS = 64;
 
