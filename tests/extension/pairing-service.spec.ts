@@ -86,8 +86,8 @@ async function returnTo(options: Page) {
   expect(visibility).toBe("visible");
 }
 
-const managePages = (service: SyncService) =>
-  service.requests.filter((request) => request.path === "/manage");
+const signInPages = (service: SyncService) =>
+  service.requests.filter((request) => request.path === "/pair/signed-in");
 const pairRequests = (service: SyncService) =>
   service.requests.filter((request) => request.method === "POST" && request.path === "/pair");
 
@@ -142,9 +142,10 @@ test("opens the sign-in page once when signed out and pairs on Try again", async
       const signInPage = await opened;
       await expect(options.getByText(/in the new tab, then come back here/)).toBeVisible();
       await signInPage.waitForURL(`${service.origin}/cdn-cgi/access/login`);
-      // The settings page opened the service's own /manage page, which Access redirected.
-      expect(managePages(service)).toEqual([
-        { method: "GET", path: "/manage", origin: null, cookie: null },
+      // The settings page opened the service's own /pair/signed-in page, which Access
+      // redirected (ADR 0030).
+      expect(signInPages(service)).toEqual([
+        { method: "GET", path: "/pair/signed-in", origin: null, cookie: null },
       ]);
       const before = await service.devices();
       // The stand-in redirected the pairing request; no device was created.
@@ -167,7 +168,7 @@ test("opens the sign-in page once when signed out and pairs on Try again", async
       expect(after).toHaveLength(before.length + 1);
       expect(after.at(-1)).toMatchObject({ label: "Synthetic paired device", revoked_at: null });
       // Still one sign-in tab: retrying opened no other.
-      expect(managePages(service)).toHaveLength(1);
+      expect(signInPages(service)).toHaveLength(1);
       expect(context.pages().filter((page) => page.url().startsWith(service.origin))).toEqual([
         signInPage,
       ]);
@@ -186,7 +187,15 @@ test("retries once when the settings page is shown again after signing in", asyn
       const signInPage = await opened;
       await expect(options.getByText(/in the new tab, then come back here/)).toBeVisible();
       await signIn(context, service);
+      // Access sends the signed-in browser back to the page; it answers with the
+      // pairing application's audience and asks to go back to the settings page.
       await signInPage.bringToFront();
+      await signInPage.goto(`${service.origin}/pair/signed-in`);
+      await expect(
+        signInPage.getByText("Close this tab and go back to Pateat's settings page.", {
+          exact: true,
+        }),
+      ).toBeVisible();
       await returnTo(options);
       await expect(options.getByText("This device is paired.", { exact: true })).toBeVisible();
       expect(pairRequests(service)).toHaveLength(2);

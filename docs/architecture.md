@@ -1156,7 +1156,9 @@ steady-state API calls carry no cookie.
   service, then the extension's background service worker sends one `POST /pair` with
   the device label, `credentials: "include"`, `redirect: "manual"` and
   `X-Requested-With: XMLHttpRequest`, so the browser's Access session travels with it.
-  The route sits behind Access; the Worker verifies the token and requires
+  The route sits behind Access; the Worker verifies the token (the host-wide
+  application's audience, or "pateat pair"'s, which also admits browsers without WARP,
+  [ADR 0030](adr/0030-pairing-without-warp.md)) and requires
   `Origin: chrome-extension://<id>` for an ID in `PAIRING_EXTENSION_IDS`, which lists
   Pateat's manifest-pinned production ID. It then limits pairing per identity, creates
   the owner on first pairing and the device, and answers the credential once; only its
@@ -1166,7 +1168,8 @@ steady-state API calls carry no cookie.
   redirect, a `401`, or a response that is not JSON, such as the Access login page,
   means "sign in first"; a non-JSON `429` or `5xx`, such as a Cloudflare edge error
   page, counts as rate limiting or an unexpected failure instead. On "sign in first" the
-  settings page opens `<service>/manage` in a new tab once per click, retries once when
+  settings page opens `<service>/pair/signed-in` in a new tab once per click, where
+  Access signs the browser in and the page asks the user to return; it retries once when
   it is shown or focused again, and offers **Try again** and **Open sign-in page**. A
   refused sign-in, an unlisted extension ID and a service without pairing settings each
   have their own message.

@@ -32,6 +32,7 @@ framed. Contracts live in `packages/contracts/src/sync.ts`, `pairing.ts` and
 | `GET /v1/device` | The calling device's paired time, the owner's live recipe count and settings revision, and whether recipe generation would run now, for the diagnostics page |
 | `DELETE /v1/device` | Revoke the calling device's own credential |
 | `POST /pair` | Create a device for the signed-in owner from an allowed extension; 201 with the credential, once |
+| `GET /pair/signed-in` | The page the extension opens when pairing needs a sign-in; it asks the user to go back to Pateat's settings |
 | `GET /manage`, `/manage/sites`, `/manage/bindings`, `/manage/recipes` | Owner web UI (React app): devices, excluded sites and site defaults, account bindings, recipes |
 | `GET /manage/assets/*` | The web UI's built script, styles and notices |
 | `GET /manage/api/devices` | The owner's devices with their last use, newest first |
@@ -60,9 +61,13 @@ application exempts `/v1/*`, `/health`, `/.well-known/openid-configuration` and
 `/.well-known/jwks.json`, which clients call without an Access login. For `/pair` and
 `/manage`, the Worker verifies the `Cf-Access-Jwt-Assertion` itself against the team's
 keys, the `ACCESS_TEAM_DOMAIN` issuer and the `ACCESS_AUD` audience. Without both
-secrets those routes answer 503. The owner is found by token issuer and subject, never
-by email. The [pairing design](../../docs/architecture.md#device-enrollment) describes
-the flow.
+secrets those routes answer 503. `POST /pair` and `GET /pair/signed-in` also accept the
+`ACCESS_PAIR_AUD` audience of the "pateat pair" Access application, which admits
+browsers without WARP to pairing only
+([ADR 0030](../../docs/adr/0030-pairing-without-warp.md)). An empty value turns it off
+only while that application does not exist. The owner is found by token issuer and
+subject, never by email. The
+[pairing design](../../docs/architecture.md#device-enrollment) describes the flow.
 
 `POST /pair` is direct pairing
 ([ADR 0020](../../docs/adr/0020-direct-device-pairing.md)). The extension's background
