@@ -787,6 +787,10 @@ export. **Clear logs** deletes every entry and replaces the pseudonym key.
 
 ## Declarative recipes and AI
 
+Recipes come from the AI's judgement of a page, never from recording what the person
+clicked or typed (owner, 2026-10-12): which page is a login page, and what it offers, is
+judged by the AI first ([ADR 0028](adr/0028-account-chooser-login-pages.md)).
+
 Share Valibot contracts for observations, recipes, inference results, and sync. A recipe
 contains schema/version, allowed origin/path applicability, structural fingerprint,
 semantic slots, stable element candidates, bounded steps, an optional completion and a
