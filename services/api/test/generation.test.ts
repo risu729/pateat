@@ -2004,7 +2004,8 @@ describe("page judgement (ADR 0027)", () => {
           decision: "challenge",
           totp: { field: { by: "id", value: "app-code" }, target: { by: "id", value: "verify" } },
         },
-        { decision: "challenge" },
+        // Why the SMS code was dropped, without an element.
+        { decision: "challenge", totpDropped: "source-sms" },
       ]);
       // A synthetic code typed into the page never reaches the service or its log.
       const calls = sent.length;

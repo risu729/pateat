@@ -800,6 +800,9 @@ export async function judgeCompletion(
         ...(added.ok ? {} : { reason: added.reason }),
       });
     }
+    // A code the judge named but its local checks refused is logged with why (ADR 0027).
+    if (judgement.totpDropped)
+      handlers.push({ kind: "totp", kept: false, reason: judgement.totpDropped });
     if (handlers.length) console.info("Judged page handlers", { recipeId, handlers });
     const withHandlers = changed && stored(head.recipe, branch, changed);
     if (!withHandlers) return { version: 1, status: "challenge" };
