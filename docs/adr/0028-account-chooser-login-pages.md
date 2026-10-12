@@ -86,7 +86,8 @@ without choosing a listed account, such as `{"by":"text","value":"Sign in with a
 profile"}`. The button is found by the [list entry](#list-entries) rule. The extension
 refuses it when its text holds an email address,
 `[masked]` or a run of four or more digits, or when it is inside a form with fields.
-The prompt gains one short, language-neutral sentence for this.
+The prompt gains one short, language-neutral sentence for this, which describes the
+other-account button by its meaning only, with no example text in any language.
 
 ### Recipe shape
 
@@ -111,7 +112,10 @@ an ADR 0018 continuation of the page the click led to. A chooser recipe may ther
 have no slots until a branch is generated. [ADR 0027](0027-per-account-login-routes.md)
 `alternatives` cannot hold the branches: a continuation cannot add a variant, a
 password-only set is a subset of the email and password set, and the executor picks a
-variant from the item's binding, not from the page.
+variant from the item's binding, not from the page. The continuation contract
+(`continuesRecipe` in `packages/contracts/src/login.ts`, the service's `appendPageSteps`
+and the extension's `continuable`) accepts only a linear append today, so it gains
+branch-aware appends for this recipe.
 
 ### Execution
 
