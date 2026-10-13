@@ -54,6 +54,7 @@ describe("verified security state version", () => {
       ),
     ],
     ["a half-float version", sign1(join(hex("a1"), encode("version"), hex("f94000")))],
+    ["an indefinite-length map", sign1(hex("bf6776657273696f6e02ff"))],
     ["a negative version", sign1(state(-1))],
     ["a fractional version", sign1(state(1.5))],
     ["a text version", sign1(state("2"))],
