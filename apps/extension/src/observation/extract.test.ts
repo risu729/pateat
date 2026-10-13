@@ -2692,6 +2692,38 @@ describe("extractAccountListObservation", () => {
     expect(result.gap).toBe("too-many-controls");
   });
 
+  it("leaves the page footer's controls out of a list, but not a card's footer", () => {
+    const links = Array.from(
+      { length: 9 },
+      (_, index) => `<a href="/page-${index}">Page ${index}</a>`,
+    ).join("");
+    // Instagram's remembered-profile page on 2026-10-13: 16 footer links went over 8.
+    for (const footer of [
+      `<footer role="contentinfo">${links}</footer>`,
+      `<div role="contentinfo">${links}</div>`,
+      `<footer>${links}</footer>`,
+    ]) {
+      page(
+        `<main><button>a@example.com</button><button>Use another profile</button></main>${footer}`,
+      );
+      const result = extractAccountListObservation();
+      if (!result.ok) throw new Error(result.reason);
+      expect(result.gap, footer).toBeUndefined();
+      expect(summary(result.observation).map((candidate) => candidate.label)).toEqual([
+        "Use another profile",
+      ]);
+    }
+    // A footer inside a section is the section's, as a card's actions.
+    page(
+      `<section><button>a@example.com</button><footer><button>Use another profile</button></footer></section>`,
+    );
+    const card = extractAccountListObservation();
+    if (!card.ok) throw new Error(card.reason);
+    expect(summary(card.observation).map((candidate) => candidate.label)).toEqual([
+      "Use another profile",
+    ]);
+  });
+
   it("names the first cause of an incomplete list, without page text (ADR 0019)", () => {
     const gap = (html: string, shadow?: string) => {
       page(html);

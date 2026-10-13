@@ -96,6 +96,13 @@ never sees the profiles' addresses; a text in which an `@` survives is left out.
 an observation is only ever a recipe's first page: sent with a `base`, the service
 refuses it as `invalid-request` without a model call.
 
+The page's footer counts as page chrome for these controls since 2026-10-13: a
+`contentinfo` landmark, or a `footer` without a role outside sectioning content and
+dialogs, which HTML maps to one, while a card's own footer inside a section still
+counts. That day Instagram's saved-profile page showed four controls of its own and 16
+links in its `<footer role="contentinfo">`, so the list went over its eight other
+controls and was logged `incomplete-observation` with `too-many-controls`.
+
 As implemented in the extension: the content script checks once, when its ten seconds to
 offer a page for generation end, and announces a list with the page's path. Without an
 email listed, it hands over up to 32 short texts instead: those beside at most three
