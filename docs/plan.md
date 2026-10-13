@@ -516,7 +516,7 @@ own accounts, so they stay in the project's files rather than in this repository
   - Batch 9, the extension's passkey lane, its vault suite unchanged (2026-10-13): 412
     to 400 Vitest cases, the same statements and branches covered. Seven tests that
     passed without reaching the rule they named were repaired.
-  - Batch 10, five of the packaged-extension Playwright specs (2026-10-13): 59 to 52
+  - Batch 10, five of the packaged-extension Playwright specs (2026-10-13): 59 to 53
     tests. Removed cases repeated another test's path or checked only Chromium's own
     IndexedDB or a pure size limit that unit tests cover; the crypto probe lost its
     cancellation page. Three checks were folded into the tests that kept their path.
