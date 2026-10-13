@@ -98,7 +98,7 @@ export function pathShowsUsername(path: string, usernames: readonly string[]): b
  * ({@link namePattern}): as a whole text or inside a longer one, in any width or case,
  * with or without a leading `@`, and never inside a longer Latin word, so `ann` is not
  * found in `annual`. Each place in the title, the headings, the header text, the texts
- * near a code field, the account texts and a candidate's label, placeholder and
+ * near a code field or the buttons, the account texts and a candidate's label, placeholder and
  * description becomes `[account]`, and so does the start of a name at the end of a text
  * cut at its length limit.
  *
@@ -157,14 +157,19 @@ export function withoutUsernames(
     });
   }
   const { title, headings, headerText, accounts, nearCode, nearButtons } = observation;
+  // Texts near the buttons go with them when every button showed a username and was left
+  // out.
+  const { nearButtons: _nearButtons, ...rest } = observation;
   const parsed = v.safeParse(loginObservationSchema, {
-    ...observation,
+    ...rest,
     ...(title === undefined ? {} : { title: hide(title) }),
     ...(headings === undefined ? {} : { headings: headings.map((text) => hide(text)) }),
     ...(headerText === undefined ? {} : { headerText: hide(headerText, maxHeaderText) }),
     ...(accounts === undefined ? {} : { accounts: accounts.map((text) => hide(text)) }),
     ...(nearCode === undefined ? {} : { nearCode: nearCode.map((text) => hide(text)) }),
-    ...(nearButtons === undefined ? {} : { nearButtons: nearButtons.map((text) => hide(text)) }),
+    ...(nearButtons === undefined || !candidates.some((candidate) => candidate.role === "button")
+      ? {}
+      : { nearButtons: nearButtons.map((text) => hide(text)) }),
     candidates,
   });
   return parsed.success ? { ok: true, observation: parsed.output } : refused;

@@ -574,16 +574,23 @@ new owner decision:
   page shown after an effect step that has no code field carries `nearButtons` instead
   of `nearCode`. These are up to three texts near its button candidates, read and
   redacted as the texts near a code field are. They are read around every button at
-  once, one parent further out at a time, nearest first. When the page marks a main
-  landmark (`main` or `role="main"`), only the buttons inside it count, so a help or
-  account widget beside it does not take the three texts, and no text outside it is
-  read. A text that repeats a button's label is dropped too. The judge's instructions
-  name `nearButtons` as untrusted page text. As with `nearCode`, a misread or deceptive
-  text can at worst store a `passkey` handler that clicks a button of that path once per
-  login, only for an item that holds a passkey, until the recipe is revoked. The handler
-  checks of `addHandler` still apply. The added text, at most 360 characters, stays in
-  the request log for 90 days under the same terms as `nearCode`. The judge's prompt
-  version changed with it.
+  once, one parent further out at a time, nearest first. An open modal dialog that
+  holds one of the buttons, or else the page's first shown main landmark (`main` or
+  `role="main"`), bounds them: only the buttons inside it count and no text outside it
+  is read, so a help or account widget beside it does not take the three texts.
+  Buttons and texts in the header and navigation, which the header text already
+  carries, never count, and a text that repeats a button's label is dropped. When every
+  button is left out because its locator shows a username, the texts go with it. The
+  judge's instructions name `nearButtons` as untrusted page text. Unlike `nearCode`,
+  this text comes from most judged signed-in pages, such as a dashboard: numbers, email
+  addresses and the account's usernames are hidden and key-like text is left out, but
+  other text near a button, such as a real name or a password without digits shown on
+  the page, can be sent. As with `nearCode`, a misread or deceptive text can at worst
+  store a `passkey` handler that clicks a button of that path once per login, only for
+  an item that holds a passkey, until the recipe is revoked; the handler checks of
+  `addHandler` still apply. The added text, at most 360 characters, stays in the
+  request log for 90 days under the same terms as `nearCode`. The judge's prompt version
+  changed with it.
 - **Entering handlers.** A handler that has not run is entered when all its elements
   are unique and usable on its path: a `totp` handler's field a shown writable input,
   and its button, like a `passkey` handler's, a shown one, enabled or not, since many

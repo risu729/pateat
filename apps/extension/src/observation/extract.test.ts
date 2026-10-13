@@ -1833,8 +1833,8 @@ describe("extractSignedInObservation", () => {
     });
 
     it("never sends a widget's text beside the main landmark, even within six parents", () => {
-      // The widget beside the landmark is within six parents of the step's button: the
-      // climb from the button passes the landmark and takes the widget's "Default".
+      // The widget beside the landmark is within six parents of the step's button, but the
+      // climb from the button stops at the landmark.
       oracle('role="main"');
       const observation = signedIn();
       for (const text of [...outside, "Verify", "Show alternative login methods"])
@@ -1850,6 +1850,79 @@ describe("extractSignedInObservation", () => {
       // With the widget out of the step button's reach, its texts still come first.
       oracle("", 2);
       expect(signedIn().nearButtons).toEqual(["Default", help, "FIDO Authenticator Verification"]);
+    });
+
+    it("reads the first shown main landmark, not a hidden one before it", () => {
+      for (const hidden of [
+        "<main hidden>",
+        '<main style="display: none">',
+        '<div role="main" hidden>',
+      ]) {
+        const close = hidden.startsWith("<main") ? "</main>" : "</div>";
+        page(
+          `${hidden}<p>Your dashboard overview</p><button id="refresh" type="button">Refresh</button>${close}
+          <main><p>Touch your security key to continue.</p>
+            <button id="verify" type="button">Verify</button></main>`,
+        );
+        expect(signedIn().nearButtons, hidden).toEqual(["Touch your security key to continue."]);
+      }
+    });
+
+    it("reads only the open modal dialog that holds a button", () => {
+      const behind = `<main aria-hidden="true"><div><p>Your dashboard overview</p>
+        <button id="refresh" type="button">Refresh</button></div></main>`;
+      const inside = `<div><p>Touch your security key to continue.</p>
+        <button id="verify" type="button">Verify</button></div>`;
+      page(`${behind}<div role="dialog" aria-modal="true">${inside}</div>`);
+      let observation = signedIn();
+      // The page behind the modal is read, as the existing modal tests show, but its texts
+      // are not sent near the buttons.
+      expect(observation.candidates).toContainEqual(
+        expect.objectContaining({ role: "button", label: "Refresh" }),
+      );
+      expect(observation.nearButtons).toEqual(["Touch your security key to continue."]);
+      // A native modal opened with `showModal()` bounds them the same way.
+      page(`${behind.replace(' aria-hidden="true"', "")}<dialog id="key">${inside}</dialog>`);
+      document.querySelector<HTMLDialogElement>("#key")!.showModal();
+      observation = signedIn();
+      expect(observation.nearButtons).toEqual(["Touch your security key to continue."]);
+      // A dialog that is not modal does not bound them: the main landmark does.
+      page(
+        `<main><div><p>Your dashboard overview</p>
+          <button id="refresh" type="button">Refresh</button></div></main>
+        <div role="dialog">${inside}</div>`,
+      );
+      expect(signedIn().nearButtons).toEqual(["Your dashboard overview"]);
+    });
+
+    it("never reads around the header's buttons or sends the header's texts", () => {
+      for (const [open, close] of [
+        ["<header>", "</header>"],
+        ["<nav>", "</nav>"],
+        ['<div role="banner">', "</div>"],
+        ['<div role="navigation">', "</div>"],
+      ] as const) {
+        page(
+          `<div id="app">${open}<div><span>Signed in to Example Tenant</span>
+              <button id="menu" type="button">Menu</button></div>${close}
+            <section><div><div><p>Touch your security key to continue.</p>
+              <div><button id="verify" type="button">Verify</button></div></div></div></section>
+          </div>`,
+        );
+        const observation = signedIn();
+        expect(observation.nearButtons, open).toEqual(["Touch your security key to continue."]);
+        // The header text carries it instead.
+        if (open === "<header>" || open.includes("banner"))
+          expect(observation.headerText, open).toContain("Signed in to Example Tenant");
+      }
+      // A page whose only button is in the header sends none.
+      page(
+        `<div id="app"><header><div><span>Signed in to Example Tenant</span>
+            <button id="menu" type="button">Menu</button></div></header>
+          <section><p>Touch your security key to continue.</p>
+            <a id="other" href="/other">Use another method</a></section></div>`,
+      );
+      expect(signedIn()).not.toHaveProperty("nearButtons");
     });
 
     it("sends texts near a code field instead when the page has one", () => {

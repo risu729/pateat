@@ -1360,18 +1360,18 @@ a longer Latin word, so `ann` is not found in `annual`. It looks for each userna
 is and in the form the page's redaction left it in (`taro[number]` for `taro1234`), and
 also hides the start of a username at the end of a text cut at its limit (120
 characters, 1,000 for the header text). The title, headings, header text, texts near a
-code field, account texts and each candidate's label, placeholder and description are
-covered. A locator cannot be hidden, since it must name the element as it is: a button,
-link or checkbox whose locator (text, `id`, `name` or `data-testid`) holds a username is
-left out. The page is not sent (`username-shown`) when that control would leave it
-incomplete: a field, a button or link of a field's form, or a button outside every form
-beside a field outside every form; nor when a segment of its path holds a username under
-the same rule. A username read that fails also keeps the page from being sent
-(`username-unread`); an item without a username, with an empty one (the catalog's
-`empty` flag) or whose username the user excluded is not read and does not count. Not
-covered: an email username's local part shown alone (the address itself is already
-`[email]`), a username in the origin, such as a personal subdomain, the usernames of
-items on a connection that could not answer, and the sign-in entry pages of
+code field or the buttons, account texts and each candidate's label, placeholder and
+description are covered. A locator cannot be hidden, since it must name the element as
+it is: a button, link or checkbox whose locator (text, `id`, `name` or `data-testid`)
+holds a username is left out. The page is not sent (`username-shown`) when that control
+would leave it incomplete: a field, a button or link of a field's form, or a button
+outside every form beside a field outside every form; nor when a segment of its path
+holds a username under the same rule. A username read that fails also keeps the page
+from being sent (`username-unread`); an item without a username, with an empty one (the
+catalog's `empty` flag) or whose username the user excluded is not read and does not
+count. Not covered: an email username's local part shown alone (the address itself is
+already `[email]`), a username in the origin, such as a personal subdomain, the
+usernames of items on a connection that could not answer, and the sign-in entry pages of
 [ADR 0031](adr/0031-sign-in-entry-pages.md). Known limits: a username that is also a
 word in the page's path or its form controls, such as `admin` or `login`, keeps that
 page from being sent (`username-shown`), so such a site gets no recipe; on a judged
@@ -1401,8 +1401,9 @@ sentence naming an authenticator app outside the code form, redacted the same wa
 live regions, error messages, controls, labels, links and headings left out
 ([ADR 0027](adr/0027-per-account-login-routes.md#implementation-choices)). Without a
 code field, it carries `nearButtons` instead: up to three such texts near its buttons,
-only those inside the main landmark when the page marks one, so the judge can tell that
-a button labelled only "Verify" starts a security-key check. Login pages keep the
+read inside an open modal that holds one or else the first shown main landmark, and
+never in the header or navigation, so the judge can tell that a button labelled only
+"Verify" starts a security-key check. Login pages keep the
 four-digit rule, since hints such as `4 digits` help map fields. When a login page
 already shows a chosen account and offers a button or link to use another one, the
 generation role may name it as the plan's `accountSwitch`; it must be an observed button

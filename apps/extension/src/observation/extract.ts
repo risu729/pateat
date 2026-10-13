@@ -405,7 +405,7 @@ function fieldDescription(input: HTMLInputElement, label: string | undefined) {
 
 const nearDepth = 6;
 const maxNear = 3;
-/** Elements examined for text near a code field; a code page is small. */
+/** Elements examined for text near a code field or a page's buttons. */
 const nearScanLimit = 2000;
 /**
  * Elements whose text is never text near a code field: live regions and error messages,
@@ -452,23 +452,25 @@ function nearCodeTexts(field: HTMLElement, keep: (text: string) => string | unde
  * Up to three short texts a signed-in page without a code field shows near its buttons,
  * for the judge to tell what a button whose label says little, such as "Verify", starts
  * (ADR 0027, owner decision 2026-10-13 04:22 UTC). They are read as `nearCodeTexts` reads
- * them, around every given button at once, nearest parent first. When the page marks a
- * main landmark, only the buttons inside it count and only texts inside it are read, so a
- * help or account widget beside it does not take the texts.
+ * them, around every given button at once, nearest parent first. An open modal dialog
+ * that holds one of the buttons, or else the page's first shown main landmark, bounds
+ * them: only the buttons inside it count and only texts inside it are read, so a help or
+ * account widget beside it does not take the texts. Buttons and texts in the header and
+ * navigation, which `headerText` already carries, never count.
  */
 function nearButtonTexts(
   buttons: readonly HTMLElement[],
   keep: (text: string) => string | undefined,
 ): string[] {
-  const main = buttons[0]?.ownerDocument.querySelector("main, [role~='main' i]");
-  return main
-    ? nearTexts(
-        buttons.filter((button) => main.contains(button)),
-        keep,
-        [],
-        main,
-      )
-    : nearTexts(buttons, keep, []);
+  const document = buttons[0]?.ownerDocument;
+  if (!document) return [];
+  const bound =
+    openModals(document).find((modal) => buttons.some((button) => modal.contains(button))) ??
+    [...document.querySelectorAll("main, [role~='main' i]")].find((main) => shown(main));
+  const anchors = buttons.filter(
+    (button) => (!bound || bound.contains(button)) && !button.closest(landmarks),
+  );
+  return nearTexts(anchors, keep, [...document.querySelectorAll(landmarks)], bound);
 }
 
 /**
