@@ -5238,9 +5238,10 @@ export function createLoginRuntime(
     scope: GenerationScope,
     texts: readonly string[],
     path: string,
-  ): Promise<{ names: string[]; inPath: boolean }> {
+  ): Promise<{ names: string[]; inPath: boolean; email: boolean }> {
     const found = new Set<string>();
     let inPath = false;
+    let email = false;
     for (const { connection, itemId, fieldId } of usernameReads(scope)) {
       let value: string | undefined;
       try {
@@ -5257,10 +5258,11 @@ export function createLoginRuntime(
       if (value) {
         for (const text of texts) if (namesUsername(text, value)) found.add(text);
         if (pathShowsUsername(path, [value])) inPath = true;
+        if (emailUsername(value)) email = true;
       }
       value = "";
     }
-    return { names: [...found], inPath };
+    return { names: [...found], inPath, email };
   }
   /**
    * What a chooser login compares on its list (ADR 0028): the account's username and, for
@@ -6505,7 +6507,15 @@ export function createLoginRuntime(
         // name, and the login continues through that control.
         const otherOnly =
           !names?.length && listing?.names && listing.other ? listing.names : undefined;
-        if (scope && !listed?.inPath && (!listing?.names || names?.length || otherOnly)) {
+        // A list by email lists no account a matching item's username that is not an email
+        // can be chosen by: it is sent only for its control for another account.
+        const unmatched = listing && !listing.names && !listing.other && listed?.email === false;
+        if (
+          scope &&
+          !listed?.inPath &&
+          !unmatched &&
+          (!listing?.names || names?.length || otherOnly)
+        ) {
           live.state = "generating";
           delete live.reason;
           await publish(live);
@@ -6519,6 +6529,8 @@ export function createLoginRuntime(
         // entry.
         if (listed?.inPath)
           skipGeneration(live, "no-listed-account", undefined, "username-in-path");
+        else if (unmatched)
+          skipGeneration(live, "no-listed-account", undefined, "no-email-username");
         else if (!listing?.names) skipGeneration(live, missed[0], undefined, missed[1]);
         else
           skipGeneration(

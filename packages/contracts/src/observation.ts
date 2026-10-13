@@ -170,7 +170,20 @@ export const loginObservationSchema = v.pipe(
      * candidates: its other controls are context for judging it.
      */
     accounts: v.optional(v.pipe(v.array(observedText), v.minLength(1), v.maxLength(8))),
+    /**
+     * How many of the listed accounts are entries Pateat can click itself (ADR 0028); the
+     * others are shown beside separate buttons, so only the list's `continue` or `other`
+     * button leads on from them.
+     */
+    accountEntries: v.optional(v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(8))),
   }),
+  v.check(
+    (observation) =>
+      observation.accountEntries === undefined ||
+      (observation.accounts !== undefined &&
+        observation.accountEntries <= observation.accounts.length),
+    "Account entries need a list of accounts",
+  ),
   v.check(
     (observation) => observation.candidates.length > 0 || observation.accounts !== undefined,
     "An observation needs candidates or an account list",

@@ -5428,7 +5428,7 @@ describe("production login document admission", () => {
           },
           sender(from),
         );
-      const setup = () => {
+      const setup = (live: Partial<Parameters<typeof harness>[1]> = {}) => {
         fake.state.extracted = { accounts: listPage };
         const service = generation();
         const report = vi.fn<(report: LoginReport) => void>();
@@ -5439,9 +5439,15 @@ describe("production login document admission", () => {
           custom: [],
           generation: service,
           report,
+          ...live,
         });
         h.recipes.recipe.mockResolvedValue(undefined);
         h.recipes.starts.mockResolvedValue(startsOf([]));
+        // A list by email is sent only for an email username, unless it shows a control
+        // for another account.
+        h.fields.mockImplementation(async ({ fieldId }) =>
+          fieldId === "login.username" ? "risu@example.com" : "synthetic-secret",
+        );
         const generations = () =>
           report.mock.calls.map(([entry]) => entry).filter((entry) => entry.type === "generation");
         return { service, h, generations };
@@ -5552,6 +5558,86 @@ describe("production login document admission", () => {
             page: "accounts",
           },
         ]);
+      });
+
+      it("sends a list by email for a username that is not one only with a control for another account", async () => {
+        const { service, h, generations } = setup();
+        h.fields.mockImplementation(async ({ fieldId }) =>
+          fieldId === "login.username" ? "risu729" : "synthetic-secret",
+        );
+        const emailHello = (documentId: string, other?: true) =>
+          h.login.handle(
+            {
+              version: 1,
+              type: "login.document.ready",
+              token: "synthetic-token",
+              list: { path: "/signin", ...(other ? { other } : {}) },
+            },
+            sender({ documentId }),
+          );
+        // As on myUNSW: no address on the page can be compared with the username.
+        expect(await h.hello({ documentId: "bare" }, false)).toMatchObject({ generate: true });
+        expect(await emailHello("bare")).toMatchObject({ ok: false, reason: "recipe-not-found" });
+        expect(generations()).toEqual([
+          {
+            type: "generation",
+            tabId: 1,
+            origin,
+            outcome: "skipped",
+            reason: "no-listed-account",
+            detail: "no-email-username",
+          },
+        ]);
+        expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.extract");
+        expect(service.generate).not.toHaveBeenCalled();
+        // With a control to sign in with another account, the list is sent for it.
+        expect(await h.hello({ documentId: "other" }, false)).toMatchObject({ generate: true });
+        expect(await emailHello("other", true)).toEqual({ ok: false, reason: "generating" });
+        await vi.waitFor(() => expect(service.generate).toHaveBeenCalledTimes(1));
+        expect(fake.state.messages.find((entry) => entry.type === "login.extract")).toMatchObject({
+          page: "accounts",
+        });
+        expect(generations()).toContainEqual(
+          expect.objectContaining({ outcome: "sent", page: "accounts" }),
+        );
+        expect(JSON.stringify(fake.state.messages)).not.toContain("risu729");
+      });
+
+      it("sends a list by email without a control for another account for an email username", async () => {
+        const { service, h, generations } = setup({
+          uris: async () => ({
+            ok: true,
+            data: uriMatch({
+              candidates: [itemId, otherItemId].map((id) => ({
+                itemId: id,
+                matches: [{ uriIndex: 0, match: 0 }],
+              })),
+            }),
+          }),
+          otherUsername: true,
+        });
+        // One matching item's username is an email; the other's is not.
+        h.fields.mockImplementation(async ({ fieldId, account }) =>
+          fieldId !== "login.username"
+            ? "synthetic-secret"
+            : account.itemId === itemId
+              ? "risu729"
+              : "risu@example.com",
+        );
+        expect(await h.hello({}, false)).toMatchObject({ generate: true });
+        expect(await listHello(h)).toEqual({ ok: false, reason: "generating" });
+        await vi.waitFor(() => expect(service.generate).toHaveBeenCalledTimes(1));
+        expect(generations()).not.toContainEqual(
+          expect.objectContaining({ reason: "no-listed-account" }),
+        );
+        // Both usernames were read for their shape.
+        expect(
+          new Set(
+            h.fields.mock.calls
+              .filter(([request]) => request.fieldId === "login.username")
+              .map(([request]) => request.account.itemId),
+          ),
+        ).toEqual(new Set([itemId, otherItemId]));
       });
 
       it("sends a list of names only when one names a matching item's username", async () => {
@@ -6118,6 +6204,10 @@ describe("production login document admission", () => {
 
           it("sends a page that lists an account by email as a list, never also as an entry", async () => {
             const { service, h, reports } = setup();
+            // A list by email is sent for an email username (ADR 0028).
+            h.fields.mockImplementation(async ({ fieldId }) =>
+              fieldId === "login.username" ? "risu@example.com" : "synthetic-secret",
+            );
             fake.state.extracted = { entry: entryPage, accounts: listPage };
             expect(await h.hello({}, false)).toMatchObject({ generate: true, entry: true });
             expect(await bothHello(h)).toEqual({ ok: false, reason: "generating" });

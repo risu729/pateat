@@ -179,6 +179,17 @@ its text or label. A refused answer fails as `invalid-output` with its check's c
 such as `unexpected-plan` or `account-text`. The extension's own check of the control
 on the page comes with execution.
 
+Amended on 2026-10-13, after myUNSW's sign-in page was saved as a chooser that named no
+control and every login on it ended `account-not-listed`. Its one listed account was a
+button whose text held an address, while the matching items' usernames were not
+addresses, which no address can be compared with. So a list by email is now sent only
+when a matching item's username is an email or the page shows a control for another
+account; otherwise it is logged as `no-listed-account` with `no-email-username`, and
+the page is offered neither as a list nor as a sign-in entry (ADR 0031). Separately, the
+observation says how many of its accounts are entries the extension clicks itself
+(`accountEntries`), and the service refuses an answer that names neither control when
+none is (`no-list-control`), since nothing could then lead on from the list.
+
 ### Recipe shape
 
 The answer is saved as a recipe whose start is the list on its path, with the steps

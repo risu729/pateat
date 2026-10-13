@@ -184,6 +184,17 @@ describe("account lists (ADR 0028)", () => {
     expect(parse({ ...list, accounts: Array.from({ length: 9 }, () => "[email]") })).toBe(false);
     expect(parse({ ...list, accounts: ["x".repeat(121)] })).toBe(false);
   });
+
+  it("counts account entries only within the list of accounts", () => {
+    const list = { ...base, candidates: [], accounts: ["[email]", "Taro [masked]"] };
+    for (const accountEntries of [0, 1, 2]) expect(parse({ ...list, accountEntries })).toBe(true);
+    expect(parse({ ...list, accountEntries: 3 })).toBe(false);
+    expect(parse({ ...list, accountEntries: -1 })).toBe(false);
+    expect(parse({ ...list, accountEntries: 1.5 })).toBe(false);
+    expect(parse({ ...base, accountEntries: 0 })).toBe(false);
+    expect(parse({ ...base, accountEntries: 1 })).toBe(false);
+    expect(parse({ ...base, accounts: ["[email]"], accountEntries: 1 })).toBe(true);
+  });
 });
 
 describe("code fields on a generated page (ADR 0027)", () => {
