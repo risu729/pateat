@@ -28,6 +28,7 @@ import {
   loginStepEffect,
   parseAttemptMetadata,
   passkeyAnswersRequest,
+  passwordStop,
   passwordVariants,
   recipeHasRoute,
   recipeStartSteps,
@@ -300,11 +301,15 @@ const REQUEST_START_WAIT_MS = 3000;
  * (ADR 0034). One that waits this long for a pick in an ordinary popup choice is handed on.
  */
 const REQUEST_PARK_MS = 4 * 60_000;
-/** How long the `passkey` route waits for its page's own request before it falls back. */
+/**
+ * How long the `passkey` route waits for its page's own request before it falls back, and
+ * a login of an item without a password waits at its stop (ADR 0036).
+ */
 const REQUEST_WAIT_MS = 3000;
 /**
  * How long the start page's sign-in form may still show in the document after the
- * `passkey` route answered its request, before the login falls back (ADR 0034).
+ * `passkey` route answered its request, before the login falls back (ADR 0034), and the
+ * form after an answer at a login's stop, before it ends (ADR 0036).
  */
 const REQUEST_HOLD_MS = 15_000;
 type Sender = Browser.runtime.MessageSender;
@@ -514,9 +519,9 @@ type Execution = {
    */
   continuationRefused?: string;
   /**
-   * When the `passkey` route's answer to its page's own request went back (ADR 0034). Kept
-   * per document in memory only, so a new document or a worker restart counts as long
-   * after it.
+   * When the `passkey` route's answer to its page's own request went back (ADR 0034), or a
+   * login's answer at its stop (ADR 0036). Kept per document in memory only, so a new
+   * document or a worker restart counts as long after it.
    */
   answeredAt?: number;
   /** The login's item could not answer its page's own request; the login never asks again. */
@@ -604,6 +609,24 @@ const terminal = (metadata: LoginAttemptMetadata) =>
  */
 const idle = (metadata: LoginAttemptMetadata) =>
   metadata.settled === true || metadata.state === "watching";
+/**
+ * Whether a login of an item without a password stands at its stop with nothing in flight
+ * (ADR 0036): the step there fills the password, so it never runs.
+ */
+const atStop = (metadata: LoginAttemptMetadata) =>
+  metadata.route === "password" &&
+  metadata.stopAt !== undefined &&
+  metadata.stepIndex === metadata.stopAt &&
+  metadata.operationId === undefined;
+/** Whether such a login answered a passkey request at its stop (`STOP_ANSWERED`). */
+const answeredAtStop = (metadata: LoginAttemptMetadata) =>
+  metadata.route === "password" &&
+  metadata.stopAt !== undefined &&
+  metadata.stepIndex === metadata.stopAt &&
+  metadata.operationId !== undefined;
+/** Whether the plan step at `index` lies past such a login's stop. */
+const pastStop = (metadata: LoginAttemptMetadata, index: number) =>
+  metadata.route === "password" && metadata.stopAt !== undefined && index > metadata.stopAt;
 /** Whether a login's watch is over at `now`; a clock set back ends it too (ADR 0027). */
 const watchOver = (metadata: LoginAttemptMetadata, now: number) =>
   metadata.watch !== undefined &&
@@ -1055,6 +1078,8 @@ export type LoginReport = (
       repeat?: true;
       /** Why the login just changed route (ADR 0034). */
       routeChange?: RouteChange;
+      /** The login stops before the password its item lacks (ADR 0036). */
+      stop?: "password";
     }
   | {
       type: "refused";
@@ -1204,9 +1229,10 @@ export type LoginReport = (
       disabledLeftOut?: true;
       /**
        * Why an undecided answer that would have completed the login did not: the page's
-       * description left out a disabled field (ADR 0029).
+       * description left out a disabled field (ADR 0029), or the login stopped before the
+       * password its item lacks, which an undecided answer never completes (ADR 0036).
        */
-      notCompleted?: "disabled-left-out";
+      notCompleted?: "disabled-left-out" | "password-empty";
       /**
        * The page is on another origin of the site, which a `password` login's tab moved to
        * right after the submission (ADR 0022); `origin` is that page's.
@@ -1258,7 +1284,7 @@ export type LoginReport = (
        * `entered`; `shown-again` after this login already ran it; `missing-fact` when the
        * item lacks what the handler needs, including a `totp` handler's built-in field;
        * `code-used` when the login already types a TOTP code; `no-room` when the attempt's
-       * budget is spent.
+       * budget is spent, or the login is at its stop before a missing password (ADR 0036).
        */
       outcome: "entered" | "shown-again" | "missing-fact" | "code-used" | "no-room";
       steps: number;
@@ -1444,6 +1470,7 @@ export function createLoginRuntime(
       ...(handler === undefined ? {} : { handler }),
       ...(metadata.outcome ? { outcome: metadata.outcome } : {}),
       ...(metadata.fillOnly ? { reason: "fill-only" } : {}),
+      ...(metadata.stopAt === undefined ? {} : { stop: "password" as const }),
       ...(policy && metadata.outcome === "policy-changed" ? policy : {}),
       ...(stop ? { cause: stop } : {}),
       ...marks,
@@ -2048,6 +2075,8 @@ export function createLoginRuntime(
     policy?: PolicyChange,
     stop?: StopCause,
     routeChange?: RouteChange,
+    /** Why the login stopped where it did, for the log: `password-empty` (ADR 0036). */
+    reason?: string,
   ): Promise<void> {
     if (!current(run)) return;
     // A stop before the page received the prepared operation takes its effect back, so the
@@ -2092,6 +2121,7 @@ export function createLoginRuntime(
         {
           ...(settled ? { settled } : {}),
           ...(stop ? { stop } : {}),
+          ...(reason ? { reason } : {}),
           ...(routeChange && run.metadata.route !== previous.route ? { routeChange } : {}),
         },
       );
@@ -2692,6 +2722,8 @@ export function createLoginRuntime(
       handlerSlots?: readonly string[];
       /** The document asked for a passkey by itself, with conditional mediation (ADR 0034). */
       pageRequest?: boolean;
+      /** The recipe is a chooser's route (ADR 0028), which never stops before a password. */
+      chooser?: boolean;
     } = {},
   ) {
     let catalog: VaultCatalog;
@@ -2850,12 +2882,13 @@ export function createLoginRuntime(
         // refuses such a login.
         if (chooseLoginRoute(recipe, facts, [], pageRequest)?.route === "passkey") {
           if (!pageRequest) return { ...resolved, facts };
-          // Answering the page's request falls back to the variant that fits (ADR 0034).
+          // Answering the page's request falls back to the variant that fits (ADR 0034),
+          // never to one that stops before the password the item lacks (ADR 0036).
           const password = await passwordPlan();
           return {
             ...resolved,
             facts,
-            ...(password.ok && password.route.route === "password"
+            ...(password.ok && password.route.route === "password" && !("stopAt" in password)
               ? { fallback: password.route.variant }
               : {}),
           };
@@ -2891,17 +2924,42 @@ export function createLoginRuntime(
           (entry) => entry.id === resolved.account.itemId,
         );
         const known = facts;
-        const unheld = resolved.binding.slots
-          .map(({ fieldId }) => (item ? loginFieldSource(item, fieldId) : fieldId))
-          .find(
-            (source) =>
+        const lacking = resolved.binding.slots
+          .map(({ slot, fieldId }) => ({
+            slot,
+            source: item ? loginFieldSource(item, fieldId) : fieldId,
+          }))
+          .filter(
+            ({ source }) =>
               (source === "login.password" && !known.password) ||
               (source === "login.totp-code" && !known.totp),
           );
+        const unheld = lacking[0]?.source;
         if (unheld) {
+          const miss = passwordMiss(item, resolved.account.fieldIds);
+          // An item without a password, but with a passkey, goes on up to the step that
+          // fills its password, in the tab's own page (ADR 0036). Its binding still names
+          // the empty password, so the item signs in with its password once it has one.
+          const passwordSlots = lacking
+            .filter(({ source }) => source === "login.password")
+            .map(({ slot }) => slot);
+          const stopAt =
+            passwordSlots.length > 0 &&
+            miss === "password-empty" &&
+            !request.chooser &&
+            live.document.frameId === 0 &&
+            live.topUrl === undefined
+              ? passwordStop(
+                  recipe,
+                  route,
+                  known,
+                  passwordSlots,
+                  lacking.map(({ slot }) => slot),
+                )
+              : undefined;
+          if (stopAt !== undefined) return { ...resolved, facts: known, stopAt };
           refusals[index] = "no-route";
-          missing[index] =
-            unheld === "login.password" ? passwordMiss(item, resolved.account.fieldIds) : "no-totp";
+          missing[index] = unheld === "login.password" ? miss : "no-totp";
           continue;
         }
         fits[index] = true;
@@ -3036,16 +3094,20 @@ export function createLoginRuntime(
   /**
    * How a page that does not prove the sign-in ends the login: as itself on the `password`
    * route, and always as `challenge` on the `passkey` route, which never falls back to
-   * typing the password (ADR 0027).
+   * typing the password (ADR 0027). A login that stops before its item's missing password
+   * ends an unproven page as `challenge` too, watched (ADR 0036).
    */
   const unproven = (run: Execution, result: "credential-rejected" | "challenge" | "unknown") =>
-    run.metadata.route === "passkey" ? "challenge" : result;
+    run.metadata.route === "passkey" || (run.metadata.stopAt !== undefined && result === "unknown")
+      ? "challenge"
+      : result;
   /**
    * Checks the page after an effect step: the signed-in markers, the rejection, the plan's next
    * step, then a handler on the page (ADR 0027), and once the result would settle as
    * unknown, the sign-in state (ADR 0029) before the judge. Returns `held` while a held click's button
-   * still shows in the document that clicked it, so the page is neither judged nor settled
-   * yet.
+   * still shows in the document that clicked it, or while the sign-in form still shows after
+   * a passkey answer, so the page is neither judged nor settled yet. A login with a stop
+   * goes on at most to it (ADR 0036).
    */
   async function reconcile(run: Execution, settleUnknown = false): Promise<"held" | undefined> {
     const nextIndex =
@@ -3053,7 +3115,8 @@ export function createLoginRuntime(
         ? run.metadata.stepIndex + 1
         : run.metadata.stepIndex;
     const plan = attemptPlan(run.recipe, run.metadata) ?? [];
-    const next = plan[nextIndex]?.step;
+    // A login with a stop never goes on past it (ADR 0036).
+    const next = pastStop(run.metadata, nextIndex) ? undefined : plan[nextIndex]?.step;
     // An advance on the next step's own path is confirmed only by that step's elements
     // being ready, as it waits for them, and only if they were not ready before it ran.
     const inPlace =
@@ -3132,6 +3195,32 @@ export function createLoginRuntime(
       }
     }
     let continued: Awaited<ReturnType<typeof continueOn>> = "none";
+    // After a passkey answer at the stop, the sign-in form still showing means the site has
+    // not signed in: it may still be checking the assertion for a while, then the login
+    // ends at its stop (ADR 0036).
+    const stop = answeredAtStop(run.metadata) ? plan[run.metadata.stopAt!] : undefined;
+    if (stop) {
+      const stopFields = stepTargets(stop.step);
+      const form = await observe(
+        run,
+        stopFields,
+        stopFields.map(() => "shown" as const),
+      );
+      if (!form) return undefined;
+      if (form.path === stop.step.path && form.targets.some((state) => state === "unique")) {
+        if (run.answeredAt !== undefined && Date.now() - run.answeredAt < REQUEST_HOLD_MS)
+          return "held";
+        await change(
+          run,
+          { type: "OBSERVED", result: "challenge", document: run.live.document },
+          undefined,
+          undefined,
+          undefined,
+          "password-empty",
+        );
+        return undefined;
+      }
+    }
     if (effectful(run.metadata)) {
       // A held click, a handler's or the passkey route's, is not judged while its button
       // still shows in the document that clicked it, whatever path a same-document URL
@@ -3193,10 +3282,12 @@ export function createLoginRuntime(
     // exchanging the assertion before the site moves on, with its form already gone: it is
     // not judged until the request's hold ends, nor while it shows nothing to describe, as
     // a loader does, until the held click's wait ends (ADR 0034).
+    // So is the page after an answer at a login's stop, on the path of the step it stopped at
+    // (ADR 0036).
     const answered = plan[run.metadata.stepIndex];
     if (
-      run.metadata.route === "passkey" &&
-      passkeyAnswersRequest(run.recipe) &&
+      ((run.metadata.route === "passkey" && passkeyAnswersRequest(run.recipe)) ||
+        answeredAtStop(run.metadata)) &&
       answered !== undefined &&
       answered.handler === undefined &&
       observed.path === answered.step.path &&
@@ -3326,7 +3417,13 @@ export function createLoginRuntime(
     const authorized = await allowed(run);
     if (!authorized) return undefined;
     let username: string | undefined;
-    const usernameField = loginUsernameFieldId(authorized.connection, metadata.account.itemId);
+    // A login that stops before its item's missing password is not signed in by its
+    // username in the header or navigation (E2): the page after the identifier may show it
+    // before the sign-in (ADR 0036). The username is not read for it at all.
+    const usernameField =
+      metadata.stopAt === undefined
+        ? loginUsernameFieldId(authorized.connection, metadata.account.itemId)
+        : undefined;
     if (usernameField) {
       try {
         username = await fields({
@@ -3745,7 +3842,7 @@ export function createLoginRuntime(
         reason?: string;
         takenOver?: boolean;
         completed?: true;
-        notCompleted?: "disabled-left-out";
+        notCompleted?: "disabled-left-out" | "password-empty";
       } = {},
     ) =>
       report(run.live.document, {
@@ -3803,6 +3900,12 @@ export function createLoginRuntime(
       run.metadata.watch === undefined &&
       run.metadata.route !== "passkey" &&
       UNDECIDED_COMPLETES.has(reason);
+    // A login that stopped before its item's missing password never completes on an
+    // undecided answer: it ends `challenge`, watched (ADR 0036). A path the judge found
+    // signed in before is the judge's own answer, as on a move.
+    const stopHeld =
+      undecided && run.metadata.stopAt !== undefined && reason !== "judged-signed-in";
+    if (stopHeld) completes = false;
     // The judge's answer can take a while: the page completes only if, once the answer is
     // back, it has loaded and still shows no sign of a sign-in going on.
     if (completes) {
@@ -3817,7 +3920,12 @@ export function createLoginRuntime(
     // A disabled field left out of the description may be a code field waiting for a timer
     // or a sent code: such a page completes only when the judge answers `signed-in`, and
     // otherwise settles as an unjudged page would (owner, 2026-10-12, ADR 0029).
-    const notCompleted = completes && disabledLeftOut ? ("disabled-left-out" as const) : undefined;
+    const notCompleted =
+      completes && disabledLeftOut
+        ? ("disabled-left-out" as const)
+        : stopHeld
+          ? ("password-empty" as const)
+          : undefined;
     if (notCompleted) completes = false;
     // Reported before the takeover's own entries, once whether it is taken over is known.
     let reported = false;
@@ -3850,7 +3958,8 @@ export function createLoginRuntime(
                 ? "credential-rejected"
                 : verdict === "challenge" ||
                     reason === "judged-challenge" ||
-                    (undecided && continuing(reading))
+                    (undecided && continuing(reading)) ||
+                    stopHeld
                   ? "challenge"
                   : "unknown",
             ),
@@ -4482,6 +4591,13 @@ export function createLoginRuntime(
           run.metadata.stepIndex === 0
         )
           return;
+        continue;
+      }
+      // A login of an item without a password fills nothing at its stop, but answers its
+      // page's passkey request there (ADR 0036).
+      if (atStop(run.metadata)) {
+        await stopBeforePassword(run);
+        if (current(run) && run.metadata.state === "ready" && atStop(run.metadata)) return;
         continue;
       }
       if (!(await allowed(run))) return;
@@ -6523,10 +6639,14 @@ export function createLoginRuntime(
       fill,
       ...(previous ? { route: attemptRouteChoice(previous) } : {}),
       ...(pageRequest ? { pageRequest } : {}),
+      ...(chooser ? { chooser: true } : {}),
     });
     if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
     if (plan.ok && "fillOnly" in plan && plan.route.route !== "password") {
-      plan = await planFor(snapshot, live, recipe, { asking });
+      plan = await planFor(snapshot, live, recipe, {
+        asking,
+        ...(chooser ? { chooser: true } : {}),
+      });
       if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
     }
     if (!plan.ok) {
@@ -6591,6 +6711,7 @@ export function createLoginRuntime(
           const replanned = await planFor(snapshot, live, route, {
             asking,
             ...(pageRequest ? { pageRequest } : {}),
+            chooser: true,
           });
           if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
           if (!replanned.ok) return refuse(replanned.reason);
@@ -6685,6 +6806,8 @@ export function createLoginRuntime(
           ...(chooser
             ? { chooser: click === undefined || click === "none" ? "entry" : click }
             : {}),
+          // An item without a password stops before it (ADR 0036).
+          ...("stopAt" in plan && typeof plan.stopAt === "number" ? { stopAt: plan.stopAt } : {}),
         }),
         { type: "RESOLVE" },
       );
@@ -7637,7 +7760,8 @@ export function createLoginRuntime(
    * origin of the same site, ended its sign-in (ADR 0022): the attempt's last effect step
    * ran shortly before the move, and that page is quiet and shows the account's username
    * in its header or navigation (`quietMove`, ADR 0029: E2), or, quiet without it, shows a
-   * signed-in marker learned on its origin or is judged `signed-in` once (`judgeMove`).
+   * signed-in marker learned on its origin or is judged `signed-in` once (`judgeMove`). A
+   * login that stops before its item's missing password skips the username (ADR 0036).
    * Pateat fills and clicks nothing there.
    */
   async function signedInByPassword(
@@ -7654,7 +7778,12 @@ export function createLoginRuntime(
     if (!effect) return false;
     const username = await moveUsername(record);
     if (!username || !stillLive()) return false;
-    const reading = await quietMove(live, effect.at, username, true);
+    // A login that stops before its item's missing password is not signed in by the
+    // username in the header or navigation (ADR 0036): a quiet page is judged.
+    const reading =
+      record.stopAt === undefined
+        ? await quietMove(live, effect.at, username, true)
+        : (await quietMove(live, effect.at)) && ("unproven" as const);
     if (reading !== "unproven" || !stillLive()) return reading === "signed-in";
     const verdict = judgeMove(record, live, username, effect.at);
     moveJudgements.set(record.id, { documentId: live.document.documentId, verdict });
@@ -8346,9 +8475,114 @@ export function createLoginRuntime(
     await fallBack(run, gone ? "request-missing" : "answer-failed");
   }
   /**
+   * When the passkey bridge last returned an assertion to the login's page since its last
+   * effect step (ADR 0027), if it did: a request that showed a prompt, answered with the
+   * login's item.
+   */
+  function bridgeAnswer(run: Execution): number | undefined {
+    const { tabId, origin: pageOrigin } = run.live.document;
+    const answer = passkeyAnswers.get(`${tabId} ${pageOrigin}`);
+    const effect = effects.get(tabId);
+    return answer && effect?.attemptId === run.metadata.id && answer.at >= effect.at
+      ? answer.at
+      : undefined;
+  }
+  /**
+   * A login of an item without a password at its stop (ADR 0036) fills nothing there. It
+   * waits up to `REQUEST_WAIT_MS` for its document's conditional passkey request, counting
+   * one that was already waiting, and answers it with its item; a request the bridge
+   * already answered since its last effect step counts the same. The answer is a
+   * submission, recorded before a waiting request is answered, and the page is then
+   * observed as after a click, held while the sign-in form still shows for up to
+   * `REQUEST_HOLD_MS`. Without a request the login ends `challenge`, watched, as
+   * `password-empty`.
+   */
+  async function stopBeforePassword(run: Execution): Promise<void> {
+    const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+    const stopped = () => current(run) && run.metadata.state === "ready" && atStop(run.metadata);
+    if (!(await allowed(run)) || !stopped()) return;
+    let parked = parkedFor(run.live.document);
+    let bridged = bridgeAnswer(run);
+    for (
+      const until = Date.now() + REQUEST_WAIT_MS;
+      !parked && bridged === undefined && Date.now() < until;
+    ) {
+      // eslint-disable-next-line no-await-in-loop
+      await sleep(100);
+      if (!stopped()) return;
+      parked = parkedFor(run.live.document);
+      bridged = bridgeAnswer(run);
+    }
+    if (!(await allowed(run)) || !stopped()) return;
+    const end = (cause?: StopCause) =>
+      change(
+        run,
+        { type: "OBSERVED", result: "challenge", document: run.live.document },
+        undefined,
+        cause,
+        undefined,
+        "password-empty",
+      );
+    if (!parked && bridged === undefined) {
+      await end();
+      return;
+    }
+    const operationId = newId();
+    await change(run, { type: "STOP_ANSWERED", operationId });
+    const answering = () =>
+      current(run) &&
+      run.metadata.state === "reconciling" &&
+      run.metadata.operationId === operationId;
+    if (!answering()) {
+      // An answer the attempt refuses, such as one past its submissions, ends the login.
+      if (stopped()) await end();
+      return;
+    }
+    const { tabId } = run.live.document;
+    if (bridged !== undefined) {
+      // The step that asked for a passkey is the answer's, so S5 skips it and a move to
+      // the passkey's site completes (ADR 0029, ADR 0022).
+      effects.set(tabId, {
+        attemptId: run.metadata.id,
+        at: bridged,
+        document: run.live.document,
+        submits: false,
+        passkey: true,
+      });
+      run.answeredAt = bridged;
+    } else if (parked) {
+      effects.set(tabId, {
+        attemptId: run.metadata.id,
+        at: Date.now(),
+        document: run.live.document,
+        submits: false,
+        passkey: true,
+      });
+      const item = {
+        connectionId: run.metadata.account.connectionId,
+        itemId: run.metadata.account.itemId,
+      };
+      const target = parked;
+      // The bridge says whether the assertion went back; a request that went away
+      // meanwhile was never answered.
+      let gone = false;
+      const signed = await new Promise<boolean>((resolve) => {
+        gone = !target.settle({ kind: "answer", item, answered: resolve });
+        if (gone) resolve(false);
+      });
+      if (!answering()) return;
+      if (!signed) {
+        await end(gone ? undefined : "answer-failed");
+        return;
+      }
+      run.answeredAt = Date.now();
+    }
+    await reconcileBounded(run);
+  }
+  /**
    * The `passkey` route that answers its page's own request goes back to the password
-   * variant the login recorded (ADR 0034), or ends `challenge` without one. It never
-   * answers again.
+   * variant the login recorded (ADR 0034), or ends `challenge` without one or with a stop
+   * before the item's missing password (ADR 0036). It never answers again.
    */
   async function fallBack(
     run: Execution,
@@ -8359,7 +8593,8 @@ export function createLoginRuntime(
     const { variant } = run.metadata;
     const steps =
       variant === undefined ? 0 : routeSteps(run.recipe, { route: "password", variant }).length;
-    if (variant === undefined || !steps) {
+    // A login whose item lacks a password never goes back to its variant's stop (ADR 0036).
+    if (variant === undefined || !steps || run.metadata.stopAt !== undefined) {
       await change(run, { type: "OBSERVED", result: "challenge", document: run.live.document });
       return;
     }

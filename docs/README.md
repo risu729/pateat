@@ -79,6 +79,7 @@ pages, with synthetic slot hints, may be committed as evaluation data
 - [0033: No site-specific features unless strictly necessary](adr/0033-no-site-specific-features.md)
 - [0034: Pateat answers a login page's own passkey request](adr/0034-answer-page-passkey-requests.md)
 - [0035: Page kinds, and how far Pateat goes on each, per site and profile](adr/0035-page-kinds-per-site.md)
+- [0036: Items without a password go on to a passkey after the identifier](adr/0036-passkey-after-the-identifier.md)
 
 This layout follows the useful separation in
 [Kogane ADR 0041](https://github.com/risu729/kogane/blob/main/docs/adr/0041-documentation-scope.md),

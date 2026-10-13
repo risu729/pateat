@@ -957,7 +957,9 @@ export function recipeHasRoute(recipe: LoginRecipe, route: LoginRoute): boolean 
  * holds a discoverable passkey and the recipe has the route's button, or the start page
  * asked for a passkey by itself (`pageRequest`, ADR 0034); otherwise, from whether the
  * item's binding fills each password variant in order (`fits[variant]`), the first
- * fitting variant, when the item has a password. Undefined means `no-route`.
+ * fitting variant, when the item has a password. Undefined means `no-route`, unless an
+ * item without a password may take the `password` route up to its password
+ * (`passwordStop`, ADR 0036).
  */
 // SSO (ADR 0026) comes between the passkey and password routes once it exists.
 export function chooseLoginRoute(
@@ -970,6 +972,35 @@ export function chooseLoginRoute(
   if (!facts.password) return undefined;
   const variant = passwordVariants(recipe).findIndex((_, index) => fits[index] === true);
   return variant === -1 ? undefined : { route: "password", variant };
+}
+/**
+ * Where a `password` login of an item without a password stops (ADR 0036): the index of
+ * the route's first step that fills one of `passwordSlots`, the slots its binding reads
+ * from the item's empty password. The login runs the steps before it and never that step
+ * or a later one. Undefined, so the login takes no route, unless the item holds a usable
+ * passkey, the recipe has no alternatives, an `advance` step comes before that step, and
+ * no step before it fills one of `lacking`, the slots whose values the item lacks. The
+ * login's own scope, the tab's top document and no chooser, is the caller's to check.
+ */
+export function passwordStop(
+  recipe: LoginRecipe,
+  choice: LoginRouteChoice,
+  facts: Pick<LoginItemFacts, "password" | "passkey">,
+  passwordSlots: readonly string[],
+  lacking: readonly string[],
+): number | undefined {
+  if (facts.password || !facts.passkey || recipe.alternatives || choice.route !== "password")
+    return undefined;
+  const steps = routeSteps(recipe, choice);
+  const fills = (step: LoginStep, slots: readonly string[]) =>
+    step.kind === "fill" && step.fields.some((field) => slots.includes(field.slot));
+  const stop = steps.findIndex((step) => fills(step, passwordSlots));
+  if (stop < 1) return undefined;
+  const before = steps.slice(0, stop);
+  return before.some((step) => loginStepEffect(step) === "advance") &&
+    !before.some((step) => fills(step, lacking))
+    ? stop
+    : undefined;
 }
 /** The slot a `totp` handler's fill uses; a binding for it reads the item's TOTP field. */
 export const TOTP_HANDLER_SLOT = "totp";

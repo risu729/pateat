@@ -35,6 +35,10 @@ read where the code comes from when the page says so outside the code form ("Tex
 the code field" in [Implementation choices](#implementation-choices)); implemented. The
 rule that only a code the page says comes from an authenticator app is learned is
 unchanged.
+Amended on 2026-10-13 by [ADR 0036](0036-passkey-after-the-identifier.md): an item
+without a password but with a passkey takes the `password` route up to the step that
+fills the password, answers its page's passkey request there, and otherwise ends
+`challenge`, watched (implemented).
 
 Date: 2026-10-11
 

@@ -28,6 +28,9 @@ below.
 Amends [ADR 0018](0018-recipe-generation-route.md) (how success is decided after a
 generated recipe's submission) and [ADR 0027](0027-per-account-login-routes.md) (when a
 page is judged).
+Amended on 2026-10-13 by [ADR 0036](0036-passkey-after-the-identifier.md): for a login
+that stops before its item's missing password, E2 is no sign-in, also while watched and
+on a move, and an undecided answer ends it `challenge`, watched (implemented).
 
 Date: 2026-10-12
 

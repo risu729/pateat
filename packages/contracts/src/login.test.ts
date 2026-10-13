@@ -15,6 +15,7 @@ import {
   loginChooserRecipeSchema,
   loginEntryRecipeSchema,
   passkeyAnswersRequest,
+  passwordStop,
   passwordVariants,
   recipeHasRoute,
   recipeSlots,
@@ -2221,5 +2222,156 @@ describe("chooser recipes (ADR 0028)", () => {
     expect(v.is(loginRecipeSchema, route)).toBe(true);
     // The other branch is still absent: its route is the click alone.
     expect(chooserRoute(both, "other")?.steps).toHaveLength(1);
+  });
+});
+
+describe("the stop before a missing password (ADR 0036)", () => {
+  const id = (value: string) => ({ by: "id" as const, value });
+  const fill = (slots: string[], path: string, effect?: "advance") => ({
+    kind: "fill" as const,
+    path,
+    fields: slots.map((slot) => ({ slot, target: id(slot) })),
+    ...(effect ? { effect, event: "input" as const } : {}),
+  });
+  const click = (value: string, path: string, purpose: "advance" | "submit") => ({
+    kind: "click" as const,
+    path,
+    target: id(value),
+    purpose,
+  });
+  /** An identifier-first form: the email, Next, then the password and its button. */
+  const emailFirst = (change: Record<string, unknown> = {}) =>
+    parseLoginRecipe({
+      version: 1,
+      id: "synthetic-email-first",
+      revision: 1,
+      origin: "https://login.example",
+      slots: ["username", "password"],
+      steps: [
+        fill(["username"], "/signin"),
+        click("next", "/signin", "advance"),
+        fill(["password"], "/password"),
+        click("login", "/password", "submit"),
+      ],
+      maxSubmissions: 2,
+      ...change,
+    });
+  const route = { route: "password", variant: 0 } as const;
+  const keyOnly = { password: false, passkey: true };
+
+  it("stops at the password fill when an advance comes before it", () => {
+    expect(passwordStop(emailFirst(), route, keyOnly, ["password"], ["password"])).toBe(2);
+    // The input's own advance counts as the click's would.
+    const typed = emailFirst({
+      steps: [
+        fill(["username"], "/signin", "advance"),
+        fill(["password"], "/password"),
+        click("login", "/password", "submit"),
+      ],
+    });
+    expect(passwordStop(typed, route, keyOnly, ["password"], ["password"])).toBe(1);
+    // The first step that fills one of the slots read from the empty password.
+    const confirmed = emailFirst({
+      slots: ["username", "current", "password"],
+      steps: [
+        fill(["username"], "/signin"),
+        click("next", "/signin", "advance"),
+        fill(["current"], "/password"),
+        fill(["password"], "/password"),
+        click("login", "/password", "submit"),
+      ],
+    });
+    expect(passwordStop(confirmed, route, keyOnly, ["current", "password"], ["current"])).toBe(2);
+  });
+
+  it("never stops for an item with a password, without a passkey or on another route", () => {
+    const plain = emailFirst();
+    expect(
+      passwordStop(plain, route, { password: true, passkey: true }, ["password"], []),
+    ).toBeUndefined();
+    expect(
+      passwordStop(plain, route, { password: false, passkey: false }, ["password"], ["password"]),
+    ).toBeUndefined();
+    const button = emailFirst({ passkey: { path: "/signin", target: id("passkey-login") } });
+    expect(
+      passwordStop(button, { route: "passkey" }, keyOnly, ["password"], ["password"]),
+    ).toBeUndefined();
+    // The binding reads no slot from the empty password: nothing to stop at.
+    expect(passwordStop(plain, route, keyOnly, [], [])).toBeUndefined();
+  });
+
+  it("never stops on a single-page form or without an advance before the password", () => {
+    const single = emailFirst({
+      steps: [fill(["username", "password"], "/signin"), click("login", "/signin", "submit")],
+      maxSubmissions: 1,
+    });
+    expect(passwordStop(single, route, keyOnly, ["password"], ["password"])).toBeUndefined();
+    const stacked = emailFirst({
+      steps: [
+        fill(["username"], "/signin"),
+        fill(["password"], "/signin"),
+        click("login", "/signin", "submit"),
+      ],
+      maxSubmissions: 1,
+    });
+    expect(passwordStop(stacked, route, keyOnly, ["password"], ["password"])).toBeUndefined();
+    const first = emailFirst({
+      steps: [
+        fill(["password"], "/signin"),
+        click("next", "/signin", "advance"),
+        fill(["username"], "/account"),
+        click("login", "/account", "submit"),
+      ],
+    });
+    expect(passwordStop(first, route, keyOnly, ["password"], ["password"])).toBeUndefined();
+  });
+
+  it("never stops on a recipe with alternatives", () => {
+    const varied = emailFirst({
+      alternatives: [
+        {
+          slots: ["account", "password"],
+          steps: [
+            fill(["account"], "/signin"),
+            click("next", "/signin", "advance"),
+            fill(["password"], "/password"),
+            click("login", "/password", "submit"),
+          ],
+        },
+      ],
+    });
+    for (const variant of [0, 1])
+      expect(
+        passwordStop(varied, { route: "password", variant }, keyOnly, ["password"], ["password"]),
+      ).toBeUndefined();
+  });
+
+  it("never stops after a step that fills another value the item lacks", () => {
+    const code = emailFirst({
+      slots: ["username", "totp", "password"],
+      steps: [
+        fill(["username", "totp"], "/signin"),
+        click("next", "/signin", "advance"),
+        fill(["password"], "/password"),
+        click("login", "/password", "submit"),
+      ],
+    });
+    expect(passwordStop(code, route, keyOnly, ["password"], ["totp", "password"])).toBeUndefined();
+    // A code the item holds is no reason to refuse.
+    expect(passwordStop(code, route, keyOnly, ["password"], ["password"])).toBe(2);
+    // A lacking value filled only after the stop is never reached.
+    const after = emailFirst({
+      slots: ["username", "password", "totp"],
+      steps: [
+        fill(["username"], "/signin"),
+        click("next", "/signin", "advance"),
+        fill(["password"], "/password"),
+        click("login", "/password", "advance"),
+        fill(["totp"], "/code"),
+        click("verify", "/code", "submit"),
+      ],
+      maxSubmissions: 3,
+    });
+    expect(passwordStop(after, route, keyOnly, ["password"], ["password", "totp"])).toBe(2);
   });
 });

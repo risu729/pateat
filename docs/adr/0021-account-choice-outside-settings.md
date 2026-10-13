@@ -28,6 +28,9 @@ unfinished GitHub login held the site
 ([ADR 0022](0022-login-attempts-per-tab-and-origin.md)). The choice now shows only once
 the site's matches name each account by its username, and while another tab's login
 holds the site it says so, disables Log in and stays for a pick once that hold ends.
+Amended on 2026-10-13 by [ADR 0036](0036-passkey-after-the-identifier.md): fill only (D)
+also fills the identifier for an item without a password that may go on to a passkey
+after it, and presses nothing (implemented).
 
 Date: 2026-10-11
 

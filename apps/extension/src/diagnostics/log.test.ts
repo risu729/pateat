@@ -1459,6 +1459,50 @@ describe("unhandled errors", () => {
     vi.restoreAllMocks();
   });
 
+  it("names a login's stop before a missing password (ADR 0036)", async () => {
+    const log = createDiagnosticsLog({
+      build: { version: "0.1.0", revision: "1c42ad3" },
+      settings: async () => {
+        throw new Error("not needed");
+      },
+      recipeCache: async () => undefined,
+      connections: async () => ({ ok: true, kind: "status", connections: [] }),
+      databaseName: `log-test-${crypto.randomUUID()}`,
+      scope: { addEventListener: () => undefined } as never,
+    });
+    for (const level of ["debug", "info", "warn"] as const)
+      vi.spyOn(console, level).mockImplementation(() => undefined);
+    log.login({
+      type: "attempt",
+      tabId: 4,
+      origin: "https://login.example",
+      recipeId: "synthetic-email-first",
+      recipeRevision: 1,
+      route: "password",
+      variant: 0,
+      state: "watching",
+      stepIndex: 2,
+      stepCount: 4,
+      outcome: "challenge",
+      reason: "password-empty",
+      stop: "password",
+    });
+    await vi.waitFor(async () =>
+      expect(
+        (await log.logger.entries()).filter((entry) => entry.event === "login.attempt"),
+      ).toHaveLength(1),
+    );
+    const [entry] = (await log.logger.entries()).filter(
+      (logged) => logged.event === "login.attempt",
+    );
+    expect(entry!.fields).toMatchObject({
+      outcome: "challenge",
+      reason: "password-empty",
+      stop: "password",
+    });
+    vi.restoreAllMocks();
+  });
+
   it("logs a reason once per login-related page and warns for an exception", async () => {
     const log = createDiagnosticsLog({
       build: { version: "0.1.0", revision: "1c42ad3" },

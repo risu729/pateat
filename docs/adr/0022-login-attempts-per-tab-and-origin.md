@@ -4,6 +4,8 @@ Status: accepted by the owner on 2026-10-11 (11:42 UTC) as a bug fix and impleme
 the PR that adds this record. Amends [ADR 0016](0016-recipe-generation-trigger.md)
 (which tabs may offer a page) and [ADR 0017](0017-login-forms-in-frames.md) (one attempt
 per tab). Tested on synthetic fixtures only; no real site or account has been used.
+Amended on 2026-10-13 by [ADR 0036](0036-passkey-after-the-identifier.md) (moves of a
+login that stops before its item's missing password; implemented).
 
 Date: 2026-10-11
 
