@@ -485,19 +485,28 @@ export const awaitResultSchema = v.strictObject({
   ok: v.boolean(),
   reason: v.optional(v.picklist(["timeout", "cancelled"])),
 });
-/** Why a signed-in page's observation is incomplete; see `ObservationGap`. */
+/** Why an observation is incomplete; see `ObservationGap`. Value-free codes only. */
 export const observationGaps = [
   "shadow-field",
+  "shadow-control",
   "unfillable-field",
+  "unsupported-control",
   "unlocated-field",
+  "unlocated-checkbox",
+  "unlocated-button",
   "too-many-fields",
+  "too-many-candidates",
+  "too-many-accounts",
+  "unlisted-accounts",
+  "too-many-elements",
+  "too-many-controls",
 ] as const;
 /** The page description; validated again against `loginObservationSchema` by the caller. */
 export const extractResultSchema = v.variant("ok", [
   v.strictObject({
     ok: v.literal(true),
     observation: v.unknown(),
-    /** Why a signed-in page's observation is incomplete; for diagnostics only. */
+    /** Why the observation is incomplete; for diagnostics only. */
     gap: v.optional(v.picklist(observationGaps)),
     /**
      * A signed-in page's description left out a disabled field that may not be a sign-in

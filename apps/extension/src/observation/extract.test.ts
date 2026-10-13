@@ -1014,6 +1014,57 @@ describe("extractLoginObservation", () => {
     expect(observe().complete).toBe(false);
   });
 
+  it("names the first cause of an incomplete observation, without page text (ADR 0019)", () => {
+    const gap = (html: string, shadow?: string) => {
+      page(html);
+      if (shadow !== undefined)
+        document.querySelector("#host")!.attachShadow({ mode: "open" }).innerHTML = shadow;
+      const result = extractLoginObservation();
+      if (!result.ok) throw new Error(`no observation: ${result.reason}`);
+      return [result.observation.complete, result.gap];
+    };
+    const form = (extra: string, button = `<button id="go">Log in</button>`) =>
+      `<form id="f"><input id="u"><input id="p" type="password">${extra}${button}</form>`;
+    expect(gap(form(""))).toEqual([true, undefined]);
+    for (const [html, shadow, expected] of [
+      // A fillable field in any shadow root.
+      [`${form("")}<div id="host"></div>`, `<input type="password">`, "shadow-field"],
+      // Another control in a shadow root inside the login form.
+      [form(`<div id="host"></div>`), `<button>Voice</button>`, "shadow-control"],
+      [form(`<input id="pin" type="password" readonly>`), undefined, "unfillable-field"],
+      [form(`<input id="pin" type="password" disabled>`), undefined, "unfillable-field"],
+      [form(`<input id="pin" style="opacity:0">`), undefined, "unfillable-field"],
+      [form(`<select id="kind"><option>A</option></select>`), undefined, "unsupported-control"],
+      [form(`<input type="radio" id="kind">`), undefined, "unsupported-control"],
+      [form(`<input>`), undefined, "unlocated-field"],
+      [form(`<input type="checkbox">`), undefined, "unlocated-checkbox"],
+      [form("", `<button>Log in</button><button>Log in</button>`), undefined, "unlocated-button"],
+      // An icon button may be the form's only, script-run submit.
+      [
+        form(
+          "",
+          `<button type="button" aria-label="Show"><svg width="16" height="16"></svg></button>`,
+        ),
+        undefined,
+        "unlocated-button",
+      ],
+      [
+        `<form id="f">${Array.from({ length: 50 }, (_, at) => `<input id="i${at}">`).join("")}</form>`,
+        undefined,
+        "too-many-candidates",
+      ],
+      // The first cause in a fixed order, whatever the document order.
+      [
+        form(`<input>${"<select id='k'><option>A</option></select>"}`),
+        undefined,
+        "unsupported-control",
+      ],
+      [form(`<input type="checkbox"><input id="r" readonly>`), undefined, "unfillable-field"],
+      [`${form("<select id='k'></select>")}<div id="host"></div>`, `<input>`, "shadow-field"],
+    ] as const)
+      expect(gap(html, shadow), html).toEqual([false, expected]);
+  });
+
   it("leaves out a field the continued recipe already fills when it is read-only or disabled", () => {
     // An email address shown again, read-only, beside the password (ADR 0018).
     const email = { by: "id" as const, value: "email" };
@@ -2183,6 +2234,40 @@ describe("extractAccountListObservation", () => {
     if (!result.ok) throw new Error(result.reason);
     expect(result.observation.candidates).toHaveLength(8);
     expect(result.observation.complete).toBe(false);
+    expect(result.gap).toBe("too-many-controls");
+  });
+
+  it("names the first cause of an incomplete list, without page text (ADR 0019)", () => {
+    const gap = (html: string, shadow?: string) => {
+      page(html);
+      if (shadow !== undefined)
+        document.querySelector("#host")!.attachShadow({ mode: "open" }).innerHTML = shadow;
+      const result = extractAccountListObservation();
+      if (!result.ok) throw new Error(`no observation: ${result.reason}`);
+      return [result.observation.complete, result.gap];
+    };
+    const continueButton = `<button>Continue</button>`;
+    expect(gap(`<button>a@example.com</button>${continueButton}`)).toEqual([true, undefined]);
+    for (const [html, shadow, expected] of [
+      [
+        `<button>a@example.com</button>${continueButton}<div id="host"></div>`,
+        `<input type="password">`,
+        "shadow-field",
+      ],
+      [
+        `${Array.from({ length: 9 }, (_, at) => `<button>a${at}@example.com</button>`).join("")}${continueButton}`,
+        undefined,
+        "too-many-accounts",
+      ],
+      // An address that survives redaction is never sent, so its account is left out.
+      [`<button>a@example.com @home</button>${continueButton}`, undefined, "unlisted-accounts"],
+      [
+        `<button>a@example.com</button>${continueButton}<div>${"<i></i>".repeat(4001)}</div>`,
+        undefined,
+        "too-many-elements",
+      ],
+    ] as const)
+      expect(gap(html, shadow), html).toEqual([false, expected]);
   });
 });
 
