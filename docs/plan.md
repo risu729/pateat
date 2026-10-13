@@ -385,6 +385,9 @@ than in this repository.
     and `/manage/claude`) use the same tokens, light or dark as the browser prefers,
     with the logo beside "Pateat" and the page in one panel. With this, every screen of
     the extension and the service has had its polish pass.
+  - Done: the toolbar icon spins in a tab while a model request for that tab's page is
+    in flight (owner, 2026-10-13 14:04 UTC); see the
+    [architecture](architecture.md#extension-icon) for the frames and limits.
 - Done: `https://my.jcb.co.jp/Login` was generated again after delivery 3. The recipe
   revision the Grok Bot computer's device generated on 2026-10-12 (13:45 UTC) names both
   routes: the password steps and the passkey button on `/Login`, read from D1 at 14:26

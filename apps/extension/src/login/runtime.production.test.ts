@@ -22,7 +22,7 @@ import { createRecipeSync } from "../service/recipes";
 import { createSettingsSync } from "../service/settings-sync";
 import type { ServiceTransport } from "../service/transport";
 import { acceptsSecret, type SecretInput } from "./inputs";
-import type { LoginGeneration, LoginRecipeStart, LoginReport } from "./runtime";
+import type { GenerationOutcome, LoginGeneration, LoginRecipeStart, LoginReport } from "./runtime";
 import type { LoginFieldSource } from "./vault";
 import type { ConditionalDecision, PasskeyItem } from "../passkeys/runtime";
 
@@ -371,6 +371,8 @@ function harness(
     entries?: LoginEntryRecipe[];
     /** Told of each origin a login signed in (ADR 0007). */
     signedIn?: (tabId: number, origin: string) => void;
+    /** Spins a tab's toolbar icon while a model request is in flight. */
+    spin?: (tabId: number) => () => void;
   } = {},
 ) {
   const customFields = (fields: CustomField[]) =>
@@ -518,6 +520,7 @@ function harness(
     ...(live.passkeyItems ? { passkeyItems: live.passkeyItems } : {}),
     ...(live.vault ? { vault: live.vault } : {}),
     ...(live.signedIn ? { signedIn: live.signedIn } : {}),
+    ...(live.spin ? { spin: live.spin } : {}),
     ...(live.report
       ? {
           report: (entry: LoginReport) => {
@@ -5167,6 +5170,37 @@ describe("production login document admission", () => {
         { type: "generation", tabId: 1, origin, outcome: "sent" },
         { type: "generation", tabId: 1, origin, outcome: "abstained", reason: "ambiguous" },
       ]);
+    });
+
+    it("spins the tab's icon from the page's send until its answer", async () => {
+      fake.state.extracted = { login: loginPage };
+      let answer!: (outcome: GenerationOutcome) => void;
+      const service = generation({
+        generate: () =>
+          new Promise<GenerationOutcome>((resolve) => {
+            answer = resolve;
+          }),
+      });
+      const stop = vi.fn();
+      const spin = vi.fn((_tabId: number) => stop);
+      const h = harness(unsaved, {
+        allowedOrigins: [],
+        uris,
+        username: true,
+        custom: [],
+        generation: service,
+        spin,
+      });
+      h.recipes.recipe.mockResolvedValue(undefined);
+      h.recipes.starts.mockResolvedValue(startsOf([]));
+      expect(await h.hello({}, false)).toMatchObject({ generate: true });
+      expect(spin).not.toHaveBeenCalled();
+      expect(await h.signIn()).toEqual({ ok: false, reason: "generating" });
+      await vi.waitFor(() => expect(spin).toHaveBeenCalledWith(1));
+      expect(stop).not.toHaveBeenCalled();
+      answer({ outcome: "abstained", reason: "ambiguous" });
+      await vi.waitFor(() => expect(stop).toHaveBeenCalledTimes(1));
+      expect(spin).toHaveBeenCalledTimes(1);
     });
 
     it("logs a page that stopped answering before it was sent", async () => {

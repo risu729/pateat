@@ -98,7 +98,7 @@ export default defineBackground(() => {
   // The manifest default is the locked icon; a running worker switches it.
   const actionIcon = createActionIcon({
     states: () => connections.vaultStates(),
-    setIcon: (path) => browser.action.setIcon({ path }),
+    setIcon: (details) => browser.action.setIcon(details),
   });
   void actionIcon.refresh();
   // A badge counts the accounts a refused login could use (ADR 0021).
@@ -214,6 +214,7 @@ export default defineBackground(() => {
     passkeyItems: (origin) => originPasskeyItems(vaultPasskeys, origin),
     report: diagnosticsLog.login,
     signedIn: (tabId, origin) => noteSignIn(tabId, origin),
+    spin: (tabId) => actionIcon.spin(tabId),
   });
   const setupProbe = syntheticSetup?.handler(connections);
   const siteAccounts = createSiteAccountsHandler({
