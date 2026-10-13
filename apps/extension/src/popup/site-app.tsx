@@ -101,6 +101,7 @@ function SiteSwitch({
   const checked = pending ?? site.on;
   return (
     <label className="popup-switch">
+      <span>Pateat on this site</span>
       <input
         id="popup-site-switch"
         type="checkbox"
@@ -114,7 +115,6 @@ function SiteSwitch({
           if (!busy) onChange(event.target.checked);
         }}
       />
-      Pateat on this site
     </label>
   );
 }
@@ -324,7 +324,7 @@ export function SiteApp({
       if (response.ok) {
         queryClient.setQueryData<Saved>(SETTINGS_QUERY_KEY, response);
         say(done, "success");
-        // A default saved for the site ends a waiting choice; the background clears it.
+        // A default saved for the site can end a waiting choice; the background clears it.
         if (choice.isEnabled) void choice.refetch();
       } else if (response.error.code === "revision-conflict") {
         await settings.refetch();
@@ -473,20 +473,20 @@ export function SiteApp({
     );
     // A pick in a private window is used for this login only unless the user says otherwise.
     const asDefault = makeDefault ?? !tab.data?.incognito;
-    // A saved default missing from the site's matches is shown with its saved labels.
-    const missingDefault: Omit<AccountCard, "value"> | undefined =
-      current && !currentOption
-        ? {
-            title:
-              currentConnection?.items.find((item) => item.id === current.itemId)?.label ??
-              current.itemName ??
-              current.itemId,
-            sub:
-              currentConnection?.label ??
-              `${current.accountName ?? "Vault account"}, not available here`,
-            isDefault: true,
-          }
-        : undefined;
+    // A saved default missing from a list is shown with its saved labels.
+    const savedDefault: Omit<AccountCard, "value"> | undefined = current && {
+      title:
+        currentConnection?.items.find((item) => item.id === current.itemId)?.label ??
+        current.itemName ??
+        current.itemId,
+      sub:
+        currentConnection?.label ?? `${current.accountName ?? "Vault account"}, not available here`,
+      isDefault: true,
+    };
+    const missingDefault = currentOption ? undefined : savedDefault;
+    const missingFromChoice = pickOptions.some((entry) => entry.value === currentValue)
+      ? undefined
+      : savedDefault;
     let accountsNote: { tone: "idle" | "warn" | "err"; text: string } | undefined;
     if (accounts.isPending)
       accountsNote = { tone: "idle", text: "Finding the vault items that match this site…" };
@@ -530,6 +530,22 @@ export function SiteApp({
       );
     };
 
+    const removeDefault = () =>
+      void change((value) => {
+        value.siteDefaults = value.siteDefaults.filter((item) => item.origin !== origin);
+      }, "The default account for this site was removed");
+    const removeDefaultButton = current && (
+      <Button
+        id="popup-remove-default"
+        type="button"
+        variant="outline"
+        disabled={busy}
+        onClick={removeDefault}
+      >
+        Remove default
+      </Button>
+    );
+
     body = (
       <>
         {choice.isPending && choice.isEnabled && (
@@ -544,12 +560,14 @@ export function SiteApp({
         )}
         {offered && showChoice && (
           <section className="popup-section" aria-labelledby="popup-choice-heading">
-            <h2 id="popup-choice-heading">Choose an account</h2>
-            <p id="popup-choice-reason" className="popup-muted popup-reason">
-              {offered.logout
-                ? "You logged out of this site in this tab"
-                : `${pickOptions.length} accounts match this page`}
-            </p>
+            <div className="popup-section-head">
+              <h2 id="popup-choice-heading">Choose an account</h2>
+              <p id="popup-choice-reason" className="popup-muted popup-reason">
+                {offered.logout
+                  ? "You logged out of this site in this tab"
+                  : `${pickOptions.length} accounts match this page`}
+              </p>
+            </div>
             {offered.held && (
               <p id="popup-pick-held" className="popup-notice popup-notice--warning">
                 <TriangleAlert size={16} strokeWidth={2} aria-hidden="true" />
@@ -601,7 +619,37 @@ export function SiteApp({
             </Button>
           </section>
         )}
-        {site.on ? (
+        {offered && site.on && (showChoice || !labelled) ? (
+          // The account choice is the only list while the page waits for it: its cards
+          // mark the saved default, and a saved default can still be removed here.
+          showChoice && (
+            <div className="popup-section">
+              {(accountsNote?.tone === "err" ||
+                missingFromChoice ||
+                (found && !found.complete)) && (
+                <ul className="popup-lines">
+                  {accountsNote?.tone === "err" && (
+                    <Line tone="err" id="popup-accounts-note">
+                      {accountsNote.text}
+                    </Line>
+                  )}
+                  {missingFromChoice && (
+                    <Line tone="warn" id="popup-default">
+                      {`The saved default, ${missingFromChoice.title} (${missingFromChoice.sub}), is not one of these accounts`}
+                    </Line>
+                  )}
+                  {found && !found.complete && (
+                    <Line tone="warn" id="popup-accounts-incomplete">
+                      Some vaults or items could not be checked, so the site's matches may be
+                      incomplete
+                    </Line>
+                  )}
+                </ul>
+              )}
+              {removeDefaultButton && <div className="popup-actions">{removeDefaultButton}</div>}
+            </div>
+          )
+        ) : site.on ? (
           <fieldset className="popup-fieldset popup-section">
             <legend id="popup-default-heading" className="popup-legend">
               Default account
@@ -647,31 +695,13 @@ export function SiteApp({
                   <Button
                     id="popup-set-default"
                     type="button"
-                    // The account choice above has the view's primary button.
-                    variant={showChoice ? "outline" : "default"}
                     disabled={busy || !shown || shown === currentValue}
                     onClick={setDefault}
                   >
                     Use as default
                   </Button>
                 )}
-                {current && (
-                  <Button
-                    id="popup-remove-default"
-                    type="button"
-                    variant="outline"
-                    disabled={busy}
-                    onClick={() =>
-                      void change((value) => {
-                        value.siteDefaults = value.siteDefaults.filter(
-                          (item) => item.origin !== origin,
-                        );
-                      }, "The default account for this site was removed")
-                    }
-                  >
-                    Remove default
-                  </Button>
-                )}
+                {removeDefaultButton}
               </div>
             )}
           </fieldset>
@@ -714,20 +744,20 @@ export function SiteApp({
   return (
     <main className="popup">
       <header className="popup-header">
-        <Logo />
-        <div className="popup-heading">
+        <div className="popup-title">
+          <Logo className="popup-logo" />
           <h1 id="popup-origin">{origin ? hostnameOf(origin) : "This tab"}</h1>
-          {switchControl}
+          <button
+            id="popup-open-settings"
+            type="button"
+            className="popup-icon-button"
+            aria-label="Open settings"
+            onClick={() => openSettings()}
+          >
+            <Settings2 size={20} strokeWidth={2} aria-hidden="true" />
+          </button>
         </div>
-        <button
-          id="popup-open-settings"
-          type="button"
-          className="popup-icon-button"
-          aria-label="Open settings"
-          onClick={() => openSettings()}
-        >
-          <Settings2 size={20} strokeWidth={2} aria-hidden="true" />
-        </button>
+        {switchControl}
       </header>
       <output id="popup-message" className="popup-message" aria-live="polite">
         {notice.text && (

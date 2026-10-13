@@ -342,6 +342,14 @@ own accounts, so they stay in the project's files rather than in this repository
     The popup is 360px wide. Checked with synthetic data only: the Vitest and Playwright
     Chromium tests run in the default (light) theme, and screenshots of each popup state
     were compared in light and dark.
+  - Done: the popup shows one list. The owner asked for it on 2026-10-13 at 03:54 UTC:
+    two lists were the problem, and the switch's spacing needed another look. While the
+    page waits for an account choice, the Default account list is hidden, so each
+    account is shown once: the choice's cards carry the Default badge, its checkbox
+    makes the pick the default once that login succeeds, a saved default can still be
+    removed, and one that is not among the choice's accounts is named. The "Pateat on
+    this site" switch is a row of its own under the hostname, with its label on the left
+    and the switch on the right, and the sections use one spacing scale.
   - Done: the passkey chooser window is restyled with the same behavior: "Sign in to"
     the site, each passkey as a choice led by its user name, the site default marked
     **Default**, a one-line note after a Pateat sign-in from the tab, and the save
