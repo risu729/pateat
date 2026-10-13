@@ -96,3 +96,91 @@ test("long hostnames and usernames wrap inside the 360px popup", async () => {
   const toggle = page.getByRole("switch", { name: "Pateat on this site" }).element();
   expect(toggle.getBoundingClientRect()).toMatchObject({ width: 36, height: 20 });
 });
+
+test("the page section's long log codes wrap inside the 360px popup", async () => {
+  await page.viewport(360, 800);
+  const settings = createDefaultSettings();
+  const client = {
+    getSettings: vi.fn<SettingsClient["getSettings"]>().mockResolvedValue({
+      version: 1,
+      ok: true,
+      snapshot: { version: 1, revision: 0, settings },
+      catalog: DUMMY_VAULT_CATALOG,
+    }),
+    saveSettings: vi.fn<SettingsClient["saveSettings"]>(),
+    findSiteAccounts: vi.fn<SettingsClient["findSiteAccounts"]>().mockResolvedValue({
+      version: 1,
+      ok: true,
+      origin: ORIGIN,
+      complete: true,
+      accounts: [{ connectionId: "demo-work", itemId: "primary", uri: true, passkey: false }],
+    }),
+  };
+  const choices = {
+    get: vi.fn<ChoiceClient["get"]>().mockResolvedValue({ ok: false, reason: "no-choice" }),
+    pick: vi.fn<ChoiceClient["pick"]>(),
+    status: vi.fn<ChoiceClient["status"]>().mockResolvedValue({
+      ok: true,
+      origin: ORIGIN,
+      recipe: "other-paths",
+      asking: true,
+      page: { generationSkip: `incomplete-observation-${"unfillable-field-".repeat(6)}gap` },
+      login: {
+        state: "blocked",
+        outcome: "structural-mismatch",
+        cause: "elements-timeout",
+      },
+      refused: { reason: "no-route", detail: "password-not-allowed:no-passkey" },
+      generation: {
+        outcome: "failed",
+        reason: `invalid-output:${"schema-check-refused-".repeat(5)}end`,
+        page: "continuation",
+      },
+    }),
+  };
+  await render(
+    <QueryClientProvider client={createMetadataQueryClient()}>
+      <SiteApp
+        client={client}
+        choices={choices}
+        host={{
+          currentTab: async () => ({ id: 7, url: `${ORIGIN}/login`, incognito: false }),
+          openSettings: vi.fn(),
+          openDiagnostics: vi.fn(),
+          close: vi.fn(),
+          watchSettings: () => () => {},
+        }}
+      />
+    </QueryClientProvider>,
+  );
+  await expect.element(page.getByRole("heading", { name: "This page" })).toBeVisible();
+  await expect.element(page.getByText("Pateat did not log in", { exact: false })).toBeVisible();
+  const lines = [...document.querySelectorAll("#popup-page-status > li")];
+  expect(lines.map((line) => line.id)).toEqual([
+    "popup-page-recipe",
+    "popup-page-generation",
+    "popup-page-asking",
+    "popup-page-generation-skip",
+    "popup-page-login",
+    "popup-page-login-recipe",
+    "popup-page-refused",
+  ]);
+  const main = document.querySelector("main")!;
+  expect(main.getBoundingClientRect().width).toBe(360);
+  expect(main.scrollWidth).toBeLessThanOrEqual(main.clientWidth);
+  expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(360);
+  const section = document.querySelector("#popup-page-status")!;
+  expect(section.scrollWidth).toBeLessThanOrEqual(section.clientWidth);
+  const right = main.getBoundingClientRect().right;
+  for (const line of lines) {
+    expect(line.scrollWidth).toBeLessThanOrEqual(line.clientWidth);
+    expect(line.getBoundingClientRect().right).toBeLessThanOrEqual(right);
+    // Each line's icon keeps its size beside the wrapped text.
+    expect(line.querySelector("svg")!.getBoundingClientRect()).toMatchObject({
+      width: 16,
+      height: 16,
+    });
+  }
+  const link = document.querySelector("#popup-open-diagnostics")!;
+  expect(link.getBoundingClientRect().right).toBeLessThanOrEqual(right);
+});

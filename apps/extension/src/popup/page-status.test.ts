@@ -31,20 +31,28 @@ describe("pageStatusLines", () => {
     ]);
   });
 
-  it("says why a page without a recipe was not sent to the AI", () => {
+  it("says why a page without a recipe on it was not sent to the AI", () => {
     expect(lines({ page: { generationSkip: "sent" } })).toEqual([
       ["recipe", "idle", "This site has no recipe yet."],
       [
-        "generation",
+        "generation-skip",
         "idle",
         "Not sent to the AI: the AI was asked about this page within the last 10 minutes, so it is not asked again yet.",
       ],
     ]);
     // A code without a sentence shows as the log names it.
     expect(lines({ page: { generationSkip: "new-code" } })[1]).toEqual([
-      "generation",
+      "generation-skip",
       "idle",
       "Not sent to the AI: new-code.",
+    ]);
+    expect(lines({ page: { generationSkip: "sending" } })[1]?.[2]).toBe(
+      "Not sent to the AI: another request for this page is already being sent to the AI.",
+    );
+    // A site whose recipe starts elsewhere may still send this page.
+    expect(lines({ recipe: "other-paths", page: { generationSkip: "not-connected" } })).toEqual([
+      ["recipe", "idle", "This site has a recipe, but none starts on this page."],
+      ["generation-skip", "idle", "Not sent to the AI: Pateat is not connected to its service."],
     ]);
     // A page with a recipe says nothing about skips.
     expect(lines({ recipe: "page", page: { generationSkip: "sent" } })).toEqual([
@@ -52,24 +60,56 @@ describe("pageStatusLines", () => {
     ]);
   });
 
+  it("shows a skip beside the last request's answer", () => {
+    expect(
+      lines({
+        generation: { outcome: "abstained", reason: "no-form" },
+        page: { generationSkip: "sent" },
+      }).map(([id]) => id),
+    ).toEqual(["recipe", "generation", "generation-skip"]);
+  });
+
   it.each([
     [undefined, "the site's sign-in page"],
     ["accounts", "the site's list of accounts"],
     ["entry", "the site's sign-in link"],
     ["continuation", "the rest of the site's sign-in"],
-  ] as const)("shows a request in flight for %s", (page, what) => {
+  ] as const)("shows a request in flight for %s while the badge spins", (page, what) => {
     const generation = { outcome: "sent", ...(page ? { page } : {}) };
-    expect(lines({ page: { state: "generating" }, generation })).toEqual([
+    expect(lines({ asking: true, generation })).toEqual([
       ["recipe", "idle", "This site has no recipe yet."],
       ["generation", "busy", `The AI is making a recipe for ${what}…`],
     ]);
   });
 
-  it("shows a page still generating after the worker lost the request as in flight", () => {
-    expect(lines({ page: { state: "generating" } })[1]).toEqual([
+  it("does not take a page that still says generating for a request in flight", () => {
+    // The page stays `generating` after the answer, and a stopped worker's page too.
+    expect(lines({ page: { state: "generating" } })).toEqual([
+      ["recipe", "idle", "This site has no recipe yet."],
+    ]);
+    expect(lines({ page: { state: "generating" }, generation: { outcome: "sent" } })[1]).toEqual([
       "generation",
-      "busy",
-      "The AI is making a recipe for the site's sign-in page…",
+      "warn",
+      "A page was sent to the AI for the site's sign-in page, and no answer was recorded.",
+    ]);
+  });
+
+  it("shows another request in flight apart from the page's last answer", () => {
+    // Such as the judge's on a login's next page.
+    expect(lines({ asking: true })).toEqual([
+      ["recipe", "idle", "This site has no recipe yet."],
+      ["asking", "busy", "Waiting for an answer from the AI…"],
+    ]);
+    expect(
+      lines({ recipe: "page", asking: true, generation: { outcome: "recipe" } }).slice(1),
+    ).toEqual([
+      ["generation", "ok", "The AI made a recipe for the site's sign-in page."],
+      ["asking", "busy", "Waiting for an answer from the AI…"],
+    ]);
+    // A page sent and still out shows only its own line.
+    expect(lines({ asking: true, generation: { outcome: "sent" } }).map(([id]) => id)).toEqual([
+      "recipe",
+      "generation",
     ]);
   });
 
@@ -191,12 +231,46 @@ describe("pageStatusLines", () => {
       "idle",
       "No login started: this site is already logged in.",
     ]);
-    expect(lines({ recipe: "page", page: { reason: "origin-busy" } })[1]?.[2]).toBe(
-      "No login started: another tab's login to this site is running or did not succeed.",
+    expect(
+      lines({ recipe: "page", page: { state: "denied", reason: "origin-busy" } })[1]?.[2],
+    ).toBe("No login started: another tab's login to this site is running or did not succeed.");
+    expect(lines({ recipe: "page", page: { state: "denied", reason: "logged-out" } })[1]?.[2]).toBe(
+      "No login started: you logged out of this site; choose an account to log in again.",
     );
     // A page without a recipe is ordinary browsing.
-    expect(lines({ page: { reason: "recipe-not-found" } })).toEqual([
+    expect(lines({ page: { state: "denied", reason: "recipe-not-found" } })).toEqual([
       ["recipe", "idle", "This site has no recipe yet."],
+    ]);
+  });
+
+  it("takes a refusal as the page's latest word over an older not-started reason", () => {
+    expect(
+      lines({
+        recipe: "page",
+        page: { state: "denied", reason: "tab-busy", notStarted: "logged-in" },
+      })[1],
+    ).toEqual(["login", "idle", "No login started: another login runs in this tab."]);
+    // A page that only watches says why its sign-in input did not start, not an old reason.
+    expect(
+      lines({
+        recipe: "page",
+        page: { state: "watching", reason: "tab-busy", notStarted: "first-step-missing" },
+      })[1]?.[2],
+    ).toBe("No login started: the sign-in form shows, but the recipe's first step was not found.");
+    expect(lines({ recipe: "page", page: { state: "watching", reason: "tab-busy" } })).toEqual([
+      ["recipe", "idle", "This site has a recipe for this page."],
+    ]);
+  });
+
+  it("follows a logout of the tab", () => {
+    expect(lines({ recipe: "page", login: { state: "logged-out" } })[1]).toEqual([
+      "login",
+      "idle",
+      "Logged out of this site in this tab.",
+    ]);
+    expect(lines({ recipe: "page", login: { state: "logged-out", outcome: "rejected" } })).toEqual([
+      ["recipe", "idle", "This site has a recipe for this page."],
+      ["login", "idle", "The site did not accept the last login; choose an account to try again."],
     ]);
   });
 
@@ -248,7 +322,10 @@ describe("pageStatusLines", () => {
     expect(lines({ refused: { reason: "field-unavailable", detail: "x" } })[1]).toEqual([
       "refused",
       "err",
-      "Pateat did not log in: the account lacks a value the recipe needs.",
+      "Pateat did not log in: the vault item's username could not be read, so its account cannot be found on the list.",
     ]);
+    expect(lines({ refused: { reason: "attempt-limit" } })[1]?.[2]).toBe(
+      "Pateat did not log in: Pateat already holds as many login records as it can.",
+    );
   });
 });

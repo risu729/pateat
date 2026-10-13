@@ -935,19 +935,23 @@ test("the page section says why a page without a recipe was not sent to the AI",
   const { client } = store();
   await mount(client, "https://bank.example/login", onPage({ page: { generationSkip: "sent" } }));
   await expect
-    .poll(() => lineText("generation"))
+    .poll(() => lineText("generation-skip"))
     .toBe(
       "Not sent to the AI: the AI was asked about this page within the last 10 minutes, so it is not asked again yet.",
     );
   expect(pageLines()).toEqual([
     ["popup-page-recipe", "This site has no recipe yet."],
-    ["popup-page-generation", expect.stringContaining("Not sent to the AI")],
+    ["popup-page-generation-skip", expect.stringContaining("Not sent to the AI")],
   ]);
 });
 
 test("the page section follows a request to the AI while the popup stays open", async () => {
   const { client } = store();
-  const choices = onPage({ page: { state: "generating" }, generation: { outcome: "sent" } });
+  const choices = onPage({
+    asking: true,
+    page: { state: "generating" },
+    generation: { outcome: "sent" },
+  });
   await mount(client, "https://bank.example/login", choices);
   await expect
     .poll(() => lineText("generation"))
@@ -1083,4 +1087,80 @@ test("the page section opens the detailed log", async () => {
   expect(host.openDiagnostics).toHaveBeenCalledOnce();
   expect(host.openSettings).not.toHaveBeenCalled();
   expect(host.close).not.toHaveBeenCalled();
+});
+
+test("the page section says when a request sent to the AI has no answer and none is in flight", async () => {
+  const { client } = store();
+  await mount(
+    client,
+    "https://bank.example/login",
+    // The page still says generating, but the badge no longer spins.
+    onPage({ page: { state: "generating" }, generation: { outcome: "sent", page: "entry" } }),
+  );
+  await expect
+    .poll(() => lineText("generation"))
+    .toBe("A page was sent to the AI for the site's sign-in link, and no answer was recorded.");
+  expect(document.querySelector("#popup-page-asking")).toBeNull();
+});
+
+test("the page section shows another request to the AI in flight", async () => {
+  const { client } = store();
+  await mount(
+    client,
+    "https://bank.example/account",
+    onPage({ recipe: "page", asking: true, login: { state: "awaiting-result" } }),
+  );
+  await expect.poll(() => lineText("asking")).toBe("Waiting for an answer from the AI…");
+  expect(pageLines()).toEqual([
+    ["popup-page-recipe", "This site has a recipe for this page."],
+    ["popup-page-asking", "Waiting for an answer from the AI…"],
+    ["popup-page-login", "Logging in…"],
+  ]);
+});
+
+test("the page section says why a page of a site whose recipe starts elsewhere was not sent", async () => {
+  const { client } = store();
+  await mount(
+    client,
+    "https://bank.example/help",
+    onPage({ recipe: "other-paths", page: { generationSkip: "nothing-offered" } }),
+  );
+  await expect
+    .poll(() => lineText("generation-skip"))
+    .toBe("Not sent to the AI: the page showed no sign-in form.");
+  expect(pageLines()).toEqual([
+    ["popup-page-recipe", "This site has a recipe, but none starts on this page."],
+    ["popup-page-generation-skip", "Not sent to the AI: the page showed no sign-in form."],
+  ]);
+});
+
+test("the page section follows a logout of the tab", async () => {
+  const { client } = store();
+  const choices = onPage({ recipe: "page", login: { state: "logged-out" } });
+  await mount(client, "https://bank.example/login", choices);
+  await expect.poll(() => lineText("login")).toBe("Logged out of this site in this tab.");
+  choices.status.mockResolvedValue({
+    ok: true,
+    origin: "https://bank.example",
+    recipe: "page",
+    login: { state: "logged-out", outcome: "rejected" },
+  });
+  await expect
+    .poll(() => lineText("login"), { timeout: 3000 })
+    .toBe("The site did not accept the last login; choose an account to try again.");
+});
+
+test("the page section names the page's refusal over an older not-started reason", async () => {
+  const { client } = store();
+  await mount(
+    client,
+    "https://bank.example/login",
+    onPage({
+      recipe: "page",
+      page: { state: "denied", reason: "origin-busy", notStarted: "logged-in" },
+    }),
+  );
+  await expect
+    .poll(() => lineText("login"))
+    .toBe("No login started: another tab's login to this site is running or did not succeed.");
 });

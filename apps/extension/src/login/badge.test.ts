@@ -1200,7 +1200,25 @@ describe("page status", () => {
     });
   });
 
-  it("ignores ordinary and unrelated refusals, and saves a repeat refusal only when it changed", async () => {
+  it("drops a refusal once a login of the tab moves on, but not on a repeat attempt", () => {
+    const h = harness();
+    h.badge.observe(attempt({ state: "executing" }));
+    h.badge.observe(refusal("storage-unavailable"));
+    h.badge.observe(attempt({ state: "awaiting-result", repeat: true }));
+    expect(h.badge.status(tabId)).toEqual({
+      origin,
+      login: { state: "executing" },
+      refused: { reason: "storage-unavailable" },
+    });
+    h.badge.observe(attempt({ state: "authenticated" }));
+    expect(h.badge.status(tabId)).toEqual({ origin, login: { state: "authenticated" } });
+    // A model request leaves a refusal in place.
+    h.badge.observe(refusal("no-route"));
+    h.badge.observe(report({ outcome: "sent" }));
+    expect(h.badge.status(tabId)?.refused).toEqual({ reason: "no-route" });
+  });
+
+  it("ignores ordinary, unrelated and repeat refusals", async () => {
     const h = harness();
     h.badge.observe(refusal("no-recipe"));
     h.badge.observe(refusal("logged-in"));
@@ -1213,19 +1231,83 @@ describe("page status", () => {
     await h.flush();
     expect(h.setValue).toHaveBeenCalledTimes(1);
     expect(h.view()).toMatchObject(FAILED);
-    // The same refusal again, as a repeat, changes nothing and saves nothing.
+    // A repeat, even with another detail, is not kept and saves nothing.
     h.badge.observe(refusal("field-unavailable", { detail: "custom", repeat: true }));
+    h.badge.observe(refusal("field-unavailable", { detail: "other", repeat: true }));
+    h.badge.observe(refusal("attempt-limit", { repeat: true }));
     await h.flush();
     expect(h.setValue).toHaveBeenCalledTimes(1);
-    // A repeat with another detail is recorded, without a new badge result.
-    h.badge.observe(refusal("field-unavailable", { detail: "other", repeat: true }));
-    await h.flush();
-    expect(h.setValue).toHaveBeenCalledTimes(2);
     expect(h.badge.status(tabId)?.refused).toEqual({
       reason: "field-unavailable",
-      detail: "other",
+      detail: "custom",
     });
     expect(h.view().title).toContain("field-unavailable: custom");
+    // A repeat on another tab records nothing there either.
+    h.badge.observe(refusal("no-route", { repeat: true, tabId: 8 }));
+    expect(h.badge.status(8)).toBeUndefined();
+  });
+
+  it("records a logout of the tab, and whether the site rejected the login", async () => {
+    const h = harness();
+    const logout = (rejected?: true): LoginReport => ({
+      type: "logout",
+      tabId,
+      origin,
+      recipeId: "recipe",
+      recipeRevision: 1,
+      ...(rejected ? { rejected } : {}),
+    });
+    h.badge.observe(report({ outcome: "recipe" }));
+    h.badge.observe(attempt({ state: "authenticated" }));
+    h.badge.observe(logout());
+    expect(h.badge.status(tabId)).toEqual({
+      origin,
+      login: { state: "logged-out" },
+      generation: { outcome: "recipe" },
+    });
+    h.badge.observe(logout(true));
+    expect(h.badge.status(tabId)?.login).toEqual({ state: "logged-out", outcome: "rejected" });
+    await h.flush();
+    expect(await h.storage.getValue()).toMatchObject({
+      statuses: [[tabId, { login: { state: "logged-out", outcome: "rejected" } }]],
+    });
+    // The same logout again saves nothing; a new login replaces it.
+    h.setValue.mockClear();
+    h.badge.observe(logout(true));
+    await h.flush();
+    expect(h.setValue).not.toHaveBeenCalled();
+    h.badge.observe(start());
+    expect(h.badge.status(tabId)?.login).toEqual({ state: "started" });
+  });
+
+  it("tells whether a model request for the tab is in flight, as its spin shows", async () => {
+    const h = harness();
+    expect(h.badge.asking(tabId)).toBe(false);
+    const first = h.badge.spin(tabId);
+    const second = h.badge.spin(tabId);
+    expect(h.badge.asking(tabId)).toBe(true);
+    expect(h.badge.asking(8)).toBe(false);
+    first();
+    expect(h.badge.asking(tabId)).toBe(true);
+    second();
+    expect(h.badge.asking(tabId)).toBe(false);
+    // A spin moves with a replaced tab and ends on its own after two minutes.
+    h.badge.spin(tabId);
+    h.badge.replaced(8, tabId);
+    expect(h.badge.asking(tabId)).toBe(false);
+    expect(h.badge.asking(8)).toBe(true);
+    await vi.advanceTimersByTimeAsync(BUSY_LIMIT_MS);
+    expect(h.badge.asking(8)).toBe(false);
+    // A closed tab asks nothing.
+    h.badge.spin(9);
+    h.badge.removed(9);
+    expect(h.badge.asking(9)).toBe(false);
+  });
+
+  it("does not restore a spin a stopped worker left as a request in flight", async () => {
+    const h = harness({ stored: { results: [], busy: [tabId], statuses: [] } });
+    await h.badge.restore();
+    expect(h.badge.asking(tabId)).toBe(false);
   });
 
   // Netflix in the owner's Chrome (value-free log): the page went to the AI, a recipe came

@@ -1,3 +1,4 @@
+import * as v from "valibot";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import {
   createSettingsStore,
@@ -22,6 +23,7 @@ import { createRecipeSync } from "../service/recipes";
 import { createSettingsSync } from "../service/settings-sync";
 import type { ServiceTransport } from "../service/transport";
 import { acceptsSecret, type SecretInput } from "./inputs";
+import { statusResponseSchema } from "./choice-wire";
 import {
   createLoginBadge,
   memoryBadgeStorage,
@@ -5476,22 +5478,69 @@ describe("production login document admission", () => {
       expect(await h.hello({}, false)).toMatchObject({ generate: true });
       expect(await ask()).toMatchObject({ ok: true, origin, recipe: "none" });
       expect(await h.signIn()).toEqual({ ok: false, reason: "generating" });
+      // The badge spins while the request is out, so the popup knows it is in flight.
       await vi.waitFor(async () =>
         expect(await ask()).toEqual({
           ok: true,
           origin,
           recipe: "none",
+          asking: true,
           page: expect.objectContaining({ state: "generating" }),
           generation: { outcome: "sent" },
         }),
       );
+      expect(tabBadge.asking(1)).toBe(true);
       answer({ outcome: "abstained", reason: "ambiguous" });
       await vi.waitFor(async () =>
         expect(await ask()).toMatchObject({
           generation: { outcome: "abstained", reason: "ambiguous" },
         }),
       );
+      // The spin ended with the answer, though the page may still say `generating`.
+      const after = await ask();
+      expect(after).not.toHaveProperty("asking");
+      expect(tabBadge.asking(1)).toBe(false);
     });
+
+    it("clips a page's over-long refusal reason to the popup's limit", async () => {
+      // The content script's refusal reason is any text it sent.
+      const reason = `extract-${"x".repeat(300)}`;
+      fake.state.extracted = { login: { ok: false, reason } };
+      const service = generation();
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness(unsaved, {
+        allowedOrigins: [],
+        uris,
+        username: true,
+        custom: [],
+        generation: service,
+        report,
+      });
+      h.recipes.recipe.mockResolvedValue(undefined);
+      h.recipes.starts.mockResolvedValue(startsOf([]));
+      expect(await h.hello({}, false)).toMatchObject({ generate: true });
+      await h.signIn();
+      await vi.waitFor(
+        () =>
+          expect(report).toHaveBeenCalledWith(
+            expect.objectContaining({ type: "generation", outcome: "skipped", reason }),
+          ),
+        { timeout: 6_000 },
+      );
+      expect(service.generate).not.toHaveBeenCalled();
+      const popup = {
+        id: "synthetic-extension",
+        url: "chrome-extension://synthetic-extension/popup.html",
+      } as never;
+      const answer = await h.login.handle(
+        { version: 1, type: "login.status.get", tabId: 1 },
+        popup,
+      );
+      // The popup's client parses the answer, so it must stay within its schema.
+      const parsed = v.parse(statusResponseSchema, answer);
+      expect(parsed).toMatchObject({ ok: true, origin, recipe: "none" });
+      expect(parsed.ok && parsed.page?.generationSkip).toBe(reason.slice(0, 200));
+    }, 10_000);
 
     it("logs a page that stopped answering before it was sent", async () => {
       const service = generation();
@@ -9948,6 +9997,34 @@ describe("production login document admission", () => {
       tabBadge.loaded(1, `${origin}/signin`);
       tabBadge.loaded(1, "https://other.example/");
       expect(await ask(h)).toEqual({ ok: true, origin, recipe: "page" });
+    });
+
+    it("says a model request is in flight while the tab's badge spins", async () => {
+      const tabBadge = badge();
+      const h = harness({}, { badge: tabBadge });
+      expect(await ask(h)).toEqual({ ok: true, origin, recipe: "page" });
+      const stop = tabBadge.spin(1);
+      try {
+        expect(await ask(h)).toEqual({ ok: true, origin, recipe: "page", asking: true });
+        // Only that tab's.
+        fake.state.tabUrls[2] = `${origin}/signin`;
+        expect(await ask(h, 2)).toEqual({ ok: true, origin, recipe: "page" });
+      } finally {
+        stop();
+      }
+      expect(await ask(h)).toEqual({ ok: true, origin, recipe: "page" });
+    });
+
+    it("clips the badge's codes to the popup's limit", async () => {
+      const tabBadge = badge();
+      const h = harness({}, { badge: tabBadge });
+      const detail = `password-empty:${"y".repeat(250)}`;
+      tabBadge.observe({ type: "refused", tabId: 1, origin, reason: "no-route", detail });
+      const parsed = v.parse(statusResponseSchema, await ask(h));
+      expect(parsed).toMatchObject({
+        ok: true,
+        refused: { reason: "no-route", detail: detail.slice(0, 200) },
+      });
     });
 
     it("answers only the popup page, and only a well-formed request", async () => {
