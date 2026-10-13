@@ -19,7 +19,7 @@ export const requireJsonBody = createMiddleware(async (c, next) => {
 export function validate<TTarget extends keyof ValidationTargets, TSchema extends v.GenericSchema>(
   target: TTarget,
   schema: TSchema,
-  failure: { status: 400 | 404; error: "bad_request" | "not_found" } = {
+  failure: { status: 400; error: "bad_request" } | { status: 404; error: "not_found" } = {
     status: 400,
     error: "bad_request",
   },
