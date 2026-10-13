@@ -64,6 +64,18 @@ snapshot. Live settings integration must reconcile field exclusions before
 releasing credentials from that replacement; this decision does not waive that
 gate.
 
+## Amendment: idb for IndexedDB access
+
+On 2026-10-13 the owner chose `idb` to replace the hand-written request and transaction
+wrappers, for this cache, the provider-session store and the diagnostics database
+([ADR 0019](0019-local-diagnostics-and-logs.md)). This changes the "no library" statement
+above and in [ADR 0008](0008-durable-provider-sessions.md) for IndexedDB access only; it
+is not a change of storage. The transaction rules stand: one read-write transaction
+reads, compares the revision, writes and reads back; its work awaits only its own
+requests, since any other await lets it auto-commit; success is reported only after
+`complete`; and strict durability and the deadline, cancellation and quota mappings are
+kept. See [dependency policy](../development.md#dependency-policy).
+
 ## Sources
 
 - [IndexedDB transaction scheduling](https://w3c.github.io/IndexedDB/#transaction-scheduling).

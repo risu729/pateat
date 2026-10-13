@@ -1,57 +1,85 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { accountProfile } from "../../../../packages/bitwarden/src/__fixtures__/account";
 import { activeEntry, disabledEntry } from "./__fixtures__/vault";
 import { createIndexedDbVaultStore, type DurableVaultStore } from "./storage";
 
+// idb recognizes IndexedDB objects with `instanceof` against these globals, which Node lacks.
+// The fakes below extend EventTarget, as the native objects do, and are declared once because
+// idb keeps the classes it first sees.
+class FakeRequest extends EventTarget {
+  result: unknown;
+  error: DOMException | null = null;
+}
+class FakeTransaction extends EventTarget {
+  error: DOMException | null = null;
+  objectStore = vi.fn();
+  abort = vi.fn();
+  /** Delivers a native transaction event: `complete` or `abort`. */
+  fire(type: "complete" | "abort") {
+    this.dispatchEvent(new Event(type));
+  }
+}
+class FakeDatabase extends EventTarget {
+  transaction = vi.fn();
+  close = vi.fn();
+}
+class FakeObjectStore {
+  get = vi.fn();
+  put = vi.fn();
+  delete = vi.fn();
+  count = vi.fn();
+}
+vi.stubGlobal("IDBRequest", FakeRequest);
+vi.stubGlobal("IDBTransaction", FakeTransaction);
+vi.stubGlobal("IDBDatabase", FakeDatabase);
+vi.stubGlobal("IDBObjectStore", FakeObjectStore);
+vi.stubGlobal("IDBIndex", class FakeIndex extends EventTarget {});
+vi.stubGlobal("IDBCursor", class FakeCursor extends EventTarget {});
+afterAll(() => {
+  vi.unstubAllGlobals();
+});
+
+/** Lets promise continuations that follow a native callback run. */
+async function settle() {
+  let turns = Promise.resolve();
+  for (let turn = 0; turn < 20; turn += 1) turns = turns.then(() => undefined);
+  await turns;
+}
+
 // Lifecycle-only fake. Atomic rollback/CAS across independent database connections
 // is tested separately in actual Chromium; these tests control native callbacks.
 function nativeCallbacks(options: { profile?: typeof accountProfile; timeoutMs?: number } = {}) {
-  const requests: { result?: unknown; onsuccess?: (() => void) | null }[] = [];
-  const objectStore = {
-    get: vi.fn(() => {
-      const request = {} as (typeof requests)[number];
-      requests.push(request);
-      return request;
-    }),
-    put: vi.fn(),
-    delete: vi.fn(),
-    count: vi.fn(() => {
-      const request = {} as (typeof requests)[number];
-      requests.push(request);
-      return request;
-    }),
+  const requests: FakeRequest[] = [];
+  const pendingRequest = () => {
+    const request = new FakeRequest();
+    requests.push(request);
+    return request;
   };
-  const tx = {
-    oncomplete: undefined as (() => void) | undefined,
-    onabort: undefined as (() => void) | undefined,
-    onerror: undefined as (() => void) | undefined,
-    error: null as DOMException | null,
-    objectStore: vi.fn(() => objectStore),
-    abort: vi.fn(),
-  };
-  const database = {
-    transaction: vi.fn(() => tx),
-    close: vi.fn(),
-    objectStoreNames: { contains: () => true },
-    createObjectStore: vi.fn(),
-    onversionchange: undefined,
-  };
-  const opening = { result: database, onsuccess: undefined as (() => void) | undefined };
+  const objectStore = new FakeObjectStore();
+  objectStore.get.mockImplementation(pendingRequest);
+  objectStore.count.mockImplementation(pendingRequest);
+  const tx = new FakeTransaction();
+  tx.objectStore.mockReturnValue(objectStore);
+  const database = new FakeDatabase();
+  database.transaction.mockReturnValue(tx);
+  const opening = new FakeRequest();
+  opening.result = database;
   const factory = { open: vi.fn(() => opening) };
+  vi.stubGlobal("indexedDB", factory);
   const store = createIndexedDbVaultStore({
     profile: options.profile ?? accountProfile,
-    indexedDB: factory as unknown as IDBFactory,
     ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
   });
   stores.push(store);
   const ready = async () => {
-    await vi.waitFor(() => expect(opening.onsuccess).toBeTypeOf("function"));
-    opening.onsuccess!();
+    await vi.waitFor(() => expect(factory.open).toHaveBeenCalled());
+    opening.dispatchEvent(new Event("success"));
     await vi.waitFor(() => expect(requests).toHaveLength(1));
   };
-  const respond = (index: number, value: unknown) => {
+  const respond = async (index: number, value: unknown) => {
     requests[index]!.result = value;
-    requests[index]!.onsuccess!();
+    requests[index]!.dispatchEvent(new Event("success"));
+    await settle();
   };
   return { store, ready, respond, tx, objectStore, database, factory, requests };
 }
@@ -70,22 +98,22 @@ describe("connection record deletion", () => {
     await h.ready();
     expect(h.objectStore.delete).toHaveBeenCalledWith(accountProfile.connectionId);
     expect(h.objectStore.get).not.toHaveBeenCalled();
-    h.respond(0, 0);
+    await h.respond(0, 0);
     await Promise.resolve();
     expect(settled).not.toHaveBeenCalled();
     expect(h.database.transaction).toHaveBeenCalledWith("records", "readwrite", {
       durability: "strict",
     });
-    h.tx.oncomplete!();
+    h.tx.fire("complete");
     expect(await pending).toEqual({ ok: true, data: true });
   });
   it("reports uncertainty when the record is still present after deletion", async () => {
     const h = nativeCallbacks();
     const pending = h.store.remove();
     await h.ready();
-    h.respond(0, 1);
+    await h.respond(0, 1);
     expect(h.tx.abort).toHaveBeenCalled();
-    h.tx.onabort!();
+    h.tx.fire("abort");
     expect(await pending).toEqual({ ok: false, error: { code: "storage-uncertain" } });
   });
   it("rejects an invalid profile before opening IndexedDB", async () => {
@@ -105,15 +133,15 @@ describe("native transaction completion controls publication", () => {
     const settled = vi.fn();
     void pending.then(settled);
     await h.ready();
-    h.respond(0, undefined);
+    await h.respond(0, undefined);
     expect(h.objectStore.put).toHaveBeenCalledWith(next, accountProfile.connectionId);
-    h.respond(1, structuredClone(next));
+    await h.respond(1, structuredClone(next));
     await Promise.resolve();
     expect(settled).not.toHaveBeenCalled();
     expect(h.database.transaction).toHaveBeenCalledWith("records", "readwrite", {
       durability: "strict",
     });
-    h.tx.oncomplete!();
+    h.tx.fire("complete");
     expect(await pending).toEqual({ ok: true, data: { revision: next.revision } });
   });
 
@@ -124,10 +152,10 @@ describe("native transaction completion controls publication", () => {
     const settled = vi.fn();
     void pending.then(settled);
     await h.ready();
-    h.respond(0, next);
+    await h.respond(0, next);
     await Promise.resolve();
     expect(settled).not.toHaveBeenCalled();
-    h.tx.oncomplete!();
+    h.tx.fire("complete");
     expect(await pending).toEqual({ ok: true, data: next });
   });
 
@@ -137,10 +165,10 @@ describe("native transaction completion controls publication", () => {
       const h = nativeCallbacks();
       const pending = h.store.compareAndSwap(expected, activeEntry());
       await h.ready();
-      h.respond(0, disabledEntry(false));
+      await h.respond(0, disabledEntry(false));
       expect(h.objectStore.put).not.toHaveBeenCalled();
       expect(h.tx.abort).toHaveBeenCalledOnce();
-      h.tx.onabort!();
+      h.tx.fire("abort");
       expect(await pending).toEqual({ ok: false, error: { code: "storage-conflict" } });
     },
   );
@@ -150,10 +178,10 @@ describe("native transaction completion controls publication", () => {
     const next = activeEntry();
     const pending = h.store.compareAndSwap(null, next);
     await h.ready();
-    h.respond(0, undefined);
-    h.respond(1, { ...next, userKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" });
+    await h.respond(0, undefined);
+    await h.respond(1, { ...next, userKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" });
     expect(h.tx.abort).toHaveBeenCalledOnce();
-    h.tx.onabort!();
+    h.tx.fire("abort");
     expect(await pending).toEqual({ ok: false, error: { code: "storage-uncertain" } });
   });
 
@@ -161,9 +189,9 @@ describe("native transaction completion controls publication", () => {
     const h = nativeCallbacks();
     const pending = h.store.compareAndSwap(null, activeEntry());
     await h.ready();
-    h.respond(0, { state: "active", revision: "broken" });
+    await h.respond(0, { state: "active", revision: "broken" });
     expect(h.objectStore.put).not.toHaveBeenCalled();
-    h.tx.onabort!();
+    h.tx.fire("abort");
     expect(await pending).toEqual({ ok: false, error: { code: "invalid-cache-record" } });
   });
 
@@ -172,10 +200,10 @@ describe("native transaction completion controls publication", () => {
     const next = activeEntry();
     const pending = h.store.compareAndSwap(null, next);
     await h.ready();
-    h.respond(0, undefined);
-    h.respond(1, next);
+    await h.respond(0, undefined);
+    await h.respond(1, next);
     h.tx.error = new DOMException("Synthetic quota", "QuotaExceededError");
-    h.tx.onabort!();
+    h.tx.fire("abort");
     expect(await pending).toEqual({ ok: false, error: { code: "cache-quota-exceeded" } });
   });
 
@@ -185,11 +213,11 @@ describe("native transaction completion controls publication", () => {
     const next = activeEntry();
     const pending = h.store.compareAndSwap(null, next, abort.signal);
     await h.ready();
-    h.respond(0, undefined);
-    h.respond(1, next);
+    await h.respond(0, undefined);
+    await h.respond(1, next);
     abort.abort();
     expect(h.tx.abort).toHaveBeenCalledOnce();
-    h.tx.onabort!();
+    h.tx.fire("abort");
     expect(await pending).toEqual({ ok: false, error: { code: "cancelled" } });
   });
 
@@ -213,11 +241,11 @@ describe("native transaction completion controls publication", () => {
       environment: { kind: "cloud", region: "eu" },
     });
     await h.ready();
-    h.respond(0, undefined);
+    await h.respond(0, undefined);
     expect(h.objectStore.get).toHaveBeenCalledWith(accountProfile.connectionId);
     expect(h.objectStore.put).toHaveBeenCalledWith(next, accountProfile.connectionId);
-    h.respond(1, next);
-    h.tx.oncomplete!();
+    await h.respond(1, next);
+    h.tx.fire("complete");
     expect(await pending).toEqual({ ok: true, data: { revision: next.revision } });
   });
 
@@ -231,11 +259,11 @@ describe("native transaction completion controls publication", () => {
     const settled = vi.fn();
     void pending.then(settled);
     await h.ready();
-    h.respond(0, undefined);
-    h.respond(1, next);
+    await h.respond(0, undefined);
+    await h.respond(1, next);
     await vi.waitFor(() => expect(settled).toHaveBeenCalledOnce(), { timeout: 200, interval: 5 });
     expect(await pending).toEqual({ ok: false, error: { code: "storage-uncertain" } });
-    h.tx.oncomplete!();
+    h.tx.fire("complete");
     await Promise.resolve();
     expect(settled).toHaveBeenCalledExactlyOnceWith({
       ok: false,

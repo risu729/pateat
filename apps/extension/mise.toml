@@ -53,7 +53,7 @@ depends = [":prepare"]
 run = "node ../../node_modules/vitest/vitest.mjs run src/vault --coverage.reportsDirectory=../../coverage/extension-vault"
 
 [tasks."test:dom"]
-description = "Extract observations, resolve element locators and collect diagnostics in Chromium."
+description = "Extract observations, resolve element locators, collect diagnostics and run the IndexedDB stores in Chromium."
 # Vitest Browser Mode reloads its page when a build rewrites files under watch, and the
 # browser suites share one port; run them after the builds and one at a time.
 depends = [":build:probe", "//services/api:build"]
