@@ -73,7 +73,9 @@ decision:
   step runs, so it also covers recipes not generated from an observation. A mismatch
   fills nothing and ends the attempt as `value-mismatch` without a retry, since the
   same values would fail again.
-- Check 2 runs after a fill that prepares a click, waiting 500 ms. It reads
+- Check 2 runs after a fill that prepares a click, waiting 500 ms from the last field
+  (since 2026-10-13 each field is focused, typed and blurred in turn; see
+  [background execution](../architecture.md#background-execution)). It reads
   `validity.valid`, which fires no `invalid` event for the page to react to.
   `aria-invalid="true"` counts only when the fill turned it on, and a custom validity
   message only when it is new, so a mark left by an earlier failed sign-in that no

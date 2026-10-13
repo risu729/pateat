@@ -12,6 +12,7 @@ import {
   watchCodeSubmission,
 } from "../page/code-submission";
 import { fillBaseline, inputValueMismatch, rejectsFill, unreadyForm } from "../page/fill-checks";
+import { FIELD_GAP_MS, enterValue } from "../page/enter-value";
 import {
   extractAccountListObservation,
   extractEntryObservation,
@@ -910,7 +911,11 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         try {
           for (const [index, field] of step.fields.entries()) {
             const input = inputs[index] as HTMLInputElement;
-            // Each mutation repeats scope/connected checks; events may synchronously change the page.
+            // A preparing fill lets the page's handlers for the previous field run first.
+            // eslint-disable-next-line no-await-in-loop
+            if (index > 0 && step.effect === "prepare") await pause(FIELD_GAP_MS);
+            // Each mutation repeats scope/connected checks; events and the wait between
+            // fields may change the page.
             const current = matches(field.target);
             const value = command.values.find((entry) => entry.slot === field.slot)!;
             if (
@@ -947,6 +952,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             if (split) {
               // As typed: the code is in with its last digit.
               for (const [place, digit] of split.entries()) {
+                // eslint-disable-next-line no-await-in-loop
+                if (place > 0) await pause(FIELD_GAP_MS);
                 if (cancelled || location.pathname !== step.path)
                   return fail("cancelled", cancelled ? "document-cancelled" : "page-changed");
                 // The page's handlers for an earlier digit may have changed this input.
@@ -959,22 +966,23 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                 )
                   return fail("cancelled", "field-changed");
                 filled.add(digit);
-                setter.call(digit, value.value[place]!);
-                if (place === split.length - 1) code?.typed();
-                digit.dispatchEvent(new Event("input", { bubbles: true }));
-                digit.dispatchEvent(new Event("change", { bubbles: true }));
+                enterValue(
+                  digit,
+                  value.value[place]!,
+                  setter,
+                  place === split.length - 1 ? code?.typed : undefined,
+                );
               }
+            } else if (step.effect === "prepare") {
+              filled.add(input);
+              // The code goes in now; the page's own reaction is measured from here.
+              enterValue(input, value.value, setter, code?.typed);
             } else {
+              // An advance or a submission through the page's own event gets that one event
+              // alone, with no focus, keys or blur that could run its effect again.
               filled.add(input);
               setter.call(input, value.value);
-              if (step.effect === "prepare") {
-                // The code goes in now; the page's own reaction is measured from here.
-                code?.typed();
-                input.dispatchEvent(new Event("input", { bubbles: true }));
-                input.dispatchEvent(new Event("change", { bubbles: true }));
-              } else {
-                input.dispatchEvent(new Event(step.event!, { bubbles: true }));
-              }
+              input.dispatchEvent(new Event(step.event!, { bubbles: true }));
             }
             value.value = "";
           }
