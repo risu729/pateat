@@ -40,7 +40,7 @@ export const OWNER_TABLES = [
 
 async function sha256Hex(text: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  return new Uint8Array(digest).toHex();
 }
 
 /**
@@ -49,8 +49,7 @@ async function sha256Hex(text: string): Promise<string> {
  */
 export async function createDeviceCredential() {
   const bytes = crypto.getRandomValues(new Uint8Array(32));
-  const base64 = btoa(String.fromCharCode(...bytes));
-  const credential = `pateat_device_${base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")}`;
+  const credential = `pateat_device_${bytes.toBase64({ alphabet: "base64url", omitPadding: true })}`;
   return { credential, tokenHash: await sha256Hex(credential) };
 }
 

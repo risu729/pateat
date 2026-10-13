@@ -170,10 +170,7 @@ export async function promptVersion(instructions: string, schemaJson: string): P
     "SHA-256",
     new TextEncoder().encode(`${instructions}\n${schemaJson}`),
   );
-  return [...new Uint8Array(digest)]
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("")
-    .slice(0, 12);
+  return new Uint8Array(digest).toHex().slice(0, 12);
 }
 
 /** Computes a role's prompt version once, on first use. */

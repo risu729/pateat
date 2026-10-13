@@ -83,7 +83,7 @@ export async function derivePasswordAuthentication(
     if (hashBytes.byteLength !== 32) return failure("crypto-failed");
     return {
       ok: true,
-      data: { connectionId, masterPasswordHash: btoa(String.fromCharCode(...hashBytes)) },
+      data: { connectionId, masterPasswordHash: hashBytes.toBase64() },
     };
   } catch {
     return failure(signal?.aborted ? "cancelled" : "crypto-failed");

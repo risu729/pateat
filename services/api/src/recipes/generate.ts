@@ -88,8 +88,7 @@ export async function generatedRecipeId(origin: string, startPath: string) {
     "SHA-256",
     new TextEncoder().encode(JSON.stringify([origin, startPath])),
   );
-  const hex = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0"));
-  return `gen-${hex.join("").slice(0, 32)}`;
+  return `gen-${new Uint8Array(digest).toHex().slice(0, 32)}`;
 }
 
 const unavailable = (reason: GenerationUnavailableReason) =>

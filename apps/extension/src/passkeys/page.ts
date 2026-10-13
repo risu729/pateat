@@ -1,5 +1,5 @@
 import * as v from "valibot";
-import { fromBase64Url } from "./encoding";
+import { fromBase64Url, toBase64Url } from "./encoding";
 import {
   PAGE_CHANNEL,
   PAGE_CREATE_MAX_WAIT_MS,
@@ -22,12 +22,6 @@ const MAX_BUFFER_BYTES = 4096;
 // Delegations of one mediation that may be in flight before an unclaimed call skips later wrappers.
 const MAX_CHAIN_DELEGATIONS = 4;
 const OTHER_CREDENTIAL_TYPES = ["password", "federated", "identity", "otp", "digital"] as const;
-
-function toBase64Url(input: Uint8Array): string {
-  let binary = "";
-  for (const byte of input) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/gu, "-").replace(/\//gu, "_").replace(/=+$/u, "");
-}
 
 /** Copy a BufferSource at call time, as the client algorithm requires. Shared buffers are refused. */
 function copyBufferSource(value: unknown): Uint8Array | undefined {

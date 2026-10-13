@@ -38,9 +38,6 @@ export const probeControlSchema = v.variant("type", [
   v.strictObject({ version: v.literal(1), type: v.literal("passkey.probe.status") }),
 ]);
 
-const hex = (value: string) =>
-  Uint8Array.from(value.match(/../gu) ?? [], (pair) => Number.parseInt(pair, 16));
-
 /**
  * The probe build's source. `http://localhost` origins get the synthetic test-vector key; any
  * other origin the probe content scripts reach is answered by `other`, such as the vault source
@@ -74,9 +71,9 @@ export function createProbePasskeySource<TOther extends PasskeyCandidate>(
       const jwk = {
         kty: "EC",
         crv: "P-256",
-        x: toBase64Url(hex(PROBE_PASSKEY.publicKeyX)),
-        y: toBase64Url(hex(PROBE_PASSKEY.publicKeyY)),
-        d: toBase64Url(hex(PROBE_PASSKEY.credentialPrivateKey)),
+        x: toBase64Url(Uint8Array.fromHex(PROBE_PASSKEY.publicKeyX)),
+        y: toBase64Url(Uint8Array.fromHex(PROBE_PASSKEY.publicKeyY)),
+        d: toBase64Url(Uint8Array.fromHex(PROBE_PASSKEY.credentialPrivateKey)),
       };
       const extractable = await crypto.subtle.importKey(
         "jwk",
@@ -121,7 +118,7 @@ export function createProbePasskeySource<TOther extends PasskeyCandidate>(
       // Further passkeys share the test-vector key under their own credential IDs.
       const candidates = Array.from({ length: count }, (_, index): PasskeyCandidate => ({
         credentialId: toBase64Url(
-          hex(PROBE_PASSKEY.credentialId + (index === 0 ? "" : `0${index}`)),
+          Uint8Array.fromHex(PROBE_PASSKEY.credentialId + (index === 0 ? "" : `0${index}`)),
         ),
         rpId: PROBE_PASSKEY.rpId,
         userHandle: PROBE_PASSKEY.userHandle,

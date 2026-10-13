@@ -62,10 +62,7 @@ export function createPseudonyms(options: { databaseName?: string } = {}): Pseud
       await key,
       new TextEncoder().encode(`${kind}\u0000${value}`),
     );
-    return [...new Uint8Array(mac)]
-      .map((byte) => byte.toString(16).padStart(2, "0"))
-      .join("")
-      .slice(0, hexLength);
+    return new Uint8Array(mac).toHex().slice(0, hexLength);
   };
   return Object.assign(pseudonym, {
     async rotate() {

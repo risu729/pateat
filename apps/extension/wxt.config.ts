@@ -41,7 +41,7 @@ export default defineConfig({
     name: "Pateat",
     description:
       "Logs in to websites and answers passkey sign-ins from your own password vault, kept on this device.",
-    minimum_chrome_version: "120",
+    minimum_chrome_version: "140",
     action: {
       default_title: "Pateat",
       // Until the worker reads the vault records, show the locked icon.
