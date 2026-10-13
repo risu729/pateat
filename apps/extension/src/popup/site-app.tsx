@@ -28,6 +28,14 @@ import { siteAccountOptions } from "../options/site-policy";
 import { Logo } from "../logo";
 import { choiceReason, type ChoiceClient } from "../login/choice-wire";
 
+/**
+ * How long the popup waits for the site's matches. Each vault lookup of the search is
+ * bounded, but one after another they can take minutes while the vault is busy, such as
+ * right after the extension restarted; the popup then says so instead of waiting.
+ */
+export const SITE_ACCOUNTS_WAIT_MS = 20_000;
+class ListingTimeout extends Error {}
+
 /** What the toolbar popup needs from the browser besides the settings messages. */
 export interface PopupHost {
   /** The active tab in the popup's window; `url` is absent without site access. */
@@ -261,10 +269,12 @@ export function SiteApp({
   client,
   choices,
   host,
+  listingWaitMs = SITE_ACCOUNTS_WAIT_MS,
 }: {
   client: SettingsClient;
   choices: ChoiceClient;
   host: PopupHost;
+  listingWaitMs?: number;
 }) {
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState(false);
@@ -323,7 +333,20 @@ export function SiteApp({
         entry.quarantinedItemIds ?? [],
       ]),
     ],
-    queryFn: () => client.findSiteAccounts(origin!, saved!.snapshot.settings),
+    queryFn: async () => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const over = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new ListingTimeout()), listingWaitMs);
+      });
+      try {
+        return await Promise.race([
+          client.findSiteAccounts(origin!, saved!.snapshot.settings),
+          over,
+        ]);
+      } finally {
+        clearTimeout(timer);
+      }
+    },
     enabled: Boolean(origin && saved && !excluded),
     staleTime: 0,
     gcTime: 0,
@@ -522,6 +545,11 @@ export function SiteApp({
     let accountsNote: { tone: "idle" | "warn" | "err"; text: string } | undefined;
     if (accounts.isPending)
       accountsNote = { tone: "idle", text: "Finding the vault items that match this site…" };
+    else if (accounts.error instanceof ListingTimeout)
+      accountsNote = {
+        tone: "err",
+        text: "Finding the vault items that match this site took too long. Close and reopen this popup to try again",
+      };
     else if (!found)
       accountsNote = { tone: "err", text: "The matching accounts could not be listed" };
     else if (!options.length)

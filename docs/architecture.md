@@ -373,7 +373,11 @@ checkbox makes the picked account the default once that login succeeds, and a sa
 default can still be removed there. The default-account list, where a default is chosen
 without logging in, returns once the page no longer waits. An open popup reads the
 settings again from the worker whenever the stored settings change, so a default saved
-by a picked login that succeeds while it is open shows without reopening it. Item
+by a picked login that succeeds while it is open shows without reopening it. The popup
+waits up to 20 seconds for the site's matching vault items; a search that has not
+finished by then, as while the vault is busy right after the extension restarts, ends
+with an error saying to reopen the popup, and the saved default shows by its saved
+labels. Item
 selection, field exclusions and custom-field review stay on the extension's settings
 page once synced ([ADR 0023](adr/0023-synced-vault-policy.md)). The service keeps one
 settings document per owner; [ADR 0024](adr/0024-settings-profiles.md) assigns its parts
