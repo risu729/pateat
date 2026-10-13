@@ -5,7 +5,6 @@ import {
   loginStepEffect,
   recipeHasRoute,
   recipeSlots,
-  recipeTypesCode,
   routeFillTargets,
   routeSignInPaths,
   routeSignInTargets,
@@ -630,18 +629,14 @@ export async function judgeCompletion(
   // entry recipe (ADR 0031) has no route.
   const recipe = routeOf(head.recipe, branch);
   // A page of another origin is one a `password` login's tab moved to right after its
-  // submission (ADR 0022): of the site, or of another site when the route may type a TOTP
-  // code, after which the extension sends such a page. The recipe's paths are not that
-  // origin's, and its markers there carry that origin.
+  // submission (ADR 0022): of the site, or of another site right after a second factor,
+  // which a page answered by itself may ask for without any recipe step, so the extension
+  // alone knows it. The recipe's paths are not that origin's, and its markers there carry
+  // that origin.
   const moved = observation.origin !== head.recipe.origin;
   if (
     moved &&
-    (route !== "password" ||
-      !loginMoveFits(
-        head.recipe.origin,
-        observation.origin,
-        recipe !== undefined && recipeTypesCode(recipe),
-      ))
+    (route !== "password" || !loginMoveFits(head.recipe.origin, observation.origin, true))
   )
     return null;
   if (!recipe || head.revision !== request.revision || !recipeHasRoute(recipe, route))

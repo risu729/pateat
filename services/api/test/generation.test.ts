@@ -1459,15 +1459,7 @@ describe("completion judgement", () => {
     expect((await complete(device, change.recipeId, 1)).body).toMatchObject({
       reason: "recipe-conflict",
     });
-    expect(
-      (
-        await complete(device, change.recipeId, 2, {
-          ...homePage,
-          origin: "https://shop.elsewhere.test",
-        })
-      ).status,
-    ).toBe(400);
-    // Another origin of the site is judged only over HTTPS (ADR 0022).
+    // Another origin is judged only over HTTPS (ADR 0022).
     expect(
       (
         await complete(device, change.recipeId, 2, {
@@ -1867,48 +1859,39 @@ describe("page judgement (ADR 0027)", () => {
       });
     });
 
-    it("judges a page of another site only for a recipe that types a TOTP code", async () => {
+    it("judges a page of another site a password login moved to after a second factor", async () => {
       const device = await owner();
       const change = await twoPageRecipe(device);
       const portal = "https://portal.elsewhere.test";
       const portalHome = observation("/home", [element("logout", "button", "Sign out")], portal);
-      const calls = sent.length;
-      expect((await complete(device, change.recipeId, 2, portalHome)).status).toBe(400);
-      expect(sent).toHaveLength(calls);
-      // The code page gives the recipe a `totp` handler (ADR 0027).
-      const code = {
-        ...element("app-code", "text", "Authentication code"),
-        autocomplete: "one-time-code" as const,
-        inputMode: "numeric" as const,
-        maxLength: 6,
-      };
-      replies.push(
-        judgeReply({
-          decision: "challenge",
-          code: { field: "app-code", submit: "verify", source: "authenticator-app" },
-        }),
-      );
-      const mfa = observation("/login/mfa", [code, element("verify", "button", "Verify")]);
-      expect((await complete(device, change.recipeId, 2, mfa)).body).toMatchObject({
-        change: { revision: 3 },
-      });
+      // A page answered by itself may ask for the passkey, so no recipe step shows it: the
+      // extension alone knows the second factor (ADR 0022).
       replies.push(judgeReply({ decision: "signed-in", marker: "logout" }));
-      expect((await complete(device, change.recipeId, 3, portalHome)).body).toMatchObject({
+      expect((await complete(device, change.recipeId, 2, portalHome)).body).toMatchObject({
         status: "signed-in",
         change: {
-          revision: 4,
+          revision: 3,
           recipe: { completion: [{ target: { by: "id", value: "logout" }, origin: portal }] },
         },
       });
-      // Only over HTTPS, as for the site's own origins.
+      const calls = sent.length;
+      // Only over HTTPS, and only for the password route.
       expect(
         (
-          await complete(device, change.recipeId, 4, {
+          await complete(device, change.recipeId, 3, {
             ...portalHome,
             origin: "http://portal.test",
           })
         ).status,
       ).toBe(400);
+      const passkey = await post(device, `/v1/recipes/${change.recipeId}/completion`, {
+        version: 1,
+        revision: 3,
+        route: "passkey",
+        observation: portalHome,
+      });
+      expect(passkey.status).toBe(400);
+      expect(sent).toHaveLength(calls);
     });
 
     it("judges its page on a recipe path when it shows no field to fill", async () => {

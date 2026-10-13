@@ -29,7 +29,7 @@ describe("loginMoveFits", () => {
     expect(loginMoveFits("not a url", "https://example.com", false)).toBe(false);
   });
 
-  it("takes an HTTPS origin of any site right after a code was submitted", () => {
+  it("takes an HTTPS origin of any site right after a second factor", () => {
     expect(
       loginMoveFits("https://login.microsoftonline.com", "https://m365.cloud.microsoft", true),
     ).toBe(true);
