@@ -631,6 +631,45 @@ describe("extractLoginObservation", () => {
     ]);
   });
 
+  it("names a role=button control in a login form by its text, but not one outside", () => {
+    // Instagram's login form on 2026-10-13, reduced: its Log in control is a div with
+    // role=button and no id, disabled until the fields are filled, beside an empty 0×0
+    // submit input.
+    page(
+      `<div role="button">Menu</div>
+      <form><input name="email" autocomplete="username"><input name="pass" type="password">
+        <div role="button" aria-label="Log In" aria-disabled="true" tabindex="-1">Log in</div>
+        <input type="submit" style="width: 0; height: 0; padding: 0; border: 0">
+        <div role="button" tabindex="0">Help</div><button type="button">Help</button>
+        <a href="/accounts/password/reset/">Forgot password?</a></form>`,
+    );
+    const observation = observe();
+    expect(observation.complete).toBe(true);
+    const texts = summary(observation).flatMap(({ target }) =>
+      target.by === "text" ? [target.value] : [],
+    );
+    // The native button keeps its text, so the Help widget gets none; Menu is outside.
+    expect(texts.toSorted()).toEqual(["Forgot password?", "Help", "Log in"]);
+    expect(findTargets(document, { by: "text", value: "Log in" })).toHaveLength(1);
+    // Fields outside any form leave the page's role=button widgets without a text locator.
+    page(
+      `<input name="email"><input name="pass" type="password">
+      <div role="button" tabindex="0">Log in</div><button id="go">Go</button>`,
+    );
+    expect(
+      summary(observe()).some(({ target }) => target.by === "text" && target.value === "Log in"),
+    ).toBe(false);
+    // A form that is no login form, such as a search form beside one, names none either.
+    page(
+      `<form role="search"><input name="q"><div role="button" tabindex="0">Search</div></form>
+      <form><input name="email" autocomplete="username"><input name="pass" type="password">
+        <button>Log in</button></form>`,
+    );
+    expect(
+      summary(observe()).some(({ target }) => target.by === "text" && target.value === "Search"),
+    ).toBe(false);
+  });
+
   it("observes links that run a script as buttons, such as MyJCB's and SMBC Direct's", () => {
     page(
       `<form name="loginForm"><input id="userId"><input id="password" type="password">
@@ -3074,6 +3113,19 @@ describe("extractEntryObservation (ADR 0031)", () => {
     if (!result.ok) throw new Error(`no observation: ${result.reason}`);
     return result.observation;
   };
+
+  it("names a link by its text even when a role=button element elsewhere shares it", () => {
+    page(
+      `<header><a href="https://www.synthetic.example/login">Sign in</a></header>
+      <main><div role="button" tabindex="0">Sign in</div></main>`,
+    );
+    expect(entry().candidates.map(({ target }) => target)).toEqual([
+      { by: "text", value: "Sign in" },
+    ]);
+    expect(findTargets(document, { by: "text", value: "Sign in" }, { links: true })).toHaveLength(
+      1,
+    );
+  });
 
   it("lists the page's on-site links and buttons, header and navigation first", () => {
     page(

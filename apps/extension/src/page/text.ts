@@ -249,12 +249,18 @@ export function isScriptButton(element: Element): boolean {
 }
 
 /**
- * A script button that text locators name like a native button: any `<a>` that
+ * A script button that text locators name right after native buttons: any `<a>` that
  * {@link isScriptButton} accepts. Other `role="button"` elements are often widgets such
- * as menus and toggles, so only attribute locators name them.
+ * as menus and toggles, so a text locator names one only when no button or script link
+ * has its text, and the extractor gives one a text locator only inside a login form.
  */
 export function isScriptLink(element: Element): element is HTMLAnchorElement {
   return element instanceof HTMLAnchorElement && isScriptButton(element);
+}
+
+/** A script button that is no `<a>`: an element such as a `<div>` with `role="button"`. */
+export function isRoleButton(element: Element): element is HTMLElement {
+  return !(element instanceof HTMLAnchorElement) && isScriptButton(element);
 }
 
 /**
@@ -287,13 +293,13 @@ function imageText(element: Element): string {
 }
 
 /**
- * The text a `{ by: "text" }` locator compares: a rendered button's or script link's
+ * The text a `{ by: "text" }` locator compares: a rendered button's or script button's
  * text (or, for an image-only `<button>`, its images' `alt`), an input button's
  * `value`, or an image button's `alt`, collapsed. A button that is not rendered, or
  * whose text is empty or longer than 120 code units, has none.
  */
 export function buttonText(element: Element): string | undefined {
-  if (!(isButton(element) || isScriptLink(element)) || !shown(element)) return undefined;
+  if (!(isButton(element) || isScriptButton(element)) || !shown(element)) return undefined;
   const readLimit = buttonTextLimit * 4;
   let raw =
     !isButton(element) || element instanceof HTMLButtonElement

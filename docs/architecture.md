@@ -1342,10 +1342,20 @@ first, so a login tab such as `<a href="#" onclick="...">Login</a>` never makes 
 `<input type="submit" value="Login">` below it ambiguous, and a text locator waits for a
 hidden native button rather than clicking a script link with its text. A recipe that
 names a script link by text clicks a native button instead if the page later adds one
-with the same text. Other script buttons are often widgets such as menus and toggles, so
-only their `id`, `name` or `data-testid` names them, and the extractor leaves out a
-script button without a locator instead of marking the page incomplete. It does the same
-for an icon button that never submits (`type="button"` with no text of its own), such as
+with the same text. Other script buttons, such as a `<div role="button">`, are often
+widgets such as menus and toggles, so their `id`, `name` or `data-testid` names them,
+and their rendered text only inside a login `<form>` or beside a password form, when no
+native button (shown or hidden), script link or other such element carries that text:
+since 2026-10-13, when Instagram's Log in control was a `<div role="button">` with no
+attribute to name it and the page was described without it, the executor matches them by
+text after native buttons and script links, but only in lookups that never name a link:
+a login's steps and a marker's `absent` elements, where such a control showing again
+counts. Lookups that may name a link (an entry, an account switch, a signed-in marker)
+compare links instead and never match them, so a widget elsewhere on the page never
+stands in for a link, and in a login form a link loses its text locator when such an
+element shares its text. The extractor leaves out a script button without a locator
+instead of marking the page incomplete. It does the same for an icon button that never
+submits (`type="button"` with no text of its own), such as
 the eye that shows the password on モッピー's and LinkedIn's sign-in pages (2026-10-12),
 whose only name is an `aria-label`, but only when its form has another located button:
 an icon-only button may be the form's script-run submit. A `type="button"` button with

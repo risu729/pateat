@@ -4,6 +4,7 @@ import {
   fieldName,
   hasNativeButton,
   isButton,
+  isRoleButton,
   isScriptButton,
   isScriptLink,
   linkText,
@@ -40,16 +41,18 @@ export const autocompleteTokens = (input: Element) =>
 /**
  * Every element a locator names. Attribute locators compare the attribute string, so a
  * value never becomes a selector; an `autocomplete` locator matches inputs whose
- * attribute holds the token. Text locators compare {@link buttonText}: native
- * buttons first, and only when none carries the text, even hidden, links that run a script
+ * attribute holds the token. Text locators compare {@link buttonText}: native buttons
+ * first, and only when none carries the text, even hidden, links that run a script
  * ({@link isScriptLink}), so a script link never makes a native button's locator
- * ambiguous. With `links`, and only when no button of either kind shows the text, they
- * compare other links' {@link linkText} (an account switch or a completion marker is often
- * a link). A `label` locator matches the shown fillable inputs whose {@link fieldName}
- * equals the value (ADR 0037); a hidden input never does. A signed-in marker's `href`
- * locator matches the links whose {@link linkPath} equals the value, whatever their query
- * or fragment (ADR 0029). Callers reject anything but exactly one match rather than
- * taking the first.
+ * ambiguous. When no native or script-link button has the text, a lookup without `links`
+ * compares other `role="button"` elements ({@link isRoleButton}), such as a login form's
+ * `<div>` submit, and one with `links` compares other links' {@link linkText} instead (an
+ * account switch or a completion marker is often a link), so a widget elsewhere on the
+ * page never stands in for a link. A `label` locator matches the shown fillable inputs
+ * whose {@link fieldName} equals the value (ADR 0037); a hidden input never does. A
+ * signed-in marker's `href` locator matches the links whose {@link linkPath} equals the
+ * value, whatever their query or fragment (ADR 0029). Callers reject anything but exactly
+ * one match rather than taking the first.
  */
 export function findTargets(
   document: Document,
@@ -60,13 +63,16 @@ export function findTargets(
   if (target.by === "text") {
     const elements = [...document.querySelectorAll("button, input, a")];
     const named = elements.filter((element) => buttonText(element) === target.value);
+    const linkMatches = () =>
+      elements.filter((element) => !isScriptLink(element) && linkText(element) === target.value);
     const native = named.filter(isButton);
     if (native.length > 0) return native;
-    // Only script links remain; a hidden native button with the text holds them back.
-    const scripted = hasNativeButton(document, target.value) ? [] : named;
-    if (scripted.length > 0 || !links) return scripted;
-    return elements.filter(
-      (element) => !isScriptLink(element) && linkText(element) === target.value,
+    // Only script buttons remain; a hidden native button with the text holds them back.
+    if (hasNativeButton(document, target.value)) return links ? linkMatches() : [];
+    if (named.length > 0) return named;
+    if (links) return linkMatches();
+    return [...document.querySelectorAll("[role]")].filter(
+      (element) => isRoleButton(element) && buttonText(element) === target.value,
     );
   }
   if (target.by === "label")

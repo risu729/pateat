@@ -20,6 +20,7 @@ import {
   collapseText,
   fieldName,
   hasNativeButton,
+  isRoleButton,
   isScriptButton,
   isScriptLink,
   linkText,
@@ -280,6 +281,7 @@ function locatorIndex(document: Document): LocatorIndex {
       "autocomplete",
       "text",
       "script-text",
+      "role-text",
       "link-text",
       "label",
       "link-path",
@@ -299,6 +301,10 @@ function locatorIndex(document: Document): LocatorIndex {
   for (const element of document.querySelectorAll("button, input, a")) {
     const text = buttonText(element);
     if (text !== undefined) count(isScriptLink(element) ? "script-text" : "text", text);
+  }
+  for (const element of document.querySelectorAll("[role]")) {
+    const text = isRoleButton(element) ? buttonText(element) : undefined;
+    if (text !== undefined) count("role-text", text);
   }
   for (const element of document.querySelectorAll("a[href]")) {
     const text = isScriptLink(element) ? undefined : linkText(element);
@@ -324,7 +330,9 @@ function locatorIndex(document: Document): LocatorIndex {
  * unique, as it may as well be stable, and never with `lasting`, which a signed-in
  * marker needs, since it must match on every later visit. A
  * script link's text must also name no native button, shown or not, which the executor
- * would take first. Button text is used only when redaction leaves it unchanged, so a
+ * would take first. With `roles`, another `role="button"` element (`isRoleButton`) is
+ * located by its text too, when no native button, script link or other such element
+ * carries it. Button text is used only when redaction leaves it unchanged, so a
  * locator never carries an email address or a long number. With
  * `redactAttributes` the same holds for attribute values, since a signed-in page's ids
  * and names often carry the account, and a value that may be a token (`tokenSegment`),
@@ -346,12 +354,14 @@ function locate(
     links = false,
     lasting = false,
     labels = false,
+    roles = false,
     paths,
   }: {
     redactAttributes?: boolean;
     links?: boolean;
     lasting?: boolean | undefined;
     labels?: boolean | undefined;
+    roles?: boolean;
     paths?: ReadonlySet<string>;
   } = {},
 ): LoginMarkerTarget | undefined {
@@ -368,7 +378,7 @@ function locate(
   }
   return (
     (paths ? pathTarget(element, index, paths) : undefined) ??
-    contentTarget(element, index, links, labels) ??
+    contentTarget(element, index, links, labels, roles) ??
     demoted
   );
 }
@@ -435,6 +445,7 @@ function contentTarget(
   index: LocatorIndex,
   links: boolean,
   labels: boolean,
+  roles: boolean,
 ): LoginTarget | undefined {
   // Only a field the login fills; a button is named by its own attributes or text.
   if (element instanceof HTMLInputElement && fillTypes[element.type]) {
@@ -467,6 +478,7 @@ function contentTarget(
       index.get("link-text")!.get(text) !== 1 ||
       index.get("text")!.has(text) ||
       index.get("script-text")!.has(text) ||
+      (roles && index.get("role-text")!.has(text)) ||
       observedText(text) !== text
     )
       return undefined;
@@ -479,7 +491,13 @@ function contentTarget(
     ? !index.get("text")!.has(text) &&
       !hasNativeButton(element.ownerDocument, text) &&
       index.get("script-text")!.get(text) === 1
-    : index.get("text")!.get(text) === 1;
+    : isRoleButton(element)
+      ? roles &&
+        !index.get("text")!.has(text) &&
+        !hasNativeButton(element.ownerDocument, text) &&
+        !index.get("script-text")!.has(text) &&
+        index.get("role-text")!.get(text) === 1
+      : index.get("text")!.get(text) === 1;
   if (!unique) return undefined;
   const target = { by: "text" as const, value: text };
   return v.is(loginTargetSchema, target) ? target : undefined;
@@ -1197,8 +1215,8 @@ export function extractLoginObservation(
   }
   const required: { form: HTMLFormElement | null; draft: Draft }[] = [];
   // Script buttons are often widgets (menus, toggles), and text locators name only the
-  // `<a>` ones, so one without a locator is left out rather than marking the page
-  // incomplete.
+  // `<a>` ones and, in a login form or beside a password form, the `role="button"` ones,
+  // so one without a locator is left out rather than marking the page incomplete.
   const scripted: typeof required = [];
   // Icon buttons follow the same rule, but only in a form that has another button to
   // submit with: an icon-only button may itself be the form's script submit.
@@ -1242,10 +1260,17 @@ export function extractLoginObservation(
   }
 
   // Links and script buttons without a locator are left out without flawing their form.
+  // A `role="button"` element is named by its text only inside a login form or beside a
+  // password form, where it is the form's own control rather than a widget elsewhere; a
+  // search form beside the login form names none.
   let unlocated = false;
-  const located = (entries: typeof required, { optional = false } = {}) =>
+  const located = (entries: typeof required, { optional = false, near = false } = {}) =>
     entries.flatMap((entry) => {
-      const target = locate(entry.draft.element, index, { links: true, labels: true });
+      const target = locate(entry.draft.element, index, {
+        links: true,
+        labels: true,
+        roles: near || (entry.form !== null && loginForms.has(entry.form)),
+      });
       if (!target) unlocated = true;
       if (!target && !optional) flaw(entry.form, unlocatedGap(entry.draft.role));
       return target ? [{ ...entry, target }] : [];
@@ -1272,7 +1297,7 @@ export function extractLoginObservation(
     ...kept(scripted, { optional: true }),
     ...keep(iconsFound),
     // More than a few is page content around the form, not its alternatives.
-    ...(beside.length <= maxBeside ? located(beside, { optional: true }) : []),
+    ...(beside.length <= maxBeside ? located(beside, { optional: true, near: true }) : []),
   ].slice(0, maxCandidates);
   const chosen = [
     ...buttons,

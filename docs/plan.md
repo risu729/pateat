@@ -2197,7 +2197,8 @@ password inputs, checkboxes, buttons (disabled ones too, since many enable after
 typing), script links (an `<a>` without `href` that has an `onclick` attribute or
 `role="button"`, or an `<a href>` with a `javascript:` URL or with an empty or
 fragment-only `href` and an `onclick` attribute or `role="button"`) as buttons, other
-elements with `role="button"` that have an `id`, `name` or `data-testid` (as
+elements with `role="button"` that have an `id`, `name` or `data-testid`, or in a login
+form or beside a password form a unique text (as
 [architecture](architecture.md#declarative-recipes-and-ai) describes) and, as context
 only, links. Up to four buttons outside every form are also kept as optional candidates
 when they sit anywhere inside the element two levels above a login form with a password
