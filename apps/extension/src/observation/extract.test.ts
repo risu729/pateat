@@ -1253,6 +1253,87 @@ describe("extractSignedInObservation", () => {
     expect(observe()).not.toHaveProperty("headerText");
   });
 
+  describe("behind an open modal dialog (2026-10-13)", () => {
+    // A modal library marks everything beside the dialog `aria-hidden` or `inert`.
+    const header = (hider: string) =>
+      `<div id="app" ${hider}>
+        <header><span>Taro Yamada</span><a id="logout" href="/logout">Log out</a></header>
+        <main><h1>Recommended</h1><p>For you</p></main></div>`;
+    const promo = (attributes: string) =>
+      `<div ${attributes}><h2>Premium scout</h2>
+        <button id="later" type="button">Later</button>
+        <button id="check" type="button">See the message</button></div>`;
+    const modal = promo('role="dialog" aria-modal="true"');
+    const controls = (observation: LoginObservation) =>
+      summary(observation).map(({ role, target }) => [role, target]);
+
+    it("reads the page an `aria-hidden` ancestor hides behind the modal", () => {
+      page(header('aria-hidden="true"') + modal, "Recommended | Example");
+      const observation = signedIn();
+      expect(observation.headerText).toBe("Taro Yamada Log out");
+      expect(observation.headings).toEqual(["Recommended", "Premium scout"]);
+      expect(controls(observation)).toEqual([
+        ["link", { by: "id", value: "logout" }],
+        ["button", { by: "id", value: "later" }],
+        ["button", { by: "id", value: "check" }],
+      ]);
+    });
+
+    it("reads the page an `inert` ancestor hides behind the modal, and a native modal", () => {
+      page(header("inert") + modal);
+      expect(signedIn().headerText).toBe("Taro Yamada Log out");
+      expect(controls(signedIn())).toContainEqual(["link", { by: "id", value: "logout" }]);
+      // `showModal()` makes the page inert without an attribute; the site's own one counts.
+      page(header("inert") + `<dialog id="promo">${promo("")}</dialog>`);
+      document.querySelector<HTMLDialogElement>("#promo")!.showModal();
+      expect(signedIn().headerText).toBe("Taro Yamada Log out");
+      expect(controls(signedIn())).toEqual([
+        ["link", { by: "id", value: "logout" }],
+        ["button", { by: "id", value: "later" }],
+        ["button", { by: "id", value: "check" }],
+      ]);
+    });
+
+    it("leaves a hidden page out without an open modal, and what hides inside the page", () => {
+      for (const hider of ['aria-hidden="true"', "inert"]) {
+        // No modal, a modal that is not shown, and a dialog that is not modal.
+        for (const rest of [
+          "",
+          promo('role="dialog" aria-modal="true" hidden'),
+          promo('role="dialog"'),
+        ]) {
+          page(header(hider) + rest + `<button id="other" type="button">Other</button>`);
+          const observation = signedIn();
+          expect(observation).not.toHaveProperty("headerText");
+          expect(controls(observation)).not.toContainEqual(["link", { by: "id", value: "logout" }]);
+        }
+      }
+      // Behind a modal, a menu hidden inside the page stays hidden.
+      page(
+        `<div id="app" aria-hidden="true"><header><span>Taro Yamada</span>
+          <nav aria-hidden="true"><a id="drawer" href="/drawer">Drawer</a></nav></header></div>
+        ${modal}`,
+      );
+      const observation = signedIn();
+      expect(observation.headerText).toBe("Taro Yamada");
+      expect(controls(observation)).not.toContainEqual(["link", { by: "id", value: "drawer" }]);
+    });
+
+    it("keeps the modal's controls on a page with more controls than the limit", () => {
+      const many = Array.from(
+        { length: 60 },
+        (_, at) => `<a id="item-${at}" href="/item/${at}">Item</a>`,
+      ).join("");
+      page(`<div id="app" aria-hidden="true"><main>${many}</main></div>${modal}`);
+      const kept = controls(signedIn());
+      expect(kept).toHaveLength(48);
+      expect(kept.slice(-2)).toEqual([
+        ["button", { by: "id", value: "later" }],
+        ["button", { by: "id", value: "check" }],
+      ]);
+    });
+  });
+
   it("sends up to three texts near the code field, hidden as the rest of the page (ADR 0027)", () => {
     // The sentence that names the code's source sits outside the code form.
     page(

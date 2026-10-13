@@ -255,6 +255,35 @@ on the rest of that page, the account's own usernames hidden as `[account]`, and
 1,000 characters. The judge's instructions name it as untrusted page text. Login pages,
 lists of accounts and sign-in entry pages never carry it.
 
+The page behind an open modal dialog (2026-10-13): after a login on 2026-10-13 at 01:57
+UTC, the signed-in page (`/`) showed a promotional modal. Its description held only the
+title, the modal's heading and the modal's two buttons, with no `headerText` and no
+marker, though the person saw the account's name in the page header. The judge
+abstained (`insufficient-evidence`), so the login completed with a warning and learned
+no marker. Modal libraries (Radix, React Aria, Headless UI, MUI) mark everything beside
+the open dialog `aria-hidden="true"` or `inert`, and the extractor's visibility check
+read that as hidden; that this site's modal did so is inferred from the code, not read
+from the page. Now, while the page has an open modal dialog (a shown element with
+`aria-modal="true"` and the role `dialog` or `alertdialog`, or a `<dialog>` opened with
+`showModal()`), the signed-in description and E2 do not let such an attribute on an
+element beside the dialog, or beside one of its ancestors, hide what it holds. The same
+attribute inside the page or inside the dialog still hides, and the page behind must
+still render (`checkVisibility`). So E2 can now settle `authenticated` behind an open
+modal without the judge, as on the same page without one. The description then carries
+the page's header text, headings, fields and possible markers besides the modal's own
+controls, which rank right after the header's so the candidate limit never drops them.
+The other sign-in signs, the fill checks and the executor are unchanged; S1 to S4 and
+E1's `shown` requirement never read these attributes. Known risk: an element the site
+itself hid at that level for another reason, such as a closed drawer beside the page's
+root, is read too while a modal is open, so its links can become possible markers and
+its text header text. A marker learned on such a page is read later as every marker is:
+a text locator names no element while the modal is still open, because text locators
+compare only shown text, so E1 does not hold there, while an `id`, `name` or
+`data-testid` locator does. That matters little: the judge's own `signed-in` completes
+the login that learned it, and later logins see the page without the modal or once it is
+closed; a modal shown on every visit sends the path to the judge again, which answers
+`judged-signed-in`.
+
 The list of learned markers (since 2026-10-12): a recipe's `completion` is a list of up
 to four markers, each a locator with up to four `absent` elements and no path. After
 every effect step, in a watched login and in E1, a marker that shows once, visible, on
