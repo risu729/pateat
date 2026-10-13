@@ -46,11 +46,40 @@ import { linkRefusal, type OnSite } from "../login/entry";
  */
 export type ObservationRefusal = "unsupported-page" | "no-candidates" | "no-locator";
 /**
- * Why a signed-in page's observation is incomplete, for diagnostics only: a fillable field
- * in a shadow root, one that cannot be filled and may be a sign-in field, one without a
- * usable locator, or more fields than the candidate limit.
+ * Why an observation is incomplete, for diagnostics only (ADR 0019): the first cause in
+ * the extractor's fixed order, never a page text, attribute value or count.
+ *
+ * - `shadow-field`: a fillable field in a shadow root anywhere on the page.
+ * - `shadow-control`: another control in a shadow root inside a login form.
+ * - `unfillable-field`: a fillable field that cannot be filled (faint, read-only
+ *   or disabled); on a signed-in page, only one that may be a sign-in field.
+ * - `unsupported-control`: a control the executor cannot act on in a login form, such as
+ *   a select, a radio button or a text area.
+ * - `unlocated-field`, `unlocated-checkbox`, `unlocated-button`: a field, checkbox or
+ *   button of a login form without a locator that names it alone; for buttons, also an
+ *   icon button in a form with no other button to submit with.
+ * - `too-many-fields` (signed-in page), `too-many-candidates` (login page): more than the
+ *   48 candidates an observation holds.
+ * - For a list of accounts: `too-many-accounts` (more than eight), `unlisted-accounts` (an
+ *   account whose text could not be sent), `too-many-elements` (more than the page scan
+ *   reads) and `too-many-controls` (more than eight other controls).
  */
 export type ObservationGap = (typeof observationGaps)[number];
+/** Login-page gaps, the first one present reported (`extractLoginObservation`). */
+const loginGaps = [
+  "shadow-field",
+  "shadow-control",
+  "unfillable-field",
+  "unsupported-control",
+  "unlocated-field",
+  "unlocated-checkbox",
+  "unlocated-button",
+  "too-many-candidates",
+] as const satisfies readonly ObservationGap[];
+type LoginGap = (typeof loginGaps)[number];
+/** A described result marked with why it is incomplete, if it is. */
+const withGap = (result: ObservationResult, gap: ObservationGap | undefined): ObservationResult =>
+  result.ok && gap ? { ...result, gap } : result;
 export type ObservationResult =
   | {
       readonly ok: true;
@@ -906,7 +935,8 @@ function loginFormsOf(
  * the executor cannot act on or a control in a shadow root marks the observation
  * incomplete when it is in a login form (`loginFormsOf`); any other form with one is
  * left out entirely. A field in any shadow root, or more than 48 candidates, marks it
- * incomplete too, and inference rejects an incomplete observation. A page without a
+ * incomplete too, and inference rejects an incomplete observation. An incomplete result
+ * names its first cause in `loginGaps` order as `gap`, for the log only. A page without a
  * field is refused, and so is one where nothing can be located.
  *
  * `known` names the fields a recipe already fills on this path, for a page that continues
@@ -945,19 +975,21 @@ export function extractLoginObservation(
   );
   if (fieldForms.size === 0) return { ok: false, reason: "no-candidates" };
   const loginForms = loginFormsOf(found, fieldForms);
-  // Forms with a control the executor cannot act on or locate. In a login form that
-  // makes the observation incomplete; any other such form is left out entirely, so
+  // Forms with a control the executor cannot act on or locate, and why. In a login form
+  // that makes the observation incomplete; any other such form is left out entirely, so
   // every form the observation describes is fully described.
-  const flawed = new Set<HTMLFormElement | null>();
+  const flawed = new Map<HTMLFormElement | null, Set<LoginGap>>();
+  const flaw = (form: HTMLFormElement | null, gap: LoginGap) =>
+    flawed.set(form, (flawed.get(form) ?? new Set()).add(gap));
+  const gaps = new Set<LoginGap>();
 
   // A shadow-root field anywhere may be the real login; other shadow controls such as
   // chat widgets matter only inside the forms that are kept.
-  let complete = true;
   for (const host of document.querySelectorAll("*")) {
     if (host.shadowRoot === null) continue;
-    if (inShadow(host.shadowRoot, shadowFields)) complete = false;
+    if (inShadow(host.shadowRoot, shadowFields)) gaps.add("shadow-field");
     else if (fieldForms.has(host.closest("form")) && inShadow(host.shadowRoot, controls))
-      flawed.add(host.closest("form"));
+      flaw(host.closest("form"), "shadow-control");
   }
   const required: { form: HTMLFormElement | null; draft: Draft }[] = [];
   // Script buttons are often widgets (menus, toggles), and text locators name only the
@@ -996,7 +1028,8 @@ export function extractLoginObservation(
       continue;
     }
     if (!fieldForms.has(entry.form)) continue;
-    if (entry.kind === "unsupported") flawed.add(entry.form);
+    if (entry.kind === "unsupported")
+      flaw(entry.form, entry.field ? "unfillable-field" : "unsupported-control");
     else if (entry.draft.role === "link") {
       if (entry.form) links.push(entry);
     } else if (isScriptButton(entry.draft.element)) scripted.push(entry);
@@ -1010,7 +1043,7 @@ export function extractLoginObservation(
     entries.flatMap((entry) => {
       const target = locate(entry.draft.element, index, { links: true });
       if (!target) unlocated = true;
-      if (!target && !optional) flawed.add(entry.form);
+      if (!target && !optional) flaw(entry.form, unlocatedGap(entry.draft.role));
       return target ? [{ ...entry, target }] : [];
     });
   const keep = <Entry extends (typeof required)[number]>(entries: Entry[]) =>
@@ -1024,10 +1057,12 @@ export function extractLoginObservation(
   );
   for (const entry of icons)
     if (!submitting.has(entry.form) && !iconsFound.some((icon) => icon.draft === entry.draft))
-      flawed.add(entry.form);
+      flaw(entry.form, "unlocated-button");
   const described = keep(requiredFound);
-  if ([...flawed].some((form) => loginForms.has(form)) || described.length > maxCandidates)
-    complete = false;
+  for (const [form, causes] of flawed)
+    if (loginForms.has(form)) for (const cause of causes) gaps.add(cause);
+  if (described.length > maxCandidates) gaps.add("too-many-candidates");
+  const gap = loginGaps.find((cause) => gaps.has(cause));
   const buttons = [
     ...described,
     ...kept(scripted, { optional: true }),
@@ -1040,8 +1075,16 @@ export function extractLoginObservation(
     ...kept(links, { optional: true }).slice(0, Math.max(0, maxCandidates - buttons.length)),
   ];
   if (chosen.length === 0) return { ok: false, reason: unlocated ? "no-locator" : "no-candidates" };
-  return observe(document, chosen, complete);
+  return withGap(observe(document, chosen, gap === undefined), gap);
 }
+
+/** The gap a login form's control without a locator makes, by its role. */
+const unlocatedGap = (role: ObservedCandidate["role"]): LoginGap =>
+  fillTypes[role]
+    ? "unlocated-field"
+    : role === "checkbox"
+      ? "unlocated-checkbox"
+      : "unlocated-button";
 
 type Chosen = { form: HTMLFormElement | null; draft: Draft; target: LoginTarget };
 
@@ -1162,7 +1205,8 @@ const listScanLimit = 4000;
  * separate buttons, as on Wise's "Welcome back" card, counts as a listed account too. A
  * page showing a fillable field, or no email address in an entry or beside buttons, is
  * refused: {@link extractLoginObservation} covers the
- * former, and the latter is no list of accounts.
+ * former, and the latter is no list of accounts. An incomplete result names its first
+ * cause as `gap` (`ObservationGap`), for the log only.
  */
 export function extractAccountListObservation(
   document: Document = globalThis.document,
@@ -1216,9 +1260,16 @@ export function extractAccountListObservation(
   const clickable = sent.filter((account) =>
     entries.some((entry) => entry.element === account.element),
   ).length;
-  let complete = listed.length <= maxAccounts && accounts.length === listed.length;
-  for (const host of document.querySelectorAll("*"))
-    if (host.shadowRoot !== null && inShadow(host.shadowRoot, shadowFields)) complete = false;
+  // The first gap is reported, in this order; any gap makes the observation incomplete.
+  let gap: ObservationGap | undefined = [...document.querySelectorAll("*")].some(
+    (host) => host.shadowRoot !== null && inShadow(host.shadowRoot, shadowFields),
+  )
+    ? "shadow-field"
+    : listed.length > maxAccounts
+      ? "too-many-accounts"
+      : accounts.length !== listed.length
+        ? "unlisted-accounts"
+        : undefined;
 
   // The innermost list controls that are not entries, by their whole text, which must
   // survive redaction and name one control only.
@@ -1227,7 +1278,7 @@ export function extractAccountListObservation(
       (entry) => entry.contains(element) || element.contains(entry),
     );
   const scanned = [...document.body.querySelectorAll("*")];
-  if (scanned.length > listScanLimit) complete = false;
+  if (scanned.length > listScanLimit) gap ??= "too-many-elements";
   const listControls = scanned
     .slice(0, listScanLimit)
     .filter(
@@ -1255,23 +1306,25 @@ export function extractAccountListObservation(
     if (!v.is(loginTargetSchema, target)) return [];
     return [{ form: null, draft: { element, role: "button", label: text }, target }];
   });
-  if (chosen.length > maxListControls) complete = false;
+  if (chosen.length > maxListControls) gap ??= "too-many-controls";
   const described = observe(
     document,
     chosen.slice(0, maxListControls),
-    complete,
+    gap === undefined,
     undefined,
     accounts,
   );
-  const result: ObservationResult =
+  const result = withGap(
     described.ok && described.observation.accounts
       ? { ok: true, observation: { ...described.observation, accountEntries: clickable } }
-      : described;
+      : described,
+    gap,
+  );
   if (!result.ok || !names.length) return result;
   const hidden = beside.others.map((element) =>
     collapseText(renderedText(element, rawLimit) ?? ""),
   );
-  return withoutNames(result.observation, names, hidden);
+  return withGap(withoutNames(result.observation, names, hidden), gap);
 }
 
 /** The page texts of a candidate, apart from its ID, role and locator kind, one per line. */
