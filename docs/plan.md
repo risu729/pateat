@@ -705,8 +705,8 @@ Once the fixes have settled:
 - The finite-choice role with Clef, which the owner chose to implement here. On
   2026-10-11 the owner asked for a larger corpus of real pages before planning it. After
   Clef has been tried, compare it with Jev on the same pages (owner, 2026-10-13 15:11
-  UTC). Include Chrome's built-in Prompt API (`LanguageModel`, an on-device model) in that
-  comparison (owner, 2026-10-13 21:36 UTC).
+  UTC). Include Chrome's built-in Prompt API (`LanguageModel`, an on-device model) in
+  that comparison (owner, 2026-10-13 21:36 UTC).
 - Anyone can use Pateat. The service is not opened to other people. Continuous delivery
   publishes each extension release on GitHub Releases and meets the
   [Corresponding Source](sdk-source.md) requirements. The owner has a Chrome Web Store
