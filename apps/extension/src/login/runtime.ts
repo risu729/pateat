@@ -141,9 +141,11 @@ import { pathShowsUsername, withoutUsernames } from "../observation/usernames";
 import {
   decideSignInState,
   reachedReturnTarget,
+  type ReshownMiss,
   type SignInDecision,
   type SignInSigns,
 } from "./sign-in-state";
+import type { AlertMiss } from "../page/sign-in-state";
 import type { LoginSites } from "./sites";
 import { linkRefusal, namesReturnPath, type OnSite } from "./entry";
 import type { ConditionalDecision, PasskeyItem } from "../passkeys/runtime";
@@ -1272,6 +1274,10 @@ export type LoginReport = (
       decision: ReturnType<typeof decideSignInState>;
       /** A later page of an attempt whose result already settled as unknown. */
       settled?: true;
+      /** Why S1 was not read as the sign-in form shown again, when it holds without it. */
+      reshownMiss?: ReshownMiss;
+      /** Why F2 does not hold on the sign-in form shown again. */
+      alertMiss?: AlertMiss;
     } & SignInSigns)
   | {
       /**
@@ -1356,8 +1362,10 @@ type PolicyChange = { cause: PolicyChangeCause; reason?: string };
  * submitted the code itself but no check confirmed it (`page-submitted`), the document
  * could not be reached, as when a submit replaced it (`document-gone`), the login's item
  * could not answer its page's own passkey request (`answer-failed`, ADR 0034), the page
- * showed a CAPTCHA, so its click was left to the person (`captcha-shown`, ADR 0029), or the
- * page's own reason (`ExecutionDetail`).
+ * showed a CAPTCHA, so its click was left to the person (`captcha-shown`, ADR 0029), the
+ * page after an effect step settled as unknown while it still showed the sign-in form
+ * (S1) with no failure that acted (`sign-in-shown`, ADR 0029), or the page's own reason
+ * (`ExecutionDetail`).
  */
 export type StopCause =
   | "elements-timeout"
@@ -1370,6 +1378,7 @@ export type StopCause =
   | "page-submitted"
   | "document-gone"
   | "captcha-shown"
+  | "sign-in-shown"
   | ExecutionDetail;
 
 /**
@@ -3340,12 +3349,18 @@ export function createLoginRuntime(
     // anything from it (ADR 0018).
     if (continued === "qualified") notJudged(run, "continuation");
     else if (await learn(run, state)) return undefined;
-    // A page that was not judged settles as unknown, whatever its signs (ADR 0029).
-    await change(run, {
-      type: "OBSERVED",
-      result: unproven(run, "unknown"),
-      document: run.live.document,
-    });
+    // A page that was not judged settles as unknown, whatever its signs (ADR 0029). One
+    // that still showed the sign-in form (S1) without a failure that acted says so in the
+    // log, as `sign-in-shown`.
+    const result = unproven(run, "unknown");
+    await change(
+      run,
+      { type: "OBSERVED", result, document: run.live.document },
+      undefined,
+      result === "unknown" && (state?.decision === "unknown" || state?.decision === "rejected")
+        ? "sign-in-shown"
+        : undefined,
+    );
     return undefined;
   }
   /** Whether the page has nothing a signed-in page's description could carry. */
@@ -3401,6 +3416,7 @@ export function createLoginRuntime(
       ...reading.signs,
       decision: reading.decision,
       ...(run.metadata.settled ? { settled: true as const } : {}),
+      ...reading.misses,
     });
     return {
       decision: reading.decision,
@@ -3418,9 +3434,16 @@ export function createLoginRuntime(
    * finished loading. The username goes to the page's content script for its comparison
    * only.
    */
-  async function readSignInState(
-    run: Execution,
-  ): Promise<{ signs: SignInSigns; decision: SignInDecision; loaded: boolean } | undefined> {
+  async function readSignInState(run: Execution): Promise<
+    | {
+        signs: SignInSigns;
+        decision: SignInDecision;
+        loaded: boolean;
+        /** Why S1 is not read as the form shown again, or F2 not on it, for the log. */
+        misses: { reshownMiss?: ReshownMiss; alertMiss?: AlertMiss };
+      }
+    | undefined
+  > {
     const { recipe, metadata } = run;
     if (run.live.topUrl !== undefined) return undefined;
     // Each marker shown, with the fields it needs gone counted even when hidden, as the
@@ -3474,13 +3497,21 @@ export function createLoginRuntime(
     // reading (owner, 2026-10-12 22:03 UTC). A later document, such as the person's own
     // retry, is not; nor is one after an advance or a passkey step. Without the step in
     // memory, as after a worker restart, it is not read.
-    const reshown =
-      s1 &&
-      effect?.attemptId === metadata.id &&
-      effect.submits &&
-      !effect.passkey &&
-      effect.next === run.live.document.documentId &&
-      !sameLoginDocument(effect.document, run.live.document);
+    const reshownMiss: ReshownMiss | undefined =
+      effect?.attemptId !== metadata.id
+        ? "no-effect"
+        : effect.passkey
+          ? "passkey-step"
+          : !effect.submits
+            ? "not-submit"
+            : sameLoginDocument(effect.document, run.live.document)
+              ? "same-document"
+              : effect.next === undefined
+                ? "late"
+                : effect.next !== run.live.document.documentId
+                  ? "later-document"
+                  : undefined;
+    const reshown = s1 && reshownMiss === undefined;
     let response: unknown;
     try {
       response = await send(run.live, {
@@ -3522,7 +3553,15 @@ export function createLoginRuntime(
         ),
       ...(reshown ? { reshown: true as const } : {}),
     };
-    return { signs, decision: decideSignInState(signs), loaded: parsed.output.loaded };
+    // Value-free reasons for the log: why the form was not read as shown again, or why no
+    // alert beside it counted (ADR 0019).
+    const misses =
+      s1 && reshownMiss !== undefined
+        ? { reshownMiss }
+        : reshown && !signs.f2 && page.alertMiss !== undefined
+          ? { alertMiss: page.alertMiss }
+          : {};
+    return { signs, decision: decideSignInState(signs), loaded: parsed.output.loaded, misses };
   }
   /**
    * Enters a handler of the recipe on this path all of whose elements show (ADR 0027).

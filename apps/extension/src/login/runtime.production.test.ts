@@ -90,8 +90,8 @@ const fake = vi.hoisted(() => {
      */
     signs: undefined as
       | undefined
-      | Record<string, boolean>
-      | ((message: Record<string, unknown>) => Record<string, boolean>),
+      | Record<string, boolean | string>
+      | ((message: Record<string, unknown>) => Record<string, boolean | string>),
     /** Whether the document says it has finished loading, with its signs. */
     loaded: true,
     /** `chrome.storage.session`. */
@@ -8233,6 +8233,8 @@ describe("production login document admission", () => {
           ...{ s1: true, s2: true, s3: false, s4: false, s5: false, f1: false, f2: true },
           ...{ e1: false, e2: false, e3: false },
           decision: "rejected",
+          // Read against its own reading at the step, not as a form shown again.
+          reshownMiss: "same-document",
         });
         // The username goes to the page for its comparison only.
         expect(fake.state.messages.find((entry) => entry.type === "login.state")?.account).toEqual({
@@ -8251,7 +8253,7 @@ describe("production login document admission", () => {
        * Logs in on the generated recipe; the click loads the sign-in form again in a new
        * document, which shows `signs` when the worker names the sign-in fields to read.
        */
-      async function reshown(signs: typeof noSigns) {
+      async function reshown(signs: typeof noSigns & { alertMiss?: string }) {
         fake.state.extracted = { "signed-in": homePage };
         // The submitted document never shows a failure; only the new one can.
         fake.state.signs = (message) =>
@@ -8281,7 +8283,7 @@ describe("production login document admission", () => {
         const reads = fake.state.messages.filter((entry) => entry.type === "login.state");
         expect(reads.length).toBeGreaterThan(0);
         expect(reads.every((entry) => Array.isArray(entry.fields))).toBe(true);
-        return { service, states };
+        return { service, states, report };
       }
 
       it.each([
@@ -8308,7 +8310,12 @@ describe("production login document admission", () => {
       );
 
       it("leaves the sign-in form shown again in a new document unknown without a mark", async () => {
-        const { service, states } = await reshown({ ...noSigns, password: true });
+        // The page says why no alert beside the form counted, value-free, for the log.
+        const { service, states, report } = await reshown({
+          ...noSigns,
+          password: true,
+          alertMiss: "other-form",
+        });
         await vi.waitFor(
           () =>
             expect(status()).toMatchObject([{ state: "reconciling", outcome: "unknown-submit" }]),
@@ -8317,7 +8324,16 @@ describe("production login document admission", () => {
         expect(states()).toEqual([
           expect.objectContaining({ s1: true, f1: false, f2: false, reshown: true }),
         ]);
-        expect(states()[0]).toMatchObject({ decision: "unknown" });
+        expect(states()[0]).toMatchObject({ decision: "unknown", alertMiss: "other-form" });
+        expect(states()[0]).not.toHaveProperty("reshownMiss");
+        // The attempt that settles on it says the sign-in form still showed.
+        expect(
+          report.mock.calls.flatMap(([value]) =>
+            value.type === "attempt" && value.outcome === "unknown-submit" && value.settled
+              ? [value]
+              : [],
+          ),
+        ).toEqual([expect.objectContaining({ cause: "sign-in-shown" })]);
         expect(service.judge).not.toHaveBeenCalled();
       }, 12_000);
 
@@ -8372,7 +8388,9 @@ describe("production login document admission", () => {
             ]),
           { timeout: 8_000 },
         );
-        expect(states()).toEqual([expect.objectContaining({ s1: true, decision: "unknown" })]);
+        expect(states()).toEqual([
+          expect.objectContaining({ s1: true, decision: "unknown", reshownMiss: "same-document" }),
+        ]);
         expect(states()[0]).not.toHaveProperty("reshown");
         if (afterMs > 0) {
           const now = Date.now.bind(Date);
@@ -8419,7 +8437,12 @@ describe("production login document admission", () => {
           { ...noSigns, password: true, invalid: true, alert: true },
         ]);
         expect(states()[1]).toMatchObject({ reshown: true, decision: "unknown" });
-        expect(states()[2]).toMatchObject({ f1: false, f2: false, decision: "unknown" });
+        expect(states()[2]).toMatchObject({
+          f1: false,
+          f2: false,
+          decision: "unknown",
+          reshownMiss: "later-document",
+        });
         expect(states()[2]).not.toHaveProperty("reshown");
         const reads = fake.state.messages.filter((entry) => entry.type === "login.state");
         expect(reads.at(-1)).not.toHaveProperty("fields");
@@ -8433,7 +8456,13 @@ describe("production login document admission", () => {
           [{ ...noSigns, password: true, invalid: true, alert: true }],
           31_000,
         );
-        expect(states()[1]).toMatchObject({ s1: true, f1: false, f2: false, decision: "unknown" });
+        expect(states()[1]).toMatchObject({
+          s1: true,
+          f1: false,
+          f2: false,
+          decision: "unknown",
+          reshownMiss: "late",
+        });
         expect(states()[1]).not.toHaveProperty("reshown");
         expect(
           fake.state.messages.filter(
@@ -8536,7 +8565,13 @@ describe("production login document admission", () => {
         const states = () =>
           report.mock.calls.flatMap(([value]) => (value.type === "state" ? [value] : []));
         await vi.waitFor(() => expect(states().length).toBeGreaterThan(0), { timeout: 16_000 });
-        expect(states()[0]).toMatchObject({ s1: true, f1: false, f2: false, decision: "unknown" });
+        expect(states()[0]).toMatchObject({
+          s1: true,
+          f1: false,
+          f2: false,
+          decision: "unknown",
+          reshownMiss: "not-submit",
+        });
         expect(states()[0]).not.toHaveProperty("reshown");
         expect(
           fake.state.messages.filter(
