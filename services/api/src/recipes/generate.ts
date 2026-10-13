@@ -814,7 +814,7 @@ export async function judgeCompletion(
   await keepVerdict(judgement.decision);
   if (judgement.decision === "rejected") return { version: 1, status: "rejected" };
   if (judgement.decision === "challenge") {
-    // A page may offer both a security key and an authenticator app code; each handler
+    // A page may offer both a security key and a TOTP code; each handler
     // that passes its checks is kept, in one revision (ADR 0027).
     let changed: LoginRecipe | undefined;
     // Kinds and refusal reasons only: never an element, label or value.

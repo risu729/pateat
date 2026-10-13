@@ -2116,10 +2116,10 @@ describe("page judgement (ADR 0027)", () => {
       },
     });
     expect(await head(device, change.recipeId)).toBe(3);
-    // A code sent by SMS, or one whose source the page does not say, adds nothing.
+    // A code sent by SMS or email adds nothing.
     for (const [path, source] of [
       ["/login/sms", "sms"],
-      ["/login/code", "unknown"],
+      ["/login/email", "email"],
     ] as const) {
       replies.push(answer(source));
       expect(
@@ -2128,6 +2128,29 @@ describe("page judgement (ADR 0027)", () => {
       ).toEqual({ version: 1, status: "challenge" });
     }
     expect(await head(device, change.recipeId)).toBe(3);
+    // A code whose source the page does not say adds a totp handler (owner, 2026-10-13).
+    replies.push(answer("unknown"));
+    expect(
+      (await complete(device, change.recipeId, 3, observation("/login/code", [code, verify]))).body,
+    ).toMatchObject({
+      status: "challenge",
+      change: {
+        revision: 4,
+        recipe: {
+          handlers: [
+            { kind: "passkey", path: "/login/mfa" },
+            { kind: "totp", path: "/login/mfa" },
+            {
+              kind: "totp",
+              path: "/login/code",
+              field: { by: "id", value: "app-code" },
+              target: { by: "id", value: "verify" },
+            },
+          ],
+        },
+      },
+    });
+    expect(await head(device, change.recipeId)).toBe(4);
   });
 
   it("does not learn a completion on a page that shows a totp handler's code field", async () => {

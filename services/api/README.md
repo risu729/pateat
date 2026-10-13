@@ -264,24 +264,25 @@ the path ending before it), or `{ check: "plan", reason }` with the plan check's
   passkey button passes `addHandler` (a button of the page, not one that registers,
   adds, sets up, turns on or manages a passkey, not a step, switch, rejection or
   completion target, one handler per kind and path) and is stored as a `passkey` handler
-  in the next revision. A `challenge` verdict that names a code the page says comes from
-  an authenticator app, in the only input of its form the TOTP fill rule accepts (not
-  limited below 6 characters) with a button of that form, passes `addHandler` too (a
-  field and button of the page, the field not one a route fills or another handler's,
-  the button not a field the route fills, the `passkey` route's button, a switch,
-  rejection, completion or other handler target) and is stored as a `totp` handler; an
-  SMS, email or unknown code stores nothing. Both handlers of one page land in the same
-  next revision, and the answer carries it as `change`. The kept and dropped handler
-  kinds, with the reason a handler was dropped, are logged without elements or values. A
-  code the model named but the judge's own checks refused (its source or the TOTP fill
-  rule, before `addHandler`) is logged the same way, and its request log's result
-  carries why as `totpDropped`: its source when that is not an authenticator app
-  (`source-sms`, `source-email`, `source-unknown`), `unknown-field` or `unknown-submit`
-  for an ID that is no element of the page, or `not-input`, `text-locator`,
-  `not-code-field`, `code-too-short`, `several-code-fields`, `submit-not-button` or
-  `submit-other-form`. A `signed-in` marker on a `totp` handler's path that shows its
-  code field fails `addCompletion` like one on the sign-in page, and the call answers
-  `invalid-output`.
+  in the next revision. A `challenge` verdict that names a code the page does not say
+  was sent to the person or comes from another source (from an authenticator app, or
+  with no source said; ADR 0027, 2026-10-13), in the only input of its form the TOTP
+  fill rule accepts (not limited below 6 characters) with a button of that form, passes
+  `addHandler` too (a field and button of the page, the field not one a route fills or
+  another handler's, the button not a field the route fills, the `passkey` route's
+  button, a switch, rejection, completion or other handler target) and is stored as a
+  `totp` handler; a code sent to the person or from another source stores nothing. Both
+  handlers of one page land in the same next revision, and the answer carries it as
+  `change`. The kept and dropped handler kinds, with the reason a handler was dropped,
+  are logged without elements or values. A code the model named but the judge's own
+  checks refused (its source or the TOTP fill rule, before `addHandler`) is logged the
+  same way, and its request log's result carries why as `totpDropped`: its source when
+  the page says it was sent to the person or names another source (`source-sms`,
+  `source-email`, `source-other`), `unknown-field` or `unknown-submit` for an ID that is
+  no element of the page, or `not-input`, `text-locator`, `not-code-field`,
+  `code-too-short`, `several-code-fields`, `submit-not-button` or `submit-other-form`. A
+  `signed-in` marker on a `totp` handler's path that shows its code field fails
+  `addCompletion` like one on the sign-in page, and the call answers `invalid-output`.
 
 Judgements are limited under the lock, before credentials are resolved:
 `page_judgements` holds one row per recipe revision, page origin and path and judge

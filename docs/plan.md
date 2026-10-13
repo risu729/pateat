@@ -50,7 +50,7 @@ on 2026-10-12 (20:50 UTC):
 | A sign-in entry button ([ADR 0031](adr/0031-sign-in-entry-pages.md)) | pixiv | Done |
 | A stored passkey | npm, pixiv | Done |
 | The page's own passkey request, including `required`, and choosing again after a logout ([ADR 0034](adr/0034-answer-page-passkey-requests.md)) | Wise | Signed in with the passkey on `1df2d38`; no Bitwarden "Save passkey" window followed on `fdf57ef` (below); recheck the choice after a logout |
-| A TOTP code from an authenticator app, the source said outside the code form | Resend | Recheck once the judge sees the text near the code field (ADR 0027, owner's option A, 2026-10-12 22:04 UTC); needs a paid judge call and the owner's code entry |
+| A TOTP code from an authenticator app, the source said outside the code form or not at all | Resend | On `fdf57ef` (2026-10-13) the code was dropped as `source-unknown`; a code page that says nothing about where the code comes from now keeps the code and types the item's TOTP once (ADR 0027, owner, 2026-10-13 04:01 UTC; local tests only). Recheck; needs a paid judge call and the owner's code entry |
 | A TOTP code split into one-digit inputs | ニコニコ | Candidate from its public code (six `maxlength` 1 inputs, [research](research/2026-10-12-split-totp-inputs.md)); check in the owner's Chrome. Resend has one input (real-Chrome check, 2026-10-12) |
 | Approval in an app, then the signed-in page ([ADR 0027](adr/0027-per-account-login-routes.md#watching-after-a-challenge)) | 三菱UFJダイレクト | Done |
 | A software keyboard or extra PIN page, left to the person | エポスNet | Recheck after `92df780` |
@@ -80,6 +80,13 @@ own accounts, so they stay in the project's files rather than in this repository
   at 19:10 UTC, without Pateat). That Pateat does nothing there is judged from the code
   and from the Grok Bot's log of 2026-10-12, which has no ABEMA entry after the Bot
   opened `abema.tv/mylist` (build `a8350f5`).
+  myUNSW is one too: it signs in through UNSW's single sign-on page
+  (`sso.unsw.edu.au/cas/login`), which offers "Agree and sign on" with the account's
+  address while the matching item's username is not an address (owner, 2026-10-13
+  04:41 UTC). In the owner's Chrome on 2026-10-13 at 04:34 UTC, with build `2675f0f`
+  ([#454](https://github.com/risu729/pateat/pull/454)), Pateat saved no recipe there
+  and pressed nothing; the page was logged as `no-listed-account` with
+  `no-email-username`.
 - Done: login attempts whose result settled as unknown no longer hold settings writes
   for the next login, and a vault replacement no longer runs during a login
   ([declarative recipes](architecture.md#declarative-recipes-and-ai)); diagnostics log
@@ -266,8 +273,14 @@ own accounts, so they stay in the project's files rather than in this repository
     the field, so the judge request had no `nearCode` and the code was dropped as
     `source-unknown`; the search now reaches six parents (local tests only). ニコニコ's
     page sent the notes of its device-name field instead, which the search now stops
-    before. A judged code page adds the handler, and the same login fills the code and
-    clicks once. It needs a paid judge call and the owner's own code entry or approval.
+    before. On both pages nothing near the code field says where the code comes from,
+    so the owner decided on 2026-10-13 (03:30 UTC card, 04:01 UTC go-ahead) that such a
+    code is kept too: the item's TOTP is typed once, a wrong code ends the login with no
+    second code, and a code the page says was sent to the person or comes from another
+    source, such as a recovery code, still adds nothing
+    (ADR 0027; local tests only). A judged code page adds the handler, and the same
+    login fills the code and clicks once. It needs a paid judge call and the owner's
+    own code entry or approval.
     A code split into one-digit inputs (owner decision, 2026-10-12 19:21 UTC) still
     needs a real site; Resend was first recorded as one, wrongly. ニコニコ's code page
     fits the split rule in its public code and waits for a real-Chrome check; the other
@@ -416,8 +429,8 @@ own accounts, so they stay in the project's files rather than in this repository
     UTC), the judge named no button, so the owner pressed it, and Pateat answered with
     the item's passkey. Recheck once the judge's instructions name such a button (ADR
     0027); this needs a paid judge call.
-  - The `totp` handler on a site whose code page says the code comes from an
-    authenticator app, such as npmjs.com: a judged code page adds the handler and the
+  - The `totp` handler on a site whose code page names an authenticator app, such as
+    npmjs.com: a judged code page adds the handler and the
     same login types one code. It needs a paid judge call and a real account's code, so
     it waits for the owner's approval.
 - Known faults moved from phase 1 (owner, 2026-10-12 20:35 UTC), fixed when a real site
@@ -1895,8 +1908,10 @@ Remaining M4 AI work:
   generation call or real-account login has used it. Its real-Chrome check on MyJCB
   needs the paid regeneration listed in phase 1, with the owner's approval. Delivery 4
   is implemented: the `totp` handler (one code field and its button on a path), learned
-  from a judge answer that names a code the page says comes from an authenticator app,
-  in a single code field of at least 6 characters, or the first of 6 to 8 one-digit
+  from a judge answer that names a code the page does not say was sent to the person or
+  comes from another source (from an authenticator app or, since 2026-10-13, with no
+  source said), in a single
+  code field of at least 6 characters, or the first of 6 to 8 one-digit
   inputs, with a button of its form; entered when all its elements show and are usable,
   after a `passkey` handler shown with it, at most one code per login, filling the
   item's built-in TOTP field under the TOTP fill rule and clicking once after a 2-second
