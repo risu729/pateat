@@ -242,7 +242,10 @@ export interface BesideAccount {
   readonly element: HTMLElement;
   /** Its rendered text, at most 64 characters. */
   readonly text: string;
-  /** The entry-like elements beside it: at most 3, none holding the text. */
+  /**
+   * The entry-like elements beside it, none holding the text: at most 3 with text (see
+   * {@link besideAccounts}) and any number without.
+   */
   readonly buttons: readonly HTMLElement[];
 }
 
@@ -286,8 +289,10 @@ const besideScan = { shown: 400, walked: 5000 };
  * "Welcome back" card shows the account above "Log back in" (ADR 0028, owner
  * 2026-10-12 08:36 UTC): each shown element of at most 64 characters, outside page
  * chrome and contact details and outside every entry-like element, whose nearest
- * ancestor holding an entry-like element holds at most 3 of them, page chrome's
- * included. The buttons returned leave out page chrome's.
+ * ancestor holding an entry-like element with text holds at most 3 of those, page
+ * chrome's included. A control without text, such as a settings gear beside Instagram's
+ * saved profile (2026-10-13), is neither counted nor sought. The buttons returned are
+ * every entry-like element in that ancestor outside page chrome.
  */
 export function besideAccounts(root: Document | Element): BesideAccount[] {
   const document = root instanceof Document ? root : root.ownerDocument;
@@ -295,9 +300,10 @@ export function besideAccounts(root: Document | Element): BesideAccount[] {
   if (!start) return [];
   const controls = entryControls(root, { chrome: true });
   if (controls.length === 0) return [];
-  // How many controls each ancestor holds, counted up to one past the limit.
+  // How many controls with text each ancestor holds, counted up to one past the limit.
   const held = new Map<Element, number>();
-  for (const item of controls)
+  const worded = controls.filter(namedByText);
+  for (const item of worded)
     for (let parent = item.parentElement; parent; parent = parent.parentElement)
       held.set(parent, Math.min((held.get(parent) ?? 0) + 1, maxBesideButtons + 1));
   const walker = document.createTreeWalker(start, NodeFilter.SHOW_TEXT, {
@@ -326,7 +332,7 @@ export function besideAccounts(root: Document | Element): BesideAccount[] {
     while (container && container !== start.parentElement && !held.get(container))
       container = container.parentElement;
     const holder = container;
-    if (!holder || (held.get(holder) ?? 0) > maxBesideButtons) continue;
+    if (!holder || !held.has(holder) || held.get(holder)! > maxBesideButtons) continue;
     const buttons = controls.filter(
       (item) => holder.contains(item) && !item.closest(chromeSelector),
     );
@@ -356,6 +362,16 @@ export function besideEmails(root: Document | Element): BesideAccount[] {
   return besideAccounts(root).filter((account) =>
     shownAccounts(account.text).some((shownAccount) => shownAccount.includes("@")),
   );
+}
+
+/**
+ * Whether a control shows words: rendered text, an input button's value or alt text, or
+ * an image's alt text. An `aria-label` alone does not count, as an icon's does not.
+ */
+function namedByText(element: HTMLElement): boolean {
+  if (listControlText(element) !== "") return true;
+  if (element instanceof HTMLInputElement) return (element.value || element.alt).trim() !== "";
+  return [...element.querySelectorAll("img")].some((image) => image.alt.trim() !== "");
 }
 
 /** Rendered text read from a list control, as the observation names it (ADR 0028). */
