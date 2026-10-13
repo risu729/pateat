@@ -84,6 +84,7 @@ async function mount(
   url: string | undefined,
   choices: ChoiceClient = noChoice(),
   incognito = false,
+  listingWaitMs?: number,
 ) {
   const unwatched = vi.fn<() => void>();
   let onSettings = () => {};
@@ -101,7 +102,12 @@ async function mount(
   };
   await render(
     <QueryClientProvider client={createMetadataQueryClient()}>
-      <SiteApp client={client} choices={choices} host={host} />
+      <SiteApp
+        client={client}
+        choices={choices}
+        host={host}
+        {...(listingWaitMs === undefined ? {} : { listingWaitMs })}
+      />
     </QueryClientProvider>,
   );
   return host;
@@ -477,6 +483,63 @@ test("a saved default waits for the site's matches instead of showing its saved 
     .toBeChecked();
   expect(document.querySelector("#popup-default")).toBeNull();
   await expect.element(page.getByRole("button", { name: "Remove default" })).toBeEnabled();
+});
+
+test("a search for the site's matches that does not finish ends with the saved default", async () => {
+  const settings = createDefaultSettings();
+  settings.siteDefaults.push({
+    origin: "https://bank.example",
+    provider: "dummy",
+    userId: "demo-work-account",
+    itemId: "primary",
+    itemName: "Demo team account",
+    accountName: "Demo work vault",
+  });
+  const { client } = store(saved(1, settings));
+  client.findSiteAccounts.mockImplementation(() => new Promise(() => {}));
+  await mount(client, "https://bank.example/", noChoice(), false, 300);
+  await expect
+    .element(page.getByText("Finding the vault items that match this site…", { exact: true }))
+    .toBeVisible();
+  await expect
+    .element(
+      page.getByText(
+        "Finding the vault items that match this site took too long. Wait a moment, then reopen this popup",
+      ),
+    )
+    .toBeVisible();
+  // The saved default shows by its saved labels and can still be removed.
+  await expect.element(page.getByText("Demo team account", { exact: false }).first()).toBeVisible();
+  await expect.element(page.getByRole("button", { name: "Remove default" })).toBeEnabled();
+  expect(page.getByText("Finding the vault items that match this site…").query()).toBeNull();
+});
+
+test("a waiting account choice shows its candidates when the site's matches do not finish", async () => {
+  const { client } = store();
+  client.findSiteAccounts.mockImplementation(() => new Promise(() => {}));
+  const choices = noChoice();
+  choices.get.mockResolvedValue({
+    ok: true,
+    origin: "https://bank.example",
+    documentId: "refused-document",
+    candidates: [
+      { connectionId: "demo-personal", itemId: "primary" },
+      { connectionId: "demo-work", itemId: "primary" },
+    ],
+  });
+  await mount(client, "https://bank.example/login", choices, false, 300);
+  await expect
+    .element(page.getByText("Listing the accounts that match this page…", { exact: true }))
+    .toBeVisible();
+  await expect.element(page.getByRole("heading", { name: "Choose an account" })).toBeVisible();
+  await expect
+    .element(page.getByRole("group", { name: "Account to log in with" }).getByRole("radio"))
+    .toHaveLength(2);
+  await expect
+    .element(
+      page.getByText("took too long. Wait a moment, then reopen this popup", { exact: false }),
+    )
+    .toBeVisible();
 });
 
 test("a change saved elsewhere first is reloaded instead of overwritten", async () => {
