@@ -573,17 +573,26 @@ test("a running sync says so, can be cancelled from the header, and its reply re
   await expect
     .element(page.getByRole("button", { name: "Cancel", exact: true }))
     .not.toBeInTheDocument();
+  // The reply re-reads the connections, which carry the new sync time.
+  expect(client.list).toHaveBeenCalledTimes(2);
   await expect
     .element(page.getByText(`Vault synced ${localSyncTime(synced)}`, { exact: true }))
     .toBeVisible();
-  // A second sync stopped from the header closes the private lifetime.
-  client.sync.mockReturnValueOnce(held<SetupReply>().promise);
+  // A second sync stopped from the header closes the private lifetime; its late reply is ignored.
+  const late = held<SetupReply>();
+  client.sync.mockReturnValueOnce(late.promise);
   await sync.click();
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
   expect(client.close).toHaveBeenCalledTimes(1);
   await expect
     .element(page.getByText("Stopped. Refresh to confirm the latest state.", { exact: true }))
     .toBeVisible();
+  await expect.element(sync).toBeEnabled();
+  late.resolve(ready());
+  await expect
+    .element(page.getByText("Stopped. Refresh to confirm the latest state.", { exact: true }))
+    .toBeVisible();
+  expect(client.list).toHaveBeenCalledTimes(2);
 });
 
 test("deleting a connection needs an explicit confirmation and then removes it from the list", async () => {
