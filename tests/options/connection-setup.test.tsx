@@ -18,6 +18,7 @@ import {
   type SettingsResponse,
 } from "../../packages/contracts/src/index";
 import type { SetupReply } from "../../apps/extension/src/connections/types";
+import { localSyncTime } from "../../apps/extension/src/time";
 
 const password = "synthetic-component-password-only";
 const flowId = "50000000-0000-4000-8000-000000000001";
@@ -534,6 +535,64 @@ test("sync sign-in is shown separately from automatic unlock and forgetting it i
     .element(page.getByRole("menuitem", { name: "Saved vault: Forget sync sign-in", exact: true }))
     .toHaveAttribute("aria-disabled", "true");
   await expect.element(page.getByText("Automatic unlock on", { exact: true })).toBeVisible();
+});
+
+test("a running sync says so, can be cancelled from the header, and its reply refreshes the row", async () => {
+  const client = mockClient();
+  const saved = {
+    connectionId: "saved-s",
+    label: "Saved vault",
+    email: "saved@example.test",
+    environment: { kind: "cloud" as const, region: "us" as const },
+    state: "ready" as const,
+    autoUnlock: "enabled" as const,
+    providerSession: "active" as const,
+    syncedAt: Date.UTC(2026, 9, 13, 18, 53),
+  };
+  const synced = Date.UTC(2026, 9, 13, 18, 55);
+  client.list
+    .mockResolvedValueOnce({ ...status(), connections: [saved] })
+    .mockResolvedValue({ ...status(), connections: [{ ...saved, syncedAt: synced }] });
+  const pending = held<SetupReply>();
+  client.sync.mockReturnValueOnce(pending.promise);
+  await mount(client);
+  const sync = page.getByRole("button", { name: "Saved vault: Sync", exact: true });
+  await sync.click();
+  await expect.element(page.getByText("Syncing Saved vault…", { exact: true })).toBeVisible();
+  await expect.element(page.getByRole("button", { name: "Cancel", exact: true })).toBeVisible();
+  await expect.element(sync).toBeDisabled();
+  pending.resolve(ready());
+  await expect
+    .element(
+      page.getByText(
+        "Vault verified and local cache accepted. Check automatic-unlock status below.",
+      ),
+    )
+    .toBeVisible();
+  await expect.element(sync).toBeEnabled();
+  await expect
+    .element(page.getByRole("button", { name: "Cancel", exact: true }))
+    .not.toBeInTheDocument();
+  // The reply re-reads the connections, which carry the new sync time.
+  expect(client.list).toHaveBeenCalledTimes(2);
+  await expect
+    .element(page.getByText(`Vault synced ${localSyncTime(synced)}`, { exact: true }))
+    .toBeVisible();
+  // A second sync stopped from the header closes the private lifetime; its late reply is ignored.
+  const late = held<SetupReply>();
+  client.sync.mockReturnValueOnce(late.promise);
+  await sync.click();
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  expect(client.close).toHaveBeenCalledTimes(1);
+  await expect
+    .element(page.getByText("Stopped. Refresh to confirm the latest state.", { exact: true }))
+    .toBeVisible();
+  await expect.element(sync).toBeEnabled();
+  late.resolve(ready());
+  await expect
+    .element(page.getByText("Stopped. Refresh to confirm the latest state.", { exact: true }))
+    .toBeVisible();
+  expect(client.list).toHaveBeenCalledTimes(2);
 });
 
 test("deleting a connection needs an explicit confirmation and then removes it from the list", async () => {
