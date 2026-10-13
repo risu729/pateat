@@ -135,7 +135,10 @@ describe("Pateat's sign-ins per tab (ADR 0007)", () => {
       "too many records",
       [{ tabId: 7, records: Array.from({ length: 5 }, (_, at) => ({ origin, at })) }],
     ],
-    ["too many tabs", Array.from({ length: 65 }, (_, tabId) => ({ tabId, records: [] }))],
+    [
+      "too many tabs",
+      Array.from({ length: 65 }, (_, tabId) => ({ tabId, records: [{ origin, at: 1 }] })),
+    ],
     ["no list", { tabId: 7 }],
   ])("ignores stored records with %s", async (_name, stored) => {
     const backing = memory({ [KEY]: stored });

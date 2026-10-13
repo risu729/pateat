@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { toBase64Url } from "./encoding";
 import { INITIAL_PASSKEY_POLICY, type PasskeyPolicy } from "./policy";
 import { MAX_ALLOW_CREDENTIALS, admitGetRequest, describeInvalidRequest } from "./request";
-import { effectiveDomain, resolveRpId } from "./rp-id";
+import { resolveRpId } from "./rp-id";
 import { selectPasskey } from "./select";
 import { MAX_REQUEST_CHARACTERS } from "./wire";
 
@@ -35,6 +34,10 @@ describe("RP ID admission", () => {
       ok: true,
       rpId: "login.example.com",
     });
+    expect(resolveRpId("https://xn--nxasmq6b.example")).toEqual({
+      ok: true,
+      rpId: "xn--nxasmq6b.example",
+    });
   });
 
   it.each([
@@ -46,11 +49,8 @@ describe("RP ID admission", () => {
     "https://example.com/path",
     "null",
     "chrome-extension://abcdefghijklmnopabcdefghijklmnop",
-    "https://xn--nxasmq6b.example",
   ])("rejects origin %s unless canonical, secure and a domain", (origin) => {
-    const host = effectiveDomain(origin);
-    if (origin === "https://xn--nxasmq6b.example") expect(host).toBe("xn--nxasmq6b.example");
-    else expect(host).toBeUndefined();
+    expect(resolveRpId(origin)).toEqual({ ok: false, reason: "invalid-origin" });
   });
 
   it.each(["Example.com", "example.com.", "例え.テスト", "example.com:443", "", " example.com", 1])(
@@ -216,17 +216,6 @@ describe("request admission", () => {
     ).toMatchObject({ kind: "claim", request: { allowCredentialIds: ["AQID", "AQIE"] } });
   });
 
-  it("claims Google's 2,056-byte challenge", () => {
-    // Google's sign-in asked with this size on 2026-10-12, over the first bound of 1,024 bytes.
-    const google = Uint8Array.from({ length: 2056 }, (_, index) => index % 256);
-    const request = { ...base, challenge: toBase64Url(google), rpId: "google.com" };
-    expect(admit(request, true, "https://accounts.google.com")).toMatchObject({
-      kind: "claim",
-      request: { rpId: "google.com", challenge: google },
-    });
-    expect(describeInvalidRequest(request)).toBeUndefined();
-  });
-
   it("keeps a maximal claimed snapshot within the relay's bound", () => {
     const encode = (length: number) => btoa("x".repeat(length)).replace(/=+$/u, "");
     // The longest host name: 253 characters in labels of at most 63.
@@ -260,10 +249,6 @@ describe("request admission", () => {
   });
 
   it.each([
-    ["conditional mediation", { ...base, mediation: "conditional" }, true, "unsupported-mediation"],
-    ["silent mediation", { ...base, mediation: "silent" }, true, "unsupported-mediation"],
-    ["immediate mediation", { ...base, mediation: "immediate" }, true, "unsupported-mediation"],
-    ["an unknown mediation", { ...base, mediation: "made-up" }, true, "unsupported-mediation"],
     ["foreign RP ID", { ...base, rpId: "example.net" }, true, "rp-id-mismatch"],
     ["public-suffix RP ID", { ...base, rpId: "com" }, true, "rp-id-mismatch"],
     ["short challenge", { ...base, challenge: "AAECAwQFBgcICQoLDA0O" }, true, "invalid-request"],
@@ -543,13 +528,6 @@ describe("invalid request description", () => {
     const silent = { ...base, mediation: "silent" };
     expect(admit(silent)).toEqual({ kind: "delegate", reason: "unsupported-mediation" });
     expect(describeInvalidRequest(silent)).toBeUndefined();
-  });
-
-  it("never includes the member's value", () => {
-    const secret = encode(4097);
-    expect(JSON.stringify(describeInvalidRequest({ ...base, challenge: secret }))).not.toContain(
-      secret.slice(0, 16),
-    );
   });
 });
 

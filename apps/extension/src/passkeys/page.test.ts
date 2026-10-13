@@ -350,9 +350,11 @@ describe("coexistence with a later passkey provider", () => {
   it("routes a provider's shallow copy, as Bitwarden's conditional path makes, to the browser", async () => {
     const page = fakePage(answer({ kind: "delegate" }));
     const saved = page.container.get.bind(page.container);
-    const provider = vi.fn(async (options?: unknown) =>
-      saved({ ...(options as object), signal: new AbortController().signal }),
-    );
+    // The copy is passed on after an await, so only its publicKey can route it.
+    const provider = vi.fn(async (options?: unknown) => {
+      await Promise.resolve();
+      return saved({ ...(options as object), signal: new AbortController().signal });
+    });
     page.container.get = provider;
     await expect(page.container.get({ publicKey, mediation: "conditional" })).resolves.toBe(
       "native",
@@ -461,6 +463,11 @@ describe("coexistence with a later passkey provider", () => {
     const credential = (await page.container.get({ publicKey })) as { id: string };
     expect(credential.id).toBe("AQID");
     await expect(conditional).rejects.toThrow("Aborted");
+    // The settled conditional request no longer routes one with its publicKey.
+    const again = (await page.container.get({ publicKey, mediation: "conditional" })) as {
+      id: string;
+    };
+    expect(again.id).toBe("AQID");
   });
 
   it("sends a page call reusing a delegated publicKey with the same mediation to the browser", async () => {
@@ -883,7 +890,11 @@ describe("create coexistence with a later passkey provider", () => {
   it("sends the provider's shallow copy to the browser", async () => {
     const page = fakePage(answerCreate({ kind: "delegate" }));
     const saved = page.container.create.bind(page.container);
-    const provider = vi.fn(async (options?: unknown) => saved({ ...(options as object) }));
+    // The copy is passed on after an await, so only its publicKey can route it.
+    const provider = vi.fn(async (options?: unknown) => {
+      await Promise.resolve();
+      return saved({ ...(options as object) });
+    });
     page.container.create = provider;
     await expect(page.container.create({ publicKey: registration() })).resolves.toBe("created");
     expect(page.nativeCreate).toHaveBeenCalledOnce();

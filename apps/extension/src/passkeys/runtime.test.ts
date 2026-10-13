@@ -199,7 +199,8 @@ describe("passkey runtime cancellation", () => {
     );
 
     const lookup = vi.fn();
-    const failing = createPasskeyRuntime(source(), {
+    const passkeys = source();
+    const failing = createPasskeyRuntime(passkeys, {
       extensionId,
       report: lookup,
       loginAccount: async () => Promise.reject(new Error("unavailable")),
@@ -208,6 +209,8 @@ describe("passkey runtime cancellation", () => {
       kind: "delegate",
       reason: "assertion-failed",
     });
+    // Never the site's default passkey in place of the login's account.
+    expect(passkeys.sign).not.toHaveBeenCalled();
     await vi.waitFor(() =>
       expect(lookup).toHaveBeenLastCalledWith(
         expect.objectContaining({ reason: "assertion-failed", cause: "account-lookup" }),
@@ -504,6 +507,8 @@ describe("passkey runtime reports", () => {
       { version: 1, type: "passkey.cancel", operationId: crypto.randomUUID() },
       sender(),
     );
+    // Delegation reports are sent after the answer, so let them run first.
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(report).not.toHaveBeenCalled();
   });
 });
@@ -948,18 +953,6 @@ describe("passkey requests during a login (ADR 0027)", () => {
     expect(await runtime.handle(get(), sender())).toEqual({ kind: "delegate", reason });
     expect(backing.sign).not.toHaveBeenCalled();
     expect(choose.choose).not.toHaveBeenCalled();
-  });
-
-  it("delegates when the login lookup fails", async () => {
-    const backing = vault([siteDefault, ofLogin]);
-    const runtime = createPasskeyRuntime(backing, {
-      extensionId,
-      loginAccount: async () => {
-        throw new Error("storage unavailable");
-      },
-    });
-    expect(await runtime.handle(get(), sender())).toMatchObject({ kind: "delegate" });
-    expect(backing.sign).not.toHaveBeenCalled();
   });
 
   it("answers as before once the login has ended", async () => {

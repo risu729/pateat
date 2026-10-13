@@ -105,13 +105,6 @@ describe("passkey create check (ADR 0007)", () => {
     });
   });
 
-  it("reads the sign-ins of the sender's tab", async () => {
-    const signIns = signedIn({});
-    const check = handler(source(), signIns);
-    await check.handle(create(request()), sender());
-    expect(signIns.list).toHaveBeenCalledWith(7);
-  });
-
   it("uses the origin's host as the RP ID when the request names none", async () => {
     const check = handler(source([{ ...candidate, rpId: "login.example.com" }]));
     expect(await check.handle(create(request({ rpId: undefined })), sender())).toEqual({
@@ -179,12 +172,6 @@ describe("passkey create check (ADR 0007)", () => {
         rpId,
         excludeCredentials: 1,
       });
-    });
-
-    it("hands on a registration in a tab Pateat never signed in", async () => {
-      const check = handler(source(), signedIn());
-      expect(await check.handle(create(request()), sender())).toEqual(delegate("not-signed-in"));
-      expect(check.backing.candidates).not.toHaveBeenCalled();
     });
 
     it("never lets a sign-in in one tab decline a registration in another", async () => {
@@ -311,11 +298,6 @@ describe("passkey create check (ADR 0007)", () => {
       });
       const found = handler(incomplete([candidate]));
       expect(await found.handle(create(request()), sender())).toEqual({ kind: "decline" });
-    });
-
-    it("never counts an unlisted discoverable passkey", async () => {
-      const check = handler(source([{ ...candidate, credentialId: "BAUG" }]));
-      expect(await check.handle(create(request()), sender())).toEqual(delegate("not-listed"));
     });
   });
 

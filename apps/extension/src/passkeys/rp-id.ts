@@ -16,7 +16,7 @@ const ipv4 = /^(?:\d{1,3}\.){3}\d{1,3}$/u;
  * Accept only an `https:` origin or `http://localhost`, whose host is a canonical ASCII domain.
  * WebAuthn rejects IP addresses; trailing-dot hosts are left to the browser.
  */
-export function effectiveDomain(origin: string): string | undefined {
+function effectiveDomain(origin: string): string | undefined {
   let url: URL;
   try {
     url = new URL(origin);
