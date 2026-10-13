@@ -1235,7 +1235,9 @@ stay within one 24-element observation, so a marker that would exceed it is not 
 A step names its element with an allowlisted locator, never CSS: an `id` or `name` (any
 ASCII except whitespace and control characters, as in `ctl00$Main$txtUserId` or
 `user[login]`), a `data-testid` (`[A-Za-z0-9_.:-]`), an `<input>`'s `autocomplete`
-token, or, for a click or a state check only, a button's text:
+token, a fillable input's visible name
+([ADR 0037](adr/0037-fields-by-visible-name.md), below), or, for a click or a state
+check only, a button's text:
 `{ "by": "text", "value": "ログイン" }` names the `<button>` whose rendered text (or,
 without any, its images' `alt`), the `<input type="submit|button">` whose value, or the
 `<input type="image">` whose `alt` equals the value after whitespace is collapsed (owner
@@ -1325,6 +1327,25 @@ can lack a digit, and a signed-in marker on a Mantine-built site was chosen by
 `id` or a random-looking one locates no marker, since a marker must match on every
 later visit; only a field that may be a sign-in field still gets it, so the page is
 not reported incomplete.
+
+A field that no `id`, `name`, `data-testid` or `autocomplete` token names alone is
+located by its visible name before such an `id` (owner, 2026-10-13,
+[ADR 0037](adr/0037-fields-by-visible-name.md)):
+`{ "by": "label", "value": "メールアドレス" }` names the one shown `text`, `email`,
+`tel`, `number` or `password` input whose name equals the value. The name is the
+rendered text of the elements its `aria-labelledby` names, else of its `<label>`
+elements, else its `aria-label`, else its `placeholder`, the first that is not empty,
+collapsed as button text is; a first name over 120 characters gives none. The extractor
+uses it only when no other shown fillable input on the page has that name, it holds no
+number (a counter such as `0/20` changes as the person types) and redaction leaves it
+unchanged, so a placeholder such as `taro@example.com` is never one; a hidden input
+never matches. Fill steps and a `totp` handler's code field take it, never a
+button, link, entry or list control. On the signed-in page only a field that may be a
+sign-in field gets it; markers never do.
+外資就活ドットコム's Mantine fields carry only per-load IDs and the placeholders
+「メールアドレス」 and 「パスワード」, so its recipe failed on every visit and was
+generated again each time (2026-10-13). A site that rewords the field gets its recipe
+generated again.
 
 A text locator is stored in the recipe, unlike observation labels, which only reach
 inference. Redaction keeps email addresses and long numbers out of it, but a button

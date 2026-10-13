@@ -554,7 +554,10 @@ export type GeneratedAccountList = {
   continue?: string | undefined;
 };
 /** A list control the extension clicks, with the locator the chooser recipe stores. */
-type ListControl = { candidate: string; target: Exclude<LoginTarget, { by: "autocomplete" }> };
+type ListControl = {
+  candidate: string;
+  target: Exclude<LoginTarget, { by: "autocomplete" | "label" }>;
+};
 /** An account list whose named controls passed {@link validateAccountList}. */
 export type ValidatedAccountList = {
   accountList: true;
@@ -587,7 +590,7 @@ const accountText = /\[(?:email|masked|number|account)\]|@|\d{4}/u;
  * Validates an account-list answer (ADR 0028): the page must list accounts, and each named
  * control must be a button or link of the page, not hold account text and not be the
  * other control. A list whose accounts are all shown beside buttons needs a named
- * control. Its locator is never `autocomplete`, which names only inputs.
+ * control. Its locator is never `autocomplete` or `label`, which name only inputs.
  */
 export function validateAccountList(
   observation: LoginObservation,
@@ -601,7 +604,8 @@ export function validateAccountList(
     const { target } = candidate;
     if (
       (!isActionRole(candidate.role) && candidate.role !== "link") ||
-      target.by === "autocomplete"
+      target.by === "autocomplete" ||
+      target.by === "label"
     )
       return "incompatible-role";
     if (
@@ -647,7 +651,7 @@ export function redactAccountList(
   };
 }
 
-/** The locator a sign-in entry is pressed by: never `autocomplete` (ADR 0031). */
+/** The locator a sign-in entry is pressed by: never `autocomplete` or `label` (ADR 0031). */
 export type EntryTarget = LoginEntryRecipe["entry"]["target"];
 /**
  * The generation role's entry answer (ADR 0031): the candidate that opens sign-in to an
@@ -672,7 +676,7 @@ export function validateEntry(
   const candidate = observation.candidates.find((entry) => entry.id === candidateId);
   if (candidate === undefined) return { ok: false, reason: "unknown-candidate" };
   const { target } = candidate;
-  if (candidate.role !== "link" || target.by === "autocomplete")
+  if (candidate.role !== "link" || target.by === "autocomplete" || target.by === "label")
     return { ok: false, reason: "incompatible-role" };
   if ([candidate.label, target.value].some((text) => text !== undefined && accountText.test(text)))
     return { ok: false, reason: "account-text" };

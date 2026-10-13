@@ -70,6 +70,11 @@ describe("observation contract", () => {
     const token = { by: "autocomplete", value: "username" };
     expect(parse({ ...base, candidates: [{ ...candidate, target: token }] })).toBe(true);
     expect(parse({ ...base, candidates: [candidate, { ...button, target: token }] })).toBe(false);
+    // So does a visible name (ADR 0037).
+    const name = { by: "label", value: "Email address" };
+    expect(parse({ ...base, candidates: [{ ...candidate, target: name }, button] })).toBe(true);
+    expect(parse({ ...base, candidates: [candidate, { ...button, target: name }] })).toBe(false);
+    expect(parse({ ...base, candidates: [candidate, { ...link, target: name }] })).toBe(false);
     expect(parse({ ...base, path: "/login?next=/" })).toBe(false);
     expect(parse({ ...base, origin: "https://shop.example.test/login" })).toBe(false);
     expect(parse({ ...base, html: "<form></form>" })).toBe(false);

@@ -323,3 +323,50 @@ export function linkText(element: Element): string | undefined {
   const text = collapseText(raw);
   return text && text.length <= buttonTextLimit ? text : undefined;
 }
+
+/** The `<input>` types a login fills, which a `{ by: "label" }` locator names. */
+const fieldInputTypes = new Set(["text", "email", "tel", "number", "password"]);
+const fieldNameLimit = 120;
+
+/**
+ * The visible name a `{ by: "label" }` locator compares (ADR 0037): for a shown fillable
+ * `<input>`, the rendered text of the elements its `aria-labelledby` names, else of its
+ * `<label>` elements, else its `aria-label`, else its `placeholder`, the first that is not
+ * empty, collapsed. An input that is not shown or not fillable, or whose first name is
+ * longer than 120 code units, has none; a later source is never tried in its place.
+ */
+export function fieldName(element: Element): string | undefined {
+  if (
+    !(element instanceof HTMLInputElement) ||
+    !fieldInputTypes.has(element.type) ||
+    !shown(element)
+  )
+    return undefined;
+  const readLimit = fieldNameLimit * 4;
+  // Undefined when the text is cut short, which could collapse to a prefix of it.
+  const read = (elements: readonly Element[]) => {
+    let raw = "";
+    for (const part of elements) {
+      raw += ` ${renderedText(part, readLimit) ?? ""}`;
+      if (raw.length > readLimit) return undefined;
+    }
+    return collapseText(raw);
+  };
+  const document = element.ownerDocument;
+  const referenced = (element.getAttribute("aria-labelledby") ?? "").split(/\s+/u).flatMap((id) => {
+    const target = id ? document.getElementById(id) : null;
+    return target ? [target] : [];
+  });
+  const sources = [
+    () => read(referenced),
+    () => read([...(element.labels ?? [])]),
+    () => collapseText(element.getAttribute("aria-label") ?? ""),
+    () => collapseText(element.placeholder),
+  ];
+  for (const source of sources) {
+    const name = source();
+    if (name === undefined) return undefined;
+    if (name) return name.length <= fieldNameLimit ? name : undefined;
+  }
+  return undefined;
+}

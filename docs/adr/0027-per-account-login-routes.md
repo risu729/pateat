@@ -491,7 +491,8 @@ new owner decision:
   the synthetic item, since the probe vault holds no passkey; no key is created or
   used.
 - **`totp` handler shape.** A `totp` handler is `{ kind: "totp", path, field, target }`:
-  the code input (an attribute locator, never a text one) and the button that submits
+  the code input (an attribute locator, never a text one; since 2026-10-13 also its
+  visible name, [ADR 0037](0037-fields-by-visible-name.md)) and the button that submits
   it, which may not be the same element. Its steps are one `prepare` fill of the
   `totp` slot into the field, then one `submit` click on the button. A recipe keeps one
   handler per kind and path, and both elements count wherever a handler target counts:
@@ -505,7 +506,8 @@ new owner decision:
   a recovery code, card or hardware token, and `unknown` only when it says nothing about
   where the code comes from. The judge keeps the answer only when the source is
   `authenticator-app` or, since 2026-10-13 (owner decision, above), `unknown`, the field
-  is a fill-role candidate with an attribute locator that the TOTP fill rule of ADR 0013
+  is a fill-role candidate with an attribute locator (or a visible name, ADR 0037) that
+  the TOTP fill rule of ADR 0013
   accepts and whose `maxlength`, when set, is at least 6, no other such input is in its
   form, or the field is the first input of a split code (below), and the button is a
   button of the same form; any other code answer is dropped silently, so the page ends

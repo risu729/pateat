@@ -1,5 +1,5 @@
 import type { LoginTarget } from "@pateat/contracts";
-import { buttonText, hasNativeButton, isButton, isScriptLink, linkText } from "./text";
+import { buttonText, fieldName, hasNativeButton, isButton, isScriptLink, linkText } from "./text";
 
 const attributes = { id: "id", name: "name", "test-id": "data-testid" } as const;
 
@@ -15,8 +15,9 @@ export const autocompleteTokens = (input: Element) =>
  * ({@link isScriptLink}), so a script link never makes a native button's locator
  * ambiguous. With `links`, and only when no button of either kind shows the text, they
  * compare other links' {@link linkText} (an account switch or a completion marker is often
- * a link). Callers
- * reject anything but exactly one match rather than taking the first.
+ * a link). A `label` locator matches the shown fillable inputs whose {@link fieldName}
+ * equals the value (ADR 0037); a hidden input never does. Callers reject anything but
+ * exactly one match rather than taking the first.
  */
 export function findTargets(
   document: Document,
@@ -35,6 +36,10 @@ export function findTargets(
       (element) => !isScriptLink(element) && linkText(element) === target.value,
     );
   }
+  if (target.by === "label")
+    return [...document.querySelectorAll("input")].filter(
+      (input) => fieldName(input) === target.value,
+    );
   if (target.by === "autocomplete")
     return [...document.querySelectorAll("input[autocomplete]")].filter((input) =>
       autocompleteTokens(input).includes(target.value),

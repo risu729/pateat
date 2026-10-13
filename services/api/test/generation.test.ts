@@ -590,6 +590,47 @@ describe("recipe generation", () => {
     expect(await again.json()).toMatchObject({ status: "recipe", change: { revision: 2 } });
   });
 
+  it("stores fields located by their visible name, as the page offered them (ADR 0037)", async () => {
+    const device = await owner();
+    // A form whose fields only per-load IDs name.
+    const named = observation("/signin", [
+      { id: "c1", role: "email", target: { by: "label", value: "Email address" } },
+      { id: "c2", role: "password", target: { by: "label", value: "Password" } },
+      element("sign-in", "button", "Sign in"),
+    ]);
+    replies.push({
+      text: plan(
+        [
+          ["email", "c1"],
+          ["password", "c2"],
+        ],
+        "sign-in",
+        "submit",
+      ),
+    });
+    const result = await generate(device, named);
+    if (result.status !== "recipe") throw new Error(result.status);
+    expect(route(result.change.recipe).steps[0]).toMatchObject({
+      kind: "fill",
+      fields: [
+        { slot: "email", target: { by: "label", value: "Email address" } },
+        { slot: "password", target: { by: "label", value: "Password" } },
+      ],
+    });
+    // The page after it that still shows the form by those names is not judged.
+    const calls = sent.length;
+    const reposted = observation("/session", [
+      { id: "c1", role: "email", target: { by: "label", value: "Email address" } },
+      element("help", "link", "Help"),
+    ]);
+    expect((await complete(device, result.change.recipeId, 1, reposted)).body).toEqual({
+      version: 1,
+      status: "unavailable",
+      reason: "not-judgeable",
+    });
+    expect(sent).toHaveLength(calls);
+  });
+
   it("fails a continuation that fills one of the recipe's slots again, storing nothing", async () => {
     const device = await owner();
     const recipeId = await generatedRecipeId(ORIGIN, "/login");

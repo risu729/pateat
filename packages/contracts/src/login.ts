@@ -93,13 +93,32 @@ export const loginTextTargetSchema = v.strictObject({
     v.regex(/^[^\s\p{Cc}\p{Cf}]+(?: [^\s\p{Cc}\p{Cf}]+)*$/u),
   ),
 });
+/**
+ * A field locator by its visible name (ADR 0037): the one shown fillable `<input>` (text,
+ * email, tel, number or password) whose name equals the value. The name is the rendered
+ * text of the elements its `aria-labelledby` names, else of its `<label>` elements, else
+ * its `aria-label`, else its `placeholder`, the first that is not empty, with whitespace
+ * collapsed to single spaces and format characters removed, and at most 120 characters.
+ * It names fields only, for a field with no unique `id`, `name`, `data-testid` or
+ * `autocomplete` locator but a stable one; hidden inputs never match.
+ */
+export const loginLabelTargetSchema = v.strictObject({
+  by: v.literal("label"),
+  value: loginTextTargetSchema.entries.value,
+});
+/** A locator a fill names its field by: an attribute one, or the field's visible name. */
+export const loginFieldTargetSchema = v.variant("by", [
+  ...loginAttributeTargetSchema.options,
+  loginLabelTargetSchema,
+]);
 /** An allowlisted element locator; recipes cannot supply CSS, code, URLs or values. */
 export const loginTargetSchema = v.variant("by", [
   ...loginAttributeTargetSchema.options,
   loginTextTargetSchema,
+  loginLabelTargetSchema,
 ]);
 const fields = v.pipe(
-  v.array(v.strictObject({ slot: identifier, target: loginAttributeTargetSchema })),
+  v.array(v.strictObject({ slot: identifier, target: loginFieldTargetSchema })),
   v.minLength(1),
   v.maxLength(20),
   v.check((entries) => unique(entries.map((entry) => entry.slot)), "Duplicate fill slots"),
@@ -166,7 +185,7 @@ export const loginHandlerSchema = v.variant("kind", [
     v.strictObject({
       kind: v.literal("totp"),
       path,
-      field: loginAttributeTargetSchema,
+      field: loginFieldTargetSchema,
       target: loginTargetSchema,
     }),
     v.check(
@@ -540,7 +559,7 @@ export const loginRecipeSchema = v.pipe(
  * submission budget or login route members, reads no vault field and never gains steps.
  * Only an `<a href>` link is to be pressed, which a `text` target names by its rendered
  * text as an `accountSwitch` does; its target is an `id`, `name`, `test-id` or `text`
- * locator, never `autocomplete`.
+ * locator, never `autocomplete` or `label`.
  *
  * The service generates it for an entry request (`entryGenerationRequestSchema`) and
  * stores it; devices cache it, but nothing sends such a request or presses it yet, it
@@ -553,7 +572,8 @@ export const loginEntryRecipeSchema = v.strictObject({
   origin: loginOriginSchema,
   entry: v.strictObject({
     path,
-    // A link or button locator; `autocomplete` names only inputs, which are never pressed.
+    // A link or button locator; `autocomplete` and `label` name only inputs, which are never
+    // pressed.
     target: v.variant("by", [
       loginAttributeTargetSchema.options[0],
       loginAttributeTargetSchema.options[1],
@@ -561,7 +581,7 @@ export const loginEntryRecipeSchema = v.strictObject({
     ]),
   }),
 });
-/** A list control's locator: never `autocomplete`, which names only inputs. */
+/** A list control's locator: never `autocomplete` or `label`, which name only inputs. */
 const chooserTargetSchema = v.variant("by", [
   loginAttributeTargetSchema.options[0],
   loginAttributeTargetSchema.options[1],
@@ -701,6 +721,7 @@ export type LoginTarget = v.InferOutput<typeof loginTargetSchema>;
 export const sameLoginTarget = (left: LoginTarget, right: LoginTarget) =>
   left.by === right.by && left.value === right.value;
 export type LoginAttributeTarget = v.InferOutput<typeof loginAttributeTargetSchema>;
+export type LoginFieldTarget = v.InferOutput<typeof loginFieldTargetSchema>;
 export type LoginStep = v.InferOutput<typeof loginStepSchema>;
 export type LoginEffect = "prepare" | "advance" | "submit";
 export function loginStepEffect(step: LoginStep): LoginEffect | undefined {

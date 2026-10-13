@@ -1,7 +1,7 @@
 import * as v from "valibot";
 import {
   chooserClickSchema,
-  loginAttributeTargetSchema,
+  loginFieldTargetSchema,
   loginOperationSchema,
   loginTargetSchema,
   type LoginStep,
@@ -348,7 +348,7 @@ export const commandSchema = v.variant("type", [
      * fills on this path. One of them shown read-only or disabled, as an email address shown
      * again beside the password, is left out rather than making the page incomplete.
      */
-    known: v.optional(v.pipe(v.array(loginAttributeTargetSchema), v.maxLength(24))),
+    known: v.optional(v.pipe(v.array(loginFieldTargetSchema), v.maxLength(24))),
     /**
      * For a page without a login form (`entry`, ADR 0031): the hosts the worker found on
      * the page's site among those `login.entry.hosts` listed. A link elsewhere is left out.

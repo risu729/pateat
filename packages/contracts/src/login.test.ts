@@ -375,6 +375,43 @@ describe("declarative login boundaries", () => {
     ).toThrow();
   });
 
+  it("fills a field by its visible name, a locator of fields only (ADR 0037)", () => {
+    const target = (value: unknown) => v.safeParse(loginTargetSchema, value).success;
+    expect(target({ by: "label", value: "メールアドレス" })).toBe(true);
+    expect(target({ by: "label", value: "Email address" })).toBe(true);
+    for (const value of ["", " Email", "Email  address", "Email\naddress", "x".repeat(121)])
+      expect(target({ by: "label", value })).toBe(false);
+    const valid = recipe();
+    const byName = (value: string) => ({
+      ...valid,
+      steps: [
+        {
+          kind: "fill",
+          path: "/identity",
+          fields: [
+            { slot: "branch", target: { by: "label", value } },
+            { slot: "account", target: { by: "id", value: "account" } },
+          ],
+        },
+        ...valid.steps.slice(1),
+      ],
+    });
+    expect(parseLoginRecipe(byName("支店番号")).steps[0]).toMatchObject({
+      fields: [{ target: { by: "label", value: "支店番号" } }, {}],
+    });
+    expect(() => parseLoginRecipe(byName(""))).toThrow();
+    // A list control or a sign-in entry is pressed, so a field's name never names one.
+    expect(
+      v.is(loginEntryRecipeSchema, {
+        version: 1,
+        id: "entry-01",
+        revision: 1,
+        origin: "https://www.example.test",
+        entry: { path: "/", target: { by: "label", value: "Login" } },
+      }),
+    ).toBe(false);
+  });
+
   it("rejects duplicate bindings and secret-shaped extras", () => {
     const valid = binding();
     for (const malformed of [
@@ -598,6 +635,12 @@ describe("second-factor page handlers (ADR 0027)", () => {
     it("accepts a code field and its button beside a passkey handler on one path", () => {
       const handlers = [code(), passkeyHandler("/two-factor")];
       expect(parseLoginRecipe(withHandlers(handlers)).handlers).toEqual(handlers);
+      // The code field may be named by its visible name (ADR 0037), never by text.
+      const named = code({ field: { by: "label", value: "確認コード" } });
+      expect(parseLoginRecipe(withHandlers([named])).handlers).toEqual([named]);
+      expect(() =>
+        parseLoginRecipe(withHandlers([code({ field: { by: "text", value: "確認コード" } })])),
+      ).toThrow();
       // On a route path, its button may be the route's own submit button.
       expect(
         parseLoginRecipe(

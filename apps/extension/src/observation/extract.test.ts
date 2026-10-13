@@ -453,6 +453,97 @@ describe("extractLoginObservation", () => {
     );
   });
 
+  it("locates a field that only a per-load ID names by its visible name (ADR 0037)", () => {
+    // 外資就活ドットコム (Mantine, 2026-10-13): random IDs, no name, autocomplete or label.
+    page(
+      `<form><input id="mantine-v0zmrhrmb" placeholder="メールアドレス">
+        <input id="mantine-k2j4h6g8f" type="password" placeholder="パスワード">
+        <input placeholder="メールアドレス" hidden>
+        <button id="mantine-q1w2e3r4t" type="submit">ログインする</button></form>`,
+    );
+    const observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(summary(observation)).toMatchObject([
+      { role: "text", target: { by: "label", value: "メールアドレス" } },
+      { role: "password", target: { by: "label", value: "パスワード" } },
+      { role: "button", target: { by: "text", value: "ログインする" } },
+    ]);
+    for (const { target } of observation.candidates)
+      expect(findTargets(document, target)).toHaveLength(1);
+    // The next load gives the fields other IDs; the recipe's locators still find them.
+    document.getElementById("mantine-v0zmrhrmb")!.id = "mantine-p9o8i7u6y";
+    document.getElementById("mantine-k2j4h6g8f")!.id = "mantine-z5x4c3v2b";
+    for (const { target } of observation.candidates)
+      expect(findTargets(document, target)).toHaveLength(1);
+  });
+
+  it("uses a visible name only when no other locator names the field and it is unique", () => {
+    // `name` and `autocomplete` come first.
+    page(
+      `<form><input id="mantine-v0zmrhrmb" name="email" placeholder="メールアドレス">
+        <input id="mantine-k2j4h6g8f" type="password" autocomplete="current-password"
+          placeholder="パスワード">
+        <button type="submit">ログインする</button></form>`,
+    );
+    expect(observe().candidates.map(({ target }) => target)).toEqual([
+      { by: "name", value: "email" },
+      { by: "autocomplete", value: "current-password" },
+      { by: "text", value: "ログインする" },
+    ]);
+    // Two shown fields with one name: the per-load ID is all that is left.
+    page(
+      `<form><input id="mantine-v0zmrhrmb" placeholder="番号">
+        <input id="mantine-k2j4h6g8f" placeholder="番号">
+        <button type="submit">ログインする</button></form>`,
+    );
+    expect(observe().candidates.map(({ target }) => target)).toEqual([
+      { by: "id", value: "mantine-v0zmrhrmb" },
+      { by: "id", value: "mantine-k2j4h6g8f" },
+      { by: "text", value: "ログインする" },
+    ]);
+    // A name redaction would change, as an example address, is never used.
+    page(
+      `<form><input id="mantine-v0zmrhrmb" type="email" placeholder="taro@example.com">
+        <input id="mantine-k2j4h6g8f" placeholder="会員番号 12345678">
+        <button type="submit">ログインする</button></form>`,
+    );
+    expect(observe().candidates.map(({ target }) => target)).toEqual([
+      { by: "id", value: "mantine-v0zmrhrmb" },
+      { by: "id", value: "mantine-k2j4h6g8f" },
+      { by: "text", value: "ログインする" },
+    ]);
+    // Nor one holding a number, as a counter that changes while the person types.
+    page(
+      `<form><label for="mantine-v0zmrhrmb">ID <span>0/20</span></label>
+        <input id="mantine-v0zmrhrmb">
+        <button type="submit">ログインする</button></form>`,
+    );
+    expect(observe().candidates[0]!.target).toEqual({ by: "id", value: "mantine-v0zmrhrmb" });
+    // A label element's text comes before the placeholder.
+    page(
+      `<form><label for="mantine-v0zmrhrmb">ログインID</label>
+        <input id="mantine-v0zmrhrmb" placeholder="taro@example.com">
+        <button type="submit">ログインする</button></form>`,
+    );
+    expect(observe().candidates[0]!.target).toEqual({ by: "label", value: "ログインID" });
+  });
+
+  it("leaves out a known field shown read-only by its visible name, continuing a recipe", () => {
+    page(
+      `<form><input id="mantine-v0zmrhrmb" placeholder="メールアドレス" readonly>
+        <input id="mantine-k2j4h6g8f" type="password" placeholder="パスワード">
+        <button type="submit">ログインする</button></form>`,
+    );
+    expect(extractLoginObservation(document)).toMatchObject({ ok: true, gap: "unfillable-field" });
+    const result = extractLoginObservation(document, [{ by: "label", value: "メールアドレス" }]);
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.observation.complete).toBe(true);
+    expect(result.observation.candidates.map(({ target }) => target)).toEqual([
+      { by: "label", value: "パスワード" },
+      { by: "text", value: "ログインする" },
+    ]);
+  });
+
   it("locates an input without id or name by its autocomplete token, as on pixiv's login page", () => {
     page(
       `<form><input type="text" autocomplete="username webauthn" placeholder="メールアドレスまたはpixiv ID">
@@ -1353,6 +1444,23 @@ describe("extractSignedInObservation", () => {
     ]);
   });
 
+  it("names a field that may be a sign-in field by its visible name, never a marker", () => {
+    page(
+      `<a id="mantine-ypxwydcwg-tab-mypage" href="/mypage">マイページ</a>
+      <input id="mantine-v0zmrhrmb" type="password" placeholder="パスワード">
+      <input id="mantine-qwhxkbtfz" inputmode="numeric" maxlength="6" placeholder="6桁のコード">
+      <input id="mantine-p9o8i7u6y" aria-label="Search">`,
+    );
+    const observation = signedIn();
+    expect(observation.complete).toBe(true);
+    // A name with a number, which this page's text never shows, is not used.
+    expect(observation.candidates.map(({ target }) => target)).toEqual([
+      { by: "text", value: "マイページ" },
+      { by: "label", value: "パスワード" },
+      { by: "id", value: "mantine-qwhxkbtfz" },
+    ]);
+  });
+
   it("hides every number in a signed-in page's text, whatever its length", () => {
     page(
       `<header><a id="points" href="/points">保有ポイント 1,234,567pt</a>
@@ -2148,11 +2256,14 @@ describe("extractSignedInObservation", () => {
       { role: "button", target: { by: "text", value: "Account" }, label: "Account" },
     ]);
 
-    page(`<form><input id="mail-0123456789" type="email" aria-label="Email"></form>
+    page(`<form><input id="mail-0123456789" type="email"></form>
       <button id="logout" type="button">Sign out</button>`);
     // A field that may be a sign-in field and cannot be located safely makes the
-    // description incomplete; another such field is left out.
+    // description incomplete, unless its visible name locates it (ADR 0037); another
+    // such field is left out.
     expect(signedIn().complete).toBe(false);
+    document.querySelector("input")!.setAttribute("aria-label", "Email");
+    expect(signedIn().candidates[0]!.target).toEqual({ by: "label", value: "Email" });
     page(`<form><input id="note-0123456789" type="text" aria-label="Note"></form>
       <button id="logout" type="button">Sign out</button>`);
     expect(signedIn().complete).toBe(true);

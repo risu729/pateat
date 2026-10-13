@@ -13,7 +13,7 @@ import {
   routeFillTargets,
   sameLoginTarget as sameTarget,
   splitCodeInputs,
-  type LoginAttributeTarget,
+  type LoginFieldTarget,
   type LoginEntryRecipe,
   type LoginObservation,
   type LoginRecipe,
@@ -304,7 +304,7 @@ export function addHandler(
   page: Pick<LoginObservation, "origin" | "path" | "candidates">,
   handler:
     | { kind: "passkey"; target: LoginTarget }
-    | { kind: "totp"; field: LoginAttributeTarget; target: LoginTarget },
+    | { kind: "totp"; field: LoginFieldTarget; target: LoginTarget },
 ): { ok: true; recipe: LoginRecipe } | { ok: false; reason: HandlerRejection } {
   if (base.origin !== page.origin) return { ok: false, reason: "origin-mismatch" };
   if (hasRedactedSegment(page.path)) return { ok: false, reason: "redacted-path" };
