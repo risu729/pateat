@@ -506,7 +506,13 @@ than in this repository.
   checked on the Bot. By the owner's decision of 2026-10-13 05:39 UTC, at that stop a
   "sign in with a passkey" button beside the password field is pressed: a learned
   `passkey` handler is entered, or the page is judged once to learn one, and its request
-  is answered with the item (local tests only).
+  is answered with the item (local tests only). On 2026-10-13 06:29 UTC the owner's
+  Chrome showed `platform.openai.com/login` as a list of accounts (ADR 0028), refused
+  `password-empty:chooser`; by the owner's decision of 06:32 UTC such a login now
+  presses the account's row (or `other`) and stops at, or continues to, the branch's
+  password step
+  ([account lists](adr/0036-passkey-after-the-identifier.md#account-lists); local tests
+  only, not yet checked in that Chrome).
 - Answer Google's passkey step on the Grok Bot's browser. On build `a8350f5`
   (2026-10-12 19:49 UTC) both of the page's requests were logged as `passkey.request`
   `delegate` `invalid-request`, so the browser offered only the phone (hybrid) flow,

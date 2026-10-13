@@ -198,7 +198,8 @@ export const attemptMetadataSchema = v.pipe(
      * lies just past its last step. On the `password` route no step there or after it is
      * ever prepared, whatever the item holds later; a handler entered before it moves it
      * along with the plan. A `passkey` route the login switched to keeps it, and never
-     * falls back to the password.
+     * falls back to the password. A chooser login's plan starts with its click on the list
+     * (ADR 0028), so its stop lies in or just past the branch that click leads to.
      */
     stopAt: v.optional(v.pipe(integer(MAX_ATTEMPT_STEPS), v.minValue(1))),
     /**
@@ -212,9 +213,8 @@ export const attemptMetadataSchema = v.pipe(
       metadata.stopAt === undefined ||
       (metadata.variant !== undefined &&
         metadata.document.frameId === 0 &&
-        metadata.chooser === undefined &&
         (metadata.route !== "password" || metadata.stopAt <= metadata.stepCount)),
-    "A stop needs a top-level password variant without a chooser, inside its plan or just past it",
+    "A stop needs a top-level password variant, inside its plan or just past it",
   ),
   v.check(
     (metadata) => metadata.stopJudged === undefined || metadata.stopAt !== undefined,

@@ -15,7 +15,7 @@ import {
   validateLoginOperation,
   withdrawAccountSwitch,
 } from "./login-attempt";
-import type { LoginDocument, LoginRecipe } from "./login";
+import { CHOOSER_ENTRY_TARGET, type LoginDocument, type LoginRecipe } from "./login";
 
 const facts = { password: true, totp: false, passkey: false, discoverablePasskey: false };
 const document: LoginDocument = {
@@ -2884,7 +2884,7 @@ describe("a login that stops before a missing password (ADR 0036)", () => {
     transitionLoginAttempt(advanced(), { type: "OBSERVED", result: "continue", document: top });
   const answer = { type: "STOP_ANSWERED", operationId: "answer-one" } as const;
 
-  it("records the stop of a top-level password variant without a chooser", () => {
+  it("records the stop of a top-level password variant", () => {
     const attempt = create();
     expect(attempt).toMatchObject({ route: "password", variant: 0, stepCount: 4, stopAt: 2 });
     expect(parseAttemptMetadata(attempt)).toEqual(attempt);
@@ -2898,10 +2898,14 @@ describe("a login that stops before a missing password (ADR 0036)", () => {
       { ...attempt, stopAt: 5 },
       { ...attempt, stopAt: 1.5 },
       { ...attempt, route: "passkey", variant: undefined, stepCount: 1 },
-      { ...attempt, chooser: { click: "entry" } },
       { ...attempt, document: { ...top, frameId: 2 } },
     ])
       expect(() => parseAttemptMetadata(malformed)).toThrow();
+    // A chooser login's stop is in the record too (owner, 2026-10-13 06:32 UTC).
+    expect(parseAttemptMetadata({ ...attempt, chooser: { click: "entry" } })).toMatchObject({
+      chooser: { click: "entry" },
+      stopAt: 2,
+    });
     // Each is refused for its stop alone.
     const { stopAt: _stopAt, ...unstopped } = attempt;
     for (const valid of [
@@ -2911,7 +2915,6 @@ describe("a login that stops before a missing password (ADR 0036)", () => {
     ])
       expect(() => parseAttemptMetadata(valid)).not.toThrow();
     expect(() => create({ document: { ...top, frameId: 2 } })).toThrow();
-    expect(() => create({ chooser: "entry" })).toThrow();
     expect(() => create({}, 5)).toThrow();
     // A stop just past the plan's last step, as for a route that fills no password and ends
     // with an advance, is in the record too.
@@ -3542,6 +3545,153 @@ describe("a login that stops before a missing password (ADR 0036)", () => {
         stepIndex: 2,
         submissions: 2,
         maxSubmissions: 2,
+      });
+    });
+  });
+
+  describe("on a chooser's route (owner, 2026-10-13 06:32 UTC)", () => {
+    /** The click on the list's account entry, the advance before the stop (ADR 0028). */
+    const listClick = {
+      kind: "click" as const,
+      path: "/accounts",
+      target: CHOOSER_ENTRY_TARGET,
+      purpose: "advance" as const,
+    };
+    /** `chooserRoute`'s shape: the click, then the branch's steps, its budget plus one. */
+    const routeOf = (steps: LoginRecipe["steps"], branchSubmissions: number): LoginRecipe => ({
+      version: 1,
+      id: "synthetic-chooser",
+      revision: 1,
+      origin: document.origin,
+      slots: ["username", "password"],
+      steps: [listClick, ...steps],
+      maxSubmissions: branchSubmissions + 1,
+    });
+    /** A stored branch that asks for the password after the profile's click. */
+    const passwordBranch = routeOf(emailFirst.steps.slice(2), 1);
+    /** No branch yet: the route is the click alone. */
+    const bare = routeOf([], 0);
+    const chooserLogin = (used: LoginRecipe, stopAt: number) =>
+      transitionLoginAttempt(create({ recipe: used, chooser: "entry" }, stopAt), {
+        type: "RESOLVE",
+      });
+    /** The list's entry clicked, its result still awaited. */
+    function clicked(used: LoginRecipe, stopAt: number) {
+      let attempt = chooserLogin(used, stopAt);
+      attempt = transitionLoginAttempt(attempt, {
+        type: "PREPARE",
+        operationId: "list-one",
+        kind: "click",
+        effect: "advance",
+      });
+      attempt = transitionLoginAttempt(attempt, {
+        type: "SUBMIT_INTENT",
+        operationId: "list-one",
+      });
+      return transitionLoginAttempt(attempt, { type: "SUBMITTED", operationId: "list-one" });
+    }
+    const continued = { type: "OBSERVED", result: "continue", document: top } as const;
+
+    it("stops at the branch's password fill after the click, which spends a submission", () => {
+      const ready = chooserLogin(passwordBranch, 1);
+      expect(ready).toMatchObject({
+        chooser: { click: "entry" },
+        stepCount: 3,
+        stopAt: 1,
+        maxSubmissions: 2,
+      });
+      expect(nextLoginOperation(ready, passwordBranch, top, "list-one", 1000)).toMatchObject({
+        stepIndex: 0,
+        step: { kind: "click", target: CHOOSER_ENTRY_TARGET },
+      });
+      const awaiting = clicked(passwordBranch, 1);
+      expect(awaiting).toMatchObject({ state: "awaiting-result", stepIndex: 0, submissions: 1 });
+      const stopped = transitionLoginAttempt(awaiting, continued);
+      expect(stopped).toMatchObject({ state: "ready", stepIndex: 1, stopAt: 1 });
+      // The password fill is never issued, nor authorized once prepared without the stop.
+      expect(nextLoginOperation(stopped, passwordBranch, top, "fill-two", 1000)).toBeUndefined();
+      const { stopAt: _stopAt, ...unstopped } = stopped;
+      const operation = nextLoginOperation(unstopped, passwordBranch, top, "fill-two", 1000)!;
+      expect(operation).toMatchObject({ stepIndex: 1, step: { kind: "fill" } });
+      let filling = transitionLoginAttempt(unstopped, {
+        type: "PREPARE",
+        operationId: "fill-two",
+        kind: "fill",
+      });
+      filling = transitionLoginAttempt(filling, {
+        type: "MUTATION_INTENT",
+        operationId: "fill-two",
+      });
+      expect(validateLoginOperation(operation, filling, top, 3, 1001)).toBe(true);
+      expect(validateLoginOperation(operation, { ...filling, stopAt: 1 }, top, 3, 1001)).toBe(
+        false,
+      );
+      // A restart at the stop stands there again, and never fills the password.
+      const recovered = recoverLoginAttempt(stopped);
+      const resumed = transitionLoginAttempt(recovered, continued);
+      expect(resumed).toMatchObject({ state: "ready", stepIndex: 1, stopAt: 1 });
+      expect(nextLoginOperation(resumed, passwordBranch, top, "fill-three", 1000)).toBeUndefined();
+      // The answer there spends the branch's own submission.
+      expect(transitionLoginAttempt(stopped, answer)).toMatchObject({
+        state: "reconciling",
+        stepIndex: 1,
+        submissions: 2,
+        maxSubmissions: 2,
+      });
+    });
+
+    it("stops just past the click without a branch, keeping one submission for the answer", () => {
+      const ready = chooserLogin(bare, 1);
+      expect(ready).toMatchObject({ stepCount: 1, stopAt: 1, maxSubmissions: 2 });
+      // The click spends the route's own submission, never the kept one.
+      expect(nextLoginOperation(ready, bare, top, "list-one", 1000)).toBeDefined();
+      expect(
+        nextLoginOperation({ ...ready, submissions: 1 }, bare, top, "list-two", 1000),
+      ).toBeUndefined();
+      const awaiting = clicked(bare, 1);
+      const stopped = transitionLoginAttempt(awaiting, continued);
+      expect(stopped).toMatchObject({ state: "ready", stepIndex: 1, stopAt: 1, submissions: 1 });
+      expect(transitionLoginAttempt(stopped, answer)).toMatchObject({
+        state: "reconciling",
+        submissions: 2,
+      });
+      // The branch's page is continued (ADR 0018), and the stop moves into it.
+      const sent = transitionLoginAttempt(awaiting, {
+        type: "CONTINUING",
+        operationId: "list-one",
+      });
+      expect(sent).toMatchObject({ continuation: { operationId: "list-one" } });
+      const event = { type: "CONTINUED", recipeRevision: 2, steps: 2, effects: 1, document: top };
+      // A password branch: the password fill is the stop, and the kept submission goes into
+      // the branch's budget.
+      expect(transitionLoginAttempt(sent, { ...event, stopAt: 1 })).toMatchObject({
+        state: "ready",
+        stepIndex: 1,
+        stepCount: 3,
+        stopAt: 1,
+        maxSubmissions: 2,
+      });
+      // An identifier-only branch after another account: the stop lies past it again, and
+      // keeps the submission for the answer.
+      expect(transitionLoginAttempt(sent, { ...event, stopAt: 3 })).toMatchObject({
+        state: "ready",
+        stepIndex: 1,
+        stepCount: 3,
+        stopAt: 3,
+        maxSubmissions: 3,
+      });
+      // It names its new stop, within the branch's steps or just past them.
+      for (const refused of [event, { ...event, stopAt: 4 }])
+        expect(transitionLoginAttempt(sent, refused)).toEqual(parseAttemptMetadata(sent));
+    });
+
+    it("ends without a click when nothing on the list fits, with its stop kept", () => {
+      const ready = chooserLogin(bare, 1);
+      expect(transitionLoginAttempt(ready, { type: "NOT_LISTED" })).toMatchObject({
+        state: "blocked",
+        outcome: "account-not-listed",
+        submissions: 0,
+        stopAt: 1,
       });
     });
   });

@@ -649,7 +649,8 @@ export async function judgeCompletion(
     return unavailable("recipe-conflict");
   if (!observation.complete) return failed("incomplete-observation");
   // A list of accounts shown again is the sign-in's start, not its result (ADR 0028). A
-  // stop is never on a chooser's branch nor on another origin.
+  // stop's page is judged only on a recipe without a chooser and on its own origin: the
+  // extension never sends a chooser branch's stop (ADR 0036, account lists).
   if (observation.accounts || (stop && (moved || "chooser" in head.recipe)))
     return unavailable("not-judgeable");
   // The checks use the stored recipe, never the request: a page that still shows one of

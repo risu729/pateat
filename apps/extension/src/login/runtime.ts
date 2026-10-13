@@ -70,6 +70,7 @@ import {
   type LoginRecipe,
   type LoginRoute,
   type LoginRouteChoice,
+  type PasswordStopMiss,
   type LoginStep,
   type LoginMarkerTarget,
   type LoginTarget,
@@ -561,6 +562,12 @@ type Execution = {
    * path, as the stop step's path is otherwise. Kept with `answeredAt`.
    */
   answeredPath?: string;
+  /**
+   * Why a continuation could not take a stop just past the plan's last step over (ADR 0036,
+   * `continuedStop`), as `fills-lacking`: the `challenge` at that stop names it after
+   * `password-empty:`. Kept in memory only, so a later document logs the bare reason.
+   */
+  stopMiss?: PasswordStopMiss;
   /** The login's item could not answer its page's own request; the login never asks again. */
   passkeyFailed?: true;
   /**
@@ -2888,8 +2895,6 @@ export function createLoginRuntime(
       handlerSlots?: readonly string[];
       /** The document asked for a passkey by itself, with conditional mediation (ADR 0034). */
       pageRequest?: boolean;
-      /** The recipe is a chooser's route (ADR 0028), which never stops before a password. */
-      chooser?: boolean;
     } = {},
   ) {
     let catalog: VaultCatalog;
@@ -3080,11 +3085,13 @@ export function createLoginRuntime(
       /**
        * An item without a password, but with a passkey, goes on up to the step that fills
        * its password, or to the end of a route that fills none, in the tab's own page (ADR
-       * 0036). Its binding still names the empty password, so the item signs in with its
-       * password once it has one. Undefined for a password the account may not fill.
-       * Otherwise the stop, or why there is none, for a value-free `password-empty:<why>`
-       * detail in the log. A route whose binding reads a password from another field
-       * (`passwordField`) fills one, so it never stops at its end (`password-field`).
+       * 0036), also on a chooser's route, whose click on the list advances to its branch
+       * (owner, 2026-10-13 06:32 UTC). Its binding still names the empty password, so the
+       * item signs in with its password once it has one. Undefined for a password the
+       * account may not fill. Otherwise the stop, or why there is none, for a value-free
+       * `password-empty:<why>` detail in the log. A route whose binding reads a password
+       * from another field (`passwordField`) fills one, so it never stops at its end
+       * (`password-field`).
        */
       const stopOrMiss = (
         route: LoginRouteChoice,
@@ -3095,7 +3102,6 @@ export function createLoginRuntime(
         passwordField = false,
       ) => {
         if (miss !== "password-empty") return undefined;
-        if (request.chooser) return { miss: "chooser" as const };
         if (live.document.frameId !== 0) return { miss: "frame" as const };
         const result = passwordStopOrMiss(recipe, route, known, passwordSlots, lacking);
         return passwordField && ("stop" in result || result.miss === "no-password-step")
@@ -4840,15 +4846,15 @@ export function createLoginRuntime(
    * last step, once `next` continues its recipe (ADR 0036): the continued step that first
    * fills a slot reading a password (the `password` slot, the item's password directly or
    * through a Linked field, or a hidden custom field), or just past the continued steps
-   * when they fill none and end with an `advance`. Null when the continuation has no such
-   * stop, as one that first fills another value the item lacks.
+   * when they fill none and end with an `advance`. Otherwise why the continuation has no
+   * such stop, as `fills-lacking` for one that first fills another value the item lacks.
    */
   function continuedStop(
     run: Execution,
     next: LoginRecipe,
     route: LoginRouteChoice,
     plan: Extract<Awaited<ReturnType<typeof planFor>>, { ok: true }>,
-  ): number | null {
+  ): number | PasswordStopMiss {
     const { facts } = run.metadata;
     const item = plan.connection.items.find((entry) => entry.id === plan.account.itemId);
     const slots = plan.binding.slots.map(({ slot, fieldId }) => ({
@@ -4870,7 +4876,11 @@ export function createLoginRuntime(
       .map(({ slot }) => slot);
     const found = passwordStopOrMiss(next, route, facts, passwordSlots, lacking);
     const known = routeSteps(run.recipe, route).length;
-    if (!("stop" in found) || found.stop < known) return null;
+    if (!("stop" in found)) return found.miss;
+    // A password step among the steps already run: no such stop is reachable, since those
+    // steps were checked to fill no password when the login started, and no `PasswordStopMiss`
+    // fits it better; the continued steps hold no step the login could still stop at.
+    if (found.stop < known) return "no-password-step";
     // Entered handlers' steps all come before the continued ones.
     return found.stop + (run.metadata.stepCount - known);
   }
@@ -4918,7 +4928,10 @@ export function createLoginRuntime(
     // password, or past them again; one the continuation cannot stop in is not taken over.
     const stopAt =
       run.metadata.stopAt === undefined ? undefined : continuedStop(run, next, route, plan);
-    if (stopAt === null) return false;
+    if (typeof stopAt === "string") {
+      run.stopMiss = stopAt;
+      return false;
+    }
     const event: LoginAttemptEvent = {
       type: "CONTINUED",
       recipeRevision: next.revision,
@@ -4942,6 +4955,7 @@ export function createLoginRuntime(
     if (plan.choice) run.choice = plan.choice;
     else delete run.choice;
     delete run.qualified;
+    delete run.stopMiss;
     await change(run, event);
     // Reported as taken over only once the record names the new revision.
     if (run.metadata.recipeRevision === next.revision) taking?.();
@@ -7255,15 +7269,35 @@ export function createLoginRuntime(
       fill,
       ...(previous ? { route: attemptRouteChoice(previous) } : {}),
       ...(pageRequest ? { pageRequest } : {}),
-      ...(chooser ? { chooser: true } : {}),
     });
     if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
     if (plan.ok && "fillOnly" in plan && plan.route.route !== "password") {
-      plan = await planFor(snapshot, live, recipe, {
-        asking,
-        ...(chooser ? { chooser: true } : {}),
-      });
+      plan = await planFor(snapshot, live, recipe, { asking });
       if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+    }
+    // A passkey-only item on a list whose account branch cannot take the stop (ADR 0036,
+    // owner 2026-10-13 06:32 UTC: the account's row, else "another account") still reads
+    // the list first, planned on the click alone: it goes on only through `other`, and is
+    // refused with the account branch's reason, pressing nothing, when its row fits.
+    let deferred: { route: LoginRecipe; detail?: string } | undefined;
+    if (!plan.ok && plan.reason === "no-route" && !previous && chooser) {
+      const { afterAccount: _afterAccount, ...lists } = chooser.chooser;
+      const bare = chooserRoute({ ...chooser, chooser: lists }, "entry");
+      const alone =
+        bare &&
+        (await planFor(snapshot, live, bare, {
+          asking,
+          fill,
+          ...(pageRequest ? { pageRequest } : {}),
+        }));
+      if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+      if (bare && alone && alone.ok && "stopAt" in alone && !("fillOnly" in alone)) {
+        deferred = {
+          route: bare,
+          ...("detail" in plan && typeof plan.detail === "string" ? { detail: plan.detail } : {}),
+        };
+        plan = alone;
+      }
     }
     if (!plan.ok) {
       // Only a fresh start can be restarted with a picked account (ADR 0021). The page
@@ -7323,6 +7357,11 @@ export function createLoginRuntime(
         click = "none";
         listMiss = chosen;
       }
+      // The account's row or its button leads to the branch that cannot take the stop.
+      if (deferred && (click === "entry" || click === "continue"))
+        return refuse("no-route", deferred.detail);
+      // Nothing fits and there is no button: the login ends on the click alone's route.
+      if (deferred && click === "none") recipe = deferred.route;
       if (click === "other" || click === "continue") {
         const route = chooserRoute(chooser, click);
         if (!route) return refuse("recipe-not-found");
@@ -7331,10 +7370,17 @@ export function createLoginRuntime(
           const replanned = await planFor(snapshot, live, route, {
             asking,
             ...(pageRequest ? { pageRequest } : {}),
-            chooser: true,
           });
           if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
-          if (!replanned.ok) return refuse(replanned.reason);
+          // An item without a password goes on only when that branch can take its stop
+          // (ADR 0036); the log names why not, as for the list's own route.
+          if (!replanned.ok)
+            return refuse(
+              replanned.reason,
+              "detail" in replanned && typeof replanned.detail === "string"
+                ? replanned.detail
+                : undefined,
+            );
           // The click was chosen for the planned account; another one is not logged in.
           if (
             replanned.account.connectionId !== plan.account.connectionId ||
@@ -9165,6 +9211,7 @@ export function createLoginRuntime(
       bridged = bridgeAnswer(run);
     }
     if (!(await allowed(run)) || !stopped()) return;
+    // A continuation the stop could not be moved into names why (ADR 0036).
     const end = (cause?: StopCause) =>
       change(
         run,
@@ -9172,7 +9219,7 @@ export function createLoginRuntime(
         undefined,
         cause,
         undefined,
-        "password-empty",
+        run.stopMiss ? `password-empty:${run.stopMiss}` : "password-empty",
       );
     if (!parked && bridged === undefined) {
       // A passkey button beside the stop's password field is pressed instead (owner,
@@ -9306,6 +9353,9 @@ export function createLoginRuntime(
       });
       return false;
     };
+    // The service judges no stop's page of a chooser (ADR 0028), so a chooser login's stop
+    // presses only a handler its branch already holds (ADR 0036, account lists).
+    if (run.metadata.chooser) return notSent("chooser");
     const judging: LoginAttemptEvent = { type: "STOP_JUDGING" };
     if (run.metadata.stopJudged) return notSent("stop-judged");
     if (transitionLoginAttempt(run.metadata, judging).stopJudged !== true) return false;

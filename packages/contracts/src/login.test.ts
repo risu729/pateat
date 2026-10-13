@@ -2609,4 +2609,71 @@ describe("the stop before a missing password (ADR 0036)", () => {
       stop: 2,
     });
   });
+
+  it("stops on a chooser's route in or just past the branch its click leads to", () => {
+    // The click on the list is the advance before the stop (owner, 2026-10-13 06:32 UTC).
+    const listed = v.parse(loginChooserRecipeSchema, {
+      version: 1,
+      id: "synthetic-email-first",
+      revision: 1,
+      origin: "https://login.example",
+      chooser: { path: "/accounts", other: id("other") },
+    });
+    // Without its branch the route is the click alone: the stop lies just past it.
+    const bare = chooserRoute(listed, "entry")!;
+    expect(passwordStopOrMiss(bare, route, keyOnly, [], [])).toEqual({ stop: 1 });
+    // A branch that asks for the password stops at its password fill.
+    const password = parseLoginRecipe({
+      ...emailFirst(),
+      revision: 2,
+      slots: ["password"],
+      steps: [fill(["password"], "/accounts"), click("login", "/accounts", "submit")],
+      maxSubmissions: 1,
+    });
+    const account = chooserRoute(withChooserBranch(listed, "account", password), "entry")!;
+    expect(passwordStopOrMiss(account, route, keyOnly, ["password"], ["password"])).toEqual({
+      stop: 1,
+    });
+    // An identifier-only branch after another account stops just past its own advance.
+    const identifier = parseLoginRecipe({
+      ...emailFirst(),
+      revision: 2,
+      slots: ["username"],
+      steps: [fill(["username"], "/accounts"), click("continue", "/accounts", "advance")],
+      maxSubmissions: 1,
+    });
+    const other = chooserRoute(withChooserBranch(listed, "other", identifier), "other")!;
+    expect(other.steps).toHaveLength(3);
+    expect(passwordStopOrMiss(other, route, keyOnly, [], [])).toEqual({ stop: 3 });
+    // A branch that fills a value the item lacks before the password takes no stop.
+    const code = parseLoginRecipe({
+      ...emailFirst(),
+      revision: 2,
+      slots: ["totp", "password"],
+      steps: [
+        fill(["totp"], "/accounts"),
+        fill(["password"], "/accounts"),
+        click("login", "/accounts", "submit"),
+      ],
+      maxSubmissions: 1,
+    });
+    const coded = chooserRoute(withChooserBranch(listed, "account", code), "entry")!;
+    expect(passwordStopOrMiss(coded, route, keyOnly, ["password"], ["totp", "password"])).toEqual({
+      miss: "fills-lacking",
+    });
+    // A branch that submits without a password has no stop.
+    const submitted = parseLoginRecipe({
+      ...identifier,
+      steps: [fill(["username"], "/accounts"), click("continue", "/accounts", "submit")],
+    });
+    expect(
+      passwordStopOrMiss(
+        chooserRoute(withChooserBranch(listed, "other", submitted), "other")!,
+        route,
+        keyOnly,
+        [],
+        [],
+      ),
+    ).toEqual({ miss: "no-password-step" });
+  });
 });
