@@ -598,6 +598,42 @@ rewrites each stored recipe's `completion` into the list of signed-in markers of
 [ADR 0029](adr/0029-local-sign-in-state.md), so the owner's recipes keep working
 without being generated again.
 
+## Platform features
+
+On 2026-10-13 (21:45 UTC) the owner set which browser, runtime and library features
+Pateat uses:
+
+- Use new standard APIs, and features of libraries Pateat already depends on, wherever
+  they fit. Replace hand-written code that does the same job, and keep the safety checks
+  around it (session, generation and origin checks, size limits). Being new is no reason
+  to avoid a feature; a feature with no place in the code is not added.
+- `minimum_chrome_version` may rise to a version whose stable release (`stable_date` on
+  chromiumdash) is at least six months old. Six months is a hard limit: a feature that
+  needs a newer version goes to the owner first. The owner also allowed Chrome 148
+  (stable 2026-05-05) on 2026-10-13. Raise the minimum only in the PR that uses a
+  feature needing it, and say in the manifest comment which feature needs which version.
+  The service's owner web UI (`/manage`) relies on the same Chrome version.
+- The Worker's `compatibilityDate` (`services/api/worker-runtime.ts`) may be raised
+  freely. Scripts use the Node version pinned in `mise.toml`.
+- A feature is experimental when Chrome stable has it off by default (behind a flag, in
+  an origin trial, or only in Canary or Dev), when its specification is not settled even
+  though Chrome stable enables it, or when a library marks it experimental
+  (`experimental_` or `unstable_` names, canary or experimental release channels,
+  prerelease versions). A specification is settled when a JavaScript feature has reached
+  TC39 Stage 4, when a web platform or CSS feature ships enabled by default in at least
+  two of Chromium, Gecko and WebKit, and when a `chrome.*` extension API is documented
+  as stable in Chrome's extension reference.
+- The extension and `/manage` use no experimental feature. In the parts Pateat does not
+  ship to users (the Worker, build tools such as the bundler, and tests), an
+  experimental feature is used only after the owner approves a proposal covering its
+  upstream status (specification stage, intent to ship or origin trial end, recent
+  breaking changes) and what removing it would take. A research request is not approval.
+- Approved before these rules and kept: the AI SDK's `experimental_decide` with `ai`
+  pinned exactly ([integration conditions][integration]) and the
+  `@cloudflare/vite-plugin` beta described below.
+
+[integration]: #integration-conditions-pending-candidates-remain-conditional
+
 ## Dependency policy
 
 Renovate inherits the pinned `risu729/renovate-config` preset, matching the other owner
