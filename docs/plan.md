@@ -397,10 +397,11 @@ own accounts, so they stay in the project's files rather than in this repository
   - A vault item edit picked up by the automatic sync
     ([#222](https://github.com/risu729/pateat/pull/222),
     [#224](https://github.com/risu729/pateat/pull/224)).
-  - A security-key second factor behind a button labelled only "Verify", as on Oracle
-    Cloud. On `fdf57ef` (2026-10-13 02:57 UTC), the judge named no button, so the owner
-    pressed it, and Pateat answered with the item's passkey. Recheck once the judge's
-    instructions name such a button (ADR 0027); this needs a paid judge call.
+  - Added on 2026-10-13, not moved by the owner: a security-key second factor behind a
+    button labelled only "Verify", as on Oracle Cloud. On `fdf57ef` (2026-10-13 02:57
+    UTC), the judge named no button, so the owner pressed it, and Pateat answered with
+    the item's passkey. Recheck once the judge's instructions name such a button (ADR
+    0027); this needs a paid judge call.
   - The `totp` handler on a site whose code page says the code comes from an
     authenticator app, such as npmjs.com: a judged code page adds the handler and the
     same login types one code. It needs a paid judge call and a real account's code, so

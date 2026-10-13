@@ -210,7 +210,7 @@ describe("passkey button on a challenge page (ADR 0027)", () => {
     // Oracle Cloud's FIDO page starts its WebAuthn call from a button labelled only
     // "Verify" (2026-10-13).
     expect(completionInstructions).toMatch(
-      /On a page that asks only to verify with a security key, passkey or FIDO authenticator, the button that starts that check is passkeyButton whatever its label says\./u,
+      /On a page that asks only to verify with a security key, passkey or FIDO authenticator, even with a link to other methods, the button that starts that check is passkeyButton whatever its label says\./u,
     );
   });
 

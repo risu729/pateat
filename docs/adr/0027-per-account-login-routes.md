@@ -191,8 +191,9 @@ These rules work from any account, in any order.
   - `challenge` naming a security-key or passkey sign-in button adds a `passkey`
     handler. A button that registers or adds a passkey ("Add a passkey", "Set up") is
     refused, and so is a page that shows the completion marker. On a page that asks only
-    to verify with a security key, passkey or FIDO authenticator, the button that starts
-    that check counts whatever its label says, unless it registers one. Oracle Cloud's
+    to verify with a security key, passkey or FIDO authenticator, even with a link to
+    other methods, the button that starts that check counts whatever its label says,
+    unless it registers one. Oracle Cloud's
     "FIDO Authenticator Verification" page starts its WebAuthn call only from a button
     labelled "Verify". On 2026-10-13 at 02:57 UTC (build `fdf57ef`), the judge answered
     a plain `challenge` for it, and the login was left watching. After the owner pressed
