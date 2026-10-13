@@ -67,7 +67,9 @@ const FAILED = { text: "!", color: "#b91c1c", textColor: "#ffffff" };
 const SUCCEEDED = { text: "✓", color: "#15803d", textColor: "#ffffff" };
 const UNSETTLED = { text: "!", color: "#facc15", textColor: "#1e293b" };
 
-function harness(options: { stored?: unknown; setBadge?: (d: BadgeDetails) => Promise<void> } = {}) {
+function harness(
+  options: { stored?: unknown; setBadge?: (d: BadgeDetails) => Promise<void> } = {},
+) {
   const calls: BadgeDetails[] = [];
   const storage = memoryBadgeStorage();
   if (options.stored !== undefined) void storage.setValue(options.stored);
@@ -81,7 +83,16 @@ function harness(options: { stored?: unknown; setBadge?: (d: BadgeDetails) => Pr
   const view = (id = tabId) =>
     calls
       .filter((call) => call.tabId === id)
-      .reduce<Omit<BadgeDetails, "tabId">>((all, { tabId: _, ...call }) => ({ ...all, ...call }), {});
+      .reduce<Omit<BadgeDetails, "tabId">>(
+        (all, { text, color, textColor, title }) => ({
+          ...all,
+          ...(text === undefined ? {} : { text }),
+          ...(color === undefined ? {} : { color }),
+          ...(textColor === undefined ? {} : { textColor }),
+          ...(title === undefined ? {} : { title }),
+        }),
+        {},
+      );
   const flush = () => vi.advanceTimersByTimeAsync(0);
   return { badge, calls, storage, setValue, setBadge, view, flush };
 }
@@ -144,7 +155,10 @@ describe("badgeResult", () => {
   it("shows a settled unknown submission or a challenge of a running login as unsettled", () => {
     const unsettled = (reason: string) => ({ kind: "unsettled", reason, until: now + NOTICE_MS });
     expect(
-      badgeResult(attempt({ state: "awaiting-result", outcome: "unknown-submit", settled: true }), now),
+      badgeResult(
+        attempt({ state: "awaiting-result", outcome: "unknown-submit", settled: true }),
+        now,
+      ),
     ).toEqual(unsettled("unknown-submit"));
     expect(badgeResult(attempt({ state: "watching", outcome: "challenge" }), now)).toEqual(
       unsettled("challenge"),
@@ -177,9 +191,7 @@ describe("badgeResult", () => {
     });
     expect(badgeResult(generation("sent"), now)).toBeUndefined();
     expect(badgeResult(generation("abstained", "no-form"), now)).toBeUndefined();
-    expect(
-      badgeResult({ type: "choice", tabId, origin, outcome: "saved" }, now),
-    ).toBeUndefined();
+    expect(badgeResult({ type: "choice", tabId, origin, outcome: "saved" }, now)).toBeUndefined();
   });
 });
 
@@ -239,13 +251,14 @@ describe("login badge", () => {
     const first = h.badge.spin(tabId);
     const second = h.badge.spin(tabId);
     await h.flush();
-    expect(h.calls).toEqual([{ tabId, text: BUSY_FRAMES[0], ...BUSY, title: "Pateat: asking the AI…" }]);
-    const texts: string[] = [];
-    for (let i = 1; i <= BUSY_FRAMES.length; i++) {
-      await vi.advanceTimersByTimeAsync(BUSY_FRAME_MS);
-      texts.push(h.view().text!);
-    }
-    expect(texts).toEqual([...BUSY_FRAMES.slice(1), BUSY_FRAMES[0]]);
+    expect(h.calls).toEqual([
+      { tabId, text: BUSY_FRAMES[0], ...BUSY, title: "Pateat: asking the AI…" },
+    ]);
+    await vi.advanceTimersByTimeAsync(BUSY_FRAME_MS * BUSY_FRAMES.length);
+    expect(h.calls.slice(1).map((call) => call.text)).toEqual([
+      ...BUSY_FRAMES.slice(1),
+      BUSY_FRAMES[0],
+    ]);
     // Each frame writes only the text.
     expect(h.calls.slice(1).every((call) => Object.keys(call).join() === "tabId,text")).toBe(true);
 
@@ -372,7 +385,9 @@ describe("login badge", () => {
 
     // A settlement is a change; a new login starts afresh.
     h.badge.observe(attempt({ state: "awaiting-result", outcome: "unknown-submit" }));
-    h.badge.observe(attempt({ state: "awaiting-result", outcome: "unknown-submit", settled: true }));
+    h.badge.observe(
+      attempt({ state: "awaiting-result", outcome: "unknown-submit", settled: true }),
+    );
     await h.flush();
     expect(h.view()).toMatchObject(UNSETTLED);
     h.badge.observe(start());
@@ -401,12 +416,34 @@ describe("login badge", () => {
     expect(h.view()).toMatchObject(FAILED);
     expect(h.calls).toHaveLength(count + 3);
 
+    // Chrome reset the badge; with the result dropped there is nothing to write.
     h.badge.loaded(tabId, "https://other.example/");
-    await h.flush();
-    expect(h.calls.at(-1)).toMatchObject({ tabId, ...NONE, color: expect.any(String) });
     h.badge.loaded(tabId, `${origin}/`);
     await h.flush();
-    expect(h.view()).toMatchObject(NONE);
+    expect(h.calls).toHaveLength(count + 3);
+    expect(await h.storage.getValue()).toEqual({ results: [], busy: [] });
+    // What was written is forgotten, so the next badge writes every field.
+    h.badge.observe(attempt({ state: "authenticated" }));
+    await h.flush();
+    expect(h.calls.at(-1)).toEqual({ tabId, ...SUCCEEDED, title: "Pateat: logged in." });
+  });
+
+  it("writes the note of a tab whose result another origin dropped", async () => {
+    const h = harness();
+    h.badge.note(tabId, "held");
+    h.badge.observe(attempt({ outcome: "timeout" }));
+    await h.flush();
+    h.badge.loaded(tabId, "https://other.example/");
+    await h.flush();
+    expect(h.calls.at(-1)).toEqual({ tabId, text: "", ...CHOICE, title: "held" });
+  });
+
+  it("writes nothing for a loaded tab with nothing to show", async () => {
+    const h = harness();
+    h.badge.loaded(tabId, `${origin}/`);
+    h.badge.loaded(tabId);
+    await h.flush();
+    expect(h.calls).toEqual([]);
   });
 
   it("rewrites a spin and a choice after a page loads", async () => {
@@ -430,7 +467,8 @@ describe("login badge", () => {
     const count = h.calls.length;
     h.badge.loaded(tabId, `${origin}/`);
     await h.flush();
-    expect(h.calls.slice(count)).toEqual([{ tabId, ...NONE, ...CHOICE }]);
+    // Nothing is left to show, so nothing is written.
+    expect(h.calls).toHaveLength(count);
     expect(await h.storage.getValue()).toEqual({ results: [], busy: [] });
   });
 
