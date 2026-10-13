@@ -310,7 +310,7 @@ describe("passkey runtime required mediation", () => {
     expect(result).toMatchObject({ kind: "assertion", assertion: { credentialId: "AQID" } });
     expect(backing.candidates).toHaveBeenCalledWith(origin, "example.com", expect.any(AbortSignal));
     expect(backing.sign).toHaveBeenCalledOnce();
-    expect(answered.mock.calls).toEqual([[7, origin, "example.com"]]);
+    expect(answered.mock.calls).toEqual([[7, origin, "example.com", candidate]]);
     await vi.waitFor(() => expect(report).toHaveBeenCalledOnce());
     expect(report.mock.lastCall![0]).toMatchObject({
       outcome: "assertion",
@@ -485,7 +485,7 @@ describe("passkey runtime reports", () => {
     ]);
   });
 
-  it("tells a login of each assertion it returns, with its RP ID", async () => {
+  it("tells a login of each assertion it returns, with its RP ID and passkey", async () => {
     const answered = vi.fn(() => {
       throw new Error("a failing listener changes nothing");
     });
@@ -496,7 +496,7 @@ describe("passkey runtime reports", () => {
     ).toEqual({ kind: "delegate", reason: "unsupported-mediation" });
     expect(answered).not.toHaveBeenCalled();
     expect(await runtime.handle(get(), sender())).toMatchObject({ kind: "assertion" });
-    expect(answered.mock.calls).toEqual([[7, origin, "example.com"]]);
+    expect(answered.mock.calls).toEqual([[7, origin, "example.com", candidate]]);
   });
 
   it("reports no request from an invalid sender or a cancellation", async () => {
@@ -1333,7 +1333,13 @@ describe("a page's own conditional request through a login (ADR 0034)", () => {
       loginItem,
     );
     expect(events).toEqual(["hold", "answered", "leave"]);
-    expect(answeredTab).toHaveBeenCalledWith(7, origin, "example.com");
+    // The login's item signed it.
+    expect(answeredTab).toHaveBeenCalledWith(
+      7,
+      origin,
+      "example.com",
+      expect.objectContaining({ credentialId: "CCCC" }),
+    );
     expect(report).toHaveBeenLastCalledWith(
       expect.objectContaining({ outcome: "assertion", mediation: "conditional" }),
     );

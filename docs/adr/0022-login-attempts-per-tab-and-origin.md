@@ -15,7 +15,16 @@ new page that goes away before its quiet readings does not end a moved login, an
 that does not complete is logged with why. Evidence: on Oracle Cloud a login whose
 passkey second factor Pateat answered at 06:48:12 UTC ended `left-origin` 7 ms after its
 sign-in page went away, with no judgement of the console it reached; that a redirect
-page caused it is inferred.
+page caused it is inferred. Amended on 2026-10-13 (owner's choice 「完了扱い」 on a
+decision card at 13:54 UTC): a passkey that Pateat answers, with the login's own item,
+on a page of another origin of the site that the tab moved to and that asked for it lets
+the tab's next page complete the login; see "A move after a passkey answer". Evidence:
+in the owner's Chrome on `4deb95d` at 08:51 UTC, an OpenAI Platform login pressed the
+remembered account's row on `platform.openai.com`, the tab moved to
+`auth.openai.com/auth_challenge/passkey`, which asked for a passkey, and the login ended
+`left-origin` there; Pateat then answered that request outside the login, and the tab
+came back to `platform.openai.com/auth/callback` signed in. Which item answered was not
+recorded.
 
 Date: 2026-10-11
 
@@ -169,11 +178,34 @@ fix them now; the SSO policy itself is recorded separately.
     does, is not where the move ended (2026-10-13): the attempt is kept, as before any
     new page announced, and the tab's next top page is read instead; it must still come
     within the same 30 seconds of the step or answer. A page that goes away while it is
-    judged still ends the attempt as above. This and every other move that
-    does not complete the attempt is logged with why (`login.move`). The completion
-    saves an automatic account choice and releases the origin like any other
-    `authenticated` attempt; it is the one completion that needs neither a completion
-    check, ADR 0029 evidence nor the judge, also on the `passkey` route of
+    judged still ends the attempt as above. Nor is a new top page of another HTTPS
+    origin of the attempt's registrable domain (as for a move after a password
+    submission, below) that asks for a passkey after the attempt's last effect step, at
+    most 30 seconds after it (2026-10-13, owner's 「完了扱い」): the attempt is kept,
+    logged as `passkey-request` with `kept`, and that page starts no login of its own;
+    its frames leave the move to the tab's top pages. A passkey Pateat answers there, as
+    any page's request (ADR 0034), counts as above only when the item that signed it is
+    the attempt's own and it came after that page's request: the tab's next top page, at
+    most 30 seconds after the answer, then completes the attempt when its host is the
+    passkey's RP ID or under it, the attempt's own origin included, and it reads quiet
+    as above. That page announcing again keeps the attempt waiting while it shows no
+    password field, code input or CAPTCHA, within 30 seconds of its request or of such
+    an answer, unless it reads quiet itself after the answer. Once such a page asked,
+    nothing else completes the attempt: an answer before its request, with another item
+    or none at all, a page after the answer that asks for a passkey again, a later page,
+    and the move rules below for a password submission each end it `left-origin` on the
+    tab's next page, as do a page of another site and a request more than 30 seconds
+    after the step. A page that asked and stays open ends it `left-origin` 61 seconds
+    after it last held the attempt, once no next page could complete it. The item is
+    kept in memory with the answer only, as the answer is, and so is the waiting: after
+    a worker restart, the tab's next page on the attempt's own origin resumes it as the
+    page after its last step (ADR 0029), and one on another origin ends it `left-origin`
+    (Claude's reading, not confirmed by the owner separately). A page whose request
+    comes only after its readings ended is not held. This and every other move that does
+    not complete the attempt is logged with why (`login.move`). The completion saves an
+    automatic account choice and releases the origin like any other `authenticated`
+    attempt; it is the one completion that needs neither a completion check, ADR 0029
+    evidence nor the judge, also on the `passkey` route of
     [ADR 0027](0027-per-account-login-routes.md). The answer is kept in memory only, so
     after a worker restart, or with any condition not met, the attempt ends
     `left-origin` as before. A site that rejects the assertion and sends the tab to a
