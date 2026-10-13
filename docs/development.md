@@ -47,6 +47,15 @@ runs their build scripts, then `mise run install`, because aube 2.7.0 rewrites
 ([ADR 0032](adr/0032-aube-package-manager.md)). Renovate updates `bun.lock` with Bun
 too.
 
+`min_version` in the root `mise.toml` stays at 2026.10.8 (owner decision, 2026-10-13).
+The owner's Windows mise comes from winget, which lags mise releases and refuses
+`mise self-update`, so a higher minimum stops every mise command there. Do not lower it
+to the oldest version that works, and raise it by hand only when the repository needs
+a newer mise. CI pins the mise version in `jdx/mise-action`, which Renovate updates, so
+a mise release that breaks the repository fails CI. The shared Renovate preset raised
+`min_version` with every mise release; that manager moves to risu729/dotfiles
+([risu729/renovate-config#2696](https://github.com/risu729/renovate-config/pull/2696)).
+
 The repository is a mise monorepo (owner decision, 2026-10-11). The root `mise.toml`
 sets `monorepo_root = true` and lists `apps/extension`, `services/api`, `packages/*` and
 `tests/*` as config roots. Each of those directories has its own `mise.toml` with the
