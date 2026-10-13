@@ -257,8 +257,16 @@ export function presence(element: HTMLElement): "visible" | "faint" | "absent" {
 }
 const visible = (element: HTMLElement) => presence(element) === "visible";
 
-/** Rendered text, normalized and redacted; a little beyond the limit is read so redaction sees whole tokens. */
-const visibleText = (root: Element) => observedText(renderedText(root, rawLimit));
+/**
+ * Observed text not yet cut at its 120-character limit: a candidate's label, placeholder
+ * and description, the title and the headings are cut once `observe` has hidden what its
+ * page hides, so that hiding every number on a signed-in page cannot shorten a cut text
+ * and the end of a cut username stays the end of the text (`withoutUsernames`).
+ */
+const uncutText = (raw: string | null | undefined) => observedText(raw, Number.POSITIVE_INFINITY);
+
+/** Rendered text, normalized and redacted, not yet cut; a little beyond the limit is read so redaction sees whole tokens. */
+const visibleText = (root: Element) => uncutText(renderedText(root, rawLimit));
 
 type LocatorIndex = Map<string, Map<string, number>>;
 
@@ -411,10 +419,10 @@ function referencedText(
   const parts = ids.flatMap((id) => {
     const referenced = element.ownerDocument.getElementById(id);
     if (!referenced || (skip && referenced.closest(skip))) return [];
-    const text = observedText(renderedText(referenced, rawLimit, skip ? { skip } : {}));
+    const text = uncutText(renderedText(referenced, rawLimit, skip ? { skip } : {}));
     return text ? [text] : [];
   });
-  return observedText(parts.join(" "));
+  return uncutText(parts.join(" "));
 }
 
 /** Regions that announce changes, such as a failed sign-in's message. */
@@ -763,10 +771,10 @@ function fieldLabel(input: HTMLInputElement): string | undefined {
   });
   return (
     referencedText(input, idList(input, "aria-labelledby")) ??
-    observedText(input.getAttribute("aria-label")) ??
-    observedText(labels.join(" ")) ??
+    uncutText(input.getAttribute("aria-label")) ??
+    uncutText(labels.join(" ")) ??
     adjacentText(input) ??
-    observedText(input.title)
+    uncutText(input.title)
   );
 }
 
@@ -776,12 +784,12 @@ function actionLabel(element: HTMLElement): string | undefined {
   );
   return (
     referencedText(element, idList(element, "aria-labelledby")) ??
-    observedText(element.getAttribute("aria-label")) ??
+    uncutText(element.getAttribute("aria-label")) ??
     (element instanceof HTMLInputElement
-      ? observedText(element.type === "image" ? element.alt : element.value)
+      ? uncutText(element.type === "image" ? element.alt : element.value)
       : visibleText(element)) ??
-    observedText(images.join(" ")) ??
-    observedText(element.title)
+    uncutText(images.join(" ")) ??
+    uncutText(element.title)
   );
 }
 
@@ -832,7 +840,7 @@ function describe(element: Element): Found | undefined {
     const fillRole = fillTypes[type];
     if (fillRole) {
       const label = fieldLabel(element);
-      const placeholder = observedText(element.placeholder);
+      const placeholder = uncutText(element.placeholder);
       const description = fieldDescription(element, label);
       const hint = autocomplete(element);
       return {
@@ -1206,19 +1214,21 @@ type Chosen = { form: HTMLFormElement | null; draft: Draft; target: LoginTarget 
 /**
  * Numbers the chosen elements in document order and adds the page's title and headings;
  * with `near`, also the texts near its first code field (`nearCodeTexts`) or, without one,
- * near its buttons (`nearButtonTexts`).
+ * near its buttons (`nearButtonTexts`). Every text is cut at 120 characters once `hide`
+ * has run.
  */
 function observe(
   document: Document,
   chosen: Chosen[],
   complete: boolean,
-  hide: (text: string) => string = (text) => text,
+  hideText: (text: string) => string = (text) => text,
   accounts?: readonly string[],
   header?: string,
   path = document.location!.pathname,
   near = false,
 ): ObservationResult {
   const location = document.location!;
+  const hide = (text: string) => bounded(hideText(text));
   chosen.sort((left, right) =>
     left.draft.element.compareDocumentPosition(right.draft.element) &
     Node.DOCUMENT_POSITION_FOLLOWING
@@ -1235,11 +1245,12 @@ function observe(
       if (form && !groups.has(form)) groups.set(form, `f${groups.size + 1}`);
       const shownLabel = label && hide(label);
       const shownDescription = description && hide(description);
+      const shownPlaceholder = placeholder && hide(placeholder);
       return {
         id: `c${at + 1}`,
         ...rest,
         ...(shownLabel ? { label: shownLabel } : {}),
-        ...(placeholder ? { placeholder: hide(placeholder) } : {}),
+        ...(shownPlaceholder ? { placeholder: shownPlaceholder } : {}),
         // Still left out when it repeats the label once hidden.
         ...(shownDescription && shownDescription !== shownLabel
           ? { description: shownDescription }
@@ -1250,13 +1261,14 @@ function observe(
     },
   );
 
-  const pageTitle = observedText(document.title);
+  const pageTitle = uncutText(document.title);
   const title = pageTitle && hide(pageTitle);
   const headings = [
     ...new Set(
       [...document.querySelectorAll("h1, h2, h3")].flatMap((heading) => {
         const text = visibleText(heading);
-        return text ? [hide(text)] : [];
+        const shown = text && hide(text);
+        return shown ? [shown] : [];
       }),
     ),
   ].slice(0, maxHeadings);
@@ -1268,7 +1280,7 @@ function observe(
   // beside its placeholders, such as a timer or one typed character in a box of its own,
   // says nothing about the code or the button.
   const keepNear = (raw: string) => {
-    const text = bounded(hide(raw));
+    const text = hide(raw);
     return text !== undefined &&
       !repeated.has(text) &&
       (text.replace(/\[(?:email|masked|number)\]/gu, "").match(/\p{L}/gu)?.length ?? 0) >= 2

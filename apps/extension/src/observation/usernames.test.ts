@@ -266,6 +266,46 @@ describe("withoutUsernames", () => {
     expect(header(long)!.length).toBeLessThanOrEqual(1000);
   });
 
+  it("hides a name cut at the end of a signed-in page's title, headings and labels", () => {
+    // Numbers are hidden before the one cut at 120 characters, so a cut name stays at the
+    // end of the text, however the page's text before it reads.
+    for (let filler = 0; filler <= 40; filler++) {
+      const text = `${"Points 1,234,567 ".repeat(5)}${"x".repeat(filler)} Hi taro.yamada`;
+      document.title = text;
+      document.body.innerHTML = `<h1>${text}</h1>
+        <button id="menu" type="button" aria-label="${text}">Menu</button>
+        <form><input id="note" type="text" aria-label="${text}" placeholder="${text}"
+          aria-describedby="note-hint"><span id="note-hint">Hint ${text}</span></form>`;
+      const page = extractSignedInObservation();
+      if (!page.ok) throw new Error(page.reason);
+      const sent = hidden(page.observation, ["taro.yamada"]);
+      const texts = [
+        sent.title,
+        ...(sent.headings ?? []),
+        ...sent.candidates.flatMap(({ label, placeholder, description }) => [
+          label,
+          placeholder,
+          description,
+        ]),
+      ];
+      expect(texts.filter(Boolean), String(filler)).toHaveLength(6);
+      for (const shown of texts) {
+        if (shown === undefined) continue;
+        expect(shown.length, String(filler)).toBeLessThanOrEqual(120);
+        expect(shown, String(filler)).not.toMatch(/taro/u);
+        expect(shown, String(filler)).not.toMatch(/\bt[a-z.]*$/u);
+      }
+    }
+    // A long attribute is read whole, so joined numbers before the name cannot shorten it.
+    document.title = "";
+    document.body.innerHTML = `<button id="menu" type="button"
+      aria-label="${"1,".repeat(235)} Hi taro.yamada">Menu</button>`;
+    const page = extractSignedInObservation();
+    if (!page.ok) throw new Error(page.reason);
+    const [button] = hidden(page.observation, ["taro.yamada"]).candidates;
+    expect(button!.label).toBe("[number], Hi [account]");
+  });
+
   it("keeps hidden texts within the observed-text limit", () => {
     const long = `${"a ".repeat(58)}abc`;
     expect(long).toHaveLength(119);

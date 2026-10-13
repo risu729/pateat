@@ -64,9 +64,9 @@ on 2026-10-12 (20:50 UTC):
 | Nothing on a site without a password or passkey sign-in | ABEMA | Done (judged from the code and the Grok Bot's log) |
 | Pages that stopped before generation | モッピー, LinkedIn | Recheck after [#261](https://github.com/risu729/pateat/pull/261) and [#271](https://github.com/risu729/pateat/pull/271); LinkedIn's remembered-account page was incomplete again after #403 (2026-10-12 21:44 UTC): recheck once its shown password field is located by `webauthn` |
 
-The rechecks share one extension reload. The username redaction gap (the 120-character
-cut below) and the UI polish also stay in this phase. The site lists name the owner's
-own accounts, so they stay in the project's files rather than in this repository.
+The rechecks share one extension reload. The UI polish also stays in this phase. The
+site lists name the owner's own accounts, so they stay in the project's files rather
+than in this repository.
 
 - Sites where the owner has no password or passkey sign-in, only a code or link sent
   by email or an identity provider, are out of scope for phase 1 (owner, 2026-10-12
@@ -150,12 +150,14 @@ own accounts, so they stay in the project's files rather than in this repository
   `rejected` before or whose earlier request has no verdict (local tests only). The
   judged page also carries its header and navigation text (`headerText`, up to 1,000
   characters, local tests only).
-  Known gap, not fixed yet: on that page the title, headings and labels are cut at 120
-  characters before every number is hidden, which can shorten them, so the start of a
-  username cut at the limit is no longer recognised as cut and is sent (review of the
-  header text, 2026-10-12). The header text is cut once, after hiding. The recipe's
-  `completion` is a list of up to four signed-in markers without a path, and a later
-  page the judge answers `signed-in` for adds its marker (local tests only). Pages that
+  The title, headings and each candidate's label, placeholder and description are cut at
+  120 characters once every number is hidden, as the header text is cut once at 1,000,
+  so the start of a username cut at the limit stays the end of the text and is hidden
+  (gap found in the review of the header text, 2026-10-12; fixed 2026-10-13, local tests
+  only). Attributes are read whole and an element's rendered text up to 480 characters.
+  The recipe's `completion` is a list of up to four signed-in markers without a path,
+  and a later page the judge answers `signed-in` for adds its marker (local tests only).
+  Pages that
   could not be sent are now sent: a token-like path segment goes as `[id]`, and a field
   no locator names is left out unless it may be a sign-in field (owner, 19:23 UTC, after
   Cloudflare, Grafana Cloud, Wise and JP BANKカードWEB stayed unknown; local tests
