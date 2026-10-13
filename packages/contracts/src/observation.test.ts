@@ -173,6 +173,48 @@ describe("observation contract", () => {
     expect(parse({ ...code, nearCode: ["a\nb"] })).toBe(false);
     expect(parse({ ...base, nearCode: ["Enter the code"] })).toBe(false);
   });
+
+  it("takes up to three texts near the buttons, only on a page with a button and no code field (ADR 0027)", () => {
+    const verify =
+      "To verify your credentials using FIDO Authenticator Security Key, click Verify.";
+    expect(parse({ ...base, nearButtons: [verify] })).toBe(true);
+    expect(parse({ ...base, nearButtons: ["a", "b", "c"] })).toBe(true);
+    expect(parse({ ...base, nearButtons: ["x".repeat(120)] })).toBe(true);
+    expect(parse({ ...base, nearButtons: ["a", "b", "c", "d"] })).toBe(false);
+    expect(parse({ ...base, nearButtons: [] })).toBe(false);
+    expect(parse({ ...base, nearButtons: ["x".repeat(121)] })).toBe(false);
+    expect(parse({ ...base, nearButtons: ["a\nb"] })).toBe(false);
+    expect(parse({ ...base, nearButtons: [""] })).toBe(false);
+    // A page with a code field carries the texts near it instead, with or without them.
+    const code = {
+      ...base,
+      candidates: [
+        ...base.candidates,
+        {
+          id: "code",
+          role: "text",
+          target: { by: "id", value: "code" },
+          autocomplete: "one-time-code",
+        },
+      ],
+    };
+    expect(parse({ ...code, nearButtons: [verify] })).toBe(false);
+    expect(parse({ ...code, nearCode: [verify], nearButtons: [verify] })).toBe(false);
+    // A page without a button carries none, even one with links.
+    const withoutButton = base.candidates.filter((candidate) => candidate.role !== "button");
+    expect(parse({ ...base, candidates: withoutButton })).toBe(true);
+    expect(parse({ ...base, candidates: withoutButton, nearButtons: [verify] })).toBe(false);
+    expect(
+      parse({
+        ...base,
+        candidates: [
+          ...withoutButton,
+          { id: "help", role: "link", target: { by: "text", value: "Help" }, label: "Help" },
+        ],
+        nearButtons: [verify],
+      }),
+    ).toBe(false);
+  });
 });
 
 describe("account lists (ADR 0028)", () => {

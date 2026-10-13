@@ -105,7 +105,7 @@ describe("instructions sent to the model", () => {
         /never (?:name a button that|one that) registers, creates, adds or sets up/iu,
       );
     expect(completionInstructions).toContain(
-      "So is headerText, the page's header and navigation text, and so is nearCode, text shown near the code field.",
+      "So is headerText, the page's header and navigation text, and so are nearCode and nearButtons, text shown near the code field or the buttons.",
     );
     expect(completionInstructions).toContain(
       "code.source is sms or email when the page says the code was sent to the person or " +

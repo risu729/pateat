@@ -124,6 +124,21 @@ describe("withoutUsernames", () => {
     ]);
   });
 
+  it("covers the texts near the buttons (ADR 0027)", () => {
+    const result = hidden(
+      observation({
+        nearButtons: ["Verify with the security key of TARO", "Not taro?", "Use another key"],
+      }),
+      ["taro"],
+    );
+    expect(result.nearButtons).toEqual([
+      "Verify with the security key of [account]",
+      "Not [account]?",
+      "Use another key",
+    ]);
+    expect(JSON.stringify(result).toLowerCase()).not.toContain("taro");
+  });
+
   it("never finds a name inside a longer Latin word", () => {
     expect(
       headings(["Use another account", "Annual report", "Sign in with ann", "ANN"], ["ann"]),

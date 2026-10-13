@@ -156,7 +156,7 @@ export function withoutUsernames(
       ...(description === undefined ? {} : { description: hide(description) }),
     });
   }
-  const { title, headings, headerText, accounts, nearCode } = observation;
+  const { title, headings, headerText, accounts, nearCode, nearButtons } = observation;
   const parsed = v.safeParse(loginObservationSchema, {
     ...observation,
     ...(title === undefined ? {} : { title: hide(title) }),
@@ -164,6 +164,7 @@ export function withoutUsernames(
     ...(headerText === undefined ? {} : { headerText: hide(headerText, maxHeaderText) }),
     ...(accounts === undefined ? {} : { accounts: accounts.map((text) => hide(text)) }),
     ...(nearCode === undefined ? {} : { nearCode: nearCode.map((text) => hide(text)) }),
+    ...(nearButtons === undefined ? {} : { nearButtons: nearButtons.map((text) => hide(text)) }),
     candidates,
   });
   return parsed.success ? { ok: true, observation: parsed.output } : refused;

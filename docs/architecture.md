@@ -1390,18 +1390,21 @@ visible text of each outermost `header`, `nav`, banner and navigation landmark i
 document order, redacted the same way, with usernames hidden as above, and cut at 1,000
 characters. No other page carries it. While that page has an open modal dialog (a shown
 element with `aria-modal="true"` and the role `dialog` or `alertdialog`, or a `<dialog>`
-opened with `showModal()`), an `aria-hidden="true"` or `inert` element beside the
-dialog or one of its ancestors, as modal libraries mark the page behind, no longer hides
-what it holds: the description carries that page's header text, headings, fields and
-possible markers, with the modal's controls ranked right after the header's, and E2
-reads the header the same way (ADR 0029, 2026-10-13). An element the site hid at that
-level for another reason, such as a closed drawer, is read too. That page, when it shows
-a code field, also carries `nearCode`: up to three short texts near the first one, such
-as a sentence naming an authenticator app outside the code form, redacted the same way,
-with live regions, error messages, controls, labels, links and headings left out
-([ADR 0027](adr/0027-per-account-login-routes.md#implementation-choices)). Login pages
-keep the four-digit rule, since hints such as `4 digits` help map fields. When a login
-page already shows a chosen account and offers a button or link to use another one, the
+opened with `showModal()`), an `aria-hidden="true"` or `inert` element beside the dialog
+or one of its ancestors, as modal libraries mark the page behind, no longer hides what
+it holds: the description carries that page's header text, headings, fields and possible
+markers, with the modal's controls ranked right after the header's, and E2 reads the
+header the same way (ADR 0029, 2026-10-13). An element the site hid at that level for
+another reason, such as a closed drawer, is read too. That page, when it shows a code
+field, also carries `nearCode`: up to three short texts near the first one, such as a
+sentence naming an authenticator app outside the code form, redacted the same way, with
+live regions, error messages, controls, labels, links and headings left out
+([ADR 0027](adr/0027-per-account-login-routes.md#implementation-choices)). Without a
+code field, it carries `nearButtons` instead: up to three such texts near its buttons,
+only those inside the main landmark when the page marks one, so the judge can tell that
+a button labelled only "Verify" starts a security-key check. Login pages keep the
+four-digit rule, since hints such as `4 digits` help map fields. When a login page
+already shows a chosen account and offers a button or link to use another one, the
 generation role may name it as the plan's `accountSwitch`; it must be an observed button
 or link that the plan neither fills nor uses as its action. The generated recipe keeps
 the first switch a page names that no step clicks. Only links inside the login form are

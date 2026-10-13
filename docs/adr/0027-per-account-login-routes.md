@@ -210,7 +210,11 @@ These rules work from any account, in any order.
     labelled "Verify". On 2026-10-13 at 02:57 UTC (build `fdf57ef`), the judge answered
     a plain `challenge` for it, and the login was left watching. After the owner pressed
     "Verify", Pateat answered with the item's passkey. The judge's instructions now say
-    so, and the prompt version changed with them.
+    so, and the prompt version changed with them. A recheck at 03:56 UTC still got a
+    plain `challenge`: the page's description named only the title "Cloud Sign In", two
+    redacted headings and the "Verify" button, since its "FIDO Authenticator
+    Verification" heading is an `h4` and its sentence a `span`. The page now carries the
+    text near its buttons (below).
   - `challenge` naming a code field and its submit button adds a `totp` handler. The
     field must pass the TOTP fill rule of ADR 0013, and the judge must not say the code
     was sent to the person (SMS, email, a call) or comes from another source such as a
@@ -565,6 +569,21 @@ new owner decision:
   ADR 0029, it is allowed while Pateat is for the owner's own use and decided again
   before the public release (phase 3). The judge's prompt version changed with it, so
   judged pages are judged again once.
+- **Text near the buttons** (owner decision, 2026-10-13 04:22 UTC). On Oracle Cloud's
+  FIDO page, the judge's description named no sign of a security key (above), so the
+  page shown after an effect step that has no code field carries `nearButtons` instead
+  of `nearCode`. These are up to three texts near its button candidates, read and
+  redacted as the texts near a code field are. They are read around every button at
+  once, one parent further out at a time, nearest first. When the page marks a main
+  landmark (`main` or `role="main"`), only the buttons inside it count, so a help or
+  account widget beside it does not take the three texts, and no text outside it is
+  read. A text that repeats a button's label is dropped too. The judge's instructions
+  name `nearButtons` as untrusted page text. As with `nearCode`, a misread or deceptive
+  text can at worst store a `passkey` handler that clicks a button of that path once per
+  login, only for an item that holds a passkey, until the recipe is revoked. The handler
+  checks of `addHandler` still apply. The added text, at most 360 characters, stays in
+  the request log for 90 days under the same terms as `nearCode`. The judge's prompt
+  version changed with it.
 - **Entering handlers.** A handler that has not run is entered when all its elements
   are unique and usable on its path: a `totp` handler's field a shown writable input,
   and its button, like a `passkey` handler's, a shown one, enabled or not, since many
