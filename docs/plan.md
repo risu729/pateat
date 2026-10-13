@@ -2458,9 +2458,10 @@ separate from refreshed data, configure retry/refetch behavior explicitly and
 retain runtime payload/sender authorization. Use the approved XState for the M2
 executor; verify navigation cancellation, timeout handling and interrupted-submit
 reconciliation before expanding execution. Persist allowlisted resumable metadata
-only; restoring state must not blindly replay submission. Integrate approved WXT
-storage helpers with trusted-access initialization before migrations, existing
-single-writer revision checks and fail-closed handling of corrupt settings.
+only; restoring state must not blindly replay submission. WXT storage items hold every
+`chrome.storage` record; `storage.local` is restricted to trusted contexts before an
+item is defined, and the existing single-writer revision checks and fail-closed
+handling of corrupt settings stay in Pateat's code.
 
 Approved for M4: Hono and Drizzle for the first substantive API/schema. Keep
 Valibot boundary validation, verify generated SQL and migrations, and test owner
