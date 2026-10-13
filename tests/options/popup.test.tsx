@@ -181,6 +181,49 @@ test("the site default is chosen from the items that match the tab's origin, the
   expect(current().snapshot).toMatchObject({ revision: 2, settings: createDefaultSettings() });
 });
 
+test("setting and removing the default keeps the listed accounts", async () => {
+  const { client } = store();
+  // A second search would never answer, so a list that searches again would disappear.
+  client.findSiteAccounts
+    .mockImplementationOnce(async (origin) => {
+      const found = await demoSiteAccounts(origin);
+      return {
+        ...found,
+        accounts: found.accounts.map((account) => ({
+          ...account,
+          username: `${account.itemId}@bank.example`,
+        })),
+      };
+    })
+    .mockImplementation(() => new Promise(() => {}));
+  await mount(client, "https://bank.example/login");
+  const accounts = page.getByRole("group", { name: "Default account" }).getByRole("radio");
+  await expect.element(accounts).toHaveLength(3);
+  await userEvent.click(page.getByText("Demo team account in Demo work vault"));
+  await userEvent.click(page.getByRole("button", { name: "Use as default" }));
+  await expect
+    .element(page.getByText("primary@bank.example is now the default for this site"))
+    .toBeVisible();
+  await expect.element(accounts).toHaveLength(3);
+  // The new default stays a row of the list, named by its username, not a card with the
+  // item's saved labels.
+  await expect
+    .element(
+      page.getByRole("radio", {
+        name: "primary@bank.example, Demo team account in Demo work vault, default",
+      }),
+    )
+    .toBeChecked();
+  expect(document.querySelector("#popup-default")).toBeNull();
+  await userEvent.click(page.getByRole("button", { name: "Remove default" }));
+  await expect
+    .element(page.getByText("The default account for this site was removed"))
+    .toBeVisible();
+  await expect.element(accounts).toHaveLength(3);
+  expect(page.getByText("Finding the vault items", { exact: false }).query()).toBeNull();
+  expect(client.findSiteAccounts).toHaveBeenCalledOnce();
+});
+
 test("the switch excludes the site by its exact hostname, and turns it back on", async () => {
   const { client, current } = store();
   await mount(client, "https://login.bank.example/");
