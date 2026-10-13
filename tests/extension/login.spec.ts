@@ -125,17 +125,19 @@ async function expectInputOutcome(
   options: Page,
   result: "authenticated" | "credential-rejected" | "unknown-submit",
 ) {
+  // A rejected login is released at once, and the tab asks for an account (ADR 0021 D).
+  if (result === "credential-rejected") {
+    await expect
+      .poll(async () => await send(options, { version: 1, type: "login.probe.status" }))
+      .toMatchObject({ attempts: [], asks: ["rejected"] });
+    return;
+  }
   await expect
     .poll(async () => await send(options, { version: 1, type: "login.probe.status" }))
     .toMatchObject({
       attempts: [
         {
-          state:
-            result === "authenticated"
-              ? "authenticated"
-              : result === "credential-rejected"
-                ? "blocked"
-                : "reconciling",
+          state: result === "authenticated" ? "authenticated" : "reconciling",
           outcome: result,
           operationKind: "fill",
           submissions: 1,
@@ -1292,7 +1294,9 @@ test("waits for delayed same-page success and rejection without resubmitting", a
           .poll(async () =>
             JSON.stringify(await send(options, { version: 1, type: "login.probe.status" })),
           )
-          .toContain(`"outcome":"${outcome}"`);
+          .toContain(
+            outcome === "credential-rejected" ? '"asks":["rejected"]' : `"outcome":"${outcome}"`,
+          );
         expect(await clicks(page)).toBe(1);
         await page.close();
         await expect
@@ -1449,7 +1453,7 @@ test("credential rejection and unknown outcome each stop after one submission", 
         .poll(async () =>
           JSON.stringify(await send(options, { version: 1, type: "login.probe.status" })),
         )
-        .toContain("credential-rejected");
+        .toContain('"asks":["rejected"]');
       expect(await clicks(rejected)).toBe(1);
       await rejected.close();
       await expect

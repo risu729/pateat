@@ -2854,6 +2854,9 @@ export function createLoginRuntime(
     let chosen: Choice | undefined;
     let savedDefault = false;
     if (probeMode && recipe.origin === origin) {
+      // A page already filled after a logout asks, as `choose` answers it (ADR 0021 D).
+      if (request.asking && !request.fill)
+        return { ok: false as const, reason: "logged-out" as const, logout: true as const };
       catalog = grantProbeOrigin(snapshot.catalog, origin, account);
       const top = await topScope(snapshot, live, account, catalog);
       if (top) return { ok: false as const, reason: top.reason };
@@ -7760,6 +7763,8 @@ export function createLoginRuntime(
           ok: true,
           ...(checkpoint ? { checkpoint } : {}),
           attempts: [...persisted.values()],
+          // Tabs that ask after a logout, and whether the site's rejection began it.
+          asks: [...logouts].map((key) => (rejectedAsks.has(key) ? "rejected" : "logout")),
           documents: [...documents.values()].map((live) => ({
             ...live.document,
             ...(live.state ? { state: live.state } : {}),
