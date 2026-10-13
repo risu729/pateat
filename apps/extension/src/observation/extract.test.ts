@@ -1058,6 +1058,12 @@ describe("extractLoginObservation", () => {
       .querySelector("#host")!
       .attachShadow({ mode: "open" }).innerHTML = `<input id="u"><input id="p" type="password">`;
     expect(observe().complete).toBe(false);
+    // A shadow host outside every form counts too.
+    page(`<input id="user"><div id="host"></div>`);
+    document
+      .querySelector("#host")!
+      .attachShadow({ mode: "open" }).innerHTML = `<input id="pw" type="password">`;
+    expect(observe().complete).toBe(false);
     page(`<form id="f"><input id="u"><button id="go">Go</button></form><div id="host"></div>`);
     document.querySelector("#host")!.attachShadow({
       mode: "open",
