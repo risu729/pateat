@@ -1029,6 +1029,8 @@ export type LoginReport = (
       tabId: number;
       origin: string;
       recipeId: string;
+      /** The recipe revision the login runs. */
+      recipeRevision: number;
       /** The route and password variant the login took when it started (ADR 0027). */
       route: LoginRoute;
       variant?: number;
@@ -1082,6 +1084,8 @@ export type LoginReport = (
       tabId: number;
       origin: string;
       recipeId: string;
+      /** The recipe revision the login runs. */
+      recipeRevision: number;
       route: LoginRoute;
       variant?: number;
       /** How the account was chosen; absent in the probe build. */
@@ -1104,6 +1108,8 @@ export type LoginReport = (
       tabId: number;
       origin: string;
       recipeId: string;
+      /** The recipe revision the login runs. */
+      recipeRevision: number;
       /** It showed in a new page while the login was watched (ADR 0027). */
       watched?: true;
     }
@@ -1129,6 +1135,8 @@ export type LoginReport = (
       tabId: number;
       origin: string;
       recipeId: string;
+      /** The recipe revision the login runs. */
+      recipeRevision: number;
       route: LoginRoute;
       /** The state the login was left in, and the step it stopped at. */
       state: LoginAttemptMetadata["state"];
@@ -1207,6 +1215,8 @@ export type LoginReport = (
       tabId: number;
       origin: string;
       recipeId: string;
+      /** The recipe revision the login runs. */
+      recipeRevision: number;
       route: LoginRoute;
       /** What ADR 0029 would do with the page; logged only (delivery 1). */
       decision: ReturnType<typeof decideSignInState>;
@@ -1225,7 +1235,7 @@ export type LoginReport = (
       tabId: number;
       origin: string;
       recipeId: string;
-      revision: number;
+      recipeRevision: number;
       outcome: "pressed" | "refused" | "blocked";
       reason?: string;
       detail?: string;
@@ -1237,6 +1247,8 @@ export type LoginReport = (
       tabId: number;
       origin: string;
       recipeId: string;
+      /** The recipe revision the login runs. */
+      recipeRevision: number;
       handler: number;
       kind: string;
       /**
@@ -1418,6 +1430,7 @@ export function createLoginRuntime(
       tabId: metadata.document.tabId,
       origin: metadata.document.origin,
       recipeId: metadata.recipeId,
+      recipeRevision: metadata.recipeRevision,
       route: metadata.route,
       ...(metadata.variant === undefined ? {} : { variant: metadata.variant }),
       state: metadata.state,
@@ -3260,6 +3273,7 @@ export function createLoginRuntime(
       tabId: run.live.document.tabId,
       origin: run.live.document.origin,
       recipeId: run.recipe.id,
+      recipeRevision: run.recipe.revision,
       route: run.metadata.route,
       ...reading.signs,
       decision: reading.decision,
@@ -3473,6 +3487,7 @@ export function createLoginRuntime(
         tabId: run.live.document.tabId,
         origin: run.live.document.origin,
         recipeId: run.recipe.id,
+        recipeRevision: run.recipe.revision,
         handler: entry.index,
         kind: entry.handler.kind,
         outcome,
@@ -4422,6 +4437,7 @@ export function createLoginRuntime(
             tabId: run.metadata.document.tabId,
             origin: run.metadata.document.origin,
             recipeId: run.metadata.recipeId,
+            recipeRevision: run.metadata.recipeRevision,
             route: run.metadata.route,
             state: run.metadata.state,
             stepIndex: run.metadata.stepIndex,
@@ -6081,6 +6097,7 @@ export function createLoginRuntime(
         tabId,
         origin: document.origin,
         recipeId: released.recipeId,
+        recipeRevision: released.recipeRevision,
         ...(watchedLogin ? { watched: true as const } : {}),
       });
       try {
@@ -6697,6 +6714,7 @@ export function createLoginRuntime(
         tabId: document.tabId,
         origin: document.origin,
         recipeId: metadata.recipeId,
+        recipeRevision: metadata.recipeRevision,
         route: metadata.route,
         ...(metadata.variant === undefined ? {} : { variant: metadata.variant }),
         ...("chosen" in plan && plan.chosen
@@ -6856,7 +6874,7 @@ export function createLoginRuntime(
         tabId,
         origin: recipe.origin,
         recipeId: recipe.id ?? recipe.recipeId ?? "",
-        revision: recipe.revision,
+        recipeRevision: recipe.revision,
         outcome,
         ...(reason ? { reason } : {}),
         ...extra,
