@@ -130,6 +130,12 @@ async function expectInputOutcome(
     await expect
       .poll(async () => await send(options, { version: 1, type: "login.probe.status" }))
       .toMatchObject({ attempts: [], asks: ["rejected"] });
+    // Cover several announcements: the released page never logs in again.
+    await options.waitForTimeout(1500);
+    expect(await send(options, { version: 1, type: "login.probe.status" })).toMatchObject({
+      attempts: [],
+      asks: ["rejected"],
+    });
     return;
   }
   await expect
@@ -1297,17 +1303,19 @@ test("waits for delayed same-page success and rejection without resubmitting", a
           .toContain(
             outcome === "credential-rejected" ? '"asks":["rejected"]' : `"outcome":"${outcome}"`,
           );
+        // A released rejection must not log in again in its page.
+        if (outcome === "credential-rejected") await page.waitForTimeout(1000);
         expect(await clicks(page)).toBe(1);
         await page.close();
+        // Closing the tab ends its record and its ask, so the next page logs in afresh.
         await expect
-          .poll(
-            async () =>
-              (
-                (await send(options, { version: 1, type: "login.probe.status" })) as {
-                  attempts: unknown[];
-                }
-              ).attempts.length,
-          )
+          .poll(async () => {
+            const status = (await send(options, { version: 1, type: "login.probe.status" })) as {
+              attempts: unknown[];
+              asks: unknown[];
+            };
+            return status.attempts.length + status.asks.length;
+          })
           .toBe(0);
       }
       /* eslint-enable no-await-in-loop */
@@ -1454,17 +1462,19 @@ test("credential rejection and unknown outcome each stop after one submission", 
           JSON.stringify(await send(options, { version: 1, type: "login.probe.status" })),
         )
         .toContain('"asks":["rejected"]');
+      // A released rejection must not log in again in its page.
+      await rejected.waitForTimeout(1000);
       expect(await clicks(rejected)).toBe(1);
       await rejected.close();
+      // Closing the tab ends its ask, so the next page logs in afresh.
       await expect
-        .poll(
-          async () =>
-            (
-              (await send(options, { version: 1, type: "login.probe.status" })) as {
-                attempts: unknown[];
-              }
-            ).attempts.length,
-        )
+        .poll(async () => {
+          const status = (await send(options, { version: 1, type: "login.probe.status" })) as {
+            attempts: unknown[];
+            asks: unknown[];
+          };
+          return status.attempts.length + status.asks.length;
+        })
         .toBe(0);
       const unknown = await context.newPage();
       await unknown.goto(`${fixture.origin}/unknown`);

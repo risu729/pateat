@@ -2860,7 +2860,8 @@ export function createLoginRuntime(
     let chosen: Choice | undefined;
     let savedDefault = false;
     if (probeMode && recipe.origin === origin) {
-      // A page already filled after a logout asks, as `choose` answers it (ADR 0021 D).
+      // A page already filled after a logout asks, as `choose` answers it (ADR 0021 D); a
+      // page to fill after a logout still logs in fully here, without production's fill-only.
       if (request.asking && !request.fill)
         return { ok: false as const, reason: "logged-out" as const, logout: true as const };
       catalog = grantProbeOrigin(snapshot.catalog, origin, account);
