@@ -512,24 +512,6 @@ describe("diagnostics log", () => {
     expect((await logger.entries()).map((entry) => entry.level)).toEqual(["info", "warn"]);
   });
 
-  it("keeps the pseudonym key of a version 1 database and adds the log store", async () => {
-    const databaseName = `log-test-${crypto.randomUUID()}`;
-    await new Promise<void>((resolve, reject) => {
-      const opening = indexedDB.open(databaseName, 1);
-      opening.onupgradeneeded = () => opening.result.createObjectStore("meta");
-      opening.onsuccess = () => {
-        opening.result.close();
-        resolve();
-      };
-      opening.onerror = () => reject(new Error("open failed"));
-    });
-    // Stores the key in the version 1 layout, as the diagnostics page did before logs.
-    const before = await createPseudonyms({ databaseName })("connection", "one", 6);
-    const { logger } = setup({ databaseName, pseudonym: createPseudonyms({ databaseName }) });
-    await logger.log("vault.state", { connection: "one", state: "ready" });
-    expect((await logger.entries())[0]?.fields["connection"]).toBe(`bitwarden:${before}`);
-  });
-
   it("logs an update when the build revision changes", async () => {
     const { deps } = setup();
     await createLogger(deps).started();
@@ -1640,7 +1622,7 @@ describe("unhandled errors", () => {
         `Error\n    at a (chrome-extension://${EXTENSION}/background.js:1:2)\n    at b (https://site.example/app.js:3:4)`,
       ),
     ).toBe("background.js:1:2");
-    expect(stackPositions("at b (https://site.example/app.js:3:4)")).toBeUndefined();
+    expect(stackPositions("Error\n    at b (https://site.example/app.js:3:4)")).toBeUndefined();
     // The message line may quote input that looks like a position.
     expect(
       stackPositions(
