@@ -65,7 +65,12 @@ showing as shown again, and a new login in the same document, as after a pick th
 watches for its own end. The badge, popup and log name the rejection instead of a logout
 (`pateat.login-rejected-asks.v1`, `login.logout` marked `rejected`, `logged-out` with
 `rejected`). A pick marked "make default" is still saved only after `authenticated`, so
-a rejected pick is not kept as the default (part B) (implemented).
+a rejected pick is not kept as the default (part B) (implemented). After a rejection the
+popup's list has no account chosen, and Log in stays disabled until the user picks one,
+so the rejected account is never sent again by a single press; the "make default" box
+keeps its usual state. The owner chose this on 2026-10-13 (13:54 UTC, decision card
+answer 「何も選ばない」) over choosing the first other account or also clearing the box
+(implemented).
 
 Date: 2026-10-11
 
