@@ -1265,6 +1265,18 @@ unique locator gets no target: a login form that needs it is incomplete, and a p
 sign-in field on the signed-in page is reported as unlocated. Saved recipes keep their
 targets until they are generated again.
 
+An `id` holding a random-looking run is demoted rather than skipped: the extractor
+gives it only when no `name`, `data-testid`, `autocomplete` token or text locator is
+unique. Such a run is eight or more lower-case letters and digits that no other letter
+or digit touches and that switch between digits and letters at least twice. Mantine's
+`useId` appends `Math.random().toString(36)` after mount, so a Mantine-built site's
+recipe filled `mantine-4p5f7ku4o`, an ID the next load no longer had (2026-10-13). The
+rule flags about 88% of such IDs; it misses a run shorter than eight characters, one
+that switches fewer than twice, and one beside an upper-case letter. Stable IDs such as
+`step2of3`, `input2fa` or `form-3a7bd3e2` also match, so an element that has no other
+unique locator still gets its `id`, and a form that only such IDs locate stays
+complete.
+
 A text locator is stored in the recipe, unlike observation labels, which only reach
 inference. Redaction keeps email addresses and long numbers out of it, but a button
 such as "Continue as taro_y" still carries an account name, and so can a signed-in

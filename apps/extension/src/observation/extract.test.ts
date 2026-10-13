@@ -365,6 +365,65 @@ describe("extractLoginObservation", () => {
     ]);
   });
 
+  it("locates by an ID holding a random-looking run only when nothing else is unique", () => {
+    // A Mantine-built site (2026-10-13): `useId` appends Math.random().toString(36).
+    page(
+      `<form><input id="mantine-4p5f7ku4o" name="email">
+        <input id="mantine-7pri31duh" type="password" autocomplete="current-password">
+        <button id="mantine-a1b2c3d4e">Sign in</button></form>`,
+    );
+    expect(observe().candidates.map(({ target }) => target)).toEqual([
+      { by: "name", value: "email" },
+      { by: "autocomplete", value: "current-password" },
+      { by: "text", value: "Sign in" },
+    ]);
+    // With no other locator the ID is still used, so the form stays complete.
+    page(
+      `<form><input id="mantine-4p5f7ku4o"><input id="mantine-7pri31duh" type="password">
+        <button id="mantine-a1b2c3d4e" aria-label="Sign in"></button></form>`,
+    );
+    const observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(observation.candidates.map(({ target }) => target)).toEqual(
+      ["mantine-4p5f7ku4o", "mantine-7pri31duh", "mantine-a1b2c3d4e"].map((value) => ({
+        by: "id",
+        value,
+      })),
+    );
+    // Only a run of eight or more lower-case letters and digits that no other letter or
+    // digit touches looks random: not a shorter one, nor one beside an upper-case letter.
+    page(
+      `<form><input id="x-a1b2c3d" name="a"><input id="mantine-4P5f7ku4o" name="b">
+        <input id="mantine4p5f7ku4o" name="c"></form>`,
+    );
+    expect(observe().candidates.map(({ target }) => target)).toEqual([
+      { by: "id", value: "x-a1b2c3d" },
+      { by: "id", value: "mantine-4P5f7ku4o" },
+      { by: "name", value: "c" },
+    ]);
+    // Stable IDs, random-looking (`input2fa`) or not, are used when nothing else is unique.
+    const stable = [
+      "login-form",
+      "username",
+      "user_email",
+      "input2fa",
+      "password-field-1",
+      "loginForm1",
+      "email-address-2024",
+      "j_username",
+      "oauth2login",
+      "web3wallet",
+      "email2fa",
+    ];
+    page(
+      `<form>${stable.map((id) => `<input id="${id}">`).join("")}
+        <button id="signin-btn">Sign in</button></form>`,
+    );
+    expect(observe().candidates.map(({ target }) => target)).toEqual(
+      [...stable, "signin-btn"].map((value) => ({ by: "id", value })),
+    );
+  });
+
   it("locates an input without id or name by its autocomplete token, as on pixiv's login page", () => {
     page(
       `<form><input type="text" autocomplete="username webauthn" placeholder="メールアドレスまたはpixiv ID">

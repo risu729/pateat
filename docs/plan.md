@@ -2173,12 +2173,13 @@ the model saw, the executor still checks a field's `maxlength` and `minlength` b
 fills and the browser's validation, `pattern` included, before it clicks. Text is
 redacted as [architecture](architecture.md#declarative-recipes-and-ai) describes. Each
 target is the first of `id`, `name` and `data-testid` that matches exactly one element,
-as the executor resolves it, skipping an `id` React's `useId` generated, and for an
-input without one, its first `autocomplete` token that is `username`, `email`,
-`current-password`, `one-time-code` or `webauthn` and that no
-other input carries; a button without one gets a text locator when its text matches
-exactly one button and redaction leaves it unchanged, and a script link when its text
-matches no button and exactly one script link. In a login form, a field, button or
+as the executor resolves it, skipping an `id` React's `useId` generated and trying one
+holding a random-looking run such as Mantine's (2026-10-13) last, and for an input
+without one, its first `autocomplete` token that is `username`, `email`,
+`current-password`, `one-time-code` or `webauthn` and that no other input carries; a
+button without one gets a text locator when its text matches exactly one button and
+redaction leaves it unchanged, and a script link when its text matches no button and
+exactly one script link. In a login form, a field, button or
 checkbox without a target, a control the executor cannot act on (a select, radio, text
 area, another input type, or a read-only, disabled, transparent or tiny field) or a
 control in a shadow root makes the observation incomplete, as do more than 48
