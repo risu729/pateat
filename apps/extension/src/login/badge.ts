@@ -150,8 +150,10 @@ export function createLoginBadge(deps: {
   const lastAttempt = new Map<number, string>();
   // What each tab shows, as written; only changed fields are written again.
   const shown = new Map<number, Shown>();
-  // Each tab's last write, so writes for one tab land in order.
+  // Each tab's last write, so writes for one tab land in order, and the tabs whose next
+  // write has not started.
   const writes = new Map<number, Promise<void>>();
+  const waiting = new Set<number>();
   const expiries = new Map<number, ReturnType<typeof setTimeout>>();
   let frame = 0;
   let timer: ReturnType<typeof setInterval> | undefined;
@@ -176,18 +178,26 @@ export function createLoginBadge(deps: {
     };
   }
   function draw(tabId: number): void {
-    const next = wanted(tabId);
-    const last = shown.get(tabId);
-    const details: BadgeDetails = { tabId };
-    for (const key of ["text", "color", "textColor", "title"] as const)
-      if (last?.[key] !== next[key]) details[key] = next[key];
-    if (Object.keys(details).length === 1) return;
-    shown.set(tabId, next);
+    // A write still waiting reads the tab's state when it runs, so it covers this one.
+    if (waiting.has(tabId)) return;
+    waiting.add(tabId);
     const write = (writes.get(tabId) ?? Promise.resolve())
-      .then(() => deps.setBadge(details))
-      // A closed tab refuses; Chrome drops its badge with it.
-      .catch(() => {
-        if (shown.get(tabId) === next) shown.delete(tabId);
+      .then(async () => {
+        waiting.delete(tabId);
+        // Compared with what landed, so a failed write's fields are sent again.
+        const next = wanted(tabId);
+        const last = shown.get(tabId);
+        const details: BadgeDetails = { tabId };
+        for (const key of ["text", "color", "textColor", "title"] as const)
+          if (last?.[key] !== next[key]) details[key] = next[key];
+        if (Object.keys(details).length === 1) return;
+        shown.set(tabId, next);
+        try {
+          await deps.setBadge(details);
+        } catch {
+          // A closed tab refuses; Chrome drops its badge with it.
+          if (shown.get(tabId) === next) shown.delete(tabId);
+        }
       })
       .finally(() => {
         if (writes.get(tabId) === write) writes.delete(tabId);
