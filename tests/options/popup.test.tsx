@@ -85,10 +85,19 @@ async function mount(
   choices: ChoiceClient = noChoice(),
   incognito = false,
 ) {
+  const unwatched = vi.fn<() => void>();
+  let onSettings = () => {};
   const host = {
     currentTab: vi.fn<PopupHost["currentTab"]>().mockResolvedValue({ id: 7, url, incognito }),
     openSettings: vi.fn<PopupHost["openSettings"]>(),
     close: vi.fn<PopupHost["close"]>(),
+    watchSettings: vi.fn<PopupHost["watchSettings"]>((onChange) => {
+      onSettings = onChange;
+      return unwatched;
+    }),
+    unwatched,
+    /** Stands in for a change to the stored settings, as the worker writes them. */
+    settingsChanged: () => onSettings(),
   };
   await render(
     <QueryClientProvider client={createMetadataQueryClient()}>
@@ -222,6 +231,34 @@ test("setting and removing the default keeps the listed accounts", async () => {
   await expect.element(accounts).toHaveLength(3);
   expect(page.getByText("Finding the vault items", { exact: false }).query()).toBeNull();
   expect(client.findSiteAccounts).toHaveBeenCalledOnce();
+});
+
+test("a default saved while the popup is open shows without reopening it", async () => {
+  const { client, current, replace } = store();
+  const host = await mount(client, "https://bank.example/login");
+  const accounts = page.getByRole("group", { name: "Default account" }).getByRole("radio");
+  await expect.element(accounts).toHaveLength(3);
+  await expect.element(page.getByText("No default account.", { exact: false })).toBeVisible();
+  // A login picked with "Make it the default" saves its account once it succeeds.
+  const settings = structuredClone(current().snapshot.settings);
+  settings.siteDefaults.push({
+    origin: "https://bank.example",
+    provider: "dummy",
+    userId: "demo-work-account",
+    itemId: "primary",
+    itemName: "Demo team account",
+    accountName: "Demo work vault",
+  });
+  replace(saved(1, settings));
+  host.settingsChanged();
+  await expect
+    .element(page.getByRole("radio", { name: "Demo team account, Demo work vault, default" }))
+    .toBeChecked();
+  expect(page.getByText("No default account.", { exact: false }).query()).toBeNull();
+  await expect.element(accounts).toHaveLength(3);
+  expect(client.findSiteAccounts).toHaveBeenCalledOnce();
+  cleanup();
+  expect(host.unwatched).toHaveBeenCalledOnce();
 });
 
 test("the switch excludes the site by its exact hostname, and turns it back on", async () => {

@@ -21,7 +21,7 @@ import {
   TriangleAlert,
   UserRound,
 } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Button } from "../options/button";
 import { SETTINGS_QUERY_KEY, type SettingsClient } from "../options/client";
 import { siteAccountOptions } from "../options/site-policy";
@@ -37,6 +37,11 @@ export interface PopupHost {
   openSettings(): void;
   /** Closes the popup, as once a picked login has started. */
   close(): void;
+  /**
+   * Calls back whenever the stored settings change, as when a login saves its picked
+   * account as the default while the popup is open; returns the unsubscribe function.
+   */
+  watchSettings(onChange: () => void): () => void;
 }
 
 type Saved = Extract<SettingsResponse, { ok: true }>;
@@ -275,6 +280,15 @@ export function SiteApp({
     queryFn: async () => (await host.currentTab()) ?? null,
   });
   const settings = useQuery({ queryKey: SETTINGS_QUERY_KEY, queryFn: () => client.getSettings() });
+  // Settings saved elsewhere while the popup is open, such as the default a picked login
+  // saves once it succeeds, show without reopening the popup.
+  useEffect(
+    () =>
+      host.watchSettings(() => {
+        void queryClient.invalidateQueries({ queryKey: SETTINGS_QUERY_KEY, exact: true });
+      }),
+    [host, queryClient],
+  );
   const origin = tab.data === undefined ? undefined : popupOrigin(tab.data?.url);
   const tabId = tab.data?.id;
   // A login refused because several accounts match waits for a pick (ADR 0021).

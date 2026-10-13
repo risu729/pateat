@@ -7,7 +7,8 @@ import {
 } from "@pateat/contracts";
 import { restrictLocalStorage, trustedRecord } from "./storage";
 
-const STORAGE_KEY = "pateat.local-settings.v1";
+/** The `storage.local` key of the worker-owned settings snapshot. */
+export const SETTINGS_STORAGE_KEY = "pateat.local-settings.v1";
 
 /** Metadata providers expose no secrets here; future operations own separate capability checks. */
 export interface MetadataProvider {
@@ -20,6 +21,6 @@ export const dummyMetadataProvider: MetadataProvider = { catalog: DUMMY_VAULT_CA
 export function createLocalSettingsRuntime(provider: MetadataProvider = dummyMetadataProvider) {
   // Restrict even an empty store on worker startup, before options are opened.
   void restrictLocalStorage().catch(() => undefined);
-  const storage: SettingsStorage = trustedRecord(STORAGE_KEY);
+  const storage: SettingsStorage = trustedRecord(SETTINGS_STORAGE_KEY);
   return createSettingsStore(storage, provider.catalog, provider.initialCatalog);
 }
