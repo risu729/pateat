@@ -420,17 +420,20 @@ export function BitwardenSetup({
       await receive(await client.continue(input), epoch);
     });
   }
-  function cancel() {
+  function cancel(stopped = "Setup stopped. Refresh to confirm the latest state.") {
     ++generation.current;
     operation.current = false;
     client.close();
     clearSecrets();
     setChallenge(undefined);
     setBusy(false);
-    setMessage("Setup stopped. Refresh to confirm the latest state.");
+    setMessage(stopped);
     catalogChanged.current();
   }
   function syncConnection(connection: Connection) {
+    if (operation.current) return;
+    // Until the reply, the line says what runs instead of keeping the last load's text.
+    setMessage(`Syncing ${connection.label}…`);
     start(async (epoch) => {
       const granted = await client.requestProviderPermission(connection.environment);
       if (epoch !== generation.current) return;
@@ -466,7 +469,7 @@ export function BitwardenSetup({
   const formOpen = addOpen ?? !connections.length;
   const cancelable = busy || !!challenge || !!password || !!code || !!existing;
   const cancelButton = (id?: string) => (
-    <Button id={id} type="button" variant="outline" disabled={!cancelable} onClick={cancel}>
+    <Button id={id} type="button" variant="outline" disabled={!cancelable} onClick={() => cancel()}>
       Cancel setup
     </Button>
   );
@@ -478,7 +481,15 @@ export function BitwardenSetup({
       actions={
         <div className="flex flex-wrap gap-2">
           {/* While a row's operation runs with the form closed, it can still be stopped. */}
-          {busy && !challenge && !formOpen && cancelButton()}
+          {busy && !challenge && !formOpen && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => cancel("Stopped. Refresh to confirm the latest state.")}
+            >
+              Cancel
+            </Button>
+          )}
           <Button
             id="bitwarden-refresh-connections"
             type="button"
