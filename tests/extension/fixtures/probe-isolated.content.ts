@@ -1,5 +1,6 @@
 import { browser } from "wxt/browser";
 import { defineContentScript } from "wxt/utils/define-content-script";
+import { sendMessage } from "../../../apps/extension/src/messaging/protocol";
 
 export default defineContentScript({
   matches: ["http://127.0.0.1/*"],
@@ -20,13 +21,11 @@ export default defineContentScript({
       )
         return;
       void (async () => {
-        const identity: unknown = await browser.runtime.sendMessage({
-          type: "pateat.test.document",
-        });
+        const identity: unknown = await sendMessage("pateat.test.document");
         let statusRequestAccepted = false;
         try {
           statusRequestAccepted =
-            (await browser.runtime.sendMessage({
+            (await sendMessage("diagnostics", {
               version: 1,
               type: "diagnostics.status",
             })) !== undefined;
@@ -38,7 +37,7 @@ export default defineContentScript({
         let storageReadAccepted = false;
         try {
           settingsRequestAccepted =
-            (await browser.runtime.sendMessage({ version: 1, type: "settings.get" })) !== undefined;
+            (await sendMessage("settings", { version: 1, type: "settings.get" })) !== undefined;
         } catch {
           // Content scripts must not reach settings operations.
         }

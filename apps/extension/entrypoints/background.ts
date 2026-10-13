@@ -1,5 +1,4 @@
 import { BITWARDEN_READ_PROTOCOL } from "@pateat/bitwarden";
-import * as v from "valibot";
 import { browser } from "wxt/browser";
 import { defineBackground } from "wxt/utils/define-background";
 import { createProbeCatalog } from "../src/login/dummy";
@@ -49,8 +48,8 @@ import {
 } from "../src/service/storage";
 import { createServiceTransport } from "../src/service/transport";
 import { createDiagnosticsHandler } from "../src/diagnostics/status";
-import { diagnosticsRequestSchema } from "../src/diagnostics/wire";
 import { createDiagnosticsLog } from "../src/diagnostics/background";
+import { listenForBackgroundMessages, requestType } from "../src/messaging/background";
 import {
   VAULT_SYNC_ALARM,
   VAULT_SYNC_ALARM_MINUTES,
@@ -398,185 +397,62 @@ export default defineBackground(() => {
   browser.runtime.onStartup.addListener(() => {
     void actionIcon.refresh();
   });
-  // The settings page and the toolbar popup edit settings through the same store (ADR 0021).
-  const settingsPages = new Set([
-    browser.runtime.getURL("/options.html"),
-    browser.runtime.getURL("/popup.html"),
-  ]);
-  const fromSettingsPage = (sender: { id?: string; url?: string }) =>
-    sender.id === browser.runtime.id && settingsPages.has(sender.url ?? "");
-
-  browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (
-      setupProbe &&
-      sender.id === browser.runtime.id &&
-      sender.url === new URL("crypto-probe.html", browser.runtime.getURL("/options.html")).href &&
-      message !== null &&
-      typeof message === "object" &&
-      message.type === "setup.probe"
-    ) {
-      void setupProbe(message).then(sendResponse, () =>
-        sendResponse({ ok: false, error: { code: "setup-unavailable" } }),
-      );
-      return true;
-    }
-    if (
-      vaultProbe &&
-      sender.id === browser.runtime.id &&
-      sender.url === new URL("crypto-probe.html", browser.runtime.getURL("/options.html")).href &&
-      message !== null &&
-      typeof message === "object" &&
-      message.type === "vault.probe"
-    ) {
-      void vaultProbe(message).then(sendResponse);
-      return true;
-    }
-    if (
-      cryptoProbe &&
-      sender.id === browser.runtime.id &&
-      sender.url === new URL("crypto-probe.html", browser.runtime.getURL("/options.html")).href &&
-      message !== null &&
-      typeof message === "object" &&
-      message.type === "crypto.probe"
-    ) {
-      void cryptoProbe(message).then(sendResponse);
-      return true;
-    }
-    if (
-      fromSettingsPage(sender) &&
-      message !== null &&
-      typeof message === "object" &&
-      (message.type === "settings.get" || message.type === "settings.save")
-    ) {
-      void settings.handle(message).then((response) => {
-        if (message.type === "settings.save" && response.ok) {
+  listenForBackgroundMessages({
+    settings: (request) =>
+      settings.handle(request).then((response) => {
+        if (requestType(request) === "settings.save" && response.ok) {
           login.settingsChanged("saved");
           passkeys.settingsChanged();
           diagnosticsLog.settingsChanged("saved");
           void recipeSync.sync();
         }
-        return sendResponse(response);
-      });
-      return true;
-    }
-    if (
-      fromSettingsPage(sender) &&
-      message !== null &&
-      typeof message === "object" &&
-      message.type === "settings.site-accounts"
-    ) {
-      void siteAccounts(message).then(sendResponse, () =>
-        sendResponse({ version: 1, ok: false, reason: "unavailable" }),
-      );
-      return true;
-    }
-    if (
-      sender.id === browser.runtime.id &&
-      sender.url === browser.runtime.getURL("/options.html") &&
-      message !== null &&
-      typeof message === "object" &&
-      typeof message.type === "string" &&
-      message.type.startsWith("service.")
-    ) {
-      void service.handle(message).then(
+        return response;
+      }),
+    siteAccounts: (request) =>
+      siteAccounts(request).catch(() => ({ version: 1, ok: false, reason: "unavailable" })),
+    service: (request) => {
+      const type = requestType(request);
+      return service.handle(request).then(
         (response) => {
           // A completed pairing syncs at once; an open settings page keeps a stale cache moving.
           if (response.ok && response.state.kind === "connected") {
-            if (message.type === "service.pair") void recipeSync.sync();
+            if (type === "service.pair") void recipeSync.sync();
             else recipeSync.refreshIfStale();
           }
           // The previous owner's recipes are not kept once their device is gone.
-          if (
-            (message.type === "service.disconnect" || message.type === "service.forget") &&
-            response.ok
-          )
+          if ((type === "service.disconnect" || type === "service.forget") && response.ok)
             void recipeSync.clear();
-          return sendResponse(response);
+          return response;
         },
-        () => sendResponse({ ok: false, error: "storage-unavailable" }),
+        () => ({ ok: false, error: "storage-unavailable" }),
       );
-      return true;
-    }
-    if (
-      sender.id === browser.runtime.id &&
-      sender.url === browser.runtime.getURL("/diagnostics.html") &&
-      v.is(diagnosticsRequestSchema, message)
-    ) {
-      void (
-        message.type === "diagnostics.status" ? diagnostics() : diagnosticsLog.handle(message)
-      ).then(sendResponse);
-      return true;
-    }
-    const chooserReply =
-      sender.id === browser.runtime.id ? passkeyChooser.handle(message, sender) : undefined;
-    if (chooserReply) {
-      void chooserReply.then(sendResponse, () => sendResponse({ ok: false }));
-      return true;
-    }
-
-    if (
-      message !== null &&
-      typeof message === "object" &&
-      typeof message.type === "string" &&
-      message.type.startsWith("login.")
-    ) {
-      void login
-        .handle(message, sender)
-        .then(sendResponse, () => sendResponse({ ok: false, reason: "runtime-unavailable" }));
-      return true;
-    }
-
-    if (
-      passkeyProbe &&
-      sender.id === browser.runtime.id &&
-      sender.url === browser.runtime.getURL("/options.html") &&
-      message !== null &&
-      typeof message === "object" &&
-      typeof message.type === "string" &&
-      message.type.startsWith("passkey.probe.")
-    ) {
-      sendResponse(passkeyProbe.control(message));
-      return false;
-    }
-    if (message !== null && typeof message === "object" && message.type === "passkey.create") {
-      void passkeyCreate
-        .handle(message, sender)
-        .then(sendResponse, () =>
-          sendResponse({ kind: "delegate", reason: "runtime-unavailable" }),
-        );
-      return true;
-    }
-    if (
-      message !== null &&
-      typeof message === "object" &&
-      typeof message.type === "string" &&
-      message.type.startsWith("passkey.")
-    ) {
+    },
+    diagnostics: (request) =>
+      request.type === "diagnostics.status" ? diagnostics() : diagnosticsLog.handle(request),
+    chooser: (request, sender) =>
+      passkeyChooser.handle(request, sender)?.catch(() => ({ ok: false })),
+    login: (request, sender) =>
+      login.handle(request, sender).catch(() => ({ ok: false, reason: "runtime-unavailable" })),
+    passkeyCreate: (request, sender) =>
+      passkeyCreate
+        .handle(request, sender)
+        .catch(() => ({ kind: "delegate", reason: "runtime-unavailable" })),
+    passkeys: (request, sender) => {
       // The runtime holds the open vault while it reads it for a request, but not while a
       // conditional request waits for a login (ADR 0034); a cancel never waits.
-      if (message.type === "passkey.get") vaultSync.refreshIfStale();
-      void passkeys
-        .handle(message, sender)
-        .then(sendResponse, () =>
-          sendResponse({ kind: "delegate", reason: "runtime-unavailable" }),
-        );
-      return true;
-    }
-
-    if (
-      import.meta.env.MODE === "probe" &&
-      sender.id === browser.runtime.id &&
-      sender.tab?.id !== undefined &&
-      sender.url?.startsWith("http://127.0.0.1:") &&
-      message?.type === "pateat.test.document"
-    ) {
-      sendResponse({
-        tabId: sender.tab.id,
-        frameId: sender.frameId,
-        documentId: sender.documentId,
-        active: sender.tab.active,
-      });
-    }
-    return false;
+      if (requestType(request) === "passkey.get") vaultSync.refreshIfStale();
+      return passkeys
+        .handle(request, sender)
+        .catch(() => ({ kind: "delegate", reason: "runtime-unavailable" }));
+    },
+    setupProbe:
+      setupProbe &&
+      ((request) =>
+        setupProbe(request).catch(() => ({ ok: false, error: { code: "setup-unavailable" } }))),
+    vaultProbe,
+    cryptoProbe,
+    passkeyProbe: passkeyProbe?.control,
+    // Logged as the unhandled rejection it was before the library caught it.
+    failed: diagnosticsLog.rejection,
   });
 });

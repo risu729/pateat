@@ -2,9 +2,9 @@ import { test, expect, type Page, type Worker } from "@playwright/test";
 import type { LoginAttemptMetadata, SettingsResponse } from "../../packages/contracts/src/index";
 import { withStoppedLoginWorker, withLoginExtension } from "./login-fixture";
 import { startLoginFixture } from "./login-server";
+import { sendToBackground as send } from "./background-message";
 
 type ProbeChrome = {
-  runtime: { sendMessage: (message: unknown) => Promise<unknown> };
   tabs: { create: (options: { url: string; active: boolean }) => Promise<{ id: number }> };
   storage: {
     local: {
@@ -13,13 +13,6 @@ type ProbeChrome = {
     };
   };
 };
-
-async function send(page: Page, message: unknown): Promise<unknown> {
-  return page.evaluate(async (request) => {
-    const chrome = (globalThis as unknown as { chrome: ProbeChrome }).chrome;
-    return await chrome.runtime.sendMessage(request);
-  }, message);
-}
 
 async function configure(
   options: Page,

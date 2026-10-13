@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 import { accountProfile } from "../../packages/bitwarden/src/__fixtures__/account";
+import { sendToBackground } from "./background-message";
 
 const repository = fileURLToPath(new URL("../../", import.meta.url));
 const probeDirectory = resolvePath(repository, "apps/extension/.output/chrome-mv3-probe");
@@ -121,15 +122,7 @@ export type VaultRequest =
   | { action: "arm"; checkpoint: "before-write" | "after-write" };
 export type VaultResult<T> = { ok: true; data: T } | { ok: false; error: { code: string } };
 export function invokeVault<T>(page: Page, request: VaultRequest): Promise<VaultResult<T>> {
-  return page.evaluate(async (fixed) => {
-    const browser = globalThis as unknown as {
-      chrome: { runtime: { sendMessage(message: unknown): Promise<unknown> } };
-    };
-    return (await browser.chrome.runtime.sendMessage({
-      type: "vault.probe",
-      ...fixed,
-    })) as VaultResult<T>;
-  }, request);
+  return sendToBackground(page, { type: "vault.probe", ...request }) as Promise<VaultResult<T>>;
 }
 
 export async function vaultData<T>(page: Page, request: VaultRequest): Promise<T> {

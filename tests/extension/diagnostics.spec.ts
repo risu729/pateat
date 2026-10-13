@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { v1Email } from "../../packages/bitwarden/src/__fixtures__/crypto";
+import { sendToBackground } from "./background-message";
 import { beginInput, setupProbe, setupRequest } from "./connection-fixture";
 import { withVaultProfile } from "./vault-fixture";
 
@@ -209,18 +210,10 @@ test("a connection appears under a stable pseudonym with its server, and only it
     ])
       expect(
         // oxlint-disable-next-line no-await-in-loop -- one request at a time, each must fail
-        await options
-          .evaluate(async (message) => {
-            const scope = globalThis as unknown as {
-              chrome: { runtime: { sendMessage(value: unknown): Promise<unknown> } };
-            };
-            try {
-              return (await scope.chrome.runtime.sendMessage(message)) !== undefined;
-            } catch {
-              return false;
-            }
-          }, request)
-          .catch(() => false),
+        await sendToBackground(options, request).then(
+          (response) => response !== undefined,
+          () => false,
+        ),
       ).toBe(false);
 
     // The pseudonym key persists, so the same connection keeps its name after a restart.

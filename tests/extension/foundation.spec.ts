@@ -15,16 +15,13 @@ import { fileURLToPath } from "node:url";
 import { PATEAT_EXTENSION_ID, type SettingsResponse } from "../../packages/contracts/src/index";
 import { ACTION_ICON_PATHS } from "../../apps/extension/src/connections/action-icon";
 import { PROBE_PASSKEY } from "../../apps/extension/src/passkeys/probe";
+import { sendToBackground } from "./background-message";
 
 const repository = fileURLToPath(new URL("../../", import.meta.url));
 const extensionDirectory = resolve(repository, "apps/extension/.output/chrome-mv3");
 const probeDirectory = resolve(repository, "apps/extension/.output/chrome-mv3-probe");
 
 type TestChrome = {
-  runtime: {
-    id: string;
-    sendMessage: (message: unknown) => Promise<unknown>;
-  };
   tabs: {
     create: (options: { url: string; active: boolean }) => Promise<{ id: number }>;
     get: (id: number) => Promise<{ url?: string }>;
@@ -268,16 +265,10 @@ test("the toolbar popup edits the active tab's site through the settings store",
     );
     await expect(popup.locator("body")).toHaveCSS("font-size", rootSize);
     await expect(popup.locator("#popup-unsupported")).toHaveCSS("font-size", "15px");
-    const send = (page: Page, message: unknown) =>
-      page.evaluate(
-        (request) =>
-          (globalThis as unknown as { chrome: TestChrome }).chrome.runtime
-            .sendMessage(request)
-            .then(
-              (response) => response ?? "unanswered",
-              () => "unanswered",
-            ),
-        message,
+    const send = (page: Page, message: Record<string, unknown> & { type: string }) =>
+      sendToBackground(page, message).then(
+        (response) => response ?? "unanswered",
+        () => "unanswered",
       );
     const get = (page: Page) => send(page, { version: 1, type: "settings.get" });
     const initial = await get(popup);
@@ -375,43 +366,24 @@ test("installed production offers manual setup with an empty real catalog and re
       "Connections loaded. Add a vault or sign in again below.",
     );
     await expect(page.locator("#diagnostics-link")).toHaveAttribute("href", "diagnostics.html");
-    const saved = await page.evaluate(async () => {
-      const chrome = (globalThis as unknown as { chrome: TestChrome }).chrome;
-      return (await chrome.runtime.sendMessage({
-        version: 1,
-        type: "settings.get",
-      })) as SettingsResponse;
-    });
+    const saved = (await sendToBackground(page, {
+      version: 1,
+      type: "settings.get",
+    })) as SettingsResponse;
     expect(saved.ok).toBe(true);
     if (!saved.ok) throw new Error("Production settings unavailable");
     expect(saved.catalog.connections).toEqual([]);
     expect(saved.snapshot.settings.connections).toEqual([]);
-    const extra = await page.evaluate(async () => {
-      const chrome = (globalThis as unknown as { chrome: TestChrome }).chrome;
-      return (await chrome.runtime.sendMessage({
-        version: 1,
-        type: "settings.get",
-        extra: true,
-      })) as unknown;
-    });
+    const extra = await sendToBackground(page, { version: 1, type: "settings.get", extra: true });
     expect(extra).toMatchObject({ ok: false });
     expect(
       await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze(),
     ).toMatchObject({ violations: [] });
     expect(
-      await page.evaluate(async () => {
-        const chrome = (globalThis as unknown as { chrome: TestChrome }).chrome;
-        try {
-          return (
-            (await chrome.runtime.sendMessage({
-              version: 1,
-              type: "diagnostics.status",
-            })) !== undefined
-          );
-        } catch {
-          return false;
-        }
-      }),
+      await sendToBackground(page, { version: 1, type: "diagnostics.status" }).then(
+        (response) => response !== undefined,
+        () => false,
+      ),
     ).toBe(false);
   });
 });
@@ -555,13 +527,10 @@ test("local policies and account defaults survive a browser restart", async () =
             exact: true,
           }),
         ).toBeChecked();
-        const response = await page.evaluate(async () => {
-          const chrome = (globalThis as unknown as { chrome: TestChrome }).chrome;
-          return (await chrome.runtime.sendMessage({
-            version: 1,
-            type: "settings.get",
-          })) as SettingsResponse;
-        });
+        const response = (await sendToBackground(page, {
+          version: 1,
+          type: "settings.get",
+        })) as SettingsResponse;
         expect(response.ok).toBe(true);
         if (!response.ok) throw new Error("Settings unavailable after restart");
         // Each change was saved as it was made; edits during a save share the next one.

@@ -835,12 +835,15 @@ describe("unhandled errors", () => {
     quoted.stack = `SyntaxError: x\n    at parse (chrome-extension://${EXTENSION}/chunks/background-abc.js:12:345)\n    at https://evil.example/x.js:1:2`;
     listeners.get("unhandledrejection")?.({ reason: quoted } as unknown as Event);
     listeners.get("error")?.({ error: new Error("storage-failed") } as unknown as Event);
-    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(2));
+    // A message handler's failure, which the messaging library caught.
+    log.rejection(new TypeError("password=hunter2"));
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(3));
     const entries = await log.logger.entries();
     expect(entries.map((entry) => entry.fields)).toEqual([
       { source: "rejection", name: "SyntaxError", stack: "background-abc.js:12:345" },
       // This test page is not an extension page, so its positions are left out.
       { source: "error", name: "Error", message: "storage-failed" },
+      { source: "rejection", name: "TypeError" },
     ]);
     expect(JSON.stringify(entries)).not.toContain("hunter2");
     vi.restoreAllMocks();

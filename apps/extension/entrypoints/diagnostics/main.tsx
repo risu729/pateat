@@ -8,6 +8,7 @@ import {
   parseDiagnosticsResponse,
   parseLogsResponse,
 } from "../../src/diagnostics/wire";
+import { sendMessage } from "../../src/messaging/protocol";
 import { followThemePreference } from "../../src/theme";
 // oxlint-disable-next-line import/no-unassigned-import -- Share the settings page stylesheet.
 import "../options/style.css";
@@ -23,7 +24,7 @@ createRoot(root).render(
     <DiagnosticsApp
       client={{
         load: async () =>
-          parseDiagnosticsResponse(await browser.runtime.sendMessage(DIAGNOSTICS_STATUS_REQUEST)),
+          parseDiagnosticsResponse(await sendMessage("diagnostics", DIAGNOSTICS_STATUS_REQUEST)),
         browser: () =>
           readBrowserInfo({
             userAgentData: (navigator as Navigator & { userAgentData?: UserAgentData })
@@ -34,7 +35,7 @@ createRoot(root).render(
         exportLogs: async (includeSites) =>
           parseLogsResponse(
             "diagnostics.logs.export",
-            await browser.runtime.sendMessage({
+            await sendMessage("diagnostics", {
               version: 1,
               type: "diagnostics.logs.export",
               includeSites,
@@ -43,12 +44,12 @@ createRoot(root).render(
         clearLogs: async () =>
           parseLogsResponse(
             "diagnostics.logs.clear",
-            await browser.runtime.sendMessage({ version: 1, type: "diagnostics.logs.clear" }),
+            await sendMessage("diagnostics", { version: 1, type: "diagnostics.logs.clear" }),
           ),
         setDebugLogs: async (enabled) =>
           parseLogsResponse(
             "diagnostics.logs.debug",
-            await browser.runtime.sendMessage({
+            await sendMessage("diagnostics", {
               version: 1,
               type: "diagnostics.logs.debug",
               enabled,

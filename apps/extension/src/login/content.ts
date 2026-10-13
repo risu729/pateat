@@ -39,6 +39,7 @@ import {
   submittedPage,
   type SubmittedPage,
 } from "../page/sign-in-state";
+import { sendMessage } from "../messaging/protocol";
 import { acceptsSecret } from "./inputs";
 import {
   commandSchema,
@@ -485,7 +486,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     entryPage = false,
   ): Promise<unknown> {
     announced = start;
-    const result: unknown = await browser.runtime.sendMessage({
+    const result: unknown = await sendMessage("login", {
       version: 1,
       type: "login.document.ready",
       token,
@@ -787,7 +788,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         ...(detail ? { detail } : {}),
         mutation: mutated ? "possible" : "none",
       });
-      const authorized: unknown = await browser.runtime.sendMessage({
+      const authorized: unknown = await sendMessage("login", {
         version: 1,
         type: "login.operation.authorize",
         token,
@@ -1203,9 +1204,9 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       return;
     submitPath = location.pathname;
     afterSubmit = undefined;
-    void browser.runtime
-      .sendMessage({ version: 1, type: "login.document.submitted", token })
-      .catch(() => undefined);
+    void sendMessage("login", { version: 1, type: "login.document.submitted", token }).catch(
+      () => undefined,
+    );
   };
   document.addEventListener("submit", onSubmit, true);
   browser.runtime.onMessage.addListener(listener);

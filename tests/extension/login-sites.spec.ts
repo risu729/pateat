@@ -1,20 +1,9 @@
-import { expect, test, type BrowserContext, type Page } from "@playwright/test";
+import { expect, test, type BrowserContext } from "@playwright/test";
 import type { SettingsResponse } from "../../packages/contracts/src/index";
 import { withLoginExtension } from "./login-fixture";
+import { sendToBackground as send } from "./background-message";
 
 type Status = { documents: { origin: string; state?: string; reason?: string }[] };
-
-async function send(page: Page, message: unknown): Promise<unknown> {
-  return page.evaluate(
-    async (request) =>
-      (
-        globalThis as unknown as {
-          chrome: { runtime: { sendMessage(value: unknown): Promise<unknown> } };
-        }
-      ).chrome.runtime.sendMessage(request),
-    message,
-  );
-}
 
 /** Synthetic HTTPS sites served by Playwright; no request leaves the test browser. */
 async function serveSites(context: BrowserContext) {
