@@ -285,18 +285,13 @@ for (const { name, start, query, passwordPath } of [
   },
   // Next opens the password page as a new document on another path.
   { name: "new document", start: "/identifier", query: "", passwordPath: "/identifier/password" },
-  // The account input is marked only for an email address, or only named `login`: the
-  // page is offered once the step wait ends (ADR 0016).
+  // The account input is marked only for an email address: the page is offered once the
+  // step wait ends (ADR 0016). The ADR 0031 identifier-page case covers an input named
+  // only `login`.
   {
     name: "email input",
     start: "/identifier",
     query: "?email",
-    passwordPath: "/identifier/password",
-  },
-  {
-    name: "input named login",
-    start: "/identifier",
-    query: "?login",
     passwordPath: "/identifier/password",
   },
 ])

@@ -22,6 +22,7 @@ describe("sameLoginSite", () => {
 
   it("compares addresses and localhost as whole hosts", () => {
     expect(sameLoginSite("https://192.0.2.1", "https://192.0.2.2")).toBe(false);
+    expect(sameLoginSite("https://192.0.2.1", "https://192.0.2.1:8443")).toBe(true);
     expect(sameLoginSite("https://localhost:8443", "https://localhost:9443")).toBe(true);
     expect(sameLoginSite("not a url", "https://example.com")).toBe(false);
   });

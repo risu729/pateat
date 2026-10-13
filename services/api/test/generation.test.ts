@@ -1727,13 +1727,19 @@ describe("page judgement (ADR 0027)", () => {
     ]);
     const origins = (device: Device) =>
       rows(
-        "SELECT origin, path, verdict FROM page_judgements WHERE owner_id = ? ORDER BY origin",
+        "SELECT origin, path, verdict FROM page_judgements WHERE owner_id = ? ORDER BY origin, verdict",
         device.ownerId,
       );
 
     it("judges it apart from the recipe's origin and learns its marker with that origin", async () => {
       const device = await owner();
       const change = await twoPageRecipe(device);
+      // The recipe's own `/home` at the same revision does not count as this page judged.
+      replies.push(judgeReply({ decision: "unclear" }));
+      expect((await complete(device, change.recipeId, 2)).body).toEqual({
+        version: 1,
+        status: "unclear",
+      });
       replies.push(judgeReply({ decision: "signed-in", marker: "logout" }));
       expect((await complete(device, change.recipeId, 2, movedHome)).body).toMatchObject({
         status: "signed-in",
@@ -1762,6 +1768,7 @@ describe("page judgement (ADR 0027)", () => {
       });
       expect(await origins(device)).toEqual([
         { origin: ORIGIN, path: "/home", verdict: "signed-in" },
+        { origin: ORIGIN, path: "/home", verdict: "unclear" },
         { origin: "https://www.example.test", path: "/home", verdict: "signed-in" },
       ]);
       // Its marker now proves the sign-in there, so the page is not judged again.
@@ -1860,10 +1867,10 @@ describe("page judgement (ADR 0027)", () => {
       });
     });
 
-    it("judges its page on a path the recipe signs in on", async () => {
+    it("judges its page on a recipe path when it shows no field to fill", async () => {
       const device = await owner();
       const change = await twoPageRecipe(device);
-      // The recipe's `/password` is its own origin's path; the button alone shows there.
+      // `/password` is a path of the recipe's own origin; only its sign-in button shows here.
       replies.push(judgeReply({ decision: "unclear" }));
       expect(
         (
