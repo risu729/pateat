@@ -519,14 +519,16 @@ than in this repository.
   `password-empty:chooser`; by the owner's decision of 06:32 UTC such a login now
   presses the account's row (or `other`) and stops at, or continues to, the branch's
   password step
-  ([account lists](adr/0036-passkey-after-the-identifier.md#account-lists); local tests
-  only, not yet checked in that Chrome). In that Chrome on `4deb95d` (08:51 UTC) the
+  ([account lists](adr/0036-passkey-after-the-identifier.md#account-lists)). In that
+  Chrome on `4deb95d` (08:51 UTC) the
   row's click moved the tab to `auth.openai.com`, which asked for a passkey; Pateat
   answered it and the tab came back signed in, but the login had ended `left-origin`.
   By the owner's 「完了扱い」 (13:54 UTC), a passkey answered on such a page with the
   login's item now lets the next quiet page complete the login
-  ([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md); local tests only; recheck
-  in the owner's Chrome).
+  ([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md)). Done in that Chrome on
+  `957a53d` (15:08 UTC): after the row's click, `auth.openai.com` held the login
+  (`login.move` `passkey-request` `kept`), Pateat answered its passkey, and the login
+  ended `authenticated` with the account choice saved.
 - Answer Google's passkey step on the Grok Bot's browser. On build `a8350f5`
   (2026-10-12 19:49 UTC) both of the page's requests were logged as `passkey.request`
   `delegate` `invalid-request`, so the browser offered only the phone (hybrid) flow,
