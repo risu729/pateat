@@ -580,11 +580,15 @@ new owner decision:
   is read, so a help or account widget beside it does not take the three texts.
   Buttons and texts in the header and navigation, which the header text already
   carries, never count, and a text that repeats a button's label is dropped. A live
-  region still leaves out its text, as it does near a code field, unless it holds one
-  of those buttons: on the 05:41 UTC recheck no text was sent, because Oracle Cloud
-  wraps each sign-in step, with its text and its Verify button, in an `aria-live`
-  region. Such a region holds the step's own text, and a live region inside it that
-  holds no button, such as a status or error message, is still left out. When every
+  region still leaves out its text, as it does near a code field, with one exception:
+  on the 05:41 UTC recheck no text was sent, because Oracle Cloud wraps each sign-in
+  step, with its text and its Verify button, in an `aria-live="polite"` region. A
+  polite live region with no role of its own, inside the bounding modal or main, that
+  holds one of those buttons is read, since it holds the step's own text. Every other
+  live region is still left out: one that holds none of the buttons, an alert, status,
+  log, marquee or timer even when it holds a button such as a dismiss button, an
+  assertive one, and one around the modal or main, such as a page wrapped whole. When
+  every
   button is left out because its locator shows a username, the texts go with it. The
   judge's instructions name `nearButtons` as untrusted page text. Unlike `nearCode`,
   this text comes from most judged signed-in pages, such as a dashboard: numbers, email
