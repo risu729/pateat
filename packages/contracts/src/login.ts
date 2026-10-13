@@ -273,7 +273,7 @@ export const loginRecipeSchema = v.pipe(
             /**
              * Another origin the marker was learned on (ADR 0022): the page a `password`
              * login's tab moved to right after the submission, of the recipe's site or,
-             * after a TOTP code, of another site. Such a
+             * after a second factor, of another site. Such a
              * marker proves a sign-in only on a page of that origin the tab moved to; one
              * without proves it on the recipe's own origin.
              */
@@ -1005,24 +1005,6 @@ export function passwordStop(
 }
 /** The slot a `totp` handler's fill uses; a binding for it reads the item's TOTP field. */
 export const TOTP_HANDLER_SLOT = "totp";
-/**
- * Whether a `password` login of the recipe may submit a TOTP code on a page of its own:
- * the recipe has a `totp` handler, or a variant has a step that fills only the `totp`
- * slot. Only then may a move to another site stand for its result (ADR 0022).
- */
-export function recipeTypesCode(recipe: LoginRecipe): boolean {
-  return (
-    (recipe.handlers ?? []).some((handler) => handler.kind === "totp") ||
-    passwordVariants(recipe).some((variant) =>
-      variant.steps.some(
-        (step) =>
-          step.kind === "fill" &&
-          step.fields.length === 1 &&
-          step.fields[0]!.slot === TOTP_HANDLER_SLOT,
-      ),
-    )
-  );
-}
 /**
  * The steps a handler runs: a `passkey` handler's click, or a `totp` handler's fill of the
  * code into its field followed by the click on its submit button.

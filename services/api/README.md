@@ -239,11 +239,13 @@ the path ending before it), or `{ check: "plan", reason }` with the plan check's
   `{ version: 1, revision, route, observation, partial? }` for a page an effect step of
   that revision led to, on the recipe's origin
   ([ADR 0027](../../docs/adr/0027-per-account-login-routes.md)) or on another HTTPS
-  origin that a `password` login's tab moved to: of its registrable domain, or of any
-  site for a recipe that may type a TOTP code (a variant has a step that fills only the
-  `totp` slot, or it has a `totp` handler)
-  ([ADR 0022](../../docs/adr/0022-login-attempts-per-tab-and-origin.md); any other
-  origin, or another origin on another route, answers 400). On that other origin the
+  origin that a `password` login's tab moved to: of its registrable domain, or, right
+  after a second factor (a TOTP code, or a passkey answered after the password), of any
+  site; the service cannot see the second factor, so the extension decides when to send
+  such a page
+  ([ADR 0022](../../docs/adr/0022-login-attempts-per-tab-and-origin.md); an origin
+  that is not HTTPS or is a bare public suffix, or another origin on another route,
+  answers 400). On that other origin the
   recipe's paths are not compared with the page, only markers learned there count, a
   `signed-in` marker is stored with that `origin` (or, when it cannot be learned, the
   answer is still `signed-in`), and a `challenge` adds no handler. `partial: true` says

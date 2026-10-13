@@ -290,7 +290,7 @@ export const entryGenerationResultSchema = v.pipe(
  * and judge prompt version so the service can learn a signed-in marker or a handler (ADR
  * 0018, ADR 0027, ADR 0029). The page is on the recipe's origin, or on another HTTPS origin
  * that a `password` login's tab moved to right after the submission: of its site, or of
- * another site right after a TOTP code, for a recipe that may type one (ADR 0022).
+ * another site right after a second factor (ADR 0022).
  */
 export const recipeCompletionRequestSchema = v.strictObject({
   version: v.literal(1),

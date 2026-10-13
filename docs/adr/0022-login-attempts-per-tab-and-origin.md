@@ -57,12 +57,17 @@ choice and held the site in other tabs for 5 minutes. The judge for a page witho
 username was implemented as that choice's second delivery (2026-10-12). Amended again on
 2026-10-13 (01:59 UTC, owner's choice 「コード送信後だけ」 on a decision card; confirmed
 in the thread at 02:25 UTC): the same check also completes a move to another site, but
-only right after a TOTP code was submitted; see "A move to another site after a TOTP
-code" below. Evidence: in the Grok Bot's browser at 22:05:05 UTC on 2026-10-12, Pateat
+only right after a TOTP code was submitted; see "A move to another site after a second
+factor" below. Evidence: in the Grok Bot's browser at 22:05:05 UTC on 2026-10-12, Pateat
 submitted a TOTP handler's code on `login.microsoftonline.com`, the site moved the tab
 to the signed-in `m365.cloud.microsoft` two seconds later, and the login ended
 `left-origin`, so it saved no account choice and held the sign-in page in other tabs for
-5 minutes.
+5 minutes. Amended again on 2026-10-13 (03:13 UTC, owner's choice 「同じ扱い」 on a
+decision card; confirmed in the thread at 03:30 UTC): a passkey Pateat answered as the
+second factor after the password counts like a TOTP code there. Evidence: on Oracle
+Cloud at 02:59 UTC, Pateat answered the security key request that followed the password,
+the tab moved to the signed-in `cloud.oracle.com` of another site 3 seconds later, and
+the login ended `left-origin`.
 
 ## Context
 
@@ -208,29 +213,33 @@ fix them now; the SSO policy itself is recorded separately.
     page of that origin a login's tab moved to, never on the recipe's own origin, and
     markers of the recipe's own origin are never read on the other one. Pateat still
     fills and clicks nothing on that page and never reopens the login URL.
-  - **A move to another site after a TOTP code** (owner's choice at 01:59 UTC on
-    2026-10-13). The same two checks, the username in the header or navigation and
-    otherwise one judgement, also complete a move to an HTTPS origin of another
-    registrable domain, but only when the attempt submitted a TOTP code at most 30
-    seconds before the move: the click on a `totp` handler's or a route's code button,
-    or a code fill that the page may submit by itself
-    ([ADR 0027](0027-per-account-login-routes.md)). The passkey request and the readings
-    count from that code, and the page must show no password field, code input or
-    CAPTCHA, as above. Such a code also lets a move to another origin of the site count
-    when the last effect step was earlier. A move to another site right after the
-    password step, or later than 30 seconds after the code, still ends `left-origin`, as
-    does any answer but `signed-in` or `judged-signed-in`. The service judges a page of
-    another site for the `password` route only, and only for a recipe that may type a
-    code (a variant has a step that fills only the `totp` slot, or it has a `totp`
-    handler); it cannot see when the code was sent, so the extension's 30-second check
-    is the one that limits it. Its judgement row and any marker learned there are keyed
-    by that page's origin, as on another host of the site. The page's text goes to the
-    judge although Pateat was not set up for that site, with its header and navigation
-    and with the usernames, email addresses and numbers hidden as on any judged page;
-    the owner accepted that, and that a rare error page that shows the username may
-    complete the attempt, because the code page showing at all means the password was
-    accepted. No site is named in the code
-    ([ADR 0033](0033-no-site-specific-features.md)).
+  - **A move to another site after a second factor** (owner's choices at 01:59 UTC and
+    03:13 UTC on 2026-10-13). The same two checks, the username in the header or
+    navigation and otherwise one judgement, also complete a move to an HTTPS origin of
+    another registrable domain, but only when the attempt's second factor came at most
+    30 seconds before the move. That is a TOTP code it submitted: the click on a `totp`
+    handler's or a route's code button, or a code fill that the page may submit by
+    itself ([ADR 0027](0027-per-account-login-routes.md)). Or it is a passkey Pateat
+    answered for the login's page after the attempt's last effect step, once a
+    submitting step had followed the attempt's fill of the item's password; a passkey
+    answered without a submitted password, as the sign-in itself, is still decided by
+    the passkey's own site only, as above. The later of the two counts. The passkey
+    request and the readings count from it, and the page must show no password field,
+    code input or CAPTCHA, as above. Such a second factor also lets a move to another
+    origin of the site count when the last effect step was earlier. A move to another
+    site right after the password step, or later than 30 seconds after the second
+    factor, still ends `left-origin`, as does any answer but `signed-in` or
+    `judged-signed-in`. The service judges a page of another site for the `password`
+    route only; a site may ask for a passkey without any recipe step, so it cannot tell
+    from the recipe whether a second factor came, nor see when, and the extension's
+    30-second check is the one that limits it. Its judgement row and any marker learned
+    there are keyed by that page's origin, as on another host of the site. The page's
+    text goes to the judge although Pateat was not set up for that site, with its header
+    and navigation and with the usernames, email addresses and numbers hidden as on any
+    judged page; the owner accepted that, and that a rare error page that shows the
+    username may complete the attempt, because the code page showing at all means the
+    password was accepted, as does a passkey request after it. No site is named in the
+    code ([ADR 0033](0033-no-site-specific-features.md)).
 - **Holding the origin in other tabs** (amended 2026-10-11 and three times on
   2026-10-12). Cookies can be shared across tabs, so another tab's record of the origin
   refuses a new attempt with `origin-busy` until that tab closes or the record has not
@@ -308,6 +317,10 @@ fix them now; the SSO policy itself is recorded separately.
 - **Keep ending a move to another site `left-origin`** (「今のまま」, the rule before
   2026-10-13). Not chosen: on Microsoft the signed-in page is on another site, so the
   login never completed, saved no account choice and held the site in other tabs.
+- **After a passkey second factor, keep ending a move to another site `left-origin`
+  unless it is the passkey's own site** (「今のまま」 on the 03:13 UTC card). Not
+  chosen: on Oracle Cloud the signed-in page after the security key is on another site,
+  and the password was accepted before the passkey was asked for, as before a TOTP code.
 - **After a password submission, keep ending such a move `left-origin`** (the rule
   before 21:18 UTC on 2026-10-12). Not chosen: on モッピー the signed-in page is on
   another host, so the login never completed and held the site in other tabs.

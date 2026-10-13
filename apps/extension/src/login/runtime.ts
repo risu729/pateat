@@ -1235,7 +1235,7 @@ export type LoginReport = (
       notCompleted?: "disabled-left-out" | "password-empty";
       /**
        * The page is on another origin, which a `password` login's tab moved to right after
-       * the submission or a TOTP code (ADR 0022); `origin` is that page's.
+       * the submission or a second factor (ADR 0022); `origin` is that page's.
        */
       moved?: true;
     }
@@ -1505,6 +1505,12 @@ export function createLoginRuntime(
       code?: number;
     }
   >();
+  /**
+   * By tab: the attempt that filled the item's password into its page and whether a
+   * submitting step followed (`submitted`), so a passkey answered after that is a second
+   * factor rather than the sign-in itself (ADR 0022).
+   */
+  const passwordFills = new Map<number, { attemptId: string; submitted: boolean }>();
   /** By tab: the URL of the document the attempt's first fill ran in, for E3. */
   const signInUrls = new Map<number, { attemptId: string; url: string }>();
   /** By tab and origin: the last passkey request of the top document, outside conditional mediation. */
@@ -1513,7 +1519,7 @@ export function createLoginRuntime(
   const passkeyAnswers = new Map<string, { at: number; rpId: string }>();
   /**
    * By tab: the check of a move to another origin after a passkey answer, a password
-   * submission or a TOTP code, while its new top page is read (ADR 0022).
+   * submission or a second factor, while its new top page is read (ADR 0022).
    */
   const siteMoves = new Map<number, Promise<boolean>>();
   /**
@@ -4825,6 +4831,11 @@ export function createLoginRuntime(
         run.delivered = true;
         const { tabId } = run.live.document;
         if (
+          values.some((entry) => entry.secret === "password") &&
+          passwordFills.get(tabId)?.attemptId !== run.metadata.id
+        )
+          passwordFills.set(tabId, { attemptId: run.metadata.id, submitted: false });
+        if (
           operation.step.kind === "click" ||
           (operation.step.kind === "fill" && operation.step.effect !== "prepare")
         ) {
@@ -4840,6 +4851,9 @@ export function createLoginRuntime(
               (handler !== undefined && run.recipe.handlers?.[handler]?.kind === "passkey"),
             ...(codeStep(run.recipe, run.metadata, operation.stepIndex) ? { code: at } : {}),
           });
+          const fill = passwordFills.get(tabId);
+          if (fill?.attemptId === run.metadata.id && loginStepEffect(operation.step) === "submit")
+            fill.submitted = true;
         } else if (codeSubmit) {
           // The page may submit the code by itself once it is in (ADR 0027), and leave
           // before it answers, so the code counts from its delivery; the page the tab moves
@@ -6130,7 +6144,7 @@ export function createLoginRuntime(
       // resubmitting and keeps its record, and this page or its frame may start its own.
       // A frame stands for the tab's page, which left the attempt's origin. A move to the
       // passkey's site right after Pateat answered it, or to another origin of the site
-      // right after a password submission, or of any site right after a TOTP code, to a
+      // right after a password submission, or of any site right after a second factor, to a
       // page that shows the account's username, completes the attempt instead, which only
       // the top page can tell: a frame of the new page waits for that check, or leaves the
       // move to the top page when one may follow.
@@ -7650,6 +7664,7 @@ export function createLoginRuntime(
   }
   browser.tabs.onRemoved.addListener((tabId) => {
     passwordSubmits.delete(tabId);
+    passwordFills.delete(tabId);
     afterSignIn.delete(tabId);
     for (const key of hellos.keys()) if (key.startsWith(`${tabId}:`)) hellos.delete(key);
     for (const [key, live] of documents) if (live.document.tabId === tabId) documents.delete(key);
@@ -7769,8 +7784,8 @@ export function createLoginRuntime(
   }
   /**
    * Whether a top-level `password` attempt's tab moving to `live`, a top page of another
-   * origin of the same site, or of any site after a TOTP code, ended its sign-in (ADR
-   * 0022): the attempt's last effect step or code ran shortly before the move
+   * origin of the same site, or of any site after a second factor, ended its sign-in (ADR
+   * 0022): the attempt's last effect step or second factor ran shortly before the move
    * (`passwordMoveFits`), and that page is quiet and shows the account's username
    * in its header or navigation (`quietMove`, ADR 0029: E2), or, quiet without it, shows a
    * signed-in marker learned on its origin or is judged `signed-in` once (`judgeMove`). A
@@ -8066,8 +8081,10 @@ export function createLoginRuntime(
    * `siteOrigin` complete on the account's username (ADR 0022), if any: the attempt's last
    * effect step, not one that asks for a passkey, delivered at most `SITE_MOVE_MS` ago,
    * with `siteOrigin` an HTTPS origin of the attempt's registrable domain; or, for an HTTPS
-   * origin of another site, its TOTP code submitted at most `SITE_MOVE_MS` ago (owner's
-   * choice on 2026-10-13). A passkey answer after it decides the move instead
+   * origin of any site, its second factor at most `SITE_MOVE_MS` ago: a TOTP code it
+   * submitted (owner's choice on 2026-10-13, 01:59 UTC), or a passkey answered for its page
+   * after its last effect step, once a submitting step followed its fill of the item's
+   * password (03:13 UTC). A passkey answer for the new page's host decides the move instead
    * (`passkeyMoveFits`).
    */
   function passwordMoveFits(
@@ -8080,18 +8097,31 @@ export function createLoginRuntime(
       record.route !== "password" ||
       record.document.frameId !== 0 ||
       effect?.attemptId !== record.id ||
-      effect.passkey ||
       passkeyMoveFits(record, tabId, siteOrigin)
     )
       return undefined;
     const now = Date.now();
-    if (now - effect.at <= SITE_MOVE_MS && loginMoveFits(record.document.origin, siteOrigin, false))
+    if (
+      !effect.passkey &&
+      now - effect.at <= SITE_MOVE_MS &&
+      loginMoveFits(record.document.origin, siteOrigin, false)
+    )
       return effect;
-    const { code } = effect;
-    return code !== undefined &&
-      now - code <= SITE_MOVE_MS &&
+    const answer = passkeyAnswers.get(`${tabId} ${record.document.origin}`);
+    const factors = [
+      ...(effect.code === undefined ? [] : [effect.code]),
+      ...(answer &&
+      answer.at >= effect.at &&
+      passwordFills.get(tabId)?.attemptId === record.id &&
+      passwordFills.get(tabId)?.submitted
+        ? [answer.at]
+        : []),
+    ];
+    const factor = factors.length > 0 ? Math.max(...factors) : undefined;
+    return factor !== undefined &&
+      now - factor <= SITE_MOVE_MS &&
       loginMoveFits(record.document.origin, siteOrigin, true)
-      ? { at: code }
+      ? { at: factor }
       : undefined;
   }
   /**
