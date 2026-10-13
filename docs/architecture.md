@@ -61,6 +61,17 @@ and short-lived operation ID. Page-provided origin strings never authorize a
 secret lookup. MAIN-world bridging needs its own request matching and cancellation
 protocol; TypeScript types and a message nonce alone are not authorization.
 
+Extension pages and content scripts send their requests to the service worker through
+`@webext-core/messaging`, under one key per area (settings, service, diagnostics,
+passkey chooser, login, passkey); the request keeps its own `type`. The worker checks
+the sender before the area's handler runs, and the handler still validates the request
+with Valibot and checks a content script's tab, frame and document. A handler that
+fails answers nothing, so no error the library would serialize reaches the sender. The
+worker's sends to a tab stay raw `tabs.sendMessage` calls addressed by `frameId` and
+`documentId`, which the library's tab send cannot address. The Ports to the settings
+page and the offscreen crypto host, the offscreen document's Worker messages and the
+`window.postMessage` channel between the passkey scripts also stay raw.
+
 DOM-filled values can be read by the receiving page and potentially its debugger.
 The local-only vault boundary does not promise invisibility to Chrome use or a
 compromised destination page.

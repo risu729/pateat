@@ -2513,7 +2513,10 @@ configure WXT entrypoints before acting on Knip findings. Use the approved fast-
 for policy invariants, state transitions and controlled async-ordering tests.
 
 Also approved for M2: TanStack Query for metadata loading/mutations and
-`@webext-core/messaging` for extension communication. Keep dirty form drafts
+`@webext-core/messaging` for extension communication. The library carries the messages
+to the background; the background's sends to a tab's document, Ports and page messages
+stay raw (owner decision, 2026-10-13;
+[development](development.md#dependency-policy)). Keep dirty form drafts
 separate from refreshed data, configure retry/refetch behavior explicitly and
 retain runtime payload/sender authorization. Use the approved XState for the M2
 executor; verify navigation cancellation, timeout handling and interrupted-submit
