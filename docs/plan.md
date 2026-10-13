@@ -1006,10 +1006,13 @@ the export. This adds transient sensitive copies and computation. Invalid blobs
 never fall back to legacy fields; supplied URI checksums are verified even for
 legacy keyless items, while absent legacy checksums remain supported.
 
-Synchronous SDK parsing checks signed COSE and serialized keys before asynchronous
-bindings that can otherwise leave malformed-input calls unresolved. The signed
-COSE check admits structure only; account initialization must still verify the
-actual signature. Key admission can temporarily unwrap/rewrap key material; those
+Synchronous SDK parsing checks serialized keys before asynchronous bindings that can
+otherwise leave malformed-input calls unresolved. Signed COSE objects are not
+pre-checked (owner decision, 2026-10-13): malformed ones inside valid base64 leave
+`initialize_user_crypto` unresolved, and the extension ends that call by terminating
+the Worker (`crypto-failed` from its error event, or `timeout`). Account initialization
+verifies the signatures; `cbor2` then reads the verified security-state version. Key
+admission can temporarily unwrap/rewrap key material; those
 results are discarded and mutable key buffers cleared. This is additional local
 work, not a claim of zero-copy secrets or cancellation of synchronous WASM.
 

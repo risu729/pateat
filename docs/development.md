@@ -658,6 +658,7 @@ use. WXT drives Vite 8 (Rolldown) for the extension build
 | Identifiers | **Approved (2026-10-12) and implemented:** `uuid` for UUIDv7, since Web Crypto has only `randomUUID()` (v4) ([identifiers](architecture.md#identifiers)) | Phase 1 |
 | IndexedDB access | **Approved (2026-10-13) and implemented:** `idb` (Jake Archibald, ISC), a promise wrapper over the native API with the same transaction semantics, replacing the hand-written request and transaction wrappers in the vault, provider-session and diagnostics stores; a transaction still awaits only its own requests, because any other await lets it auto-commit; `idb` opens only the global `indexedDB`, so tests stub that global | Phase 1 |
 | DER signatures | **Approved (2026-10-13) and implemented:** `@noble/curves`, importing only the `DER` helper from `@noble/curves/abstract/der.js` (not `p256`), for the P1363/DER conversion of passkey assertion signatures; signing stays WebCrypto ([ADR 0007](adr/0007-existing-passkey-assertions.md)). Low value (about 50 lines removed): revert if bundle size matters | Phase 1 passkeys |
+| CBOR decoding | **Approved (2026-10-13) and implemented:** `cbor2` reads the version from a Bitwarden signed security state after the SDK has verified it; Pateat no longer pre-checks COSE structure and relies on Worker termination when the SDK's initialization cannot parse its input ([vault adapter](architecture.md#vault-adapter)); `@pateat/bitwarden` declares `"sideEffects": false`, so only the crypto Worker bundles it | M3 Bitwarden adapter |
 | Server configuration | Existing cf with cloudflare.config.ts and Vite | Retain verified build path |
 
 ### Integration conditions (pending candidates remain conditional)
@@ -706,8 +707,9 @@ Permissions Policy checks. OTPAuth covers standard OTP mechanics; test Bitwarden
 Steam compatibility separately and do not advertise HOTP merely because parsing
 supports it. Base64, base64url and hex use the standard `Uint8Array` methods;
 strict decoding (`lastChunkHandling: "strict"`) still needs the input checked for
-whitespace and, when unpadded, padded first. Evaluate `@noble/hashes` and `cbor-x`
-for actual protocol gaps. Do not write crypto/CBOR primitives ourselves, assume all
+whitespace and, when unpadded, padded first. Evaluate `@noble/hashes` for actual
+protocol gaps; CBOR is read with the approved `cbor2`, only from data the Bitwarden
+SDK has already verified. Do not write crypto/CBOR primitives ourselves, assume all
 primitives in a package are audited, or substitute a different KDF for Bitwarden
 Argon2id.
 

@@ -157,11 +157,18 @@ The isolated local-crypto library uses the owner-approved official OSS SDK, with
 HTTP/token provider. It validates supported input shapes, rejects partial decryption and
 binds each session to one connection. V2 account state requires both the signed public
 key and the signed security state; the SDK verifies both signatures during
-initialization before a security-version floor is checked. The pinned SDK's asynchronous
-initialization never settles when it cannot parse those COSE objects and exports no
-synchronous parser, so the library first checks their COSE_Sign1 framing locally
-(`packages/bitwarden/src/cose.ts`, a strict subset of the SDK's parser) and reads the
-version from the payload the SDK has verified. Cipher views withhold the decrypted
+initialization before a security-version floor is checked. The SDK exports no accessor
+for that version, so the library decodes the security state's COSE_Sign1 payload the SDK
+has just verified with `cbor2` (`packages/bitwarden/src/security-state.ts`). The pinned
+SDK's asynchronous `initialize_user_crypto` never settles its Promise when an argument
+fails conversion (malformed COSE, invalid base64, a user ID that is not a UUID): the
+error is thrown from a microtask as an uncaught exception. The library rejects invalid
+base64 and the shapes its input schema checks, but no longer checks COSE structure
+itself, so the library alone does not guarantee that initialization settles. In the
+extension, the uncaught exception reaches the owning Worker's `error` event and the
+offscreen host terminates that Worker and answers `crypto-failed`; a call that neither
+settles nor errors ends at the host's 30-second `timeout`. The bug is in the SDK,
+outside Pateat. Cipher views withhold the decrypted
 cipher, attachment and passkey private keys; only the Worker's passkey signing step
 reads a private key. Ordinary cipher decryption leaves separately encrypted passkeys
 out, so an unreadable passkey makes only passkey use of that item unavailable. Disposal
