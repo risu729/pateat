@@ -869,6 +869,10 @@ still open on 2026-10-11.
   2026-10-13 13:59 UTC): the [survey](research/2026-10-13-primitive-libraries.md)
   covers base64 and hex, CBOR, IndexedDB and deep equality, the areas that need no
   library, and the owner's choices that followed.
+- What sends messages where inside the extension (owner, 2026-10-13 14:04 UTC): the
+  [route map](research/2026-10-13-extension-message-routes.md) lists every route and
+  what `@webext-core/messaging` 4.0.0 can carry; it cannot address a document by
+  `documentId` and has no Port support.
 - Earlier research kept as dated notes:
   [identity provider screens](research/2026-10-11-identity-provider-screens.md) behind
   [ADR 0026](adr/0026-sign-in-through-identity-providers.md);
