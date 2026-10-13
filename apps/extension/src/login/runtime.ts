@@ -7947,11 +7947,10 @@ export function createLoginRuntime(
           extracted.success && !extracted.output.ok ? extracted.output.reason : "invalid-page";
       else if (!parsed.output.complete)
         unsent = (extracted.output.ok && extracted.output.gap) || "incomplete";
-      else if (
-        parsed.output.origin !== document.origin ||
-        parsed.output.path !== signedInPath(live.path)
-      )
-        unsent = "page-changed";
+      // The page may have changed its own URL since it announced (history.pushState), as a
+      // signed-in single-page app does while it loads; no recipe path applies on this
+      // origin, so the page is judged at the path it shows now.
+      else if (parsed.output.origin !== document.origin) unsent = "page-changed";
       else {
         observation = parsed.output;
         disabledLeftOut = extracted.output.ok && extracted.output.disabledLeftOut === true;

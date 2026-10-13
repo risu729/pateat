@@ -10273,6 +10273,19 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         expect(live.generation!.judge.mock.calls[0]![3]).toEqual(portalHome.observation);
       }, 15_000);
 
+      it("judges the page at the path it shows after changing its own URL", async () => {
+        // A signed-in single-page app moves on from the URL it announced (history.pushState).
+        const { h, live } = leaving("verify", async () => ({ verdict: "signed-in" }));
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(clicks("verify")).toBe(1), { timeout: 6_000 });
+        fake.state.signs = quiet;
+        const chat = { ...portalHome, observation: { ...portalHome.observation, path: "/chat/" } };
+        fake.state.extracted = { "signed-in": chat };
+        await move(h);
+        expect(status()).toMatchObject([{ state: "authenticated" }]);
+        expect(live.generation!.judge.mock.calls[0]![3]).toEqual(chat.observation);
+      }, 15_000);
+
       it("ends left-origin when the judge cannot decide", async () => {
         const { h, report } = leaving("verify", async () => ({ verdict: "unclear" }));
         expect(await h.hello()).toEqual({ ok: true });

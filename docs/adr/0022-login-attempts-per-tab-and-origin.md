@@ -211,8 +211,12 @@ fix them now; the SSO policy itself is recorded separately.
     origin and on the other one are judged apart. A `signed-in` page there learns its
     marker with that origin (`completion[].origin`), which proves a sign-in only on a
     page of that origin a login's tab moved to, never on the recipe's own origin, and
-    markers of the recipe's own origin are never read on the other one. Pateat still
-    fills and clicks nothing on that page and never reopens the login URL.
+    markers of the recipe's own origin are never read on the other one. The page is
+    judged at the path it shows when it is described, which may differ from the URL it
+    announced: a signed-in single-page app can change its own URL while it loads, as
+    Microsoft's did in the Grok Bot's browser on 2026-10-13 at 04:33 UTC, where the
+    judgement was dropped as `page-changed`. Pateat still fills and clicks nothing on
+    that page and never reopens the login URL.
   - **A move to another site after a second factor** (owner's choices at 01:59 UTC and
     03:13 UTC on 2026-10-13). The same two checks, the username in the header or
     navigation and otherwise one judgement, also complete a move to an HTTPS origin of
