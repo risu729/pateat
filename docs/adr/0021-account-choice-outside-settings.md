@@ -73,9 +73,9 @@ rejected account again; the "make default" box keeps its usual state. The owner 
 this on 2026-10-13 (13:54 UTC, decision card answer 「何も選ばない」) over choosing the
 first other account or also clearing the box (implemented). The site's other tabs
 that offer a choice while the rejected tab still asks choose no account either (the
-popup's answer carries `rejectedElsewhere`); the owner chose this on 2026-10-13 (14:43 UTC,
-decision card answer 「他のタブもそろえる」) over leaving them on the first account
-(implemented).
+popup's answer carries `rejectedElsewhere`); the owner chose this on 2026-10-13
+(14:43 UTC, decision card answer 「他のタブもそろえる」) over leaving them on the first
+account (implemented).
 
 Date: 2026-10-11
 
