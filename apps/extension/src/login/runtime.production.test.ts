@@ -134,9 +134,12 @@ const fake = vi.hoisted(() => {
     },
     storage: {
       session: {
-        get: async (keys: string[]) =>
+        get: async (keys: string | string[]) =>
           Object.fromEntries(
-            keys.filter((key) => key in state.session).map((key) => [key, state.session[key]]),
+            [keys]
+              .flat()
+              .filter((key) => key in state.session)
+              .map((key) => [key, state.session[key]]),
           ),
         set: async (values: Record<string, unknown>) => {
           Object.assign(state.session, structuredClone(values));
@@ -144,9 +147,12 @@ const fake = vi.hoisted(() => {
       },
       local: {
         setAccessLevel: async () => undefined,
-        get: async (keys: string[]) =>
+        get: async (keys: string | string[]) =>
           Object.fromEntries(
-            keys.filter((key) => key in state.storage).map((key) => [key, state.storage[key]]),
+            [keys]
+              .flat()
+              .filter((key) => key in state.storage)
+              .map((key) => [key, state.storage[key]]),
           ),
         set: async (values: Record<string, unknown>) => {
           Object.assign(state.storage, structuredClone(values));
@@ -265,6 +271,8 @@ const fake = vi.hoisted(() => {
       },
     },
   };
+  // WXT storage reads `chrome` when it loads.
+  Object.assign(globalThis, { chrome: browser });
   return { state, browser };
 });
 vi.mock("wxt/browser", () => ({ browser: fake.browser }));
@@ -7567,8 +7575,8 @@ describe("production login document admission", () => {
           const get = local.get;
           const failing = vi
             .spyOn(local, "get")
-            .mockImplementation(async (keys: string[]) =>
-              keys.includes("pateat.login-entry-blocks.v1")
+            .mockImplementation(async (keys: string | string[]) =>
+              [keys].flat().includes("pateat.login-entry-blocks.v1")
                 ? Promise.reject(new Error("storage unavailable"))
                 : get(keys),
             );
@@ -7972,8 +7980,8 @@ describe("production login document admission", () => {
           const get = local.get;
           const failing = vi
             .spyOn(local, "get")
-            .mockImplementation(async (keys: string[]) =>
-              keys.includes("pateat.login-entry-blocks.v1")
+            .mockImplementation(async (keys: string | string[]) =>
+              [keys].flat().includes("pateat.login-entry-blocks.v1")
                 ? Promise.reject(new Error("storage unavailable"))
                 : get(keys),
             );

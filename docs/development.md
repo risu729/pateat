@@ -97,6 +97,15 @@ installs it: `npm:typescript` has none, and the registry's `oxlint` (the aqua ba
 expects `apps_v` release tags, which oxc stopped using after 1.84.0, so
 `npm:oxlint` stays.
 
+`python` and `uv` run `yamllint`, which mise installs with its `pypi` backend from the
+uv graph that `mise lock` records under `.mise/locks/yamllint/`. Keep `python` on 3.14
+until every package in that graph publishes a wheel for the next minor version.
+PyYAML 6.0.3, which yamllint needs, has wheels only up to cp314, and a locked install is
+wheel-only (`uv sync --frozen --no-build`). With `python` moved to 3.15.0, `mise lock`
+still succeeded but `mise install --locked` failed with "can't be installed because it
+is marked as `--no-build` but has no binary distribution" (checked 2026-10-11 with
+mise 2026.10.7 and uv 0.13.0).
+
 `hk.pkl` imports [risu729/hk-config](https://github.com/risu729/hk-config) at a pinned
 release tag. hk provides the single complete check entrypoint,
 delegating work to mise. Avoid recursion between hk check and mise checks.
@@ -634,7 +643,7 @@ use. WXT drives Vite 8 (Rolldown) for the extension build
 | Async UI state | **Implemented for settings:** TanStack Query for metadata reads and mutations | M2 extension-message queries; M4 sync integration |
 | Attempt lifecycle | **Implemented:** XState for each login attempt (`loginAttemptMachine`), applied with its pure `transition()`; the runtime around it stays application code | M2 declarative executor |
 | Transport | **Approved:** `@webext-core/messaging` around validated contracts | M2 message transport |
-| Storage | **Implemented for settings, connections, service sync and passkey sign-ins:** WXT storage items (`wxt/utils/storage`); `storage.local` is restricted to trusted contexts before an item is defined (`apps/extension/src/storage.ts`); no versioned migrations before release. The login runtime still calls `chrome.storage` directly | M2 persistence integration |
+| Storage | **Implemented:** every Pateat record in `storage.local` and `storage.session` is read and written through WXT storage (`wxt/utils/storage`) with `getItem`/`getItems`/`setItem`/`setItems`/`removeItem`; `storage.local` is restricted to trusted contexts before any read or write (`apps/extension/src/storage.ts`); `defineItem` is not used because its definition reads the value once without a catch; no versioned migrations before release. In the extension's own code only `getBytesInUse` for diagnostics and the access-level call stay on `chrome.storage`. The vault cache, connection sessions and diagnostics log are in IndexedDB | M2 persistence integration |
 | Destination matching | **Selected under delegated authority:** WHATWG URL plus tldts for public/private suffix information | M3 URI matching; M5 RP ID validation |
 | Crypto and OTP | **Approved:** official OSS Bitwarden SDK for local crypto with GPL compliance; **selected under delegated authority:** OTPAuth | M3 Bitwarden adapter; strict format and browser compatibility gates |
 | Service and database | **Approved; implemented for sync:** Hono with Valibot validation through Hono's official `@hono/standard-validator` (`sValidator`, approved and implemented on 2026-10-13; `services/api/src/validation.ts` wraps it so that a failed check answers with a fixed error code and never echoes the rejected input or Valibot issues) and Drizzle for D1, with drizzle-kit (part of the Drizzle approval) generating migrations | M4 enrollment, sync and schema |
@@ -685,7 +694,7 @@ long-lived actor, and stored only as Valibot-validated metadata.
 
 WXT helpers and typed messaging do not replace Valibot validation, browser-sender
 authorization or tab/frame/document checks. Initialize trusted-only storage access
-before item definitions/migrations can access sensitive settings. Preserve
+before any read or write can access sensitive settings. Preserve
 single-writer revision checks, corruption handling and fail-closed policy;
 storage helpers do not provide compare-and-swap by themselves.
 

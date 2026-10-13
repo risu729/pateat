@@ -43,6 +43,10 @@ does not by itself authorize using a stale in-memory session after another write
 has changed the record. Field listing and resolution recheck the active durable
 revision and accepted identity before dispatch and after the SDK response. A
 changed or unreadable record retires the live session and withholds the result.
+The record an accept of the same manager is writing is not another writer's: it
+withholds the result only, and that accept retires the old session when it
+adopts the record or fails after writing it, so a request in flight cannot cancel
+the sync merely by reading the new record.
 
 ## Alternatives and consequences
 
