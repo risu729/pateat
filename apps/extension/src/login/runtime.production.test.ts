@@ -9272,9 +9272,14 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         ),
       );
       expect(await h.hello()).toEqual({ ok: false, reason: "no-route" });
-      // The log names the missing fact, never a value.
+      // The log names the missing fact, never a value, and why the login does not go on to
+      // the passkey: the password is the recipe's first step (ADR 0036).
       expect(report).toHaveBeenCalledWith(
-        expect.objectContaining({ type: "refused", reason: "no-route", detail: "password-empty" }),
+        expect.objectContaining({
+          type: "refused",
+          reason: "no-route",
+          detail: "password-empty:no-advance",
+        }),
       );
       expect(h.fields).not.toHaveBeenCalled();
       expect(executed()).toEqual([]);
@@ -16505,6 +16510,403 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
       });
     });
   });
+
+  describe("for an item without a password, with a passkey (ADR 0036)", () => {
+    /** The generated login of an item whose password is empty, with a passkey. */
+    function keyOnly(service: ReturnType<typeof generation>) {
+      const h = harness(
+        { siteDefaults: [], bindings: [] },
+        {
+          allowedOrigins: [],
+          uris,
+          username: true,
+          custom: [],
+          generation: service,
+          passkeys: vi.fn(async () => ({ passkey: true, discoverable: false })),
+        },
+      );
+      h.recipes.recipe.mockResolvedValue(emailFirst);
+      h.recipes.starts.mockResolvedValue(startsOf([emailFirst.steps[0]!]));
+      const original = h.store.handle.getMockImplementation()!;
+      h.store.handle.mockImplementation(async () => {
+        const response = await original();
+        if (response.ok)
+          for (const field of response.catalog.connections[0]!.items[0]!.fields)
+            if (field.id === "login.password") field.empty = true;
+        return response;
+      });
+      return h;
+    }
+    const passwordRead = (h: ReturnType<typeof harness>) =>
+      h.fields.mock.calls.some(([read]) => read.fieldId === "login.password");
+    /** Next leads to a password page on another path, which the recipe does not fill yet. */
+    const toPasswordPage = () =>
+      onClick(() => {
+        fake.state.observedPath = "/password";
+        fake.state.present = new Set(["password", "login"]);
+        fake.state.signIn = true;
+        fake.state.extracted = { login: passwordPage("/password") };
+      });
+
+    it("continues the recipe on the password page and stops at its password", async () => {
+      toPasswordPage();
+      let h!: ReturnType<typeof harness>;
+      const service = generation(answering(() => h, continuedOn("/password")));
+      h = keyOnly(service);
+      expect(await h.hello()).toEqual({ ok: true });
+      expect(status()![0]).toMatchObject({ stepCount: 2, stopAt: 2, maxSubmissions: 2 });
+      await until(settled("watching"));
+      // The page is sent once, offering the password slot though the item's is empty.
+      expect(service.generate).toHaveBeenCalledTimes(1);
+      expect(service.generate.mock.calls[0]![0].slots).toContainEqual(
+        expect.objectContaining({ id: "password" }),
+      );
+      // The continued revision is taken over; its password fill is the new stop.
+      expect(status()![0]).toMatchObject({
+        recipeRevision: 2,
+        stepIndex: 2,
+        stepCount: 4,
+        stopAt: 2,
+        outcome: "challenge",
+      });
+      expect(executed()).toEqual(["fill:email", "click:next"]);
+      expect(service.judge).not.toHaveBeenCalled();
+      expect(passwordRead(h)).toBe(false);
+    });
+
+    it("answers the password page's request at the continued stop", async () => {
+      let h!: ReturnType<typeof harness>;
+      let decided: ConditionalDecision | undefined;
+      const service = generation(async () => {
+        h.recipes.recipe.mockResolvedValue(continuedOn("/password"));
+        // The password page asks for a passkey by itself while the page is continued.
+        void h.login
+          .conditionalRequest({
+            tabId: 1,
+            origin,
+            documentId: "synthetic-document",
+            signal: new AbortController().signal,
+          })
+          .then((value) => (decided = value));
+        return { outcome: "recipe" as const, recipe: continuedOn("/password") };
+      });
+      toPasswordPage();
+      h = keyOnly(service);
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(() => decided !== undefined);
+      expect(decided).toMatchObject({ kind: "answer", item: { connectionId, itemId } });
+      expect(status()![0]).toMatchObject({
+        state: "reconciling",
+        stepIndex: 2,
+        stepCount: 4,
+        stopAt: 2,
+        submissions: 2,
+      });
+      expect(executed()).toEqual(["fill:email", "click:next"]);
+      expect(passwordRead(h)).toBe(false);
+    });
+
+    it("stops after Continue when the continuation abstains, with no judge call", async () => {
+      toPasswordPage();
+      const service = generation();
+      const h = keyOnly(service);
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("watching"));
+      expect(service.generate).toHaveBeenCalledTimes(1);
+      expect(service.judge).not.toHaveBeenCalled();
+      expect(status()![0]).toMatchObject({
+        recipeRevision: 1,
+        stepIndex: 2,
+        stepCount: 2,
+        stopAt: 2,
+        outcome: "challenge",
+      });
+      expect(executed()).toEqual(["fill:email", "click:next"]);
+      expect(passwordRead(h)).toBe(false);
+    });
+
+    it("runs a passkey button the judge learns on the page after Continue", async () => {
+      const securityKey = target("use-passkey");
+      const learned = parseLoginRecipe({
+        ...emailFirst,
+        revision: 2,
+        handlers: [{ kind: "passkey", path: "/passkey", target: securityKey }],
+      });
+      onClick(() => {
+        // A page that asks for nothing until its button is pressed.
+        fake.state.observedPath = "/passkey";
+        fake.state.present = new Set(["use-passkey"]);
+        fake.state.extracted = {
+          "signed-in": describedPage("/passkey", [
+            { id: "c1", role: "button", target: securityKey, label: "Use a passkey" },
+          ]),
+        };
+      });
+      let judged = 0;
+      const service = generation(undefined, async () => {
+        judged += 1;
+        return judged === 1 ? { verdict: "challenge", recipe: learned } : { verdict: "signed-in" };
+      });
+      const h = keyOnly(service);
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(() => executed().length === 3);
+      expect(executed()).toEqual(["fill:email", "click:next", "click:use-passkey"]);
+      // The handler went in before the stop, which moved along with the plan.
+      expect(status()![0]).toMatchObject({ recipeRevision: 2, stepCount: 3, stopAt: 3 });
+      expect(service.generate).not.toHaveBeenCalled();
+      expect(passwordRead(h)).toBe(false);
+    });
+
+    /**
+     * Such a login with other item fields: custom fields, the built-in TOTP field (`held`
+     * or `empty`), a saved binding, and reports collected. The TOTP field reads a code.
+     */
+    function keyOnlyWith(
+      service: ReturnType<typeof generation>,
+      options: {
+        recipe?: LoginRecipe;
+        custom?: CustomField[];
+        totp?: "held" | "empty";
+        settings?: Partial<LocalSettings>;
+        report?: LoginReport[];
+      } = {},
+    ) {
+      const used = options.recipe ?? emailFirst;
+      const reports = options.report;
+      const h = harness(options.settings ?? { siteDefaults: [], bindings: [] }, {
+        allowedOrigins: [],
+        uris,
+        username: true,
+        custom: options.custom ?? [],
+        generation: service,
+        passkeys: vi.fn(async () => ({ passkey: true, discoverable: false })),
+        ...(reports ? { report: (value: LoginReport) => reports.push(value) } : {}),
+      });
+      h.recipes.recipe.mockResolvedValue(used);
+      h.recipes.starts.mockResolvedValue(startsOf([used.steps[0]!]));
+      const original = h.store.handle.getMockImplementation()!;
+      h.store.handle.mockImplementation(async () => {
+        const response = await original();
+        if (!response.ok) return response;
+        const item = response.catalog.connections[0]!.items[0]!;
+        for (const field of item.fields) if (field.id === "login.password") field.empty = true;
+        if (options.totp)
+          item.fields.push({
+            id: "login.totp-code",
+            label: "Verification code",
+            name: null,
+            kind: "otp",
+            ...(options.totp === "empty" ? { empty: true as const } : {}),
+          });
+        return response;
+      });
+      h.fields.mockImplementation(async ({ fieldId }) =>
+        fieldId === "login.totp-code" ? "012345" : "synthetic-secret",
+      );
+      return h;
+    }
+    const reads = (h: ReturnType<typeof harness>) =>
+      h.fields.mock.calls.map(([read]) => read.fieldId);
+    /** Next leads to a page on `path` showing `present`, described as a sign-in page. */
+    const toPage = (path: string, present: string[]) =>
+      onClick(() => {
+        fake.state.observedPath = path;
+        fake.state.present = new Set(present);
+        fake.state.signIn = true;
+        fake.state.extracted = { login: passwordPage(path) };
+      });
+    /** The service's next revision: these steps appended on `/password`. */
+    const continuedWith = (slots: string[], steps: object[], maxSubmissions = 2) =>
+      parseLoginRecipe({
+        ...emailFirst,
+        revision: 2,
+        slots: ["username", ...slots],
+        steps: [...emailFirst.steps, ...steps],
+        maxSubmissions,
+      });
+    const fillOn = (slot: string, value: string, path = "/password") => ({
+      kind: "fill",
+      path,
+      fields: [{ slot, target: target(value) }],
+    });
+    const logIn = {
+      kind: "click",
+      path: "/password",
+      target: target("login"),
+      purpose: "submit",
+    };
+    /** The values the login's fills typed, by slot. */
+    const typed = () =>
+      fake.state.messages.flatMap((entry) =>
+        entry.type === "login.execute" ? (entry.values ?? []).map((value) => value.slot) : [],
+      );
+
+    it("types a continued TOTP code and stops at the password after it", async () => {
+      toPage("/password", ["code", "password", "login"]);
+      let h!: ReturnType<typeof harness>;
+      const next = continuedWith(
+        ["totp", "password"],
+        [fillOn("totp", "code"), fillOn("password", "password"), logIn],
+      );
+      const service = generation(answering(() => h, next));
+      h = keyOnlyWith(service, { totp: "held" });
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("watching"));
+      expect(status()![0]).toMatchObject({
+        recipeRevision: 2,
+        stepIndex: 3,
+        stepCount: 5,
+        stopAt: 3,
+        outcome: "challenge",
+      });
+      expect(executed()).toEqual(["fill:email", "click:next", "fill:code"]);
+      expect(typed()).toEqual(["username", "totp"]);
+      // The code was read once, for its fill; the password never was.
+      expect(reads(h).filter((fieldId) => fieldId === "login.totp-code")).toHaveLength(1);
+      expect(passwordRead(h)).toBe(false);
+    });
+
+    it("does not take over a continuation that first fills a value the item lacks", async () => {
+      toPage("/password", ["code", "password", "login"]);
+      let h!: ReturnType<typeof harness>;
+      const next = continuedWith(
+        ["totp", "password"],
+        [fillOn("totp", "code"), fillOn("password", "password"), logIn],
+      );
+      const service = generation(answering(() => h, next));
+      h = keyOnlyWith(service, { totp: "empty" });
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("watching"));
+      expect(service.generate).toHaveBeenCalledTimes(1);
+      // The login stays on its own revision, at its stop past Continue.
+      expect(status()![0]).toMatchObject({
+        recipeRevision: 1,
+        stepIndex: 2,
+        stepCount: 2,
+        stopAt: 2,
+        outcome: "challenge",
+      });
+      expect(executed()).toEqual(["fill:email", "click:next"]);
+      expect(reads(h)).not.toContain("login.totp-code");
+      expect(passwordRead(h)).toBe(false);
+    });
+
+    it.each([
+      ["a hidden custom field", { name: "Secret", kind: "hidden" as const }],
+      [
+        "a field Linked to the password",
+        { name: "Secret", kind: "linked" as const, linkedFieldId: "login.password" },
+      ],
+    ])("stops at a continued slot bound to %s, never reading it", async (_label, field) => {
+      toPage("/password", ["password", "login"]);
+      let h!: ReturnType<typeof harness>;
+      const next = continuedWith(["secret"], [fillOn("secret", "password"), logIn]);
+      const service = generation(answering(() => h, next));
+      service.slotFields.mockResolvedValue([{ slot: "secret", field: { custom: "Secret" } }]);
+      h = keyOnlyWith(service, { custom: [field] });
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("watching"));
+      expect(status()![0]).toMatchObject({
+        recipeRevision: 2,
+        stepIndex: 2,
+        stepCount: 4,
+        stopAt: 2,
+        outcome: "challenge",
+      });
+      expect(executed()).toEqual(["fill:email", "click:next"]);
+      // Only the username was read; the bound field never is.
+      expect(new Set(reads(h))).toEqual(new Set(["login.username"]));
+    });
+
+    it("stops past the continued steps again when they fill no password and advance", async () => {
+      // A sign-in page whose continuation only presses another button that advances.
+      toPage("/password", ["password", "login", "use-password"]);
+      let h!: ReturnType<typeof harness>;
+      const next = continuedWith(
+        [],
+        [{ kind: "click", path: "/password", target: target("use-password"), purpose: "advance" }],
+      );
+      // The first page is continued; the page after it is not.
+      const service = generation(async (request) => {
+        if (request.base?.revision !== 1) return { outcome: "abstained", reason: "ambiguous" };
+        h.recipes.recipe.mockResolvedValue(next);
+        return { outcome: "recipe", recipe: next };
+      });
+      h = keyOnlyWith(service);
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("watching"));
+      expect(status()![0]).toMatchObject({
+        recipeRevision: 2,
+        stepIndex: 3,
+        stepCount: 3,
+        stopAt: 3,
+        outcome: "challenge",
+      });
+      expect(executed()).toEqual(["fill:email", "click:next", "click:use-password"]);
+      expect(service.judge).not.toHaveBeenCalled();
+      expect(passwordRead(h)).toBe(false);
+    });
+
+    it.each([
+      [
+        "the password slot bound to another field",
+        { name: "Secret", kind: "text" as const },
+        continuedOn("/password", { revision: 1 }),
+        [
+          { slot: "username", field: "username" },
+          { slot: "password", field: { custom: "Secret" } },
+        ],
+      ],
+      [
+        "a hidden field",
+        { name: "PIN", kind: "hidden" as const },
+        parseLoginRecipe({
+          ...emailFirst,
+          slots: ["username", "pin"],
+          steps: [
+            {
+              kind: "fill",
+              path: "/signin",
+              fields: [
+                { slot: "username", target: target("email") },
+                { slot: "pin", target: target("pin") },
+              ],
+            },
+            emailFirst.steps[1]!,
+          ],
+        }),
+        [
+          { slot: "username", field: "username" },
+          { slot: "pin", field: { custom: "PIN" } },
+        ],
+      ],
+    ])(
+      "refuses a route that reads a password from %s, naming it",
+      async (_label, field, used, slots) => {
+        const reports: LoginReport[] = [];
+        const service = generation();
+        const h = keyOnlyWith(service, {
+          recipe: used,
+          custom: [field],
+          report: reports,
+          settings: {
+            siteDefaults: [],
+            bindings: [{ ...savedBinding, recipeId: used.id, slots } as SavedLoginBinding],
+          },
+        });
+        expect(await h.hello()).toEqual({ ok: false, reason: "no-route" });
+        expect(reports).toContainEqual(
+          expect.objectContaining({
+            type: "refused",
+            reason: "no-route",
+            detail: "password-empty:password-field",
+          }),
+        );
+        expect(executed()).toEqual([]);
+        expect(h.fields).not.toHaveBeenCalled();
+      },
+    );
+  });
 });
 
 describe("the start page's own passkey request (ADR 0034)", () => {
@@ -18610,9 +19012,77 @@ describe("an item without a password, up to its password (ADR 0036)", () => {
       passkeys: vi.fn(async () => ({ passkey: false, discoverable: false })),
     });
     expect(await h.hello()).toEqual({ ok: false, reason: "no-route" });
+    // The log names why it does not go on to a passkey, never a value.
     expect(report).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "refused", reason: "no-route", detail: "password-empty" }),
+      expect.objectContaining({
+        type: "refused",
+        reason: "no-route",
+        detail: "password-empty:no-passkey",
+      }),
     );
+    expect(executed()).toEqual([]);
+    expect(h.fields).not.toHaveBeenCalled();
+  });
+
+  it("still refuses an item without a password in a frame, naming the frame", async () => {
+    const { h, report } = start();
+    // The tab shows another page of the site around the frame that shows the sign-in.
+    const top = "https://login.example/account";
+    fake.state.tabUrls[1] = top;
+    expect(
+      await h.hello({ frameId: 3, documentId: "frame-document", tab: { id: 1, url: top } }),
+    ).toEqual({ ok: false, reason: "no-route" });
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "refused",
+        reason: "no-route",
+        detail: "password-empty:frame",
+      }),
+    );
+    expect(executed()).toEqual([]);
+    expect(h.fields).not.toHaveBeenCalled();
+    expect(status() ?? []).toEqual([]);
+  });
+
+  it("still refuses an item without a password on a chooser's list, naming the chooser", async () => {
+    const { h, report } = start();
+    // The profile's click leads to the password form, so the click is an advance before it.
+    h.recipes.recipe.mockResolvedValue(undefined);
+    h.recipes.chooser.mockResolvedValue({
+      version: 1,
+      id: "gen-synthetic-chooser",
+      revision: 1,
+      origin,
+      chooser: {
+        path: "/signin",
+        other: { by: "text", value: "Sign in with another profile" },
+        afterAccount: parseLoginRecipe({
+          version: 1,
+          id: "gen-synthetic-chooser",
+          revision: 1,
+          origin,
+          slots: ["password"],
+          steps: [
+            {
+              kind: "fill",
+              path: "/signin",
+              fields: [{ slot: "password", target: target("password") }],
+            },
+            { kind: "click", path: "/signin", target: target("login"), purpose: "submit" },
+          ],
+          maxSubmissions: 1,
+        }),
+      },
+    });
+    expect(await h.hello()).toEqual({ ok: false, reason: "no-route" });
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "refused",
+        reason: "no-route",
+        detail: "password-empty:chooser",
+      }),
+    );
+    expect(fake.state.messages.some((entry) => entry.type === "login.choose")).toBe(false);
     expect(executed()).toEqual([]);
     expect(h.fields).not.toHaveBeenCalled();
   });
@@ -18638,8 +19108,13 @@ describe("an item without a password, up to its password (ADR 0036)", () => {
       }),
     );
     expect(await h.hello()).toEqual({ ok: false, reason: "no-route" });
+    // No advance comes before the password, so the log names that.
     expect(report).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "refused", reason: "no-route", detail: "password-empty" }),
+      expect.objectContaining({
+        type: "refused",
+        reason: "no-route",
+        detail: "password-empty:no-advance",
+      }),
     );
     expect(executed()).toEqual([]);
   });
@@ -18817,4 +19292,239 @@ describe("an item without a password, up to its password (ADR 0036)", () => {
       expect(told).toBe(password);
     },
   );
+
+  describe("on a recipe that ends at Continue, its password page not generated yet", () => {
+    /** The email and Continue only, as OpenAI Platform's stored recipe. */
+    const identifierFirst = (maxSubmissions: number) =>
+      parseLoginRecipe({
+        version: 1,
+        id: "synthetic-identifier-first",
+        revision: 1,
+        origin,
+        slots: ["username"],
+        steps: [
+          {
+            kind: "fill",
+            effect: "prepare",
+            path: "/signin",
+            fields: [{ slot: "username", target: target("email") }],
+          },
+          { kind: "click", path: "/signin", target: target("next"), purpose: "advance" },
+        ],
+        maxSubmissions,
+      });
+    /** When Continue was clicked. */
+    let clickedAt: number | undefined;
+    /**
+     * A login of the item on that recipe, with recipe generation, so a continuation could
+     * be asked for; Continue leads to `path`, where `then` runs.
+     */
+    function begin(
+      path: string,
+      then?: (h: ReturnType<typeof harness>) => void,
+      { maxSubmissions = 2, live = {} }: { maxSubmissions?: number; live?: object } = {},
+    ) {
+      const { judge, generation } = judging({ verdict: "unclear" });
+      const started = start({ generation, ...live });
+      started.h.recipes.recipe.mockResolvedValue(identifierFirst(maxSubmissions));
+      clickedAt = undefined;
+      nextLeadsTo(path, () => {
+        clickedAt = Date.now();
+        then?.(started.h);
+      });
+      return { ...started, judge, generation };
+    }
+    const reachedStop = () => status()?.[0]?.["stepIndex"] === 2 && status()?.[0]?.["stopAt"] === 2;
+
+    it("judges the page Continue loads, then stops there when it moves nothing on", async () => {
+      vi.useFakeTimers();
+      const { h, report, judge, generation } = begin("/verify");
+      // The page after Continue shows no sign-in input, only something to describe.
+      fake.state.extracted = { "signed-in": described("/verify") };
+      expect(await h.hello()).toEqual({ ok: true });
+      expect(status()![0]).toMatchObject({ route: "password", stepCount: 2, stopAt: 2 });
+      await until(reachedStop);
+      // Neither asked for a passkey nor continued (no URI matcher here), the page is judged
+      // once the step's wait ran out; an undecided answer takes the login to its stop.
+      expect(Date.now() - clickedAt!).toBeGreaterThanOrEqual(9_500);
+      expect(judge).toHaveBeenCalledTimes(1);
+      await until(() => status()?.[0]?.["state"] === "watching");
+      // No request came: it ends challenge, watched, naming the missing password.
+      expect(status()![0]).toMatchObject({
+        outcome: "challenge",
+        stepIndex: 2,
+        stopAt: 2,
+        submissions: 1,
+      });
+      expect(attempts(report).at(-1)).toMatchObject({
+        state: "watching",
+        stop: "password",
+        reason: "password-empty",
+      });
+      expect(executed()).toEqual([
+        expect.objectContaining({ kind: "fill", path: "/signin" }),
+        expect.objectContaining({ kind: "click", target: target("next") }),
+      ]);
+      expect(report).not.toHaveBeenCalledWith(expect.objectContaining({ type: "refused" }));
+      expect(generation.generate).not.toHaveBeenCalled();
+      expect(passwordRead(h)).toBe(false);
+    });
+
+    it("stops once the step's budget runs out on a page that stays on its path", async () => {
+      vi.useFakeTimers();
+      const { h, judge, generation } = begin("/signin");
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(() => clickedAt !== undefined);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(status()![0]).toMatchObject({ state: "awaiting-result", stepIndex: 1 });
+      await until(reachedStop);
+      expect(Date.now() - clickedAt!).toBeGreaterThanOrEqual(9_500);
+      await until(() => status()?.[0]?.["state"] === "watching");
+      expect(status()![0]).toMatchObject({ outcome: "challenge", stepIndex: 2 });
+      expect(generation.generate).not.toHaveBeenCalled();
+      expect(judge).not.toHaveBeenCalled();
+      expect(passwordRead(h)).toBe(false);
+    });
+
+    it("stops on a request the bridge answered after Continue, as its answer", async () => {
+      vi.useFakeTimers();
+      const { h, generation } = begin("/signin", (login) =>
+        login.login.passkeyAnswered(1, origin, "login.example"),
+      );
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(
+        () => status()?.[0]?.["state"] === "reconciling" && status()?.[0]?.["submissions"] === 2,
+      );
+      expect(Date.now() - clickedAt!).toBeLessThan(5_000);
+      expect(status()![0]).toMatchObject({ stepIndex: 2, stopAt: 2 });
+      expect(executed().map((step) => step.kind)).toEqual(["fill", "click"]);
+      expect(generation.generate).not.toHaveBeenCalled();
+      expect(passwordRead(h)).toBe(false);
+    });
+
+    it("answers a request the page makes after Continue with the item", async () => {
+      vi.useFakeTimers();
+      let decided: (() => ConditionalDecision | undefined) | undefined;
+      const { h, generation } = begin("/signin", (login) => {
+        decided = ask(login);
+      });
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(() => decided?.() !== undefined);
+      expect(Date.now() - clickedAt!).toBeLessThan(5_000);
+      // Recorded as a submission at the stop before the answer went back.
+      expect(status()![0]).toMatchObject({
+        state: "reconciling",
+        stepIndex: 2,
+        stopAt: 2,
+        submissions: 2,
+      });
+      answered(decided!());
+      expect(executed().map((step) => step.kind)).toEqual(["fill", "click"]);
+      expect(generation.generate).not.toHaveBeenCalled();
+      expect(passwordRead(h)).toBe(false);
+    });
+
+    it("answers the request on a recipe whose budget is Continue's one submission", async () => {
+      vi.useFakeTimers();
+      // A recipe of the email and Continue needs only one submission, as a generated one may
+      // record; the answer at the stop is one more.
+      let decided: (() => ConditionalDecision | undefined) | undefined;
+      const { h } = begin(
+        "/signin",
+        (login) => {
+          decided = ask(login);
+        },
+        { maxSubmissions: 1 },
+      );
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(() => decided?.() !== undefined);
+      answered(decided!());
+      expect(status()![0]).toMatchObject({ state: "reconciling", stepIndex: 2, submissions: 2 });
+    });
+
+    it("does not take a request waiting from before Continue as the stop's", async () => {
+      vi.useFakeTimers();
+      const { h } = begin("/signin");
+      const decided = ask(h);
+      // Time passes between the request and the login's first step, as it does on a page.
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(() => clickedAt !== undefined);
+      // Right after Continue the waiting request says nothing about the page it led to.
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(decided()).toBeUndefined();
+      expect(status()![0]).toMatchObject({ state: "awaiting-result", stepIndex: 1 });
+      // At the stop, once the step's budget ran out, it is answered as a waiting one.
+      await until(() => decided() !== undefined);
+      expect(Date.now() - clickedAt!).toBeGreaterThanOrEqual(9_500);
+      answered(decided());
+      expect(status()![0]).toMatchObject({ stepIndex: 2, submissions: 2 });
+    });
+
+    it("holds the answered page while it stays on the path the answer was given on", async () => {
+      vi.useFakeTimers();
+      let decided: (() => ConditionalDecision | undefined) | undefined;
+      const { h } = begin("/verify", (login) => {
+        decided = ask(login);
+      });
+      // The page has something to describe, so it is not taken for one still loading.
+      fake.state.extracted = { "signed-in": described("/verify") };
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(() => decided?.() !== undefined);
+      answered(decided!()).answered(true);
+      const since = Date.now();
+      await until(() => status()?.[0]?.["state"] !== "reconciling");
+      expect(Date.now() - since).toBeGreaterThanOrEqual(14_000);
+      expect(Date.now() - since).toBeLessThan(17_000);
+      expect(status()![0]).toMatchObject({ stepIndex: 2, submissions: 2 });
+      expect(passwordRead(h)).toBe(false);
+    });
+
+    it("holds an answered page that shows nothing yet past the 15 seconds", async () => {
+      vi.useFakeTimers();
+      let decided: (() => ConditionalDecision | undefined) | undefined;
+      const { h, judge } = begin("/verify", (login) => {
+        decided = ask(login);
+      });
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(() => decided?.() !== undefined);
+      answered(decided!()).answered(true);
+      // A loader: nothing a signed-in page's description could carry (ADR 0034's hold).
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(status()![0]).toMatchObject({ state: "reconciling", stepIndex: 2 });
+      expect(judge).not.toHaveBeenCalled();
+    });
+
+    it("does not hold the answered page once it leaves that path", async () => {
+      vi.useFakeTimers();
+      let decided: (() => ConditionalDecision | undefined) | undefined;
+      const { h } = begin("/verify", (login) => {
+        decided = ask(login);
+      });
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(() => decided?.() !== undefined);
+      answered(decided!()).answered(true);
+      const since = Date.now();
+      fake.state.observedPath = "/home";
+      await until(() => status()?.[0]?.["state"] !== "reconciling");
+      expect(Date.now() - since).toBeLessThan(14_000);
+      expect(passwordRead(h)).toBe(false);
+    });
+
+    it("still refuses an item without a passkey, naming it", async () => {
+      const { h, report } = begin("/signin", undefined, {
+        live: { passkeys: vi.fn(async () => ({ passkey: false, discoverable: false })) },
+      });
+      expect(await h.hello()).toEqual({ ok: false, reason: "no-route" });
+      expect(report).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "refused",
+          reason: "no-route",
+          detail: "password-empty:no-passkey",
+        }),
+      );
+      expect(executed()).toEqual([]);
+      expect(status() ?? []).toEqual([]);
+    });
+  });
 });

@@ -1595,6 +1595,49 @@ describe("unhandled errors", () => {
     vi.restoreAllMocks();
   });
 
+  it("keeps why an item without a password does not go on to a passkey (ADR 0036)", async () => {
+    const log = createDiagnosticsLog({
+      build: { version: "0.1.0", revision: "1c42ad3" },
+      settings: async () => {
+        throw new Error("not needed");
+      },
+      recipeCache: async () => undefined,
+      connections: async () => ({ ok: true, kind: "status", connections: [] }),
+      databaseName: `log-test-${crypto.randomUUID()}`,
+      scope: { addEventListener: () => undefined } as never,
+    });
+    for (const level of ["debug", "info", "warn"] as const)
+      vi.spyOn(console, level).mockImplementation(() => undefined);
+    const details = [
+      "no-passkey",
+      "alternatives",
+      "no-password-step",
+      "no-advance",
+      "fills-lacking",
+      "password-field",
+      "chooser",
+      "frame",
+    ].map((why) => `password-empty:${why}`);
+    for (const detail of details)
+      log.login({
+        type: "refused",
+        tabId: 4,
+        origin: "https://login.example",
+        reason: "no-route",
+        detail,
+      });
+    await vi.waitFor(async () =>
+      expect(
+        (await log.logger.entries()).filter((entry) => entry.event === "login.refused"),
+      ).toHaveLength(details.length),
+    );
+    const entries = (await log.logger.entries()).filter(
+      (logged) => logged.event === "login.refused",
+    );
+    expect(entries.map((entry) => entry.fields["detail"])).toEqual(details);
+    vi.restoreAllMocks();
+  });
+
   it("logs a reason once per login-related page and warns for an exception", async () => {
     const log = createDiagnosticsLog({
       build: { version: "0.1.0", revision: "1c42ad3" },

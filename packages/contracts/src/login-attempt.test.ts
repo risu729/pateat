@@ -2895,7 +2895,7 @@ describe("a login that stops before a missing password (ADR 0036)", () => {
     ).toMatchObject({ route: "passkey", stopAt: 2 });
     for (const malformed of [
       { ...attempt, stopAt: 0 },
-      { ...attempt, stopAt: 4 },
+      { ...attempt, stopAt: 5 },
       { ...attempt, stopAt: 1.5 },
       { ...attempt, route: "passkey", variant: undefined, stepCount: 1 },
       { ...attempt, chooser: { click: "entry" } },
@@ -2912,7 +2912,14 @@ describe("a login that stops before a missing password (ADR 0036)", () => {
       expect(() => parseAttemptMetadata(valid)).not.toThrow();
     expect(() => create({ document: { ...top, frameId: 2 } })).toThrow();
     expect(() => create({ chooser: "entry" })).toThrow();
-    expect(() => create({}, 4)).toThrow();
+    expect(() => create({}, 5)).toThrow();
+    // A stop just past the plan's last step, as for a route that fills no password and ends
+    // with an advance, is in the record too.
+    expect(parseAttemptMetadata({ ...attempt, stopAt: 4 })).toMatchObject({
+      stepCount: 4,
+      stopAt: 4,
+    });
+    expect(create({}, 4)).toMatchObject({ stepCount: 4, stopAt: 4 });
     // A passkey route without the variant it came from has no stop to keep.
     expect(() => create({ choice: { route: "passkey" } })).toThrow();
     expect(() => create({ choice: { route: "passkey" } }, null)).not.toThrow();
@@ -3155,6 +3162,229 @@ describe("a login that stops before a missing password (ADR 0036)", () => {
     expect(transitionLoginAttempt(unstopped, toPassword)).toMatchObject({
       state: "ready",
       route: "password",
+    });
+  });
+
+  describe("a stop just past the plan's last step", () => {
+    const { handlers: _handlers, ...base } = emailFirst;
+    /** An identifier-first recipe whose page after the identifier is not generated yet. */
+    const identifier: LoginRecipe = {
+      ...base,
+      slots: ["username"],
+      steps: emailFirst.steps.slice(0, 2),
+      maxSubmissions: 2,
+    };
+    const created = (stopAt: number | null = 2) => create({ recipe: identifier }, stopAt);
+    /** The identifier filled and Next clicked, its result still awaited. */
+    function advancedPast(stopAt: number | null = 2) {
+      let attempt = transitionLoginAttempt(created(stopAt), { type: "RESOLVE" });
+      attempt = transitionLoginAttempt(attempt, {
+        type: "PREPARE",
+        operationId: "fill-one",
+        kind: "fill",
+      });
+      attempt = transitionLoginAttempt(attempt, {
+        type: "MUTATION_INTENT",
+        operationId: "fill-one",
+      });
+      attempt = transitionLoginAttempt(attempt, { type: "OPERATION_OK", operationId: "fill-one" });
+      attempt = transitionLoginAttempt(attempt, {
+        type: "PREPARE",
+        operationId: "next-one",
+        kind: "click",
+        effect: "advance",
+      });
+      attempt = transitionLoginAttempt(attempt, {
+        type: "SUBMIT_INTENT",
+        operationId: "next-one",
+      });
+      return transitionLoginAttempt(attempt, { type: "SUBMITTED", operationId: "next-one" });
+    }
+    const continued = {
+      type: "OBSERVED",
+      result: "continue",
+      document: top,
+    } as const;
+
+    it("goes on from the final advance to the stop, where no step is", () => {
+      const awaiting = advancedPast();
+      expect(awaiting).toMatchObject({
+        state: "awaiting-result",
+        stepIndex: 1,
+        stepCount: 2,
+        stopAt: 2,
+        submissions: 1,
+      });
+      const stopped = transitionLoginAttempt(awaiting, continued);
+      expect(stopped).toMatchObject({ state: "ready", stepIndex: 2, stopAt: 2, submissions: 1 });
+      expect(stopped.operationId).toBeUndefined();
+      // Nothing is issued there.
+      expect(nextLoginOperation(stopped, identifier, top, "fill-two", 1000)).toBeUndefined();
+      // Back at the stop with nothing in flight, as after a restart, it stands there again.
+      expect(transitionLoginAttempt(stopped, continued)).toMatchObject({
+        state: "ready",
+        stepIndex: 2,
+      });
+      const recovered = recoverLoginAttempt(stopped);
+      expect(recovered.state).toBe("reconciling");
+      expect(transitionLoginAttempt(recovered, continued)).toMatchObject({
+        state: "ready",
+        stepIndex: 2,
+        stopAt: 2,
+      });
+      // A document of another tab is not this login's.
+      expect(
+        transitionLoginAttempt(awaiting, { ...continued, document: { ...top, tabId: 8 } }),
+      ).toEqual(awaiting);
+    });
+
+    it("goes on past the final advance only to such a stop", () => {
+      // Without a stop the final advance waits for the recipe to be continued (ADR 0018).
+      const unstopped = advancedPast(null);
+      expect(transitionLoginAttempt(unstopped, continued)).toEqual(unstopped);
+      // A stop that is not just past the advance is never reached by going on.
+      const early = { ...advancedPast(), stopAt: 1 };
+      expect(transitionLoginAttempt(early, continued)).toEqual(early);
+      // Nor is the advance's page taken as the stop before the click was made.
+      const { mutationIntent: _intent, ...unclicked } = advancedPast();
+      const idle = { ...unclicked, submissions: 0 };
+      expect(transitionLoginAttempt(idle, continued)).toEqual(idle);
+    });
+
+    it("ends challenge, watched, at the stop, and counts an answer there", () => {
+      const stopped = transitionLoginAttempt(advancedPast(), continued);
+      expect(
+        transitionLoginAttempt(stopped, { type: "OBSERVED", result: "challenge", document: top }),
+      ).toMatchObject({ state: "watching", outcome: "challenge", stepIndex: 2, stopAt: 2 });
+      const answered = transitionLoginAttempt(stopped, answer);
+      expect(answered).toMatchObject({
+        state: "reconciling",
+        stepIndex: 2,
+        stopAt: 2,
+        operationId: "answer-one",
+        submissions: 2,
+      });
+      // Its page never moves the login on.
+      expect(transitionLoginAttempt(answered, continued)).toEqual(answered);
+      expect(
+        transitionLoginAttempt(answered, {
+          type: "OBSERVED",
+          result: "authenticated",
+          document: top,
+        }),
+      ).toMatchObject({ state: "authenticated" });
+      // An answer before the advance's page showed is refused.
+      const awaiting = advancedPast();
+      expect(transitionLoginAttempt(awaiting, answer)).toEqual(awaiting);
+    });
+
+    it("asks for the recipe to be continued and moves its stop to the password (ADR 0036)", () => {
+      const continuing = { type: "CONTINUING", operationId: "next-one" } as const;
+      const awaiting = advancedPast();
+      expect(awaiting).toMatchObject({ maxSubmissions: 3 });
+      const sent = transitionLoginAttempt(awaiting, continuing);
+      expect(sent).toMatchObject({ continuation: { operationId: "next-one" } });
+      const event = {
+        type: "CONTINUED",
+        recipeRevision: 2,
+        steps: 2,
+        effects: 1,
+        document: top,
+      } as const;
+      // The continued password fill is the new stop; the answer's kept submission goes
+      // into the continued budget, which counts the password's own submission.
+      const moved = transitionLoginAttempt(sent, { ...event, stopAt: 2 });
+      expect(moved).toMatchObject({
+        state: "ready",
+        stepIndex: 2,
+        stepCount: 4,
+        stopAt: 2,
+        maxSubmissions: 3,
+      });
+      expect(nextLoginOperation(moved, identifier, top, "fill-two", 1000)).toBeUndefined();
+      // Continued steps that fill no password and end with an advance keep the stop past
+      // them, and the kept submission with it.
+      expect(transitionLoginAttempt(sent, { ...event, stopAt: 4 })).toMatchObject({
+        state: "ready",
+        stepIndex: 2,
+        stepCount: 4,
+        stopAt: 4,
+        maxSubmissions: 4,
+      });
+      // A login with a stop names its new one, within the continued steps or just past them.
+      for (const refused of [event, { ...event, stopAt: 1 }, { ...event, stopAt: 5 }])
+        expect(transitionLoginAttempt(sent, refused)).toEqual(parseAttemptMetadata(sent));
+      // A login without a stop names none.
+      const plain = transitionLoginAttempt(advancedPast(null), continuing);
+      expect(transitionLoginAttempt(plain, event)).toMatchObject({ state: "ready", stepCount: 4 });
+      expect(transitionLoginAttempt(plain, { ...event, stopAt: 2 })).toEqual(
+        parseAttemptMetadata(plain),
+      );
+      // The kept submission is the answer's alone: no step may spend it.
+      const ready = transitionLoginAttempt(created(), { type: "RESOLVE" });
+      const spent = parseAttemptMetadata({ ...ready, stepIndex: 1, submissions: 2 });
+      expect(nextLoginOperation(spent, identifier, top, "next-two", 1000)).toBeUndefined();
+      expect(
+        nextLoginOperation({ ...spent, submissions: 1 }, identifier, top, "next-two", 1000),
+      ).toBeDefined();
+      // A switch to the passkey route gives it back.
+      expect(
+        transitionLoginAttempt(ready, { type: "ROUTE", route: "passkey", steps: 1 }),
+      ).toMatchObject({ route: "passkey", maxSubmissions: 2 });
+      // A stop inside the plan never asks: its final advance is past the stop.
+      const early = { ...awaiting, stopAt: 1, maxSubmissions: 2 };
+      expect(transitionLoginAttempt(early, continuing)).toEqual(parseAttemptMetadata(early));
+    });
+
+    it("keeps the reserved submission for the answer at the stop alone", () => {
+      // The email and Continue spend the recipe's one submission; the stop keeps one more.
+      const single: LoginRecipe = { ...identifier, maxSubmissions: 1 };
+      const ready = transitionLoginAttempt(create({ recipe: single }, 2), { type: "RESOLVE" });
+      expect(ready).toMatchObject({ stepCount: 2, stopAt: 2, maxSubmissions: 2 });
+      // A click with the recipe's budget spent hits the submission limit; the same click
+      // without the stop may use the second submission.
+      const clicking = transitionLoginAttempt(
+        { ...ready, stepIndex: 1 },
+        { type: "PREPARE", operationId: "next-one", kind: "click", effect: "advance" },
+      );
+      const spent = { ...clicking, submissions: 1 };
+      expect(
+        transitionLoginAttempt(spent, { type: "SUBMIT_INTENT", operationId: "next-one" }),
+      ).toMatchObject({ state: "blocked", outcome: "submission-limit" });
+      const { stopAt: _clickStop, ...plainClick } = spent;
+      expect(
+        transitionLoginAttempt(plainClick, { type: "SUBMIT_INTENT", operationId: "next-one" }),
+      ).toMatchObject({ state: "submit-intent" });
+      // Nor may the page's own submission spend it, for a route step's fill in flight.
+      let filling = transitionLoginAttempt(ready, {
+        type: "PREPARE",
+        operationId: "fill-one",
+        kind: "fill",
+      });
+      filling = transitionLoginAttempt(filling, {
+        type: "MUTATION_INTENT",
+        operationId: "fill-one",
+      });
+      const auto = { type: "AUTO_SUBMITTED", operationId: "auto-one", routeStep: true } as const;
+      expect(transitionLoginAttempt(filling, auto)).toMatchObject({
+        state: "reconciling",
+        submissions: 1,
+      });
+      const spentFill = parseAttemptMetadata({ ...filling, submissions: 1 });
+      expect(transitionLoginAttempt(spentFill, auto)).toEqual(spentFill);
+      const { stopAt: _fillStop, ...plainFill } = spentFill;
+      expect(transitionLoginAttempt(plainFill, auto)).toMatchObject({
+        state: "reconciling",
+        submissions: 2,
+      });
+      // At the stop, the answer takes the kept submission.
+      const stopped = parseAttemptMetadata({ ...ready, stepIndex: 2, submissions: 1 });
+      expect(transitionLoginAttempt(stopped, answer)).toMatchObject({
+        state: "reconciling",
+        stepIndex: 2,
+        submissions: 2,
+        maxSubmissions: 2,
+      });
     });
   });
 });
