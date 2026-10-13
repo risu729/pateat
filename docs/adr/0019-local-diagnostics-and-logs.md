@@ -221,8 +221,9 @@ What is logged, and at which level:
 - On a login-related page, the reason Pateat did nothing: no recipe, no account chosen,
   an excluded site, no site access, another login in the tab, waiting after a logout,
   and so on. `info`, one line per reason per page; the same reason again on the same
-  page is `debug`. A `stale-document` race that a later announcement resolves stays
-  `debug`; the page giving up after its retries is `info`.
+  page is `debug`, also after the worker restarts and every page announces again. A
+  `stale-document` race that a later announcement resolves stays `debug`; the page
+  giving up after its retries is `info`.
 - Decisions: a login started (with its route and variant), an account chosen
   automatically (the candidate count and the `item:` pseudonym only), a logout
   recognized. `info`.

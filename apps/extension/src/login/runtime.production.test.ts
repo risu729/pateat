@@ -1054,6 +1054,9 @@ describe("production login document admission", () => {
     expect(first).toMatchObject({ ok: false });
     expect(await h.hello()).toEqual(first);
     expect(await h.hello({ documentId: "next-page" })).toEqual(first);
+    // A restarted worker reconnects every page: the same page again is still a repeat.
+    const restarted = harness({ siteDefaults: [] }, { report });
+    expect(await restarted.hello({ documentId: "next-page" })).toEqual(first);
     const { reason } = first as { reason: string };
     expect(
       report.mock.calls.map(([entry]) => entry).filter((entry) => entry.type === "refused"),
@@ -1061,6 +1064,7 @@ describe("production login document admission", () => {
       expect.objectContaining({ reason }),
       expect.objectContaining({ reason, repeat: true }),
       expect.not.objectContaining({ repeat: true }),
+      expect.objectContaining({ reason, repeat: true }),
     ]);
   });
   it("logs an exception that stops a login with its name and message", async () => {
