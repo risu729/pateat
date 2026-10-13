@@ -1366,10 +1366,17 @@ the sign-in needs none of them. Numerals written as letters, such as most kanji,
 That page also carries `headerText` ([ADR 0029](adr/0029-local-sign-in-state.md)): the
 visible text of each outermost `header`, `nav`, banner and navigation landmark in
 document order, redacted the same way, with usernames hidden as above, and cut at 1,000
-characters. No other page carries it. That page, when it shows a code field, also
-carries `nearCode`: up to three short texts near the first one, such as a sentence
-naming an authenticator app outside the code form, redacted the same way, with live
-regions, error messages, controls, labels, links and headings left out
+characters. No other page carries it. While that page has an open modal dialog (a shown
+element with `aria-modal="true"` and the role `dialog` or `alertdialog`, or a `<dialog>`
+opened with `showModal()`), an `aria-hidden="true"` or `inert` element beside the
+dialog or one of its ancestors, as modal libraries mark the page behind, no longer hides
+what it holds: the description carries that page's header text, headings, fields and
+possible markers, with the modal's controls ranked right after the header's, and E2
+reads the header the same way (ADR 0029, 2026-10-13). An element the site hid at that
+level for another reason, such as a closed drawer, is read too. That page, when it shows
+a code field, also carries `nearCode`: up to three short texts near the first one, such
+as a sentence naming an authenticator app outside the code form, redacted the same way,
+with live regions, error messages, controls, labels, links and headings left out
 ([ADR 0027](adr/0027-per-account-login-routes.md#implementation-choices)). Login pages
 keep the four-digit rule, since hints such as `4 digits` help map fields. When a login
 page already shows a chosen account and offers a button or link to use another one, the

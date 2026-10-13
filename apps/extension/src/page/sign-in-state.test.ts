@@ -215,4 +215,17 @@ describe("pageSigns", () => {
     expect(pageSigns(document, { username: "ab" }).username).toBe(false);
     expect(pageSigns(document)).not.toHaveProperty("username");
   });
+
+  it("finds the username behind an open modal dialog that hid the page (2026-10-13)", () => {
+    const header = (hider: string) =>
+      `<div id="app" ${hider}><header><a href="/me">risu729</a></header></div>`;
+    const modal = `<div role="dialog" aria-modal="true"><button>Later</button></div>`;
+    for (const hider of ['aria-hidden="true"', "inert"]) {
+      document.body.innerHTML = header(hider) + modal;
+      expect(pageSigns(document, { username: "risu729" }).username).toBe(true);
+      // Without an open modal the hidden header still does not count.
+      document.body.innerHTML = header(hider);
+      expect(pageSigns(document, { username: "risu729" }).username).toBe(false);
+    }
+  });
 });

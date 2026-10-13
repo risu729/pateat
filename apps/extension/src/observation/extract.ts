@@ -20,6 +20,8 @@ import {
   isScriptButton,
   isScriptLink,
   linkText,
+  openModals,
+  readBehindModal,
   renderedText,
   shown,
 } from "../page/text";
@@ -1197,16 +1199,23 @@ export function extractEntryObservation(
 }
 
 /**
- * Controls in a page header or navigation first, then the rest of the page, such as
- * carousels, ads and news tabs, each in document order: on a signed-in page they may show
- * the account, and on a page without a login form they hold its sign-in entry (ADR 0031).
- * The rank reads only the page's structure, never words of one language. `observe` lists
- * the controls kept in document order again.
+ * Controls in a page header or navigation first, then those inside one of `modals`, then
+ * the rest of the page, such as carousels, ads and news tabs, each in document order: on
+ * a signed-in page they may show the account, and on a page without a login form they
+ * hold its sign-in entry (ADR 0031). An open modal's few controls, read on a signed-in
+ * page, come before the page behind it, so the judge still sees the modal on a long
+ * page. The rank reads only the page's structure, never words of one language. `observe`
+ * lists the controls kept in document order again.
  */
-function byLandmark<Entry extends { draft: Draft }>(entries: readonly Entry[]): Entry[] {
+function byLandmark<Entry extends { draft: Draft }>(
+  entries: readonly Entry[],
+  modals: readonly Element[] = [],
+): Entry[] {
+  const rank = (element: Element) =>
+    element.closest(landmarks) ? 2 : modals.some((modal) => modal.contains(element)) ? 1 : 0;
   // A stable sort keeps document order within each rank.
   return entries
-    .map((entry) => ({ entry, rank: entry.draft.element.closest(landmarks) ? 1 : 0 }))
+    .map((entry) => ({ entry, rank: rank(entry.draft.element) }))
     .sort((left, right) => right.rank - left.rank)
     .map(({ entry }) => entry);
 }
@@ -1247,11 +1256,17 @@ function mayBeSignIn(input: HTMLInputElement): boolean {
  * executor looks for the completion marker the same way. A path segment that may carry a
  * token is sent as `REDACTED_PATH_SEGMENT` (`signedInPath`). A page with a code field
  * also carries up to three texts near the first one (`nearCodeTexts`), hidden as the
- * rest of the page.
+ * rest of the page. While a modal dialog is open, the page behind it that the modal's
+ * script marked `aria-hidden` or `inert` is read as shown (`readBehindModal`), and the
+ * modal's controls rank right after the header's.
  */
 export function extractSignedInObservation(
   document: Document = globalThis.document,
 ): ObservationResult {
+  return readBehindModal(document, () => describeSignedIn(document));
+}
+
+function describeSignedIn(document: Document): ObservationResult {
   const location = document.location;
   if (!location) return { ok: false, reason: "unsupported-page" };
 
@@ -1309,7 +1324,7 @@ export function extractSignedInObservation(
     )
   )
     gap ??= "unlocated-field";
-  const ranked = byLandmark(located(markers));
+  const ranked = byLandmark(located(markers), openModals(document));
   const chosen = [
     ...fieldsFound.slice(0, maxCandidates),
     ...ranked.slice(0, Math.max(0, maxCandidates - fieldsFound.length)),

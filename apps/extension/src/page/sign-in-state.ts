@@ -1,5 +1,5 @@
 import { visible } from "./code-submission";
-import { collapseText, renderedText } from "./text";
+import { collapseText, readBehindModal, renderedText } from "./text";
 
 // The page signs of ADR 0029, read after an effect step that no check explained. Nothing
 // read here, including the username compared with the header, leaves the content script:
@@ -224,14 +224,20 @@ export function showsCaptcha(document: Document): boolean {
   });
 }
 
-/** E2: the username, ignoring case, as a whole word of the header or navigation text. */
+/**
+ * E2: the username, ignoring case, as a whole word of the header or navigation text,
+ * read behind an open modal dialog too, as the signed-in page's description is.
+ */
 function showsUsername(document: Document, username: string): boolean {
   const name = username.normalize("NFKC").trim().toLowerCase();
   if (name.length < minUsernameLength) return false;
-  return [...document.querySelectorAll(landmarkSelector)].some((landmark) => {
-    const text = (renderedText(landmark, landmarkReadLimit, { everyElement: true }) ?? "")
-      .normalize("NFKC")
-      .toLowerCase();
+  const texts = readBehindModal(document, () =>
+    [...document.querySelectorAll(landmarkSelector)].map(
+      (landmark) => renderedText(landmark, landmarkReadLimit, { everyElement: true }) ?? "",
+    ),
+  );
+  return texts.some((raw) => {
+    const text = raw.normalize("NFKC").toLowerCase();
     for (let at = text.indexOf(name); at >= 0; at = text.indexOf(name, at + 1)) {
       const before = text.slice(0, at).at(-1) ?? " ";
       const after = text[at + name.length] ?? " ";

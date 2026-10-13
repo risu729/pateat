@@ -24,6 +24,72 @@ const visibility = (opacity: boolean) => ({
   checkVisibilityCSS: true,
 });
 
+const hiders = "[inert], [aria-hidden='true']";
+
+/**
+ * The elements an open modal dialog's script hid from assistive technology, set only
+ * while {@link readBehindModal} runs.
+ */
+let behindModal: ReadonlySet<Element> | undefined;
+
+/**
+ * The open modal dialogs of `document`: each shown element with `aria-modal="true"` and
+ * the role `dialog` or `alertdialog` (a `<dialog>` has that role itself), and each
+ * `<dialog>` opened with `showModal()`.
+ */
+export function openModals(document: Document): HTMLElement[] {
+  return [...document.querySelectorAll("[aria-modal='true' i], dialog")].filter(
+    (element): element is HTMLElement =>
+      (element.matches(":modal") ||
+        (element.getAttribute("aria-modal")?.trim().toLowerCase() === "true" &&
+          (element instanceof HTMLDialogElement ||
+            /^(?:alert)?dialog$/u.test(
+              element.getAttribute("role")?.trim().toLowerCase().split(/\s+/u)[0] ?? "",
+            )))) &&
+      shown(element),
+  );
+}
+
+/**
+ * Runs `read` with the page behind `document`'s open modal dialogs counted as shown: an
+ * `aria-hidden="true"` or `inert` element beside a modal or beside one of its ancestors
+ * no longer hides what it holds. Modal libraries mark those elements while a modal is
+ * open (Radix and `aria-hidden`, React Aria, Headless UI, MUI), but the page still
+ * renders behind the overlay, as the signed-in page did behind a promotion on
+ * 2026-10-13 (ADR 0029). Such an element hidden for another reason, such as a closed
+ * drawer beside the page's root, counts too; an attribute inside the page or the modal
+ * still hides. Nothing changes without an open modal. Only the signed-in page's
+ * description and E2 read the page this way.
+ */
+export function readBehindModal<Result>(document: Document, read: () => Result): Result {
+  const outer = behindModal;
+  const modals = openModals(document);
+  const hidden = new Set<Element>();
+  for (const modal of modals)
+    for (let ancestor = modal.parentElement; ancestor; ancestor = ancestor.parentElement)
+      for (const sibling of ancestor.children) if (sibling.matches(hiders)) hidden.add(sibling);
+  behindModal = hidden.size > 0 ? hidden : outer;
+  try {
+    return read();
+  } finally {
+    behindModal = outer;
+  }
+}
+
+/**
+ * Whether an `inert` or `aria-hidden="true"` element hides `element`, leaving out those
+ * an open modal hid while {@link readBehindModal} runs.
+ */
+function hiddenByAttribute(element: Element): boolean {
+  for (
+    let hider = element.closest(hiders);
+    hider;
+    hider = hider.parentElement?.closest(hiders) ?? null
+  )
+    if (!behindModal?.has(hider)) return true;
+  return false;
+}
+
 /**
  * Rendered: not hidden by CSS, a closed `<details>` or an attribute (opacity optional).
  * An element with `display: contents` has no box of its own, so `checkVisibility` is
@@ -36,7 +102,8 @@ export function shown(element: Element, opacity = true): element is HTMLElement 
   if (
     !(element instanceof HTMLElement) ||
     !element.isConnected ||
-    element.closest("[hidden], [inert], [aria-hidden='true']")
+    element.closest("[hidden]") ||
+    hiddenByAttribute(element)
   )
     return false;
   if (element.checkVisibility(visibility(opacity))) return true;
