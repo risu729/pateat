@@ -401,8 +401,14 @@ than in this repository.
     sent, and whether the tab's last login is running, signed in, or why it did not
     start or succeed, with a link to the diagnostics page. It is always shown; a setting
     to hide it comes later.
-  - Next: check in installed Chrome that Windows draws the braille frames, and try the
-    "This page" section on a site with a recipe and one without.
+  - Confirmed in installed Chrome on main f5df675 (reloaded 2026-10-13 22:26 UTC): on
+    Netflix, whose only item has neither a password nor a passkey, the badge showed a
+    red `!` titled `no-route: password-empty:no-passkey` and the "This page" lines; on
+    a site without a recipe the section went from "This site has no recipe yet." and
+    "The AI is making a recipe…" to "The AI made a recipe…"; GitHub's badge worked;
+    and "Open the detailed log" opened the diagnostics page.
+  - Next: check in installed Chrome that Windows draws the braille frames (not boxes),
+    and see the yellow `!` and the amber choice count once.
 - Done: `https://my.jcb.co.jp/Login` was generated again after delivery 3. The recipe
   revision the Grok Bot computer's device generated on 2026-10-12 (13:45 UTC) names both
   routes: the password steps and the passkey button on `/Login`, read from D1 at 14:26
