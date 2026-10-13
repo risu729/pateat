@@ -4641,6 +4641,36 @@ describe("production login document admission", () => {
             starts: [signinStart],
           });
         });
+        it("keeps the tab's login when the replacement starts a stopped worker", async () => {
+          const h = harness(
+            {},
+            { allowedOrigins: [], uris: async () => ({ ok: true, data: both }) },
+          );
+          expect(await h.hello()).toEqual({ ok: true });
+          await vi.waitFor(() => expect(attempts()).toMatchObject([{ state: "authenticated" }]));
+          // The worker had stopped; only the tab's new ID is open when it starts again.
+          fake.state.replaced.length = 0;
+          fake.state.tabUrls[2] = fake.state.pageUrl;
+          const query = fake.browser.tabs.query;
+          fake.browser.tabs.query = async () => [{ id: 2 }] as never;
+          try {
+            const restarted = harness(
+              {},
+              { allowedOrigins: [], uris: async () => ({ ok: true, data: both }) },
+            );
+            for (const listener of fake.state.replaced) listener(2, 1);
+            await vi.waitFor(() =>
+              expect(attempts()).toMatchObject([
+                { state: "authenticated", document: { tabId: 2 } },
+              ]),
+            );
+            expect(
+              await restarted.hello({ tab: { id: 2 }, documentId: "restored" }, false),
+            ).toEqual({ ok: false, reason: "logged-in", starts: [signinStart] });
+          } finally {
+            fake.browser.tabs.query = query;
+          }
+        });
         it("replaces the saved default with a pick marked as the default", async () => {
           const h = await loggedOut();
           expect(await pick(h, { documentId: "signed-out", makeDefault: true })).toEqual({

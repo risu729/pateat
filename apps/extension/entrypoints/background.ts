@@ -242,7 +242,7 @@ export default defineBackground(() => {
   const signedTabs = createSignedTabs(browser.storage.session, (listener) =>
     browser.tabs.onRemoved.addListener(listener),
   );
-  // A tab Chrome discarded comes back with a new ID; its sign-ins stay with it.
+  // A tab Chrome discards to save memory gets a new ID; its sign-ins stay with it.
   browser.tabs.onReplaced.addListener((added, removed) => {
     void signIns.replaced(added, removed).catch(() => {});
     void signedTabs.replaced(added, removed).catch(() => {});

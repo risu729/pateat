@@ -1703,6 +1703,11 @@ export function createLoginRuntime(
   >();
   /** By `recordKey`, in the order they were last written. */
   const persisted = new Map<string, LoginAttemptMetadata>();
+  /**
+   * Tabs Chrome replaced, by their old ID: their records move to the new ID once loaded,
+   * so the startup check keeps them although their old ID is no longer open.
+   */
+  const replacedTabs = new Set<number>();
   const picked = new Map<number, PickedAccount>();
   const pending = new Map<number, PendingChoice>();
   /** By `recordKey`: tabs that logged out of an origin and have not picked an account yet. */
@@ -1915,7 +1920,8 @@ export function createLoginRuntime(
       const openTabs = await browser.tabs.query({});
       const liveIds = new Set(openTabs.map((tab) => tab.id));
       for (const [key, metadata] of persisted)
-        if (!liveIds.has(metadata.document.tabId)) persisted.delete(key);
+        if (!liveIds.has(metadata.document.tabId) && !replacedTabs.has(metadata.document.tabId))
+          persisted.delete(key);
       await browser.storage.local.set({ [STORAGE_KEY]: [...persisted.values()] });
     } catch {
       storageHealthy = false;
@@ -8401,10 +8407,12 @@ export function createLoginRuntime(
     if (ended) reviewRequests();
   }
   browser.tabs.onRemoved.addListener((tabId) => forgetTab(tabId));
-  // Chrome gives a tab it discarded to save memory a new ID when it shows it again. It is
-  // the same tab to the user: what the tab did moves to the new ID, as if its page had
-  // reloaded, and the gone page is forgotten as on a close (ADR 0021).
+  // Chrome gives a tab a new ID when it discards it to save memory. It is the same tab to
+  // the user: what the tab did moves to the new ID, and the gone page is forgotten as on
+  // a close (ADR 0021). The event may be what starts the worker.
   browser.tabs.onReplaced.addListener((added, removed) => {
+    if (added === removed) return;
+    replacedTabs.add(removed);
     const moved = (key: string) =>
       key.startsWith(`${removed} `) ? `${added}${key.slice(String(removed).length)}` : key;
     void sessionLoaded.then(async () => {
@@ -8418,8 +8426,10 @@ export function createLoginRuntime(
           }
       const press = entryPresses.get(removed);
       if (press) {
+        const kept = { ...press, tabId: added };
         entryPresses.delete(removed);
-        entryPresses.set(added, { ...press, tabId: added });
+        entryPresses.set(added, kept);
+        if (!kept.checked) armEntryTimer(kept);
         changed = true;
       }
       // A pick that started its login stays with that login; one for the gone page does not.
@@ -8445,6 +8455,7 @@ export function createLoginRuntime(
             });
             changed = true;
           }
+        replacedTabs.delete(removed);
         if (changed) await browser.storage.local.set({ [STORAGE_KEY]: [...persisted.values()] });
         return undefined;
       })
