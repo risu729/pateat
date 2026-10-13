@@ -194,7 +194,15 @@ These rules work from any account, in any order.
   - `signed-in` stores the completion, if there is none.
   - `challenge` naming a security-key or passkey sign-in button adds a `passkey`
     handler. A button that registers or adds a passkey ("Add a passkey", "Set up") is
-    refused, and so is a page that shows the completion marker.
+    refused, and so is a page that shows the completion marker. On a page that asks only
+    to verify with a security key, passkey or FIDO authenticator, even with a link to
+    other methods, the button that starts that check counts whatever its label says,
+    unless it registers one. Oracle Cloud's
+    "FIDO Authenticator Verification" page starts its WebAuthn call only from a button
+    labelled "Verify". On 2026-10-13 at 02:57 UTC (build `fdf57ef`), the judge answered
+    a plain `challenge` for it, and the login was left watching. After the owner pressed
+    "Verify", Pateat answered with the item's passkey. The judge's instructions now say
+    so, and the prompt version changed with them.
   - `challenge` naming an authenticator-app code field and its submit button adds a
     `totp` handler. The field must pass the TOTP fill rule of ADR 0013, and the judge
     must say it is an authenticator app, not SMS or email.
