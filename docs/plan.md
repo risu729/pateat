@@ -558,11 +558,15 @@ own accounts, so they stay in the project's files rather than in this repository
     the last batch's PR, [#450](https://github.com/risu729/pateat/pull/450), the CI
     workflow took 8 min 2 s, `Verify` 7 min 55 s and the six Linux end-to-end shards
     1 min 30 s to 3 min 54 s; the suite has grown with features since the survey's
-    snapshot. Production code the audit found that only tests or older storage reach,
-    left for the owner: the retired login attempt-store removal in the login runtime,
-    the version 1 upgrade guards in the diagnostics database, the unreachable
-    `!moved &&` exemption in the service's judgement gate, and the Demo vaults panel of
-    the settings page.
+    snapshot. Of the production code the audit found that only tests or older storage
+    reach, the retired login attempt-store removal and the diagnostics database's
+    version 1 upgrade guards were removed (no compatibility before release): an old
+    `pateat.login-attempts.v3` entry stays in storage unread, and a version 1
+    diagnostics database fails to open until the extension is reinstalled, as the
+    vault database already does. The unreachable `!moved &&` exemption in the
+    service's judgement gate is removed after the same-site judging work that changes
+    that gate merges. The settings page's Demo vaults preview, shown only without a
+    connection client, stays: the options page tests render the page that way.
 - UI improvements the owner reports from daily use of the UI polished in phase 1. Small
   fixes for broken UI still land as found.
 - Features found missing during use are added here.
