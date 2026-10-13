@@ -97,6 +97,15 @@ installs it: `npm:typescript` has none, and the registry's `oxlint` (the aqua ba
 expects `apps_v` release tags, which oxc stopped using after 1.84.0, so
 `npm:oxlint` stays.
 
+`python` and `uv` run `yamllint`, which mise installs with its `pypi` backend from the
+uv graph that `mise lock` records under `.mise/locks/yamllint/`. Keep `python` on 3.14
+until every package in that graph publishes a wheel for the next minor version.
+PyYAML 6.0.3, which yamllint needs, has wheels only up to cp314, and a locked install is
+wheel-only (`uv sync --frozen --no-build`). With `python` moved to 3.15.0, `mise lock`
+still succeeded but `mise install --locked` failed with "can't be installed because it
+is marked as `--no-build` but has no binary distribution" (checked 2026-10-11 with
+mise 2026.10.7 and uv 0.13.0).
+
 `hk.pkl` imports [risu729/hk-config](https://github.com/risu729/hk-config) at a pinned
 release tag. hk provides the single complete check entrypoint,
 delegating work to mise. Avoid recursion between hk check and mise checks.
@@ -156,7 +165,7 @@ Focused tasks are available for diagnosis:
 | `mise run browser:install` | Install the pinned isolated Chromium browser |
 | `mise run //tests/extension:test` | Exercise the extension against synthetic local pages |
 | `mise run //tests/options:test` | Exercise settings components with a synthetic client in Chromium |
-| `mise run //apps/extension:test:dom` | Extract observations and resolve element locators on synthetic pages in Chromium |
+| `mise run //apps/extension:test:dom` | Extract observations, resolve element locators, collect diagnostics and run the vault, provider-session and diagnostics stores on native IndexedDB in Chromium |
 | `mise run //tests/options:typecheck` | Check component-test and browser-provider types |
 | `mise run check:docs` | Check local documentation links |
 | `mise run check:sdk-source` | Fail when [the SDK source records](sdk-source.md#pinned-upstream-source) name a different SDK version or source revision from `bun.lock` and the installed package |
@@ -639,10 +648,10 @@ use. WXT drives Vite 8 (Rolldown) for the extension build
 | Async UI state | **Implemented for settings:** TanStack Query for metadata reads and mutations | M2 extension-message queries; M4 sync integration |
 | Attempt lifecycle | **Implemented:** XState for each login attempt (`loginAttemptMachine`), applied with its pure `transition()`; the runtime around it stays application code | M2 declarative executor |
 | Transport | **Approved:** `@webext-core/messaging` around validated contracts | M2 message transport |
-| Storage | **Implemented for settings, connections, service sync and passkey sign-ins:** WXT storage items (`wxt/utils/storage`); `storage.local` is restricted to trusted contexts before an item is defined (`apps/extension/src/storage.ts`); no versioned migrations before release. The login runtime still calls `chrome.storage` directly | M2 persistence integration |
+| Storage | **Implemented:** every Pateat record in `storage.local` and `storage.session` is read and written through WXT storage (`wxt/utils/storage`) with `getItem`/`getItems`/`setItem`/`setItems`/`removeItem`; `storage.local` is restricted to trusted contexts before any read or write (`apps/extension/src/storage.ts`); `defineItem` is not used because its definition reads the value once without a catch; no versioned migrations before release. In the extension's own code only `getBytesInUse` for diagnostics and the access-level call stay on `chrome.storage`. The vault cache, connection sessions and diagnostics log are in IndexedDB | M2 persistence integration |
 | Destination matching | **Selected under delegated authority:** WHATWG URL plus tldts for public/private suffix information | M3 URI matching; M5 RP ID validation |
 | Crypto and OTP | **Approved:** official OSS Bitwarden SDK for local crypto with GPL compliance; **selected under delegated authority:** OTPAuth | M3 Bitwarden adapter; strict format and browser compatibility gates |
-| Service and database | **Approved; implemented for sync:** Hono with Valibot validation and Drizzle for D1, with drizzle-kit (part of the Drizzle approval) generating migrations | M4 enrollment, sync and schema |
+| Service and database | **Approved; implemented for sync:** Hono with Valibot validation through Hono's official `@hono/standard-validator` (`sValidator`, approved and implemented on 2026-10-13; `services/api/src/validation.ts` wraps it so that a failed check answers with a fixed error code and never echoes the rejected input or Valibot issues) and Drizzle for D1, with drizzle-kit (part of the Drizzle approval) generating migrations | M4 enrollment, sync and schema |
 | Inference transport | **Implemented offline:** AI SDK with `@ai-sdk/valibot` for generation and the SDK's experimental decision contract for finite choice; **approved:** `@ai-sdk/anthropic` for Claude generation ([ADR 0014](adr/0014-claude-generation-provider.md)); per-owner Workload Identity Federation with `hono/utils/jwt` signing, a Valibot-checked `fetch` exchange and `authToken`, no added dependency ([ADR 0015](adr/0015-per-owner-claude-credentials.md)) | M4 service route |
 | Unit/runtime tests | Existing Vitest and Cloudflare Vitest plugin; **approved:** fast-check for policy/state invariants; **approved (2026-10-12) and implemented:** `@vitest/coverage-v8` for the CI coverage summary, merged with `@vitest/istanbul-lib-coverage`, a dependency of that provider ([test coverage](#test-coverage)) | M2 onward |
 | Component tests | **Implemented:** Vitest Browser Mode with `vitest-browser-react` | M2 React migration |
@@ -651,6 +660,8 @@ use. WXT drives Vite 8 (Rolldown) for the extension build
 | UI icons | **Approved (2026-10-12); implemented for the diagnostics page and `/manage`:** `lucide-react`, imported per icon, in each workspace that uses it | Phase 1 UI polish |
 | UI translation | **Approved (2026-10-12):** i18next with react-i18next, the language chosen in Pateat's settings; the manifest's `description` through a hand-written `_locales` file | Phase 3 Japanese for the extension |
 | Identifiers | **Approved (2026-10-12) and implemented:** `uuid` for UUIDv7, since Web Crypto has only `randomUUID()` (v4) ([identifiers](architecture.md#identifiers)) | Phase 1 |
+| IndexedDB access | **Approved (2026-10-13) and implemented:** `idb` (Jake Archibald, ISC), a promise wrapper over the native API with the same transaction semantics, replacing the hand-written request and transaction wrappers in the vault, provider-session and diagnostics stores; a transaction still awaits only its own requests, because any other await lets it auto-commit; `idb` opens only the global `indexedDB`, so tests stub that global | Phase 1 |
+| DER signatures | **Approved (2026-10-13) and implemented:** `@noble/curves`, importing only the `DER` helper from `@noble/curves/abstract/der.js` (not `p256`), for the P1363/DER conversion of passkey assertion signatures; signing stays WebCrypto ([ADR 0007](adr/0007-existing-passkey-assertions.md)). Low value (about 50 lines removed): revert if bundle size matters | Phase 1 passkeys |
 | Dates and times | **Approved (2026-10-13) and implemented:** `temporal-polyfill-lite` (Gregorian bundle, imported as a ponyfill) for formatting, parsing and duration arithmetic; stored times stay epoch milliseconds and the clock stays `Date.now()` ([times](architecture.md#times)) | Phase 1 |
 | Server configuration | Existing cf with cloudflare.config.ts and Vite | Retain verified build path |
 
@@ -689,7 +700,7 @@ long-lived actor, and stored only as Valibot-validated metadata.
 
 WXT helpers and typed messaging do not replace Valibot validation, browser-sender
 authorization or tab/frame/document checks. Initialize trusted-only storage access
-before item definitions/migrations can access sensitive settings. Preserve
+before any read or write can access sensitive settings. Preserve
 single-writer revision checks, corruption handling and fail-closed policy;
 storage helpers do not provide compare-and-swap by themselves.
 

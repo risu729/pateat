@@ -385,6 +385,9 @@ than in this repository.
     and `/manage/claude`) use the same tokens, light or dark as the browser prefers,
     with the logo beside "Pateat" and the page in one panel. With this, every screen of
     the extension and the service has had its polish pass.
+  - Done: the toolbar icon spins in a tab while a model request for that tab's page is
+    in flight (owner, 2026-10-13 14:04 UTC); see the
+    [architecture](architecture.md#extension-icon) for the frames and limits.
 - Done: `https://my.jcb.co.jp/Login` was generated again after delivery 3. The recipe
   revision the Grok Bot computer's device generated on 2026-10-12 (13:45 UTC) names both
   routes: the password steps and the passkey button on `/Login`, read from D1 at 14:26
@@ -397,6 +400,10 @@ than in this repository.
   page's kind, recipes generated as `confirm` neither run nor count as logouts, a
   passkey re-verification after Pateat's login in the tab is handed on, and the logs for
   judging whether `confirm` can be split are kept.
+- The toolbar badge counts the matching items on every HTTPS site: teal with the usable
+  count, light gray when every match is excluded, amber while a login waits for a choice
+  (owner, 2026-10-13 14:42 UTC;
+  [ADR 0021](adr/0021-account-choice-outside-settings.md#site-count-badge)).
 - The owner uses Pateat on many sites and reports bugs; Claude may also fix problems it
   finds on its own. Reading the extension's error logs without a report needs a way for
   them to leave the device, which [ADR 0019](adr/0019-local-diagnostics-and-logs.md)
@@ -512,8 +519,16 @@ than in this repository.
   `password-empty:chooser`; by the owner's decision of 06:32 UTC such a login now
   presses the account's row (or `other`) and stops at, or continues to, the branch's
   password step
-  ([account lists](adr/0036-passkey-after-the-identifier.md#account-lists); local tests
-  only, not yet checked in that Chrome).
+  ([account lists](adr/0036-passkey-after-the-identifier.md#account-lists)). In that
+  Chrome on `4deb95d` (08:51 UTC) the
+  row's click moved the tab to `auth.openai.com`, which asked for a passkey; Pateat
+  answered it and the tab came back signed in, but the login had ended `left-origin`.
+  By the owner's 「完了扱い」 (13:54 UTC), a passkey answered on such a page with the
+  login's item now lets the next quiet page complete the login
+  ([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md)). Done in that Chrome on
+  `957a53d` (15:08 UTC): after the row's click, `auth.openai.com` held the login
+  (`login.move` `passkey-request` `kept`), Pateat answered its passkey, and the login
+  ended `authenticated` with the account choice saved.
 - Answer Google's passkey step on the Grok Bot's browser. On build `a8350f5`
   (2026-10-12 19:49 UTC) both of the page's requests were logged as `passkey.request`
   `delegate` `invalid-request`, so the browser offered only the phone (hybrid) flow,
@@ -646,7 +661,9 @@ Once the fixes have settled:
   service, which [ADR 0013](adr/0013-service-held-recipes-and-settings.md) makes their
   source of truth, needs a design the owner approves before implementation.
 - The finite-choice role with Clef, which the owner chose to implement here. On
-  2026-10-11 the owner asked for a larger corpus of real pages before planning it.
+  2026-10-11 the owner asked for a larger corpus of real pages before planning it. After
+  Clef has been tried, compare it with Jev on the same pages (owner, 2026-10-13 15:11
+  UTC).
 - Anyone can use Pateat. The service is not opened to other people. Continuous delivery
   publishes each extension release on GitHub Releases and meets the
   [Corresponding Source](sdk-source.md) requirements. The owner has a Chrome Web Store
@@ -815,6 +832,12 @@ still open on 2026-10-11.
   2.7.0's `bun.lock` and `pnpm-lock.yaml` bugs (both fixed on aube main, unreleased) and
   two remaining `bun.lock` gaps (peers written as dependencies, `lockfileVersion`
   reset), as drafts for upstream reports (not filed).
+- Why the Bitwarden SDK's async exports never settle on unparsable arguments (owner,
+  2026-10-13 14:38 UTC): the
+  [research note](research/2026-10-13-bitwarden-sdk-async-hang.md) traces it to
+  wasm-bindgen converting async-export arguments inside the future, with tsify's
+  deprecated `from_wasm_abi` and Bitwarden's pending migration as context. Worker
+  termination already recovers. The owner chose not to report it upstream (15:00 UTC).
 - Earlier research kept as dated notes:
   [identity provider screens](research/2026-10-11-identity-provider-screens.md) behind
   [ADR 0026](adr/0026-sign-in-through-identity-providers.md);
@@ -2409,8 +2432,7 @@ API keys, SSO or device approval; signing in to sites through an identity provid
 (policy in ADR 0026); external email/SMS OTP and magic links; and separately authorized
 post-login actions, including transactions and approvals. UI extensions, automatic
 account switching (logging out and in again when another account is picked while logged
-in, recorded in ADR 0021), a badge counting the matching items on every site that has
-one (also recorded in ADR 0021), recipe sharing, additional service auth, E2EE settings
+in, recorded in ADR 0021), recipe sharing, additional service auth, E2EE settings
 sync, MCP, Vaultwarden support and vaults other than Bitwarden are also deferred. They
 are extension points, not implicit permissions or initial acceptance requirements. A
 mode without the service and direct AI are planned for
@@ -2458,11 +2480,11 @@ separate from refreshed data, configure retry/refetch behavior explicitly and
 retain runtime payload/sender authorization. Use the approved XState for the M2
 executor; verify navigation cancellation, timeout handling and interrupted-submit
 reconciliation before expanding execution. Persist allowlisted resumable metadata
-only; restoring state must not blindly replay submission. WXT storage items hold the
-settings, connection, service sync and passkey sign-in records; `storage.local` is
-restricted to trusted contexts before an item is defined, and the existing
-single-writer revision checks and fail-closed handling of corrupt settings stay in
-Pateat's code. The login runtime's records move to WXT storage next.
+only; restoring state must not blindly replay submission. Every Pateat record in
+`storage.local` and `storage.session`, including the login runtime's, is read and
+written through WXT storage; `storage.local` is restricted to trusted contexts before
+any read or write, and the existing single-writer revision checks and fail-closed
+handling of corrupt settings stay in Pateat's code.
 
 Approved for M4: Hono and Drizzle for the first substantive API/schema. Keep
 Valibot boundary validation, verify generated SQL and migrations, and test owner

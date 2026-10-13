@@ -1,15 +1,16 @@
 # ADR 0021: Choosing an account outside the settings page
 
 Status: accepted by the owner on 2026-10-11 (10:56 UTC). Amends
-[ADR 0007](0007-existing-passkey-assertions.md) (item selection and the rejected
-chooser alternative) and [ADR 0013](0013-service-held-recipes-and-settings.md) (where
-account defaults and exclusions are edited, and manual choices before they are saved).
-Each part lands in its own PR. All four parts, A to D, are implemented. Amended on
-2026-10-12 by [ADR 0027](0027-per-account-login-routes.md#watching-after-a-challenge):
-in D, a watched login is released like a finished one when its first step shows in a new
-page of its tab or of another tab of the site (implemented). Amended on 2026-10-13 by
-ADR 0027 (owner's 「このタブだけ」): a watched login is no longer released as a logout;
-only its own tab asks (implemented, see the end of D).
+[ADR 0007](0007-existing-passkey-assertions.md) (item selection and the rejected chooser
+alternative) and [ADR 0013](0013-service-held-recipes-and-settings.md) (where account
+defaults and exclusions are edited, and manual choices before they are saved). Each part
+lands in its own PR. All four parts, A to D, are implemented. Amended on 2026-10-12 by
+[ADR 0027](0027-per-account-login-routes.md#watching-after-a-challenge): in D, a watched
+login is released like a finished one when its first step shows in a new page of its tab
+or of another tab of the site (implemented). Amended on 2026-10-13 by ADR 0027 (owner's
+「このタブだけ」): a watched login is no longer released as a logout; only its own tab
+asks (implemented, see the end of D). Amended on 2026-10-13 by the owner's
+[site count badge](#site-count-badge) decision (part B, not implemented).
 
 Amended on 2026-10-11 by [ADR 0023](0023-synced-vault-policy.md): the popup also repairs
 a binding that names a missing custom field (not implemented yet). Amended on 2026-10-11
@@ -66,6 +67,16 @@ watches for its own end. The badge, popup and log name the rejection instead of 
 (`pateat.login-rejected-asks.v1`, `login.logout` marked `rejected`, `logged-out` with
 `rejected`). A pick marked "make default" is still saved only after `authenticated`, so
 a rejected pick is not kept as the default (part B) (implemented).
+
+In the tab whose login the site rejected, the popup's list has no account chosen, and
+Log in stays disabled until the user picks one, so a single press there never sends the
+rejected account again; the "make default" box keeps its usual state. The owner chose
+this on 2026-10-13 (13:54 UTC, decision card answer 「何も選ばない」) over choosing the
+first other account or also clearing the box (implemented). The site's other tabs
+that offer a choice while the rejected tab still asks choose no account either (the
+popup's answer carries `rejectedElsewhere`); the owner chose this on 2026-10-13
+(14:43 UTC, decision card answer 「他のタブもそろえる」) over leaving them on the first
+account (implemented).
 
 Date: 2026-10-11
 
@@ -362,20 +373,75 @@ that counts the matching items on every HTTPS site with at least one match, not 
 while a login waits for a choice (part B). The owner expects it to help two later
 features: the automatic account switching above, by showing whether there is another
 account to switch to, and replacing the official Bitwarden extension, whose own badge
-counts matching logins. Until then the badge shows only while a login waits for a
-choice. Building it would:
+counts matching logins.
 
-- reverse the rule in [ADR 0009](0009-install-time-https-site-access.md) and
-  [ADR 0016](0016-recipe-generation-trigger.md) that a page without a recipe gets no
-  vault access; the vault would match URIs locally on almost every HTTPS page, since the
-  vault is normally unlocked ([ADR 0006](0006-atomic-local-vault-cache.md));
-- run each count through the login runtime's serialized vault path, because a vault
-  session's worker takes one job at a time and a concurrent lookup can make a login
-  refuse with `vault-unavailable`;
-- show the waiting state in another color, because the site's count (origin-level, with
-  passkeys and static items) and the waiting count (the document's URI matches) can
-  differ;
-- show no number when a vault could not be checked.
+### Site count badge
+
+Status: decided by the owner on 2026-10-13 (14:42 UTC, every recommendation of the
+reviewed proposal), for [phase 2](../plan.md#phase-2-use-it-and-fix-what-comes-up).
+Not implemented: until then the badge shows only while a login waits for a choice. The
+owner asked at 14:06 UTC for the badge to always say whether a site has no saved item,
+items that are all excluded, or usable items, and at 14:06 UTC for a gray number when
+all are excluded.
+
+Each write sets the badge text, background, text colour and title for one tab:
+
+| State                                  | Badge                           | Colours (background / text)        |
+| -------------------------------------- | ------------------------------- | ---------------------------------- |
+| Not HTTPS, or no matching item         | none                            |                                    |
+| At least one usable item               | the usable count, e.g. `2`      | teal `#115e59` / white             |
+| Matching items, none usable            | the matching count, e.g. `3`    | light gray `#cbd5e1` / `#1e293b`   |
+| A login waits for a choice             | the candidates, e.g. `2`        | amber `#8a5a00` / white            |
+| A vault could not be checked           | none                            |                                    |
+
+Counts above 99 show `99+`. When some matching items are excluded, the badge still
+shows only the usable count and the title adds how many more are excluded. The gray
+state's title names the reason: the site is excluded, the items are excluded in
+settings, or they wait for a custom-field review. A waiting choice wins over the count,
+and ending the choice shows the count again. The not-checked titles say why: the vault
+is locked, has not been opened since Pateat restarted, could not be read, or is being
+updated. The owner kept the gray lock-state icon as the only lock display (14:50 UTC),
+with no lock badge.
+
+The owner's choices:
+
+1. The count covers the tab's origin, so it equals the popup's list.
+2. Excluded sites are counted, in gray. This reverses the rule that an excluded site
+   never reaches vault matching.
+3. Disabled connections are not matched.
+4. The waiting choice is amber.
+5. When any enabled connection could not be checked, no number shows.
+6. A count never opens a vault: when a connection's vault is not open in the service
+   worker, or its snapshot is not the stored record's accepted one, the tab shows
+   not checked. A count's restore could make the next login's restore fail with
+   `resource-limit` and refuse with `vault-unavailable`. So after a restart, new
+   origins show no number until a login or the popup opens the vault.
+7. An item with an empty password and no passkey counts as usable, as the choice
+   candidates treat it.
+
+A matching item is a login, in an enabled connection, whose URI rule matches the
+origin, or an item holding a passkey for one of the origin's RP IDs. It is usable when
+the site is not excluded, the item is eligible under the connection's settings and it
+is not quarantined. An item whose URI rule cannot be evaluated is left out of the count
+and noted in the title.
+
+A count runs through the login runtime's vault path, one at a time, inside the same
+vault-replacement hold an admission takes, and only while no attempt runs and no
+admission is pending; it checks again before each crypto job. Worker starts, tab
+activation and finished loads only re-apply a cached result. A count runs on a cache
+miss, after the runtime has handled the top frame's announcement, or 5 seconds after a
+finished load without one. Results are cached per origin as counts only, keyed by the
+settings revision and each enabled connection's accepted snapshot, in memory and in
+`chrome.storage.session` (default trusted-contexts access), at most 200 origins. Nothing
+reaches the service or a model, and no per-site log entry is written. It needs no new
+permission. Tab-specific badge values are re-applied after every load, because they
+reset when a tab navigates.
+
+This amends [ADR 0009](0009-install-time-https-site-access.md) and
+[ADR 0016](0016-recipe-generation-trigger.md): a tab's origin is matched against the
+open vault locally even without a recipe or a sign-in signal. A test must show that a
+count started before a page's announcement delays that page's login without refusing
+it.
 
 ## Consequences
 

@@ -349,6 +349,7 @@ export function createDiagnosticsLog(options: {
             candidates: report.candidates,
             logout: report.logout,
             held: report.held,
+            rejectedElsewhere: report.rejectedElsewhere,
             recordState: report.recordState,
             recordOutcome: report.recordOutcome,
             pageReason: report.pageReason,

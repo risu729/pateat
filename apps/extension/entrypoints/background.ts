@@ -2,7 +2,6 @@ import { BITWARDEN_READ_PROTOCOL } from "@pateat/bitwarden";
 import * as v from "valibot";
 import { browser } from "wxt/browser";
 import { defineBackground } from "wxt/utils/define-background";
-import { storage } from "wxt/utils/storage";
 import { createProbeCatalog } from "../src/login/dummy";
 import { createLoginRuntime } from "../src/login/runtime";
 import { createLoginSites } from "../src/login/sites";
@@ -25,6 +24,7 @@ import { createProbePasskeySource } from "../src/passkeys/probe";
 import { createPasskeyRuntime } from "../src/passkeys/runtime";
 import { createSignIns, SIGN_INS_KEY } from "../src/passkeys/sign-ins";
 import { createSignedTabs, SIGNED_TABS_KEY } from "../src/passkeys/signed-tabs";
+import { sessionValue } from "../src/storage";
 import {
   createVaultPasskeyFinder,
   createVaultPasskeySource,
@@ -98,7 +98,7 @@ export default defineBackground(() => {
   // The manifest default is the locked icon; a running worker switches it.
   const actionIcon = createActionIcon({
     states: () => connections.vaultStates(),
-    setIcon: (path) => browser.action.setIcon({ path }),
+    setIcon: (details) => browser.action.setIcon(details),
   });
   void actionIcon.refresh();
   // A badge counts the accounts a refused login could use (ADR 0021).
@@ -182,7 +182,7 @@ export default defineBackground(() => {
     report: diagnosticsLog.vaultCheck,
   });
   // ADR 0007: Pateat's own sign-ins per tab, which a site's passkey registration may follow.
-  const signIns = createSignIns(storage.defineItem(SIGN_INS_KEY), (listener) =>
+  const signIns = createSignIns(sessionValue(SIGN_INS_KEY), (listener) =>
     browser.tabs.onRemoved.addListener(listener),
   );
   const noteSignIn = (tabId: number, origin: string, rpId?: string) =>
@@ -214,6 +214,7 @@ export default defineBackground(() => {
     passkeyItems: (origin) => originPasskeyItems(vaultPasskeys, origin),
     report: diagnosticsLog.login,
     signedIn: (tabId, origin) => noteSignIn(tabId, origin),
+    spin: (tabId) => actionIcon.spin(tabId),
   });
   const setupProbe = syntheticSetup?.handler(connections);
   const siteAccounts = createSiteAccountsHandler({
@@ -240,11 +241,12 @@ export default defineBackground(() => {
     keepAlive,
   });
   // ADR 0021 D: after Pateat signed in a tab, a username-less request there asks again.
-  const signedTabs = createSignedTabs(storage.defineItem(SIGNED_TABS_KEY), (listener) =>
+  const signedTabs = createSignedTabs(sessionValue(SIGNED_TABS_KEY), (listener) =>
     browser.tabs.onRemoved.addListener(listener),
   );
-  // A tab Chrome discards to save memory gets a new ID; its sign-ins stay with it.
+  // A tab Chrome discards to save memory gets a new ID; its sign-ins and icon stay with it.
   browser.tabs.onReplaced.addListener((added, removed) => {
+    actionIcon.replaced(added, removed);
     void signIns.replaced(added, removed).catch(() => {});
     void signedTabs.replaced(added, removed).catch(() => {});
   });
@@ -259,10 +261,21 @@ export default defineBackground(() => {
     import.meta.env.MODE === "probe"
       ? createProbePasskeySource(vaultPasskeys, rememberPasskey)
       : undefined;
-  // ADR 0022 and ADR 0007: a returned assertion may complete a login and is a sign-in.
-  const passkeyAnswered = (tabId: number, origin: string, rpId: string) => {
+  // ADR 0022 and ADR 0007: a returned assertion may complete a login and is a sign-in. The
+  // vault item that signed it lets a login whose tab moved to the page that asked complete.
+  const passkeyAnswered = (tabId: number, origin: string, rpId: string, signed: object) => {
     noteSignIn(tabId, origin, rpId);
-    login.passkeyAnswered(tabId, origin, rpId);
+    login.passkeyAnswered(
+      tabId,
+      origin,
+      rpId,
+      "connectionId" in signed &&
+        typeof signed.connectionId === "string" &&
+        "itemId" in signed &&
+        typeof signed.itemId === "string"
+        ? { connectionId: signed.connectionId, itemId: signed.itemId }
+        : undefined,
+    );
   };
   const passkeys = passkeyProbe
     ? createPasskeyRuntime(passkeyProbe.source, {
