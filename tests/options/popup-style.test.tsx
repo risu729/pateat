@@ -122,8 +122,8 @@ test("the page section's long log codes wrap inside the 360px popup", async () =
     status: vi.fn<ChoiceClient["status"]>().mockResolvedValue({
       ok: true,
       origin: ORIGIN,
+      // Every line kind that carries a log code; the request in flight has none.
       recipe: "other-paths",
-      asking: true,
       page: { generationSkip: `incomplete-observation-${"unfillable-field-".repeat(6)}gap` },
       login: {
         state: "blocked",
@@ -159,7 +159,6 @@ test("the page section's long log codes wrap inside the 360px popup", async () =
   expect(lines.map((line) => line.id)).toEqual([
     "popup-page-recipe",
     "popup-page-generation",
-    "popup-page-asking",
     "popup-page-generation-skip",
     "popup-page-login",
     "popup-page-login-recipe",

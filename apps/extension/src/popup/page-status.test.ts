@@ -60,6 +60,47 @@ describe("pageStatusLines", () => {
     ]);
   });
 
+  it("hides an older skip while the page's request is in flight, and after it went unanswered", () => {
+    const skip = { generationSkip: "sent" };
+    // In flight: only the request's line, not why an earlier read was not sent.
+    expect(lines({ asking: true, page: skip, generation: { outcome: "sent" } })).toEqual([
+      ["recipe", "idle", "This site has no recipe yet."],
+      ["generation", "busy", "The AI is making a recipe for the site's sign-in page…"],
+    ]);
+    // Another request in flight hides it too.
+    expect(lines({ asking: true, page: skip }).map(([id]) => id)).toEqual(["recipe", "asking"]);
+    expect(
+      lines({
+        recipe: "other-paths",
+        asking: true,
+        page: skip,
+        generation: { outcome: "recipe" },
+      }).map(([id]) => id),
+    ).toEqual(["recipe", "generation", "asking"]);
+    // Sent without an answer and no longer in flight: the warning shows, the skip does not.
+    expect(lines({ page: skip, generation: { outcome: "sent" } })).toEqual([
+      ["recipe", "idle", "This site has no recipe yet."],
+      [
+        "generation",
+        "warn",
+        "A page was sent to the AI for the site's sign-in page, and no answer was recorded.",
+      ],
+    ]);
+  });
+
+  it("shows the skip again once an answer is recorded", () => {
+    for (const generation of [
+      { outcome: "recipe" },
+      { outcome: "abstained", reason: "no-form" },
+      { outcome: "failed", reason: "invalid-output" },
+    ])
+      expect(lines({ page: { generationSkip: "not-connected" }, generation }).at(-1)).toEqual([
+        "generation-skip",
+        "idle",
+        "Not sent to the AI: Pateat is not connected to its service.",
+      ]);
+  });
+
   it("shows a skip beside the last request's answer", () => {
     expect(
       lines({
