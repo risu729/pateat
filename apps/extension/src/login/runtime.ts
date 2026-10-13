@@ -130,8 +130,10 @@ import {
 import { findLiveSiteCandidates, type LiveUriMatcher } from "../vault/site-candidates";
 import {
   choiceRequestSchema,
+  logoutReasonSchema,
   pickRequestSchema,
   type ChoiceResponse,
+  type LogoutReason,
   type PickResponse,
 } from "./choice-wire";
 import { customFieldOffers, type CustomFieldOffer } from "./generation-slots";
@@ -365,7 +367,7 @@ type LiveDocument = {
   notStarted?: string;
   /**
    * When this worker first saw the document. Only a page first seen after another tab's
-   * login began to be watched releases that login (ADR 0027).
+   * login began to be watched ends that login (ADR 0027).
    */
   seenAt: number;
   /** Why this document's sign-in entry was not pressed, each reason logged once at info. */
@@ -437,7 +439,7 @@ type PickedAccount = v.InferOutput<typeof pickedAccountSchema>;
 const pendingChoiceSchema = v.strictObject({
   document: loginDocumentSchema,
   candidates: v.array(v.strictObject({ connectionId: v.string(), itemId: v.string() })),
-  logout: v.optional(v.literal(true)),
+  logout: v.optional(logoutReasonSchema),
 });
 /** A tab and origin that logged out after a Pateat login; it asks until a pick logs in. */
 const logoutSchema = v.strictObject({
@@ -1161,8 +1163,6 @@ export type LoginReport = (
       recipeId: string;
       /** The recipe revision the login runs. */
       recipeRevision: number;
-      /** It showed in a new page while the login was watched (ADR 0027). */
-      watched?: true;
     }
   | {
       /**
@@ -1672,7 +1672,7 @@ export function createLoginRuntime(
     });
   }
   /** Why a tab asks after a logout, for the log: which tab logged out (ADR 0021 D). */
-  function logoutDetail(key: string): "this-tab" | "stopped-login" | "other-tab" {
+  function logoutDetail(key: string): LogoutReason {
     if (logouts.has(key)) return "this-tab";
     return stoppedAsks.has(key) ? "stopped-login" : "other-tab";
   }
@@ -1680,7 +1680,7 @@ export function createLoginRuntime(
   function offerChoice(
     document: LoginDocument,
     candidates: PendingChoice["candidates"],
-    logout = false,
+    logout?: LogoutReason,
   ): void {
     pending.set(document.tabId, { document, candidates, ...(logout ? { logout } : {}) });
     void quietly(saveSession);
@@ -1697,7 +1697,7 @@ export function createLoginRuntime(
                 "Pateat: the last login on this site stopped in this tab. Click to choose an account.",
               "other-tab":
                 "Pateat: you logged out of this site in another tab. Click to choose an account.",
-            }[logoutDetail(recordKey(tabId, document.origin))]
+            }[logout]
           : `Pateat: ${candidates.length} accounts match this page. Click to choose one.`,
       }),
     );
@@ -1933,7 +1933,7 @@ export function createLoginRuntime(
         origin: waiting.document.origin,
         documentId: waiting.document.documentId,
         candidates: waiting.candidates,
-        logout: true,
+        logout: waiting.logout,
         ...held,
       };
     // A default saved since the refusal decides the page's next login instead.
@@ -2017,7 +2017,7 @@ export function createLoginRuntime(
       live.document.documentId === waiting.document.documentId &&
       !pending.has(request.tabId)
     ) {
-      offerChoice(waiting.document, waiting.candidates, waiting.logout === true);
+      offerChoice(waiting.document, waiting.candidates, waiting.logout);
       return { ok: false, reason: "origin-busy" };
     }
     return { ok: false, reason: "not-started" };
@@ -2197,7 +2197,7 @@ export function createLoginRuntime(
     // The page then waits for a pick, as after a logout; its own announcement after this
     // status carries no start, so the choice is offered and the asking logged here.
     if (run.asked?.length) {
-      offerChoice(document, run.asked, true);
+      offerChoice(document, run.asked, logoutDetail(recordKey(document.tabId, document.origin)));
       run.live.state = "denied";
       run.live.reason = "logged-out";
       report(document, {
@@ -6291,7 +6291,6 @@ export function createLoginRuntime(
      */
     const releaseAsLogout = async (
       released: LoginAttemptMetadata,
-      watchedLogin: boolean,
     ): Promise<Readiness | undefined> => {
       const { tabId } = released.document;
       const releasedKey = recordKey(tabId, document.origin);
@@ -6313,7 +6312,6 @@ export function createLoginRuntime(
         origin: document.origin,
         recipeId: released.recipeId,
         recipeRevision: released.recipeRevision,
-        ...(watchedLogin ? { watched: true as const } : {}),
       });
       try {
         await forget(releasedKey);
@@ -6322,6 +6320,47 @@ export function createLoginRuntime(
       }
       // A page of that tab admitted meanwhile may have resumed the record; it stops too.
       if (attempts.get(tabId)?.metadata.id === released.id) attempts.delete(tabId);
+      if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+      return undefined;
+    };
+    /**
+     * Ends a watched login, which never signed in, once the recipe's first step shows again,
+     * as after a code or an approval expired (ADR 0027): no logout (ADR 0021 D). Only the
+     * watched login's tab asks and fills, as after a stopped login, while the site's other
+     * tabs log in as before (owner, 2026-10-13). Returns a refusal when it could not, else
+     * undefined.
+     */
+    const abandonWatch = async (
+      watchedLogin: LoginAttemptMetadata,
+    ): Promise<Readiness | undefined> => {
+      const { tabId } = watchedLogin.document;
+      const watchedKey = recordKey(tabId, document.origin);
+      const run = attempts.get(tabId);
+      const own = run?.metadata.id === watchedLogin.id ? run : undefined;
+      if (own) attempts.delete(tabId);
+      if (picked.get(tabId)?.attemptId === watchedLogin.id) picked.delete(tabId);
+      // The tab must keep asking after a restart, so its ask is stored first.
+      stoppedAsks.add(watchedKey);
+      try {
+        await saveSession();
+      } catch {
+        stoppedAsks.delete(watchedKey);
+        return refuse("storage-unavailable");
+      }
+      reportAttempt(
+        transitionLoginAttempt(own?.metadata ?? watchedLogin, {
+          type: "WATCH_ENDED",
+          abandoned: true,
+        }),
+        own?.recipe,
+      );
+      try {
+        await forget(watchedKey);
+      } catch {
+        return refuse("storage-unavailable");
+      }
+      // A page of that tab admitted meanwhile may have resumed the record; it stops too.
+      if (attempts.get(tabId)?.metadata.id === watchedLogin.id) attempts.delete(tabId);
       if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
       return undefined;
     };
@@ -6347,15 +6386,15 @@ export function createLoginRuntime(
     }
     // While a login is watched, its recipe's first step showing in a new page of the tab
     // means the person is back at the start, as when a code or an approval expired: the
-    // record is released as after a logout, so the tab asks and fills without pressing
-    // anything (ADR 0027). The page the watch began in never releases it.
+    // login never signed in, so this is no logout. It ends, and only this tab asks and fills
+    // without pressing anything (ADR 0027). The page the watch began in never ends it.
     if (
       recorded?.watch &&
       document.frameId === 0 &&
       start?.path === live.path &&
       document.documentId !== recorded.watch.documentId
     ) {
-      const refused = await releaseAsLogout(recorded, true);
+      const refused = await abandonWatch(recorded);
       if (refused) return refused;
       recorded = undefined;
     }
@@ -6375,7 +6414,7 @@ export function createLoginRuntime(
       }
       // It shows again after a finished login: a logout. Only this tab's record for this
       // origin is released, and the tab asks for an account (ADR 0021 D).
-      const refused = await releaseAsLogout(recorded, false);
+      const refused = await releaseAsLogout(recorded);
       if (refused) return refused;
       recorded = undefined;
     }
@@ -6451,13 +6490,13 @@ export function createLoginRuntime(
       recorded = undefined;
     }
     // The same holds when the person starts over in another tab, such as after closing a
-    // code page that expired: another tab's watched login of the site is released as after
-    // a logout, so this tab asks and fills without pressing anything instead of waiting
-    // for that login's hold to end (ADR 0027). Only a page first seen during the watch
-    // does, not one left open from before.
+    // code page that expired: another tab's watched login of the site ends, so this tab logs
+    // in as before instead of waiting for that login's hold to end, and only the watched
+    // tab asks if its own first step shows again (ADR 0027). Only a page first seen during
+    // the watch does, not one left open from before.
     if (!recorded && document.frameId === 0 && start?.path === live.path) {
       const keys = [...persisted.keys()];
-      // One at a time, each read again: a release awaits, and another watched login may
+      // One at a time, each read again: ending one awaits, and another watched login may
       // have moved on meanwhile.
       /* eslint-disable no-await-in-loop */
       for (const entryKey of keys) {
@@ -6473,7 +6512,7 @@ export function createLoginRuntime(
           live.seenAt < latest.watch.since
         )
           continue;
-        const refused = await releaseAsLogout(latest, true);
+        const refused = await abandonWatch(latest);
         if (refused) return refused;
       }
       /* eslint-enable no-await-in-loop */
@@ -6759,7 +6798,11 @@ export function createLoginRuntime(
       // after an account switch belongs to that login, so it offers none.
       if (!previous && !switched && "candidates" in plan && plan.candidates) {
         const logout = "logout" in plan && plan.logout === true;
-        offerChoice(document, plan.candidates, logout);
+        offerChoice(
+          document,
+          plan.candidates,
+          logout ? logoutDetail(recordKey(document.tabId, document.origin)) : undefined,
+        );
         // Outside a logout, the page's own conditional request may wait for the pick, on a
         // recipe without a passkey button (ADR 0034).
         noteChoice(
@@ -7017,7 +7060,7 @@ export function createLoginRuntime(
     await save(run);
     await publish(live, metadata);
     void drive(run);
-    // A page of a watched login watches for the recipe's first step, which releases the
+    // A page of a watched login watches for the recipe's first step, which ends the
     // login (ADR 0027).
     if (metadata.watch && document.documentId !== metadata.watch.documentId) {
       const starts = await startsFor(document.origin);
@@ -7926,7 +7969,8 @@ export function createLoginRuntime(
    * signed-in marker learned on that origin shows, or else the judge of ADR 0029, asked
    * once, answers `signed-in` for the page or found it signed in before. A judge that
    * cannot decide, a page that cannot be described or sent, and any other verdict end the
-   * login `left-origin`, each logged. Once the answer is back, the page must still be
+   * login `left-origin` (a watched one where it stopped), each logged. Once the answer is
+   * back, the page must still be
    * loaded and quiet, with no passkey request since `since`, the step the move follows.
    * `username` is the login's own, hidden from the page as for any judged page.
    */
@@ -8279,7 +8323,7 @@ export function createLoginRuntime(
     const waiting = pending.get(parked.tabId);
     const pick = picked.get(parked.tabId);
     return (
-      (waiting?.logout === true &&
+      (waiting?.logout !== undefined &&
         waiting.document.frameId === 0 &&
         waiting.document.documentId === parked.documentId) ||
       (parked.asked === true &&

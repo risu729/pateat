@@ -2446,13 +2446,26 @@ describe("a login watched after a challenge or an unknown result (ADR 0027)", ()
     const ended = transitionLoginAttempt(moved, { type: "WATCH_ENDED" });
     expect(ended).toMatchObject({ state: "blocked", outcome: "challenge" });
     expect(ended).not.toHaveProperty("watch");
-    // Leaving the origin ends it as any submitted login does.
+    // The first step showing again before a sign-in abandons it (owner, 2026-10-13).
+    const abandoned = transitionLoginAttempt(moved, { type: "WATCH_ENDED", abandoned: true });
+    expect(abandoned).toMatchObject({ state: "blocked", outcome: "challenge-abandoned" });
+    expect(abandoned).not.toHaveProperty("watch");
+    // Leaving the origin ends it where it stopped, as the end of the watch does: it never
+    // signed in (2026-10-13).
+    const left = transitionLoginAttempt(moved, {
+      type: "NAVIGATED",
+      document: { ...later, origin: "https://elsewhere.example" },
+    });
+    expect(left).toMatchObject({ state: "blocked", outcome: "challenge" });
+    expect(left).not.toHaveProperty("watch");
+    const settled = transitionLoginAttempt(awaiting(), observed("unknown"), 1000);
+    expect(settled).toMatchObject({ state: "reconciling", settled: true });
     expect(
-      transitionLoginAttempt(moved, {
+      transitionLoginAttempt(settled, {
         type: "NAVIGATED",
         document: { ...later, origin: "https://elsewhere.example" },
       }),
-    ).toMatchObject({ state: "blocked", outcome: "left-origin" });
+    ).toMatchObject({ state: "blocked", outcome: "unknown-submit" });
   });
 
   it("takes newer settings over only while watched", () => {
@@ -2506,11 +2519,16 @@ describe("a login watched after a challenge or an unknown result (ADR 0027)", ()
     const ended = transitionLoginAttempt(moved, { type: "WATCH_ENDED" });
     expect(ended).toMatchObject({ state: "blocked", outcome: "unknown-submit" });
     expect(ended).not.toHaveProperty("watch");
+    expect(transitionLoginAttempt(moved, { type: "WATCH_ENDED", abandoned: true })).toMatchObject({
+      state: "blocked",
+      outcome: "watch-abandoned",
+    });
     // Only a watched login's watch ends.
     const pending = awaiting();
-    expect(transitionLoginAttempt(recoverLoginAttempt(pending), { type: "WATCH_ENDED" })).toEqual(
-      recoverLoginAttempt(pending),
-    );
+    for (const event of [{ type: "WATCH_ENDED" }, { type: "WATCH_ENDED", abandoned: true }])
+      expect(transitionLoginAttempt(recoverLoginAttempt(pending), event)).toEqual(
+        recoverLoginAttempt(pending),
+      );
     // Moving on drops the watch with the settled result.
     const authenticated = transitionLoginAttempt(moved, observed("authenticated", later));
     expect(authenticated).not.toHaveProperty("watch");

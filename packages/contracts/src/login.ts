@@ -688,6 +688,12 @@ export const loginOutcomeSchema = v.picklist([
   // A chooser's list shows no account that fits the login's own, and has no button for
   // another account; nothing was clicked (ADR 0028).
   "account-not-listed",
+  // A watched login that never signed in (ADR 0027): the recipe's first step showed again
+  // in a new page, as after a code or an approval expired; not a logout (ADR 0021 D).
+  // `challenge-abandoned` for a login stopped at `challenge`, `watch-abandoned` for one
+  // whose result settled as unknown.
+  "challenge-abandoned",
+  "watch-abandoned",
 ]);
 
 export type LoginTarget = v.InferOutput<typeof loginTargetSchema>;
