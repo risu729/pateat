@@ -659,6 +659,14 @@ than in this repository.
   text around a control, which the extractor leaves out today
   ([AI evaluation harness progress](#ai-evaluation-harness-progress)); not before
   (owner, 2026-10-12 05:57 UTC).
+- Proposed placement (2026-10-13): recognise a passkey request made with
+  `uiMode: "immediate"` (Chrome 149's Immediate UI) and delegate it, as
+  [ADR 0007](adr/0007-existing-passkey-assertions.md#admission) requires for
+  `immediate` requests, and log it as `immediate`. Today such a request without
+  `password` is admitted as a modal one
+  ([login standards](research/2026-10-13-login-standards.md#what-this-means-for-pateat-now)).
+  Answering these requests instead would need the owner's decision and an amendment of
+  ADR 0007.
 
 ### Phase 3: public release
 
@@ -909,6 +917,11 @@ still open on 2026-10-11.
   [route map](research/2026-10-13-extension-message-routes.md) lists every route and
   what `@webext-core/messaging` 4.0.0 can carry; it cannot address a document by
   `documentId` and has no Port support.
+- Which web standards could replace parts of a login recipe (owner, 2026-10-13 23:12
+  UTC): the [note](research/2026-10-13-login-standards.md) summarises an external
+  write-up, checked against primary sources, on Immediate UI, FedCM and Agentic
+  Federated Login, `<login>`, WebMCP, Email Verification, Login Status, WebOTP,
+  delegated authorization for agents and CXF/CXP.
 - Earlier research kept as dated notes:
   [identity provider screens](research/2026-10-11-identity-provider-screens.md) behind
   [ADR 0026](adr/0026-sign-in-through-identity-providers.md);
@@ -926,6 +939,18 @@ still open on 2026-10-11.
   such as which profiles may use an item or which identity provider a site uses, so the
   service could be limited to recipe generation and sharing. Choosing the default among
   several vaults is the hard part, so this would likely be opt-in.
+- Proposed (2026-10-13): once each is enabled by default in Chrome stable with a settled
+  specification ([platform features](development.md#platform-features)), let a site's
+  own interface replace Pateat's inference: FedCM's agent interface (Agentic Federated
+  Login) for the SSO buttons of
+  [ADR 0026](adr/0026-sign-in-through-identity-providers.md), `<login>` elements for
+  sign-in entries and account lists
+  ([ADR 0028](adr/0028-account-chooser-login-pages.md),
+  [ADR 0031](adr/0031-sign-in-entry-pages.md)), and Email Verification, checked again
+  before the email-code sign-in of [phase 4](#phase-4-issues-and-work-as-needed) is
+  designed. Whether an extension can use FedCM's agent interface is not known yet. On
+  2026-10-13 all three were drafts or origin trials
+  ([login standards](research/2026-10-13-login-standards.md)).
 
 ## Foundation progress
 
