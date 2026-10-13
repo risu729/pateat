@@ -982,30 +982,6 @@ test("an item without a TOTP secret leaves the code page to the person (ADR 0027
   }
 });
 
-test("a code page that submits on its last digit signs in without a click (ADR 0027)", async () => {
-  const fixture = await startLoginFixture();
-  try {
-    await withLoginExtension(async (context, _worker, id) => {
-      const options = await context.newPage();
-      await configure(options, id, fixture.origin, true, undefined, true);
-      const status = async () =>
-        JSON.stringify(await send(options, { version: 1, type: "login.probe.status" }));
-      const page = await context.newPage();
-      await page.goto(`${fixture.origin}/totp?auto`);
-      await expect(page.locator("#authenticated")).toBeVisible();
-      await expect.poll(status).toContain('"authenticated"');
-      expect(await codeEvidence(page)).toEqual({
-        codeInputs: 1,
-        verifyClicks: 0,
-        autoSubmits: 1,
-        codeMatched: "true",
-      });
-    });
-  } finally {
-    await fixture.close();
-  }
-});
-
 for (const [mode, query, verifyClicks, autoSubmits] of [
   ["gets one Verify click", "split", 1, 0],
   ["that submits on its last digit gets no click", "split&auto", 0, 1],
@@ -1186,12 +1162,14 @@ test("abstains without a saved account and does not try another eligible item", 
       await configure(options, id, fixture.origin, false);
       const page = await context.newPage();
       await page.goto(`${fixture.origin}/single`);
-      await expect(page.locator("#password")).toHaveValue("");
       await expect
         .poll(async () =>
           JSON.stringify(await send(options, { version: 1, type: "login.probe.status" })),
         )
         .toContain("default-not-set");
+      // A fill or retry after the abstain would come within a second.
+      await page.waitForTimeout(1000);
+      await expect(page.locator("#password")).toHaveValue("");
       expect(await clicks(page)).toBe(0);
       const status = await send(options, { version: 1, type: "login.probe.status" });
       expect(JSON.stringify(status)).not.toContain('"authenticated"');
@@ -1201,7 +1179,7 @@ test("abstains without a saved account and does not try another eligible item", 
   }
 });
 
-test("a password-only page that shows another account is not filled", async () => {
+test("a page showing another account is not filled, and its account switch is clicked once", async () => {
   const fixture = await startLoginFixture();
   try {
     await withLoginExtension(async (context, _worker, id) => {
@@ -1209,7 +1187,8 @@ test("a password-only page that shows another account is not filled", async () =
       await configure(options, id, fixture.origin);
       const status = async () =>
         JSON.stringify(await send(options, { version: 1, type: "login.probe.status" }));
-      // The demo account's username is 00001234.
+      // The demo account's username is 00001234. Without a switch control, a page
+      // showing another account is left alone; one showing it is filled.
       const other = await context.newPage();
       await other.goto(`${fixture.origin}/single?shown=****9999`);
       await expect.poll(status).toContain("wrong-account");
@@ -1221,21 +1200,9 @@ test("a password-only page that shows another account is not filled", async () =
       await same.goto(`${fixture.origin}/single?shown=****1234`);
       await expect(same.locator("#authenticated")).toBeVisible();
       expect(await clicks(same)).toBe(1);
-    });
-  } finally {
-    await fixture.close();
-  }
-});
-
-test("clicks the account switch once and logs in on the page it leads to", async () => {
-  const fixture = await startLoginFixture();
-  try {
-    await withLoginExtension(async (context, _worker, id) => {
-      const options = await context.newPage();
-      await configure(options, id, fixture.origin);
-      const status = async () =>
-        JSON.stringify(await send(options, { version: 1, type: "login.probe.status" }));
-      // The demo account's username is 00001234; the link leads to a page showing it.
+      await same.close();
+      await expect.poll(status).not.toContain("authenticated");
+      // The switch link leads to a page showing the demo account.
       const page = await context.newPage();
       await page.goto(`${fixture.origin}/single?shown=****9999&switch=****1234`);
       await expect(page.locator("#authenticated")).toBeVisible();
@@ -1505,7 +1472,11 @@ test("credential rejection and unknown outcome each stop after one submission", 
         .toContain("unknown-submit");
       // A DOM update wakes observation again; uncertainty must not replay a click.
       await unknown.evaluate(() => document.body.append(document.createElement("p")));
-      await expect.poll(() => clicks(unknown)).toBe(1);
+      await unknown.waitForTimeout(1000);
+      expect(await clicks(unknown)).toBe(1);
+      expect(
+        JSON.stringify(await send(options, { version: 1, type: "login.probe.status" })),
+      ).toContain("unknown-submit");
     });
   } finally {
     await fixture.close();
