@@ -89,6 +89,9 @@ export function createLocalVaultManager(options: {
   // Set when a comparison may have ended the candidate, so a failure that repeats cannot
   // block every sync: accepts skip the comparison and rely on review until one commits.
   let skipComparison = false;
+  // The revision an accept is writing. Until that accept adopts it, a durable check that
+  // finds it ends only the old handle's request; a fence there would cancel the accept.
+  let writing: string | undefined;
   const summary = (entry: VaultEntry): LocalVaultSummary => ({
     connectionId: entry.profile.connectionId,
     revision: entry.revision,
@@ -165,6 +168,8 @@ export function createLocalVaultManager(options: {
         await fence();
         return vaultFailure("storage-uncertain");
       }
+      if (writing !== undefined && read.data?.revision === writing)
+        return vaultFailure("stale-vault-handle");
       if (
         read.data?.state !== "active" ||
         read.data.revision !== owner.summary.revision ||
@@ -405,6 +410,7 @@ export function createLocalVaultManager(options: {
         await options.checkpoint?.("before-write");
         if (!current(captured, op.signal)) return vaultFailure("cancelled");
         writeAttempted = true;
+        writing = ready.data.revision;
         const write = await options.store.compareAndSwap(
           previous.data?.revision ?? null,
           ready.data,
@@ -469,6 +475,7 @@ export function createLocalVaultManager(options: {
         }
         return vaultFailure(writeAttempted ? "storage-uncertain" : "storage-failed");
       } finally {
+        writing = undefined;
         const remaining = candidate ?? staged;
         staged = undefined;
         if (remaining) await retire(remaining);
