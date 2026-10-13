@@ -713,6 +713,7 @@ test("after the site rejects a login, the popup says so and offers the accounts"
   await expect
     .element(page.getByRole("checkbox", { name: "Make it the default for bank.example" }))
     .toBeChecked();
+  expect(choices.pick).not.toHaveBeenCalled();
   await userEvent.click(offered.getByRole("radio", { name: "Demo team account, Demo work vault" }));
   await expect.element(logIn).toBeEnabled();
   await userEvent.click(logIn);
