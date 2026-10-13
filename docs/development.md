@@ -646,6 +646,7 @@ use. WXT drives Vite 8 (Rolldown) for the extension build
 | UI icons | **Approved (2026-10-12); implemented for the diagnostics page and `/manage`:** `lucide-react`, imported per icon, in each workspace that uses it | Phase 1 UI polish |
 | UI translation | **Approved (2026-10-12):** i18next with react-i18next, the language chosen in Pateat's settings; the manifest's `description` through a hand-written `_locales` file | Phase 3 Japanese for the extension |
 | Identifiers | **Approved (2026-10-12) and implemented:** `uuid` for UUIDv7, since Web Crypto has only `randomUUID()` (v4) ([identifiers](architecture.md#identifiers)) | Phase 1 |
+| CBOR decoding | **Approved (2026-10-13) and implemented:** `cbor2` reads the version from a Bitwarden signed security state after the SDK has verified it; Pateat no longer pre-checks COSE structure and relies on Worker termination when the SDK's initialization cannot parse its input ([vault adapter](architecture.md#vault-adapter)) | M3 Bitwarden adapter |
 | Server configuration | Existing cf with cloudflare.config.ts and Vite | Retain verified build path |
 
 ### Integration conditions (pending candidates remain conditional)
@@ -692,8 +693,10 @@ explicitly include private suffix rules where appropriate. PSL information is
 not permission to fill or sign, and does not replace HTTPS, origin, ancestor or
 Permissions Policy checks. OTPAuth covers standard OTP mechanics; test Bitwarden
 Steam compatibility separately and do not advertise HOTP merely because parsing
-supports it. Evaluate `@scure/base`, `@noble/hashes` and `cbor-x` for actual protocol
-gaps. Do not write crypto/CBOR primitives ourselves, assume all primitives in a
+supports it. Evaluate `@scure/base` and `@noble/hashes` for actual protocol gaps; CBOR
+is read with the approved `cbor2`, only from data the Bitwarden SDK has already
+verified.
+Do not write crypto/CBOR primitives ourselves, assume all primitives in a
 package are audited, or substitute a different KDF for Bitwarden Argon2id.
 
 Use the approved Hono and Drizzle for the first substantive service routes and

@@ -1,8 +1,8 @@
 import type * as Sdk from "@bitwarden/sdk-internal";
 import * as v from "valibot";
 
-import { isCoseSign1, verifiedSecurityStateVersion } from "./cose";
 import { failure, type BitwardenResult } from "./errors";
+import { verifiedSecurityStateVersion } from "./security-state";
 
 /** Host binds packaged WASM before calling this factory. No SDK network APIs are exposed. */
 export type LocalCryptoSdk = Pick<
@@ -458,9 +458,10 @@ function bytesFromBase64(value: string): Uint8Array {
   return Uint8Array.from(decoded, (character) => character.charCodeAt(0));
 }
 
-function signedFraming(value: string): boolean {
+function canonicalBase64(value: string): boolean {
   try {
-    return isCoseSign1(bytesFromBase64(value));
+    bytesFromBase64(value);
+    return true;
   } catch {
     return false;
   }
@@ -575,10 +576,13 @@ export async function createLocalCryptoSession(
   try {
     // Error level still logs: the trusted host must disable console before SDK initialization.
     sdk.init_sdk(sdk.LogLevel.Error, sdk.LogLevel.Error, 0);
-    // The SDK's async initialization never settles on unparsable signed objects. Reject them first.
+    // The SDK's async initialization never settles when it cannot parse an argument. Invalid base64
+    // is rejected here; malformed COSE inside valid base64 is not checked locally, and only the
+    // host's termination of the owning Worker ends such a call (as `crypto-failed` or `timeout`).
     if (
       "V2" in account &&
-      (!signedFraming(account.V2.security_state) || !signedFraming(account.V2.signed_public_key))
+      (!canonicalBase64(account.V2.security_state) ||
+        !canonicalBase64(account.V2.signed_public_key))
     ) {
       dispose();
       return failure("invalid-crypto-input");
