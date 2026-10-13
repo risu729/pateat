@@ -433,6 +433,52 @@ test("a saved default missing from the site's matches keeps its vault labels", a
   await expect.element(page.getByRole("button", { name: "Remove default" })).toBeVisible();
 });
 
+test("a saved default waits for the site's matches instead of showing its saved labels", async () => {
+  const settings = createDefaultSettings();
+  settings.siteDefaults.push({
+    origin: "https://bank.example",
+    provider: "dummy",
+    userId: "demo-work-account",
+    itemId: "primary",
+    itemName: "Demo team account",
+    accountName: "Demo work vault",
+  });
+  const { client } = store(saved(1, settings));
+  let answer!: () => void;
+  client.findSiteAccounts.mockImplementation(
+    (origin) =>
+      new Promise((resolve) => {
+        answer = () =>
+          void demoSiteAccounts(origin).then((found) =>
+            resolve({
+              ...found,
+              accounts: found.accounts.map((account) => ({
+                ...account,
+                username: `${account.itemId}@bank.example`,
+              })),
+            }),
+          );
+      }),
+  );
+  await mount(client, "https://bank.example/");
+  await expect.element(page.getByText("Finding the vault items", { exact: false })).toBeVisible();
+  // The default is not shown by its item name while its username is still being read.
+  expect(document.querySelector("#popup-default")).toBeNull();
+  expect(page.getByText("Demo team account", { exact: false }).query()).toBeNull();
+  // Nothing shows which account it would remove yet.
+  await expect.element(page.getByRole("button", { name: "Remove default" })).toBeDisabled();
+  answer();
+  await expect
+    .element(
+      page.getByRole("radio", {
+        name: "primary@bank.example, Demo team account in Demo work vault, default",
+      }),
+    )
+    .toBeChecked();
+  expect(document.querySelector("#popup-default")).toBeNull();
+  await expect.element(page.getByRole("button", { name: "Remove default" })).toBeEnabled();
+});
+
 test("a change saved elsewhere first is reloaded instead of overwritten", async () => {
   const state = store();
   await mount(state.client, "https://bank.example/");

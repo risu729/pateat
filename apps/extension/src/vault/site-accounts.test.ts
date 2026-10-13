@@ -282,6 +282,116 @@ describe("createSiteAccountsHandler", () => {
   });
 });
 
+describe("createSiteAccountsHandler settings changes", () => {
+  const request = () => ({
+    version: 1,
+    type: "settings.site-accounts",
+    origin: "https://bank.example",
+    settings: draft(),
+  });
+  const matchUris: LiveUriMatcher = async () => ({
+    ok: true,
+    data: uris({ targetOrigin: "https://bank.example", candidates: [] }),
+  });
+
+  it("searches again when the settings changed while it read the usernames", async () => {
+    let revision = 3;
+    const settings = vi.fn(async () => {
+      const value = saved();
+      value.snapshot.revision = revision;
+      return value;
+    });
+    // A login saves its default while the first username is read, so that read is refused.
+    const readField = vi.fn<LoginFieldSource>(async ({ account }) => {
+      if (revision === 3) {
+        revision = 4;
+        return undefined;
+      }
+      return account.itemId === uriItem ? "alice@example.test" : "bob@example.test";
+    });
+    const handle = createSiteAccountsHandler({
+      settings: { handle: settings },
+      matchUris,
+      findPasskeys: passkeys({ "bank.example": [uriItem, passkeyItem] }),
+      readField,
+    });
+    expect(await handle(request())).toMatchObject({
+      ok: true,
+      accounts: expect.arrayContaining([
+        expect.objectContaining({ itemId: uriItem, username: "alice@example.test" }),
+        expect.objectContaining({ itemId: passkeyItem, username: "bob@example.test" }),
+      ]),
+    });
+    expect(readField).toHaveBeenCalledTimes(4);
+  });
+
+  it("answers after three searches while the settings keep changing", async () => {
+    let revision = 3;
+    const handle = createSiteAccountsHandler({
+      settings: {
+        handle: async () => {
+          const value = saved();
+          value.snapshot.revision = revision;
+          revision += 1;
+          return value;
+        },
+      },
+      matchUris,
+      findPasskeys: passkeys({ "bank.example": [uriItem] }),
+      // Every read is refused, so each search misses the username.
+      readField: async () => undefined,
+    });
+    expect(await handle(request())).toMatchObject({
+      ok: true,
+      accounts: expect.arrayContaining([expect.objectContaining({ itemId: uriItem })]),
+    });
+    // Three searches, each with its read before and its check after, but the last.
+    expect(revision).toBe(8);
+  });
+  it("keeps a search that read every username, though the settings changed", async () => {
+    let revision = 3;
+    const readField = vi.fn<LoginFieldSource>(async () => "alice@example.test");
+    const handle = createSiteAccountsHandler({
+      settings: {
+        handle: async () => {
+          const value = saved();
+          value.snapshot.revision = revision;
+          revision += 1;
+          return value;
+        },
+      },
+      matchUris,
+      findPasskeys: passkeys({ "bank.example": [uriItem] }),
+      readField,
+    });
+    expect(await handle(request())).toMatchObject({ ok: true });
+    expect(readField).toHaveBeenCalledOnce();
+  });
+
+  it("keeps a search whose settings can no longer be read to compare", async () => {
+    let reads = 0;
+    const readField = vi.fn<LoginFieldSource>(async () => undefined);
+    const handle = createSiteAccountsHandler({
+      settings: {
+        handle: async () => {
+          reads += 1;
+          return reads === 1
+            ? saved()
+            : { version: 1, ok: false, error: { code: "storage-unavailable", message: "Down." } };
+        },
+      },
+      matchUris,
+      findPasskeys: passkeys({ "bank.example": [uriItem] }),
+      readField,
+    });
+    expect(await handle(request())).toMatchObject({
+      ok: true,
+      accounts: expect.arrayContaining([expect.objectContaining({ itemId: uriItem })]),
+    });
+    expect(readField).toHaveBeenCalledOnce();
+  });
+});
+
 describe("createSiteAccountsHandler queue", () => {
   it("answers concurrent lookups one after another", async () => {
     let running = 0;
