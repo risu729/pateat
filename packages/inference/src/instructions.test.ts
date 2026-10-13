@@ -1,6 +1,11 @@
 import { toJsonSchema } from "@valibot/to-json-schema";
 import { describe, expect, it } from "vitest";
-import { completionInstructions, createCompletionJudge, judgedPageSchema } from "./completion";
+import {
+  completionInstructions,
+  completionStopInstructions,
+  createCompletionJudge,
+  judgedPageSchema,
+} from "./completion";
 import { evaluationCorpus } from "./corpus/cases";
 import { buildFieldQuestions } from "./decision";
 import {
@@ -43,6 +48,7 @@ describe("instructions sent to the model", () => {
       entryGenerationInstructions,
       accountListGenerationInstructions,
       completionInstructions,
+      completionStopInstructions,
       JSON.stringify(toJsonSchema(generatedPlanSchema)),
       JSON.stringify(toJsonSchema(judgedPageSchema)),
     ])

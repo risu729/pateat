@@ -7,7 +7,10 @@ against the code by a subagent three times before it was put to the owner). Amen
 [ADR 0034](0034-answer-page-passkey-requests.md) (rules 3 and 5),
 [ADR 0029](0029-local-sign-in-state.md) (E2 and an undecided answer),
 [ADR 0022](0022-login-attempts-per-tab-and-origin.md) (moves) and
-[ADR 0021](0021-account-choice-outside-settings.md) D (fill only).
+[ADR 0021](0021-account-choice-outside-settings.md) D (fill only). Amended on 2026-10-13
+by the owner (05:39 UTC): at the stop, a passkey button beside the password field is
+pressed when the item has a passkey (rule 6; implemented, with extensions by Claude that
+the owner has not confirmed separately).
 
 Date: 2026-10-13
 
@@ -66,14 +69,18 @@ But the route choice never starts the `password` route for an item without a pas
    signed in before (`judged-signed-in`) completes it, on the same origin as on a move.
    A move after a passkey answer completes as ADR 0022 says.
 6. **Unchanged.** Recipes, generation and continuation, and saved bindings stay as they
-   are; the binding keeps naming the empty password field, so the item signs in with
-   its password once it has one. Fill only after a logout (ADR 0021 D) fills the
-   identifier and presses nothing. A login that switched to the `passkey` route because
-   its start page asked never falls back to this; it ends `challenge`. A "use a passkey"
-   button beside the password field is not clicked: that page is not judged, so no
-   handler is learned for it. (Amended on 2026-10-13 by the owner's decision at 04:42
-   UTC, below: a login of a variant that ends at Continue asks for the recipe to be
-   continued, and offers the `password` slot.)
+   are; the binding keeps naming the empty password field, so the item signs in with its
+   password once it has one. Fill only after a logout (ADR 0021 D) fills the identifier
+   and presses nothing. A login that switched to the `passkey` route because its start
+   page asked never falls back to this; it ends `challenge`. ~~A "use a passkey" button
+   beside the password field is not clicked: that page is not judged, so no handler is
+   learned for it.~~ (Amended on 2026-10-13 by the owner's decision at 04:42 UTC, below:
+   a login of a variant that ends at Continue asks for the recipe to be continued, and
+   offers the `password` slot.) Amended on 2026-10-13 by the owner (05:39 UTC): a "sign
+   in with a passkey" button beside the password field is pressed when the item has a
+   passkey, as below in "A passkey button beside the password field" (the owner's
+   answer, 「パスキーが登録されてるなら押したほうがいいのでは？」, to whether Pateat
+   should press it).
 7. **Logs.** `login.attempt` names the stop (`stop=password`), and the `challenge` at
    the stop names `password-empty`. A `no-route` refusal of an item without a password
    that does not go on names which condition failed after a colon, such as
@@ -114,8 +121,9 @@ variant's Continue, the login therefore goes on as follows:
    goes into the continued budget, which counts the password's own submission. That step
    and every later one never run, whatever the item holds later. A continuation the stop
    cannot be moved into, as one that first fills another value the item lacks, is not
-   taken over. A continued page with a password field is not judged, so a "use a
-   passkey" button beside it is still not clicked (rule 6).
+   taken over. A continued page with a password field is not judged after Continue; its
+   "use a passkey" button is pressed at the stop instead (rule 6, as amended at 05:39
+   UTC).
 3. A page that does not qualify for continuation, as one with only a button to use the
    passkey, is judged once the step's 10-second wait runs out (ADR 0029). A `passkey`
    handler the judge learns is entered before the stop, which moves along, and pressed;
@@ -134,6 +142,68 @@ observed as after any answer, under rule 5. A `no-route` refusal of such a varia
 why after the colon too (rule 7), with `no-password-step` for a route that fills no
 password and does not end with an `advance`. `password-not-allowed` stays out of scope.
 
+**A passkey button beside the password field.** Amended on 2026-10-13 by the owner
+(05:39 UTC), answering whether Pateat should press a "sign in with a passkey" button
+beside a password field: 「パスキーが登録されてるなら押したほうがいいのでは？」 (if a
+passkey is registered, it should press it). So at the stop, a login of an item with a
+usable passkey presses such a button, and nothing at or after the stop runs and the
+password is never filled, as before. How it does so:
+
+1. A `passkey` handler of the recipe whose button shows on the page at the stop is
+   entered before the stop step, and the stop moves along with the plan as for any
+   handler entered before it. Its button is pressed once, and the passkey request that
+   follows is answered with the item, as any login's (ADR 0027, executor 4). This needs
+   no model call, so later logins of such items press a button learned before.
+2. Without one, a page that still shows the stop step's password field on its path,
+   where the recipe has no `passkey` handler yet, is sent once to be judged, so a
+   handler can be learned for the button. The service judges such a page though it shows
+   the route's password field, but never one without it, with a signed-in marker, or on
+   a path that has a `passkey` handler already, and keeps only a `passkey` handler from
+   it, with the usual checks (a button that registers or adds a passkey is refused, and
+   so on); never a signed-in marker or a rejection. The attempt records the judgement
+   (`stopJudged`) before the request, so a restart does not send it again.
+3. A handler learned so is taken over by the running login and entered as in 1.
+4. With no button learned (the judge abstains, names none, or the service refuses or is
+   busy), the login ends as before: `challenge`, watched, `password-empty`.
+
+Claude extended the owner's answer as follows to implement it, and the owner has not
+confirmed these points separately:
+
+- The button is looked for only once the stop's 3-second wait for the page's own passkey
+  request (rule 4) ran out with none, also for a button learned before.
+- Learning the button costs a paid judge call that the owner's answer did not name: once
+  per recipe revision, page path and judge prompt version, within ADR 0029's limits (20
+  judgements per recipe a UTC day, which this one counts toward) and $5 a day. The
+  stop's page is judged with its own instructions and prompt version (the usual ones
+  plus asking only for a button that signs in with a passkey or security key instead of
+  the password), so a stop's judgement never answers another login's page of the path,
+  nor the reverse.
+- The request says it comes from such a stop (`stop: true`). Like the `passkey` route's
+  name (ADR 0027), it tells the service that the login's item has no password but has a
+  passkey, and it is stored in the request JSON of the inference log (ADR 0012). The
+  model's instructions name no fact of the account.
+- No `totp` handler is entered or learned at the stop; a code the judge names there is
+  logged as not kept (`stop`).
+- A login that may still type its password (on the `password` route, without a stop)
+  never enters a `passkey` handler on a path where its plan still has a route step to
+  run that fills the password, nor while a fill field of the route shows on that path,
+  so such a button never pre-empts a password that is typed, even while an in-place form
+  swaps its identifier for its password field. A route step still to run there that
+  fills only another slot, such as the route's own code step after the password, does
+  not keep the handler out, so a security-key page that another account gets there in
+  its place is handled as before. Once the password steps ran and the fields are gone,
+  as on a second-factor page on the same path, the handler is entered as before. The
+  gate is the stop rather than the item's current password, since the stop is recorded
+  when the login starts and kept whatever a later vault sync adds.
+- The pressed button's click is held while its button shows, as any handler's (ADR
+  0027), for up to two minutes; a site that does not move on is then left to the person
+  as a plain `challenge`, watched, not `password-empty`.
+
+Known gap: the service matches the stop's password field to the route's fill target by
+its exact locator. If the page description gives that field another locator than the
+recipe's step, the stop's page answers `not-judgeable` and no button is learned there.
+`password-not-allowed` is still out of scope.
+
 ## Consequences
 
 - A passkey-only account on a site that asks for the identifier first, such as OpenAI
@@ -141,7 +211,8 @@ password and does not end with an `advance`. `password-not-allowed` stays out of
 - On a site that sends a code by email after the identifier, each such login sends
   one. The same tab never sends the identifier again by itself; during the watch, its
   sign-in pages ask for an account and fill only when one account is to be used
-  (ADR 0021 D); a new tab after the watch, with no release in between, starts again.
+  (ADR 0021 D); a new tab starts again, both after the watch with no release in
+  between and during it, where its sign-in page ends the watch first (#472).
 - Pages after the identifier are judged by the model more often, within the limits of
   ADR 0029.
 - A login of an item without a password on a recipe that ends at Continue sends the page
@@ -149,3 +220,7 @@ password and does not end with an `advance`. `password-not-allowed` stays out of
   recipe is shared, so later logins of any account reuse the continued steps.
 - What OpenAI shows after the email is not known yet; the Bot's first login after this
   change shows it.
+- A password page that offers a passkey button is judged once for each recipe revision
+  whose passkey-only login stops there, a paid call; the handler it learns is shared
+  with every account of the recipe, and only logins with a stop press it while the
+  password field shows.

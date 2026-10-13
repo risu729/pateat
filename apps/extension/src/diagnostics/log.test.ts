@@ -1635,6 +1635,28 @@ describe("unhandled errors", () => {
       (logged) => logged.event === "login.refused",
     );
     expect(entries.map((entry) => entry.fields["detail"])).toEqual(details);
+    // The page judged at such a login's stop names it (owner, 2026-10-13 05:39 UTC).
+    log.login({
+      type: "judge",
+      tabId: 4,
+      origin: "https://login.example",
+      recipeId: "gen-synthetic",
+      recipeRevision: 2,
+      route: "password",
+      verdict: "challenge",
+      takenOver: true,
+      stop: "password",
+    });
+    await vi.waitFor(async () =>
+      expect(
+        (await log.logger.entries()).filter((entry) => entry.event === "recipe.judge"),
+      ).toEqual([
+        expect.objectContaining({
+          level: "info",
+          fields: expect.objectContaining({ verdict: "challenge", stop: "password" }),
+        }),
+      ]),
+    );
     vi.restoreAllMocks();
   });
 

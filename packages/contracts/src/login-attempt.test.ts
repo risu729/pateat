@@ -3134,6 +3134,113 @@ describe("a login that stops before a missing password (ADR 0036)", () => {
     ).not.toHaveProperty("stopAt");
   });
 
+  // Owner, 2026-10-13 05:39 UTC: a passkey button beside the stop step's password field is
+  // pressed when the item has a passkey.
+  describe("a passkey button beside the stop's password field", () => {
+    const button = { type: "HANDLER", handler: 0, steps: 1, effects: 1, document: top } as const;
+    const judging = { type: "STOP_JUDGING" } as const;
+
+    it("enters a handler at the stop, before the stop step, which moves along", () => {
+      const entered = transitionLoginAttempt(atStop(), button);
+      expect(entered).toMatchObject({
+        state: "ready",
+        stepIndex: 2,
+        stepCount: 5,
+        stopAt: 3,
+        submissions: 1,
+        maxSubmissions: 3,
+        handlers: [{ index: 0, start: 2 }],
+      });
+      expect(entered.operationId).toBeUndefined();
+      // The handler's click runs; the password fill after it never does.
+      expect(nextLoginOperation(entered, emailFirst, top, "key-one", 1000)).toMatchObject({
+        stepIndex: 2,
+        step: { kind: "click", path: "/verify", target: id("use-key") },
+      });
+      expect(
+        nextLoginOperation({ ...entered, stepIndex: 3 }, emailFirst, top, "fill-two", 1000),
+      ).toBeUndefined();
+      // Once clicked, the page after it goes on to the stop again, and no further.
+      let clicked = transitionLoginAttempt(entered, {
+        type: "PREPARE",
+        operationId: "key-one",
+        kind: "click",
+      });
+      clicked = transitionLoginAttempt(clicked, { type: "SUBMIT_INTENT", operationId: "key-one" });
+      clicked = transitionLoginAttempt(clicked, { type: "SUBMITTED", operationId: "key-one" });
+      const back = transitionLoginAttempt(clicked, {
+        type: "OBSERVED",
+        result: "continue",
+        document: top,
+      });
+      expect(back).toMatchObject({ state: "ready", stepIndex: 3, stopAt: 3, submissions: 2 });
+      expect(nextLoginOperation(back, emailFirst, top, "fill-two", 1000)).toBeUndefined();
+      // The passkey request the click led to is answered there, within the budget.
+      expect(
+        transitionLoginAttempt(back, { type: "STOP_ANSWERED", operationId: "answer-one" }),
+      ).toMatchObject({ state: "reconciling", stepIndex: 3, submissions: 3 });
+      // It never runs twice.
+      expect(transitionLoginAttempt(back, button)).toEqual(back);
+    });
+
+    it("refuses a handler at the stop without a submission, while retrying or filling only", () => {
+      const stopped = atStop();
+      for (const refused of [
+        { ...stopped, submissions: 0 },
+        { ...stopped, retryRequired: true as const },
+        { ...stopped, fillOnly: true as const },
+        { ...stopped, stepIndex: 1 },
+        { ...stopped, handlers: [{ index: 0, start: 2 }], stepCount: 5, stopAt: 3, stepIndex: 3 },
+        { ...stopped, maxSubmissions: 12 },
+      ])
+        expect(transitionLoginAttempt(refused, button)).toEqual(refused);
+      // A login without a stop enters one only after an effect step, as before.
+      const { stopAt: _stopAt, ...unstopped } = stopped;
+      expect(transitionLoginAttempt(unstopped, button)).toEqual(unstopped);
+      // Nor from another tab.
+      expect(
+        transitionLoginAttempt(stopped, { ...button, document: { ...top, tabId: 8 } }),
+      ).toEqual(stopped);
+    });
+
+    it("records the judgement of the stop's page once, before the request", () => {
+      const stopped = atStop();
+      const judged = transitionLoginAttempt(stopped, judging);
+      expect(judged).toMatchObject({ state: "ready", stepIndex: 2, stopJudged: true });
+      expect(parseAttemptMetadata(judged)).toEqual(judged);
+      expect(transitionLoginAttempt(judged, judging)).toEqual(judged);
+      // A handler learned from it still goes in.
+      expect(transitionLoginAttempt(judged, button)).toMatchObject({
+        stepIndex: 2,
+        stopAt: 3,
+        stopJudged: true,
+      });
+      // Not before the stop, nor at a stop just past the plan's last step, nor without one.
+      for (const refused of [
+        { ...stopped, stepIndex: 1 },
+        { ...stopped, submissions: 0 },
+        { ...stopped, fillOnly: true as const },
+        { ...stopped, stopAt: 4, stepIndex: 4 },
+      ])
+        expect(transitionLoginAttempt(refused, judging)).toEqual(refused);
+      const { stopAt: _stopAt, ...unstopped } = stopped;
+      expect(transitionLoginAttempt(unstopped, judging)).toEqual(unstopped);
+      expect(() => parseAttemptMetadata({ ...stopped, stopJudged: false })).toThrow();
+      // Only a login with a stop records it.
+      const { stopAt: _unstop, ...noStop } = judged;
+      expect(() => parseAttemptMetadata(noStop)).toThrow();
+      // Answered or watched, it is never judged so again.
+      const answered = transitionLoginAttempt(stopped, answer);
+      expect(transitionLoginAttempt(answered, judging)).toEqual(answered);
+      const watching = transitionLoginAttempt(stopped, {
+        type: "OBSERVED",
+        result: "challenge",
+        document: top,
+      });
+      expect(transitionLoginAttempt(watching, judging)).toEqual(watching);
+    });
+  });
+
   it("never goes back to the password from a passkey route it switched to", () => {
     const ready = transitionLoginAttempt(create(), { type: "RESOLVE" });
     const switched = transitionLoginAttempt(ready, {
@@ -3205,6 +3312,57 @@ describe("a login that stops before a missing password (ADR 0036)", () => {
       result: "continue",
       document: top,
     } as const;
+
+    it("enters a passkey handler at that stop, keeping the answer's submission", () => {
+      const keyed: LoginRecipe = {
+        ...identifier,
+        handlers: [{ kind: "passkey", path: "/signin", target: id("use-key") }],
+      };
+      const stopped = transitionLoginAttempt(advancedPast(), continued);
+      expect(stopped).toMatchObject({ stepIndex: 2, stepCount: 2, stopAt: 2, maxSubmissions: 3 });
+      const entered = transitionLoginAttempt(stopped, {
+        type: "HANDLER",
+        handler: 0,
+        steps: 1,
+        effects: 1,
+        document: top,
+      });
+      // The stop stays just past the plan's last step, which is now the handler's click.
+      expect(entered).toMatchObject({
+        state: "ready",
+        stepIndex: 2,
+        stepCount: 3,
+        stopAt: 3,
+        maxSubmissions: 4,
+        handlers: [{ index: 0, start: 2 }],
+      });
+      expect(nextLoginOperation(entered, keyed, top, "key-one", 1000)).toMatchObject({
+        stepIndex: 2,
+        step: { kind: "click", target: id("use-key") },
+      });
+      // The click spends the recipe's budget; the kept submission still answers at the stop.
+      let clicked = transitionLoginAttempt(entered, {
+        type: "PREPARE",
+        operationId: "key-one",
+        kind: "click",
+      });
+      clicked = transitionLoginAttempt(clicked, { type: "SUBMIT_INTENT", operationId: "key-one" });
+      expect(clicked).toMatchObject({ state: "submit-intent", submissions: 2 });
+      clicked = transitionLoginAttempt(clicked, { type: "SUBMITTED", operationId: "key-one" });
+      const back = { ...clicked, state: "ready" as const, stepIndex: 3 };
+      const {
+        operationId: _a,
+        operationKind: _b,
+        operationEffect: _c,
+        mutationIntent: _d,
+        ...idle
+      } = back;
+      expect(
+        transitionLoginAttempt(idle, { type: "STOP_ANSWERED", operationId: "answer-one" }),
+      ).toMatchObject({ state: "reconciling", stepIndex: 3, submissions: 3 });
+      // A stop past the plan has no stop step whose page could be judged.
+      expect(transitionLoginAttempt(stopped, { type: "STOP_JUDGING" })).toEqual(stopped);
+    });
 
     it("goes on from the final advance to the stop, where no step is", () => {
       const awaiting = advancedPast();

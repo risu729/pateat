@@ -25,6 +25,8 @@ export * from "./values";
 export {
   completionInstructions,
   completionPromptVersion,
+  completionStopInstructions,
+  completionStopPromptVersion,
   createCompletionJudge,
   judgedPageSchema,
   type CompletionRequest,

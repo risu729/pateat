@@ -14,6 +14,7 @@ import {
   accountListGenerationInstructions,
   accountListGenerationPromptVersion,
   completionPromptVersion,
+  completionStopPromptVersion,
   entryGenerationInstructions,
   entryGenerationPromptVersion,
   entryInstruction,
@@ -2389,6 +2390,272 @@ describe("page judgement (ADR 0027)", () => {
       reason: "judged-rejected",
     });
     expect(sent).toHaveLength(calls + 1);
+  });
+
+  // Owner, 2026-10-13 05:39 UTC: a login of an item without a password but with a passkey
+  // that stops before the password has that page judged for a passkey button beside the
+  // password field (ADR 0036).
+  describe("a page at a login's stop before a missing password (ADR 0036)", () => {
+    const passkey = element("passkey", "button", "Sign in with a passkey");
+    const stopPage = observation("/password", [
+      ...passwordPage.candidates,
+      passkey,
+      element("add-passkey", "button", "Add a passkey"),
+    ]);
+    async function atStop(
+      device: Device,
+      recipeId: string,
+      revision: number,
+      page: LoginObservation = stopPage,
+      extra: Record<string, unknown> = {},
+    ) {
+      const response = await post(device, `/v1/recipes/${recipeId}/completion`, {
+        version: 1,
+        revision,
+        route: "password",
+        observation: page,
+        stop: true,
+        ...extra,
+      });
+      return {
+        status: response.status,
+        body: (await response.json()) as RecipeCompletionResult | { error: string },
+      };
+    }
+    const stopRows = async (device: Device) =>
+      rows(
+        "SELECT revision, path, prompt_version, verdict FROM page_judgements WHERE owner_id = ? ORDER BY revision, path, prompt_version",
+        device.ownerId,
+      );
+
+    it("still refuses the sign-in page from any other request, with no call", async () => {
+      const device = await owner();
+      const change = await twoPageRecipe(device);
+      const calls = sent.length;
+      for (const page of [stopPage, emailPage, passwordPage])
+        // oxlint-disable-next-line no-await-in-loop -- Each page is sent on its own.
+        expect((await complete(device, change.recipeId, 2, page)).body).toEqual({
+          version: 1,
+          status: "unavailable",
+          reason: "not-judgeable",
+        });
+      expect(sent).toHaveLength(calls);
+      expect(await stopRows(device)).toEqual([]);
+    });
+
+    it("keeps only a passkey handler for the button beside the password field", async () => {
+      const device = await owner();
+      const change = await twoPageRecipe(device);
+      const info = vi.spyOn(console, "info").mockImplementation(() => {});
+      const code = {
+        ...element("app-code", "text", "Authentication code"),
+        autocomplete: "one-time-code" as const,
+        inputMode: "numeric" as const,
+        maxLength: 6,
+      };
+      const page = observation("/password", [...stopPage.candidates, code]);
+      replies.push(
+        judgeReply({
+          decision: "challenge",
+          passkeyButton: "passkey",
+          code: { field: "app-code", submit: "sign-in", source: "authenticator-app" },
+        }),
+      );
+      const judged = await atStop(device, change.recipeId, 2, page);
+      expect(judged).toMatchObject({
+        status: 200,
+        body: {
+          version: 1,
+          status: "challenge",
+          change: {
+            revision: 3,
+            recipe: {
+              steps: route(change.recipe).steps,
+              handlers: [{ kind: "passkey", path: "/password", target: passkey.target }],
+            },
+          },
+        },
+      });
+      expect(await head(device, change.recipeId)).toBe(3);
+      // The next revision's stop page on that path has its handler: never sent again.
+      const before = sent.length;
+      expect((await atStop(device, change.recipeId, 3, page)).body).toEqual({
+        version: 1,
+        status: "unavailable",
+        reason: "not-judgeable",
+      });
+      expect(sent).toHaveLength(before);
+      // The code beside it is never learned there, and the log says so without elements.
+      expect(info).toHaveBeenCalledWith("Judged page handlers", {
+        recipeId: change.recipeId,
+        handlers: [
+          { kind: "passkey", kept: true },
+          { kind: "totp", kept: false, reason: "stop" },
+        ],
+      });
+      info.mockRestore();
+      // The model got the stop's instructions, under their own prompt version.
+      const [logged] = await rows(
+        "SELECT request, prompt_version FROM inference_log WHERE owner_id = ? AND role = 'judge'",
+        device.ownerId,
+      );
+      expect(logged!["prompt_version"]).toBe(await completionStopPromptVersion());
+      expect(logged!["prompt_version"]).not.toBe(await completionPromptVersion());
+      expect(JSON.parse(String(logged!.request))).toMatchObject({
+        route: "password",
+        stop: true,
+        loginPaths: ["/login", "/password"],
+      });
+      expect(JSON.stringify(sent.at(-1)!.body)).toContain(
+        "This sign-in page still shows its password field",
+      );
+      expect(await stopRows(device)).toEqual([
+        {
+          revision: 2,
+          path: "/password",
+          prompt_version: await completionStopPromptVersion(),
+          verdict: "challenge",
+        },
+      ]);
+    });
+
+    it("keeps no marker, rejection or registration button from the stop's page", async () => {
+      const device = await owner();
+      const change = await twoPageRecipe(device);
+      // A button that adds a passkey is refused as on any page.
+      replies.push(judgeReply({ decision: "challenge", passkeyButton: "add-passkey" }));
+      expect((await atStop(device, change.recipeId, 2)).body).toEqual({
+        version: 1,
+        status: "challenge",
+      });
+      // A rejection is no rejection here, and a marker beside the password field fails
+      // closed as on any sign-in page.
+      replies.push(judgeReply({ decision: "rejected" }));
+      expect(
+        (await atStop(device, change.recipeId, 2, { ...stopPage, path: "/password/retry" })).body,
+      ).toEqual({ version: 1, status: "unclear" });
+      replies.push(judgeReply({ decision: "signed-in", marker: "passkey" }));
+      expect(
+        (await atStop(device, change.recipeId, 2, { ...stopPage, path: "/password/again" })).body,
+      ).toEqual({ version: 1, status: "failed", error: "invalid-output" });
+      expect(await head(device, change.recipeId)).toBe(2);
+      expect((await stopRows(device)).map((row) => [row["path"], row["verdict"]]).sort()).toEqual([
+        ["/password", "challenge"],
+        ["/password/again", null],
+        ["/password/retry", "unclear"],
+      ]);
+      // Each path is judged once, as for any page: a later stop's page is not sent again.
+      const calls = sent.length;
+      expect((await atStop(device, change.recipeId, 2)).body).toEqual({
+        version: 1,
+        status: "unavailable",
+        reason: "judged-challenge",
+      });
+      expect(sent).toHaveLength(calls);
+    });
+
+    it("refuses a stop's page without the route's password field, or with a marker", async () => {
+      const device = await owner();
+      const change = await twoPageRecipe(device);
+      replies.push(judgeReply({ decision: "signed-in", marker: "logout" }));
+      await complete(device, change.recipeId, 2);
+      const calls = sent.length;
+      for (const page of [
+        // No password field of the route: not a stop's page.
+        observation("/password", [passkey, element("help", "link", "Help")]),
+        emailPage,
+        // Another password input than the route's.
+        observation("/password", [element("other-password", "password", "Password"), passkey]),
+        // The password field beside a signed-in marker.
+        observation("/password", [...stopPage.candidates, element("logout", "button", "Out")]),
+      ])
+        // oxlint-disable-next-line no-await-in-loop -- Each page is sent on its own.
+        expect((await atStop(device, change.recipeId, 3, page)).body).toEqual({
+          version: 1,
+          status: "unavailable",
+          reason: "not-judgeable",
+        });
+      // A stop is a password login's, on the recipe's origin.
+      expect(
+        (await atStop(device, change.recipeId, 3, stopPage, { route: "passkey" })).status,
+      ).toBe(400);
+      expect(
+        (
+          await atStop(device, change.recipeId, 3, {
+            ...stopPage,
+            origin: "https://www.example.test",
+          })
+        ).body,
+      ).toEqual({ version: 1, status: "unavailable", reason: "not-judgeable" });
+      expect(sent).toHaveLength(calls);
+    });
+
+    it("keeps a stop's judgements apart from other pages' of the path, within the day's 20", async () => {
+      const device = await owner();
+      const change = await twoPageRecipe(device);
+      replies.push(judgeReply({ decision: "challenge" }));
+      expect((await atStop(device, change.recipeId, 2)).body).toEqual({
+        version: 1,
+        status: "challenge",
+      });
+      // A code page on the same path after a password is still judged, and may learn its
+      // handler: the stop's row does not answer it.
+      const codePage = observation("/password", [
+        {
+          ...element("app-code", "text", "Authentication code"),
+          autocomplete: "one-time-code" as const,
+          inputMode: "numeric" as const,
+          maxLength: 6,
+        },
+        element("verify", "button", "Verify"),
+      ]);
+      replies.push(
+        judgeReply({
+          decision: "challenge",
+          code: { field: "app-code", submit: "verify", source: "authenticator-app" },
+        }),
+      );
+      expect((await complete(device, change.recipeId, 2, codePage)).body).toMatchObject({
+        status: "challenge",
+        change: { revision: 3, recipe: { handlers: [{ kind: "totp", path: "/password" }] } },
+      });
+      // A stop's judgement counts toward the recipe's 20 a day.
+      for (let index = 0; index < 18; index++)
+        // oxlint-disable-next-line no-await-in-loop -- Synthetic rows, inserted in order.
+        await seed(device, change.recipeId, 3, `/p${index}`, dayStart() + index);
+      const calls = sent.length;
+      expect((await atStop(device, change.recipeId, 3)).body).toEqual({
+        version: 1,
+        status: "unavailable",
+        reason: "judgement-limit",
+      });
+      expect(sent).toHaveLength(calls);
+    });
+
+    it("keeps the current stop judge's rows when another page purges older ones", async () => {
+      const device = await owner();
+      const change = await twoPageRecipe(device);
+      const stopVersion = await completionStopPromptVersion();
+      await seed(device, change.recipeId, 2, "/password", dayStart() - 1, {
+        promptVersion: stopVersion,
+        verdict: "challenge",
+      });
+      await seed(device, change.recipeId, 2, "/earlier-judge", dayStart() - 1);
+      replies.push(judgeReply({ decision: "rejected" }));
+      await complete(device, change.recipeId, 2);
+      expect(await judgements(device)).toEqual([
+        { recipe_id: change.recipeId, revision: 2, path: "/home" },
+        { recipe_id: change.recipeId, revision: 2, path: "/password" },
+      ]);
+      // And the stop's own repeat is answered from it, with no call.
+      const calls = sent.length;
+      expect((await atStop(device, change.recipeId, 2)).body).toEqual({
+        version: 1,
+        status: "unavailable",
+        reason: "judged-challenge",
+      });
+      expect(sent).toHaveLength(calls);
+    });
   });
 });
 

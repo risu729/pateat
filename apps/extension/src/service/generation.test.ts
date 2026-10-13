@@ -605,6 +605,27 @@ describe("recipe generation requests", () => {
       recipeChange.recipeId,
       { version: 1, revision: 1, route: "password", observation: home, partial: true },
     );
+    // A page at a login's stop before its item's missing password says so (ADR 0036).
+    h.transport.judgeCompletion.mockResolvedValueOnce({
+      kind: "result",
+      result: { version: 1, status: "unclear" },
+    });
+    await h.generation.judge(
+      recipeChange.recipeId,
+      1,
+      "password",
+      home,
+      undefined,
+      undefined,
+      undefined,
+      true,
+    );
+    expect(h.transport.judgeCompletion).toHaveBeenLastCalledWith(
+      connection.origin,
+      connection.credential,
+      recipeChange.recipeId,
+      { version: 1, revision: 1, route: "password", observation: home, stop: true },
+    );
   });
 
   const unavailable = (reason: string) => ({

@@ -10802,6 +10802,53 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       expect(clicks("verify")).toBe(1);
     }, 15_000);
 
+    it("presses a passkey handler shown instead of the route's own code step on its path", async () => {
+      // The route fills a code on the page after the password; another account gets a
+      // security-key page there, learned as a `passkey` handler. The code step still to run
+      // fills no password, so it does not keep the handler out (ADR 0036).
+      const key = { kind: "passkey" as const, path: "/two-factor", target: securityKey };
+      const routeCodedKey = parseLoginRecipe({
+        ...unlearned,
+        completion: home,
+        slots: [...unlearned.slots, "totp"],
+        steps: [
+          ...unlearned.steps,
+          {
+            kind: "fill",
+            path: "/two-factor",
+            fields: [{ slot: "totp", target: target("app-code") }],
+          },
+          { kind: "click", path: "/two-factor", target: target("verify"), purpose: "submit" },
+        ],
+        handlers: [key],
+        maxSubmissions: 2,
+      });
+      onClick({
+        login: { path: "/two-factor", present: ["Use security key"] },
+        "Use security key": toHome,
+      });
+      const bindings = [
+        {
+          ...savedBinding,
+          slots: [
+            { slot: "password", field: "password" as const },
+            { slot: "totp", field: "totp" as const },
+          ],
+        },
+      ];
+      const h = harness({ bindings }, { passkeys: withPasskey, username: true });
+      withTotp(h);
+      codes(h);
+      h.recipes.recipe.mockResolvedValue(routeCodedKey);
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+        timeout: 6_000,
+      });
+      expect(clicks("Use security key")).toBe(1);
+      expect(codeFills()).toEqual([]);
+      expect(status()![0]).toMatchObject({ handlers: [{ index: 0, start: 2 }] });
+    }, 10_000);
+
     it("types one code per login and leaves a second code page to the person", async () => {
       const again = {
         kind: "totp" as const,
@@ -19486,6 +19533,392 @@ describe("an item without a password, up to its password (ADR 0036)", () => {
     },
   );
 
+  // Owner, 2026-10-13 05:39 UTC: on a page with a password field beside a "sign in with a
+  // passkey" button, the login of an item with a passkey presses the button.
+  describe("a passkey button beside the stop's password field", () => {
+    const securityKey = target("use-passkey");
+    /** The recipe's next revision, with the button learned as a `passkey` handler. */
+    const learned = parseLoginRecipe({
+      ...emailFirst,
+      revision: 2,
+      handlers: [{ kind: "passkey", path: "/password", target: securityKey }],
+    });
+    /** The password page as the judge sees it: its field beside the button. */
+    const passwordPage = {
+      ok: true,
+      observation: {
+        version: 1,
+        origin,
+        path: "/password",
+        language: "en",
+        complete: true,
+        candidates: [
+          { id: "c1", role: "password", target: target("password"), label: "Password" },
+          { id: "c2", role: "button", target: target("login"), label: "Sign in" },
+          { id: "c3", role: "button", target: securityKey, label: "Sign in with a passkey" },
+        ],
+      },
+    };
+    /**
+     * Next leads to the password page with the button; pressing the button asks for a
+     * passkey, which the bridge answers with the login's item.
+     */
+    const withButton = (h: () => ReturnType<typeof harness>) => {
+      fake.state.onExecute = async (message) => {
+        const step = (message["operation"] as { step: LoginStep }).step;
+        if (step.kind === "click" && step.target.value === "next") {
+          fake.state.observedPath = "/password";
+          fake.state.present = new Set(["password", "login", "use-passkey"]);
+          fake.state.extracted = { "signed-in": passwordPage };
+        }
+        if (step.kind === "click" && step.target.value === "use-passkey")
+          h().login.passkeyAnswered(1, origin, "login.example");
+      };
+    };
+    const pressed = () =>
+      executed().filter((step) => step.kind === "click" && step.target.value === "use-passkey")
+        .length;
+
+    it("judges the page once, presses the button it learns and answers the request", async () => {
+      vi.useFakeTimers();
+      const { judge, generation } = judging({ verdict: "challenge", recipe: learned });
+      let h!: ReturnType<typeof harness>;
+      withButton(() => h);
+      const started = start({ generation });
+      h = started.h;
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(() => executed().length === 3);
+      // No request came within the three seconds, so the page was judged as a stop's.
+      expect(judge).toHaveBeenCalledTimes(1);
+      expect(judge.mock.calls[0]!.slice(0, 3)).toEqual([emailFirst.id, 1, "password"]);
+      expect(judge.mock.calls[0]![3]).toMatchObject({ path: "/password" });
+      expect(judge.mock.calls[0]![7]).toBe(true);
+      expect(executed()).toEqual([
+        expect.objectContaining({ kind: "fill", path: "/signin" }),
+        expect.objectContaining({ kind: "click", target: target("next") }),
+        expect.objectContaining({ kind: "click", path: "/password", target: securityKey }),
+      ]);
+      // The handler went in before the stop, which moved along with the plan.
+      expect(status()![0]).toMatchObject({
+        recipeRevision: 2,
+        stepCount: 5,
+        stopAt: 3,
+        stopJudged: true,
+        handlers: [{ index: 0, start: 2 }],
+      });
+      expect(judgements(started.report)).toContainEqual(
+        expect.objectContaining({ verdict: "challenge", takenOver: true, stop: "password" }),
+      );
+      // The click is held while its button shows, as any handler's (ADR 0027), and the
+      // request it made is the login's to answer with its item.
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(status()![0]).toMatchObject({
+        state: "awaiting-result",
+        stepIndex: 2,
+        submissions: 2,
+        maxSubmissions: 3,
+      });
+      expect(await h.login.loginAccount(1, origin)).toEqual({ connectionId, itemId });
+      // The tab moves on to the passkey's site, signed in.
+      fake.state.signs = quiet;
+      fake.state.tabUrls[1] = "https://www.login.example/home";
+      void h.hello({ documentId: "home-document", url: "https://www.login.example/home" }, false);
+      await until(() => status()?.[0]?.["state"] === "authenticated");
+      expect(pressed()).toBe(1);
+      expect(judge).toHaveBeenCalledTimes(1);
+      expect(executed().filter((step) => step.kind === "fill")).toHaveLength(1);
+      expect(passwordRead(h)).toBe(false);
+    });
+
+    it("presses a button learned before at the stop, with no judge call", async () => {
+      vi.useFakeTimers();
+      const { judge, generation } = judging({ verdict: "unclear" });
+      let h!: ReturnType<typeof harness>;
+      withButton(() => h);
+      const started = start({ generation });
+      h = started.h;
+      h.recipes.recipe.mockResolvedValue(learned);
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(() => pressed() === 1);
+      expect(status()![0]).toMatchObject({
+        recipeRevision: 2,
+        stepIndex: 2,
+        stepCount: 5,
+        stopAt: 3,
+        handlers: [{ index: 0, start: 2 }],
+      });
+      expect(status()![0]).not.toHaveProperty("stopJudged");
+      expect(await h.login.loginAccount(1, origin)).toEqual({ connectionId, itemId });
+      fake.state.signs = quiet;
+      fake.state.tabUrls[1] = "https://www.login.example/home";
+      void h.hello({ documentId: "home-document", url: "https://www.login.example/home" }, false);
+      await until(() => status()?.[0]?.["state"] === "authenticated");
+      expect(pressed()).toBe(1);
+      expect(judge).not.toHaveBeenCalled();
+      expect(passwordRead(h)).toBe(false);
+    });
+
+    it("leaves a pressed button that never signs in to the person, never pressing it twice", async () => {
+      vi.useFakeTimers();
+      const { judge, generation } = judging({ verdict: "unclear" });
+      const started = start({ generation });
+      const { h } = started;
+      h.recipes.recipe.mockResolvedValue(learned);
+      // The button is pressed, but the page stays as it is.
+      withButton(() => ({ login: { passkeyAnswered: () => undefined } }) as never);
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(() => pressed() === 1);
+      // Held while its button shows, as any handler's click, then left to the person.
+      await until(() => status()?.[0]?.["state"] === "watching", 200_000);
+      expect(status()![0]).toMatchObject({ outcome: "challenge", stepIndex: 2, stopAt: 3 });
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(pressed()).toBe(1);
+      expect(judge).not.toHaveBeenCalled();
+      expect(executed().filter((step) => step.kind === "fill")).toHaveLength(1);
+      expect(passwordRead(h)).toBe(false);
+    });
+
+    it.each<[string, JudgeAnswer]>([
+      ["abstains", { verdict: "unclear" }],
+      ["finds no button", { verdict: "challenge" }],
+      ["is busy", { verdict: "retry", reason: "busy" }],
+      ["refuses the page", { verdict: "unclear", reason: "not-judgeable" }],
+    ])("ends challenge, watched, as password-empty when the judge %s", async (_label, answer) => {
+      vi.useFakeTimers();
+      const { judge, generation } = judging(answer);
+      let h!: ReturnType<typeof harness>;
+      withButton(() => h);
+      const started = start({ generation });
+      h = started.h;
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(() => status()?.[0]?.["state"] === "watching");
+      expect(judge).toHaveBeenCalledTimes(1);
+      expect(judge.mock.calls[0]![7]).toBe(true);
+      expect(status()![0]).toMatchObject({
+        outcome: "challenge",
+        stepIndex: 2,
+        stopAt: 2,
+        stopJudged: true,
+        handlers: [],
+      });
+      expect(attempts(started.report).at(-1)).toMatchObject({
+        state: "watching",
+        stop: "password",
+        reason: "password-empty",
+      });
+      expect(judgements(started.report).at(-1)).toMatchObject({
+        verdict: answer.verdict,
+        stop: "password",
+      });
+      expect(pressed()).toBe(0);
+      expect(executed().map((step) => step.kind)).toEqual(["fill", "click"]);
+      expect(passwordRead(h)).toBe(false);
+    });
+
+    it("does not judge a stop's page that no longer shows the password field", async () => {
+      vi.useFakeTimers();
+      const { judge, generation } = judging({ verdict: "challenge", recipe: learned });
+      const { h } = start({ generation });
+      // The password page shows, then its field goes before the three seconds are over.
+      fake.state.onExecute = async (message) => {
+        const step = (message["operation"] as { step: LoginStep }).step;
+        if (step.kind === "click" && step.target.value === "next") {
+          fake.state.observedPath = "/password";
+          fake.state.present = new Set(["password", "login"]);
+          fake.state.extracted = { "signed-in": passwordPage };
+          setTimeout(() => (fake.state.present = new Set(["login"])), 1_000);
+        }
+      };
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(() => status()?.[0]?.["state"] === "watching");
+      expect(status()![0]).toMatchObject({ outcome: "challenge", stepIndex: 2 });
+      expect(status()![0]).not.toHaveProperty("stopJudged");
+      expect(judge).not.toHaveBeenCalled();
+    });
+
+    it("types the password of an item that holds one, never pressing a learned button", async () => {
+      vi.useFakeTimers();
+      const { judge, generation } = judging({ verdict: "unclear" });
+      let h!: ReturnType<typeof harness>;
+      withButton(() => h);
+      const started = start({ generation }, { password: true });
+      h = started.h;
+      h.recipes.recipe.mockResolvedValue(learned);
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(() => executed().length === 4);
+      expect(executed()).toEqual([
+        expect.objectContaining({ kind: "fill", path: "/signin" }),
+        expect.objectContaining({ kind: "click", target: target("next") }),
+        expect.objectContaining({ kind: "fill", path: "/password" }),
+        expect.objectContaining({ kind: "click", target: target("login") }),
+      ]);
+      expect(status()![0]).not.toHaveProperty("stopAt");
+      // The password page shows again with the button after the submission, as after a wrong
+      // password: the button is still not pressed while the password field shows.
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(pressed()).toBe(0);
+      expect(status()![0]).toMatchObject({ handlers: [] });
+      expect(passwordRead(h)).toBe(true);
+      // No page of a login that types its password is judged as a stop's.
+      for (const call of judge.mock.calls) expect(call[7]).toBeUndefined();
+    });
+
+    it("never presses a learned button while an in-place form swaps in its password field", async () => {
+      vi.useFakeTimers();
+      // One path: the email, Next, then the password swapped in, with the passkey button
+      // shown throughout, learned at another login's stop.
+      const inPlace = parseLoginRecipe({
+        version: 1,
+        id: "synthetic-in-place",
+        revision: 2,
+        origin,
+        slots: ["username", "password"],
+        steps: [
+          {
+            kind: "fill",
+            path: "/signin",
+            fields: [{ slot: "username", target: target("email") }],
+          },
+          { kind: "click", path: "/signin", target: target("next"), purpose: "advance" },
+          {
+            kind: "fill",
+            path: "/signin",
+            fields: [{ slot: "password", target: target("password") }],
+          },
+          { kind: "click", path: "/signin", target: target("login"), purpose: "submit" },
+        ],
+        handlers: [{ kind: "passkey", path: "/signin", target: securityKey }],
+        maxSubmissions: 2,
+      });
+      const { judge, generation } = judging({ verdict: "unclear" });
+      const { h } = start({ generation }, { password: true });
+      h.recipes.recipe.mockResolvedValue(inPlace);
+      fake.state.present = new Set(["email", "next", "use-passkey"]);
+      // After Next the email field is disabled, and the password field shows two seconds
+      // later: in between, no fill field of the route can be typed in.
+      fake.state.onExecute = async (message) => {
+        const step = (message["operation"] as { step: LoginStep }).step;
+        if (step.kind === "click" && step.target.value === "next") {
+          fake.state.unusable = new Set(["email"]);
+          setTimeout(() => {
+            fake.state.present = new Set(["email", "password", "login", "use-passkey"]);
+          }, 2_000);
+        }
+      };
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(() => executed().length === 4);
+      expect(executed()).toEqual([
+        expect.objectContaining({
+          kind: "fill",
+          fields: [expect.objectContaining({ slot: "username" })],
+        }),
+        expect.objectContaining({ kind: "click", target: target("next") }),
+        expect.objectContaining({
+          kind: "fill",
+          fields: [expect.objectContaining({ slot: "password" })],
+        }),
+        expect.objectContaining({ kind: "click", target: target("login") }),
+      ]);
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(pressed()).toBe(0);
+      expect(status()![0]).toMatchObject({ handlers: [] });
+      expect(judge.mock.calls.every((call) => call[7] === undefined)).toBe(true);
+    });
+
+    it("does not judge the stop's page again for a path that has a passkey handler", async () => {
+      vi.useFakeTimers();
+      const { judge, generation } = judging({ verdict: "challenge", recipe: learned });
+      let h!: ReturnType<typeof harness>;
+      withButton(() => h);
+      const shows = fake.state.onExecute!;
+      // The learned button is not on the page this time.
+      fake.state.onExecute = async (message, tabId) => {
+        await shows(message, tabId);
+        fake.state.present?.delete("use-passkey");
+      };
+      const started = start({ generation });
+      h = started.h;
+      h.recipes.recipe.mockResolvedValue(learned);
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(() => status()?.[0]?.["state"] === "watching");
+      expect(status()![0]).toMatchObject({ outcome: "challenge", stepIndex: 2, stopAt: 2 });
+      expect(status()![0]).not.toHaveProperty("stopJudged");
+      expect(attempts(started.report).at(-1)).toMatchObject({ reason: "password-empty" });
+      expect(judge).not.toHaveBeenCalled();
+      expect(pressed()).toBe(0);
+    });
+
+    it("does not judge the stop's page again after a restart during the request", async () => {
+      vi.useFakeTimers();
+      const first = judging({ verdict: "unclear" });
+      // The request never answers: the worker stops while it is out.
+      first.judge.mockImplementation(async (...args) => {
+        args[4]?.();
+        return new Promise(() => undefined);
+      });
+      let h!: ReturnType<typeof harness>;
+      withButton(() => h);
+      h = start({ generation: first.generation }).h;
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(() => status()?.[0]?.["stopJudged"] === true);
+      expect(first.judge).toHaveBeenCalledTimes(1);
+      expect(status()![0]).toMatchObject({ state: "ready", stepIndex: 2, stopAt: 2 });
+      fake.state.messages = [];
+      const query = fake.browser.tabs.query;
+      fake.browser.tabs.query = async () => [{ id: 1 }] as never;
+      try {
+        const second = judging({ verdict: "challenge", recipe: learned });
+        const restarted = start({ generation: second.generation });
+        h = restarted.h;
+        void h.hello({ documentId: "after-restart" }, false);
+        await until(() => status()?.[0]?.["state"] === "watching");
+        // The attempt sent its page already: not again, and nothing is pressed.
+        expect(second.judge).not.toHaveBeenCalled();
+        expect(judgements(restarted.report)).toContainEqual(
+          expect.objectContaining({ verdict: "not-sent", reason: "stop-judged", stop: "password" }),
+        );
+        expect(status()![0]).toMatchObject({
+          outcome: "challenge",
+          stepIndex: 2,
+          stopJudged: true,
+        });
+        expect(attempts(restarted.report).at(-1)).toMatchObject({ reason: "password-empty" });
+        expect(pressed()).toBe(0);
+        expect(passwordRead(h)).toBe(false);
+      } finally {
+        fake.browser.tabs.query = query;
+      }
+    });
+
+    it("presses the button for a login with a password once that field is gone", async () => {
+      vi.useFakeTimers();
+      const { generation } = judging({ verdict: "unclear" });
+      let h!: ReturnType<typeof harness>;
+      withButton(() => h);
+      const started = start({ generation }, { password: true });
+      h = started.h;
+      h.recipes.recipe.mockResolvedValue(learned);
+      const typed = fake.state.onExecute!;
+      // After the password, the same path asks only for the passkey, as a second factor.
+      fake.state.onExecute = async (message, tabId) => {
+        await typed(message, tabId);
+        const step = (message["operation"] as { step: LoginStep }).step;
+        if (step.kind === "click" && step.target.value === "login")
+          fake.state.present = new Set(["use-passkey"]);
+      };
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(() => pressed() === 1);
+      expect(executed().map((step) => step.kind)).toEqual([
+        "fill",
+        "click",
+        "fill",
+        "click",
+        "click",
+      ]);
+      expect(status()![0]).toMatchObject({ handlers: [{ index: 0, start: 4 }] });
+    });
+  });
+
   describe("on a recipe that ends at Continue, its password page not generated yet", () => {
     /** The email and Continue only, as OpenAI Platform's stored recipe. */
     const identifierFirst = (maxSubmissions: number) =>
@@ -19560,6 +19993,35 @@ describe("an item without a password, up to its password (ADR 0036)", () => {
       ]);
       expect(report).not.toHaveBeenCalledWith(expect.objectContaining({ type: "refused" }));
       expect(generation.generate).not.toHaveBeenCalled();
+      expect(passwordRead(h)).toBe(false);
+    });
+
+    it("presses a passkey button that shows at the stop past the plan's last step", async () => {
+      vi.useFakeTimers();
+      const { h, judge } = begin("/signin");
+      const key = target("use-passkey");
+      h.recipes.recipe.mockResolvedValue(
+        parseLoginRecipe({
+          ...identifierFirst(2),
+          handlers: [{ kind: "passkey", path: "/signin", target: key }],
+        }),
+      );
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(reachedStop);
+      // The button shows once the login stands at its stop, where no step is.
+      fake.state.present = new Set(["use-passkey"]);
+      await until(() => executed().length === 3);
+      expect(executed()[2]).toMatchObject({ kind: "click", path: "/signin", target: key });
+      // The handler went in at the stop, which stays just past the plan's last step.
+      expect(status()![0]).toMatchObject({
+        stepCount: 3,
+        stopAt: 3,
+        submissions: 2,
+        // The recipe's two, the click's one and the one kept for an answer at the stop.
+        maxSubmissions: 4,
+        handlers: [{ index: 0, start: 2 }],
+      });
+      expect(judge).not.toHaveBeenCalled();
       expect(passwordRead(h)).toBe(false);
     });
 

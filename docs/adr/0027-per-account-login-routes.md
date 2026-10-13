@@ -51,6 +51,14 @@ Amended on 2026-10-13 by [ADR 0021](0021-account-choice-outside-settings.md) (D)
 login that settles unknown on the sign-in form shown again, with its password input and
 no other sign, stops being watched once that reading is confirmed; the tab asks for an
 account at once (implemented).
+Amended on 2026-10-13 by the owner (05:39 UTC) through ADR 0036 rule 6: at the stop of a
+login of an item without a password but with a passkey, a "sign in with a passkey"
+button beside the route's password field is pressed when the item has a passkey
+(implemented). How it is done is Claude's extension, not confirmed by the owner
+separately: the stop's page may be judged once with `stop: true`, the service keeps
+only a `passkey` handler from it, and a `password` login never enters a `passkey`
+handler on a path where its plan still has a route step to run that fills the password
+or while a fill field of the route shows.
 
 Date: 2026-10-11
 
