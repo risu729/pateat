@@ -57,7 +57,10 @@ submitted by itself. Like any sign-in page without a recipe it may be sent for o
 its accounts are offered once a recipe's first step is ready there. The record is
 released as after a logout, so the site's other tabs ask too (and fill without pressing)
 instead of waiting out the 5-minute hold of ADR 0022 and then submitting the same
-account again. A document whose login ended with a rejection takes the form still
+account again; the owner confirmed this on 2026-10-13 (06:33 UTC, decision card
+answer 「他のタブも聞く」, other tabs ask too) over asking in this tab only as for an
+abandoned watch below, so a refused password is not sent again from another tab. A
+document whose login ended with a rejection takes the form still
 showing as shown again, and a new login in the same document, as after a pick there,
 watches for its own end. The badge, popup and log name the rejection instead of a logout
 (`pateat.login-rejected-asks.v1`, `login.logout` marked `rejected`, `logged-out` with
