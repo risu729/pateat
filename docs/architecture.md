@@ -373,8 +373,12 @@ checkbox makes the picked account the default once that login succeeds, and a sa
 default can still be removed there. The default-account list, where a default is chosen
 without logging in, returns once the page no longer waits. An open popup reads the
 settings again from the worker whenever the stored settings change, so a default saved
-by a picked login that succeeds while it is open shows without reopening it. Under the
-header, a "This page" section ([ADR 0038](adr/0038-login-status-badge.md#popup);
+by a picked login that succeeds while it is open shows without reopening it. The popup
+waits up to 45 seconds for the site's matching vault items. When the search has not
+answered by then, as while the vault is busy right after the extension restarts, the
+popup stops waiting and says to reopen it a little later, while the worker finishes the
+search, and the saved default shows by its saved labels. Under the header, a "This page"
+section ([ADR 0038](adr/0038-login-status-badge.md#popup);
 `apps/extension/src/popup/page-status.tsx`) asks the worker every second with
 `login.status.get` and says whether the site has a recipe that starts on the page, one
 on other paths only, or none; the AI's last answer for the tab (making a recipe, made
@@ -386,10 +390,9 @@ broken recipe is not made again automatically), and a refusal the badge shows, s
 and others show their log name; a link opens the diagnostics page. The worker answers
 from the recipe cache, its own record of the top page, the badge's spin for a request
 in flight, and the last login and model request the badge keeps from the log reports,
-with the badge's lifetime: a top page of
-another origin or the tab's closing drops them, and `chrome.storage.session` keeps them
-across a worker restart. Item selection, field exclusions and custom-field review stay
-on the extension's settings page once synced
+with the badge's lifetime: a top page of another origin or the tab's closing drops them,
+and `chrome.storage.session` keeps them across a worker restart. Item selection, field
+exclusions and custom-field review stay on the extension's settings page once synced
 ([ADR 0023](adr/0023-synced-vault-policy.md)). The service keeps one settings document
 per owner; [ADR 0024](adr/0024-settings-profiles.md) assigns its parts either to a
 settings profile that each device will choose later or to the owner. Chrome use access
