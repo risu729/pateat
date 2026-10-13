@@ -1267,8 +1267,8 @@ function observe(
     ...new Set(
       [...document.querySelectorAll("h1, h2, h3")].flatMap((heading) => {
         const text = visibleText(heading);
-        const shown = text && hide(text);
-        return shown ? [shown] : [];
+        const hidden = text && hide(text);
+        return hidden ? [hidden] : [];
       }),
     ),
   ].slice(0, maxHeadings);
