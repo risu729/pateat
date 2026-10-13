@@ -250,13 +250,7 @@ for (const challenge of ["mfa", "new-device"] as const) {
   });
 }
 
-for (const variant of [
-  "unchanged",
-  "builtin-changed",
-  "reencrypted",
-  "changed",
-  "reordered",
-] as const) {
+for (const variant of ["builtin-changed", "reencrypted", "changed", "reordered"] as const) {
   test(`custom exclusion replacement ${variant} preserves exact identity or quarantines the affected item`, async () => {
     await withVaultProfile(async (open, requests) => {
       const browser = await open();

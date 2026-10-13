@@ -270,6 +270,11 @@ test("unclaimed requests reach the browser's own authenticator unchanged", async
         error: "NotAllowedError",
       });
       await expect(page.locator("#result")).toHaveText("error NotAllowedError");
+      // A page whose permissions policy denies passkey requests keeps the browser's rejection.
+      const denied = await openRelyingParty(context, origin, "/denied");
+      expect(await clickRequest(denied, { challenge: challengeHex() })).toEqual({
+        error: "NotAllowedError",
+      });
       expect(await probe.signatures()).toBe(0);
     });
   } finally {
@@ -306,23 +311,6 @@ test("a ceremony policy delegates unattended and UV-required requests and clears
         0x19,
       );
       expect(await probe.signatures()).toBe(1);
-    });
-  } finally {
-    server.close();
-  }
-});
-
-test("a denied permissions policy keeps the browser's rejection", async () => {
-  const { server, origin } = await startRelyingParty();
-  try {
-    await withLoginExtension(async (context, _worker, extensionId) => {
-      const probe = await probeControls(context, extensionId);
-      await probe.configure();
-      const page = await openRelyingParty(context, origin, "/denied");
-      expect(await clickRequest(page, { challenge: challengeHex() })).toEqual({
-        error: "NotAllowedError",
-      });
-      expect(await probe.signatures()).toBe(0);
     });
   } finally {
     server.close();

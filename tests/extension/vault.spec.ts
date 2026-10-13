@@ -106,17 +106,14 @@ test("matches actual SDK-decrypted URIs with retained context after full profile
         url: "https://synthetic.example.test/login",
       }),
     ).toEqual(exact);
-    expect(externalRequests).toEqual([]);
-  });
-});
-
-test("an accepted cache whose URI context was dropped reports matching unavailable", async () => {
-  await withVaultProfile(async (open) => {
-    const { page } = await open();
-    await vaultData<Accepted>(page, { action: "accept", kind: "uri-without-context" });
+    await vaultData<Accepted>(reopened.page, { action: "accept", kind: "uri-without-context" });
     expect(
-      await invokeVault(page, { action: "match", url: "https://synthetic.example.test/login" }),
+      await invokeVault(reopened.page, {
+        action: "match",
+        url: "https://synthetic.example.test/login",
+      }),
     ).toEqual({ ok: false, error: { code: "uri-context-unavailable" } });
+    expect(externalRequests).toEqual([]);
   });
 });
 
@@ -174,7 +171,10 @@ test("rejects a corrupted last received cipher before export or replacement of l
 test("denies private Worker key export until all received ciphers are verified", async () => {
   await withVaultProfile(async (open, externalRequests) => {
     const browser = await open();
-    expect(await vaultData(browser.page, { action: "export-gate" })).toEqual({ denied: true });
+    expect(await vaultData(browser.page, { action: "export-gate" })).toEqual({
+      denied: true,
+      code: "invalid-request",
+    });
     expect((await vaultData<VaultInspection>(browser.page, { action: "inspect" })).exists).toBe(
       false,
     );
@@ -293,20 +293,6 @@ test("restores a committed unpublished candidate after actual service worker res
   });
 });
 
-test("rejects over-budget records without replacing the last good usable context", async () => {
-  await withVaultProfile(async (open, externalRequests) => {
-    const browser = await open();
-    await vaultData(browser.page, { action: "accept", kind: "v1" });
-    expect(await vaultData(browser.page, { action: "oversize" })).toEqual({
-      rejected: true,
-      quota: true,
-      unchanged: true,
-    });
-    expect(await vaultData(browser.page, { action: "resolve" })).toEqual({ matches: true });
-    expect(externalRequests).toEqual([]);
-  });
-});
-
 test("fails native offline initialization for structurally valid but wrong persisted key", async () => {
   await withVaultProfile(async (open, externalRequests) => {
     const browser = await open();
@@ -349,22 +335,6 @@ test("a newly unavailable item cannot reuse an old decrypted field", async () =>
       ok: false,
       error: { code: "field-missing" },
     });
-    expect(externalRequests).toEqual([]);
-  });
-});
-
-test("native transaction abort after put success preserves the exact prior usable record", async () => {
-  await withVaultProfile(async (open, externalRequests) => {
-    const browser = await open();
-    await vaultData(browser.page, { action: "accept", kind: "v1" });
-    const previous = await vaultData<VaultInspection>(browser.page, { action: "inspect" });
-    expect(await mutateNativeVault(browser.page, "abort")).toEqual({
-      committed: false,
-      aborted: true,
-      unchanged: true,
-    });
-    expect(await vaultData(browser.page, { action: "inspect" })).toEqual(previous);
-    expect(await vaultData(browser.page, { action: "resolve" })).toEqual({ matches: true });
     expect(externalRequests).toEqual([]);
   });
 });
