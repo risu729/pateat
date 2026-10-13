@@ -503,6 +503,7 @@ test("sync sign-in is shown separately from automatic unlock and forgetting it i
     state: "ready" as const,
     autoUnlock: "enabled" as const,
     providerSession: "active" as const,
+    syncedAt: Date.UTC(2026, 9, 13, 14, 51),
   };
   client.list
     .mockResolvedValueOnce({ ...status(), connections: [saved] })
@@ -512,6 +513,7 @@ test("sync sign-in is shown separately from automatic unlock and forgetting it i
   await expect
     .element(page.getByText("Sync sign-in saved on this device", { exact: true }))
     .toBeVisible();
+  await expect.element(page.getByText(/^Vault synced /)).toBeVisible();
   // Actions other than the row's main one are in its menu.
   await page.getByRole("button", { name: "More for Saved vault", exact: true }).click();
   await page

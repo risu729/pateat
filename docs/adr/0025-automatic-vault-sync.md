@@ -85,6 +85,14 @@ request, so a restart does not resend it at once; a check time in the future cou
 due. The diagnostics page shows the last check, its outcome and, after a 429, when the
 next check may be sent.
 
+The settings page's Bitwarden card shows "Vault synced" with the local time the vault
+was last known to match the server (requested by the owner on 2026-10-13): when the open
+snapshot was accepted, or when the last check that found the revision unchanged was
+sent, whichever is later. That check time is recorded only once the check has answered,
+so a check in flight or cut off does not advance it and a later failed check does not
+take it back. The diagnostics page instead gives the open snapshot's age and the last
+check with its outcome.
+
 ### Not interrupting a login
 
 - A page that may start a login (an announcement carrying a start path) waits up to five

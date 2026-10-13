@@ -694,6 +694,30 @@ describe("failed refresh does not destroy a previously usable cache", () => {
     expect(h.host.deriveAuthentication).not.toHaveBeenCalled();
     expect(h.manager.accept).not.toHaveBeenCalled();
   });
+  it("status reports the last time the vault was known to match Bitwarden", async () => {
+    const h = harness({ existing: true });
+    const acceptedAt = h.durable()!.accepted!.acceptedAt;
+    const synced = async () => {
+      const result = await h.caller.status();
+      if (!result.ok || result.kind !== "status") throw new Error("Synthetic status failed");
+      return result.connections[0]?.syncedAt;
+    };
+    expect(await synced()).toBe(acceptedAt);
+    // Only a finished check that found no change confirms the open snapshot later.
+    await h.revisions.update(accountProfile.connectionId, () => ({
+      checkedAt: acceptedAt + 120_000,
+      outcome: "failed",
+    }));
+    expect(await synced()).toBe(acceptedAt);
+    await h.revisions.update(accountProfile.connectionId, (entry) => ({
+      ...entry,
+      unchangedAt: acceptedAt + 60_000,
+    }));
+    // A time after now (a clock set back) confirms nothing.
+    expect(await synced()).toBe(acceptedAt);
+    h.advance(120_000);
+    expect(await synced()).toBe(acceptedAt + 60_000);
+  });
   it("sync refreshes expired authorization, uses its new bearer, and keeps the rotated refresh out of the vault record", async () => {
     const h = harness({ existing: true });
     expect(
