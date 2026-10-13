@@ -2997,6 +2997,29 @@ describe("account lists and chooser branches (ADR 0028)", () => {
     );
   });
 
+  it("stores no chooser naming no control for a list whose accounts are no entries", async () => {
+    const device = await owner();
+    // As on a card that shows the account above its buttons: no account is clicked itself.
+    const beside: LoginObservation = { ...listPage, accounts: ["[email]"], accountEntries: 0 };
+    replies.push({ text: listAnswer({}) });
+    expect(await generate(device, beside)).toEqual({
+      version: 1,
+      status: "failed",
+      error: "invalid-output",
+      rejection: { check: "plan", reason: "no-list-control" },
+    });
+    expect(sent).toHaveLength(1);
+    expect(await rows("SELECT * FROM recipe_heads WHERE owner_id = ?", device.ownerId)).toEqual([]);
+    expect(await rows("SELECT * FROM recipe_revisions WHERE owner_id = ?", device.ownerId)).toEqual(
+      [],
+    );
+    const [logged] = await rows(
+      "SELECT outcome FROM inference_log WHERE owner_id = ?",
+      device.ownerId,
+    );
+    expect(logged!.outcome).toBe("invalid-output");
+  });
+
   it("generates each branch's pages into the chooser, with attempts kept apart", async () => {
     const device = await owner();
     const { recipeId } = await chooser(device);

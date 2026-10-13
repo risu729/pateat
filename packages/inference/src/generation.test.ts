@@ -667,6 +667,33 @@ describe("account lists (ADR 0028)", () => {
     });
   });
 
+  it("refuses a list answer naming no control when no account is an entry", async () => {
+    const beside = { ...list, accountEntries: 0 };
+    expect(await run(beside, answer({}))).toMatchObject({
+      status: "failed",
+      error: "invalid-output",
+      detail: "no-list-control",
+    });
+    expect(await run(beside, answer({ other: "c1" }))).toMatchObject({
+      status: "ok",
+      value: { accountList: true, other: { candidate: "c1" } },
+    });
+    expect(await run(beside, answer({ continue: "c2" }))).toMatchObject({
+      status: "ok",
+      value: { accountList: true, continue: { candidate: "c2" } },
+    });
+    const entered = await Promise.all(
+      [1, 2].map((accountEntries) => run({ ...list, accountEntries }, answer({}))),
+    );
+    for (const outcome of entered)
+      expect(outcome).toMatchObject({ status: "ok", value: { accountList: true } });
+    // Without the count, a bare answer is still taken.
+    expect(await run(list, answer({}))).toMatchObject({
+      status: "ok",
+      value: { accountList: true },
+    });
+  });
+
   it("scores a list answer on a form as refused output", async () => {
     const outcome = await run(page.observation, answer({}));
     expect(outcome).toMatchObject({ status: "failed", detail: "unexpected-account-list" });

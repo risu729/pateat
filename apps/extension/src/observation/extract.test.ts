@@ -1995,6 +1995,8 @@ describe("extractAccountListObservation", () => {
     if (!result.ok) throw new Error(result.reason);
     const { observation } = result;
     expect(observation.accounts).toEqual(["Taro [email] Last used", "[email]"]);
+    // Both are entries Pateat clicks itself.
+    expect(observation.accountEntries).toBe(2);
     expect(observation.complete).toBe(true);
     expect(summary(observation)).toEqual([
       {
@@ -2026,6 +2028,8 @@ describe("extractAccountListObservation", () => {
     if (!result.ok) throw new Error(result.reason);
     const { observation } = result;
     expect(observation.accounts).toEqual(["[account]"]);
+    // A name beside buttons is no entry: only a list button leads on from it.
+    expect(observation.accountEntries).toBe(0);
     // The heading is a text beside the buttons too, which may name another account.
     expect(observation.headings).toEqual(["[account]"]);
     expect(summary(observation).map((candidate) => candidate.target)).toEqual([
@@ -2106,6 +2110,7 @@ describe("extractAccountListObservation", () => {
     const result = extractAccountListObservation();
     if (!result.ok) throw new Error(result.reason);
     expect(result.observation.accounts).toEqual(["[email]", "[email]", "Not [email]?"]);
+    expect(result.observation.accountEntries).toBe(3);
     expect(JSON.stringify(result.observation)).not.toMatch(/[@＠]|ｅｘａｍｐｌｅ|example/u);
   });
 
@@ -2114,6 +2119,7 @@ describe("extractAccountListObservation", () => {
     const result = extractAccountListObservation();
     if (!result.ok) throw new Error(result.reason);
     expect(result.observation.accounts).toEqual(["Contact [email]"]);
+    expect(result.observation.accountEntries).toBe(0);
   });
 
   it("lists an entry inside a beside text once", () => {
@@ -2121,6 +2127,7 @@ describe("extractAccountListObservation", () => {
     const result = extractAccountListObservation();
     if (!result.ok) throw new Error(result.reason);
     expect(result.observation.accounts).toEqual(["[email]"]);
+    expect(result.observation.accountEntries).toBe(1);
   });
 
   it("describes Wise's shown account beside its buttons", () => {
@@ -2134,11 +2141,35 @@ describe("extractAccountListObservation", () => {
     const result = extractAccountListObservation();
     if (!result.ok) throw new Error(result.reason);
     expect(result.observation.accounts).toEqual(["[email]"]);
+    // The address is shown beside the buttons, so no account is an entry.
+    expect(result.observation.accountEntries).toBe(0);
     expect(summary(result.observation).map((candidate) => candidate.label)).toEqual([
       "Log back in",
       "Use another account",
     ]);
     expect(JSON.stringify(result.observation)).not.toContain("example.com");
+  });
+
+  it("counts only the entries among the listed accounts", () => {
+    // myUNSW's sign-in page on 2026-10-13, with a made-up address: the button holds it.
+    page(`<h1>Sign in</h1><button>Agree and sign on taro@example.com</button>`);
+    const button = extractAccountListObservation();
+    if (!button.ok) throw new Error(button.reason);
+    expect(button.observation.accounts).toEqual(["Agree and sign on [email]"]);
+    expect(button.observation.accountEntries).toBe(1);
+    // An entry, an address beside buttons and a name beside buttons: one entry.
+    page(
+      `<main>
+        <div role="list"><div role="link" tabindex="0">a@example.com</div></div>
+        <section><h3>Taro</h3><p>t***@example.com</p>
+          <button>Log back in</button><button>Use another account</button></section>
+        <section><span>hanako.s</span><button>Continue</button></section>
+      </main>`,
+    );
+    const mixed = extractAccountListObservation(document, ["hanako.s"]);
+    if (!mixed.ok) throw new Error(mixed.reason);
+    expect(mixed.observation.accounts).toEqual(["[email]", "[email]", "[account]"]);
+    expect(mixed.observation.accountEntries).toBe(1);
   });
 
   it("is incomplete when list controls are left out", () => {

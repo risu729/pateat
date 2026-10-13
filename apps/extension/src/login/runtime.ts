@@ -157,8 +157,6 @@ import { newId } from "@pateat/contracts/ids";
 import { loginMoveFits } from "@pateat/contracts/site";
 
 const STORAGE_KEY = "pateat.login-attempts.v4";
-/** The previous attempt store, removed on load; its records are not read. */
-const RETIRED_STORAGE_KEY = "pateat.login-attempts.v3";
 /** Accounts picked in the toolbar popup, per tab; session storage survives a worker restart. */
 const PICKS_KEY = "pateat.login-picks.v1";
 const CHOICES_KEY = "pateat.login-choices.v1";
@@ -1707,7 +1705,6 @@ export function createLoginRuntime(
     try {
       await browser.storage.local.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" });
       const storage = await browser.storage.local.get([STORAGE_KEY, CONFIG_KEY]);
-      await browser.storage.local.remove(RETIRED_STORAGE_KEY).catch(() => undefined);
       const config: unknown = storage[CONFIG_KEY];
       if (probeMode && config !== undefined) {
         const parsed = v.parse(configureSchema, {
@@ -5260,9 +5257,10 @@ export function createLoginRuntime(
     scope: GenerationScope,
     texts: readonly string[],
     path: string,
-  ): Promise<{ names: string[]; inPath: boolean }> {
+  ): Promise<{ names: string[]; inPath: boolean; email: boolean }> {
     const found = new Set<string>();
     let inPath = false;
+    let email = false;
     for (const { connection, itemId, fieldId } of usernameReads(scope)) {
       let value: string | undefined;
       try {
@@ -5279,10 +5277,11 @@ export function createLoginRuntime(
       if (value) {
         for (const text of texts) if (namesUsername(text, value)) found.add(text);
         if (pathShowsUsername(path, [value])) inPath = true;
+        if (emailUsername(value)) email = true;
       }
       value = "";
     }
-    return { names: [...found], inPath };
+    return { names: [...found], inPath, email };
   }
   /**
    * What a chooser login compares on its list (ADR 0028): the account's username and, for
@@ -6527,7 +6526,15 @@ export function createLoginRuntime(
         // name, and the login continues through that control.
         const otherOnly =
           !names?.length && listing?.names && listing.other ? listing.names : undefined;
-        if (scope && !listed?.inPath && (!listing?.names || names?.length || otherOnly)) {
+        // A list by email lists no account a matching item's username that is not an email
+        // can be chosen by: it is sent only for its control for another account.
+        const unmatched = listing && !listing.names && !listing.other && listed?.email === false;
+        if (
+          scope &&
+          !listed?.inPath &&
+          !unmatched &&
+          (!listing?.names || names?.length || otherOnly)
+        ) {
           live.state = "generating";
           delete live.reason;
           await publish(live);
@@ -6541,6 +6548,8 @@ export function createLoginRuntime(
         // entry.
         if (listed?.inPath)
           skipGeneration(live, "no-listed-account", undefined, "username-in-path");
+        else if (unmatched)
+          skipGeneration(live, "no-listed-account", undefined, "no-email-username");
         else if (!listing?.names) skipGeneration(live, missed[0], undefined, missed[1]);
         else
           skipGeneration(

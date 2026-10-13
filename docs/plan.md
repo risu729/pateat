@@ -343,6 +343,14 @@ own accounts, so they stay in the project's files rather than in this repository
     The popup is 360px wide. Checked with synthetic data only: the Vitest and Playwright
     Chromium tests run in the default (light) theme, and screenshots of each popup state
     were compared in light and dark.
+  - Done: the popup shows one list. The owner asked for it on 2026-10-13 at 03:54 UTC:
+    two lists were the problem, and the switch's spacing needed another look. While the
+    page waits for an account choice, the Default account list is hidden, so each
+    account is shown once: the choice's cards carry the Default badge, its checkbox
+    makes the pick the default once that login succeeds, a saved default can still be
+    removed, and one that is not among the choice's accounts is named. The "Pateat on
+    this site" switch is a row of its own under the hostname, with its label on the left
+    and the switch on the right, and the sections use one spacing scale.
   - Done: the passkey chooser window is restyled with the same behavior: "Sign in to"
     the site, each passkey as a choice led by its user name, the site default marked
     **Default**, a one-line note after a Pateat sign-in from the tab, and the save
@@ -559,11 +567,15 @@ own accounts, so they stay in the project's files rather than in this repository
     the last batch's PR, [#450](https://github.com/risu729/pateat/pull/450), the CI
     workflow took 8 min 2 s, `Verify` 7 min 55 s and the six Linux end-to-end shards
     1 min 30 s to 3 min 54 s; the suite has grown with features since the survey's
-    snapshot. Production code the audit found that only tests or older storage reach,
-    left for the owner: the retired login attempt-store removal in the login runtime,
-    the version 1 upgrade guards in the diagnostics database, the unreachable
-    `!moved &&` exemption in the service's judgement gate, and the Demo vaults panel of
-    the settings page.
+    snapshot. Of the production code the audit found that only tests or older storage
+    reach, the retired login attempt-store removal and the diagnostics database's
+    version 1 upgrade guards were removed (no compatibility before release): an old
+    `pateat.login-attempts.v3` entry stays in storage unread, and a version 1
+    diagnostics database fails to open until the extension is reinstalled, as the
+    vault database already does. The unreachable `!moved &&` exemption in the
+    service's judgement gate is removed after the same-site judging work that changes
+    that gate merges. The settings page's Demo vaults preview, shown only without a
+    connection client, stays: the options page tests render the page that way.
 - UI improvements the owner reports from daily use of the UI polished in phase 1. Small
   fixes for broken UI still land as found.
 - Features found missing during use are added here.

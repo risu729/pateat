@@ -30,7 +30,12 @@ the site's matches name each account by its username, and while another tab's lo
 holds the site it says so, disables Log in and stays for a pick once that hold ends.
 Amended on 2026-10-13 by [ADR 0036](0036-passkey-after-the-identifier.md): fill only (D)
 also fills the identifier for an item without a password that may go on to a passkey
-after it, and presses nothing (implemented).
+after it, and presses nothing (implemented). Amended on 2026-10-13: in A, while the
+tab's page waits for a choice the popup lists only the choice's candidates, since
+listing the site default's candidates below them showed each account twice (the owner
+asked for one list at 03:54 UTC). The saved default is marked in that list and can still
+be removed there; choosing a default without logging in waits until the page no longer
+waits, or uses the settings page (implemented).
 
 Date: 2026-10-11
 

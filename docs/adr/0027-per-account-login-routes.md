@@ -358,8 +358,8 @@ new owner decision:
   automatic binding for built-in slots, then the templates, with the generated slot map
   read at most once per plan resolution (each later step's authorization resolves its
   plan again). The attempt records the variant (attempt store `pateat.login-attempts.v3`
-  then, `pateat.login-attempts.v4` since the watch below; each previous store is removed
-  on load), and a running or resumed login checks only that variant's binding: the
+  then, `pateat.login-attempts.v4` since the watch below; a previous store is left
+  unread), and a running or resumed login checks only that variant's binding: the
   binding check ignores the fields of other variants.
 - **Bindings with other slots.** A binding resolves for a set of slots when it holds an
   entry for each of them; entries for other slots are ignored. This also applies to a
