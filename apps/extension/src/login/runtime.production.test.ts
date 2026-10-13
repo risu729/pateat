@@ -1252,6 +1252,47 @@ describe("production login document admission", () => {
     );
     expect(h.fields).toHaveBeenCalled();
   });
+  it("tries a fill again whose operation expired before it went to the page", async () => {
+    // The first fill's operation expires while its authorization is read, as on a slow
+    // worker: nothing reached the page, so it is no submission to observe.
+    const now = Date.now.bind(Date);
+    let offset = 0;
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now() + offset);
+    const set = fake.browser.storage.local.set;
+    fake.browser.storage.local.set = async (values: Record<string, unknown>) => {
+      const [record] = (values["pateat.login-attempts.v4"] ?? []) as Record<string, unknown>[];
+      if (offset === 0 && record?.["state"] === "executing" && record["mutationIntent"])
+        offset = 16_000;
+      await set(values);
+    };
+    const report = vi.fn<(report: LoginReport) => void>();
+    try {
+      const h = harness({}, { report });
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() =>
+        expect(fake.state.storage["pateat.login-attempts.v4"]).toMatchObject([
+          { state: "authenticated", retries: 1, submissions: 1 },
+        ]),
+      );
+      expect(report).toHaveBeenCalledWith(
+        expect.objectContaining({
+          state: "retryable",
+          outcome: "timeout",
+          cause: "operation-invalid",
+        }),
+      );
+      expect(
+        report.mock.calls.some(
+          ([entry]) => entry.type === "attempt" && entry.state === "reconciling",
+        ),
+      ).toBe(false);
+      // The expired operation never reached the page; only the retry's fill and click did.
+      expect(fake.state.messages.filter((entry) => entry.type === "login.execute")).toHaveLength(2);
+    } finally {
+      fake.browser.storage.local.set = set;
+      clock.mockRestore();
+    }
+  });
   it("retries a retryable attempt that a restarted worker finds once its page shows the step", async () => {
     // A worker that stopped before retrying left the attempt waiting to be tried again.
     fake.state.awaited = { ok: false, reason: "timeout" };
