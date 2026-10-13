@@ -7,6 +7,30 @@ import { collapseText, isButton, isScriptButton, renderedText, shown } from "./t
 const entryRoles = new Set(["button", "link", "option", "menuitem", "radio"]);
 /** Page chrome: an account menu there is a signed-in page's, not a list of accounts. */
 export const chromeSelector = "header, nav, [role='banner' i], [role='navigation' i]";
+/** What scopes a `footer` to its section, so it is no page footer (HTML-AAM), or a dialog. */
+const footerScope =
+  "article, aside, main, nav, section, dialog, [role='main' i], [role='article' i], " +
+  "[role='region' i], [role='complementary' i], [role='navigation' i], [role='dialog' i]";
+
+/**
+ * Whether `element` is in page chrome: the header, navigation or page footer. The page
+ * footer is a `contentinfo` landmark, or a `footer` without a role outside article,
+ * aside, main, nav, section, their roles or a dialog, which HTML maps to one. A card's
+ * own footer inside a section, or a main region inside a footer, is not chrome.
+ */
+export function inPageChrome(element: Element): boolean {
+  if (element.closest(chromeSelector)) return true;
+  const main = element.closest("main, [role='main' i]");
+  const holds = (footer: Element | null): footer is Element =>
+    footer !== null && !(main && footer.contains(main));
+  if (holds(element.closest("[role='contentinfo' i]"))) return true;
+  const footer = element.closest("footer");
+  return (
+    holds(footer) &&
+    !footer.getAttribute("role")?.trim() &&
+    !footer.parentElement?.closest(footerScope)
+  );
+}
 const entryTextLimit = 300;
 /** At most this many email-bearing texts are examined; a list holds a handful. */
 const textNodeLimit = 200;
@@ -250,8 +274,8 @@ export interface BesideAccount {
 }
 
 /**
- * The innermost entry-like elements of `root`, outside page chrome unless `chrome` is
- * set, at most a scan of 4000 elements.
+ * The innermost entry-like elements of `root`, outside page chrome ({@link inPageChrome})
+ * unless `chrome` is set, at most a scan of 4000 elements.
  */
 export function entryControls(
   root: Document | Element,
@@ -265,7 +289,7 @@ export function entryControls(
       (element): element is HTMLElement =>
         entryLike(element) &&
         entryAround(element) === element &&
-        (chrome || !element.closest(chromeSelector)),
+        (chrome || !inPageChrome(element)),
     );
   // A control holding another one is not innermost; marking ancestors keeps this linear.
   const outer = new Set<Element>();
@@ -333,9 +357,7 @@ export function besideAccounts(root: Document | Element): BesideAccount[] {
       container = container.parentElement;
     const holder = container;
     if (!holder || !held.has(holder) || held.get(holder)! > maxBesideButtons) continue;
-    const buttons = controls.filter(
-      (item) => holder.contains(item) && !item.closest(chromeSelector),
-    );
+    const buttons = controls.filter((item) => holder.contains(item) && !inPageChrome(item));
     if (buttons.length) found.set(element, { element, text, buttons });
   }
   return [...found.values()];
@@ -512,7 +534,7 @@ export function otherAccountMiss(
     if (raw.length > controlTextLimit) continue;
     const text = collapseText(raw).normalize("NFKC");
     if (!text || text.length > otherTextLimit || !namesOtherAccount(text)) continue;
-    if (element.closest(chromeSelector)) return "other-in-chrome";
+    if (inPageChrome(element)) return "other-in-chrome";
     let entry = false;
     for (
       let current: HTMLElement | null = element;

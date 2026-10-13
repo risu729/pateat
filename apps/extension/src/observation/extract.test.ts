@@ -1,5 +1,6 @@
 import type { LoginObservation } from "@pateat/contracts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { listControls, otherAccountMiss } from "../page/account-list";
 import { findTargets } from "../page/targets";
 import {
   extractAccountListObservation,
@@ -2690,6 +2691,68 @@ describe("extractAccountListObservation", () => {
     expect(result.observation.candidates).toHaveLength(8);
     expect(result.observation.complete).toBe(false);
     expect(result.gap).toBe("too-many-controls");
+  });
+
+  it("leaves the page footer's controls out of a list, but not a card's footer", () => {
+    const links = Array.from(
+      { length: 9 },
+      (_, index) => `<a href="/page-${index}">Page ${index}</a>`,
+    ).join("");
+    // Instagram's saved-profile page on 2026-10-13: 16 footer links went over 8.
+    for (const footer of [
+      `<footer role="contentinfo">${links}</footer>`,
+      `<div role="contentinfo">${links}</div>`,
+      `<footer>${links}</footer>`,
+    ]) {
+      page(
+        `<main><button>a@example.com</button><button>Use another profile</button></main>${footer}`,
+      );
+      const result = extractAccountListObservation();
+      if (!result.ok) throw new Error(result.reason);
+      expect(result.gap, footer).toBeUndefined();
+      expect(summary(result.observation).map((candidate) => candidate.label)).toEqual([
+        "Use another profile",
+      ]);
+    }
+    // A footer inside a section is the section's, as a card's actions.
+    page(
+      `<section><button>a@example.com</button><footer><button>Use another profile</button></footer></section>`,
+    );
+    const card = extractAccountListObservation();
+    if (!card.ok) throw new Error(card.reason);
+    expect(summary(card.observation).map((candidate) => candidate.label)).toEqual([
+      "Use another profile",
+    ]);
+    // A main region inside a footer is the page's content, not its footer.
+    page(
+      `<div role="contentinfo"><main><button>a@example.com</button><button>Use another profile</button></main></div>`,
+    );
+    const wrapped = extractAccountListObservation();
+    if (!wrapped.ok) throw new Error(wrapped.reason);
+    expect(summary(wrapped.observation).map((candidate) => candidate.label)).toEqual([
+      "Use another profile",
+    ]);
+  });
+
+  it("names a list control only when the login finds that one control, footer or not", () => {
+    // A main button repeated as a footer link is no single control for the login either.
+    page(
+      `<main><button>a@example.com</button><button>Continue</button></main><footer><a href="/x">Continue</a></footer>`,
+    );
+    const repeated = extractAccountListObservation();
+    if (!repeated.ok) throw new Error(repeated.reason);
+    const offered = summary(repeated.observation).map((candidate) => candidate.label);
+    expect(offered.includes("Continue")).toBe(
+      listControls(document, { by: "text", value: "Continue" }).length === 1,
+    );
+    // A footer-only switch is no control to send the list for.
+    page(
+      `<main><button>a@example.com</button></main><footer><a href="/switch">Use another account</a></footer>`,
+    );
+    const footerOnly = extractAccountListObservation();
+    if (!footerOnly.ok) throw new Error(footerOnly.reason);
+    expect(summary(footerOnly.observation)).toEqual([]);
+    expect(otherAccountMiss(document)).toBe("other-in-chrome");
   });
 
   it("names the first cause of an incomplete list, without page text (ADR 0019)", () => {

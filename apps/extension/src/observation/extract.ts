@@ -30,6 +30,7 @@ import {
   accountEntries,
   besideEmails,
   chromeSelector,
+  inPageChrome,
   entryLike,
   foldName,
   namedAccounts,
@@ -1381,12 +1382,13 @@ export function extractAccountListObservation(
     );
   const scanned = [...document.body.querySelectorAll("*")];
   if (scanned.length > listScanLimit) gap ??= "too-many-elements";
-  const listControls = scanned
-    .slice(0, listScanLimit)
-    .filter(
-      (element): element is HTMLElement =>
-        entryLike(element) && !element.closest(landmarks) && !inEntry(element),
-    );
+  const listControls = scanned.slice(0, listScanLimit).filter(
+    (element): element is HTMLElement =>
+      entryLike(element) &&
+      // The page's footer links, as Instagram's 16 on 2026-10-13, are chrome too.
+      !inPageChrome(element) &&
+      !inEntry(element),
+  );
   // A control holding another one is not innermost; marking ancestors keeps this linear.
   const outer = new Set<Element>();
   for (const element of listControls) {
