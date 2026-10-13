@@ -548,13 +548,17 @@ function record(
     case "NAVIGATED":
       if (leftOrigin(context.document, event.document))
         // The result of a submission on the previous origin cannot be observed here, unless
-        // the runtime confirmed the sign-in.
+        // the runtime confirmed the sign-in. A watched login ends where it stopped, as when
+        // its watch ends: it never signed in, so its first step showing again is no logout
+        // (ADR 0027, 2026-10-13).
         return {
           outcome: !maySubmit(context)
             ? "interrupted"
             : event.signedIn
               ? "authenticated"
-              : "left-origin",
+              : watched(context)
+                ? context.outcome
+                : "left-origin",
         };
       return {
         document: sameScope(context.document, event.document) ? event.document : context.document,

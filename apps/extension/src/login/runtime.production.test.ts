@@ -12044,6 +12044,37 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       ).toEqual(["fill", "click"]);
     });
 
+    it("ends a watched login that leaves its origin where it stopped, so its form is no logout", async () => {
+      const { h } = await watched();
+      // The site's timeout goes through another origin, which shows no signed-in page.
+      fake.state.tabUrls[1] = "https://elsewhere.example/home";
+      expect(
+        await h.hello({ documentId: "elsewhere", url: "https://elsewhere.example/home" }, false),
+      ).toMatchObject({ ok: false });
+      expect(status()).toMatchObject([{ state: "blocked", outcome: "challenge" }]);
+      expect(status()![0]).not.toHaveProperty("watch");
+      // Once the hold ends, the tab's own sign-in page asks and only fills.
+      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      const steps = executed().length;
+      expect(await signInPage(h, 1, "back")).toEqual({ ok: true });
+      expect(reports).not.toHaveBeenCalledWith(expect.objectContaining({ type: "logout" }));
+      expect(fake.state.session["pateat.login-logouts.v1"]).toEqual([]);
+      expect(fake.state.session["pateat.login-stopped-asks.v1"]).toEqual([{ tabId: 1, origin }]);
+      expect(
+        executed()
+          .slice(steps)
+          .map((step) => step.kind),
+      ).toEqual(["fill"]);
+      // Another tab logs in as before.
+      const before = executed().length;
+      expect(await signInPage(h, 2, "other-tab")).toEqual({ ok: true });
+      expect(
+        executed()
+          .slice(before)
+          .map((step) => step.kind),
+      ).toEqual(["fill", "click"]);
+    });
+
     it("asks on a page the watch followed once its first step shows after the watch", async () => {
       const { h } = await watched(["unclear"]);
       await open(h, "/next");

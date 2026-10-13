@@ -835,7 +835,9 @@ the watch is over, the next page of the tab ends the login where it stopped
 record's last change time, so it holds the site only until 5 minutes after that time; a
 login stopped after a submission is then handled as before, also on a page the watch
 already followed, other than the one it began in. A restart keeps the watch. Leaving the
-origin ends it as for any submitted login (`left-origin`). Newer settings end it
+origin without a confirmed sign-in ends it the same way where it stopped, not
+`left-origin`, so its first step showing again later in the tab is no logout either
+(2026-10-13). Newer settings end it
 `policy-changed` only when they no longer allow its account on the page; otherwise the
 watch takes over their revision, since it only reads, so another site's saved account
 choice does not end it. A login in a frame and the `passkey` route still end `challenge`

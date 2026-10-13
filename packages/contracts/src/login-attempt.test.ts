@@ -2450,13 +2450,22 @@ describe("a login watched after a challenge or an unknown result (ADR 0027)", ()
     const abandoned = transitionLoginAttempt(moved, { type: "WATCH_ENDED", abandoned: true });
     expect(abandoned).toMatchObject({ state: "blocked", outcome: "challenge-abandoned" });
     expect(abandoned).not.toHaveProperty("watch");
-    // Leaving the origin ends it as any submitted login does.
+    // Leaving the origin ends it where it stopped, as the end of the watch does: it never
+    // signed in (2026-10-13).
+    const left = transitionLoginAttempt(moved, {
+      type: "NAVIGATED",
+      document: { ...later, origin: "https://elsewhere.example" },
+    });
+    expect(left).toMatchObject({ state: "blocked", outcome: "challenge" });
+    expect(left).not.toHaveProperty("watch");
+    const settled = transitionLoginAttempt(awaiting(), observed("unknown"), 1000);
+    expect(settled).toMatchObject({ state: "reconciling", settled: true });
     expect(
-      transitionLoginAttempt(moved, {
+      transitionLoginAttempt(settled, {
         type: "NAVIGATED",
         document: { ...later, origin: "https://elsewhere.example" },
       }),
-    ).toMatchObject({ state: "blocked", outcome: "left-origin" });
+    ).toMatchObject({ state: "blocked", outcome: "unknown-submit" });
   });
 
   it("takes newer settings over only while watched", () => {

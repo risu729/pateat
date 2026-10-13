@@ -7969,7 +7969,8 @@ export function createLoginRuntime(
    * signed-in marker learned on that origin shows, or else the judge of ADR 0029, asked
    * once, answers `signed-in` for the page or found it signed in before. A judge that
    * cannot decide, a page that cannot be described or sent, and any other verdict end the
-   * login `left-origin`, each logged. Once the answer is back, the page must still be
+   * login `left-origin` (a watched one where it stopped), each logged. Once the answer is
+   * back, the page must still be
    * loaded and quiet, with no passkey request since `since`, the step the move follows.
    * `username` is the login's own, hidden from the page as for any judged page.
    */
