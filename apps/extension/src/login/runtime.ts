@@ -2015,6 +2015,13 @@ export function createLoginRuntime(
       (key) => key !== recordKey(tabId, siteOrigin) && key.endsWith(` ${siteOrigin}`),
     );
   }
+  /** Whether another tab still asks after the site rejected its login (ADR 0021). */
+  function rejectedElsewhere(tabId: number, siteOrigin: string): boolean {
+    return [...rejectedAsks].some(
+      (key) =>
+        key !== recordKey(tabId, siteOrigin) && key.endsWith(` ${siteOrigin}`) && logouts.has(key),
+    );
+  }
   /** Tells the tab why it does not log in while another tab's login holds the site. */
   function showHeld(tabId: number): void {
     void quietly(() =>
@@ -2093,6 +2100,9 @@ export function createLoginRuntime(
         candidates: waiting.candidates,
         logout: waiting.logout,
         ...held,
+        ...(waiting.logout !== "rejected" && rejectedElsewhere(tabId, waiting.document.origin)
+          ? { rejectedElsewhere: true as const }
+          : {}),
       };
     // A default saved since the refusal decides the page's next login instead.
     const snapshot = await settings.handle({ version: 1, type: "settings.get" });

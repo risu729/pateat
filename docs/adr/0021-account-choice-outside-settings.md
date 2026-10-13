@@ -71,8 +71,11 @@ In the tab whose login the site rejected, the popup's list has no account chosen
 Log in stays disabled until the user picks one, so a single press there never sends the
 rejected account again; the "make default" box keeps its usual state. The owner chose
 this on 2026-10-13 (13:54 UTC, decision card answer 「何も選ばない」) over choosing the
-first other account or also clearing the box (implemented). The site's other tabs ask
-as after a logout in another tab and still choose the first account.
+first other account or also clearing the box (implemented). The site's other tabs
+that ask while the rejected tab still asks choose no account either (the popup's
+answer carries `rejectedElsewhere`); the owner chose this on 2026-10-13 (14:43 UTC,
+decision card answer 「他のタブもそろえる」) over leaving them on the first account
+(implemented).
 
 Date: 2026-10-11
 

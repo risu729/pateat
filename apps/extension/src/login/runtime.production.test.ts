@@ -4275,6 +4275,15 @@ describe("production login document admission", () => {
             { fillOnly: true, document: { documentId: "synthetic-next" } },
           ]),
         );
+        await vi.waitFor(async () => expect(await h.login.active()).toBe(false));
+        // Another tab of the site fills and asks too; its popup chooses no account either.
+        fake.state.tabUrls[2] = fake.state.pageUrl;
+        expect(await h.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({ ok: true });
+        await vi.waitFor(async () =>
+          expect(
+            await h.login.handle({ version: 1, type: "login.choice.get", tabId: 2 }, popup),
+          ).toMatchObject({ logout: "other-tab", rejectedElsewhere: true }),
+        );
       });
       it("offers the choice again after a worker restart, or clears it once the page is gone", async () => {
         await refused();
