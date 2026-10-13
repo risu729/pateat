@@ -379,7 +379,9 @@ counts matching logins.
 
 Status: decided by the owner on 2026-10-13 (14:42 UTC, every recommendation of the
 reviewed proposal), for [phase 2](../plan.md#phase-2-use-it-and-fix-what-comes-up).
-Not implemented: until then the badge shows only while a login waits for a choice. The
+Not implemented. [ADR 0038](0038-login-status-badge.md) (2026-10-13 19:28 UTC) already
+gives the waiting choice its amber colour and puts a model request's spin and the last
+login's result above the count; a brief result goes back to the count. The
 owner asked at 14:06 UTC for the badge to always say whether a site has no saved item,
 items that are all excluded, or usable items, and at 14:06 UTC for a gray number when
 all are excluded.

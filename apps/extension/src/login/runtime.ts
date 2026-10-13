@@ -90,6 +90,7 @@ import {
 import { browser, type Browser } from "wxt/browser";
 import { storage } from "wxt/utils/storage";
 import { trustedRecord } from "../storage";
+import { createLoginBadge, memoryBadgeStorage, setActionBadge, type LoginBadge } from "./badge";
 import { domainKey } from "@pateat/bitwarden";
 import {
   authorizeSchema,
@@ -1537,6 +1538,28 @@ class DocumentGone extends Error {
   }
 }
 
+/** The badge and tooltip of a tab whose login waits for an account choice (ADR 0021). */
+function choiceBadge(
+  candidates: readonly unknown[],
+  logout: LogoutReason | undefined,
+): { count: number; title: string } {
+  return {
+    count: candidates.length,
+    title: logout
+      ? {
+          "this-tab":
+            "Pateat: you logged out of this site in this tab. Click to choose an account.",
+          rejected:
+            "Pateat: the site did not accept the last login in this tab. Click to choose an account.",
+          "stopped-login":
+            "Pateat: the last login on this site stopped in this tab. Click to choose an account.",
+          "other-tab":
+            "Pateat: you logged out of this site in another tab. Click to choose an account.",
+        }[logout]
+      : `Pateat: ${candidates.length} accounts match this page. Click to choose one.`,
+  };
+}
+
 export function createLoginRuntime(
   settings: SettingsRuntime,
   options: {
@@ -1561,10 +1584,12 @@ export function createLoginRuntime(
     /** Receives each attempt state change, refusal and generation result. */
     report?: (report: LoginReport) => void;
     /**
-     * Spins the tab's toolbar icon while a model request for its page is in flight, from
-     * the request's `sent` until the request returns (owner, 2026-10-13); returns the stop.
+     * The toolbar badge (ADR 0038): the account choice a tab waits on, a tooltip, and a
+     * spin while a model request for its page is in flight, from the request's `sent` until
+     * it returns. Without one the runtime writes `chrome.action` itself and keeps nothing
+     * across worker restarts.
      */
-    spin?: (tabId: number) => () => void;
+    badge?: Pick<LoginBadge, "choice" | "note" | "spin">;
     /**
      * Told of each origin of a login that reached signed in, on any route, so a site's
      * passkey registration right after it can be refused (ADR 0007). Never changes the login.
@@ -1588,12 +1613,14 @@ export function createLoginRuntime(
   },
 ) {
   const { fields, sites, recipes = noLoginRecipes, uris, generation } = options;
-  /** Spins the tab's icon from a model request's `sent` until `stop`, once the request returns. */
+  const badge =
+    options.badge ?? createLoginBadge({ setBadge: setActionBadge, storage: memoryBadgeStorage() });
+  /** Spins the tab's badge from a model request's `sent` until `stop`, once the request returns. */
   function spinning(tabId: number) {
     let stop: (() => void) | undefined;
     return {
       sent: (then: () => void) => () => {
-        stop ??= options.spin?.(tabId);
+        stop ??= badge.spin(tabId);
         then();
       },
       stop: () => stop?.(),
@@ -1810,7 +1837,11 @@ export function createLoginRuntime(
     if (picks.success) for (const entry of picks.output) picked.set(entry.tabId, entry);
     const choices = v.safeParse(v.array(pendingChoiceSchema), stored[CHOICES_KEY] ?? []);
     if (choices.success)
-      for (const entry of choices.output) pending.set(entry.document.tabId, entry);
+      for (const entry of choices.output) {
+        pending.set(entry.document.tabId, entry);
+        // Chrome kept the tab's badge; the badge learns the choice it shows again.
+        badge.choice(entry.document.tabId, choiceBadge(entry.candidates, entry.logout));
+      }
     const left = v.safeParse(v.array(logoutSchema), stored[LOGOUTS_KEY] ?? []);
     if (left.success)
       for (const entry of left.output) logouts.add(recordKey(entry.tabId, entry.origin));
@@ -1876,31 +1907,13 @@ export function createLoginRuntime(
   ): void {
     pending.set(document.tabId, { document, candidates, ...(logout ? { logout } : {}) });
     void quietly(saveSession);
-    const { tabId } = document;
-    void quietly(() => browser.action.setBadgeText({ tabId, text: String(candidates.length) }));
-    void quietly(() =>
-      browser.action.setTitle({
-        tabId,
-        title: logout
-          ? {
-              "this-tab":
-                "Pateat: you logged out of this site in this tab. Click to choose an account.",
-              rejected:
-                "Pateat: the site did not accept the last login in this tab. Click to choose an account.",
-              "stopped-login":
-                "Pateat: the last login on this site stopped in this tab. Click to choose an account.",
-              "other-tab":
-                "Pateat: you logged out of this site in another tab. Click to choose an account.",
-            }[logout]
-          : `Pateat: ${candidates.length} accounts match this page. Click to choose one.`,
-      }),
-    );
+    badge.choice(document.tabId, choiceBadge(candidates, logout));
   }
   function clearChoice(tabId: number): void {
     if (!pending.delete(tabId)) return;
     void quietly(saveSession);
-    void quietly(() => browser.action.setBadgeText({ tabId, text: "" }));
-    void quietly(() => browser.action.setTitle({ tabId, title: "Pateat" }));
+    badge.choice(tabId, undefined);
+    badge.note(tabId, undefined);
   }
   // Attempts, the probe configuration and entry blocks are trusted-only device records.
   const attemptRecords = trustedRecord<LoginAttemptMetadata[]>(STORAGE_KEY);
@@ -2062,12 +2075,9 @@ export function createLoginRuntime(
   }
   /** Tells the tab why it does not log in while another tab's login holds the site. */
   function showHeld(tabId: number): void {
-    void quietly(() =>
-      browser.action.setTitle({
-        tabId,
-        title:
-          "Pateat: another tab's login to this site is running or did not succeed. Close that tab, or wait 5 minutes and reload this page, to log in here.",
-      }),
+    badge.note(
+      tabId,
+      "Pateat: another tab's login to this site is running or did not succeed. Close that tab, or wait 5 minutes and reload this page, to log in here.",
     );
   }
   /** The attempt a tab runs, else the one it last recorded. */
@@ -7802,7 +7812,7 @@ export function createLoginRuntime(
       note(document, live.url, "not-started", "stopped-login");
     clearChoice(document.tabId);
     // A hold's tooltip no longer applies once the tab logs in.
-    void quietly(() => browser.action.setTitle({ tabId: document.tabId, title: "Pateat" }));
+    badge.note(document.tabId, undefined);
     const pick = picked.get(document.tabId);
     if (
       !previous &&

@@ -1,0 +1,392 @@
+// The toolbar badge tells, per tab, what Pateat is doing or just did there (ADR 0038): a
+// waiting account choice, a model request in flight, and how the last login ended.
+import * as v from "valibot";
+import { browser } from "wxt/browser";
+import type { LoginReport } from "./runtime";
+
+export const LOGIN_BADGE_KEY = "session:pateat.login-badge.v1";
+
+/** A braille spinner; each frame shows for `BUSY_FRAME_MS`. */
+export const BUSY_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
+export const BUSY_FRAME_MS = 100;
+/**
+ * A spin ends on its own after this long: longer than the transport's 90-second inference
+ * timeout, so a stop that never arrives cannot leave the badge spinning.
+ */
+export const BUSY_LIMIT_MS = 2 * 60 * 1000;
+/** How long a success or an unsettled result shows before the badge clears. */
+export const NOTICE_MS = 4000;
+
+/** Outcomes that ended a login in a failure the person should see (ADR 0038). */
+const FAILED = new Set([
+  "credential-rejected",
+  "structural-mismatch",
+  "timeout",
+  "retry-limit",
+  "submission-limit",
+  "value-mismatch",
+  "fill-rejected",
+  "wrong-account",
+  "account-not-listed",
+]);
+/** Outcomes that ended a login without a known result: shown briefly, as a warning. */
+const UNSETTLED = new Set(["challenge-abandoned", "watch-abandoned", "left-origin"]);
+
+export type BadgeResult = {
+  kind: "failed" | "succeeded" | "unsettled";
+  /** The origin the result belongs to; a page of another origin in the tab clears it. */
+  origin: string;
+  /** The outcome or reason, as the log names it. */
+  reason: string;
+  /** When a brief result stops showing. */
+  until?: number;
+};
+
+export type BadgeDetails = {
+  tabId: number;
+  text?: string;
+  color?: string;
+  textColor?: string;
+  title?: string;
+};
+
+type Shown = Required<Omit<BadgeDetails, "tabId">>;
+type Choice = { count: number; title: string };
+type Stored = v.InferOutput<typeof storedSchema>;
+
+const STYLES = {
+  choice: { color: "#8a5a00", textColor: "#ffffff" },
+  busy: { color: "#4f46e5", textColor: "#ffffff" },
+  failed: { color: "#b91c1c", textColor: "#ffffff" },
+  succeeded: { color: "#15803d", textColor: "#ffffff" },
+  unsettled: { color: "#facc15", textColor: "#1e293b" },
+} as const;
+
+const RESULT_TEXT = { failed: "!", succeeded: "✓", unsettled: "!" } as const;
+
+function resultTitle(result: BadgeResult): string {
+  if (result.kind === "succeeded") return "Pateat: logged in.";
+  if (result.kind === "unsettled")
+    return `Pateat: the login's result is not known (${result.reason}). Open Pateat for details.`;
+  return `Pateat: the login did not succeed (${result.reason}). Open Pateat for details.`;
+}
+
+/**
+ * What a log report means for the badge: a result to show, `clear` for a login that just
+ * started or ended in a way that needs no notice, or nothing.
+ */
+export function badgeResult(
+  report: LoginReport,
+  now: number,
+): Omit<BadgeResult, "origin"> | "clear" | undefined {
+  if (report.type === "start") return "clear";
+  if (report.type === "refused")
+    return report.reason === "storage-unavailable" && !report.repeat
+      ? { kind: "failed", reason: report.reason }
+      : undefined;
+  if (report.type === "generation")
+    return report.outcome === "failed" || report.outcome === "unavailable"
+      ? {
+          kind: "failed",
+          reason: `generation ${report.outcome}${report.reason ? `: ${report.reason}` : ""}`,
+        }
+      : undefined;
+  if (report.type !== "attempt" || report.repeat) return undefined;
+  const until = now + NOTICE_MS;
+  if (report.state === "authenticated")
+    return { kind: "succeeded", reason: "authenticated", until };
+  const outcome = report.outcome ?? "";
+  if (report.state === "blocked") {
+    if (FAILED.has(outcome))
+      return { kind: "failed", reason: report.cause ? `${outcome}: ${report.cause}` : outcome };
+    if (UNSETTLED.has(outcome)) return { kind: "unsettled", reason: outcome, until };
+    return "clear";
+  }
+  // A submission whose result just settled as unknown, or a second factor the page asks
+  // for: the login goes on watching later pages (ADR 0027).
+  if ((report.settled && outcome === "unknown-submit") || outcome === "challenge")
+    return { kind: "unsettled", reason: outcome, until };
+  return undefined;
+}
+
+/** Writes the given fields of a tab's badge and tooltip with `chrome.action`. */
+export function setActionBadge(details: BadgeDetails): Promise<void> {
+  const { tabId, text, color, textColor, title } = details;
+  return Promise.all([
+    text === undefined ? undefined : browser.action.setBadgeText({ tabId, text }),
+    color === undefined ? undefined : browser.action.setBadgeBackgroundColor({ tabId, color }),
+    textColor === undefined
+      ? undefined
+      : browser.action.setBadgeTextColor({ tabId, color: textColor }),
+    title === undefined ? undefined : browser.action.setTitle({ tabId, title }),
+  ]).then(() => undefined);
+}
+
+/** A badge that keeps nothing across worker restarts, for a runtime given none. */
+export function memoryBadgeStorage() {
+  let value: unknown;
+  return {
+    getValue: async () => value,
+    setValue: async (next: unknown) => {
+      value = next;
+    },
+  };
+}
+
+export type LoginBadge = ReturnType<typeof createLoginBadge>;
+
+export function createLoginBadge(deps: {
+  setBadge: (details: BadgeDetails) => Promise<void>;
+  storage: { getValue(): Promise<unknown>; setValue(value: unknown): Promise<void> };
+  now?: () => number;
+}) {
+  const now = deps.now ?? Date.now;
+  const choices = new Map<number, Choice>();
+  const notes = new Map<number, string>();
+  const results = new Map<number, BadgeResult>();
+  // Spins in flight; a tab spins while one names it. A replaced tab's spins move with it.
+  const spins = new Set<{ tabId: number }>();
+  // Each tab's last attempt state and outcome, so a report that changes neither is ignored.
+  const lastAttempt = new Map<number, string>();
+  // What each tab shows, as written; only changed fields are written again.
+  const shown = new Map<number, Shown>();
+  // Each tab's last write, so writes for one tab land in order.
+  const writes = new Map<number, Promise<void>>();
+  const expiries = new Map<number, ReturnType<typeof setTimeout>>();
+  let frame = 0;
+  let timer: ReturnType<typeof setInterval> | undefined;
+  let saved: Promise<void> = Promise.resolve();
+
+  const spinning = (tabId: number) => [...spins].some((spin) => spin.tabId === tabId);
+  function wanted(tabId: number): Shown {
+    const choice = choices.get(tabId);
+    if (choice) return { text: String(choice.count), ...STYLES.choice, title: choice.title };
+    if (spinning(tabId))
+      return { text: BUSY_FRAMES[frame] ?? "", ...STYLES.busy, title: "Pateat: asking the AI…" };
+    const result = results.get(tabId);
+    if (result && (result.until === undefined || result.until > now()))
+      return { text: RESULT_TEXT[result.kind], ...STYLES[result.kind], title: resultTitle(result) };
+    // Colours stay as they were; Chrome shows none without text.
+    const last = shown.get(tabId);
+    return {
+      text: "",
+      color: last?.color ?? STYLES.choice.color,
+      textColor: last?.textColor ?? STYLES.choice.textColor,
+      title: notes.get(tabId) ?? "Pateat",
+    };
+  }
+  function draw(tabId: number): void {
+    const next = wanted(tabId);
+    const last = shown.get(tabId);
+    const details: BadgeDetails = { tabId };
+    for (const key of ["text", "color", "textColor", "title"] as const)
+      if (last?.[key] !== next[key]) details[key] = next[key];
+    if (Object.keys(details).length === 1) return;
+    shown.set(tabId, next);
+    const write = (writes.get(tabId) ?? Promise.resolve())
+      .then(() => deps.setBadge(details))
+      // A closed tab refuses; Chrome drops its badge with it.
+      .catch(() => {
+        if (shown.get(tabId) === next) shown.delete(tabId);
+      })
+      .finally(() => {
+        if (writes.get(tabId) === write) writes.delete(tabId);
+      });
+    writes.set(tabId, write);
+  }
+  function save(): void {
+    const value: Stored = {
+      results: [...results],
+      busy: [...new Set([...spins].map((spin) => spin.tabId))],
+    };
+    saved = saved.then(() => deps.storage.setValue(value)).catch(() => undefined);
+  }
+  function expire(tabId: number): void {
+    clearTimeout(expiries.get(tabId));
+    expiries.delete(tabId);
+    const until = results.get(tabId)?.until;
+    if (until === undefined) return;
+    expiries.set(
+      tabId,
+      setTimeout(
+        () => {
+          expiries.delete(tabId);
+          if (results.get(tabId)?.until !== until) return;
+          results.delete(tabId);
+          save();
+          draw(tabId);
+        },
+        Math.max(0, until - now()),
+      ),
+    );
+  }
+  function setResult(tabId: number, result: BadgeResult | undefined): void {
+    if (result) results.set(tabId, result);
+    else if (!results.delete(tabId)) return;
+    expire(tabId);
+    save();
+    draw(tabId);
+  }
+  function tick(): void {
+    if (!spins.size) {
+      clearInterval(timer);
+      timer = undefined;
+      return;
+    }
+    frame = (frame + 1) % BUSY_FRAMES.length;
+    // A tab whose last frame has not landed skips this one rather than queueing it.
+    for (const tabId of new Set([...spins].map((spin) => spin.tabId)))
+      if (!writes.has(tabId)) draw(tabId);
+  }
+  function forget(tabId: number): void {
+    choices.delete(tabId);
+    notes.delete(tabId);
+    lastAttempt.delete(tabId);
+    shown.delete(tabId);
+    for (const spin of spins) if (spin.tabId === tabId) spins.delete(spin);
+    clearTimeout(expiries.get(tabId));
+    expiries.delete(tabId);
+    if (results.delete(tabId)) save();
+  }
+
+  return {
+    /** The account choice a tab waits on (ADR 0021), or none. */
+    choice(tabId: number, choice: Choice | undefined): void {
+      if (choice) choices.set(tabId, choice);
+      else if (!choices.delete(tabId)) return;
+      draw(tabId);
+    },
+    /** A tooltip for a tab that shows no badge, such as why its login is held. */
+    note(tabId: number, title: string | undefined): void {
+      if (title) notes.set(tabId, title);
+      else if (!notes.delete(tabId)) return;
+      draw(tabId);
+    },
+    /**
+     * Spins the tab's badge until the returned stop is called, or for `BUSY_LIMIT_MS`;
+     * overlapping spins of one tab end with the last.
+     */
+    spin(tabId: number): () => void {
+      const spin = { tabId };
+      const first = !spinning(tabId);
+      spins.add(spin);
+      if (first) {
+        save();
+        draw(tabId);
+      }
+      timer ??= setInterval(tick, BUSY_FRAME_MS);
+      const limit = setTimeout(stop, BUSY_LIMIT_MS);
+      function stop(): void {
+        if (!spins.delete(spin)) return;
+        clearTimeout(limit);
+        if (spinning(spin.tabId)) return;
+        save();
+        draw(spin.tabId);
+      }
+      return stop;
+    },
+    /** Reads a log report for how a login ended (ADR 0038). */
+    observe(report: LoginReport): void {
+      if (report.type === "attempt" && !report.repeat) {
+        const key = `${report.state} ${report.outcome ?? ""} ${report.settled ?? ""}`;
+        if (lastAttempt.get(report.tabId) === key) return;
+        lastAttempt.set(report.tabId, key);
+      }
+      if (report.type === "start") lastAttempt.delete(report.tabId);
+      const result = badgeResult(report, now());
+      if (result === "clear") setResult(report.tabId, undefined);
+      else if (result) setResult(report.tabId, { ...result, origin: report.origin });
+    },
+    /**
+     * A page of the tab loaded: Chrome reset the tab's badge, so it is written again, and
+     * a result of another origin no longer applies. `url` is absent for a page Pateat
+     * cannot read, which keeps the result.
+     */
+    loaded(tabId: number, url?: string): void {
+      const result = results.get(tabId);
+      if (result && url) {
+        let origin: string | undefined;
+        try {
+          origin = new URL(url).origin;
+        } catch {
+          origin = undefined;
+        }
+        if (origin && origin !== result.origin) {
+          results.delete(tabId);
+          clearTimeout(expiries.get(tabId));
+          expiries.delete(tabId);
+          save();
+        }
+      }
+      shown.delete(tabId);
+      // A tab with nothing to show keeps the empty badge Chrome reset it to.
+      if (choices.has(tabId) || notes.has(tabId) || results.has(tabId) || spinning(tabId))
+        draw(tabId);
+    },
+    removed(tabId: number): void {
+      forget(tabId);
+    },
+    /** Chrome gave a tab a new ID (`tabs.onReplaced`); its badge moves with it. */
+    replaced(added: number, removed: number): void {
+      if (added === removed) return;
+      const choice = choices.get(removed);
+      const note = notes.get(removed);
+      const result = results.get(removed);
+      const moved = [...spins].filter((spin) => spin.tabId === removed);
+      forget(removed);
+      if (choice) choices.set(added, choice);
+      if (note) notes.set(added, note);
+      for (const spin of moved) {
+        spin.tabId = added;
+        spins.add(spin);
+      }
+      if (result) {
+        results.set(added, result);
+        expire(added);
+      }
+      save();
+      draw(added);
+    },
+    /**
+     * Rewrites the badges a stopped worker left: results still due, and spins that died
+     * with it. Run once at worker start.
+     */
+    async restore(): Promise<void> {
+      let stored: unknown;
+      try {
+        stored = await deps.storage.getValue();
+      } catch {
+        return;
+      }
+      const value = parseStored(stored);
+      if (!value) return;
+      for (const [tabId, result] of value.results)
+        if (!results.has(tabId) && (result.until === undefined || result.until > now())) {
+          results.set(tabId, result);
+          expire(tabId);
+        }
+      for (const tabId of new Set([...value.busy, ...value.results.map(([id]) => id)])) draw(tabId);
+      save();
+    },
+  };
+}
+
+const storedSchema = v.object({
+  results: v.array(
+    v.tuple([
+      v.pipe(v.number(), v.integer()),
+      v.object({
+        kind: v.picklist(["failed", "succeeded", "unsettled"]),
+        origin: v.string(),
+        reason: v.string(),
+        until: v.exactOptional(v.number()),
+      }),
+    ]),
+  ),
+  busy: v.array(v.pipe(v.number(), v.integer())),
+});
+
+function parseStored(value: unknown): Stored | undefined {
+  const parsed = v.safeParse(storedSchema, value);
+  return parsed.success ? parsed.output : undefined;
+}

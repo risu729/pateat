@@ -81,6 +81,7 @@ pages, with synthetic slot hints, may be committed as evaluation data
 - [0035: Page kinds, and how far Pateat goes on each, per site and profile](adr/0035-page-kinds-per-site.md)
 - [0036: Items without a password go on to a passkey after the identifier](adr/0036-passkey-after-the-identifier.md)
 - [0037: Fields located by their visible name](adr/0037-fields-by-visible-name.md)
+- [0038: The toolbar badge and popup show what a login did](adr/0038-login-status-badge.md)
 
 This layout follows the useful separation in
 [Kogane ADR 0041](https://github.com/risu729/kogane/blob/main/docs/adr/0041-documentation-scope.md),

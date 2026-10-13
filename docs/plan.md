@@ -391,9 +391,15 @@ than in this repository.
     and `/manage/claude`) use the same tokens, light or dark as the browser prefers,
     with the logo beside "Pateat" and the page in one panel. With this, every screen of
     the extension and the service has had its polish pass.
-  - Done: the toolbar icon spins in a tab while a model request for that tab's page is
-    in flight (owner, 2026-10-13 14:04 UTC); see the
-    [architecture](architecture.md#extension-icon) for the frames and limits.
+  - Done: the toolbar badge spins (braille frames) in a tab while a model request for
+    that tab's page is in flight, and shows how the tab's last login ended: a red `!`
+    for a failure, a green `✓` or a yellow `!` for 4 seconds for a sign-in or an
+    unknown result ([ADR 0038](adr/0038-login-status-badge.md), owner 2026-10-13 19:28
+    UTC). It replaced the spinning toolbar icon chosen at 14:04 UTC.
+  - Next: the popup section for the current page from ADR 0038: whether the site has a
+    recipe, whether the AI was asked or could not make one, and whether this page's
+    login started, signed in or why not, with a link to the diagnostics page. Check in
+    installed Chrome that Windows draws the braille frames.
 - Done: `https://my.jcb.co.jp/Login` was generated again after delivery 3. The recipe
   revision the Grok Bot computer's device generated on 2026-10-12 (13:45 UTC) names both
   routes: the password steps and the passkey button on `/Login`, read from D1 at 14:26

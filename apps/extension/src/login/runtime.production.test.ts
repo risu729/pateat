@@ -22,6 +22,7 @@ import { createRecipeSync } from "../service/recipes";
 import { createSettingsSync } from "../service/settings-sync";
 import type { ServiceTransport } from "../service/transport";
 import { acceptsSecret, type SecretInput } from "./inputs";
+import { createLoginBadge, memoryBadgeStorage, setActionBadge } from "./badge";
 import type { GenerationOutcome, LoginGeneration, LoginRecipeStart, LoginReport } from "./runtime";
 import type { LoginFieldSource } from "./vault";
 import type { ConditionalDecision, PasskeyItem } from "../passkeys/runtime";
@@ -131,6 +132,8 @@ const fake = vi.hoisted(() => {
       setTitle: async ({ tabId, title }: { tabId: number; title: string }) => {
         state.badges[tabId] = { ...state.badges[tabId], title };
       },
+      setBadgeBackgroundColor: async () => undefined,
+      setBadgeTextColor: async () => undefined,
     },
     storage: {
       session: {
@@ -379,7 +382,7 @@ function harness(
     entries?: LoginEntryRecipe[];
     /** Told of each origin a login signed in (ADR 0007). */
     signedIn?: (tabId: number, origin: string) => void;
-    /** Spins a tab's toolbar icon while a model request is in flight. */
+    /** Spins a tab's toolbar badge while a model request is in flight. */
     spin?: (tabId: number) => () => void;
   } = {},
 ) {
@@ -528,7 +531,14 @@ function harness(
     ...(live.passkeyItems ? { passkeyItems: live.passkeyItems } : {}),
     ...(live.vault ? { vault: live.vault } : {}),
     ...(live.signedIn ? { signedIn: live.signedIn } : {}),
-    ...(live.spin ? { spin: live.spin } : {}),
+    ...(live.spin
+      ? {
+          badge: {
+            ...createLoginBadge({ setBadge: setActionBadge, storage: memoryBadgeStorage() }),
+            spin: live.spin,
+          },
+        }
+      : {}),
     ...(live.report
       ? {
           report: (entry: LoginReport) => {

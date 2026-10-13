@@ -24,6 +24,7 @@ import { createPasskeyRuntime } from "../src/passkeys/runtime";
 import { createSignIns, SIGN_INS_KEY } from "../src/passkeys/sign-ins";
 import { createSignedTabs, SIGNED_TABS_KEY } from "../src/passkeys/signed-tabs";
 import { sessionValue } from "../src/storage";
+import { createLoginBadge, LOGIN_BADGE_KEY, setActionBadge } from "../src/login/badge";
 import {
   createVaultPasskeyFinder,
   createVaultPasskeySource,
@@ -97,11 +98,22 @@ export default defineBackground(() => {
   // The manifest default is the locked icon; a running worker switches it.
   const actionIcon = createActionIcon({
     states: () => connections.vaultStates(),
-    setIcon: (details) => browser.action.setIcon(details),
+    setIcon: (path) => browser.action.setIcon({ path }),
   });
   void actionIcon.refresh();
-  // A badge counts the accounts a refused login could use (ADR 0021).
-  void browser.action.setBadgeBackgroundColor({ color: "#115e59" }).catch(() => undefined);
+  // The toolbar badge (ADR 0038): a waiting account choice, a model request in flight, and
+  // how the tab's last login ended.
+  const loginBadge = createLoginBadge({
+    setBadge: setActionBadge,
+    storage: sessionValue(LOGIN_BADGE_KEY),
+  });
+  void loginBadge.restore();
+  // Chrome resets a tab's badge when it navigates; the url shows only on pages Pateat can read.
+  browser.tabs.onUpdated.addListener((tabId, change, tab) => {
+    if (change.status === "loading" || change.status === "complete")
+      loginBadge.loaded(tabId, tab.url);
+  });
+  browser.tabs.onRemoved.addListener((tabId) => loginBadge.removed(tabId));
   const settings = connections.settings;
   const serviceTransport = createServiceTransport();
   const service = createServiceRuntime({
@@ -211,9 +223,12 @@ export default defineBackground(() => {
     passkeys: (account) => itemPasskeyFacts(vaultPasskeys, account),
     // ADR 0034: a popup choice keeps the page's request only when an item holds a passkey.
     passkeyItems: (origin) => originPasskeyItems(vaultPasskeys, origin),
-    report: diagnosticsLog.login,
+    report: (report) => {
+      diagnosticsLog.login(report);
+      loginBadge.observe(report);
+    },
     signedIn: (tabId, origin) => noteSignIn(tabId, origin),
-    spin: (tabId) => actionIcon.spin(tabId),
+    badge: loginBadge,
   });
   const setupProbe = syntheticSetup?.handler(connections);
   const siteAccounts = createSiteAccountsHandler({
@@ -243,9 +258,9 @@ export default defineBackground(() => {
   const signedTabs = createSignedTabs(sessionValue(SIGNED_TABS_KEY), (listener) =>
     browser.tabs.onRemoved.addListener(listener),
   );
-  // A tab Chrome discards to save memory gets a new ID; its sign-ins and icon stay with it.
+  // A tab Chrome discards to save memory gets a new ID; its sign-ins and badge stay with it.
   browser.tabs.onReplaced.addListener((added, removed) => {
-    actionIcon.replaced(added, removed);
+    loginBadge.replaced(added, removed);
     void signIns.replaced(added, removed).catch(() => {});
     void signedTabs.replaced(added, removed).catch(() => {});
   });
