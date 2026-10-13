@@ -525,6 +525,9 @@ own accounts, so they stay in the project's files rather than in this repository
   - Batch 11, the extension's passkey vault suite (2026-10-13): one test folded into the
     table that checks the same guard, and a repeated row replaced by one that fails when
     a site default in an unsearched connection is reported as searched.
+  - Batch 12, the options and popup pages (2026-10-13): 104 to 102 browser cases. Two
+    tests that the packaged-extension specs repeat through the real background were
+    deleted and one folded; six that missed the rule they named were repaired.
 - UI improvements the owner reports from daily use of the UI polished in phase 1. Small
   fixes for broken UI still land as found.
 - Features found missing during use are added here.

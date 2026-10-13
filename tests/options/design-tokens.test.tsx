@@ -57,7 +57,6 @@ test("a browser that prefers dark gets the same tokens as the dark theme", () =>
 });
 
 test("both Button copies are the same apart from their header comment", () => {
-  expect(extensionButton).toContain("focus-visible:outline-solid");
   expect(withoutComments(manageButton)).toBe(withoutComments(extensionButton));
 });
 

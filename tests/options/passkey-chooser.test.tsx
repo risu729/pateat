@@ -61,12 +61,6 @@ test("names the site and lists each passkey by its user name, item and connectio
     .toBeChecked();
 });
 
-test("after a sign-in from this tab, says so and leaves saving unticked", async () => {
-  await render(<ChooserApp client={client(view({ again: true }))} />);
-  await expect.element(page.getByText("Pateat signed in here from this tab before")).toBeVisible();
-  await expect.element(page.getByRole("checkbox")).not.toBeChecked();
-});
-
 test("offers to replace an existing default, unticked", async () => {
   const value = client(view({ replacesDefault: true }));
   await render(<ChooserApp client={value} />);
