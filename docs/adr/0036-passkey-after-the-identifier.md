@@ -292,14 +292,18 @@ As implemented (local tests only):
    extension logs `not-sent` with `chooser` instead of asking. Judging it per branch
    would need a service change and its deployment, and is not proposed here.
 
-Known limit, *Claude's decision, not confirmed by the owner separately*: when the click
-loads a page of another origin, as OpenAI's row may (whether it leaves
-`platform.openai.com` is not verified), the login is moved off its origin as any chooser
-login is (ADR 0022): it ends `left-origin`, or `authenticated` when the move rules find
-the account signed in. It does not continue its branch there (its record ends on the
-move, and the service assembles a page only for the recipe's origin, `origin-mismatch`)
-and does not answer a passkey request there; a page of that origin is handled as any
-page of that origin.
+When the click loads a page of another origin, as OpenAI's row does
+(`auth.openai.com/auth_challenge/passkey` in the owner's Chrome on 2026-10-13 at 08:51
+UTC), the login is moved off its origin as any chooser login is (ADR 0022): it ends
+`left-origin`, or `authenticated` when the move rules find the account signed in. It
+does not continue its branch there (the service assembles a page only for the recipe's
+origin, `origin-mismatch`), and the login itself does not answer a passkey request
+there; a page of that origin is handled as any page of that origin, so ADR 0034 may
+answer its request. Since the owner's 「完了扱い」 (13:54 UTC, amending ADR 0022), a
+page of another origin of the site that asks for a passkey keeps the login, and a
+passkey answered there with the login's item lets the tab's next quiet page, back on the
+login's origin too, complete it. Until then this limit was Claude's decision: the login
+ended `left-origin` on that page.
 
 ## Consequences
 

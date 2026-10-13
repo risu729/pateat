@@ -513,7 +513,13 @@ than in this repository.
   presses the account's row (or `other`) and stops at, or continues to, the branch's
   password step
   ([account lists](adr/0036-passkey-after-the-identifier.md#account-lists); local tests
-  only, not yet checked in that Chrome).
+  only, not yet checked in that Chrome). In that Chrome on `4deb95d` (08:51 UTC) the
+  row's click moved the tab to `auth.openai.com`, which asked for a passkey; Pateat
+  answered it and the tab came back signed in, but the login had ended `left-origin`.
+  By the owner's 「完了扱い」 (13:54 UTC), a passkey answered on such a page with the
+  login's item now lets the next quiet page complete the login
+  ([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md); local tests only; recheck
+  in the owner's Chrome).
 - Answer Google's passkey step on the Grok Bot's browser. On build `a8350f5`
   (2026-10-12 19:49 UTC) both of the page's requests were logged as `passkey.request`
   `delegate` `invalid-request`, so the browser offered only the phone (hybrid) flow,
@@ -2458,9 +2464,11 @@ separate from refreshed data, configure retry/refetch behavior explicitly and
 retain runtime payload/sender authorization. Use the approved XState for the M2
 executor; verify navigation cancellation, timeout handling and interrupted-submit
 reconciliation before expanding execution. Persist allowlisted resumable metadata
-only; restoring state must not blindly replay submission. Integrate approved WXT
-storage helpers with trusted-access initialization before migrations, existing
-single-writer revision checks and fail-closed handling of corrupt settings.
+only; restoring state must not blindly replay submission. WXT storage items hold the
+settings, connection, service sync and passkey sign-in records; `storage.local` is
+restricted to trusted contexts before an item is defined, and the existing
+single-writer revision checks and fail-closed handling of corrupt settings stay in
+Pateat's code. The login runtime's records move to WXT storage next.
 
 Approved for M4: Hono and Drizzle for the first substantive API/schema. Keep
 Valibot boundary validation, verify generated SQL and migrations, and test owner

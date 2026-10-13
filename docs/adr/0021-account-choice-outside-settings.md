@@ -67,6 +67,13 @@ watches for its own end. The badge, popup and log name the rejection instead of 
 `rejected`). A pick marked "make default" is still saved only after `authenticated`, so
 a rejected pick is not kept as the default (part B) (implemented).
 
+In the tab whose login the site rejected, the popup's list has no account chosen, and
+Log in stays disabled until the user picks one, so a single press there never sends the
+rejected account again; the "make default" box keeps its usual state. The owner chose
+this on 2026-10-13 (13:54 UTC, decision card answer 「何も選ばない」) over choosing the
+first other account or also clearing the box (implemented). The site's other tabs ask
+as after a logout in another tab and still choose the first account.
+
 Date: 2026-10-11
 
 ## Context

@@ -1,38 +1,9 @@
-import { browser } from "wxt/browser";
 import type { VaultSyncRecord } from "../connections/auto-sync";
 import type { ServiceStorage } from "./runtime";
 import type { GeneratedSlotStorage, GenerationAttemptStorage } from "./generation";
 import type { RecipeCacheStorage, RecipeScheduleStorage } from "./recipes";
 import type { SettingsBaseStorage, SettingsHoldStorage } from "./settings-sync";
-
-/** One storage.local key readable only by trusted extension contexts. */
-function trustedRecord<T>(key: string) {
-  let access: Promise<void> | undefined;
-  function restrictAccess(): Promise<void> {
-    // Fail closed on unsupported APIs or rejected access changes. Retry on a later request.
-    access ??= browser.storage.local
-      .setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" })
-      .catch((error: unknown) => {
-        access = undefined;
-        throw error;
-      });
-    return access;
-  }
-  return {
-    async read(): Promise<unknown> {
-      await restrictAccess();
-      return (await browser.storage.local.get(key))[key];
-    },
-    async write(record: T) {
-      await restrictAccess();
-      await browser.storage.local.set({ [key]: record });
-    },
-    async clear() {
-      await restrictAccess();
-      await browser.storage.local.remove(key);
-    },
-  };
-}
+import { trustedRecord } from "../storage";
 
 /** The service record holds the device credential: trusted contexts only. */
 export function createBrowserServiceStorage(): ServiceStorage {

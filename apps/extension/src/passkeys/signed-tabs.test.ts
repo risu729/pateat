@@ -1,15 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { createSignedTabs, type SignedTabsStorage } from "./signed-tabs";
+import { createSignedTabs, type SessionItem } from "./signed-tabs";
 
 const KEY = "pateat.passkey-signed.v1";
 
 function memory(initial: Record<string, unknown> = {}) {
   const items: Record<string, unknown> = { ...initial };
   const removed: Array<(tabId: number) => void> = [];
-  const storage: SignedTabsStorage = {
-    get: async (key) => (key in items ? { [key]: items[key] } : {}),
-    async set(values) {
-      Object.assign(items, values);
+  // WXT storage items read a missing value as null.
+  const storage: SessionItem = {
+    getValue: async () => items[KEY] ?? null,
+    async setValue(value) {
+      items[KEY] = value;
     },
   };
   return {
@@ -77,10 +78,10 @@ describe("tabs Pateat signed in from", () => {
   it("works without storage", async () => {
     const tabs = createSignedTabs(
       {
-        get: async () => {
+        getValue: async () => {
           throw new Error("unavailable");
         },
-        set: async () => {
+        setValue: async () => {
           throw new Error("unavailable");
         },
       },

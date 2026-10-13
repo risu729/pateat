@@ -1,8 +1,8 @@
 import * as v from "valibot";
-import type { SignedTabsStorage } from "./signed-tabs";
+import type { SessionItem } from "./signed-tabs";
 
 /** Session storage outlives a worker restart, and ends with the browser session. */
-const STORAGE_KEY = "pateat.passkey-sign-ins.v1";
+export const SIGN_INS_KEY = "session:pateat.passkey-sign-ins.v1";
 const MAX_TABS = 64;
 const MAX_RECORDS = 4;
 
@@ -40,7 +40,7 @@ export interface SignIns {
  * latest few tabs and records are kept.
  */
 export function createSignIns(
-  storage: SignedTabsStorage,
+  storage: SessionItem,
   onTabRemoved: (listener: (tabId: number) => void) => void,
   now: () => number = Date.now,
 ): SignIns {
@@ -48,8 +48,8 @@ export function createSignIns(
   const tabs = new Map<number, readonly SignInRecord[]>();
   // Every change happens after this load; storage failures only lose the records.
   const load = async () => {
-    const stored = await storage.get(STORAGE_KEY).catch(() => ({}) as Record<string, unknown>);
-    const parsed = v.safeParse(storedSchema, stored[STORAGE_KEY] ?? []);
+    const stored = await storage.getValue().catch(() => undefined);
+    const parsed = v.safeParse(storedSchema, stored ?? []);
     if (parsed.success) for (const entry of parsed.output) tabs.set(entry.tabId, entry.records);
   };
   const loaded = load();
@@ -57,7 +57,7 @@ export function createSignIns(
   const save = () => {
     const entries = [...tabs].map(([tabId, records]) => ({ tabId, records }));
     queue = queue.then(
-      () => storage.set({ [STORAGE_KEY]: entries }).catch(() => undefined),
+      () => storage.setValue(entries).catch(() => undefined),
       () => undefined,
     );
     return queue;

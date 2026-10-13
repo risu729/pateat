@@ -8,7 +8,6 @@ import {
 import { asc, gt } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { Hono } from "hono";
-import { validator } from "hono/validator";
 import * as v from "valibot";
 import type { ApiEnv } from "../auth";
 import { recipeHeads } from "../db/schema";
@@ -16,12 +15,9 @@ import { apiError } from "../http";
 import { purgeExpiredLog } from "../claude/calls";
 import { selectHeads, toChange, writeRecipe } from "../recipe-store";
 import { generateEntry, generateRecipe, judgeCompletion } from "../recipes/generate";
-import { jsonBody, requireJsonBody } from "../validation";
+import { jsonBody, requireJsonBody, validate } from "../validation";
 
-const recipeParam = validator("param", (value, c) => {
-  const result = v.safeParse(v.strictObject({ recipeId: syncRecipeIdSchema }), value);
-  return result.success ? result.output : apiError(c, 400, { error: "bad_request" });
-});
+const recipeParam = validate("param", v.strictObject({ recipeId: syncRecipeIdSchema }));
 
 const changesQuerySchema = v.strictObject({
   after: v.optional(
@@ -44,29 +40,22 @@ export const recipeRoutes = new Hono<ApiEnv>()
   .on(["PUT"], "/generate", (c) =>
     apiError(c, 405, { error: "method_not_allowed" }, { Allow: "POST" }),
   )
-  .get(
-    "/",
-    validator("query", (value, c) => {
-      const result = v.safeParse(changesQuerySchema, value);
-      return result.success ? result.output : apiError(c, 400, { error: "bad_request" });
-    }),
-    async (c) => {
-      const { after, limit } = c.req.valid("query");
-      const scope = c.get("scope");
-      // Devices read this often, so expired request log rows go even without new calls.
-      await purgeExpiredLog(drizzle(c.env.DB), Date.now());
-      const rows = await selectHeads(c.env.DB, scope.ownerId, gt(recipeHeads.sequence, after))
-        .orderBy(asc(recipeHeads.sequence))
-        .limit(limit + 1);
-      const page = rows.slice(0, limit);
-      return c.json({
-        version: 1 as const,
-        changes: page.map((row) => toChange(row)),
-        cursor: page.at(-1)?.sequence ?? after,
-        complete: rows.length <= limit,
-      });
-    },
-  )
+  .get("/", validate("query", changesQuerySchema), async (c) => {
+    const { after, limit } = c.req.valid("query");
+    const scope = c.get("scope");
+    // Devices read this often, so expired request log rows go even without new calls.
+    await purgeExpiredLog(drizzle(c.env.DB), Date.now());
+    const rows = await selectHeads(c.env.DB, scope.ownerId, gt(recipeHeads.sequence, after))
+      .orderBy(asc(recipeHeads.sequence))
+      .limit(limit + 1);
+    const page = rows.slice(0, limit);
+    return c.json({
+      version: 1 as const,
+      changes: page.map((row) => toChange(row)),
+      cursor: page.at(-1)?.sequence ?? after,
+      complete: rows.length <= limit,
+    });
+  })
   // Registered before `/:recipeId` routes; ADR 0018. Answers are 200 with a status.
   .post("/generate", requireJsonBody, jsonBody(generationRequestSchema), async (c) => {
     const request = c.req.valid("json");

@@ -230,7 +230,20 @@ describe("typeValue", () => {
     expect(field.value).toBe("7");
   });
 
-  it("waits a task rather than a timer between characters in a hidden tab", async () => {
+  it("types the characters one task apart on a shown page", async () => {
+    document.body.innerHTML = '<input id="field">';
+    const field = document.getElementById("field") as HTMLInputElement;
+    const values: string[] = [];
+    field.addEventListener("input", () => values.push(field.value));
+    const started = performance.now();
+    expect(await typeValue(field, "abcdefgh", setter)).toBeUndefined();
+    expect(values).toEqual(["a", "ab", "abc", "abcd", "abcde", "abcdef", "abcdefg", "abcdefgh"]);
+    // Only the two waits after the last character are timers; seven between the
+    // characters would add 175 ms.
+    expect(performance.now() - started).toBeLessThan(FIELD_GAP_MS * 6);
+  });
+
+  it("waits a task rather than a timer after the last character in a hidden tab", async () => {
     Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
     cleanups.push(() => Reflect.deleteProperty(document, "hidden"));
     document.body.innerHTML = '<input id="field">';
