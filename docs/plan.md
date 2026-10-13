@@ -821,6 +821,12 @@ still open on 2026-10-11.
   2.7.0's `bun.lock` and `pnpm-lock.yaml` bugs (both fixed on aube main, unreleased) and
   two remaining `bun.lock` gaps (peers written as dependencies, `lockfileVersion`
   reset), as drafts for upstream reports (not filed).
+- Why the Bitwarden SDK's async exports never settle on unparsable arguments (owner,
+  2026-10-13 14:38 UTC): the
+  [research note](research/2026-10-13-bitwarden-sdk-async-hang.md) traces it to
+  wasm-bindgen converting async-export arguments inside the future, with tsify's
+  deprecated `from_wasm_abi` and Bitwarden's pending migration as context. Worker
+  termination already recovers. The owner chose not to report it upstream (15:00 UTC).
 - Earlier research kept as dated notes:
   [identity provider screens](research/2026-10-11-identity-provider-screens.md) behind
   [ADR 0026](adr/0026-sign-in-through-identity-providers.md);
