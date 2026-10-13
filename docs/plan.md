@@ -520,6 +520,8 @@ own accounts, so they stay in the project's files rather than in this repository
     tests. Removed cases repeated another test's path or checked only Chromium's own
     IndexedDB or a pure size limit that unit tests cover; the crypto probe lost its
     cancellation page. Three checks were folded into the tests that kept their path.
+    The login spec (2026-10-13) went from 68 to 66 tests, and two tests whose negative
+    passed before Pateat acted now wait for it.
 - UI improvements the owner reports from daily use of the UI polished in phase 1. Small
   fixes for broken UI still land as found.
 - Features found missing during use are added here.
