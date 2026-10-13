@@ -143,17 +143,55 @@ describe("typeValue", () => {
     expect(field.value).toBe("pa55-word");
   });
 
-  it("keeps out a character whose key the page cancels, as a browser does", async () => {
+  it("keeps out a character whose key the page cancels, and then refuses the value", async () => {
     document.body.innerHTML = '<input id="field" inputmode="numeric">';
     const field = document.getElementById("field") as HTMLInputElement;
+    let changes = 0;
+    field.addEventListener("change", () => changes++);
     field.addEventListener("keydown", (event) => {
       if (!/^\d$/u.test(event.key)) event.preventDefault();
     });
     field.addEventListener("beforeinput", (event) => {
       if (event.data === "3") event.preventDefault();
     });
-    await typeValue(field, "12-34", setter);
+    expect(await typeValue(field, "12-34", setter)).toBe("refused");
     expect(field.value).toBe("124");
+    expect(changes).toBe(0);
+    // A cancelled clear keeps the old text, so the value is refused as well.
+    document.body.innerHTML = '<input id="kept" value="old">';
+    const kept = document.getElementById("kept") as HTMLInputElement;
+    kept.addEventListener("beforeinput", (event) => {
+      if ((event as InputEvent).inputType === "deleteContentBackward") event.preventDefault();
+    });
+    expect(await typeValue(kept, "new", setter)).toBe("refused");
+  });
+
+  it("accepts a page that types a cancelled key itself, as a masked field does", async () => {
+    document.body.innerHTML = '<input id="field">';
+    const field = document.getElementById("field") as HTMLInputElement;
+    field.addEventListener("keydown", (event) => {
+      if (event.key.length !== 1) return;
+      event.preventDefault();
+      field.value += event.key;
+    });
+    expect(await typeValue(field, "ab1", setter)).toBeUndefined();
+    expect(field.value).toBe("ab1");
+  });
+
+  it("types a number input's value whole even where a prefix is not yet a number", async () => {
+    document.body.innerHTML = '<input id="field" type="number" step="any">';
+    const field = document.getElementById("field") as HTMLInputElement;
+    expect(await typeValue(field, "-1.5", setter)).toBeUndefined();
+    expect(field.value).toBe("-1.5");
+  });
+
+  it("holds Shift for the characters a US keyboard types with it", async () => {
+    document.body.innerHTML = '<input id="field">';
+    const field = document.getElementById("field") as HTMLInputElement;
+    const keys: string[] = [];
+    field.addEventListener("keydown", (event) => keys.push(`${event.key}:${event.shiftKey}`));
+    await typeValue(field, "aB!", setter);
+    expect(keys).toEqual(["a:false", "B:true", "!:true"]);
   });
 
   it("clears a field's earlier text before typing", async () => {

@@ -972,9 +972,11 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                   return fail("cancelled", "field-changed");
                 filled.add(digit);
                 // eslint-disable-next-line no-await-in-loop
-                await typeValue(digit, value.value[place]!, setter, {
+                const refused = await typeValue(digit, value.value[place]!, setter, {
                   beforeInput: place === split.length - 1 ? code?.typed : undefined,
                 });
+                // A digit the page kept out is never followed by the rest.
+                if (refused) return fail("fill-rejected");
               }
             } else if (step.effect === "prepare") {
               filled.add(input);
@@ -991,11 +993,14 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                     now[0] !== input ||
                     !writable(input) ||
                     input.form !== form ||
-                    !acceptsSecret(input, value.secret)
+                    !acceptsSecret(input, value.secret) ||
+                    !fits(input, value.value)
                     ? "field-changed"
                     : undefined;
                 },
               });
+              // A value the page kept a character of out is never submitted.
+              if (stopped === "refused") return fail("fill-rejected");
               if (stopped) return fail("cancelled", stopped);
             } else {
               // An advance or a submission through the page's own event gets that one event
