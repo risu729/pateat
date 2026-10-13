@@ -41,7 +41,9 @@ export default defineConfig({
     name: "Pateat",
     description:
       "Logs in to websites and answers passkey sign-ins from your own password vault, kept on this device.",
-    minimum_chrome_version: "140",
+    // Chrome 144 is the first with the native Temporal the extension uses; the standard
+    // Uint8Array base64 and hex methods and RegExp.escape need 140.
+    minimum_chrome_version: "144",
     action: {
       default_title: "Pateat",
       // Until the worker reads the vault records, show the locked icon.

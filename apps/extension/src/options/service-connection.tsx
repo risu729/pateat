@@ -8,6 +8,7 @@ import {
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import * as v from "valibot";
 import { CircleCheck, CircleX, Clock, Link, Lock, TriangleAlert } from "lucide-react";
+import { localSyncTime } from "../time";
 import { Button } from "./button";
 import type { ServiceClient } from "./service-client";
 import {
@@ -373,7 +374,7 @@ export function ServiceConnection({
                           : {
                               tone: "ok",
                               icon: CircleCheck,
-                              text: `Recipes and settings synced ${new Date(state.syncedAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`,
+                              text: `Recipes and settings synced ${localSyncTime(state.syncedAt)}`,
                             },
                   ]}
                 />

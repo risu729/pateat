@@ -1,5 +1,6 @@
 // The text "Copy for bug report" copies (ADR 0019). It keeps the KDF family but leaves out
 // its parameters, which are shown on the page only.
+import { isoMinute } from "../time";
 import {
   deviceFailureLabel,
   generationLabel,
@@ -12,11 +13,6 @@ import {
 import type { DiagnosticsConnection, DiagnosticsStatus } from "./wire";
 
 export type BrowserInfo = { name: string; version: string; installType: string };
-
-/** ISO time to the minute, in UTC. */
-export function utcMinute(ms: number): string {
-  return `${new Date(ms).toISOString().slice(0, 16)}Z`;
-}
 
 export function shortRevision(revision: string): string {
   return /^[0-9a-f]{40}$/u.test(revision) ? revision.slice(0, 7) : revision;
@@ -31,7 +27,7 @@ function connectionLine(entry: DiagnosticsConnection): string {
     syncSignIn(entry.providerSession),
   ];
   if (entry.storageError) parts.push(`storage ${entry.storageError}`);
-  if (entry.acceptedAt !== undefined) parts.push(`synced ${utcMinute(entry.acceptedAt)}`);
+  if (entry.acceptedAt !== undefined) parts.push(`synced ${isoMinute(entry.acceptedAt)}`);
   if (entry.kdfType) parts.push(`KDF ${entry.kdfType}`);
   if (entry.items)
     parts.push(
@@ -50,10 +46,10 @@ function serviceLine(service: DiagnosticsStatus["service"]): string {
         ? `revision ${shortRevision(service.health.revision)}`
         : `health ${service.health.error}${service.health.status === undefined ? "" : ` ${service.health.status}`}`,
     );
-  if (service.syncedAt !== undefined) parts.push(`synced ${utcMinute(service.syncedAt)}`);
+  if (service.syncedAt !== undefined) parts.push(`synced ${isoMinute(service.syncedAt)}`);
   if (service.settingsRevision !== undefined)
     parts.push(`settings revision ${service.settingsRevision}`);
-  if (service.holdSince !== undefined) parts.push(`held since ${utcMinute(service.holdSince)}`);
+  if (service.holdSince !== undefined) parts.push(`held since ${isoMinute(service.holdSince)}`);
   if (service.recipes) parts.push(plural(service.recipes.count, "recipe"));
   return `Pateat service: ${parts.join(" · ")}`;
 }
@@ -61,7 +57,7 @@ function serviceLine(service: DiagnosticsStatus["service"]): string {
 /** What the service itself holds, beside the device's copy on the line above. */
 function serviceRecordLine(record: NonNullable<DiagnosticsStatus["service"]["device"]>): string {
   if (!record.ok) return `Service record: ${deviceFailureLabel(record.error)}`;
-  return `Service record: paired ${utcMinute(record.pairedAt)} · ${plural(record.recipes, "recipe")} · settings revision ${record.settingsRevision} · ${generationLabel(record.generation)}`;
+  return `Service record: paired ${isoMinute(record.pairedAt)} · ${plural(record.recipes, "recipe")} · settings revision ${record.settingsRevision} · ${generationLabel(record.generation)}`;
 }
 
 export function formatReport(status: DiagnosticsStatus, browser: BrowserInfo): string {
@@ -93,12 +89,12 @@ export function formatReport(status: DiagnosticsStatus, browser: BrowserInfo): s
     lines.push(`Storage: storage.local ${Math.ceil(status.storage.localBytes / 1024)} KB`);
   if (status.logs)
     lines.push(
-      `Logs: ${plural(status.logs.entries, "entry", "entries")} (${Math.ceil(status.logs.bytes / 1024)} KB), ${problemCounts(status.logs)} in 24 h${status.logs.debugUntil === undefined ? "" : `, debug until ${utcMinute(status.logs.debugUntil)}`}`,
+      `Logs: ${plural(status.logs.entries, "entry", "entries")} (${Math.ceil(status.logs.bytes / 1024)} KB), ${problemCounts(status.logs)} in 24 h${status.logs.debugUntil === undefined ? "" : `, debug until ${isoMinute(status.logs.debugUntil)}`}`,
     );
   const { recent } = status;
   if (recent?.updated)
     lines.push(
-      `Updated ${utcMinute(recent.updated.time)} from ${shortRevision(recent.updated.from)}`,
+      `Updated ${isoMinute(recent.updated.time)} from ${shortRevision(recent.updated.from)}`,
     );
   if (recent?.problems.length)
     lines.push(
@@ -109,6 +105,6 @@ export function formatReport(status: DiagnosticsStatus, browser: BrowserInfo): s
     lines.push(
       `Passkey delegations (24 h): ${recent.passkeyDelegations.map(({ reason, count }) => `${reason} ${count}`).join(" · ")}`,
     );
-  lines.push(`Collected ${utcMinute(status.collectedAt)}`);
+  lines.push(`Collected ${isoMinute(status.collectedAt)}`);
   return lines.join("\n");
 }

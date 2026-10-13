@@ -2,9 +2,6 @@
 // Each label that rewords a raw code keeps that code in parentheses.
 import type { DiagnosticsConnection, DiagnosticsStatus } from "./wire";
 
-const MINUTE_MS = 60_000;
-const HOUR_MS = 60 * MINUTE_MS;
-
 const INSTALL_LABELS: Record<string, string> = {
   development: "unpacked install",
   normal: "Web Store install",
@@ -49,9 +46,11 @@ export function plural(value: number, noun: string, nouns = `${noun}s`): string 
 
 /** `25 min`, `4 h` or `3 d`; a time in the future counts as `0 min`. */
 export function age(ms: number): string {
-  if (ms < HOUR_MS) return `${Math.max(0, Math.floor(ms / MINUTE_MS))} min`;
-  if (ms < 48 * HOUR_MS) return `${Math.floor(ms / HOUR_MS)} h`;
-  return `${Math.floor(ms / (24 * HOUR_MS))} d`;
+  const elapsed = Temporal.Duration.from({ milliseconds: Math.max(0, ms) });
+  const hours = elapsed.total("hours");
+  if (hours < 1) return `${Math.floor(elapsed.total("minutes"))} min`;
+  if (hours < 48) return `${Math.floor(hours)} h`;
+  return `${Math.floor(elapsed.total("days"))} d`;
 }
 
 /** The Bitwarden server line: its kind and version, or why it could not be read. */

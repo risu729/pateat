@@ -20,6 +20,7 @@ import {
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { SetupBegin, SetupReply } from "../connections/types";
 import { providerPermissionOrigins } from "../connections/permissions";
+import { localSyncTime } from "../time";
 import { Button } from "./button";
 import type { ConnectionClient } from "./connection-client";
 import {
@@ -120,7 +121,7 @@ function statusLines(connection: Connection): Line[] {
     lines.push({
       tone: "idle",
       icon: Clock,
-      text: `Vault synced ${new Date(connection.syncedAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`,
+      text: `Vault synced ${localSyncTime(connection.syncedAt)}`,
     });
   if (connection.autoUnlock === "enabled")
     lines.push({ tone: "ok", icon: CircleCheck, text: "Automatic unlock on" });

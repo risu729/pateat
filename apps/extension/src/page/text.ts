@@ -19,9 +19,6 @@ const visibility = (opacity: boolean) => ({
   contentVisibilityAuto: true,
   opacityProperty: opacity,
   visibilityProperty: true,
-  // Chrome 120, the minimum version, knows only the older option names.
-  checkOpacity: opacity,
-  checkVisibilityCSS: true,
 });
 
 const hiders = "[inert], [aria-hidden='true']";
