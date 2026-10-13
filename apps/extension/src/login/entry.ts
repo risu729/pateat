@@ -38,10 +38,10 @@ function queryUrls(url: URL): URL[] {
 /**
  * The query values of `url` that may name a URL: a value counts when, after URL decoding,
  * it is an absolute URL or starts with `/`, as `return_to=%2Fbookmarks` does. Other values,
- * such as `lang=en`, are not read, since any word resolves to a path of the page. The URL
- * parser decides where a value leads, never its characters: `//evil.example/x`,
- * `/\evil.example/x` and a `/` followed by a tab and `/evil.example/x` all lead to
- * `evil.example`.
+ * such as `lang=en`, are not read, since any word resolves to a path of the page. Where a
+ * value leads is left to the URL parser, never its characters: `//evil.example/x`,
+ * `/\evil.example/x` and a `/` followed by a tab and `/evil.example/x` are all read, and
+ * all lead to `evil.example`.
  */
 const namedValues = (url: URL) =>
   [...url.searchParams.values()].filter((value) => value.startsWith("/") || parse(value));

@@ -33,6 +33,7 @@ describe("whether a page names a path to return to (ADR 0031)", () => {
       "?return_to=https://accounts.pixiv.example/settings",
       true,
     ],
+    ["a scheme-relative URL on the site", "?return_to=%2F%2Faccounts.pixiv.example%2Fx", true],
     ["several values, one of them a return path", "?lang=en&return_to=%2Fbookmarks", true],
     ["no query value", "", false],
     ["the bare top page", "?return_to=%2F", false],
