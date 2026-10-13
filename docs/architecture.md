@@ -1158,16 +1158,24 @@ kind's check is left out and a string over 512 characters becomes `"[truncated]"
 | `log.dropped` | warn; debug when only `debug` events were dropped | origin, the dropped event's name (`dropped`) and how many of it were dropped over the page limit |
 | `log.debug` | info | whether debug logging was turned on or off, and when it ends |
 
-The login, judgement, handler and generation events also carry `url`, the tab's page
-URL as of its last announcement, for an event on that page's own origin and not about
-a frame, including a login running in a frame of the same site. Only its path, query
-and fragment are kept, cut at 512 characters, and only when the origin is recorded in
-full; a pseudonymized origin gets no URL. A query or fragment may hold a one-time code
-or token that a site put in a link, a username or email address (such as
-`login_hint`), or another site's address (such as a `redirect_uri` or `continue`
-target), which the owner accepted (ADR 0019). The diagnostics page says so above the
-download. **Hide site addresses and recipe IDs** leaves `url` out of a
-download, and the bug report's recent lines never carry it.
+The login, judgement, handler and generation events also carry `url`, the tab's page URL
+as of its last announcement, for an event on that page's own origin and not about a
+frame, including a login running in a frame of the same site. Only its path and the
+names of its query's and fragment's parameters are kept, never their values, and only
+when the origin is recorded in full; a pseudonymized origin gets no URL. An OAuth
+callback `/callback?code=abc&state=xyz` is kept as `/callback?code=&state=`. A part
+without `=` or with an empty value, which may be a token itself (`?<token>`, or a base64
+token's `=` padding), and a name that is not 1 to 40 letters, digits, `_`, `.`, `-` or
+brackets starting with a letter or `_` are left out. A fragment that is a route
+(`#/signin`, `#!/signin`) is kept up to a second `#` with its own query's names, and an
+anchor (`#top`) as `#` alone. A result over 512 characters keeps its path alone. A path
+segment or a route can still hold a token, as a magic link's can (owner decision,
+2026-10-13, after an OpenAI callback's authorization code and state were found in the
+log). A line an older build stored with values stays on the device and is left out of
+downloads, unless the value was a single token ending in `=` (`/reset?dG9rZW4=`), which
+has the same shape as a name. The diagnostics page says so above the download.
+**Hide site addresses and recipe IDs** leaves `url` out of a download, and the bug
+report's recent lines never carry it.
 
 Connection and item IDs become HMAC pseudonyms. An origin or RP ID is kept in full only
 when a site default, binding, excluded site or cached recipe names it; any other

@@ -1452,8 +1452,8 @@ export type LoginReport = (
 ) & {
   /**
    * The tab's page URL when the report is made, for a report on the page's own origin and
-   * not about a frame (ADR 0019). The log keeps its path, query and fragment only for a
-   * site it names in full.
+   * not about a frame (ADR 0019). The log keeps its path and its parameters' names, never
+   * their values, only for a site it names in full.
    */
   url?: string | undefined;
 };
