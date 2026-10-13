@@ -1361,7 +1361,14 @@ one, which Chrome never follows from a page), such as
 `<a id="login" href="#" onclick="document.loginForm.submit()">` (some pages' scripts add
 `href="#"` after load). The owner chose on 2026-10-11 that such `href` links are clicked
 as buttons, so pages whose login control is one, such as MyJCB and SMBC Direct, can get
-a generated recipe. A text locator names a script link by its rendered text, but only
+a generated recipe. Known limit: Chrome does not run a `javascript:` URL that Pateat's
+click follows, since the content script's isolated world has the extension's own
+content security policy; the link's `onclick` handler still runs, so only a link whose
+action is its URL alone, such as `href="javascript:__doPostBack(...)"`, does not
+submit. On 2026-10-13 a recruiting site's sign-in logged `Refused to run the JavaScript
+URL` in the console after such a click, and the same refusal was reproduced in Chromium
+with a synthetic page; running the URL in the page's main world would be a separate
+change. A text locator names a script link by its rendered text, but only
 when no native button carries that text, shown or hidden: native buttons are matched
 first, so a login tab such as `<a href="#" onclick="...">Login</a>` never makes the
 `<input type="submit" value="Login">` below it ambiguous, and a text locator waits for a
