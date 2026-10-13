@@ -79,6 +79,13 @@ own accounts, so they stay in the project's files rather than in this repository
   at 19:10 UTC, without Pateat). That Pateat does nothing there is judged from the code
   and from the Grok Bot's log of 2026-10-12, which has no ABEMA entry after the Bot
   opened `abema.tv/mylist` (build `a8350f5`).
+  myUNSW is one too: it signs in through UNSW's single sign-on page
+  (`sso.unsw.edu.au/cas/login`), which offers "Agree and sign on" with the account's
+  address while the matching item's username is not an address (owner, 2026-10-13
+  04:41 UTC). In the owner's Chrome on 2026-10-13 at 04:34 UTC, with build `2675f0f`
+  ([#454](https://github.com/risu729/pateat/pull/454)), Pateat saved no recipe there
+  and pressed nothing; the page was logged as `no-listed-account` with
+  `no-email-username`.
 - Done: login attempts whose result settled as unknown no longer hold settings writes
   for the next login, and a vault replacement no longer runs during a login
   ([declarative recipes](architecture.md#declarative-recipes-and-ai)); diagnostics log
