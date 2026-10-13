@@ -490,7 +490,13 @@ own accounts, so they stay in the project's files rather than in this repository
   Bot's eighth round (build `25b08b2`, 2026-10-12 23:13 UTC), OpenAI Platform was
   refused `no-route` `password-empty`: its item holds no password, only a TOTP secret
   and a passkey. [ADR 0036](adr/0036-passkey-after-the-identifier.md) lets such an item
-  go on after the email to a passkey (local tests only); not yet checked on the Bot.
+  go on after the email to a passkey. Build `85085b7` still refused it the same way: the
+  stored recipe ends at Continue, its page after the email never generated, so no step
+  fills the password. Such a route now stops just past its final `advance`; by the
+  owner's decision of 2026-10-13 04:42 UTC its page after the email is continued as any
+  login's, or judged to learn a passkey button, and the login stops at the continued
+  password step. A refusal names why after the colon (local tests only); not yet
+  checked on the Bot.
 - Answer Google's passkey step on the Grok Bot's browser. On build `a8350f5`
   (2026-10-12 19:49 UTC) both of the page's requests were logged as `passkey.request`
   `delegate` `invalid-request`, so the browser offered only the phone (hybrid) flow,
