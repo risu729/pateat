@@ -64,22 +64,28 @@ function gap(): Promise<void> {
  * before) without scrolling; a field that already holds text is cleared first, as by
  * selecting it all and deleting; then each character as a keyboard sends it, `keydown`,
  * `keypress` (none for a control character), `beforeinput`, the character appended
- * through the native `setter` (so a framework that tracks the value, such as React, sees
- * a change) and an `input` event of type `insertText`, then `keyup`; then `change` and
- * blur. Key events carry Shift for the characters a US layout types with it. A number
- * input gets the characters typed so far rather than its current value, which the
- * browser empties while it is not yet a number, such as `1.`. A page that cancels a
- * character's `keydown`, `keypress` or `beforeinput` keeps it out, as a browser does; if
- * the field does not hold `value` once the page had a pause to write the characters
- * itself, the typing stops with `refused`, without `change` or blur, so a value the page
- * changed is never submitted. A page that cancels the clearing `beforeinput` and does not
- * clear the field itself within such a pause refuses the value before any character is
- * typed. After each such wait, as between characters (see {@link gap}), it calls `between`, which
- * stops the typing with its cause when the page is no longer the one to type into. A
- * stopped typing leaves the characters typed so far in the field. `beforeInput` runs
- * once the last character is in, just before its `input` event. A page that moved focus
- * elsewhere meanwhile keeps it: `blur` only leaves the input when it still has focus.
- * Resolves to the cause when the typing stopped, else `undefined`.
+ * through the native `setter` (so a framework that tracks the value, such as React,
+ * sees a change) and an `input` event of type `insertText`, then `keyup`; then `change`
+ * and blur. Key events carry Shift for the characters a US layout types with it. A
+ * number input gets the characters typed so far rather than its current value, which
+ * the browser empties while it is not yet a number, such as `1.`. A page that cancels a
+ * character's `keydown`, `keypress` or `beforeinput` keeps it out, as a browser does.
+ * After the last character the page gets a pause to write cancelled characters itself;
+ * then the typing stops with `refused`, without `change` or blur, so a value the page
+ * changed is never submitted, when the field does not hold `value` after a cancelled
+ * event, or holds a value of another length, as when the page's own handlers dropped a
+ * character it does not allow. A value of the same length, such as a mask or a case the
+ * page changed, is kept. After `change` and blur the page gets another pause, and a
+ * value of another length then is `refused` too, unless the page emptied the field, as a
+ * form that switches to other fields does; the caller's checks see to that. A page that cancels the clearing
+ * `beforeinput` and does not clear the field itself within such a pause refuses the
+ * value before any character is typed. After each such wait, as between characters (see
+ * {@link gap}), it calls `between`, which stops the typing with its cause when the page
+ * is no longer the one to type into. A stopped typing leaves the characters typed so
+ * far in the field. `beforeInput` runs once the last character is in, just before its
+ * `input` event. A page that moved focus elsewhere meanwhile keeps it: `blur` only
+ * leaves the input when it still has focus. Resolves to the cause when the typing
+ * stopped, else `undefined`.
  */
 export async function typeValue<Cause extends string>(
   input: HTMLInputElement,
@@ -160,15 +166,27 @@ export async function typeValue<Cause extends string>(
     }
     input.dispatchEvent(new KeyboardEvent("keyup", key));
   }
-  if (refused) {
-    // A page that types a cancelled key itself, as a framework does, may write it only once
-    // its handlers' microtasks and short timers ran.
-    await gap();
+  // A page that types a cancelled key itself, as a framework does, may write it only once
+  // its handlers' microtasks and short timers ran, and one that strips a character it does
+  // not allow from the field cancels nothing.
+  await gap();
+  const settled = (cancelledKey: boolean, cleared: boolean) => {
     const cause = between?.();
     if (cause) return cause;
-    if (current() !== value) return "refused";
-  }
+    const held = current();
+    return held !== value &&
+      (cancelledKey || [...held].length !== [...value].length) &&
+      !(cleared && held === "")
+      ? "refused"
+      : undefined;
+  };
+  const entered = settled(refused, false);
+  if (entered) return entered;
   input.dispatchEvent(new Event("change", { bubbles: true }));
   if (document.activeElement === input) input.blur();
-  return undefined;
+  // A page's change or blur handler may rewrite the value it holds, as a framework that
+  // sets the state it last rendered does. One that empties the field, as a form switching
+  // to another set of fields does, is left to the checks before the click.
+  await gap();
+  return settled(false, true);
 }

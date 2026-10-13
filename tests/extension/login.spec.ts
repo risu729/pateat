@@ -1141,6 +1141,7 @@ for (const [result, query] of [
 for (const [mode, query] of [
   ["a new document after a slow verification", "auto&slow"],
   ["a status message and a disabled button in the same document", "auto&spa=status"],
+  ["a code input emptied while it verifies", "auto&spa=clear"],
   ["a form rendered again as verifying", "auto&spa=replace"],
 ] as const)
   test(`a code page that verifies its own submission for over a second is never clicked: ${mode} (ADR 0027)`, async () => {
