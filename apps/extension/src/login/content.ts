@@ -985,6 +985,9 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                   beforeInput: place === split.length - 1 ? code?.typed : undefined,
                   between: scope,
                 });
+                // A page that took the code with its last digit may change or clear its
+                // form at once; the code watch says so first.
+                if (stopped && code?.submitted()) return fail("submitted");
                 // A digit the page kept out is never followed by the rest.
                 if (stopped === "refused") return fail("fill-rejected");
                 if (stopped) return fail("cancelled", stopped);
@@ -1010,6 +1013,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                     : undefined;
                 },
               });
+              if (stopped && code?.submitted()) return fail("submitted");
               // A value the page kept a character of out is never submitted.
               if (stopped === "refused") return fail("fill-rejected");
               if (stopped) return fail("cancelled", stopped);

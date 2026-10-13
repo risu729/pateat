@@ -143,6 +143,49 @@ describe("typeValue", () => {
     expect(field.value).toBe("pa55-word");
   });
 
+  it("refuses a value the page shortened in its own handlers, as by stripping a symbol", async () => {
+    // A bank's password field (2026-10-13) held one character fewer than the value after
+    // typing, with no event cancelled, and the login was sent with it.
+    document.body.innerHTML = '<input id="field" type="password">';
+    const field = document.getElementById("field") as HTMLInputElement;
+    let changes = 0;
+    field.addEventListener("change", () => changes++);
+    field.addEventListener("input", () => (field.value = field.value.replaceAll("!", "")));
+    expect(await typeValue(field, "ab!c", setter)).toBe("refused");
+    expect(field.value).toBe("abc");
+    expect(changes).toBe(0);
+    // A field that caps the length in a timer after each key is refused as well.
+    document.body.innerHTML = '<input id="capped">';
+    const capped = document.getElementById("capped") as HTMLInputElement;
+    capped.addEventListener("input", () =>
+      setTimeout(() => (capped.value = capped.value.slice(0, 3))),
+    );
+    expect(await typeValue(capped, "abcd", setter)).toBe("refused");
+    // So is one whose blur handler drops a character.
+    document.body.innerHTML = '<input id="blurred">';
+    const blurred = document.getElementById("blurred") as HTMLInputElement;
+    blurred.addEventListener("blur", () => (blurred.value = blurred.value.slice(0, -1)));
+    expect(await typeValue(blurred, "abcd", setter)).toBe("refused");
+    // A field the page empties on change, as when its form switches to other fields, is
+    // left to the checks before the click.
+    document.body.innerHTML = '<input id="switched">';
+    const switched = document.getElementById("switched") as HTMLInputElement;
+    switched.addEventListener("change", () => (switched.value = ""));
+    expect(await typeValue(switched, "abcd", setter)).toBeUndefined();
+  });
+
+  it("keeps a value the page masks or changes the case of, at the same length", async () => {
+    document.body.innerHTML = '<input id="masked"><input id="upper">';
+    const masked = document.getElementById("masked") as HTMLInputElement;
+    masked.addEventListener("input", () => (masked.value = "•".repeat(masked.value.length)));
+    expect(await typeValue(masked, "pa55", setter)).toBeUndefined();
+    expect(masked.value).toBe("••••");
+    const upper = document.getElementById("upper") as HTMLInputElement;
+    upper.addEventListener("input", () => (upper.value = upper.value.toUpperCase()));
+    expect(await typeValue(upper, "ab1", setter)).toBeUndefined();
+    expect(upper.value).toBe("AB1");
+  });
+
   it("keeps out a character whose key the page cancels, and then refuses the value", async () => {
     document.body.innerHTML = '<input id="field" inputmode="numeric">';
     const field = document.getElementById("field") as HTMLInputElement;
@@ -293,5 +336,29 @@ describe("typeValue", () => {
     await pause(FIELD_GAP_MS);
     expect(document.getElementById("react-state")!.textContent).toBe("sato-7");
     expect(field.value).toBe("sato-7");
+  });
+
+  it("lets React render the last character before the blur its handler reads state on", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    cleanups.push(() => root.unmount());
+    // A blur handler that sets the state it rendered with, as one that trims or validates
+    // the value it holds does, puts back a value without a character not rendered yet.
+    function Field() {
+      const [value, setValue] = useState("");
+      return createElement("input", {
+        id: "react-blur",
+        type: "password",
+        value,
+        onChange: (event: { target: HTMLInputElement }) => setValue(event.target.value),
+        onBlur: () => setValue(value.trim()),
+      });
+    }
+    flushSync(() => root.render(createElement(Field)));
+    const field = document.getElementById("react-blur") as HTMLInputElement;
+    expect(await typeValue(field, "pass-word", setter)).toBeUndefined();
+    await pause(FIELD_GAP_MS);
+    expect(field.value).toBe("pass-word");
   });
 });

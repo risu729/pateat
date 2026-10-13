@@ -354,8 +354,9 @@ export async function startLoginFixture(
       // second input a plain text input), `?wrong` shows it again after Verify, `?auto` submits the
       // code by itself on its sixth digit, as some sites do. With `?auto`, `slow` verifies
       // it for 1.2 seconds before the next document loads, `spa=status` says "Verifying…"
-      // in the form and disables Verify for that long and `spa=replace` renders the form
-      // again as verifying, before both sign in without a new document. Without `?auto`,
+      // in the form and disables Verify for that long, `spa=clear` does so and also empties
+      // the code input, and `spa=replace` renders the form again as verifying, before each
+      // signs in without a new document. Without `?auto`,
       // `ui` makes an ordinary page that only Verify submits: `disabled` keeps Verify
       // disabled until six digits are in, `rerender` replaces it on every input, and
       // `counter` counts the digits in a polite live region. `ui=disauto` keeps Verify
@@ -402,7 +403,7 @@ export async function startLoginFixture(
                     spa === "replace"
                       ? `document.getElementById('code-form').innerHTML = '<input id="code" autocomplete="one-time-code" inputmode="numeric" maxlength="6" disabled><button id="verify" type="button" disabled>Verify</button><p>Verifying…</p>';`
                       : `document.getElementById('code-status').textContent = 'Verifying…';
-                        document.getElementById('verify').disabled = true;`
+                        document.getElementById('verify').disabled = true;${spa === "clear" ? " for (const digit of digits) digit.value = '';" : ""}`
                   }
                 setTimeout(() => {
                   history.pushState({}, '', '/authenticated');

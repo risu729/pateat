@@ -502,34 +502,47 @@ characters typed so far, as Chrome empties one that is not yet a number, such as
 `input` (an `InputEvent` of type `insertText` with the character as its data) and
 `keyup`; then `change`, and blur unless the page moved focus elsewhere. Key events carry
 Shift for the characters a US layout types with it. A page that cancels a character's
-`keydown`, `keypress` or `beforeinput` keeps it out, as a browser does; when the input
-still does not hold the value after one more wait (a framework writes a key it cancelled
-only once its handlers ran), the fill stops as `fill-rejected` without `change`, blur or
-a click, so a value the page changed is never submitted. A page that cancels the
+`keydown`, `keypress` or `beforeinput` keeps it out, as a browser does. One more wait
+follows the last character (a framework writes a key it cancelled only once its handlers
+ran); then the fill stops as `fill-rejected` without `change`, blur or a click, so a
+value the page changed is never submitted, when the input does not hold the value after
+a cancelled event, or holds a value of another length. Since 2026-10-13, when a bank's
+password field held one character fewer than the typed value with no event cancelled and
+the login was sent and rejected, the length is checked after every typing; a value of
+the same length, such as a mask or a case the page changed, is kept, while a page that
+reformats a value, as by adding hyphens, refuses it. The length is checked again one
+wait after `change` and blur, whose handlers may rewrite the value, and a fill refused
+then has sent both; a field emptied then, as by a form that switches to other fields, is
+left to the checks before the click. A same-length change is a known limit: a page that
+turns a full-width character into a half-width one, or one symbol into another, still
+has its value submitted, as it would be from a person's typing. A page that cancels the
 clearing `beforeinput` and does not clear the field itself by that wait refuses the
 value the same way before any character is typed. A code split into one-digit inputs
 gets the same per digit, 25 ms apart. Typed keys are only a value's characters, so a
 page's Enter handler does not run. Each field's scope checks, and a split code's
-per-digit checks, run after the wait before it and again after each wait of its typing;
-a typing they stop leaves the characters typed so far in the field and fails the step,
-so nothing is clicked. The 500 ms check of [ADR 0010](adr/0010-inference-field-hints.md)
-follows the last field. A fill that advances or submits through the page's own event
-sets the value and sends that one `input` or `change` event alone, with no focus, keys
-or blur that could run its effect again. Known limits: the events are not trusted
-(`isTrusted` is false), so a page that checks that, or opens a software keyboard on
-focus, can still refuse a fill; only letters, digits and space get a `code` and
-`keyCode`, after a US layout; Chrome sends no focus or blur events to a page whose
-window is not focused, so a page that reads a field only on blur may still miss it
-there; a hidden tab's timers are throttled, so the waits between fields and between the
-digits of a split code may stretch (those between a value's characters yield one task
-there instead); and a page that submits on its own from a key or blur handler of a
-preparing fill is not watched for, so the click after the 500 ms check still runs if its
-button stays clickable. Before 2026-10-13 a preparing fill sent only `input` and
-`change` after the setter, in one task; that day a bank page showed its required-field
-error under its filled fields. Until later that day it then set the whole value at once
-between bare key events, as Bitwarden's autofill does; the same page's React inputs kept
-their state empty after that (a dummy-value probe in the owner's Chrome), and took each
-value when it was typed a character at a time.
+per-digit checks, run after the wait before it and again after each wait of its typing,
+including the waits after its last character; a typing they stop leaves the characters
+typed so far in the field and fails the step, so nothing is clicked, unless the code
+watch of [ADR 0027](adr/0027-per-account-login-routes.md) saw the page take the code, as
+a page that replaces its form once the last digit is in does: that ends as `submitted`.
+The 500 ms check of [ADR 0010](adr/0010-inference-field-hints.md) follows the last
+field. A fill that advances or submits through the page's own event sets the value and
+sends that one `input` or `change` event alone, with no focus, keys or blur that could
+run its effect again. Known limits: the events are not trusted (`isTrusted` is false),
+so a page that checks that, or opens a software keyboard on focus, can still refuse a
+fill; only letters, digits and space get a `code` and `keyCode`, after a US layout;
+Chrome sends no focus or blur events to a page whose window is not focused, so a page
+that reads a field only on blur may still miss it there; a hidden tab's timers are
+throttled, so the waits between fields and between the digits of a split code may
+stretch (those between a value's characters yield one task there instead); and a page
+that submits on its own from a key or blur handler of a preparing fill is not watched
+for, so the click after the 500 ms check still runs if its button stays clickable.
+Before 2026-10-13 a preparing fill sent only `input` and `change` after the setter, in
+one task; that day a bank page showed its required-field error under its filled fields.
+Until later that day it then set the whole value at once between bare key events, as
+Bitwarden's autofill does; the same page's React inputs kept their state empty after
+that (a dummy-value probe in the owner's Chrome), and took each value when it was typed
+a character at a time.
 
 MV3 workers can stop. Persist only resumable metadata, never an instruction to blindly
 replay a submit. Input and change handlers can submit without a click. Declare whether a
