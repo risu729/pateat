@@ -1855,6 +1855,39 @@ describe("production login document admission", () => {
         await navigate(h, "https://www.login.example/verify", "verify-document", false);
         expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
       });
+      it("reads the tab's next page when the first one went away before it was read", async () => {
+        const h = await submitted();
+        fake.state.gone = new Set(["redirect-document"]);
+        expect(
+          await navigate(h, "https://sso.login.example/redirect", "redirect-document", false),
+        ).toEqual({ ok: false, reason: "stale-document" });
+        expect(at(origin)).not.toMatchObject({ state: "blocked" });
+        await navigate(h, "https://www.login.example/home", "home-document", false);
+        expect(at(origin)).toMatchObject({ state: "authenticated", outcome: "authenticated" });
+      });
+      it("ends left-origin when the next page comes more than 30 seconds after the answer", async () => {
+        const report = vi.fn<(report: LoginReport) => void>();
+        holdClicks(origin);
+        const h = twoSites({ report });
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(executes()).toHaveLength(2));
+        h.login.passkeyAnswered(1, origin, "login.example");
+        fake.state.signs = quiet;
+        fake.state.gone = new Set(["redirect-document"]);
+        await navigate(h, "https://sso.login.example/redirect", "redirect-document", false);
+        const now = Date.now.bind(Date);
+        const clock = vi.spyOn(Date, "now").mockImplementation(() => now() + 31_000);
+        onTestFinished(() => clock.mockRestore());
+        await navigate(h, "https://www.login.example/home", "home-document", false);
+        expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
+        expect(report.mock.calls.map(([entry]) => entry)).toContainEqual(
+          expect.objectContaining({
+            type: "move",
+            origin: "https://www.login.example",
+            reason: "no-factor",
+          }),
+        );
+      });
       it("ends left-origin on a host outside the passkey's RP ID", async () => {
         const h = await submitted("www.login.example");
         await navigate(h, "https://account.login.example/home", "home-document", false);
@@ -1904,6 +1937,52 @@ describe("production login document admission", () => {
           await navigate(h, console, "console-document", false);
           expect(at(origin)).toMatchObject({ state: "authenticated", outcome: "authenticated" });
           expect(executes()).toHaveLength(2);
+        });
+        it("checks the tab's next page when the first one went away before it was read", async () => {
+          // Shaped like Oracle Cloud's sign-in (2026-10-13): a redirect through another
+          // page that leaves before Pateat reads it, then the console.
+          const report = vi.fn<(report: LoginReport) => void>();
+          holdClicks(origin);
+          const h = twoSites({ username: true, report });
+          expect(await h.hello()).toEqual({ ok: true });
+          await vi.waitFor(() => expect(executes()).toHaveLength(2));
+          h.login.passkeyAnswered(1, origin, "login.example");
+          fake.state.signs = { ...quiet, username: true };
+          fake.state.gone = new Set(["callback-document"]);
+          expect(
+            await navigate(h, "https://www.elsewhere.example/callback", "callback-document", false),
+          ).toEqual({ ok: false, reason: "stale-document" });
+          expect(at(origin)).not.toMatchObject({ state: "blocked" });
+          expect(report.mock.calls.map(([entry]) => entry)).toContainEqual(
+            expect.objectContaining({
+              type: "move",
+              origin: "https://www.elsewhere.example",
+              reason: "page-gone",
+              kept: true,
+            }),
+          );
+          await navigate(h, console, "console-document", false);
+          expect(at(origin)).toMatchObject({ state: "authenticated", outcome: "authenticated" });
+        });
+        it("logs why a move that ends left-origin did not complete", async () => {
+          const report = vi.fn<(report: LoginReport) => void>();
+          holdClicks(origin);
+          const h = twoSites({ username: true, report });
+          expect(await h.hello()).toEqual({ ok: true });
+          await vi.waitFor(() => expect(executes()).toHaveLength(2));
+          h.login.passkeyAnswered(1, origin, "login.example");
+          fake.state.signs = { ...quiet, password: true };
+          await navigate(h, console, "console-document", false);
+          expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
+          expect(report.mock.calls.map(([entry]) => entry)).toContainEqual({
+            type: "move",
+            tabId: 1,
+            origin: "https://console.elsewhere.example",
+            recipeId: recipe.id,
+            recipeRevision: recipe.revision,
+            route: "password",
+            reason: "sign-in-shown",
+          });
         });
         it("ends left-origin when the page does not show it and no judge is paired", async () => {
           holdClicks(origin);
