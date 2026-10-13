@@ -197,10 +197,11 @@ shown writable input, and F2 on the alerts and status regions inside one of thei
 forms, named by one of them, or whose nearest common container with a form (or the
 input outside any form) is not the body or the root and holds no `header`, `nav`,
 `footer`, banner, navigation or content-information landmark, dialog or other form, as
-GitHub's flash message beside its sign-in form's body. Any mark and any text count. The
-entry is logged with `reshown`, and the decision is `rejected` only without S4, then
-confirmed and acted on as every other row. This also applies when the submitted
-document's own reading settled the login as unknown first (a slow answer: a click's
+GitHub's flash message beside its sign-in form's body (refined on 2026-10-13, below).
+Any mark and any text count. The entry is logged with `reshown`, and the decision is
+`rejected` only without S4, then confirmed and acted on as every other row. This also
+applies when the submitted document's own reading settled the login as unknown first
+(a slow answer: a click's
 result settles 3 seconds after it), and when it was watched after `challenge`: a
 confirmed rejection there ends the watched login `credential-rejected`. The first new
 document alone counts, once per submission. The step and that document are kept in the
@@ -212,6 +213,23 @@ a logout (ADR 0027) before it is read, so this applies where the site answers on
 another path, as GitHub's `/session`. Which ordering GitHub's 21:16:51 UTC login took
 cannot be told from the code: within 3 seconds the new document settled it and was the
 watch's own page, later the submitted document did; both are covered now.
+
+The neighbourhood of a form shown again, refined (2026-10-13): on GitHub at 03:53 UTC,
+on a build with [#436](https://github.com/risu729/pateat/pull/436), a wrong password
+showed "Incorrect username or password." beside the form shown again, but `login.state`
+logged `unknown` with `reshown` and neither F1 nor F2, and the login ended
+`unknown-submit`. The message and the form share the sign-in box, which, as recalled and
+not captured, also holds a passkey form and possibly social sign-in forms of buttons and
+hidden inputs only, so the rule against another form refused the box. Now another form
+keeps a container from counting only when it holds a shown, enabled control to enter a
+value in or pick from (any input but a button, check box or hidden one, read-only date
+pickers included, a text area, a select or an editable region); a form of buttons,
+hidden inputs or check boxes, as a passkey, social sign-in, language or sign-out form,
+does not. A container that holds the page's main area (`main` or `role="main"`) does not
+count either, so a single-page site's root wrapper around a banner and the page is not
+taken for the form's box now that fewer forms rule it out. The body, page chrome and the
+CAPTCHA rule are unchanged. That GitHub's page now ends `credential-rejected` has not
+been checked on the site.
 
 Delivery 2, first part (2026-10-12): the owner chose, after reading the delivery 1 logs
 of アパホテル, to complete a login whose `login.state` decision is `signed-in`. There,

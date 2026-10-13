@@ -193,12 +193,14 @@ export const attemptMetadataSchema = v.pipe(
     fillOnly: v.optional(v.literal(true)),
     /**
      * For an item without a password (ADR 0036): where in the attempt's plan the step that
-     * fills the password is, recorded when the login starts (`passwordStop`). On the
-     * `password` route no step there or after it is ever prepared, whatever the item holds
-     * later; a handler entered before it moves it along with the plan. A `passkey` route
-     * the login switched to keeps it, and never falls back to the password.
+     * fills the password is, recorded when the login starts (`passwordStopOrMiss`), or the
+     * plan's step count for a route that fills none and ends with an `advance`, so the stop
+     * lies just past its last step. On the `password` route no step there or after it is
+     * ever prepared, whatever the item holds later; a handler entered before it moves it
+     * along with the plan. A `passkey` route the login switched to keeps it, and never
+     * falls back to the password.
      */
-    stopAt: v.optional(v.pipe(integer(MAX_ATTEMPT_STEPS - 1), v.minValue(1))),
+    stopAt: v.optional(v.pipe(integer(MAX_ATTEMPT_STEPS), v.minValue(1))),
   }),
   v.check(
     (metadata) =>
@@ -206,8 +208,8 @@ export const attemptMetadataSchema = v.pipe(
       (metadata.variant !== undefined &&
         metadata.document.frameId === 0 &&
         metadata.chooser === undefined &&
-        (metadata.route !== "password" || metadata.stopAt < metadata.stepCount)),
-    "A stop needs a top-level password variant without a chooser, inside its plan",
+        (metadata.route !== "password" || metadata.stopAt <= metadata.stepCount)),
+    "A stop needs a top-level password variant without a chooser, inside its plan or just past it",
   ),
   v.check(
     (metadata) =>
@@ -359,9 +361,11 @@ export const loginAttemptEventSchema = v.variant("type", [
   v.strictObject({ type: v.literal("UNJUDGED"), operationId: identifier }),
   /**
    * The watch of a login (ADR 0027) is over: it ends where it stopped, `challenge` or an
-   * unknown result, and its later pages are no longer read.
+   * unknown result, and its later pages are no longer read. `abandoned`: the recipe's first
+   * step showed again before the login signed in, so it ends `challenge-abandoned` from a
+   * `challenge`, else `watch-abandoned`.
    */
-  v.strictObject({ type: v.literal("WATCH_ENDED") }),
+  v.strictObject({ type: v.literal("WATCH_ENDED"), abandoned: v.optional(v.literal(true)) }),
   /**
    * The page after the final `advance` step `operationId` is about to be sent to continue
    * the recipe (ADR 0018). Recorded before the request: one request per effect step.
@@ -373,7 +377,9 @@ export const loginAttemptEventSchema = v.variant("type", [
    * The attempt takes over the revision that continues its recipe on the page after its
    * final `advance` step (`continuesRecipe`, ADR 0018): its `steps` follow that step, and
    * its `effects` grow the submission budget. The runtime checks the revision and that it
-   * resolves to the attempt's account before sending it.
+   * resolves to the attempt's account before sending it. A login whose stop lay just past
+   * its plan's last step names its new stop among or just past those steps (`stopAt`, ADR
+   * 0036): the step that fills the password, which never runs.
    */
   v.strictObject({
     type: v.literal("CONTINUED"),
@@ -381,6 +387,7 @@ export const loginAttemptEventSchema = v.variant("type", [
     steps: v.pipe(integer(MAX_RECIPE_STEPS), v.minValue(1)),
     effects: v.pipe(integer(MAX_RECIPE_EFFECTS), v.minValue(1)),
     document: loginDocumentSchema,
+    stopAt: v.optional(v.pipe(integer(MAX_ATTEMPT_STEPS), v.minValue(1))),
   }),
   /**
    * After an effect step, the page shows the recipe's handler `handler` (its index in the
@@ -479,6 +486,20 @@ const beforeStop = (
   index: number,
 ): boolean =>
   context.route !== "password" || context.stopAt === undefined || index < context.stopAt;
+/**
+ * Whether the login's stop lies just past its plan's last step (ADR 0036): its route fills
+ * no password and ends with an `advance`, so no step is there.
+ */
+const stopsPastPlan = (context: Pick<LoginAttemptMetadata, "route" | "stopAt" | "stepCount">) =>
+  context.route === "password" && context.stopAt === context.stepCount;
+/**
+ * The submissions the attempt's steps may spend. A stop just past the plan's last step
+ * keeps one of `maxSubmissions` for its passkey answer (`STOP_ANSWERED`, ADR 0036), which
+ * a recipe's budget never counts: no step, handler or page's own submission spends it.
+ */
+const stepBudget = (
+  context: Pick<LoginAttemptMetadata, "route" | "stopAt" | "stepCount" | "maxSubmissions">,
+) => context.maxSubmissions - (stopsPastPlan(context) ? 1 : 0);
 /** The current operation is a click or a fill that advances or submits. */
 const effectfulOperation = (context: LoginAttemptMetadata) =>
   context.operationKind === "click" ||
@@ -546,13 +567,17 @@ function record(
     case "NAVIGATED":
       if (leftOrigin(context.document, event.document))
         // The result of a submission on the previous origin cannot be observed here, unless
-        // the runtime confirmed the sign-in.
+        // the runtime confirmed the sign-in. A watched login ends where it stopped, as when
+        // its watch ends: it never signed in, so its first step showing again is no logout
+        // (ADR 0027, 2026-10-13).
         return {
           outcome: !maySubmit(context)
             ? "interrupted"
             : event.signedIn
               ? "authenticated"
-              : "left-origin",
+              : watched(context)
+                ? context.outcome
+                : "left-origin",
         };
       return {
         document: sameScope(context.document, event.document) ? event.document : context.document,
@@ -636,7 +661,13 @@ function record(
         recipeRevision: event.recipeRevision,
         stepIndex: context.stepIndex + 1,
         stepCount: context.stepCount + event.steps,
-        maxSubmissions: context.maxSubmissions + event.effects,
+        // A stop past the plan moves to the continued steps; the submission kept for its
+        // answer is kept only while the stop still lies past the plan's last step (ADR 0036).
+        ...(event.stopAt === undefined ? {} : { stopAt: event.stopAt }),
+        maxSubmissions:
+          context.maxSubmissions +
+          event.effects -
+          (event.stopAt !== undefined && event.stopAt < context.stepCount + event.steps ? 1 : 0),
         document: event.document,
         continuation: undefined,
         operationId: undefined,
@@ -698,10 +729,13 @@ function record(
         route: event.route,
         stepIndex: 0,
         stepCount: event.steps,
-        // The passkey answer does not spend the password route's budget.
+        // The passkey answer does not spend the password route's budget. The submission a
+        // stop past the plan's last step keeps for its answer stays with the password route.
         maxSubmissions: Math.min(
           MAX_ATTEMPT_SUBMISSIONS,
-          context.maxSubmissions + (event.route === "password" ? context.submissions : 0),
+          context.maxSubmissions +
+            (event.route === "password" ? context.submissions : 0) -
+            (stopsPastPlan(context) ? 1 : 0),
         ),
         operationId: undefined,
         operationKind: undefined,
@@ -773,6 +807,14 @@ function createLoginAttemptMachine() {
         document: event.type === "NAVIGATED" ? event.document : context.document,
       })),
       notListed: assign({ outcome: "account-not-listed" }),
+      watchEnded: assign(({ context, event }) => ({
+        outcome:
+          event.type !== "WATCH_ENDED" || !event.abandoned
+            ? context.outcome
+            : context.outcome === "challenge"
+              ? ("challenge-abandoned" as const)
+              : ("watch-abandoned" as const),
+      })),
     },
     guards: {
       canPrepare: ({ context, event }) =>
@@ -796,7 +838,7 @@ function createLoginAttemptMachine() {
         operationMatches(context, event) &&
         context.operationKind === "fill" &&
         context.operationEffect !== "prepare" &&
-        context.submissions < context.maxSubmissions,
+        context.submissions < stepBudget(context),
       effectfulFill: ({ context, event }) =>
         operationMatches(context, event) &&
         context.operationKind === "fill" &&
@@ -804,7 +846,7 @@ function createLoginAttemptMachine() {
       canSubmit: ({ context, event }) =>
         operationMatches(context, event) &&
         context.operationKind === "click" &&
-        context.submissions < context.maxSubmissions,
+        context.submissions < stepBudget(context),
       clickMatches: ({ context, event }) =>
         operationMatches(context, event) && context.operationKind === "click",
       wrongAccount: ({ context, event }) =>
@@ -870,7 +912,9 @@ function createLoginAttemptMachine() {
       observedContinue: ({ context, event }) =>
         event.type === "OBSERVED" &&
         event.result === "continue" &&
-        context.stepIndex < context.stepCount &&
+        // A stop past the plan's last step is a place to go on to, though no step is there.
+        (context.stepIndex < context.stepCount ||
+          (stopsPastPlan(context) && context.stepIndex === context.stopAt)) &&
         !(
           context.operationKind === "fill" &&
           (context.operationEffect === "submit" ||
@@ -881,7 +925,11 @@ function createLoginAttemptMachine() {
           (context.operationId !== undefined &&
             context.mutationIntent === true &&
             context.submissions > 0 &&
-            context.stepIndex + 1 < context.stepCount)) &&
+            (context.stepIndex + 1 < context.stepCount ||
+              // The final advance goes on to a stop just past it (ADR 0036).
+              (context.operationEffect === "advance" &&
+                stopsPastPlan(context) &&
+                context.stepIndex + 1 === context.stopAt)))) &&
         // A login with a stop goes on at most to it (ADR 0036).
         (beforeStop(context, context.stepIndex) ||
           (context.stepIndex === context.stopAt && !effectfulOperation(context))) &&
@@ -910,10 +958,12 @@ function createLoginAttemptMachine() {
         event.type === "UNJUDGED" &&
         (context.watch ? context.watch.pages : judgedPages(context, event.operationId)) > 0,
       watchEnds: ({ context }) => context.watch !== undefined,
-      // One request per final advance, recorded before it is sent (ADR 0018).
+      // One request per final advance, recorded before it is sent (ADR 0018). A login with
+      // a stop asks only when the stop lies just past that advance (ADR 0036).
       canContinue: ({ context, event }) =>
         event.type === "CONTINUING" &&
         operationMatches(context, event) &&
+        (context.stopAt === undefined || stopsPastPlan(context)) &&
         context.operationEffect === "advance" &&
         context.mutationIntent === true &&
         context.submissions > 0 &&
@@ -923,9 +973,19 @@ function createLoginAttemptMachine() {
         event.type === "UNCONTINUED" && context.continuation?.operationId === event.operationId,
       // The continued steps follow the final advance whose page was sent, and stay within
       // the attempt's step and submission caps.
+      // A login with a stop just past its plan names its new stop, at or after the first
+      // continued step (ADR 0036); one without a stop names none. Only the range is checked
+      // here: that the stop is the first continued step filling a password is the
+      // runtime's `continuedStop` to get right, since bindings are not visible here.
       continued: ({ context, event }) =>
         event.type === "CONTINUED" &&
         event.recipeRevision > context.recipeRevision &&
+        (context.stopAt === undefined
+          ? event.stopAt === undefined
+          : stopsPastPlan(context) &&
+            event.stopAt !== undefined &&
+            event.stopAt >= context.stepCount &&
+            event.stopAt <= context.stepCount + event.steps) &&
         context.operationId !== undefined &&
         context.continuation?.operationId === context.operationId &&
         context.operationEffect === "advance" &&
@@ -988,7 +1048,7 @@ function createLoginAttemptMachine() {
         event.type === "AUTO_SUBMITTED" &&
         !context.usedOperationIds.includes(event.operationId) &&
         context.usedOperationIds.length < 96 &&
-        context.submissions < context.maxSubmissions &&
+        context.submissions < stepBudget(context) &&
         (context.operationId === undefined
           ? context.stepIndex > 0 &&
             context.stepIndex < context.stepCount &&
@@ -1118,7 +1178,7 @@ function createLoginAttemptMachine() {
           OBSERVED: observedTransitions,
           JUDGING: { guard: "canJudge", actions: "record" },
           UNJUDGED: { guard: "canUnjudge", actions: "record" },
-          WATCH_ENDED: { guard: "watchEnds", target: "blocked" },
+          WATCH_ENDED: { guard: "watchEnds", target: "blocked", actions: "watchEnded" },
           CONTINUING: { guard: "canContinue", actions: "record" },
           UNCONTINUED: { guard: "canUncontinue", actions: "record" },
           CONTINUED: { guard: "continued", target: "ready", actions: "record" },
@@ -1144,7 +1204,7 @@ function createLoginAttemptMachine() {
           ],
           JUDGING: { guard: "canJudge", actions: "record" },
           UNJUDGED: { guard: "canUnjudge", actions: "record" },
-          WATCH_ENDED: { target: "blocked" },
+          WATCH_ENDED: { target: "blocked", actions: "watchEnded" },
           // A restart or a new page of the tab keeps the watch; it has nothing in flight.
           INTERRUPTED: { actions: [] },
           NAVIGATED: [
@@ -1211,7 +1271,17 @@ export function createAttemptMetadata(input: {
     stepIndex: 0,
     stepCount: routeSteps(recipe, input.choice).length,
     submissions: 0,
-    maxSubmissions: recipe.maxSubmissions,
+    // A stop just past the route's last step keeps one more submission for its passkey
+    // answer, which the recipe's budget does not count (ADR 0036).
+    maxSubmissions: Math.min(
+      MAX_ATTEMPT_SUBMISSIONS,
+      recipe.maxSubmissions +
+        (input.choice.route === "password" &&
+        input.stopAt !== undefined &&
+        input.stopAt === routeSteps(recipe, input.choice).length
+          ? 1
+          : 0),
+    ),
     retries: 0,
     maxRetries: 2,
     usedOperationIds: [],
@@ -1362,7 +1432,7 @@ export function nextLoginOperation(
     !beforeStop(metadata, metadata.stepIndex) ||
     (effectfulStep(step) &&
       // A fill-only attempt never takes a step with an effect (ADR 0021 D).
-      (metadata.fillOnly === true || metadata.submissions >= metadata.maxSubmissions))
+      (metadata.fillOnly === true || metadata.submissions >= stepBudget(metadata)))
   )
     return undefined;
   return v.parse(loginOperationSchema, {

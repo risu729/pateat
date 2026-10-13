@@ -627,7 +627,7 @@ test("after a logout, the popup lists the saved default first", async () => {
       { connectionId: "demo-personal", itemId: "primary" },
       { connectionId: "demo-work", itemId: "primary" },
     ],
-    logout: true,
+    logout: "this-tab",
   });
   await mount(client, "https://bank.example/", choices);
   await expect
@@ -663,7 +663,7 @@ test("while a choice waits, the saved default can still be removed, and one miss
       { connectionId: "demo-personal", itemId: "primary" },
       { connectionId: "demo-work", itemId: "primary" },
     ],
-    logout: true,
+    logout: "this-tab",
   });
   await mount(client, "https://bank.example/", choices);
   await expect.element(page.getByRole("heading", { name: "Choose an account" })).toBeVisible();
@@ -697,8 +697,7 @@ test("after the site rejects a login, the popup says so and offers the accounts"
       { connectionId: "demo-personal", itemId: "primary" },
       { connectionId: "demo-work", itemId: "primary" },
     ],
-    logout: true,
-    rejected: true,
+    logout: "rejected",
   });
   await mount(client, "https://bank.example/", choices);
   await expect
@@ -715,7 +714,7 @@ test("after a logout, the popup asks even with one account", async () => {
     origin: "https://bank.example",
     documentId: "signed-out",
     candidates: [{ connectionId: "demo-work", itemId: "primary" }],
-    logout: true,
+    logout: "this-tab",
   });
   await mount(client, "https://bank.example/", choices);
   await expect.element(page.getByRole("heading", { name: "Choose an account" })).toBeVisible();

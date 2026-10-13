@@ -769,7 +769,8 @@ code by a subagent):
   after the watch began counts, so a sign-in page left open from before does not release
   it (after a worker restart every page counts as new). The release comes before that
   tab's own checks, so if that tab is then refused for another reason, the watch is
-  still over and the site's tabs ask. Another tab's page without the first step stays
+  still over and the site's tabs ask (replaced on 2026-10-13, below). Another tab's page
+  without the first step stays
   refused while the hold lasts.
 - **After the watch.** The next page of the tab ends the login where it stopped
   (`blocked` with `challenge`, or `unknown-submit` for a settled one) without changing
@@ -783,7 +784,8 @@ and a `watch` on the record (its start, the document it began in and its judged 
 kept by `transitionLoginAttempt`; the record schema refuses a watch on any other login.
 A watched page of the tab gets the origin's first steps with its accepted hello, so the
 content script watches for them as after a finished login. The watch's own document is
-not read again. A restart keeps the watch; leaving the origin ends it `left-origin`.
+not read again. A restart keeps the watch; leaving the origin ends it `left-origin`
+(until 2026-10-13, below).
 Newer settings end it `policy-changed` only when they no longer allow its account on the
 page: a watched login only reads, so it takes over a newer settings revision that still
 plans its account (`POLICY_REVISED`), as when another site's account choice is saved,
@@ -793,6 +795,42 @@ account still chosen. A watched login does not count as a login in progress for 
 writes or the passkey bridge, as a settled one. Logs: `login.attempt` with state
 `watching` (warn), `recipe.judge` with `watched`, warn for its undecided answers and
 `page-limit`, and `login.logout` with `watched` for a release.
+
+Amended 2026-10-13 by the owner (04:30 UTC, decision card asking whether a sign-in page
+shown again after a confirmation page timed out also makes the site's other tabs only
+fill; answer 「このタブだけ」, this tab only), replacing the release above: a watched
+login never signed in, so the first step showing again is no logout
+([ADR 0021 D](0021-account-choice-outside-settings.md)). Evidence: Oracle Cloud's
+challenge page timed out back to its sign-in page (2026-10-13 03:59 UTC), and Sony
+Bank's login settled as unknown saw its sign-in page again (04:16 UTC), which was
+released as a logout, so the site's other tabs only filled. Now the login ends
+(`WATCH_ENDED` with `abandoned`): `blocked` with `challenge-abandoned` when it stopped
+at `challenge`, else `watch-abandoned`, logged by `login.attempt` with no value. Its
+record is forgotten, so it no longer holds the site. Only the watched login's tab asks
+and fills without pressing anything, as after a login that stopped after a submission
+(ADR 0021 D, `stopped-login`); the site's other tabs and new tabs log in as before, and
+may show the challenge again. `login.logout` and its `watched` mark are no longer
+logged for a watch.
+
+Claude extended the owner's answer on the same grounds (the login never signed in), and
+the owner has not confirmed these points separately:
+
+- A login whose result settled as unknown is treated like one stopped at `challenge`
+  and ends `watch-abandoned`.
+- When the first step shows in a new page of another tab first, that tab logs in, and
+  the watched tab asks if its own first step shows again.
+- A watched login whose tab leaves the origin without a confirmed sign-in ends where it
+  stopped (`blocked` with `challenge` or `unknown-submit`), as at the end of the watch,
+  instead of `left-origin`, so its first step showing again in the tab later is no
+  logout either. Before this, a timeout that went through another origin was still
+  released as a logout. A login that did sign in but reached another origin more than
+  30 seconds after its last step, as after a push approval on a single sign-on site,
+  cannot be shown signed in and now ends this way too, as when its watch runs out.
+
+Known gap: any tab's first step, a fill-only tab's included, ends another tab's watch,
+so if the person then approves in that other tab, the login is not recorded as signed
+in there. Keeping such a tab waiting instead would refuse a person who starts over in a
+new tab while an old logout is still recorded elsewhere.
 
 ## Consequences
 

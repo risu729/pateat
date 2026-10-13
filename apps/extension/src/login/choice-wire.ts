@@ -3,6 +3,29 @@ import * as v from "valibot";
 const id = v.pipe(v.string(), v.minLength(1), v.maxLength(120));
 const tabId = v.pipe(v.number(), v.integer(), v.minValue(0));
 
+/**
+ * Why a tab asks for an account after a logout (ADR 0021 D): it logged out of the site
+ * (`this-tab`), the site did not accept its last login (`rejected`), another tab of the
+ * site logged out (`other-tab`), or this tab's own login stopped after a submission or its
+ * watch ended before it signed in (`stopped-login`).
+ */
+export const logoutReasonSchema = v.picklist([
+  "this-tab",
+  "rejected",
+  "other-tab",
+  "stopped-login",
+]);
+export type LogoutReason = v.InferOutput<typeof logoutReasonSchema>;
+/** The toolbar popup's line saying why it asks for an account (ADR 0021). */
+export function choiceReason(logout: LogoutReason | undefined, matches: number): string {
+  if (logout === undefined) return `${matches} accounts match this page`;
+  return {
+    "this-tab": "You logged out of this site in this tab",
+    rejected: "The site did not accept the last login in this tab",
+    "other-tab": "You logged out of this site in another tab",
+    "stopped-login": "The last login on this site stopped in this tab",
+  }[logout];
+}
 /** The toolbar popup asks which accounts the refused login in a tab could use (ADR 0021). */
 export const choiceRequestSchema = v.strictObject({
   version: v.literal(1),
@@ -31,10 +54,8 @@ export const choiceResponseSchema = v.variant("ok", [
       v.minLength(1),
       v.maxLength(100),
     ),
-    /** The tab logged out of the site after a Pateat login (ADR 0021 D). */
-    logout: v.optional(v.literal(true)),
-    /** With `logout`: the site rejected the tab's login instead. */
-    rejected: v.optional(v.literal(true)),
+    /** The tab asks after a logout (ADR 0021 D), and why. */
+    logout: v.optional(logoutReasonSchema),
     /** Another tab's login holds the site, so a pick cannot start yet (ADR 0022). */
     held: v.optional(v.literal(true)),
   }),

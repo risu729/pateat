@@ -38,6 +38,23 @@ export interface SignInSigns {
 }
 
 /**
+ * Why a page where S1 holds is not read as the sign-in form shown again (`reshown`), for
+ * the log (ADR 0019): no effect step of this attempt is known (`no-effect`, as after a
+ * worker restart), the last one asked for a passkey (`passkey-step`) or did not submit
+ * (`not-submit`, as an `advance`), the page is the document the step ran in
+ * (`same-document`, read against its own reading instead), no other top document came
+ * within 30 seconds of the step (`late`), or this is a later document than the first one
+ * that did (`later-document`).
+ */
+export type ReshownMiss =
+  | "no-effect"
+  | "passkey-step"
+  | "not-submit"
+  | "same-document"
+  | "late"
+  | "later-document";
+
+/**
  * What ADR 0029 would do with the page: `rejected` (a failure shows next to the sign-in
  * fields), `unknown` (the sign-in fields show), `continuing` (another sign-in step shows;
  * the judge learns a handler), `signed-in` (evidence without a model call) or `judge` (no

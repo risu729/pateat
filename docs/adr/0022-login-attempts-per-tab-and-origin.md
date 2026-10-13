@@ -50,9 +50,12 @@ in a page of another tab of the site, first seen after the watch began, releases
 watched record as a logout (ADR 0021 D), so that tab asks and fills without pressing
 anything instead of being refused `origin-busy` (owner's request, 13:49 UTC, after the
 person restarted an expired QR approval on 三菱UFJ銀行 and Pateat did nothing until the
-old tab closed). Amended again on 2026-10-12 (21:18 UTC, owner's choice 「AI判定」 on a
-decision card): a `password` login whose tab moves to another origin of the same site
-right after the submission completes when the new page shows the account's username,
+old tab closed; on 2026-10-13 this became the end of the watch without a logout, so that
+tab logs in as before,
+[ADR 0027](0027-per-account-login-routes.md#watching-after-a-challenge)). Amended again
+on 2026-10-12 (21:18 UTC, owner's choice 「AI判定」 on a decision card): a `password`
+login whose tab moves to another origin of the same site right after the submission
+completes when the new page shows the account's username,
 and, as the next change, the judge decides once when it does not; see "Leaving the
 origin after a possible submission ends the attempt" below. Evidence: on モッピー at
 20:52 UTC Pateat submitted the password on `ssl.pc.moppy.jp`, the site moved the tab to

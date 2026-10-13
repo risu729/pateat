@@ -15,7 +15,7 @@ import {
   loginChooserRecipeSchema,
   loginEntryRecipeSchema,
   passkeyAnswersRequest,
-  passwordStop,
+  passwordStopOrMiss,
   passwordVariants,
   recipeHasRoute,
   recipeSlots,
@@ -2226,6 +2226,11 @@ describe("chooser recipes (ADR 0028)", () => {
 });
 
 describe("the stop before a missing password (ADR 0036)", () => {
+  /** The stop of `passwordStopOrMiss` alone, or undefined when the login takes no route. */
+  const passwordStop = (...args: Parameters<typeof passwordStopOrMiss>) => {
+    const result = passwordStopOrMiss(...args);
+    return "stop" in result ? result.stop : undefined;
+  };
   const id = (value: string) => ({ by: "id" as const, value });
   const fill = (slots: string[], path: string, effect?: "advance") => ({
     kind: "fill" as const,
@@ -2373,5 +2378,162 @@ describe("the stop before a missing password (ADR 0036)", () => {
       maxSubmissions: 3,
     });
     expect(passwordStop(after, route, keyOnly, ["password"], ["password", "totp"])).toBe(2);
+  });
+
+  it("names the stop, or which condition failed, for the log", () => {
+    const plain = emailFirst();
+    expect(passwordStopOrMiss(plain, route, keyOnly, ["password"], ["password"])).toEqual({
+      stop: 2,
+    });
+    // The item holds its password, or no usable passkey.
+    for (const facts of [
+      { password: true, passkey: true },
+      { password: false, passkey: false },
+      { password: true, passkey: false },
+    ])
+      expect(passwordStopOrMiss(plain, route, facts, ["password"], ["password"])).toEqual({
+        miss: "no-passkey",
+      });
+    // The recipe has alternatives, on any variant.
+    const varied = emailFirst({
+      alternatives: [
+        {
+          slots: ["account", "password"],
+          steps: [
+            fill(["account"], "/signin"),
+            click("next", "/signin", "advance"),
+            fill(["password"], "/password"),
+            click("login", "/password", "submit"),
+          ],
+        },
+      ],
+    });
+    for (const variant of [0, 1])
+      expect(
+        passwordStopOrMiss(
+          varied,
+          { route: "password", variant },
+          keyOnly,
+          ["password"],
+          ["password"],
+        ),
+      ).toEqual({ miss: "alternatives" });
+    // The passkey route, or a route that fills none of the slots read from the password.
+    const button = emailFirst({ passkey: { path: "/signin", target: id("passkey-login") } });
+    expect(
+      passwordStopOrMiss(button, { route: "passkey" }, keyOnly, ["password"], ["password"]),
+    ).toEqual({ miss: "no-password-step" });
+    expect(passwordStopOrMiss(plain, route, keyOnly, [], [])).toEqual({
+      miss: "no-password-step",
+    });
+    expect(passwordStopOrMiss(plain, route, keyOnly, ["current"], ["current"])).toEqual({
+      miss: "no-password-step",
+    });
+    // No advance before the password: the one-page form, a stacked form, or the password first.
+    const single = emailFirst({
+      steps: [fill(["username", "password"], "/signin"), click("login", "/signin", "submit")],
+      maxSubmissions: 1,
+    });
+    expect(passwordStopOrMiss(single, route, keyOnly, ["password"], ["password"])).toEqual({
+      miss: "no-advance",
+    });
+    const stacked = emailFirst({
+      steps: [
+        fill(["username"], "/signin"),
+        fill(["password"], "/signin"),
+        click("login", "/signin", "submit"),
+      ],
+      maxSubmissions: 1,
+    });
+    expect(passwordStopOrMiss(stacked, route, keyOnly, ["password"], ["password"])).toEqual({
+      miss: "no-advance",
+    });
+    const first = emailFirst({
+      steps: [
+        fill(["password"], "/signin"),
+        click("next", "/signin", "advance"),
+        fill(["username"], "/account"),
+        click("login", "/account", "submit"),
+      ],
+    });
+    expect(passwordStopOrMiss(first, route, keyOnly, ["password"], ["password"])).toEqual({
+      miss: "no-advance",
+    });
+    // A step before the password fills another value the item lacks.
+    const code = emailFirst({
+      slots: ["username", "totp", "password"],
+      steps: [
+        fill(["username", "totp"], "/signin"),
+        click("next", "/signin", "advance"),
+        fill(["password"], "/password"),
+        click("login", "/password", "submit"),
+      ],
+    });
+    expect(passwordStopOrMiss(code, route, keyOnly, ["password"], ["totp", "password"])).toEqual({
+      miss: "fills-lacking",
+    });
+    // The first condition that fails is named: the passkey before the alternatives.
+    expect(
+      passwordStopOrMiss(varied, route, { password: false, passkey: false }, ["password"], []),
+    ).toEqual({ miss: "no-passkey" });
+  });
+
+  it("stops just past a route that fills no password and ends with an advance", () => {
+    // An identifier-first recipe whose page after the identifier is not generated yet.
+    const identifier = emailFirst({
+      slots: ["username"],
+      steps: [fill(["username"], "/login"), click("continue", "/login", "advance")],
+      maxSubmissions: 1,
+    });
+    // Its binding reads nothing from the empty password, or a slot no step fills.
+    expect(passwordStopOrMiss(identifier, route, keyOnly, [], [])).toEqual({ stop: 2 });
+    expect(passwordStopOrMiss(identifier, route, keyOnly, ["password"], ["password"])).toEqual({
+      stop: 2,
+    });
+    expect(passwordStop(identifier, route, keyOnly, [], [])).toBe(2);
+    // The input's own advance counts as the click's would.
+    const typed = emailFirst({
+      slots: ["username"],
+      steps: [fill(["username"], "/login", "advance")],
+      maxSubmissions: 1,
+    });
+    expect(passwordStopOrMiss(typed, route, keyOnly, [], [])).toEqual({ stop: 1 });
+    // A route that ends with a submit or a plain fill has no stop.
+    const submitted = emailFirst({
+      slots: ["username"],
+      steps: [fill(["username"], "/login"), click("continue", "/login", "submit")],
+      maxSubmissions: 1,
+    });
+    expect(passwordStopOrMiss(submitted, route, keyOnly, [], [])).toEqual({
+      miss: "no-password-step",
+    });
+    const filled = emailFirst({
+      slots: ["username"],
+      steps: [click("continue", "/login", "advance"), fill(["username"], "/next")],
+      maxSubmissions: 1,
+    });
+    expect(passwordStopOrMiss(filled, route, keyOnly, [], [])).toEqual({
+      miss: "no-password-step",
+    });
+    // The other conditions still hold for such a stop.
+    expect(
+      passwordStopOrMiss(identifier, route, { password: false, passkey: false }, [], []),
+    ).toEqual({ miss: "no-passkey" });
+    expect(
+      passwordStopOrMiss(identifier, route, { password: true, passkey: true }, [], []),
+    ).toEqual({ miss: "no-passkey" });
+    const code = emailFirst({
+      slots: ["username", "totp"],
+      steps: [fill(["username", "totp"], "/login"), click("continue", "/login", "advance")],
+      maxSubmissions: 1,
+    });
+    expect(passwordStopOrMiss(code, route, keyOnly, [], ["totp"])).toEqual({
+      miss: "fills-lacking",
+    });
+    // A recipe with alternatives submits on every variant, so none ends with an advance.
+    // A route with a password step still stops at that step, never past the plan.
+    expect(passwordStopOrMiss(emailFirst(), route, keyOnly, ["password"], ["password"])).toEqual({
+      stop: 2,
+    });
   });
 });

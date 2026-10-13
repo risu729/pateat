@@ -409,8 +409,9 @@ own accounts, so they stay in the project's files rather than in this repository
   there is not decided.
 - Installed-Chrome checks moved from phase 1 (owner, 2026-10-12 20:35 UTC), checked
   when daily use reaches them:
-  - On 三菱UFJ銀行, after an expired QR code, the sign-in page, in the same tab or a new
-    one, is filled without pressing anything.
+  - On 三菱UFJ銀行, after an expired QR code, the sign-in page in the same tab is filled
+    without pressing anything, while a new tab logs in as before (owner, 2026-10-13:
+    「このタブだけ」; ADR 0027).
   - M3's password login on a real site, and M4's sync against the deployed service:
     `https://www.npmjs.com` logs in with no action from the owner through a recipe the
     service generated, and a later login makes no Claude call (after
@@ -489,7 +490,13 @@ own accounts, so they stay in the project's files rather than in this repository
   Bot's eighth round (build `25b08b2`, 2026-10-12 23:13 UTC), OpenAI Platform was
   refused `no-route` `password-empty`: its item holds no password, only a TOTP secret
   and a passkey. [ADR 0036](adr/0036-passkey-after-the-identifier.md) lets such an item
-  go on after the email to a passkey (local tests only); not yet checked on the Bot.
+  go on after the email to a passkey. Build `85085b7` still refused it the same way: the
+  stored recipe ends at Continue, its page after the email never generated, so no step
+  fills the password. Such a route now stops just past its final `advance`; by the
+  owner's decision of 2026-10-13 04:42 UTC its page after the email is continued as any
+  login's, or judged to learn a passkey button, and the login stops at the continued
+  password step. A refusal names why after the colon (local tests only); not yet
+  checked on the Bot.
 - Answer Google's passkey step on the Grok Bot's browser. On build `a8350f5`
   (2026-10-12 19:49 UTC) both of the page's requests were logged as `passkey.request`
   `delegate` `invalid-request`, so the browser offered only the phone (hybrid) flow,
@@ -587,9 +594,10 @@ own accounts, so they stay in the project's files rather than in this repository
     version 1 upgrade guards were removed (no compatibility before release): an old
     `pateat.login-attempts.v3` entry stays in storage unread, and a version 1
     diagnostics database fails to open until the extension is reinstalled, as the
-    vault database already does. The unreachable `!moved &&` exemption in the
-    service's judgement gate is removed after the same-site judging work that changes
-    that gate merges. The settings page's Demo vaults preview, shown only without a
+    vault database already does. The `!moved &&` exemption in the service's judgement
+    gate was removed too: a page of another origin is judged only on the `password`
+    route, whose sign-in targets are its fill targets, which the gate already checks on
+    every origin. The settings page's Demo vaults preview, shown only without a
     connection client, stays: the options page tests render the page that way.
 - UI improvements the owner reports from daily use of the UI polished in phase 1. Small
   fixes for broken UI still land as found.
@@ -2361,16 +2369,19 @@ cannot be listed, the saved default alone is offered. A login whose result is st
 `reconciling` is resumed, not taken as a logout. Since 2026-10-12 a tab whose own login
 stopped after a submission asks the same way, in that tab only, once a later page shows
 the login form after the record's 5-minute hold on other tabs has ended
-(`pateat.login-stopped-asks.v1`). Since 2026-10-13 a tab asks at once, on any path,
-without filling that page again, when the site answers the password submission with its
-sign-in form again (its password input and no other sign, even when the result stays
-unknown) or the login ends `credential-rejected`; its record is released then, so other
-tabs of the site ask instead of being held, and the badge and popup say the site did not
-accept the login (`pateat.login-rejected-asks.v1`). Frame logins and sites whose logout
-page shows only a password step are not detected. By the owner's constraint (2026-10-12)
-a session that only expired never needs a manual press, so a logout of a session carried
-over from another tab's login or an earlier browser session is not detected either:
-Pateat logs in again there.
+(`pateat.login-stopped-asks.v1`). Since 2026-10-13 (owner, after Oracle Cloud and Sony
+Bank) a watched login (ADR 0027) whose first step shows again never signed in, so it is
+no logout: it ends `challenge-abandoned` or `watch-abandoned`, only its tab asks that
+way, and the site's other tabs log in (local tests only). Since 2026-10-13 a tab asks at
+once, on any path, without filling that page again, when the site answers the password
+submission with its sign-in form again (its password input and no other sign, even when
+the result stays unknown) or the login ends `credential-rejected`; its record is
+released then, so other tabs of the site ask instead of being held, and the badge and
+popup say the site did not accept the login (`pateat.login-rejected-asks.v1`). Frame
+logins and sites whose logout page shows only a password step are not detected. By the
+owner's constraint (2026-10-12) a session that only expired never needs a manual press,
+so a logout of a session carried over from another tab's login or an earlier browser
+session is not detected either: Pateat logs in again there.
 
 Later work includes independently permitted vault create/update operations, nonzero
 passkey counter writeback and passkey creation; Bitwarden provider login with passkeys,

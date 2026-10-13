@@ -7,7 +7,9 @@ account defaults and exclusions are edited, and manual choices before they are s
 Each part lands in its own PR. All four parts, A to D, are implemented. Amended on
 2026-10-12 by [ADR 0027](0027-per-account-login-routes.md#watching-after-a-challenge):
 in D, a watched login is released like a finished one when its first step shows in a new
-page of its tab or of another tab of the site (implemented).
+page of its tab or of another tab of the site (implemented). Amended on 2026-10-13 by
+ADR 0027 (owner's 「このタブだけ」): a watched login is no longer released as a logout;
+only its own tab asks (implemented, see the end of D).
 
 Amended on 2026-10-11 by [ADR 0023](0023-synced-vault-policy.md): the popup also repairs
 a binding that names a missing custom field (not implemented yet). Amended on 2026-10-11
@@ -268,6 +270,24 @@ therefore not detected: after a logout there, Pateat logs in again automatically
 Rejected for this reason: counting a signed-in marker seen in the tab (it would make
 every expiry after such a page ask), and counting another tab's finished login (also
 against ADR 0022's choice that a new tab logs in).
+
+Amended 2026-10-13 by the owner (04:30 UTC, decision card asking whether a sign-in page
+shown again after a confirmation page timed out also makes the site's other tabs only
+fill; answer 「このタブだけ」, this tab only): the first step showing again while a
+login is watched under
+[ADR 0027](0027-per-account-login-routes.md#watching-after-a-challenge) is no logout,
+since that login never signed in. Evidence: on Oracle Cloud (2026-10-13 03:59 UTC) a
+challenge page timed out and the site went back to its sign-in page with no action from
+the person; on Sony Bank (04:16 UTC) a password login whose result settled as unknown
+saw its sign-in page again, was logged `login.logout` `watched`, and every other tab of
+the site then only filled. Now such a login ends `challenge-abandoned` (from a
+`challenge`) or `watch-abandoned` (from a result settled as unknown), and only the
+watched login's tab asks and fills without pressing anything, as after a stopped login
+above (`pateat.login-stopped-asks.v1`, `logged-out` with `stopped-login`). The site's
+other tabs and new tabs log in as before, which may show the challenge again there. The
+same holds when the first step shows in another tab first: that tab logs in, and the
+watched tab asks if its own first step shows again. `login.logout` and
+`pateat.login-logouts.v1` are left for a logout after a finished login, as above.
 
 Known gaps:
 

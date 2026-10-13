@@ -11,7 +11,7 @@ export default defineConfig({
   // dependencies from making the next suite re-optimize and reload its page.
   cacheDir: "node_modules/.vite/extension-dom",
   // Pre-bundle up front; a mid-run optimization reloads the test page.
-  optimizeDeps: { include: ["valibot", "xstate"] },
+  optimizeDeps: { include: ["react", "react-dom", "react-dom/client", "valibot", "xstate"] },
   test: {
     include: ["apps/extension/src/{diagnostics,observation,page}/*.test.ts"],
     retry: 0,

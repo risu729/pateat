@@ -26,7 +26,7 @@ import { Button } from "../options/button";
 import { SETTINGS_QUERY_KEY, type SettingsClient } from "../options/client";
 import { siteAccountOptions } from "../options/site-policy";
 import { Logo } from "../logo";
-import type { ChoiceClient } from "../login/choice-wire";
+import { choiceReason, type ChoiceClient } from "../login/choice-wire";
 
 /** What the toolbar popup needs from the browser besides the settings messages. */
 export interface PopupHost {
@@ -563,11 +563,7 @@ export function SiteApp({
             <div className="popup-section-head">
               <h2 id="popup-choice-heading">Choose an account</h2>
               <p id="popup-choice-reason" className="popup-muted popup-reason">
-                {offered.rejected
-                  ? "The site did not accept the last login in this tab"
-                  : offered.logout
-                    ? "You logged out of this site in this tab"
-                    : `${pickOptions.length} accounts match this page`}
+                {choiceReason(offered.logout, pickOptions.length)}
               </p>
             </div>
             {offered.held && (

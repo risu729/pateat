@@ -32,6 +32,11 @@ export interface PageSigns {
    * document that shows the sign-in form again, an alert next to the form shows any text.
    */
   readonly alert: boolean;
+  /**
+   * Why F2 does not hold on a sign-in form shown again in a new document, for the log; only
+   * then.
+   */
+  readonly alertMiss?: AlertMiss;
   /** E2: the username shows in the page header or navigation; only when one was given. */
   readonly username?: boolean;
 }
@@ -49,6 +54,8 @@ const landmarkSelector = 'header, nav, [role="banner"], [role="navigation"]';
  */
 const chromeSelector =
   'header, nav, footer, [role="banner"], [role="navigation"], [role="contentinfo"], dialog, [role="dialog"]';
+/** The page's main content area, which a container beside the form must not hold. */
+const mainSelector = 'main, [role="main"]';
 /** How much of an alert is read. */
 const alertReadLimit = 1000;
 /** How much of the header and navigation is read for the username. */
@@ -80,26 +87,106 @@ const tokens = (input: HTMLInputElement) => input.autocomplete.toLowerCase().spl
 const ariaInvalid = (input: HTMLInputElement) =>
   input.getAttribute("aria-invalid")?.trim().toLowerCase() === "true";
 
+/** Input types that hold no value a person enters: buttons, check boxes and hidden data. */
+const unaskedInputs = new Set([
+  "hidden",
+  "checkbox",
+  "radio",
+  "submit",
+  "button",
+  "reset",
+  "image",
+]);
+
+/**
+ * Whether `form` asks the person for something: it holds a shown, enabled control they
+ * enter a value in or pick from (any input but a button, check box or hidden one, even a
+ * read-only date picker, a text area, a select or an editable region). A form of buttons,
+ * hidden inputs or check boxes, as a passkey, social sign-in, language or sign-out form,
+ * does not. Each control's own visibility counts, so a form laid out with
+ * `display: contents` still does.
+ */
+function asksForInput(form: HTMLFormElement): boolean {
+  return (
+    [...form.elements].some(
+      (control) =>
+        ((control instanceof HTMLInputElement && !unaskedInputs.has(control.type)) ||
+          control instanceof HTMLTextAreaElement ||
+          control instanceof HTMLSelectElement) &&
+        !control.disabled &&
+        visible(control),
+    ) ||
+    [...form.querySelectorAll<HTMLElement>("[contenteditable]")].some(
+      (element) => element.isContentEditable && visible(element),
+    )
+  );
+}
+
+/**
+ * Why no alert next to a sign-in form shown again counted, for the log (ADR 0019): no alert
+ * or status region outside the sign-in inputs shows text (`no-alert`), none of the named
+ * sign-in elements is a single shown writable input (`no-input`), or the first rule of
+ * {@link besideForm} that the region closest to counting failed: their nearest common
+ * container is the body or the root (`body`), or holds page chrome (`chrome`), another
+ * form that asks for input (`other-form`) or the main area (`main`).
+ */
+export const alertMisses = [
+  "no-alert",
+  "no-input",
+  "body",
+  "chrome",
+  "other-form",
+  "main",
+] as const;
+export type AlertMiss = (typeof alertMisses)[number];
+/** The rules of {@link besideForm}, in the order they are checked. */
+const besideRules = ["body", "chrome", "other-form", "main"] as const;
+type BesideRule = (typeof besideRules)[number];
+
 /**
  * Whether `region` sits beside a sign-in input's form (or the input, outside any form):
- * their nearest common container is neither the body nor the root, and holds no page
- * chrome and no other form, as a flash message above a sign-in form in its own box.
+ * their nearest common container is neither the body nor the root, holds no page chrome
+ * and no main content area (`main`, as a single-page site's root wrapper holds), and no
+ * other form that asks for input, as a flash message above a sign-in form in its own box
+ * beside a passkey or social sign-in button form. Returns `undefined` when it does, else
+ * the first rule failed, of the input that came closest.
  */
 function besideForm(
   region: Element,
   fields: readonly HTMLInputElement[],
   forms: ReadonlySet<HTMLFormElement>,
-): boolean {
+): BesideRule | undefined {
   const { body, documentElement } = region.ownerDocument;
-  return fields.some((input) => {
+  let closest = -1;
+  for (const input of fields) {
     let common: Element | null = input.form ?? input;
     while (common && !common.contains(region)) common = common.parentElement;
-    if (!common || common === body || common === documentElement) return false;
-    // A sign-in dialog of its own still counts; one inside the container does not.
-    if (common.querySelector(chromeSelector)) return false;
-    return [...common.querySelectorAll("form")].every((form) => forms.has(form));
-  });
+    const miss: BesideRule | undefined =
+      !common || common === body || common === documentElement
+        ? "body"
+        : // A sign-in dialog of its own still counts; one inside the container does not.
+          common.querySelector(chromeSelector)
+          ? "chrome"
+          : [...common.querySelectorAll("form")].some(
+                (form) => !forms.has(form) && asksForInput(form),
+              )
+            ? "other-form"
+            : common.querySelector(mainSelector)
+              ? "main"
+              : undefined;
+    if (miss === undefined) return undefined;
+    closest = Math.max(closest, besideRules.indexOf(miss));
+  }
+  return besideRules[closest] ?? "body";
 }
+
+/** The forms of the sign-in inputs `fields`. */
+const formsOf = (fields: readonly HTMLInputElement[]) =>
+  new Set(fields.flatMap((input) => (input.form ? [input.form] : [])));
+
+/** The text of an alert or status region, without the text of its buttons. */
+const regionText = (element: Element) =>
+  collapseText(renderedText(element, alertReadLimit, { skip: 'button, [role="button"]' }) ?? "");
 
 /**
  * The texts of the alerts next to the sign-in inputs `fields`. In the submitted document
@@ -121,12 +208,12 @@ function alertTexts(
       ),
     ),
   );
-  const forms = new Set(fields.flatMap((input) => (input.form ? [input.form] : [])));
+  const forms = formsOf(fields);
   const near = (element: Element) =>
     [...forms].some((form) => form.contains(element)) || named.has(element.id);
   const regions = beside
     ? [...document.querySelectorAll(`${alertSelector}, ${statusSelector}`)].filter(
-        (element) => near(element) || besideForm(element, fields, forms),
+        (element) => near(element) || besideForm(element, fields, forms) === undefined,
       )
     : [
         ...document.querySelectorAll(alertSelector),
@@ -135,12 +222,28 @@ function alertTexts(
   const texts = new Set<string>();
   for (const element of regions) {
     if (fields.some((input) => element.contains(input))) continue;
-    const text = collapseText(
-      renderedText(element, alertReadLimit, { skip: 'button, [role="button"]' }) ?? "",
-    );
+    const text = regionText(element);
     if (text) texts.add(text);
   }
   return texts;
+}
+
+/**
+ * Why no alert counted next to the sign-in inputs `fields` of a form shown again, which
+ * {@link alertTexts} found none beside: of the alerts and status regions with text outside
+ * the sign-in inputs, the rule of {@link besideForm} that the one closest to counting
+ * failed first ({@link alertMisses}).
+ */
+function alertMiss(document: Document, fields: readonly HTMLInputElement[]): AlertMiss {
+  if (fields.length === 0) return "no-input";
+  const forms = formsOf(fields);
+  let closest = -1;
+  for (const element of document.querySelectorAll(`${alertSelector}, ${statusSelector}`)) {
+    if (fields.some((input) => element.contains(input)) || !regionText(element)) continue;
+    const miss = besideForm(element, fields, forms);
+    if (miss !== undefined) closest = Math.max(closest, besideRules.indexOf(miss));
+  }
+  return besideRules[closest] ?? "no-alert";
 }
 
 /**
@@ -283,6 +386,7 @@ export function pageSigns(
     captcha: showsCaptcha(document),
     invalid,
     alert,
+    ...(reshown !== undefined && !alert ? { alertMiss: alertMiss(document, reshown) } : {}),
     ...(username === undefined ? {} : { username: showsUsername(document, username) }),
   };
 }

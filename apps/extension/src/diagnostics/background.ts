@@ -335,7 +335,6 @@ export function createDiagnosticsLog(options: {
             origin: report.origin,
             recipe: report.recipeId,
             recipeRevision: report.recipeRevision,
-            watched: report.watched,
             rejected: report.rejected,
             url: report.url,
           },
@@ -349,7 +348,6 @@ export function createDiagnosticsLog(options: {
             choice: report.choice,
             candidates: report.candidates,
             logout: report.logout,
-            rejected: report.rejected,
             held: report.held,
             recordState: report.recordState,
             recordOutcome: report.recordOutcome,
@@ -473,6 +471,9 @@ export function createDiagnosticsLog(options: {
               ),
             ),
             reshown: report.reshown,
+            // Why S1 was not read as the form shown again, or no alert beside it counted.
+            reshownMiss: report.reshownMiss,
+            alertMiss: report.alertMiss,
             settled: report.settled,
           },
           // Later pages of a settled attempt repeat what its first page showed.
