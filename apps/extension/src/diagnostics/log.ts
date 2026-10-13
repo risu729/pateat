@@ -65,8 +65,9 @@ export const TRUNCATED = "[truncated]";
  * - `origin`, `rpId`: recorded in full only for sites the settings or recipes name.
  * - `connection`, `item`: always pseudonyms.
  * - `stack`: extension script positions such as `background.js:12:345`.
- * - `url`: a page URL's path, query and fragment, kept only when the entry's `origin` is
- *   the URL's own and is recorded in full (ADR 0019); cut at the field length.
+ * - `url`: a page URL's path with its query's and fragment's parameter names but no values,
+ *   kept only when the entry's `origin` is the URL's own and is recorded in full
+ *   (ADR 0019); cut at the field length.
  */
 type FieldKind =
   | "code"
@@ -392,6 +393,17 @@ export const KNOWN_ERROR_CODES: ReadonlySet<string> = new Set([
   "vault-unavailable",
 ]);
 
+/** A parameter name kept in a page URL: a name a site gives a parameter, not a value. */
+const NAME = String.raw`[A-Za-z_][\w.\-[\]]{0,39}`;
+const PARAMETER_NAME = new RegExp(`^${NAME}$`, "u");
+const NAMES = `(?:${NAME}=(?:&${NAME}=)*)?`;
+
+/** The only shape a stored page URL has: a path, then parameter names or a route. */
+const STORED_PATH = new RegExp(
+  String.raw`^/[^?#]*(?:\?${NAMES})?(?:#(?:${NAMES}|!?/[^=?#]*(?:\?${NAMES})?))?$`,
+  "u",
+);
+
 const integer = v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(Number.MAX_SAFE_INTEGER));
 const KIND_SCHEMAS: Record<
   Exclude<FieldKind, "origin" | "rpId" | "connection" | "item" | "url">,
@@ -427,7 +439,9 @@ const STORED_SCHEMAS: Record<FieldKind, v.GenericSchema<unknown, FieldValue>> = 
   rpId: rpIdValueSchema,
   connection: pseudonymSchema("bitwarden", 6),
   item: pseudonymSchema("item", 8),
-  url: v.pipe(v.string(), v.startsWith("/"), v.maxLength(MAX_FIELD_LENGTH)),
+  // A URL an older build stored with its parameters' values is left out, unless the value
+  // was a single token ending in `=` and so has this shape too.
+  url: v.pipe(v.string(), v.startsWith("/"), v.maxLength(MAX_FIELD_LENGTH), v.regex(STORED_PATH)),
 };
 
 const entrySchema = v.object({
@@ -908,8 +922,46 @@ function siteSubstitution(): Substitute {
 }
 
 /**
- * A page URL's path, query and fragment, when `origin` is the URL's own as recorded in full;
- * a pseudonymized origin gets none (ADR 0019).
+ * A query's or fragment's `name=value` parameters with their values left out, as
+ * `code=&state=`. A part without `=` or with an empty value, which may be a token itself
+ * (`?<token>` or a base64 token's `=` padding), and a name that does not look like one
+ * are left out too (owner decision, 2026-10-13).
+ */
+function parameterNames(parameters: string): string {
+  return parameters
+    .split("&")
+    .flatMap((part) => {
+      const at = part.indexOf("=");
+      if (at < 0) return [];
+      const name = part.slice(0, at);
+      const value = part.slice(at + 1);
+      return PARAMETER_NAME.test(name) && value !== "" && !/^=+$/u.test(value) ? [`${name}=`] : [];
+    })
+    .join("&");
+}
+
+/**
+ * A fragment as the log keeps it: a route the page shows (`#/signin`) with its own
+ * query's parameter names, parameters by name only (`#access_token=&state=`), and an
+ * anchor (`#top`) as `#` alone, since a fragment may be a token.
+ */
+function fragmentShape(hash: string): string {
+  if (hash === "") return "";
+  // A second `#` is part of the fragment; what follows it is left out.
+  const fragment = hash.slice(1).split("#")[0]!;
+  const query = fragment.indexOf("?");
+  const route = query < 0 ? fragment : fragment.slice(0, query);
+  if (/^!?\//u.test(route) && !route.includes("=")) {
+    return query < 0 ? `#${route}` : `#${route}?${parameterNames(fragment.slice(query + 1))}`;
+  }
+  return fragment.includes("=") ? `#${parameterNames(fragment)}` : "#";
+}
+
+/**
+ * A page URL's path, with the names of its query's and fragment's parameters but none of
+ * their values, when `origin` is the URL's own as recorded in full; a pseudonymized origin
+ * gets none (ADR 0019). A query or fragment can carry an authorization code, a token or an
+ * email address, so `/callback?code=abc&state=xyz` is kept as `/callback?code=&state=`.
  */
 function pagePath(raw: FieldValue, origin: FieldValue | undefined): string | undefined {
   if (typeof raw !== "string" || typeof origin !== "string") return undefined;
@@ -921,7 +973,10 @@ function pagePath(raw: FieldValue, origin: FieldValue | undefined): string | und
   }
   // A `blob:` or similar URL reports its inner origin but no path of its own.
   if (url.origin !== origin || !url.pathname.startsWith("/")) return undefined;
-  return `${url.pathname}${url.search}${url.hash}`.slice(0, MAX_FIELD_LENGTH);
+  const query = url.search === "" ? "" : `?${parameterNames(url.search.slice(1))}`;
+  const shaped = `${url.pathname}${query}${fragmentShape(url.hash)}`;
+  // A cut would leave a part of a name; a long one keeps its path alone.
+  return shaped.length <= MAX_FIELD_LENGTH ? shaped : url.pathname.slice(0, MAX_FIELD_LENGTH);
 }
 
 /** Only allowlisted fields that still pass their stored-value check leave the page. */

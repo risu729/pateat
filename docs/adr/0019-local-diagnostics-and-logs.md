@@ -5,9 +5,11 @@ Status: accepted by the owner on 2026-10-11 and amended the same day (see
 [Amendment: logins that did not finish](#amendment-logins-that-did-not-finish) and
 [Amendment: sites shown in log downloads](#amendment-sites-shown-in-log-downloads) and
 [Amendment: a page limit per level](#amendment-a-page-limit-per-level) and
-[Amendment: what the log records](#amendment-what-the-log-records)). The
-diagnostics page, the logs, the Bitwarden server information, recent log lines and the
-Pateat service's record for the device are implemented.
+[Amendment: what the log records](#amendment-what-the-log-records)) and on 2026-10-13
+(see
+[Amendment: URLs keep parameter names, not values](#amendment-urls-keep-parameter-names-not-values)).
+The diagnostics page, the logs, the Bitwarden server information, recent log lines and
+the Pateat service's record for the device are implemented.
 
 Date: 2026-10-11
 
@@ -254,10 +256,12 @@ URLs:
 
 - For the tab's own page of an origin that is logged in full, the log records the URL's
   path, query and fragment. A pseudonymized origin (`origin:7d2b91aa`) gets no URL.
+  (Amended below: only the names of the query's and fragment's parameters are kept.)
 - Queries and fragments can carry one-time codes or tokens that sites put in links, a
-  username or email address, or another site's address; the owner accepted that. The
-  value is cut at 512 characters; unlike other fields it keeps its first 512
-  characters instead of becoming `[truncated]`.
+  username or email address, or another site's address; the owner accepted that.
+  (Superseded on 2026-10-13: values are no longer kept.) The value is cut at 512
+  characters; unlike other fields it keeps its first 512 characters instead of becoming
+  `[truncated]`. (Amended below: a longer one keeps its path alone.)
 - **Hide site addresses and recipe IDs** also leaves the URL out of an export. The bug
   report's recent lines never carry it.
 
@@ -301,3 +305,27 @@ login's outcome were dropped, so the log could not tell what happened.
   redirect loop would otherwise write one entry per document load.
 - Step-by-step `login.attempt` detail is `debug` and keeps the `debug` allowance; every
   other page event, `login.refused` included, keeps the page's 30.
+
+## Amendment: URLs keep parameter names, not values
+
+On 2026-10-13 an OpenAI login's `login.attempt` (`authenticated`) and `login.choice`
+lines in the owner's Chrome held the OAuth callback URL with its authorization `code`
+and `state`. The owner chose (15:17 UTC) to keep only the parameters' names:
+
+- The log keeps the URL's path and the names of its query's and fragment's `name=value`
+  parameters with empty values: `/callback?code=abc&state=xyz` becomes
+  `/callback?code=&state=`.
+- A part without `=` or with an empty value, which may be a token itself (`?<token>`, or
+  a base64 token's `=` padding), and a name that is not 1 to 40 letters, digits, `_`,
+  `.`, `-` or brackets starting with a letter or `_` are left out.
+- A fragment that is a route (`#/signin`, `#!/signin`) keeps the route, up to a second
+  `#`, and its own query's names; any other fragment keeps its parameter names, or `#`
+  alone.
+- When the result is over 512 characters, only the path is kept, cut at 512, so that no
+  part of a name is cut.
+- A path segment or a route can still hold a token, as a magic link's can, and a long
+  name with a non-empty value is kept as a name even when it is a token.
+- Lines already stored are not rewritten; a stored URL with anything other than this
+  shape stays on the device but is left out of downloads. A stored query or fragment
+  that was a single token ending in `=` (`?dG9rZW4=`) has this shape and still leaves in
+  a download. The diagnostics page's clear removes such lines.

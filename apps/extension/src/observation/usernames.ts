@@ -1,6 +1,6 @@
 import { fillRoles, loginObservationSchema, type LoginObservation } from "@pateat/contracts";
 import * as v from "valibot";
-import { escapePattern, foldName, latinEdge, latinWord, namePattern } from "../page/account-list";
+import { foldName, latinEdge, latinWord, namePattern } from "../page/account-list";
 import { minUsernameLength } from "../page/sign-in-state";
 import { bounded, maxHeaderText, maxText, observedText, withoutNumbers } from "./extract";
 
@@ -44,7 +44,7 @@ function cutPattern(names: readonly string[]): RegExp | undefined {
   const source = prefixes
     .map(
       (prefix) =>
-        `${latinWord.test(prefix[0]!) ? `(?<!${latinEdge})` : ""}@?${escapePattern(prefix)}`,
+        `${latinWord.test(prefix[0]!) ? `(?<!${latinEdge})` : ""}@?${RegExp.escape(prefix)}`,
     )
     .join("|");
   return new RegExp(`(?:${source})$`, "iu");

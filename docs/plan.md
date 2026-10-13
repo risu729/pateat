@@ -39,30 +39,30 @@ Done when each kind of login page below works on the real site named for it, in 
 owner's installed Chrome on a production build of main: Pateat signs in and its record
 of the attempt ends `authenticated` (owner, 2026-10-12 20:35 UTC, replacing the
 2026-10-11 rule that every daily-use site and every Grok Bot site must log in). Status
-on 2026-10-12 (20:50 UTC):
+first written on 2026-10-12 (20:50 UTC); each row gives the date of its latest check:
 
 | Kind of login page | Site | Status |
 | --- | --- | --- |
 | Identifier and password on one page | Vpass, リクルートID | Done |
 | A value from a custom field | アパホテル (member ID) | Done |
-| Email, then Next, then password (`advance`) | Grafana Cloud | Signed in; the record ended `unknown-submit`, recheck after `92df780` |
-| A list of saved accounts ([ADR 0028](adr/0028-account-chooser-login-pages.md)) | Cloudflare, Wise | Signed in; the record ended `unknown-submit`, recheck after `92df780` |
+| Email, then Next, then password (`advance`) | Grafana Cloud | Done: on `cdfa420` (2026-10-12 20:50 UTC) the signed-in page was judged `signed-in` and the record ended `authenticated`, also from a new tab after a logout |
+| A list of saved accounts ([ADR 0028](adr/0028-account-chooser-login-pages.md)) | Cloudflare, Wise | Done. Cloudflare: on `cdfa420` (2026-10-12 20:59 UTC) Pateat pressed the default account's row, then the password and the passkey second factor, and the record ended `authenticated`. Wise: on `fdf57ef` (2026-10-13 02:25 UTC) a login from the list ended `authenticated` |
 | A sign-in entry button ([ADR 0031](adr/0031-sign-in-entry-pages.md)) | pixiv | Done |
 | A stored passkey | npm, pixiv | Done |
 | The page's own passkey request, including `required`, and choosing again after a logout ([ADR 0034](adr/0034-answer-page-passkey-requests.md)) | Wise | Signed in with the passkey on `1df2d38`; no Bitwarden "Save passkey" window followed on `fdf57ef` (below); recheck the choice after a logout |
-| A TOTP code from an authenticator app, the source said outside the code form or not at all | Resend | On `fdf57ef` (2026-10-13) the code was dropped as `source-unknown`; a code page that says nothing about where the code comes from now keeps the code and types the item's TOTP once (ADR 0027, owner, 2026-10-13 04:01 UTC; local tests only). Recheck; needs a paid judge call and the owner's code entry |
-| A TOTP code split into one-digit inputs | ニコニコ | Candidate from its public code (six `maxlength` 1 inputs, [research](research/2026-10-12-split-totp-inputs.md)). In the owner's Chrome on 2026-10-13 at 04:56 UTC the code was typed and submitted, but the signed-in `www.nicovideo.jp/` was judged `unclear` and the login ended `left-origin`: its only signed-in link, to `/my`, shows the nickname. A marker may now name a link by its path (owner's 「リンク先で見分ける」, 05:17 UTC; synthetic tests only; recheck in the owner's Chrome) ([ADR 0029](adr/0029-local-sign-in-state.md)). Resend has one input (real-Chrome check, 2026-10-12) |
+| A TOTP code from an authenticator app, the source said outside the code form or not at all | Resend | Done: on `2675f0f` with the service at `4ece681` (2026-10-13 05:06 UTC), Pateat went from `/login` through the email, Next and password, the judge answered `challenge`, Pateat typed the item's TOTP and submitted it, and the record ended `authenticated`; nobody typed the code. On `fdf57ef` the code had been dropped as `source-unknown`; a code page that says nothing about where the code comes from now keeps the code and types the item's TOTP once (ADR 0027, owner, 2026-10-13 04:01 UTC) |
+| A TOTP code split into one-digit inputs | ニコニコ | Candidate from its public code (six `maxlength` 1 inputs, [research](research/2026-10-12-split-totp-inputs.md)). In the owner's Chrome on 2026-10-13 at 04:56 UTC the code was typed and submitted, but the signed-in `www.nicovideo.jp/` was judged `unclear` and the login ended `left-origin`: its only signed-in link, to `/my`, shows the nickname. A marker may now name a link by its path (owner's 「リンク先で見分ける」, 05:17 UTC) ([ADR 0029](adr/0029-local-sign-in-state.md)). Done in two runs: on `2675f0f` (04:56 UTC) Pateat typed the item's TOTP into the six inputs, and on `7226178` (07:38 UTC) the moved-to `www.nicovideo.jp` page was judged `signed-in` and the record ended `authenticated`, with no code page that time. Both in one run is not yet seen. Resend has one input (real-Chrome check, 2026-10-12) |
 | Approval in an app, then the signed-in page ([ADR 0027](adr/0027-per-account-login-routes.md#watching-after-a-challenge)) | 三菱UFJダイレクト | Done |
-| A software keyboard or extra PIN page, left to the person | エポスNet | Recheck after `92df780` |
-| A CAPTCHA the person solves, then the signed-in page | Q-move | Recheck after this change's merge: a disabled field kept the signed-in page from the judge ([ADR 0029](adr/0029-local-sign-in-state.md)) |
+| A software keyboard or extra PIN page, left to the person | エポスNet | On `7226178` (2026-10-13 07:35 UTC) the ID and password login ended `authenticated`, but the site did not ask for the card security code that time; the PIN page itself is not rechecked |
+| A CAPTCHA the person solves, then the signed-in page | Q-move | Done: on `8b60ff2` (2026-10-13 06:56 UTC) the owner ticked the reCAPTCHA while Pateat watched, and the record ended `authenticated`. Earlier a disabled field had kept the signed-in page from the judge ([ADR 0029](adr/0029-local-sign-in-state.md)) |
 | A signed-in page on another host of the same site | JAL (`jallogin.jal.co.jp` to `www.jal.co.jp`, after a passkey), モッピー (`ssl.pc.moppy.jp` to `pc.moppy.jp`, after a password) | Both records ended `left-origin`. JAL: done (signed in on `4deb95d` in the owner's Chrome, 2026-10-13 09:05 UTC: the `www.jal.co.jp` page was judged `signed-in`, marked `moved`, and the account choice was saved; started from JAL's own sign-in button in a fresh tab). モッピー: done; a password login completes when the new host's page shows the account's username, or, when it does not, a marker learned on that host shows or the judge answers `signed-in` once (signed in on `fdf57ef` in the owner's Chrome, 2026-10-13 02:53 UTC: the `pc.moppy.jp` page was judged `signed-in`, marked `moved`, and the account choice was saved) ([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md)) |
 | A signed-in page on another site after a TOTP code | Microsoft (`login.microsoftonline.com` to `m365.cloud.microsoft`, Grok Bot) | Ended `left-origin` on 2026-10-12 22:05 UTC. A move to another site within 30 seconds of a submitted TOTP code now completes on the same checks as モッピー, the username or one judgement (owner's 「コード送信後だけ」, 2026-10-13 01:59 UTC; synthetic tests only; recheck on the Grok Bot) ([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md)) |
 | A signed-in page on another site after a passkey second factor | Oracle Cloud (security key after the password on an `oraclecloud.com` sign-in host, then `cloud.oracle.com`) | Ended `left-origin` on 2026-10-13 02:59 UTC, 3 seconds after Pateat answered the security key. A move to another site within 30 seconds of a passkey Pateat answered after the item's password now completes on the same checks (owner's 「同じ扱い」, 2026-10-13 03:13 UTC). Done: on `4deb95d` in the owner's Chrome (2026-10-13 08:58 UTC) the sign-in page that went away before it was read kept the login ([#484](https://github.com/risu729/pateat/pull/484)), the IDCS login answered the security key, `cloud.oracle.com` was judged `signed-in`, marked `moved`, and the account choice was saved ([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md)) |
-| Google's own sign-in (email first, account choice) | Google | Not checked |
+| Google's own sign-in (email first, account choice) | Google | Done: on `8b60ff2` (2026-10-13 07:24 UTC), from `accounts.google.com/AddSession` without signing out, Pateat answered with the item's passkey, returned to `myaccount.google.com`, and the record ended `authenticated`; nobody pressed anything |
 | Choosing among several accounts of one site in the popup ([#187](https://github.com/risu729/pateat/pull/187)) | GitHub | Signed in; recheck the shortened item IDs and the silent stop while another tab's login holds the site, and that a pick of an item with a passkey signs in with it ([ADR 0034](adr/0034-answer-page-passkey-requests.md), local tests only) |
 | Fill only after a logout | アパホテル | Done |
 | Nothing on a site without a password or passkey sign-in | ABEMA | Done (judged from the code and the Grok Bot's log) |
-| Pages that stopped before generation | モッピー, LinkedIn | Recheck after [#261](https://github.com/risu729/pateat/pull/261) and [#271](https://github.com/risu729/pateat/pull/271); LinkedIn's remembered-account page was incomplete again after #403 (2026-10-12 21:44 UTC): recheck once its shown password field is located by `webauthn` |
+| Pages that stopped before generation | モッピー, LinkedIn | Done. モッピー: generated and `authenticated` on `fdf57ef` (2026-10-13 02:53 UTC, row above). LinkedIn: on `c3dc87a` (2026-10-13 06:30 UTC) a new tab on the remembered-account password page generated a recipe, filled and submitted it, the judge answered `signed-in` and the record ended `authenticated` ([ADR 0037](adr/0037-fields-by-visible-name.md)) |
 
 The rechecks share one extension reload. The UI polish also stays in this phase. The
 site lists name the owner's own accounts, so they stay in the project's files rather
@@ -333,6 +333,12 @@ than in this repository.
     Demo vaults panel.
   - Approved: `lucide-react` for icons in the polish (owner, 2026-10-12 20:53 UTC); the
     first PR that uses it adds it.
+  - Done: the settings page marks Bitwarden (its section in the menu and each connection
+    row) with the `lucide-react` `Shield` icon (owner, 2026-10-13 15:02 UTC). The owner
+    asked for Bitwarden's own logo, but Bitwarden's
+    [trademark guidelines](https://github.com/bitwarden/server/blob/main/TRADEMARK_GUIDELINES.md)
+    allow its logos only with written permission; the name stays as plain text
+    ([Extension icon](architecture.md#extension-icon)).
   - Done: the diagnostics page keeps its structure, with only its visuals and copy
     changed (owner, 2026-10-12 21:08 UTC): icon-led check lines, two-column panels,
     and in Logs the retention, debug logging's end time with **Turn off debug
@@ -643,11 +649,21 @@ than in this repository.
 
 Once the fixes have settled:
 
-- First, before the work below that makes Pateat public: Japanese alongside English for
-  Pateat itself (owner, 2026-10-12 13:59 UTC): the README, the docs and the extension's
-  UI text. The service's pages, such as `/manage`, come later. The owner chose i18next
-  with react-i18next (2026-10-12 14:31 UTC), so that the language can be chosen in
-  Pateat's settings ([comparison](research/2026-10-12-extension-ui-translation.md),
+- First, a review of the wording of Pateat's UI text: the popup, the toolbar icon's
+  title, the options page and the in-page prompts. It includes the reason line the popup
+  and the icon's title show when another tab of the site logged out or the site did not
+  accept that tab's login: both say "You logged out of this site in another tab"
+  (`choiceReason` in `apps/extension/src/login/choice-wire.ts`, the `other-tab` title in
+  `apps/extension/src/login/runtime.ts`), which reads wrong after a rejection. The
+  review comes before the Japanese text below, so that the English text is settled
+  before it is translated (owner, 2026-10-13 15:17 UTC). Not started without the owner's
+  confirmation (owner, 2026-10-13 15:10 UTC).
+- Next, before the rest of the work below that makes Pateat public: Japanese alongside
+  English for Pateat itself (owner, 2026-10-12 13:59 UTC): the README, the docs and the
+  extension's UI text. The service's pages, such as `/manage`, come later. The owner
+  chose i18next with react-i18next (2026-10-12 14:31 UTC), so that the language can be
+  chosen in Pateat's settings
+  ([comparison](research/2026-10-12-extension-ui-translation.md),
   [dependency policy](development.md#dependency-policy)); where that setting is stored
   is not decided yet. The owner chose (2026-10-12 14:14 UTC) that "the docs" means the
   README and the user-facing pages, including those the docs website below adds; ADRs,
@@ -679,6 +695,15 @@ Once the fixes have settled:
 - Proposed: the checks that matter once other people install Pateat: the install-time
   site-access warning and the prompt after site access was withheld, installed-Chrome
   dummy-account tests and measured limits.
+- Adopting Anthropic's
+  [Claude Security plugin](https://github.com/anthropics/claude-plugins-official/tree/main/plugins/claude-security)
+  for Claude Code: agents map the architecture, build a threat model, look for
+  vulnerabilities in the whole repository or in a branch, pull request or commit, try to
+  disprove each finding, and write the surviving ones as a Markdown, JSONL and SARIF
+  report, with optional patch files that are never applied, committed or pushed on their
+  own. Each scan writes them to a `CLAUDE-SECURITY-<timestamp>/` directory in the
+  repository. Which scans run and when is decided when it is adopted. Not started
+  without the owner's confirmation (owner, 2026-10-13 15:10 UTC).
 
 ### Phase 4: issues and work as needed
 
@@ -831,13 +856,23 @@ still open on 2026-10-11.
   [lockfile gaps note](research/2026-10-12-aube-lockfile-gaps.md) reproduces aube
   2.7.0's `bun.lock` and `pnpm-lock.yaml` bugs (both fixed on aube main, unreleased) and
   two remaining `bun.lock` gaps (peers written as dependencies, `lockfileVersion`
-  reset), as drafts for upstream reports (not filed).
+  reset). The owner proposed the peers fix upstream as
+  [aubepkg/aube#1727](https://github.com/aubepkg/aube/pull/1727); the `lockfileVersion`
+  fix is opened after it merges.
 - Why the Bitwarden SDK's async exports never settle on unparsable arguments (owner,
   2026-10-13 14:38 UTC): the
   [research note](research/2026-10-13-bitwarden-sdk-async-hang.md) traces it to
   wasm-bindgen converting async-export arguments inside the future, with tsify's
   deprecated `from_wasm_abi` and Bitwarden's pending migration as context. Worker
   termination already recovers. The owner chose not to report it upstream (15:00 UTC).
+- Which hand-written primitives should become libraries or standard APIs (owner,
+  2026-10-13 13:59 UTC): the [survey](research/2026-10-13-primitive-libraries.md)
+  covers base64 and hex, CBOR, IndexedDB and deep equality, the areas that need no
+  library, and the owner's choices that followed.
+- What sends messages where inside the extension (owner, 2026-10-13 14:04 UTC): the
+  [route map](research/2026-10-13-extension-message-routes.md) lists every route and
+  what `@webext-core/messaging` 4.0.0 can carry; it cannot address a document by
+  `documentId` and has no Port support.
 - Earlier research kept as dated notes:
   [identity provider screens](research/2026-10-11-identity-provider-screens.md) behind
   [ADR 0026](adr/0026-sign-in-through-identity-providers.md);
@@ -971,10 +1006,13 @@ the export. This adds transient sensitive copies and computation. Invalid blobs
 never fall back to legacy fields; supplied URI checksums are verified even for
 legacy keyless items, while absent legacy checksums remain supported.
 
-Synchronous SDK parsing checks signed COSE and serialized keys before asynchronous
-bindings that can otherwise leave malformed-input calls unresolved. The signed
-COSE check admits structure only; account initialization must still verify the
-actual signature. Key admission can temporarily unwrap/rewrap key material; those
+Synchronous SDK parsing checks serialized keys before asynchronous bindings that can
+otherwise leave malformed-input calls unresolved. Signed COSE objects are not
+pre-checked (owner decision, 2026-10-13): malformed ones inside valid base64 leave
+`initialize_user_crypto` unresolved, and the extension ends that call by terminating
+the Worker (`crypto-failed` from its error event, or `timeout`). Account initialization
+verifies the signatures; `cbor2` then reads the verified security-state version. Key
+admission can temporarily unwrap/rewrap key material; those
 results are discarded and mutable key buffers cleared. This is additional local
 work, not a claim of zero-copy secrets or cancellation of synchronous WASM.
 

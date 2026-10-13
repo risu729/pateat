@@ -1,6 +1,7 @@
 import type * as Sdk from "@bitwarden/sdk-internal";
 import * as v from "valibot";
 
+import { decodeBase64, decodeBase64Url } from "./base64";
 import { normalizeBitwardenProfile, type BitwardenProfile } from "./environment";
 import {
   failure,
@@ -295,18 +296,19 @@ function boolean(input: unknown): boolean {
 }
 function canonicalBase64(input: unknown): string {
   const value = requiredText(input);
-  try {
-    if (btoa(atob(value)) !== value) reject();
-  } catch {
-    reject();
-  }
+  base64Bytes(value);
   return value;
+}
+function base64Bytes(value: string): Uint8Array {
+  return decodeBase64(value) ?? reject();
 }
 function encrypted(input: unknown, formats = [2, 7]): Sdk.EncString {
   const value = requiredText(input);
   if (!formats.includes(Number(value[0])) || value[1] !== ".") reject("unsupported-crypto");
-  const parts = value.slice(2).split("|").map(canonicalBase64);
-  const lengths = parts.map((part) => atob(part).length);
+  const lengths = value
+    .slice(2)
+    .split("|")
+    .map((part) => base64Bytes(requiredText(part)).length);
   if (
     value[0] === "2" &&
     (lengths.length !== 3 ||
@@ -430,12 +432,9 @@ function tokenClaims(token: unknown, now: number): RecordValue {
   const parts = value.split(".");
   if (parts.length !== 3 || parts.some((part) => !/^[A-Za-z0-9_-]+$/.test(part))) reject();
   const decode = (part: string) => {
-    const padding = "=".repeat((4 - (part.length % 4)) % 4);
-    const bytes = atob(part.replace(/-/g, "+").replace(/_/g, "/") + padding);
-    if (btoa(bytes).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_") !== part) reject();
-    return new TextDecoder("utf-8", { fatal: true }).decode(
-      Uint8Array.from(bytes, (c) => c.charCodeAt(0)),
-    );
+    const bytes = decodeBase64Url(part);
+    if (!bytes) reject();
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   };
   record(JSON.parse(decode(parts[0]!)));
   const claims = record(JSON.parse(decode(parts[1]!)));

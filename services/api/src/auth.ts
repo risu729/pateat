@@ -20,14 +20,13 @@ export const TOKEN_PATTERN = /^pateat_device_[A-Za-z0-9_-]{43}$/;
 /** A 256-bit bearer credential. Callers show it once and persist only its hash. */
 export function createDeviceToken(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(32));
-  const base64 = btoa(String.fromCharCode(...bytes));
-  return TOKEN_PREFIX + base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  return TOKEN_PREFIX + bytes.toBase64({ alphabet: "base64url", omitPadding: true });
 }
 
 /** High-entropy tokens need a collision-resistant digest, not a password KDF. */
 export async function hashDeviceToken(token: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  return new Uint8Array(digest).toHex();
 }
 
 const challenge = { "WWW-Authenticate": 'Bearer realm="pateat"' };

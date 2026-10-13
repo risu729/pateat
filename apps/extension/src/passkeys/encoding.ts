@@ -1,19 +1,17 @@
 /** Unpadded base64url, as used by WebAuthn client data and JSON serializations. */
 export function toBase64Url(bytes: Uint8Array): string {
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/gu, "-").replace(/\//gu, "_").replace(/=+$/u, "");
+  return bytes.toBase64({ alphabet: "base64url", omitPadding: true });
 }
 
 /** Strict unpadded base64url with canonical trailing bits. */
 export function fromBase64Url(value: string): Uint8Array | undefined {
-  if (typeof value !== "string" || !/^[A-Za-z0-9_-]*$/u.test(value) || value.length % 4 === 1)
-    return undefined;
+  if (typeof value !== "string" || !/^[A-Za-z0-9_-]*$/u.test(value)) return undefined;
   try {
-    const standard = value.replace(/-/gu, "+").replace(/_/gu, "/");
-    const binary = atob(standard + "=".repeat((4 - (standard.length % 4)) % 4));
-    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
-    return toBase64Url(bytes) === value ? bytes : undefined;
+    // Strict decoding rejects a one-character final chunk and non-zero trailing bits.
+    return Uint8Array.fromBase64(value.padEnd(Math.ceil(value.length / 4) * 4, "="), {
+      alphabet: "base64url",
+      lastChunkHandling: "strict",
+    });
   } catch {
     return undefined;
   }

@@ -663,9 +663,11 @@ use. WXT drives Vite 8 (Rolldown) for the extension build
 | Static checks | Existing Oxlint/Oxfmt and TypeScript with applicable React/JSX accessibility rules; **approved:** Knip | M2 React migration |
 | UI icons | **Approved (2026-10-12); implemented for the diagnostics page and `/manage`:** `lucide-react`, imported per icon, in each workspace that uses it | Phase 1 UI polish |
 | UI translation | **Approved (2026-10-12):** i18next with react-i18next, the language chosen in Pateat's settings; the manifest's `description` through a hand-written `_locales` file | Phase 3 Japanese for the extension |
+| Byte encoding | **Approved (2026-10-13) and implemented:** the standard `Uint8Array` `toBase64()`, `fromBase64()` and `toHex()` and `RegExp.escape()`, no library; they need Chrome 140, and the extension's `minimum_chrome_version` is now 144 for Temporal (dates and times). `@scure/base` was the alternative that keeps older Chrome | Phase 1 |
 | Identifiers | **Approved (2026-10-12) and implemented:** `uuid` for UUIDv7, since Web Crypto has only `randomUUID()` (v4) ([identifiers](architecture.md#identifiers)) | Phase 1 |
 | IndexedDB access | **Approved (2026-10-13) and implemented:** `idb` (Jake Archibald, ISC), a promise wrapper over the native API with the same transaction semantics, replacing the hand-written request and transaction wrappers in the vault, provider-session and diagnostics stores; a transaction still awaits only its own requests, because any other await lets it auto-commit; `idb` opens only the global `indexedDB`, so tests stub that global | Phase 1 |
 | DER signatures | **Approved (2026-10-13) and implemented:** `@noble/curves`, importing only the `DER` helper from `@noble/curves/abstract/der.js` (not `p256`), for the P1363/DER conversion of passkey assertion signatures; signing stays WebCrypto ([ADR 0007](adr/0007-existing-passkey-assertions.md)). Low value (about 50 lines removed): revert if bundle size matters | Phase 1 passkeys |
+| CBOR decoding | **Approved (2026-10-13) and implemented:** `cbor2` reads the version from a Bitwarden signed security state after the SDK has verified it; Pateat no longer pre-checks COSE structure and relies on Worker termination when the SDK's initialization cannot parse its input ([vault adapter](architecture.md#vault-adapter)); `@pateat/bitwarden` declares `"sideEffects": false`, so only the crypto Worker bundles it | M3 Bitwarden adapter |
 | Dates and times | **Approved (2026-10-13) and implemented:** the native `Temporal` in the extension (minimum Chrome 144) for formatting, parsing and calendar arithmetic; the service keeps `Date`, because workerd (1.20261006.1) does not expose Temporal and has no compatibility flag for it; `temporal-polyfill-lite` was tried and dropped (bundle +18 kB gzip per context); stored times stay epoch milliseconds and the clock stays `Date.now()` ([times](architecture.md#times)) | Phase 1 |
 | Server configuration | Existing cf with cloudflare.config.ts and Vite | Retain verified build path |
 
@@ -713,9 +715,13 @@ explicitly include private suffix rules where appropriate. PSL information is
 not permission to fill or sign, and does not replace HTTPS, origin, ancestor or
 Permissions Policy checks. OTPAuth covers standard OTP mechanics; test Bitwarden
 Steam compatibility separately and do not advertise HOTP merely because parsing
-supports it. Evaluate `@scure/base`, `@noble/hashes` and `cbor-x` for actual protocol
-gaps. Do not write crypto/CBOR primitives ourselves, assume all primitives in a
-package are audited, or substitute a different KDF for Bitwarden Argon2id.
+supports it. Base64, base64url and hex use the standard `Uint8Array` methods;
+strict decoding (`lastChunkHandling: "strict"`) still needs the input checked for
+whitespace and, when unpadded, padded first. Evaluate `@noble/hashes` for actual
+protocol gaps; CBOR is read with the approved `cbor2`, only from data the Bitwarden
+SDK has already verified. Do not write crypto/CBOR primitives ourselves, assume all
+primitives in a package are audited, or substitute a different KDF for Bitwarden
+Argon2id.
 
 Use the approved Hono and Drizzle for the first substantive service routes and
 schema. Verify generated SQL/migrations, explicit owner predicates, conditional

@@ -439,10 +439,11 @@ function Logs({
           className="mt-0.5 shrink-0 text-warning"
         />
         <span>
-          With site addresses included, a download names page paths, queries and fragments, which
-          can hold a code, an email address or another site&apos;s address. A site you had not set
-          up when an entry was written stays pseudonymous, as <code>origin:7d2b91aa</code> or{" "}
-          <code>rp:7d2b91aa</code>. Check the preview before sharing.
+          With site addresses included, a download names page paths and their parameters&apos;
+          names, not values; a path or a page&apos;s route can still hold a code or an ID. A site
+          you had not set up when an entry was written stays pseudonymous, as{" "}
+          <code>origin:7d2b91aa</code> or <code>rp:7d2b91aa</code>. Check the preview before
+          sharing.
         </span>
       </div>
       {preview !== undefined && (

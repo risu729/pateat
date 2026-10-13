@@ -157,11 +157,18 @@ The isolated local-crypto library uses the owner-approved official OSS SDK, with
 HTTP/token provider. It validates supported input shapes, rejects partial decryption and
 binds each session to one connection. V2 account state requires both the signed public
 key and the signed security state; the SDK verifies both signatures during
-initialization before a security-version floor is checked. The pinned SDK's asynchronous
-initialization never settles when it cannot parse those COSE objects and exports no
-synchronous parser, so the library first checks their COSE_Sign1 framing locally
-(`packages/bitwarden/src/cose.ts`, a strict subset of the SDK's parser) and reads the
-version from the payload the SDK has verified. Cipher views withhold the decrypted
+initialization before a security-version floor is checked. The SDK exports no accessor
+for that version, so the library decodes the security state's COSE_Sign1 payload the SDK
+has just verified with `cbor2` (`packages/bitwarden/src/security-state.ts`). The pinned
+SDK's asynchronous `initialize_user_crypto` never settles its Promise when an argument
+fails conversion (malformed COSE, invalid base64, a user ID that is not a UUID): the
+error is thrown from a microtask as an uncaught exception. The library rejects invalid
+base64 and the shapes its input schema checks, but no longer checks COSE structure
+itself, so the library alone does not guarantee that initialization settles. In the
+extension, the uncaught exception reaches the owning Worker's `error` event and the
+offscreen host terminates that Worker and answers `crypto-failed`; a call that neither
+settles nor errors ends at the host's 30-second `timeout`. The bug is in the SDK,
+outside Pateat. Cipher views withhold the decrypted
 cipher, attachment and passkey private keys; only the Worker's passkey signing step
 reads a private key. Ordinary cipher decryption leaves separately encrypted passkeys
 out, so an unreadable passkey makes only passkey use of that item unavailable. Disposal
@@ -963,6 +970,23 @@ confused with the official Bitwarden extension. The source is
 in `apps/extension/public/icon/`, drawing the 128 px store icon at 96 px with
 transparent padding.
 
+Pateat shows no Bitwarden logo. Bitwarden's
+[trademark guidelines](https://github.com/bitwarden/server/blob/main/TRADEMARK_GUIDELINES.md)
+allow its logos only with written permission, and open-source licences grant no
+trademark rights. Pateat names Bitwarden only in plain text, to say which vault it
+connects to, and marks Bitwarden in the settings page with the generic `lucide-react`
+`Shield` icon (owner, 2026-10-13 15:02 UTC); the shield stands for Bitwarden there, so
+Pateat's own mark still avoids shield shapes. This follows independent
+Bitwarden-compatible projects checked on 2026-10-13:
+[Vaultwarden](https://github.com/dani-garcia/vaultwarden/blob/main/README.md), which
+renamed from bitwarden_rs to avoid trademark and branding issues, and
+[Keyguard](https://github.com/AChep/keyguard-app/blob/master/README.md) use their own
+logos and state that they are not associated with Bitwarden, Inc. Small launcher plugins
+such as the
+[Raycast extension](https://github.com/raycast/extensions/blob/main/extensions/bitwarden/package.json)
+use the Bitwarden shield without any stated permission, although the guidelines
+require it. Using the logo needs Bitwarden's written permission first.
+
 The toolbar icon shows whether Pateat can log in without asking for a password, as the
 Bitwarden extension shows its lock state (owner-approved). Unlocked shows the logo;
 locked draws the whole mark gray `#8A8F98` with the keystone lifted out of the arch
@@ -1141,16 +1165,24 @@ kind's check is left out and a string over 512 characters becomes `"[truncated]"
 | `log.dropped` | warn; debug when only `debug` events were dropped | origin, the dropped event's name (`dropped`) and how many of it were dropped over the page limit |
 | `log.debug` | info | whether debug logging was turned on or off, and when it ends |
 
-The login, judgement, handler and generation events also carry `url`, the tab's page
-URL as of its last announcement, for an event on that page's own origin and not about
-a frame, including a login running in a frame of the same site. Only its path, query
-and fragment are kept, cut at 512 characters, and only when the origin is recorded in
-full; a pseudonymized origin gets no URL. A query or fragment may hold a one-time code
-or token that a site put in a link, a username or email address (such as
-`login_hint`), or another site's address (such as a `redirect_uri` or `continue`
-target), which the owner accepted (ADR 0019). The diagnostics page says so above the
-download. **Hide site addresses and recipe IDs** leaves `url` out of a
-download, and the bug report's recent lines never carry it.
+The login, judgement, handler and generation events also carry `url`, the tab's page URL
+as of its last announcement, for an event on that page's own origin and not about a
+frame, including a login running in a frame of the same site. Only its path and the
+names of its query's and fragment's parameters are kept, never their values, and only
+when the origin is recorded in full; a pseudonymized origin gets no URL. An OAuth
+callback `/callback?code=abc&state=xyz` is kept as `/callback?code=&state=`. A part
+without `=` or with an empty value, which may be a token itself (`?<token>`, or a base64
+token's `=` padding), and a name that is not 1 to 40 letters, digits, `_`, `.`, `-` or
+brackets starting with a letter or `_` are left out. A fragment that is a route
+(`#/signin`, `#!/signin`) is kept up to a second `#` with its own query's names, and an
+anchor (`#top`) as `#` alone. A result over 512 characters keeps its path alone. A path
+segment or a route can still hold a token, as a magic link's can (owner decision,
+2026-10-13, after an OpenAI callback's authorization code and state were found in the
+log). A line an older build stored with values stays on the device and is left out of
+downloads, unless the value was a single token ending in `=` (`/reset?dG9rZW4=`), which
+has the same shape as a name. The diagnostics page says so above the download.
+**Hide site addresses and recipe IDs** leaves `url` out of a download, and the bug
+report's recent lines never carry it.
 
 Connection and item IDs become HMAC pseudonyms. An origin or RP ID is kept in full only
 when a site default, binding, excluded site or cached recipe names it; any other
