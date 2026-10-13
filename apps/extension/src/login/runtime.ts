@@ -4851,8 +4851,13 @@ export function createLoginRuntime(
               (handler !== undefined && run.recipe.handlers?.[handler]?.kind === "passkey"),
             ...(codeStep(run.recipe, run.metadata, operation.stepIndex) ? { code: at } : {}),
           });
+          // A passkey handler's click asks for the passkey; it does not submit the password.
           const fill = passwordFills.get(tabId);
-          if (fill?.attemptId === run.metadata.id && loginStepEffect(operation.step) === "submit")
+          if (
+            fill?.attemptId === run.metadata.id &&
+            loginStepEffect(operation.step) === "submit" &&
+            !effects.get(tabId)?.passkey
+          )
             fill.submitted = true;
         } else if (codeSubmit) {
           // The page may submit the code by itself once it is in (ADR 0027), and leave
