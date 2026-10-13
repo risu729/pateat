@@ -30,10 +30,11 @@ import { choiceReason, type ChoiceClient } from "../login/choice-wire";
 
 /**
  * How long the popup waits for the site's matches. Each vault lookup of the search is
- * bounded, but one after another they can take minutes while the vault is busy, such as
- * right after the extension restarted; the popup then says so instead of waiting.
+ * bounded at 30 seconds, but one after another they can take minutes while the vault is
+ * busy, such as right after the extension restarted; the popup then stops waiting, above
+ * one lookup's bound so a slow but working lookup still answers.
  */
-export const SITE_ACCOUNTS_WAIT_MS = 20_000;
+export const SITE_ACCOUNTS_WAIT_MS = 45_000;
 class ListingTimeout extends Error {}
 
 /** What the toolbar popup needs from the browser besides the settings messages. */
@@ -548,7 +549,7 @@ export function SiteApp({
     else if (accounts.error instanceof ListingTimeout)
       accountsNote = {
         tone: "err",
-        text: "Finding the vault items that match this site took too long. Close and reopen this popup to try again",
+        text: "Finding the vault items that match this site took too long. Wait a moment, then reopen this popup",
       };
     else if (!found)
       accountsNote = { tone: "err", text: "The matching accounts could not be listed" };
