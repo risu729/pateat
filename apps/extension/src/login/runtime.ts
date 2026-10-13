@@ -130,8 +130,10 @@ import {
 import { findLiveSiteCandidates, type LiveUriMatcher } from "../vault/site-candidates";
 import {
   choiceRequestSchema,
+  logoutReasonSchema,
   pickRequestSchema,
   type ChoiceResponse,
+  type LogoutReason,
   type PickResponse,
 } from "./choice-wire";
 import { customFieldOffers, type CustomFieldOffer } from "./generation-slots";
@@ -437,7 +439,7 @@ type PickedAccount = v.InferOutput<typeof pickedAccountSchema>;
 const pendingChoiceSchema = v.strictObject({
   document: loginDocumentSchema,
   candidates: v.array(v.strictObject({ connectionId: v.string(), itemId: v.string() })),
-  logout: v.optional(v.literal(true)),
+  logout: v.optional(logoutReasonSchema),
 });
 /** A tab and origin that logged out after a Pateat login; it asks until a pick logs in. */
 const logoutSchema = v.strictObject({
@@ -1670,7 +1672,7 @@ export function createLoginRuntime(
     });
   }
   /** Why a tab asks after a logout, for the log: which tab logged out (ADR 0021 D). */
-  function logoutDetail(key: string): "this-tab" | "stopped-login" | "other-tab" {
+  function logoutDetail(key: string): LogoutReason {
     if (logouts.has(key)) return "this-tab";
     return stoppedAsks.has(key) ? "stopped-login" : "other-tab";
   }
@@ -1678,7 +1680,7 @@ export function createLoginRuntime(
   function offerChoice(
     document: LoginDocument,
     candidates: PendingChoice["candidates"],
-    logout = false,
+    logout?: LogoutReason,
   ): void {
     pending.set(document.tabId, { document, candidates, ...(logout ? { logout } : {}) });
     void quietly(saveSession);
@@ -1695,7 +1697,7 @@ export function createLoginRuntime(
                 "Pateat: the last login on this site stopped in this tab. Click to choose an account.",
               "other-tab":
                 "Pateat: you logged out of this site in another tab. Click to choose an account.",
-            }[logoutDetail(recordKey(tabId, document.origin))]
+            }[logout]
           : `Pateat: ${candidates.length} accounts match this page. Click to choose one.`,
       }),
     );
@@ -1931,7 +1933,7 @@ export function createLoginRuntime(
         origin: waiting.document.origin,
         documentId: waiting.document.documentId,
         candidates: waiting.candidates,
-        logout: true,
+        logout: waiting.logout,
         ...held,
       };
     // A default saved since the refusal decides the page's next login instead.
@@ -2015,7 +2017,7 @@ export function createLoginRuntime(
       live.document.documentId === waiting.document.documentId &&
       !pending.has(request.tabId)
     ) {
-      offerChoice(waiting.document, waiting.candidates, waiting.logout === true);
+      offerChoice(waiting.document, waiting.candidates, waiting.logout);
       return { ok: false, reason: "origin-busy" };
     }
     return { ok: false, reason: "not-started" };
@@ -2195,7 +2197,7 @@ export function createLoginRuntime(
     // The page then waits for a pick, as after a logout; its own announcement after this
     // status carries no start, so the choice is offered and the asking logged here.
     if (run.asked?.length) {
-      offerChoice(document, run.asked, true);
+      offerChoice(document, run.asked, logoutDetail(recordKey(document.tabId, document.origin)));
       run.live.state = "denied";
       run.live.reason = "logged-out";
       report(document, {
@@ -6796,7 +6798,11 @@ export function createLoginRuntime(
       // after an account switch belongs to that login, so it offers none.
       if (!previous && !switched && "candidates" in plan && plan.candidates) {
         const logout = "logout" in plan && plan.logout === true;
-        offerChoice(document, plan.candidates, logout);
+        offerChoice(
+          document,
+          plan.candidates,
+          logout ? logoutDetail(recordKey(document.tabId, document.origin)) : undefined,
+        );
         // Outside a logout, the page's own conditional request may wait for the pick, on a
         // recipe without a passkey button (ADR 0034).
         noteChoice(
@@ -8316,7 +8322,7 @@ export function createLoginRuntime(
     const waiting = pending.get(parked.tabId);
     const pick = picked.get(parked.tabId);
     return (
-      (waiting?.logout === true &&
+      (waiting?.logout !== undefined &&
         waiting.document.frameId === 0 &&
         waiting.document.documentId === parked.documentId) ||
       (parked.asked === true &&

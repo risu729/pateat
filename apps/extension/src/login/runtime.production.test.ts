@@ -4315,7 +4315,7 @@ describe("production login document admission", () => {
               { connectionId, itemId },
               { connectionId, itemId: otherItemId },
             ],
-            logout: true,
+            logout: "this-tab",
           });
           expect(logouts()).toEqual([{ tabId: 1, origin }]);
           // A one-time pick logs in and leaves the saved default as it was.
@@ -11918,6 +11918,13 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       expect(fake.state.badges[1]?.title).toBe(
         "Pateat: the last login on this site stopped in this tab. Click to choose an account.",
       );
+      const popup = {
+        id: "synthetic-extension",
+        url: "chrome-extension://synthetic-extension/popup.html",
+      } as never;
+      expect(
+        await h.login.handle({ version: 1, type: "login.choice.get", tabId: 1 }, popup),
+      ).toMatchObject({ ok: true, logout: "stopped-login" });
       expect(status() ?? []).toEqual([]);
       // Another tab, or a new one, logs in as before and presses the button.
       const before = executed().length;
@@ -17053,7 +17060,7 @@ describe("the start page's own passkey request (ADR 0034)", () => {
         ok: false,
         reason: "logged-out",
       });
-      expect(await choice(h)).toMatchObject({ documentId: "signed-out", logout: true });
+      expect(await choice(h)).toMatchObject({ documentId: "signed-out", logout: "this-tab" });
       fake.state.onReconnect = () => h.hello({ documentId: "signed-out" });
       return started;
     };
@@ -17230,7 +17237,7 @@ describe("the start page's own passkey request (ADR 0034)", () => {
         ok: false,
         reason: "logged-out",
       });
-      expect(await choice(h, 2)).toMatchObject({ documentId: "other-tab", logout: true });
+      expect(await choice(h, 2)).toMatchObject({ documentId: "other-tab", logout: "other-tab" });
       const request = ask(h, { tabId: 2, documentId: "other-tab" });
       await flush();
       // The first tab's pick logs in there and ends its logout.
@@ -17239,7 +17246,7 @@ describe("the start page's own passkey request (ADR 0034)", () => {
       await until(() => recordOf(1)?.["state"] === "authenticated", 20_000);
       expect(fake.state.session["pateat.login-logouts.v1"]).toEqual([]);
       // The second tab's choice is still offered, so its request still waits.
-      expect(await choice(h, 2)).toMatchObject({ documentId: "other-tab", logout: true });
+      expect(await choice(h, 2)).toMatchObject({ documentId: "other-tab", logout: "other-tab" });
       await vi.advanceTimersByTimeAsync(10_000);
       expect(request.decided()).toBeUndefined();
       fake.state.present = new Set(["password", "login"]);
@@ -17319,7 +17326,7 @@ describe("the start page's own passkey request (ADR 0034)", () => {
         ok: false,
         reason: "logged-out",
       });
-      expect(await choice(h)).toMatchObject({ documentId: "signed-out", logout: true });
+      expect(await choice(h)).toMatchObject({ documentId: "signed-out", logout: "this-tab" });
       await vi.advanceTimersByTimeAsync(10_000);
       expect(request.decided()).toBeUndefined();
       const filled = fills();
