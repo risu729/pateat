@@ -97,6 +97,15 @@ installs it: `npm:typescript` has none, and the registry's `oxlint` (the aqua ba
 expects `apps_v` release tags, which oxc stopped using after 1.84.0, so
 `npm:oxlint` stays.
 
+`python` and `uv` run `yamllint`, which mise installs with its `pypi` backend from the
+uv graph that `mise lock` records under `.mise/locks/yamllint/`. Keep `python` on 3.14
+until every package in that graph publishes a wheel for the next minor version.
+PyYAML 6.0.3, which yamllint needs, has wheels only up to cp314, and a locked install is
+wheel-only (`uv sync --frozen --no-build`). With `python` moved to 3.15.0, `mise lock`
+still succeeded but `mise install --locked` failed with "can't be installed because it
+is marked as `--no-build` but has no binary distribution" (checked 2026-10-11 with
+mise 2026.10.7 and uv 0.13.0).
+
 `hk.pkl` imports [risu729/hk-config](https://github.com/risu729/hk-config) at a pinned
 release tag. hk provides the single complete check entrypoint,
 delegating work to mise. Avoid recursion between hk check and mise checks.
