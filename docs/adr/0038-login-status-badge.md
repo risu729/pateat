@@ -47,16 +47,15 @@ One state shows per tab, the first that applies:
    (一旦); whether Windows Chrome draws it must be checked in installed Chrome.
 2. **Failed.** A login that ends `blocked` with `credential-rejected`,
    `structural-mismatch`, `timeout`, `retry-limit`, `submission-limit`,
-   `value-mismatch`, `fill-rejected`, `wrong-account` or `account-not-listed`; a
-   refusal that stops the page's login before it starts and does not pass by itself
-   (`no-route`, `field-unavailable`, `storage-unavailable` or `attempt-limit`); or a
-   generation that came back `failed` or `unavailable`. The refusals other than
-   `storage-unavailable` were added on 2026-10-13 after the owner tried Netflix at 20:42
-   UTC: the spin ended and the page was refused `no-route` (`password-empty:no-passkey`,
-   the only item has neither a password nor a passkey), with no badge. The owner asked
-   for a failure badge whenever a login fails, and at 20:47 UTC kept Pateat doing
-   nothing on such a page until email-code sign-in is supported. The tooltip and the
-   popup name the refusal and its detail.
+   `value-mismatch`, `fill-rejected`, `wrong-account` or `account-not-listed`; a refusal
+   that stops the page's login before it starts (`no-route`, `field-unavailable`,
+   `storage-unavailable` or `attempt-limit`); or a generation that came back `failed` or
+   `unavailable`. The refusals other than `storage-unavailable` were added on 2026-10-13
+   after the owner tried Netflix at 20:42 UTC: the spin ended and the page was refused
+   `no-route` (`password-empty:no-passkey`, the only item has neither a password nor a
+   passkey), with no badge. The owner asked for a failure badge whenever a login fails,
+   and at 20:47 UTC kept Pateat doing nothing on such a page until email-code sign-in is
+   supported. The tooltip and the popup name the refusal and its detail.
 3. **Unknown.** A submission whose result settled as `unknown-submit`, a second factor
    the page asks for (`challenge`), and a login that ended `blocked` with one of those
    (a watch that ran out) or with `challenge-abandoned`, `watch-abandoned` or
@@ -95,12 +94,15 @@ every second while the popup is open. The worker answers from three sources:
 - its record of the top page, while the tab still shows that path: watching, sent for
   generation or refused with a reason, why its sign-in input did not start a login, and
   why it was last not sent for generation;
-- the tab's last login, last model request and last refusal of item 2, which the badge
-  keeps from the log reports with its result's lifetime (item 5), also in
-  `pateat.login-badge.v1`. A new login drops the refusal.
+- the tab's last login (including a logout after it, ADR 0021 D), last model request
+  and last refusal of item 2, which the badge keeps from the log reports and drops with
+  its result (item 5), also in `pateat.login-badge.v1`. A login that starts or changes
+  state drops only the refusal, as the badge does; a repeated refusal is not kept.
 
-A page sent with no answer recorded, as after a worker restart, says so rather than
-showing the AI as still busy. For `structural-mismatch`, `timeout` and `retry-limit` the
+Whether a model request is still in flight comes from the badge's spin: a page sent
+with no answer recorded and no spin, as after a worker restart, says so rather than
+showing the AI as still busy. The reason a page was not sent shows on any page without
+a recipe of its own. For `structural-mismatch`, `timeout` and `retry-limit` the
 section adds that the recipe is not made again automatically.
 
 ## Consequences

@@ -435,6 +435,14 @@ type MoveMiss =
   | "not-quiet";
 /** Why a page offered for generation is not sent, for the log (ADR 0019). */
 type GenerationMiss = "no-vault-match" | "vault-unavailable" | "connection-disabled";
+/**
+ * The popup's codes within its 200 characters: a page's own refusal reason is any text the
+ * content script sent.
+ */
+const clipCodes = <T extends Record<string, string | undefined>>(fields: T): T =>
+  Object.fromEntries(
+    Object.entries(fields).map(([key, value]) => [key, value?.slice(0, 200)]),
+  ) as T;
 /** A provider's or vault's reason as a log code, within the log's 64 characters. */
 const logCode = (reason: string) =>
   reason
@@ -1592,7 +1600,7 @@ export function createLoginRuntime(
      * the popup's page section. Without one the runtime writes `chrome.action` itself and
      * keeps nothing across worker restarts.
      */
-    badge?: Pick<LoginBadge, "choice" | "note" | "spin" | "status">;
+    badge?: Pick<LoginBadge, "choice" | "note" | "spin" | "status" | "asking">;
     /**
      * Told of each origin of a login that reached signed in, on any route, so a site's
      * passkey registration right after it can be refused (ADR 0007). Never changes the login.
@@ -2255,10 +2263,11 @@ export function createLoginRuntime(
       ok: true,
       origin: pageOrigin,
       recipe: paths.includes(path) ? "page" : paths.length ? "other-paths" : "none",
-      ...(pageState ? { page: pageState } : {}),
-      ...(known?.login ? { login: known.login } : {}),
-      ...(known?.refused ? { refused: known.refused } : {}),
-      ...(known?.generation ? { generation: known.generation } : {}),
+      ...(badge.asking(tabId) ? { asking: true as const } : {}),
+      ...(pageState ? { page: clipCodes(pageState) } : {}),
+      ...(known?.login ? { login: clipCodes(known.login) } : {}),
+      ...(known?.refused ? { refused: clipCodes(known.refused) } : {}),
+      ...(known?.generation ? { generation: clipCodes(known.generation) } : {}),
     };
   }
   /**

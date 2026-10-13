@@ -45,21 +45,22 @@ const NOT_STARTED: Record<string, string> = {
   "stopped-login": "the last login on this site stopped in this tab",
   "first-step-missing": "the sign-in form shows, but the recipe's first step was not found",
   "no-recipe-on-path": "no recipe of this site starts on this page",
-  "logged-out": "you logged out here; choose an account to log in again",
+  "logged-out": "you logged out of this site; choose an account to log in again",
   "account-ambiguous": "several accounts match; choose one to log in",
   "origin-busy": "another tab's login to this site is running or did not succeed",
   "tab-busy": "another login runs in this tab",
-  "attempt-limit": "this page already started as many logins as allowed",
+  "attempt-limit": "Pateat already holds as many login records as it can",
   "storage-unavailable": "Pateat could not save the login's state",
   "no-route": "the recipe has no way to log in with this vault item",
   "entry-blocked": "the site's sign-in link was not pressed",
   "account-changed": "the chosen account changed",
-  "field-unavailable": "the account lacks a value the recipe needs",
+  "field-unavailable":
+    "the vault item's username could not be read, so its account cannot be found on the list",
 };
 
 /** Why a page was not sent to the AI, in plain words. */
 const NOT_SENT: Record<string, string> = {
-  sending: "a request for this page is being sent to the AI",
+  sending: "another request for this page is already being sent to the AI",
   sent: "the AI was asked about this page within the last 10 minutes, so it is not asked again yet",
   "not-connected": "Pateat is not connected to its service",
   "no-vault-match": "no vault item matches this site",
@@ -107,12 +108,11 @@ function recipeLines(status: Status): StatusLine[] {
       text: "This site has a recipe, but none starts on this page.",
     });
   else lines.push({ id: "recipe", tone: "idle", text: "This site has no recipe yet." });
-  // The page stays `generating` after the answer, until it announces again.
-  const generating = status.page?.state === "generating";
-  if (generating && (!generation || generation.outcome === "sent"))
+  // Whether the request is still in flight comes from the badge's spin, which a stopped
+  // worker does not leave behind.
+  if (generation?.outcome === "sent" && status.asking)
     lines.push({ id: "generation", tone: "busy", text: `The AI is making a recipe for ${what}…` });
   else if (generation?.outcome === "sent")
-    // The worker stopped, or the page went away, before the answer came back.
     lines.push({
       id: "generation",
       tone: "warn",
@@ -132,9 +132,13 @@ function recipeLines(status: Status): StatusLine[] {
       tone: "err",
       text: `The AI could not make a recipe for ${what} (${[generation.outcome, generation.reason].filter(Boolean).join(": ")}).`,
     });
-  else if (status.recipe === "none" && status.page?.generationSkip)
+  // Another request, such as the judge's on a login's next page.
+  if (status.asking && generation?.outcome !== "sent")
+    lines.push({ id: "asking", tone: "busy", text: "Waiting for an answer from the AI…" });
+  // A site whose recipe starts elsewhere may still send this page.
+  if (status.recipe !== "page" && status.page?.generationSkip)
     lines.push({
-      id: "generation",
+      id: "generation-skip",
       tone: "idle",
       text: `Not sent to the AI: ${plain(NOT_SENT, status.page.generationSkip)}.`,
     });
@@ -142,7 +146,7 @@ function recipeLines(status: Status): StatusLine[] {
 }
 
 function loginLines(status: Status): StatusLine[] {
-  // A refusal is kept only until the next login starts, so it came after any login shown.
+  // A refusal is kept only until a login of the tab moves on, so it came after any shown.
   const refusal: StatusLine[] = status.refused
     ? [
         {
@@ -159,12 +163,25 @@ function attemptLines(status: Status): StatusLine[] {
   const login = status.login;
   if (!login) {
     if (status.refused) return [];
-    const why = status.page?.notStarted ?? status.page?.reason;
+    // A refusal is the page's latest word; a sign-in input that did not start is logged
+    // while the page only watches.
+    const why = status.page?.state === "denied" ? status.page.reason : status.page?.notStarted;
     // A page of a site with no recipe is ordinary browsing: the recipe line says enough.
     if (!why || why === "recipe-not-found") return [];
     return [{ id: "login", tone: "idle", text: `No login started: ${plain(NOT_STARTED, why)}.` }];
   }
   if (login.state === "authenticated") return [{ id: "login", tone: "ok", text: "Logged in." }];
+  if (login.state === "logged-out")
+    return [
+      {
+        id: "login",
+        tone: "idle",
+        text:
+          login.outcome === "rejected"
+            ? "The site did not accept the last login; choose an account to try again."
+            : "Logged out of this site in this tab.",
+      },
+    ];
   const outcome = login.outcome ?? "";
   if (login.state === "watching")
     return [

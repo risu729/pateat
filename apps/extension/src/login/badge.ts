@@ -31,9 +31,9 @@ const FAILED = new Set([
   "account-not-listed",
 ]);
 /**
- * Refusals that stop a page's login before it starts and do not pass by themselves: the
- * vault item cannot be used with the recipe (`no-route`, `field-unavailable`), or Pateat
- * cannot keep the login's state (`storage-unavailable`, `attempt-limit`). The owner asked
+ * Refusals that stop a page's login before it starts: the vault item cannot be used with
+ * the recipe (`no-route`, `field-unavailable`), or Pateat cannot keep the login's state
+ * (`storage-unavailable`, `attempt-limit`). The owner asked
  * on 2026-10-13 at 20:42 UTC for a failure badge when a login fails after the AI was
  * asked, as on a site whose only item has neither a password nor a passkey.
  */
@@ -81,9 +81,13 @@ export type BadgeDetails = {
 export type PageStatus = {
   /** The tab's top page origin when they were recorded, else the reporting document's. */
   origin: string;
-  /** `started` until the login's first state change, then its state and outcome. */
+  /**
+   * `started` until the login's first state change, then its state and outcome;
+   * `logged-out` once its first step showed again, with outcome `rejected` when the site
+   * rejected it (ADR 0021 D).
+   */
   login?: { state: string; outcome?: string; cause?: string };
-  /** A refusal that shows a failure badge, until the tab's next login starts. */
+  /** A refusal that shows a failure badge, until a login of the tab moves on. */
   refused?: { reason: string; detail?: string };
   /**
    * `sent` while a page is out, then what came back; `page` tells a list of accounts, a
@@ -301,7 +305,16 @@ export function createLoginBadge(deps: {
   function record(report: LoginReport): boolean {
     let change: Partial<Omit<PageStatus, "origin">> | undefined;
     if (report.type === "start") change = { login: { state: "started" } };
-    else if (report.type === "refused" && !report.unrelated && FAILED_REFUSALS.has(report.reason))
+    else if (report.type === "logout")
+      change = {
+        login: { state: "logged-out", ...(report.rejected ? { outcome: "rejected" } : {}) },
+      };
+    else if (
+      report.type === "refused" &&
+      !report.repeat &&
+      !report.unrelated &&
+      FAILED_REFUSALS.has(report.reason)
+    )
       change = {
         refused: { reason: report.reason, ...(report.detail ? { detail: report.detail } : {}) },
       };
@@ -328,8 +341,8 @@ export function createLoginBadge(deps: {
     const before = statuses.get(report.tabId);
     // A status of the page before this one does not carry over.
     const next: PageStatus = { ...(before?.origin === origin ? before : {}), ...change, origin };
-    // A new login replaces the refusal it overcame.
-    if (report.type === "start") delete next.refused;
+    // A login that starts or moves on replaces the refusal before it, as the badge does.
+    if (report.type === "start" || report.type === "attempt") delete next.refused;
     recorded.add(report.tabId);
     if (JSON.stringify(next) === JSON.stringify(before)) return false;
     statuses.set(report.tabId, next);
@@ -460,6 +473,10 @@ export function createLoginBadge(deps: {
     /** The tab's last login and model request, for the popup's page section. */
     status(tabId: number): PageStatus | undefined {
       return statuses.get(tabId);
+    },
+    /** Whether a model request for the tab's page is in flight, as its spin shows. */
+    asking(tabId: number): boolean {
+      return spinning(tabId);
     },
     /** Chrome gave a tab a new ID (`tabs.onReplaced`); its badge moves with it. */
     replaced(added: number, removed: number): void {

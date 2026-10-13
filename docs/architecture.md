@@ -384,8 +384,9 @@ second step, or why it did not start, stopped or did not succeed, with a note th
 broken recipe is not made again automatically), and a refusal the badge shows, such as
 "the vault item has neither a password nor a passkey". Known codes get a plain sentence
 and others show their log name; a link opens the diagnostics page. The worker answers
-from the recipe cache, its own record of the top page, and the last login and model
-request the badge keeps from the log reports, with the badge's lifetime: a top page of
+from the recipe cache, its own record of the top page, the badge's spin for a request
+in flight, and the last login and model request the badge keeps from the log reports,
+with the badge's lifetime: a top page of
 another origin or the tab's closing drops them, and `chrome.storage.session` keeps them
 across a worker restart. Item selection, field exclusions and custom-field review stay
 on the extension's settings page once synced

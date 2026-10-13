@@ -97,6 +97,8 @@ export const statusResponseSchema = v.variant("ok", [
      * page, a list of accounts or a sign-in entry (`page`), only on other paths, or none.
      */
     recipe: v.picklist(["page", "other-paths", "none"]),
+    /** A model request for the tab's page is in flight, while the badge spins. */
+    asking: v.optional(v.literal(true)),
     /**
      * The top page as the worker last saw it: watching for a recipe's first step, sent for
      * generation, or refused with a reason; why its sign-in input did not start a login,
