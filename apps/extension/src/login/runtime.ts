@@ -750,6 +750,29 @@ function outcomeFields(answer: GenerationOutcome | EntryGenerationOutcome) {
   };
 }
 
+/**
+ * A page's description as generation may send it (ADR 0016), or why not as a value-free
+ * code for the log's `detail` (ADR 0019): `invalid-observation` when it fails its check,
+ * the extractor's `gap` when it is incomplete (`incomplete` without one), and for a
+ * complete one `origin-changed` or `path-changed` when it describes another origin or path
+ * than expected, or `list-mismatch` when `list` is given and the description lists
+ * accounts on a page not announced as a list, or none on one that was.
+ */
+function acceptedObservation(
+  described: { readonly observation: unknown; readonly gap?: string | undefined },
+  expected: { readonly origin: string; readonly path: string; readonly list?: boolean },
+): { observation: LoginObservation } | { detail: string } {
+  const parsed = v.safeParse(loginObservationSchema, described.observation);
+  if (!parsed.success) return { detail: "invalid-observation" };
+  const observation = parsed.output;
+  if (!observation.complete) return { detail: described.gap ?? "incomplete" };
+  if (observation.origin !== expected.origin) return { detail: "origin-changed" };
+  if (observation.path !== expected.path) return { detail: "path-changed" };
+  if (expected.list !== undefined && (observation.accounts !== undefined) !== expected.list)
+    return { detail: "list-mismatch" };
+  return { observation };
+}
+
 /** The service's recipe generation routes (ADR 0016, ADR 0018). */
 export interface LoginGeneration {
   /** `true` when a page may be sent, else why not. */
@@ -4276,7 +4299,7 @@ export function createLoginRuntime(
       return "qualified" as const;
     };
     /** Logs once per document why the qualifying page is not sent (yet). */
-    const unsent = (reason: string) => {
+    const unsent = (reason: string, detail?: string) => {
       if (run.live.generationSkip !== reason) {
         run.live.generationSkip = reason;
         report(run.live.document, {
@@ -4285,6 +4308,7 @@ export function createLoginRuntime(
           origin: run.live.document.origin,
           outcome: "skipped",
           reason,
+          ...(detail ? { detail } : {}),
           recipeId: recipe.id,
           baseRevision: recipe.revision,
         });
@@ -4340,6 +4364,8 @@ export function createLoginRuntime(
       .slice(0, 24);
     let observation: LoginObservation | undefined;
     let missing = "extract-failed";
+    // Why a described page is not sent, for the log (ADR 0019).
+    let detail: string | undefined;
     try {
       const extracted = v.safeParse(
         extractResultSchema,
@@ -4349,27 +4375,26 @@ export function createLoginRuntime(
           ...(known.length ? { known } : {}),
         }),
       );
-      const parsed =
-        extracted.success && extracted.output.ok
-          ? v.safeParse(loginObservationSchema, extracted.output.observation)
-          : undefined;
       // The content script's refusal, such as `no-locator` or `extract-error`, as for a
       // first page; `extract-failed` for an answer that fails its check or never came.
       if (extracted.success && !extracted.output.ok) missing = extracted.output.reason;
-      else if (parsed) missing = "incomplete-observation";
-      if (
-        parsed?.success &&
-        parsed.output.complete &&
-        parsed.output.origin === run.live.document.origin &&
-        parsed.output.path === observed.path
-      )
-        observation = parsed.output;
+      else if (extracted.success && extracted.output.ok) {
+        const accepted = acceptedObservation(extracted.output, {
+          origin: run.live.document.origin,
+          path: observed.path,
+        });
+        if ("observation" in accepted) observation = accepted.observation;
+        else {
+          missing = "incomplete-observation";
+          detail = accepted.detail;
+        }
+      }
     } catch {
       observation = undefined;
     }
     if (!current(run)) return "moved";
     // An incomplete description is not sent and does not count; a later round tries again.
-    if (!observation) return unsent(missing);
+    if (!observation) return unsent(missing, detail);
     // The description must show the input the page qualified with, which it can leave out
     // where the two read the page differently, as an input in a form the description does
     // not keep. The page must then qualify for another second before it is read again.
@@ -5703,24 +5728,25 @@ export function createLoginRuntime(
         // `extract-failed` for an answer that fails its check or never came.
         let unsent =
           extracted.success && !extracted.output.ok ? extracted.output.reason : "extract-failed";
+        // Why a described page is not sent, for the log (ADR 0019).
+        let detail: string | undefined;
         if (extracted.success && extracted.output.ok) {
-          const parsed = v.safeParse(loginObservationSchema, extracted.output.observation);
-          // An incomplete observation is not sent (ADR 0016).
-          if (
-            parsed.success &&
-            parsed.output.complete &&
-            parsed.output.origin === live.document.origin &&
-            parsed.output.path === live.path &&
-            // A list is sent as one, and only a page announced as one is.
-            (parsed.output.accounts !== undefined) === (list !== undefined)
-          ) {
-            observation = parsed.output;
+          // An incomplete observation is not sent (ADR 0016). A list is sent as one, and
+          // only a page announced as one is.
+          const accepted = acceptedObservation(extracted.output, {
+            origin: live.document.origin,
+            path: live.path,
+            list: list !== undefined,
+          });
+          if ("observation" in accepted) {
+            observation = accepted.observation;
             break;
           }
           unsent = "incomplete-observation";
+          detail = accepted.detail;
         }
         if (unsent === "cancelled" || read >= EXTRACT_READS) {
-          skipGeneration(live, unsent);
+          skipGeneration(live, unsent, undefined, detail);
           return;
         }
         // eslint-disable-next-line no-await-in-loop
@@ -7466,24 +7492,24 @@ export function createLoginRuntime(
         );
         return;
       }
-      const parsed = v.safeParse(loginObservationSchema, extracted.output.observation);
-      if (
-        !parsed.success ||
-        !parsed.output.complete ||
-        parsed.output.origin !== live.document.origin ||
-        parsed.output.path !== live.path ||
-        !isEntryObservation(parsed.output)
-      ) {
-        skipGeneration(live, "incomplete-observation", "entry");
+      const accepted = acceptedObservation(extracted.output, {
+        origin: live.document.origin,
+        path: live.path,
+      });
+      // `not-entry` for a description with fields or accounts, which is no entry page.
+      if ("detail" in accepted || !isEntryObservation(accepted.observation)) {
+        const detail = "detail" in accepted ? accepted.detail : "not-entry";
+        skipGeneration(live, "incomplete-observation", "entry", detail);
         return;
       }
+      const { observation } = accepted;
       // Only a link is ever pressed, so a page without one is not worth a model call.
-      if (!parsed.output.candidates.some((candidate) => candidate.role === "link")) {
+      if (!observation.candidates.some((candidate) => candidate.role === "link")) {
         skipGeneration(live, "no-entry-link", "entry");
         return;
       }
       const result = await generation
-        .generateEntry({ version: 1, observation: parsed.output }, () =>
+        .generateEntry({ version: 1, observation }, () =>
           report(live.document, {
             type: "generation",
             tabId: live.document.tabId,

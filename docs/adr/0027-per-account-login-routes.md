@@ -15,34 +15,41 @@ automatic generation), [ADR 0013](0013-service-held-recipes-and-settings.md) (bi
 per route), [ADR 0018](0018-recipe-generation-route.md) (when a page is judged and the
 judge's limits) and [ADR 0026](0026-sign-in-through-identity-providers.md) (SSO as a
 route). Each part lands in its own PR (see [Delivery](#delivery)); the ADR 0010 and ADR
-0016 status notes land with the custom-field part.
-When a page after a step is judged is amended by
-[ADR 0029](0029-local-sign-in-state.md), whose first part of delivery 2 (completing on
-confirmed evidence of a sign-in, on the `password` route) is implemented. Amended on
-2026-10-12 by the owner (13:08 UTC): a top-level `password` login that ends `challenge`
-or settles as unknown is watched for 10 minutes
-([Watching after a challenge](#watching-after-a-challenge)); implemented.
-Amended on 2026-10-12 by [ADR 0034](0034-answer-page-passkey-requests.md): a recipe
-without a passkey button gets a `passkey` route that answers the start page's own
-conditional request, chosen or switched to when the page asked, and that route falls
-back to the recorded `password` variant when the site does not sign in (implemented).
-Amended on 2026-10-12 by the owner (decision card answered "fill" at 19:21 UTC): a
-`totp` handler also takes a code split into one input per digit
-("Split code inputs" in [Implementation choices](#implementation-choices)); implemented.
-Amended on 2026-10-12 by the owner (decision card answered option A at 22:04 UTC): the
-judged page also carries up to three short texts near its code field, so the judge can
-read where the code comes from when the page says so outside the code form ("Text near
-the code field" in [Implementation choices](#implementation-choices)); implemented. The
-rule that only a code the page says comes from an authenticator app is learned is
-unchanged.
-Amended on 2026-10-13 by [ADR 0036](0036-passkey-after-the-identifier.md): an item
-without a password but with a passkey takes the `password` route up to the step that
-fills the password, answers its page's passkey request there, and otherwise ends
-`challenge`, watched (implemented).
+0016 status notes land with the custom-field part. When a page after a step is judged is
+amended by [ADR 0029](0029-local-sign-in-state.md), whose first part of delivery 2
+(completing on confirmed evidence of a sign-in, on the `password` route) is implemented.
+Amended on 2026-10-12 by the owner (13:08 UTC): a top-level `password` login that ends
+`challenge` or settles as unknown is watched for 10 minutes
+([Watching after a challenge](#watching-after-a-challenge)); implemented. Amended on
+2026-10-12 by [ADR 0034](0034-answer-page-passkey-requests.md): a recipe without a
+passkey button gets a `passkey` route that answers the start page's own conditional
+request, chosen or switched to when the page asked, and that route falls back to the
+recorded `password` variant when the site does not sign in (implemented). Amended on
+2026-10-12 by the owner (decision card answered "fill" at 19:21 UTC): a `totp` handler
+also takes a code split into one input per digit ("Split code inputs" in
+[Implementation choices](#implementation-choices)); implemented. Amended on 2026-10-12
+by the owner (decision card answered option A at 22:04 UTC): the judged page also
+carries up to three short texts near its code field, so the judge can read where the
+code comes from when the page says so outside the code form ("Text near the code field"
+in [Implementation choices](#implementation-choices)); implemented. The rule that only a
+code the page says comes from an authenticator app is learned was unchanged then
+(changed on 2026-10-13, below). Amended on 2026-10-13 by
+[ADR 0036](0036-passkey-after-the-identifier.md): an item without a password but with a
+passkey takes the `password` route up to the step that fills the password, answers its
+page's passkey request there, and otherwise ends `challenge`, watched (implemented).
+Amended on 2026-10-13 by owner decision (03:30 UTC card, 04:01 UTC go-ahead): a code
+page that says nothing about where the code comes from (the judge's `source` is
+`unknown`: no authenticator app, no SMS, email, phone, call or address it was sent to,
+and no other source such as a recovery code, card or hardware token) adds a `totp`
+handler under the same field and button checks, so the item's TOTP is typed once; a
+wrong code ends the login without a second code, and a code the page says was sent to
+the person or comes from another source still adds nothing ("Learning a `totp` handler"
+in [Implementation choices](#implementation-choices)); implemented. On 2026-10-13 (build
+`fdf57ef`) Resend's code page was dropped with `totpDropped=source-unknown`, and on
+ニコニコ's two-step page nothing near the code field says where the code comes from.
 Amended on 2026-10-13 by [ADR 0021](0021-account-choice-outside-settings.md) (D): a
 login that settles unknown on the sign-in form shown again, with its password input and
-no other sign, in the first new document after its password submission is not watched;
-the tab asks for an account at once (implemented).
+no other sign, is not watched; the tab asks for an account at once (implemented).
 
 Date: 2026-10-11
 
@@ -207,9 +214,11 @@ These rules work from any account, in any order.
     a plain `challenge` for it, and the login was left watching. After the owner pressed
     "Verify", Pateat answered with the item's passkey. The judge's instructions now say
     so, and the prompt version changed with them.
-  - `challenge` naming an authenticator-app code field and its submit button adds a
-    `totp` handler. The field must pass the TOTP fill rule of ADR 0013, and the judge
-    must say it is an authenticator app, not SMS or email.
+  - `challenge` naming a code field and its submit button adds a `totp` handler. The
+    field must pass the TOTP fill rule of ADR 0013, and the judge must not say the code
+    was sent to the person (SMS, email, a call) or comes from another source such as a
+    recovery code: a page that names an authenticator app counts, and so, since
+    2026-10-13 (owner decision), does one that says nothing about where it comes from.
   - Anything else stores nothing.
 - **Limits:** each recipe revision and page path is judged at most once per judge
   prompt version (its instructions and output schema, not the local checks that keep a
@@ -488,26 +497,29 @@ new owner decision:
   the account switch, the completion and the `passkey` route may not reuse either. Its
   field is never an element a route step uses on its path.
 - **Learning a `totp` handler.** The judge answers a code page with an optional `code`
-  (`field`, `submit`, `source`: `authenticator-app`, `sms`, `email` or `unknown`); it
-  says `authenticator-app` only when the page says the code comes from an authenticator
-  app. The judge keeps the answer only when the source is `authenticator-app`, the field
+  (`field`, `submit`, `source`: `authenticator-app`, `sms`, `email`, `other` or
+  `unknown`); it says `sms` or `email` when the page says the code was sent to the
+  person or names where it went (a phone, call, message or address), `authenticator-app`
+  when the page names an authenticator app, `other` when it names another source such as
+  a recovery code, card or hardware token, and `unknown` only when it says nothing about
+  where the code comes from. The judge keeps the answer only when the source is
+  `authenticator-app` or, since 2026-10-13 (owner decision, above), `unknown`, the field
   is a fill-role candidate with an attribute locator that the TOTP fill rule of ADR 0013
   accepts and whose `maxlength`, when set, is at least 6, no other such input is in its
   form, or the field is the first input of a split code (below), and the button is a
-  button of the same form; any other code answer is dropped
-  silently, so the page ends `challenge` and stores nothing. The service checks the
-  field and button again with the same rule (`not-code-field`), then against the stored
-  recipe: the field may be no field a route
-  fills, no route step target on the path and no other handler's element there, and the
-  button no route fill field, the `passkey` route's button, the switch, rejection,
-  completion or another handler's element. The button may be the `password` route's
-  submit button on that path, as on a page that asks for the code in the sign-in form
-  after the password. A page that offers both a security key and an authenticator code
-  gets both handlers in the same next revision. The service logs which handler kinds it
-  kept or dropped and why, without elements or values. A judged completion is refused
-  on a page of a `totp` handler's path that shows its code field, as on the sign-in
-  page, and generation maps a one-time-code slot only to an input the TOTP fill rule
-  accepts.
+  button of the same form; any other code answer is dropped silently, so the page ends
+  `challenge` and stores nothing. The service checks the field and button again with the
+  same rule (`not-code-field`), then against the stored recipe: the field may be no
+  field a route fills, no route step target on the path and no other handler's element
+  there, and the button no route fill field, the `passkey` route's button, the switch,
+  rejection, completion or another handler's element. The button may be the `password`
+  route's submit button on that path, as on a page that asks for the code in the sign-in
+  form after the password. A page that offers both a security key and an authenticator
+  code gets both handlers in the same next revision. The service logs which handler
+  kinds it kept or dropped and why, without elements or values. A judged completion is
+  refused on a page of a `totp` handler's path that shows its code field, as on the
+  sign-in page, and generation maps a one-time-code slot only to an input the TOTP fill
+  rule accepts.
 - **Text near the code field** (owner decision, 2026-10-12 22:04 UTC). On Resend's code
   page the sentence that asks for the authenticator app's code is a plain `span` outside
   the form, tied to no input, so the judge saw no source and answered `unknown`. The
@@ -759,8 +771,9 @@ writes or the passkey bridge, as a settled one. Logs: `login.attempt` with state
 ## Consequences
 
 - npm in any order: B's login teaches the completion; A's login adds the security-key
-  handler and clicks it in the same login; C's login adds a TOTP handler if npm's page
-  says it is an authenticator app. Later logins of all three make no Claude call.
+  handler and clicks it in the same login; C's login adds a TOTP handler unless npm's
+  page says the code was sent to the person or comes from another source. Later logins
+  of all three make no Claude call.
 - `https://my.jcb.co.jp/Login` shows both a password form and a passkey sign-in button
   (`#passkeyLoginButtonAD`, observed since #206), so its first generation can name both
   routes.
@@ -775,8 +788,10 @@ writes or the passkey bridge, as a settled one. Logs: `login.attempt` with state
 
 Not handled:
 
-- SMS and email codes, and a code page shared by SMS, email and TOTP on one path unless
-  the page says which. They end `challenge`.
+- SMS and email codes, and codes from other sources such as recovery codes. They end
+  `challenge`. A code page shared by SMS, email and TOTP on one path that says nothing
+  about where the code comes from gets the item's TOTP once (2026-10-13, above); a
+  wrong code then ends `challenge`.
 - Completion pages whose path differs per account; only the first learned one matches.
 - An item whose fields fit no variant of the stored recipe; it stops with `no-route`.
   Adding a variant to an existing recipe is later work.

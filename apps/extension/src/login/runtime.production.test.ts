@@ -5784,6 +5784,33 @@ describe("production login document admission", () => {
         ).toEqual(new Set([itemId, otherItemId]));
       });
 
+      it("logs a complete description without accounts on a list as a mismatch (ADR 0019)", async () => {
+        const { service, h, generations } = setup();
+        fake.state.extracted = {
+          accounts: {
+            ok: true,
+            observation: page("/signin", listPage.observation.candidates).observation,
+          },
+        };
+        expect(await h.hello({}, false)).toMatchObject({ generate: true });
+        expect(await listHello(h)).toEqual({ ok: false, reason: "generating" });
+        await vi.waitFor(
+          () =>
+            expect(generations()).toEqual([
+              {
+                type: "generation",
+                tabId: 1,
+                origin,
+                outcome: "skipped",
+                reason: "incomplete-observation",
+                detail: "list-mismatch",
+              },
+            ]),
+          { timeout: 4_000 },
+        );
+        expect(service.generate).not.toHaveBeenCalled();
+      });
+
       it("sends a list of names only when one names a matching item's username", async () => {
         const { service, h, generations } = setup();
         h.fields.mockImplementation(async ({ fieldId }) =>
@@ -6315,6 +6342,39 @@ describe("production login document admission", () => {
           );
           expect(buttons.service.generateEntry).not.toHaveBeenCalled();
         });
+
+        it.each([
+          // A description with a field is no entry page.
+          ["/", true, "not-entry"],
+          // One of another path describes another page.
+          ["/other", false, "path-changed"],
+        ] as const)(
+          "logs why a described entry page is not sent (%s, ADR 0019)",
+          async (path, withField, detail) => {
+            const link = {
+              id: "c1",
+              role: "link",
+              target: { by: "text", value: "Log in" },
+              label: "Log in",
+            };
+            const field = { id: "c2", role: "text", target: { by: "id", value: "q" } };
+            const { service, h, reports } = setup();
+            fake.state.extracted = { entry: page(path, withField ? [link, field] : [link]) };
+            expect(await h.hello({}, false)).toMatchObject({ entry: true });
+            await entryHello(h);
+            await vi.waitFor(() =>
+              expect(reports("generation")).toEqual([
+                expect.objectContaining({
+                  outcome: "skipped",
+                  reason: "incomplete-observation",
+                  page: "entry",
+                  detail,
+                }),
+              ]),
+            );
+            expect(service.generateEntry).not.toHaveBeenCalled();
+          },
+        );
 
         it("counts an entry recipe's path as a recipe start, so the page is never sent", async () => {
           fake.state.entry.inspect = inspected();
@@ -7482,8 +7542,13 @@ describe("production login document admission", () => {
       h.recipes.starts.mockResolvedValue(startsOf([]));
       expect(service.generate).not.toHaveBeenCalled();
 
+      // The extractor's gap says why, without page text (ADR 0019).
       fake.state.extracted = {
-        login: { ...loginPage, observation: { ...loginPage.observation, complete: false } },
+        login: {
+          ...loginPage,
+          observation: { ...loginPage.observation, complete: false },
+          gap: "unlocated-button",
+        },
       };
       expect(await h.signIn()).toEqual({ ok: false, reason: "generating" });
       await vi.waitFor(() =>
@@ -7497,6 +7562,7 @@ describe("production login document admission", () => {
             origin,
             outcome: "skipped",
             reason: "incomplete-observation",
+            detail: "unlocated-button",
           }),
         { timeout: 4_000 },
       );
@@ -14688,7 +14754,12 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
   });
 
   it("never sends an incomplete description and never judges the page", async () => {
-    inPlace(() => (fake.state.extracted = { login: passwordPage("/signin", false) }));
+    inPlace(
+      () =>
+        (fake.state.extracted = {
+          login: { ...passwordPage("/signin", false), gap: "shadow-control" },
+        }),
+    );
     const service = generation();
     const reports: LoginReport[] = [];
     const h = start(service, { report: reports });
@@ -14705,6 +14776,7 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
         origin,
         outcome: "skipped",
         reason: "incomplete-observation",
+        detail: "shadow-control",
         recipeId: emailFirst.id,
         baseRevision: 1,
       },

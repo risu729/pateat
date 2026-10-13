@@ -228,7 +228,7 @@ describe("passkey button on a challenge page (ADR 0027)", () => {
   });
 });
 
-describe("authenticator app code on a challenge page (ADR 0027)", () => {
+describe("TOTP code on a challenge page (ADR 0027)", () => {
   const codeField = {
     id: "code",
     role: "text",
@@ -266,7 +266,15 @@ describe("authenticator app code on a challenge page (ADR 0027)", () => {
     );
   });
 
-  it.each(["sms", "email", "unknown"])("adds no handler for a code from %s", async (source) => {
+  it("keeps a code whose source the page does not say, as one from an authenticator app", async () => {
+    // Owner decision, 2026-10-13: on Resend's and ニコニコ's code pages nothing near the
+    // code field says where the code comes from.
+    expect(await answer({ source: "unknown" }).judge(page([codeField, verify]))).toEqual(
+      expect.objectContaining({ status: "ok", value: { decision: "challenge", totp } }),
+    );
+  });
+
+  it.each(["sms", "email", "other"])("adds no handler for a code from %s", async (source) => {
     expect(await answer({ source }).judge(page([codeField, verify]))).toMatchObject({
       status: "ok",
       value: { decision: "challenge" },
@@ -314,12 +322,16 @@ describe("authenticator app code on a challenge page (ADR 0027)", () => {
     ["a field that is not on the page", [verify], "unknown-field"],
     ["a submit button that is not on the page", [codeField], "unknown-submit"],
   ])("drops the code for %s, saying why", async (_label, candidates, why) => {
-    const outcome = await answer({ source: "authenticator-app" }).judge(page(candidates));
-    expect(outcome).toMatchObject({
-      status: "ok",
-      value: { decision: "challenge", totpDropped: why },
-    });
-    expect(outcome.status === "ok" && "totp" in outcome.value).toBe(false);
+    // A code whose source the page does not say passes the same checks.
+    for (const source of ["authenticator-app", "unknown"]) {
+      // oxlint-disable-next-line no-await-in-loop -- Each source is judged on its own.
+      const outcome = await answer({ source }).judge(page(candidates));
+      expect(outcome).toMatchObject({
+        status: "ok",
+        value: { decision: "challenge", totpDropped: why },
+      });
+      expect(outcome.status === "ok" && "totp" in outcome.value).toBe(false);
+    }
   });
 
   it("keeps a code field without a length limit and with the hint only", async () => {
@@ -334,8 +346,9 @@ describe("authenticator app code on a challenge page (ADR 0027)", () => {
     expect(completionInstructions).toMatch(
       /A challenge that asks for a code always fills code: its field, submit and source\./u,
     );
+    // A page that says neither answers unknown, which keeps the code (owner, 2026-10-13).
     expect(completionInstructions).toMatch(
-      /code\.source is authenticator-app only when the page says the code comes from an authenticator app/u,
+      /code\.source is sms or email when the page says the code was sent to the person or names where it went \(a phone, call, message or address\), authenticator-app when it names an authenticator app, other when it names another source such as a recovery code, card or hardware token, and unknown only when it says nothing about where the code comes from\./u,
     );
   });
 });
@@ -470,6 +483,13 @@ describe("code answers checked locally, probed independently (ADR 0027)", () => 
         status: "ok",
         value: { decision: "challenge", totp: first },
       });
+    });
+
+    it("keeps the first input of a split code whose source the page does not say", async () => {
+      // As on ニコニコ's split code page, where nothing near the code says its source.
+      expect(
+        await judged([...boxes(6), submit()], answer({ field: "d4", source: "unknown" })),
+      ).toMatchObject({ status: "ok", value: { decision: "challenge", totp: first } });
     });
 
     it("keeps one-digit inputs marked only as one-time codes or as tel inputs", async () => {

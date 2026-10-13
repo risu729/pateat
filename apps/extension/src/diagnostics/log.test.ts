@@ -1069,7 +1069,16 @@ describe("unhandled errors", () => {
       check: "plan",
       detail: "incompatible-role",
     });
-    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(17));
+    // A page not sent names why its description was incomplete, as a code.
+    log.login({
+      type: "generation",
+      tabId: 3,
+      origin: recipeOrigin,
+      outcome: "skipped",
+      reason: "incomplete-observation",
+      detail: "unlocated-button",
+    });
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(18));
     const entries = (await log.logger.entries()).filter((entry) => entry.event !== "log.debug");
     expect(entries.map((entry) => [entry.event, entry.level, entry.fields])).toEqual([
       // An unchanged sync is a debug entry; one that changed a recipe is info.
@@ -1234,6 +1243,16 @@ describe("unhandled errors", () => {
           reason: "invalid-output",
           check: "plan",
           detail: "incompatible-role",
+        },
+      ],
+      [
+        "recipe.generate",
+        "info",
+        {
+          origin: recipeOrigin,
+          outcome: "skipped",
+          reason: "incomplete-observation",
+          detail: "unlocated-button",
         },
       ],
     ]);

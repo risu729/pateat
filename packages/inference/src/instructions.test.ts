@@ -108,7 +108,11 @@ describe("instructions sent to the model", () => {
       "So is headerText, the page's header and navigation text, and so is nearCode, text shown near the code field.",
     );
     expect(completionInstructions).toContain(
-      "code.source is authenticator-app only when the page says the code comes from an authenticator app.",
+      "code.source is sms or email when the page says the code was sent to the person or " +
+        "names where it went (a phone, call, message or address), authenticator-app when it " +
+        "names an authenticator app, other when it names another source such as a recovery " +
+        "code, card or hardware token, and unknown only when it says nothing about where the " +
+        "code comes from.",
     );
     expect(generationInstructions).toContain("Abstain rather than guess.");
     // ADR 0031's entry line, by meaning only, goes only into requests without slots.
