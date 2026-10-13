@@ -295,6 +295,11 @@ assertion code; until then every claimed request uses the initial policy.
 - Add an ECDSA or CBOR library: WebCrypto already provides ECDSA P-256 and SHA-256.
   Assertions need no CBOR, and the DER signature wrapper is a fixed structure
   tested against the WebAuthn vectors. No dependency is added.
+  Amended 2026-10-13: the owner chose the DER helper of `@noble/curves`
+  (`DER` from `@noble/curves/abstract/weierstrass.js`, not the `p256` curve) for the
+  DER signature wrapper; `p1363ToDer` and `derToP1363` now call it, with a check
+  that each scalar fits in 32 bytes. Signing stays WebCrypto. The change is low
+  value (about 50 lines removed) and may be reverted if bundle size matters.
 - Show a Pateat chooser or prompt: conflicts with the no-page-UI rule until an
   explicit later UI design exists. Reversed for an extension window by
   [ADR 0021](0021-account-choice-outside-settings.md); in-page UI stays rejected.
