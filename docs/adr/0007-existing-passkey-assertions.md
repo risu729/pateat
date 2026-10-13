@@ -35,7 +35,7 @@ of the proposal reviewed with the owner): `navigator.credentials.create` is wrap
 `get` is, and Pateat refuses a registration that lists a passkey of the vault within
 five minutes of its own sign-in to that site in the same tab; every other registration
 is handed on (see [Registration after a sign-in](#registration-after-a-sign-in);
-implemented, local tests only).
+implemented, and confirmed on Wise in the owner's Chrome on 2026-10-13).
 
 Amended on 2026-10-12 under the owner's passkey-first policy of 13:58 UTC
 ([ADR 0034](0034-answer-page-passkey-requests.md)), after a log from the Grok Bot's
@@ -143,9 +143,11 @@ exists for this application." and the Wise item. Bitwarden shows that text
 (`passkeyAlreadyExists`) only on the `navigator.credentials.create` path, and only when
 the request's `excludeCredentials` lists a passkey its vault holds. So Wise asks to
 register a passkey after sign-in and lists the one Pateat just used. After the window is
-closed, Bitwarden rejects the request. Whether Wise's call is
-`conditional` (Chrome's automatic passkey upgrade) and how long after the sign-in it
-comes are not known yet; the `passkey.create` log records both.
+closed, Bitwarden rejects the request. In the owner's Chrome on build `fdf57ef`
+(2026-10-13, 02:25 UTC) Wise's call was `conditional` (Chrome's automatic passkey
+upgrade) and came two seconds after Pateat's passkey sign-in, listing one credential:
+Pateat declined it (`passkey.create` `declined`, `listed`), the login reached signed in,
+no further registration came in the next minutes and no Bitwarden window was reported.
 
 The owner chose on 2026-10-12 at 20:56 UTC that Pateat refuses such a registration. The
 MAIN-world wrapper asks the background only for a `this === navigator.credentials`
