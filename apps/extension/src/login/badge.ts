@@ -182,27 +182,28 @@ export function createLoginBadge(deps: {
     if (waiting.has(tabId)) return;
     waiting.add(tabId);
     const write = (writes.get(tabId) ?? Promise.resolve())
-      .then(async () => {
-        waiting.delete(tabId);
-        // Compared with what landed, so a failed write's fields are sent again.
-        const next = wanted(tabId);
-        const last = shown.get(tabId);
-        const details: BadgeDetails = { tabId };
-        for (const key of ["text", "color", "textColor", "title"] as const)
-          if (last?.[key] !== next[key]) details[key] = next[key];
-        if (Object.keys(details).length === 1) return;
-        shown.set(tabId, next);
-        try {
-          await deps.setBadge(details);
-        } catch {
-          // A closed tab refuses; Chrome drops its badge with it.
-          if (shown.get(tabId) === next) shown.delete(tabId);
-        }
-      })
+      .then(() => land(tabId))
       .finally(() => {
         if (writes.get(tabId) === write) writes.delete(tabId);
       });
     writes.set(tabId, write);
+  }
+  async function land(tabId: number): Promise<void> {
+    waiting.delete(tabId);
+    // Compared with what landed, so a failed write's fields are sent again.
+    const next = wanted(tabId);
+    const last = shown.get(tabId);
+    const details: BadgeDetails = { tabId };
+    for (const key of ["text", "color", "textColor", "title"] as const)
+      if (last?.[key] !== next[key]) details[key] = next[key];
+    if (Object.keys(details).length === 1) return;
+    shown.set(tabId, next);
+    try {
+      await deps.setBadge(details);
+    } catch {
+      // A closed tab refuses; Chrome drops its badge with it.
+      if (shown.get(tabId) === next) shown.delete(tabId);
+    }
   }
   function save(): void {
     const value: Stored = {
