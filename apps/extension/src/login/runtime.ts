@@ -104,6 +104,7 @@ import {
   statusSchema,
   submittedSchema,
   chooseResultSchema,
+  type ListMissReport as ListMiss,
   probeControlSchema,
   loginReadiness,
   HELD_CLICK_WAIT_MS,
@@ -1101,6 +1102,8 @@ export type LoginReport = (
        * it ends `account-not-listed`.
        */
       click?: ChooserClick | "none";
+      /** With `none`: what the list showed, without any name or address. */
+      listMiss?: ListMiss;
     }
   | {
       /** The recipe's first step showed again after a finished login (ADR 0021 D). */
@@ -5207,16 +5210,16 @@ export function createLoginRuntime(
   });
   /**
    * What a new login on a chooser's list clicks for its account (ADR 0028), as the
-   * document decides it now without clicking; `unreadable` when the account's username
-   * cannot be read, and `undefined` when the document could not be asked or no longer
-   * shows the list.
+   * document decides it now without clicking; when nothing fits, what the list showed
+   * (`ListMiss`, for the log); `unreadable` when the account's username cannot be read,
+   * and `undefined` when the document could not be asked or no longer shows the list.
    */
   async function listClick(
     snapshot: Extract<SettingsResponse, { ok: true }>,
     live: LiveDocument,
     chooser: LoginChooserRecipe,
     chosen: { connectionId: string; itemId: string },
-  ): Promise<ChooserClick | "none" | "unreadable" | undefined> {
+  ): Promise<ChooserClick | ListMiss | "unreadable" | undefined> {
     const usernames = await listUsernames(snapshot, live, chosen);
     if (!usernames) return "unreadable";
     const list = { ...usernames, ...listButtons(chooser) };
@@ -5225,7 +5228,8 @@ export function createLoginRuntime(
         chooseResultSchema,
         await send(live, { type: "login.choose", path: chooser.chooser.path, list }),
       );
-      return parsed.success && parsed.output.ok ? parsed.output.click : undefined;
+      if (!parsed.success || !parsed.output.ok) return undefined;
+      return parsed.output.miss ?? (parsed.output.click as ChooserClick);
     } catch {
       return undefined;
     } finally {
@@ -6566,6 +6570,7 @@ export function createLoginRuntime(
     // A new login on a chooser's list decides what it clicks there for its account (ADR
     // 0028), and takes the route that click leads to. A fill-only login presses nothing.
     let click: ChooserClick | "none" | undefined;
+    let listMiss: ListMiss | undefined;
     if (!previous && chooser && !("fillOnly" in plan)) {
       const chosen = await listClick(snapshot, live, chooser, plan.account);
       if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
@@ -6573,7 +6578,11 @@ export function createLoginRuntime(
       if (chosen === "unreadable") return refuse("field-unavailable", "list-username");
       // The page no longer shows the list, or could not be asked: it announces again.
       if (!chosen) return { ok: false, reason: "stale-document" };
-      click = chosen;
+      if (typeof chosen === "string") click = chosen;
+      else {
+        click = "none";
+        listMiss = chosen;
+      }
       if (click === "other" || click === "continue") {
         const route = chooserRoute(chooser, click);
         if (!route) return refuse("recipe-not-found");
@@ -6728,6 +6737,7 @@ export function createLoginRuntime(
           : {}),
         ...(metadata.fillOnly ? { fillOnly: true as const } : {}),
         ...(click ? { click } : {}),
+        ...(listMiss ? { listMiss } : {}),
       });
     // Each new document of the tab resumes the attempt; only a change is news.
     reportAttempt(

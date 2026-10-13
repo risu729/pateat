@@ -1582,7 +1582,7 @@ describe("unhandled errors", () => {
     vi.restoreAllMocks();
   });
 
-  it("logs a login's start, the account choice and a logout at info", async () => {
+  it("logs a login's start, what a chooser's list showed, the account choice and a logout at info", async () => {
     const log = createDiagnosticsLog({
       build: { version: "0.1.0", revision: "1c42ad3" },
       settings: async () => {
@@ -1609,12 +1609,50 @@ describe("unhandled errors", () => {
     });
     log.login({ type: "choice", ...site, outcome: "saved" });
     log.login({ type: "logout", ...site, recipeId: "synthetic-recipe", recipeRevision: 4 });
-    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(3));
+    // A chooser's list on which nothing fits logs what it showed, as counts and codes.
+    const chooser = {
+      type: "start",
+      ...site,
+      recipeId: "synthetic-recipe",
+      recipeRevision: 4,
+      route: "password",
+      variant: 0,
+      account: "default",
+      click: "none",
+    } as const;
+    log.login({
+      ...chooser,
+      listMiss: {
+        username: "email",
+        entries: 0,
+        masked: 0,
+        sameDomain: 0,
+        fits: 0,
+        entryMiss: "no-entry",
+        beside: 1,
+        other: "missing",
+        continue: "none",
+      },
+    });
+    log.login({
+      ...chooser,
+      listMiss: {
+        username: "name",
+        entries: 3,
+        beside: 1,
+        named: 2,
+        other: "one",
+        continue: "many",
+      },
+    });
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(5));
     const entries = await log.logger.entries();
     expect(entries.map((entry) => [entry.event, entry.level])).toEqual([
       ["login.start", "info"],
       ["login.choice", "info"],
       ["login.logout", "info"],
+      ["login.start", "info"],
+      ["login.start", "info"],
     ]);
     expect(entries[0]?.fields).toMatchObject({
       recipeRevision: 4,
@@ -1625,6 +1663,32 @@ describe("unhandled errors", () => {
       item: expect.stringMatching(/^item:[0-9a-f]{8}$/),
     });
     expect(entries[2]?.fields).toMatchObject({ recipeRevision: 4 });
+    expect(Object.keys(entries[0]!.fields).filter((key) => key.startsWith("list"))).toEqual([]);
+    expect(entries[3]?.fields).toMatchObject({
+      account: "default",
+      list: "none",
+      listUsername: "email",
+      listEntries: 0,
+      listMasked: 0,
+      listSameDomain: 0,
+      listFits: 0,
+      listEntryMiss: "no-entry",
+      listBeside: 1,
+      listOther: "missing",
+      listContinue: "none",
+    });
+    expect(entries[3]?.fields).not.toHaveProperty("listNamed");
+    expect(entries[4]?.fields).toMatchObject({
+      list: "none",
+      listUsername: "name",
+      listEntries: 3,
+      listBeside: 1,
+      listNamed: 2,
+      listOther: "one",
+      listContinue: "many",
+    });
+    for (const key of ["listMasked", "listSameDomain", "listFits", "listEntryMiss"])
+      expect(entries[4]?.fields).not.toHaveProperty(key);
     expect(JSON.stringify(entries)).not.toContain(itemId);
     vi.restoreAllMocks();
   });

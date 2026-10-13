@@ -51,7 +51,7 @@ const fake = vi.hoisted(() => {
     /** The document's answer to clicking an account switch. */
     switchReply: { ok: true } as { ok: boolean },
     /** What the document says a chooser login would click on its list (ADR 0028). */
-    chosen: { ok: true, click: "entry" } as { ok: boolean; click?: string },
+    chosen: { ok: true, click: "entry" } as { ok: boolean; click?: string; miss?: object },
     /**
      * What the page shows for a continuation, when an observation asks (ADR 0018): `true`
      * for a loaded page with a password input other than the asked targets, `false` for
@@ -15634,7 +15634,17 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
     });
 
     it("ends account-not-listed without a click when nothing fits and there is no button", async () => {
-      fake.state.chosen = { ok: true, click: "none" };
+      const miss = {
+        username: "email",
+        entries: 2,
+        masked: 1,
+        sameDomain: 1,
+        fits: 0,
+        beside: 0,
+        other: "missing",
+        continue: "none",
+      };
+      fake.state.chosen = { ok: true, click: "none", miss };
       const reports: LoginReport[] = [];
       const h = onList(generation(), reports);
       expect(await h.hello()).toEqual({ ok: true });
@@ -15644,7 +15654,10 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
         submissions: 0,
       });
       expect(clicks()).toEqual([]);
-      expect(reports.find((entry) => entry.type === "start")).toMatchObject({ click: "none" });
+      // The start report carries what the list showed, for the log.
+      const started = reports.find((entry) => entry.type === "start");
+      expect(started).toMatchObject({ click: "none" });
+      expect(started && "listMiss" in started ? started.listMiss : undefined).toEqual(miss);
     });
 
     it("waits for the list again when the document cannot say what it shows", async () => {
@@ -15653,6 +15666,25 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
       expect(await h.hello()).toEqual({ ok: false, reason: "stale-document" });
       expect(status()).toBeUndefined();
     });
+
+    const named = { username: "name", entries: 1, beside: 0, named: 0, other: "none" };
+    it.each([
+      // `none` says what the list showed, and only `none` does.
+      { ok: true, click: "none" },
+      { ok: true, click: "entry", miss: { ...named, continue: "none" } },
+      // A miss holds only counts and codes.
+      { ok: true, click: "none", miss: { ...named, continue: "none", text: "taro" } },
+      { ok: true, click: "none", miss: { ...named, continue: "taro" } },
+      { ok: true, click: "none", miss: { ...named, continue: "none", entries: -1 } },
+    ])(
+      "waits for the list again when its answer's miss does not fit its click: %j",
+      async (chosen) => {
+        fake.state.chosen = chosen;
+        const h = onList(generation());
+        expect(await h.hello()).toEqual({ ok: false, reason: "stale-document" });
+        expect(status()).toBeUndefined();
+      },
+    );
 
     describe("when the page asks for a passkey by itself (ADR 0034)", () => {
       /**
@@ -15949,7 +15981,18 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
       });
 
       it("ends account-not-listed without an answer when nothing on the list fits", async () => {
-        fake.state.chosen = { ok: true, click: "none" };
+        fake.state.chosen = {
+          ok: true,
+          click: "none",
+          miss: {
+            username: "name",
+            entries: 0,
+            beside: 1,
+            named: 0,
+            other: "none",
+            continue: "one",
+          },
+        };
         const reports: LoginReport[] = [];
         const h = onList(generation(), reports, { passkeys: discoverable() });
         const request = ask(h);

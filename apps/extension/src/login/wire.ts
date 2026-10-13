@@ -7,7 +7,7 @@ import {
   type LoginStep,
   type LoginTarget,
 } from "@pateat/contracts";
-import { entryMisses, otherMisses } from "../page/account-list";
+import { entryMisses, type ListMiss, otherMisses } from "../page/account-list";
 
 const id = v.pipe(v.string(), v.minLength(1), v.maxLength(120));
 /** Which inputs a secret value may fill; see `acceptsSecret` in `inputs.ts`. */
@@ -189,12 +189,44 @@ const listInputSchema = v.strictObject({
   other: v.optional(loginTargetSchema),
   continue: v.optional(loginTargetSchema),
 });
-/** What the list showed a chooser's login would click; `none` when nothing fits. */
+const listCount = v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(5000));
+const buttonFound = v.picklist(["none", "missing", "one", "many"]);
+/** What a list showed when nothing on it fits (`ListMiss`), for the log only. */
+export const listMissSchema = v.strictObject({
+  username: v.picklist(["email", "name", "empty"]),
+  entries: listCount,
+  masked: v.optional(listCount),
+  sameDomain: v.optional(listCount),
+  fits: v.optional(listCount),
+  entryMiss: v.optional(v.picklist(entryMisses)),
+  beside: listCount,
+  named: v.optional(listCount),
+  other: buttonFound,
+  continue: buttonFound,
+});
+export type ListMissReport = v.InferOutput<typeof listMissSchema>;
+// The page's summary and the schema name the same fields, so a field added to only one
+// fails here rather than turning every list without a fit into a refused answer.
+const listMissFields: [
+  Exclude<keyof ListMiss, keyof ListMissReport>,
+  Exclude<keyof ListMissReport, keyof ListMiss>,
+] extends [never, never]
+  ? (miss: ListMiss) => ListMissReport
+  : never = (miss) => miss;
+void listMissFields;
+/**
+ * What the list showed a chooser's login would click; `none` when nothing fits, with what
+ * the list showed (`miss`).
+ */
 export const chooseResultSchema = v.variant("ok", [
-  v.strictObject({
-    ok: v.literal(true),
-    click: v.picklist([...chooserClickSchema.options, "none"]),
-  }),
+  v.pipe(
+    v.strictObject({
+      ok: v.literal(true),
+      click: v.picklist([...chooserClickSchema.options, "none"]),
+      miss: v.optional(listMissSchema),
+    }),
+    v.check((result) => (result.click === "none") === (result.miss !== undefined)),
+  ),
   v.strictObject({ ok: v.literal(false) }),
 ]);
 /** Hosts the content script asks the worker about at most (ADR 0031). */

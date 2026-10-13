@@ -546,7 +546,13 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           : listChoice(document, command.list);
       command.list.username = "";
       command.list.others.fill("");
-      respond(choice ? { ok: true, click: choice.click } : { ok: false });
+      respond(
+        !choice
+          ? { ok: false }
+          : choice.click === "none"
+            ? { ok: true, click: "none", miss: choice.miss }
+            : { ok: true, click: choice.click },
+      );
       return false;
     }
     if (command.type === "login.switch") {
