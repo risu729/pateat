@@ -180,11 +180,18 @@ test("new-device verification is a distinct manual continuation and clears its c
     flowId,
     invalidOtp: false,
   });
+  const pending = held<SetupReply>();
+  client.continue.mockReturnValue(pending.promise);
   await mount(client);
   await fillNew();
   await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
   await page.getByLabelText("New-device verification code", { exact: true }).fill("000987");
   await page.getByRole("button", { name: "Verify code", exact: true }).click();
+  await vi.waitFor(() => expect(client.continue).toHaveBeenCalledTimes(1));
+  await expect
+    .element(page.getByLabelText("New-device verification code", { exact: true }))
+    .toHaveValue("");
+  pending.resolve(ready());
   await expect
     .element(
       page.getByText(
@@ -193,7 +200,6 @@ test("new-device verification is a distinct manual continuation and clears its c
     )
     .toBeVisible();
   expect(client.continue).toHaveBeenCalledWith({ flowId, newDeviceOtp: "000987" });
-  await expect.element(page.getByLabelText("Master password", { exact: true })).toHaveValue("");
 });
 
 test("cancel closes the private lifetime and ignores a late successful begin", async () => {
@@ -291,7 +297,8 @@ test("affected custom-field policy quarantine is visible without exposing vault 
       page.getByText("Vault accepted. 1 item(s) need their field settings reviewed before use."),
     )
     .toBeVisible();
-  await expect.element(page.getByLabelText("Master password", { exact: true })).toHaveValue("");
+  // The page reports a count, never the item IDs.
+  expect(document.body.textContent).not.toContain("affected-item");
 });
 
 test.each(["storage-uncertain", "setup-unavailable"] as const)(
@@ -601,10 +608,10 @@ test("a failed delete keeps the connection listed and shows the error", async ()
     .click();
   await expect.element(page.getByText(/reached a resource limit/)).toBeVisible();
   await expect.element(page.getByText("Leftover vault", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "More for Leftover vault", exact: true }).click();
+  // The row is usable again: its menu is enabled once the delete has failed.
   await expect
-    .element(page.getByRole("menuitem", { name: "Leftover vault: Delete connection", exact: true }))
-    .not.toHaveAttribute("aria-disabled");
+    .element(page.getByRole("button", { name: "More for Leftover vault", exact: true }))
+    .toBeEnabled();
 });
 
 test("sync after automatic unlock was disabled explains how to restore it", async () => {

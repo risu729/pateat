@@ -564,6 +564,11 @@ test("a pick in a private window is not made the default unless asked", async ()
   await expect
     .element(page.getByText("The page changed, so nothing was started.", { exact: false }))
     .toBeVisible();
+  // Asked, the pick becomes the default.
+  await userEvent.click(asDefault);
+  await expect.element(asDefault).toBeChecked();
+  await userEvent.click(page.getByRole("button", { name: "Log in" }));
+  expect(choices.pick).toHaveBeenLastCalledWith(expect.objectContaining({ makeDefault: true }));
 });
 
 test("a pick that starts nothing says so, and a default set here ends the choice", async () => {
@@ -605,7 +610,7 @@ test("a pick that starts nothing says so, and a default set here ends the choice
     .not.toBeInTheDocument();
 });
 
-test("after a logout, the popup lists the saved default first, even alone", async () => {
+test("after a logout, the popup lists the saved default first", async () => {
   const settings = createDefaultSettings();
   settings.siteDefaults.push({
     origin: "https://bank.example",
@@ -627,9 +632,6 @@ test("after a logout, the popup lists the saved default first, even alone", asyn
   });
   await mount(client, "https://bank.example/", choices);
   await expect
-    .element(page.getByText("You logged out of this site in this tab", { exact: false }))
-    .toBeVisible();
-  await expect
     .element(page.getByText("You logged out of this site in this tab", { exact: true }))
     .toBeVisible();
   const radios = page.getByRole("group", { name: "Account to log in with" }).getByRole("radio");
@@ -641,4 +643,25 @@ test("after a logout, the popup lists the saved default first, even alone", asyn
   expect(choices.pick).toHaveBeenCalledWith(
     expect.objectContaining({ documentId: "signed-out", connectionId: "demo-work" }),
   );
+});
+
+test("after a logout, the popup asks even with one account", async () => {
+  const { client } = store();
+  const choices = noChoice();
+  choices.get.mockResolvedValue({
+    ok: true,
+    origin: "https://bank.example",
+    documentId: "signed-out",
+    candidates: [{ connectionId: "demo-work", itemId: "primary" }],
+    logout: true,
+  });
+  await mount(client, "https://bank.example/", choices);
+  await expect.element(page.getByRole("heading", { name: "Choose an account" })).toBeVisible();
+  await expect
+    .poll(
+      () =>
+        page.getByRole("group", { name: "Account to log in with" }).getByRole("radio").elements()
+          .length,
+    )
+    .toBe(1);
 });

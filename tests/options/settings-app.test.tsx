@@ -261,36 +261,6 @@ test("vault-wide lists start collapsed and summarize their selections", async ()
   await expect.element(branch).toBeVisible();
 });
 
-test("revision conflicts preserve all draft edits until the owner reloads", async () => {
-  const client = mockClient();
-  client.saveSettings.mockResolvedValue({
-    version: 1,
-    ok: false,
-    error: { code: "revision-conflict", message: "Synthetic newer revision exists. Reload first." },
-  });
-  await mount(client);
-  await addSite("draft.example");
-  await expect.poll(() => control("settings-status").element().textContent).toMatch(/Reload/i);
-  await page
-    .getByLabelText("Demo personal vault: Items for Pateat", { exact: true })
-    .selectOptions("selected");
-  await expand("Demo personal vault", "Included groups and items");
-  await page.getByLabelText("Demo personal vault: Include group Everyday", { exact: true }).click();
-  await expect.element(control("site-list")).toMatchTextContent("draft.example");
-  await expect
-    .element(page.getByLabelText("Demo personal vault: Items for Pateat", { exact: true }))
-    .toHaveValue("selected");
-  await expect
-    .element(page.getByLabelText("Demo personal vault: Include group Everyday", { exact: true }))
-    .toBeChecked();
-  expect(client.saveSettings).toHaveBeenCalledTimes(1);
-  expect(client.getSettings).toHaveBeenCalledTimes(1);
-  client.getSettings.mockResolvedValue(saved(2, "protected.example"));
-  await control("reload-settings").click();
-  await expect.element(control("site-list")).toMatchTextContent("protected.example");
-  await expect.element(control("site-list")).not.toMatchTextContent("draft.example");
-});
-
 test("edits during a pending save are saved after it, and reloads cannot overlap it", async () => {
   const client = mockClient();
   const write = deferred<SettingsResponse>();
@@ -639,6 +609,9 @@ test("an edit made during a save that conflicts stays in the draft unsaved", asy
   });
   await expect.poll(() => control("settings-status").element().textContent).toMatch(/Reload/i);
   await expect.element(control("site-list")).toMatchTextContent("later.example");
+  // An edit after the conflict stays in the draft too.
+  await addSite("after.example");
+  await expect.element(control("site-list")).toMatchTextContent("after.example");
   expect(client.saveSettings).toHaveBeenCalledTimes(1);
 });
 

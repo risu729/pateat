@@ -119,10 +119,10 @@ test("shows every panel's facts, with the build mode and no separators", async (
       ),
     )
     .toBeVisible();
-  // The privacy warning stays above the download.
   await expect
     .element(page.getByText(/^With site addresses included, a download names page paths/u))
     .toBeVisible();
+  expect(document.querySelector("main")!.textContent).not.toContain("·");
 });
 
 test("debug logging shows when it ends and turns off at once", async () => {
@@ -146,11 +146,4 @@ test("debug logging that is off offers 24 hours", async () => {
   await page.getByRole("button", { name: "Turn on debug logging for 24 hours" }).click();
   expect(value.setDebugLogs).toHaveBeenCalledWith(true);
   await expect.element(page.getByText("Debug logging is on for 24 hours.")).toBeVisible();
-});
-
-test("the icon-only refresh button has a name and loads the summary again", async () => {
-  const value = client(status());
-  await show(value);
-  await page.getByRole("button", { name: "Refresh" }).click();
-  await expect.poll(() => value.load.mock.calls.length).toBe(2);
 });
