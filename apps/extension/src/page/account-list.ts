@@ -357,9 +357,7 @@ export function besideAccounts(root: Document | Element): BesideAccount[] {
       container = container.parentElement;
     const holder = container;
     if (!holder || !held.has(holder) || held.get(holder)! > maxBesideButtons) continue;
-    const buttons = controls.filter(
-      (item) => holder.contains(item) && !item.closest(chromeSelector),
-    );
+    const buttons = controls.filter((item) => holder.contains(item) && !inPageChrome(item));
     if (buttons.length) found.set(element, { element, text, buttons });
   }
   return [...found.values()];
