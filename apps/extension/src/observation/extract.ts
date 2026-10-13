@@ -156,6 +156,17 @@ const base36Run = /(?<![0-9A-Za-z])[0-9a-z]{8,}(?![0-9A-Za-z])/gu;
  */
 const randomId = (value: string) =>
   (value.match(base36Run) ?? []).some((run) => run.match(/\d+|[a-z]+/gu)!.length >= 3);
+/**
+ * An ID a UI library's own `useId` generated, recognized by the prefix it adds: a rule
+ * about the library, like `generatedId` for React's, not about a site (ADR 0033).
+ * Mantine's is `mantine-` and a random base-36 run, which can lack a digit
+ * (`mantine-ypxwydcwg`, 2026-10-13), or React 18's ID without its colons
+ * (`mantine-r5`), and its components derive IDs from it, such as Tabs'
+ * `mantine-ypxwydcwg-tab-mypage`.
+ */
+const libraryId = /^mantine-/u;
+/** True for an ID another load may change: `randomId`, or a `libraryId` prefix. */
+const changingId = (value: string) => libraryId.test(value) || randomId(value);
 
 /**
  * Text that can reveal an account or a number is replaced before it is observed
@@ -286,8 +297,9 @@ function locatorIndex(document: Document): LocatorIndex {
  * Mirrors the executor's lookup: an attribute value, or else a fillable input's
  * `autocomplete` token, or else a button's text, that matches exactly one element. An ID
  * React's `useId` generated is not used, as another page gives it to another element. One
- * holding a random-looking run (`randomId`), which another load may change, is used only
- * when no other locator is unique, as it may as well be stable. A
+ * that another load may change (`changingId`) is used only when no other locator is
+ * unique, as it may as well be stable, and never with `lasting`, which a signed-in
+ * marker needs, since it must match on every later visit. A
  * script link's text must also name no native button, shown or not, which the executor
  * would take first. Button text is used only when redaction leaves it unchanged, so a
  * locator never carries an email address or a long number. With
@@ -299,7 +311,7 @@ function locatorIndex(document: Document): LocatorIndex {
 function locate(
   element: Element,
   index: LocatorIndex,
-  { redactAttributes = false, links = false } = {},
+  { redactAttributes = false, links = false, lasting = false } = {},
 ): LoginTarget | undefined {
   let demoted: LoginTarget | undefined;
   for (const [by, attribute] of locators) {
@@ -309,8 +321,8 @@ function locate(
     if (redactAttributes && (observedText(value) !== value || tokenSegment(value))) continue;
     const target = { by, value };
     if (!v.is(loginTargetSchema, target)) continue;
-    if (attribute !== "id" || !randomId(value)) return target;
-    demoted = target;
+    if (attribute !== "id" || !changingId(value)) return target;
+    if (!lasting) demoted = target;
   }
   return contentTarget(element, index, links) ?? demoted;
 }
@@ -1493,7 +1505,8 @@ export function extractEntryObservation(
       const href = element instanceof HTMLAnchorElement ? linkUrl(element) : undefined;
       if (!href || linkRefusal(href, onSite, page) || entryElementRefusal(element)) return [];
     }
-    const target = locate(element, index, { links: true });
+    // The chosen entry is stored like a marker, so an ID another load may change never names it.
+    const target = locate(element, index, { links: true, lasting: true });
     return target ? [{ form: entry.form, draft: entry.draft, target }] : [];
   });
   const chosen = byLandmark(shownControls).slice(0, maxCandidates);
@@ -1555,14 +1568,15 @@ function mayBeSignIn(input: HTMLInputElement): boolean {
  * the result says so (`disabledLeftOut`): it may be a code field waiting for a timer or a
  * sent code, so such a page completes only when the judge answers `signed-in`. Buttons
  * and links are only possible markers; those past the limit or without a locator are
- * left out. A link is located by its text too, as for an account switch, and the
- * executor looks for the completion marker the same way. A path segment that may carry a
- * token is sent as `REDACTED_PATH_SEGMENT` (`signedInPath`). A page with a code field
- * also carries up to three texts near the first one (`nearCodeTexts`), and a page without
- * one up to three texts near its buttons (`nearButtonTexts`), hidden as the rest of the
- * page. While a modal dialog is open, the page behind it that the modal's
- * script marked `aria-hidden` or `inert` is read as shown (`readBehindModal`), and the
- * modal's controls rank right after the header's.
+ * left out, and an ID another load may change (`changingId`) locates no element but a
+ * field that may be a sign-in field. A link is located by its text too, as for an
+ * account switch, and the executor looks for the completion marker the same way. A path
+ * segment that may carry a token is sent as `REDACTED_PATH_SEGMENT` (`signedInPath`). A
+ * page with a code field also carries up to three texts near the first one
+ * (`nearCodeTexts`), and a page without one up to three texts near its buttons
+ * (`nearButtonTexts`), hidden as the rest of the page. While a modal dialog is open, the
+ * page behind it that the modal's script marked `aria-hidden` or `inert` is read as
+ * shown (`readBehindModal`), and the modal's controls rank right after the header's.
  */
 export function extractSignedInObservation(
   document: Document = globalThis.document,
@@ -1594,11 +1608,22 @@ function describeSignedIn(document: Document): ObservationResult {
     else if (entry.draft.role !== "checkbox") markers.push(entry);
   }
   const index = locatorIndex(document);
-  // A marker's text locator is stored and must match every later sign-in, so text with a
-  // number character, such as a balance or an unread count, never names one.
+  // A marker's locator is stored and must match every later sign-in, so text with a
+  // number character, such as a balance or an unread count, never names one, nor does
+  // an ID another load may change. A field that may be a sign-in field keeps such an
+  // ID, as on a login page, rather than leave the page incomplete.
   const located = (entries: typeof fieldEntries) =>
     entries.flatMap((entry) => {
-      const target = locate(entry.draft.element, index, { redactAttributes: true, links: true });
+      const { element } = entry.draft;
+      const target = locate(element, index, {
+        redactAttributes: true,
+        links: true,
+        lasting: !(
+          element instanceof HTMLInputElement &&
+          fillTypes[element.type] &&
+          mayBeSignIn(element)
+        ),
+      });
       return target && !(target.by === "text" && /\p{Number}/u.test(target.value))
         ? [{ ...entry, target }]
         : [];
