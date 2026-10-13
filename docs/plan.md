@@ -587,9 +587,10 @@ own accounts, so they stay in the project's files rather than in this repository
     version 1 upgrade guards were removed (no compatibility before release): an old
     `pateat.login-attempts.v3` entry stays in storage unread, and a version 1
     diagnostics database fails to open until the extension is reinstalled, as the
-    vault database already does. The unreachable `!moved &&` exemption in the
-    service's judgement gate is removed after the same-site judging work that changes
-    that gate merges. The settings page's Demo vaults preview, shown only without a
+    vault database already does. The `!moved &&` exemption in the service's judgement
+    gate was removed too: a page of another origin is judged only on the `password`
+    route, whose sign-in targets are its fill targets, which the gate already checks on
+    every origin. The settings page's Demo vaults preview, shown only without a
     connection client, stays: the options page tests render the page that way.
 - UI improvements the owner reports from daily use of the UI polished in phase 1. Small
   fixes for broken UI still land as found.

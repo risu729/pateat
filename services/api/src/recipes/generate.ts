@@ -662,8 +662,7 @@ export async function judgeCompletion(
     );
   if (
     shown(unexplained) ||
-    (!moved &&
-      routeSignInPaths(recipe, route).includes(observation.path) &&
+    (routeSignInPaths(recipe, route).includes(observation.path) &&
       shown(routeSignInTargets(recipe, route)))
   )
     return unavailable("not-judgeable");
