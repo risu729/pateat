@@ -2107,6 +2107,160 @@ describe("extractSignedInObservation", () => {
       expect(cut!.length).toBeGreaterThan(110);
     });
 
+    // Oracle Cloud's FIDO step as the page showed it (2026-10-13): three nested main
+    // landmarks, the first an `oj-module`, and the step, with its sentence and the Verify
+    // button, in an `aria-live` region.
+    const liveStep = (extra = "") =>
+      `<div id="app"><section><h1>Example Tenant</h1><h2>taro@example.com</h2>${widget}
+        <oj-module role="main" style="display: block"><oj-idaas-module-adapter role="main">
+          <oj-module><oj-idaas-module-adapter id="idcs-mfa-mfa-auth-factors-section-content" role="main">
+            <oj-module><div aria-live="polite" class="oj-flex oj-sm-12">
+              <h4>FIDO Authenticator Verification</h4>
+              <span id="idcs-mfa-mfa-auth-fido-text">${sentence}</span>${extra}
+              <div class="oj-flex-item"><oj-button id="idcs-mfa-mfa-auth-fido-submit-button">
+                <button type="button"><span>Verify</span></button></oj-button></div>
+              <a href="#">Show alternative login methods</a>
+            </div></oj-module>
+          </oj-idaas-module-adapter></oj-module>
+        </oj-idaas-module-adapter></oj-module></section></div>`;
+
+    it("reads a live region that holds one of the buttons, as Oracle Cloud's step", () => {
+      page(liveStep(), "Sign In | Example Cloud");
+      const observation = signedIn();
+      // The h4 is read as any text: only headings up to h3, which the observation carries,
+      // are left out.
+      expect(observation.nearButtons).toEqual(["FIDO Authenticator Verification", sentence]);
+      expect(observation).not.toHaveProperty("nearCode");
+      // A role that marks a live region reads the same way when it holds the button.
+      for (const live of ['role="status"', 'role="alert"', 'aria-live="assertive"']) {
+        page(
+          `<main><div ${live}><p>Touch your security key to continue.</p>
+            <div><button id="verify" type="button">Verify</button></div></div></main>`,
+        );
+        expect(signedIn().nearButtons, live).toEqual(["Touch your security key to continue."]);
+      }
+      // A region marked `aria-live="off"` is no live region and is read as before.
+      page(
+        `<main><div aria-live="off"><p>Touch your security key to continue.</p>
+          <div><button id="verify" type="button">Verify</button></div></div></main>`,
+      );
+      expect(signedIn().nearButtons).toEqual(["Touch your security key to continue."]);
+      // Every live region around the button is read, not only the nearest.
+      page(
+        `<main><div role="status"><p>Touch your security key to continue.</p>
+          <div aria-live="polite"><p>Waiting for your security key</p>
+            <div><button id="verify" type="button">Verify</button></div></div></div></main>`,
+      );
+      expect(signedIn().nearButtons).toEqual([
+        "Touch your security key to continue.",
+        "Waiting for your security key",
+      ]);
+    });
+
+    it("never reads a live region around a button that is itself left out, as a heading", () => {
+      for (const [open, close] of [
+        ['<h2 aria-live="polite">', "</h2>"],
+        ['<label aria-live="polite">', "</label>"],
+        ['<div role="heading" aria-level="4" aria-live="polite">', "</div>"],
+      ] as const) {
+        page(
+          `<main><div><p>Touch your security key to continue.</p>
+            ${open}<span>Use your security key</span>
+              <span><button id="verify" type="button">Verify</button></span>${close}</div></main>`,
+        );
+        expect(signedIn().nearButtons, open).toEqual(["Touch your security key to continue."]);
+      }
+    });
+
+    it("leaves out a live region inside the step's live region that holds no button", () => {
+      for (const extra of [
+        '<p role="alert">Security key not detected</p>',
+        '<p aria-live="assertive">Security key not detected</p>',
+        '<div role="status"><span>Waiting for your security key</span></div>',
+        '<div role="log"><div><span>Security key not detected</span></div></div>',
+      ]) {
+        page(liveStep(extra));
+        expect(signedIn().nearButtons, extra).toEqual([
+          "FIDO Authenticator Verification",
+          sentence,
+        ]);
+      }
+      // Nor does the step's region make the other elements it leaves out readable.
+      for (const extra of [
+        '<label for="remember">Remember this device</label><input id="remember" type="checkbox">',
+        "<h3>Use your security key</h3>",
+        "<code>Use your security key</code>",
+        '<span role="link" tabindex="0">Trouble with your security key?</span>',
+      ]) {
+        page(liveStep(extra));
+        expect(signedIn().nearButtons, extra).toEqual([
+          "FIDO Authenticator Verification",
+          sentence,
+        ]);
+      }
+    });
+
+    it("leaves out a live region beside the buttons that holds none of them", () => {
+      for (const live of ['role="alert"', 'role="status"', 'aria-live="polite"']) {
+        // Beside the step's own live region.
+        page(
+          `<main><div><div aria-live="polite"><p>Touch your security key to continue.</p>
+              <div><button id="verify" type="button">Verify</button></div></div>
+            <div ${live}><p>Security key not detected</p></div></div></main>`,
+        );
+        expect(signedIn().nearButtons, live).toEqual(["Touch your security key to continue."]);
+        // And beside a step that is no live region.
+        page(
+          `<main><div><div><p>Touch your security key to continue.</p>
+              <div><button id="verify" type="button">Verify</button></div></div>
+            <div ${live}><p>Security key not detected</p></div></div></main>`,
+        );
+        expect(signedIn().nearButtons, live).toEqual(["Touch your security key to continue."]);
+      }
+    });
+
+    it("never makes a live region readable for a button that does not count", () => {
+      // The live region holds only a navigation button, which never counts, so its text
+      // is left out even though the step's button reaches it.
+      page(
+        `<div><div><p>Touch your security key to continue.</p>
+            <div><button id="verify" type="button">Verify</button></div></div>
+          <div aria-live="polite"><span>Signed in as Example Tenant</span>
+            <nav><button id="menu" type="button">Menu</button></nav></div></div>`,
+      );
+      expect(signedIn().nearButtons).toEqual(["Touch your security key to continue."]);
+      // Inside the main landmark, a header's button in a live region does not count either.
+      page(
+        `<main><div><p>Touch your security key to continue.</p>
+            <div><button id="verify" type="button">Verify</button></div></div>
+          <div role="status"><span>Signed in as Example Tenant</span>
+            <header><button id="menu" type="button">Menu</button></header></div></main>`,
+      );
+      expect(signedIn().nearButtons).toEqual(["Touch your security key to continue."]);
+      // A live region whose only button sits outside the main landmark sends nothing: the
+      // button does not count, and its region's text is outside the landmark.
+      page(
+        `<div aria-live="polite"><p>Need help with your account?</p>
+          <button id="help" type="button">Help</button></div>
+        <main><div><p>Touch your security key to continue.</p>
+          <a id="other" href="/other">Use another method</a></div></main>`,
+      );
+      expect(signedIn()).not.toHaveProperty("nearButtons");
+    });
+
+    it("still sends no text near a code field inside a live region", () => {
+      for (const live of ['aria-live="polite"', 'role="status"']) {
+        page(
+          `<main><div ${live}><p>Enter the code from your authenticator app.</p>
+            <div><input id="otp" autocomplete="one-time-code" aria-label="Code"></div>
+            <button id="verify" type="submit">Verify</button></div></main>`,
+        );
+        const observation = signedIn();
+        expect(observation, live).not.toHaveProperty("nearCode");
+        expect(observation, live).not.toHaveProperty("nearButtons");
+      }
+    });
+
     it("never sends texts near the buttons of a login page", () => {
       page(
         `<main><form><div><p>Touch your security key to continue.</p>
