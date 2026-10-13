@@ -341,7 +341,8 @@ export function createLoginBadge(deps: {
     const before = statuses.get(report.tabId);
     // A status of the page before this one does not carry over.
     const next: PageStatus = { ...(before?.origin === origin ? before : {}), ...change, origin };
-    // A login that starts or moves on replaces the refusal before it, as the badge does.
+    // A login that starts or moves on replaces the refusal before it. The badge keeps its
+    // `!` until that login ends, while the popup already says the login runs.
     if (report.type === "start" || report.type === "attempt") delete next.refused;
     recorded.add(report.tabId);
     if (JSON.stringify(next) === JSON.stringify(before)) return false;

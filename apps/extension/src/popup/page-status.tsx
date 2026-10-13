@@ -135,8 +135,14 @@ function recipeLines(status: Status): StatusLine[] {
   // Another request, such as the judge's on a login's next page.
   if (status.asking && generation?.outcome !== "sent")
     lines.push({ id: "asking", tone: "busy", text: "Waiting for an answer from the AI…" });
-  // A site whose recipe starts elsewhere may still send this page.
-  if (status.recipe !== "page" && status.page?.generationSkip)
+  // A site whose recipe starts elsewhere may still send this page. An older skip of this
+  // page does not show beside its request in flight.
+  if (
+    status.recipe !== "page" &&
+    status.page?.generationSkip &&
+    !status.asking &&
+    generation?.outcome !== "sent"
+  )
     lines.push({
       id: "generation-skip",
       tone: "idle",

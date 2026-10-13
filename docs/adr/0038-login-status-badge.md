@@ -97,7 +97,8 @@ every second while the popup is open. The worker answers from three sources:
 - the tab's last login (including a logout after it, ADR 0021 D), last model request
   and last refusal of item 2, which the badge keeps from the log reports and drops with
   its result (item 5), also in `pateat.login-badge.v1`. A login that starts or changes
-  state drops only the refusal, as the badge does; a repeated refusal is not kept.
+  state drops only the refusal (the badge keeps its `!` until that login ends); a
+  repeated refusal is not kept.
 
 Whether a model request is still in flight comes from the badge's spin: a page sent
 with no answer recorded and no spin, as after a worker restart, says so rather than
