@@ -291,12 +291,18 @@ export function SiteApp({
   });
   const saved = settings.data?.ok ? settings.data : undefined;
   const excluded = Boolean(origin && saved && isSiteExcluded(saved.snapshot.settings, origin));
+  // Only the connections, exclusions and vault syncs decide the matches, so saving a
+  // default keeps the listed accounts instead of listing them again.
   const accounts = useQuery({
     queryKey: [
       "popup",
       "site-accounts",
       origin,
-      saved?.snapshot.revision,
+      saved &&
+        JSON.stringify([
+          saved.snapshot.settings.connections,
+          saved.snapshot.settings.excludedSites,
+        ]),
       saved?.catalog.connections.map((entry) => entry.snapshotId ?? null),
     ],
     queryFn: () => client.findSiteAccounts(origin!, saved!.snapshot.settings),
