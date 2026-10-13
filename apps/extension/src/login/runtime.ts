@@ -71,6 +71,7 @@ import {
   type LoginRoute,
   type LoginRouteChoice,
   type LoginStep,
+  type LoginMarkerTarget,
   type LoginTarget,
   type LocalSettings,
   type EntryGenerationRequest,
@@ -3252,7 +3253,7 @@ export function createLoginRuntime(
   }
   async function observe(
     run: Execution,
-    targets: LoginTarget[],
+    targets: LoginMarkerTarget[],
     require?: TargetRequirement[],
     links?: boolean[],
     signIn = false,

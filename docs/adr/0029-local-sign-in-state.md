@@ -19,6 +19,8 @@ submission; see the end of the implementation notes. Amended again on 2026-10-13
 owner's choice at 01:59 UTC (「コード送信後だけ」, ADR 0022): the same applies to a move
 to another site within 30 seconds of a TOTP code, and, by the owner's choice at 03:13
 UTC (「同じ扱い」), of a passkey Pateat answered after the password. Amended on
+2026-10-13 by the owner's choice at 05:17 UTC (「リンク先で見分ける」): a marker may
+name a link by its path; see "Markers that name a link by its path" below. Amended on
 2026-10-12 by the owner's choice at 22:03 UTC (「除いて慎重に」, leave out with care): a
 disabled field that does not look like a sign-in field is left out of a judged page, and
 such a page completes only on `signed-in`, after Q-move's signed-in page was never
@@ -326,6 +328,35 @@ already stored when this shipped keep working: on 2026-10-12 at 18:07 UTC the ow
 chose to rewrite them once, so D1 migration 0013 turns each stored completion into a
 one-marker list, and leaves out one whose locator another element of the recipe also
 uses.
+
+Markers that name a link by its path (owner's choice 「リンク先で見分ける」 on a
+decision card, 2026-10-13 05:17 UTC): on the signed-in page's description, a link to the
+page's own origin is located by its path (`{ "by": "href", "value": "/my" }`) before its
+text, when no other link of the page goes there and the path holds only letters, `-`,
+`.`, `_`, `~` and `/`, so it never carries a number, a numeric or random ID or a
+percent-encoded name, and no segment may be a token. No segment, with or without what
+may be a file extension, may fold (letters and numbers only, lower-cased) to the link's
+text, or to a word or two neighbouring words of the page's header either, so a handle or
+name the page shows, as in `/taro_y/likes` beside "@taro_y" or `/taro-y` beside "Taro
+Y", falls back to the link's text. A generic header word blocks a path too (`/account`
+beside "Account security"); such a word usually gives its own link a text marker. A
+handle the page never shows can still pass; the judge is told never to pick a path that
+names the person. A link with an empty or fragment-only `href` (`#top`) and a script
+link have no path. Its query and fragment are not
+compared. Like a text marker such as "マイページ", a path marker is only as good as the
+judge's choice: a site that shows the same link to `/my` signed out would match it
+there too, unless an `absent` element was learned. The judge may
+name such a link as the marker, and the executor's E1 and completion checks find it as
+the one link to that path. Only markers take it: a recipe's steps, handlers, `absent`
+elements, rejection and account switch never do, and a step's plan, an account list's
+controls, a sign-in entry and a judged code page's button refuse a candidate located
+that way. Evidence: on ニコニコ at 04:57 UTC the page a TOTP login moved to,
+`www.nicovideo.jp/`, was signed in, but the judge answered `unclear` and the login ended
+`left-origin`. The only signed-in control the RC's probe found at 05:13 UTC was the
+header link to `/my`, whose text is the person's nickname, which no marker may hold; its
+header is plain `div`s, and it has no sign-out link. The judge's instructions now say
+that a link by `href` is stored with its path, which must read the same for every
+account, so the prompt version changed and pages judged before are judged again.
 
 Pages that could not be sent (owner, 2026-10-12 19:23 UTC): logins on Cloudflare,
 Grafana Cloud and Wise really signed in on build `a8350f5`, and on JP BANKカードWEB on

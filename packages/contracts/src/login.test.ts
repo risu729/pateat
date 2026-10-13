@@ -168,6 +168,36 @@ describe("declarative login boundaries", () => {
     expect(() => parseLoginRecipe(withMarkers([{ ...marker("a"), path: "/home" }]))).toThrow();
   });
 
+  it("names a marker's link by a path without numbers, and only a marker (ADR 0029)", () => {
+    const withMarker = (value: string) => ({
+      ...recipe(),
+      completion: [{ target: { by: "href", value } }],
+    });
+    for (const value of ["/my", "/my/", "/member/settings", "/my_page.php"])
+      expect(parseLoginRecipe(withMarker(value)).completion, value).toHaveLength(1);
+    // A number, a percent-encoded name, a query, a fragment or another origin never.
+    for (const value of [
+      "/",
+      "/user/12345",
+      "/%E3%83%9E%E3%82%A4",
+      "/my?tab=1",
+      "/my#top",
+      "https://www.example/my",
+      "my",
+    ])
+      expect(() => parseLoginRecipe(withMarker(value)), value).toThrow();
+    // A step, the rejection or an account switch never takes one.
+    const link = { by: "href", value: "/my" } as const;
+    expect(() => parseLoginRecipe({ ...recipe(), accountSwitch: link })).toThrow();
+    expect(() => parseLoginRecipe({ ...recipe(), rejection: link })).toThrow();
+    expect(() =>
+      parseLoginRecipe({
+        ...recipe(),
+        steps: [{ kind: "click", path: "/login", target: link, purpose: "submit" }],
+      }),
+    ).toThrow();
+  });
+
   it("keeps a marker learned on another origin of the site apart (ADR 0022)", () => {
     const marker = (value: string, origin?: string) => ({
       target: { by: "id" as const, value },

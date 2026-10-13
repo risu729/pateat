@@ -1,6 +1,7 @@
 import {
   passwordVariants,
   recipeSlots,
+  type LoginMarkerTarget,
   type LoginRecipe,
   type ManageRecipe,
   type StoredLoginRecipe,
@@ -24,9 +25,8 @@ export const isActive = (entry: ManageRecipe): entry is ActiveRecipe =>
   entry.change.state === "active";
 
 type Step = LoginRecipe["steps"][number];
-type Target = Extract<Step, { kind: "click" }>["target"];
 
-const describeTarget = (target: Target) => `${target.by} "${target.value}"`;
+const describeTarget = (target: LoginMarkerTarget) => `${target.by} "${target.value}"`;
 
 function describeStep(step: Step): string {
   switch (step.kind) {

@@ -117,6 +117,22 @@ export const loginTargetSchema = v.variant("by", [
   loginTextTargetSchema,
   loginLabelTargetSchema,
 ]);
+/**
+ * A signed-in marker's link locator (ADR 0029): the one `<a href>` link to the page's own
+ * origin whose path equals the value, such as an account link to `/my` whose text is the
+ * person's nickname (owner's choice, 2026-10-13). Letters, `-`, `.`, `_`, `~` and `/`
+ * only, so the path never carries a number, an ID or a percent-encoded name; the link's
+ * query and fragment are not compared. Only completion markers use it.
+ */
+export const loginLinkTargetSchema = v.strictObject({
+  by: v.literal("href"),
+  value: v.pipe(v.string(), v.maxLength(120), v.regex(/^(?:\/[A-Za-z._~-]+)+\/?$/u)),
+});
+/** A signed-in marker's locator: any element locator, or a link by its path. */
+export const loginMarkerTargetSchema = v.variant("by", [
+  ...loginTargetSchema.options,
+  loginLinkTargetSchema,
+]);
 const fields = v.pipe(
   v.array(v.strictObject({ slot: identifier, target: loginFieldTargetSchema })),
   v.minLength(1),
@@ -223,7 +239,7 @@ const variantsOf = (recipe: {
   steps: v.InferOutput<typeof loginStepSchema>[];
   alternatives?: { slots: string[]; steps: v.InferOutput<typeof loginStepSchema>[] }[] | undefined;
 }) => [{ slots: recipe.slots, steps: recipe.steps }, ...(recipe.alternatives ?? [])];
-const targetKey = (target: v.InferOutput<typeof loginTargetSchema>) => JSON.stringify(target);
+const targetKey = (target: v.InferOutput<typeof loginMarkerTargetSchema>) => JSON.stringify(target);
 /** The elements a recipe's markers name: each marker and the elements it needs missing. */
 const completionTargetCount = (
   markers: readonly { absent?: readonly unknown[] | undefined }[] | undefined,
@@ -288,7 +304,7 @@ export const loginRecipeSchema = v.pipe(
       v.pipe(
         v.array(
           v.strictObject({
-            target: loginTargetSchema,
+            target: loginMarkerTargetSchema,
             /**
              * Another origin the marker was learned on (ADR 0022): the page a `password`
              * login's tab moved to right after the submission, of the recipe's site or,
@@ -717,8 +733,12 @@ export const loginOutcomeSchema = v.picklist([
 ]);
 
 export type LoginTarget = v.InferOutput<typeof loginTargetSchema>;
+export type LoginMarkerTarget = v.InferOutput<typeof loginMarkerTargetSchema>;
+/** Whether a locator may name a step's or a handler's element: any but a link's path. */
+export const isLoginTarget = (target: LoginMarkerTarget): target is LoginTarget =>
+  target.by !== "href";
 /** Whether two locators name the same element. */
-export const sameLoginTarget = (left: LoginTarget, right: LoginTarget) =>
+export const sameLoginTarget = (left: LoginMarkerTarget, right: LoginMarkerTarget) =>
   left.by === right.by && left.value === right.value;
 export type LoginAttributeTarget = v.InferOutput<typeof loginAttributeTargetSchema>;
 export type LoginFieldTarget = v.InferOutput<typeof loginFieldTargetSchema>;

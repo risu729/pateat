@@ -1427,9 +1427,12 @@ describe("extractSignedInObservation", () => {
     );
     const observation = signedIn();
     expect(observation.complete).toBe(true);
+    // Links are named by their paths instead (ADR 0029).
     expect(summary(observation)).toEqual([
-      { role: "link", target: { by: "text", value: "マイページ" }, label: "マイページ" },
+      { role: "link", target: { by: "href", value: "/mypage" }, label: "マイページ" },
       { role: "link", target: { by: "id", value: "account-menu" }, label: "Account" },
+      { role: "link", target: { by: "href", value: "/a" }, label: "More" },
+      { role: "link", target: { by: "href", value: "/b" }, label: "More" },
     ]);
     // A field that may be a sign-in field keeps such an ID rather than leave the page
     // incomplete, as on a login page.
@@ -1440,7 +1443,7 @@ describe("extractSignedInObservation", () => {
     const withField = signedIn();
     expect(withField.complete).toBe(true);
     expect(withField.candidates.map(({ target }) => target)).toEqual([
-      { by: "text", value: "マイページ" },
+      { by: "href", value: "/mypage" },
       { by: "id", value: "mantine-v0zmrhrmb" },
     ]);
   });
@@ -1456,7 +1459,7 @@ describe("extractSignedInObservation", () => {
     expect(observation.complete).toBe(true);
     // A name with a number, which this page's text never shows, is not used.
     expect(observation.candidates.map(({ target }) => target)).toEqual([
-      { by: "text", value: "マイページ" },
+      { by: "href", value: "/mypage" },
       { by: "label", value: "パスワード" },
       { by: "id", value: "mantine-qwhxkbtfz" },
     ]);
@@ -2465,10 +2468,10 @@ describe("extractSignedInObservation", () => {
       <button name="alice@example.com" type="button">Profile</button>
       <button id="logout" name="user-123456" type="button">Sign out</button>`,
     );
-    // The first link falls back to its text; the second has no other locator, so it is
-    // left out; the buttons fall back to their text and id.
+    // The links fall back to their paths (ADR 0029); the buttons to their text and id.
     expect(summary(signedIn())).toEqual([
-      { role: "link", target: { by: "text", value: "Account" }, label: "Account" },
+      { role: "link", target: { by: "href", value: "/a" }, label: "Account" },
+      { role: "link", target: { by: "href", value: "/c" }, label: "Card [number]" },
       { role: "button", target: { by: "text", value: "Profile" }, label: "Profile" },
       { role: "button", target: { by: "id", value: "logout" }, label: "Sign out" },
     ]);
@@ -2491,6 +2494,55 @@ describe("extractSignedInObservation", () => {
       <button id="logout" type="button">Sign out</button>`);
     expect(signedIn().complete).toBe(true);
     expect(summary(signedIn()).map((entry) => entry.target.value)).toEqual(["logout"]);
+  });
+
+  it("locates a link by its path when that names nobody, else by its text (ADR 0029)", () => {
+    // Shaped like ニコニコ's top bar after sign-in (2026-10-13): plain divs, and the
+    // account link's only text is the person's nickname.
+    page(
+      `<div><a href="/my">Nick</a><a href="https://other.example/my">Elsewhere</a>
+        <a href="/user/12345">Uploader</a><a href="/video_top?ref=bar#top">動画</a>
+        <a href="/same">One</a><a href="/same">Two</a></div>`,
+    );
+    const kept = summary(signedIn());
+    expect(kept).toEqual([
+      { role: "link", target: { by: "href", value: "/my" }, label: "Nick" },
+      { role: "link", target: { by: "text", value: "Elsewhere" }, label: "Elsewhere" },
+      { role: "link", target: { by: "text", value: "Uploader" }, label: "Uploader" },
+      { role: "link", target: { by: "href", value: "/video_top" }, label: "動画" },
+      { role: "link", target: { by: "text", value: "One" }, label: "One" },
+      { role: "link", target: { by: "text", value: "Two" }, label: "Two" },
+    ]);
+    // The executor finds each by the same locator, whatever the link's query or fragment.
+    for (const entry of kept)
+      expect(findTargets(document, entry.target, { links: true }), entry.target.value).toHaveLength(
+        1,
+      );
+    // A login page's description never names a link by its path.
+    page(`<form><input id="user" type="text"><button id="go">Go</button></form>
+      <a href="/my">Nick</a>`);
+    const login = extractLoginObservation();
+    expect(
+      login.ok && login.observation.candidates.some((entry) => entry.target.by === "href"),
+    ).toBe(false);
+  });
+
+  it("never locates a link by a path that repeats its text or a header word (ADR 0029)", () => {
+    page(
+      `<header><span>@taro_y</span><a href="/taro_y/likes">Likes</a>
+        <span>Hana · Sato @k.ito</span><a href="/hana-sato">Hana</a><a href="/k.ito/">Ito</a>
+      </header>
+      <main><a href="/u/Taro-Y">Taro Y</a><a href="/alice/settings">Settings</a>
+        <a href="/mypage/">Account</a></main>`,
+    );
+    expect(summary(signedIn())).toEqual([
+      { role: "link", target: { by: "text", value: "Likes" }, label: "Likes" },
+      { role: "link", target: { by: "text", value: "Hana" }, label: "Hana" },
+      { role: "link", target: { by: "text", value: "Ito" }, label: "Ito" },
+      { role: "link", target: { by: "text", value: "Taro Y" }, label: "Taro Y" },
+      { role: "link", target: { by: "text", value: "Settings" }, label: "Settings" },
+      { role: "link", target: { by: "href", value: "/mypage/" }, label: "Account" },
+    ]);
   });
 
   it("keeps every field ahead of markers and drops markers past the limit", () => {
@@ -2542,19 +2594,21 @@ describe("extractSignedInObservation", () => {
     expect(observation.candidates).toHaveLength(48);
     const kept = summary(observation);
     // The header comes last in the page, after more than 48 controls, yet its field and
-    // its links, located by their text or image, are kept in document order; the ads past
-    // the limit, the news tabs and the pop-up's close button are left out. The sign-out
-    // icon has neither text nor `alt`, so nothing can locate it, and text with a digit,
-    // such as the balance and the unread count, never names a marker.
-    expect(kept.slice(-3)).toEqual([
+    // its links, located by their paths (ADR 0029), are kept in document order; the ads
+    // past the limit, the news tabs and the pop-up's close button are left out. The
+    // sign-out icon has neither text nor `alt`, but its path locates it.
+    expect(kept.slice(-6)).toEqual([
       {
         role: "text",
         target: { by: "id", value: "search" },
         placeholder: "広告名で探す",
         group: "f1",
       },
-      { role: "link", target: { by: "text", value: "マイページ" }, label: "マイページ" },
-      { role: "link", target: { by: "text", value: "通帳" }, label: "通帳" },
+      { role: "link", target: { by: "href", value: "/my/point.php" }, label: "[number]pt" },
+      { role: "link", target: { by: "href", value: "/notice/" }, label: "お知らせ [number]" },
+      { role: "link", target: { by: "href", value: "/my/" }, label: "マイページ" },
+      { role: "link", target: { by: "href", value: "/my/bankbook.php" }, label: "通帳" },
+      { role: "link", target: { by: "href", value: "/logout.php" } },
     ]);
     expect(kept[0]).toMatchObject({ target: { by: "id", value: "recommen_fab" } });
     // The executor finds each kept link by the same locator.
@@ -2572,7 +2626,7 @@ describe("extractSignedInObservation", () => {
     const kept = summary(signedIn());
     expect(kept).toEqual(
       expect.arrayContaining([
-        { role: "link", target: { by: "text", value: "設定" }, label: "設定" },
+        { role: "link", target: { by: "href", value: "/member/settings" }, label: "設定" },
       ]),
     );
     // Its words do not count: a link outside the header or navigation waits its turn.

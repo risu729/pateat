@@ -1,4 +1,4 @@
-import { loginOriginSchema, loginStepSchema, loginTargetSchema } from "./login";
+import { loginMarkerTargetSchema, loginOriginSchema, loginStepSchema } from "./login";
 import * as v from "valibot";
 
 const identifier = v.pipe(
@@ -115,7 +115,8 @@ export const observedAutocompleteTokens = [
 export const observedCandidateSchema = v.strictObject({
   id: identifier,
   role: candidateRoleSchema,
-  target: loginTargetSchema,
+  // A link may be named by its path (`href`) on a signed-in page, as a marker only.
+  target: loginMarkerTargetSchema,
   label: v.optional(observedText),
   placeholder: v.optional(observedText),
   // Text the page ties to a fill-role field with `aria-describedby`, such as a hint that

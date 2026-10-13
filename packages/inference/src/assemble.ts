@@ -18,6 +18,7 @@ import {
   type LoginObservation,
   type LoginRecipe,
   type LoginStep,
+  type LoginMarkerTarget,
   type LoginTarget,
 } from "@pateat/contracts";
 import { loginMoveFits } from "@pateat/contracts/site";
@@ -202,7 +203,7 @@ export function appendPageSteps(
 export function addCompletion(
   base: LoginRecipe,
   page: Pick<LoginObservation, "origin" | "path" | "candidates">,
-  target: LoginTarget,
+  target: LoginMarkerTarget,
 ): { ok: true; recipe: LoginRecipe } | { ok: false; reason: CompletionRejection } {
   const markers = base.completion ?? [];
   const moved = base.origin !== page.origin;
