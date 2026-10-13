@@ -529,6 +529,10 @@ own accounts, so they stay in the project's files rather than in this repository
   - Batch 12, the options and popup pages (2026-10-13): 104 to 102 browser cases. Two
     tests that the packaged-extension specs repeat through the real background were
     deleted and one folded; six that missed the rule they named were repaired.
+  - Batch 13, the observation extractor and the local log (2026-10-13): 118 to 112
+    browser cases. Removed tests repeated a kept one or checked IndexedDB upgrades from
+    a version Pateat never shipped; two tests whose negatives passed without their rule
+    were repaired.
 - UI improvements the owner reports from daily use of the UI polished in phase 1. Small
   fixes for broken UI still land as found.
 - Features found missing during use are added here.

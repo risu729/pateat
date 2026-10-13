@@ -138,7 +138,8 @@ describe("extractLoginObservation", () => {
         <button id="reset" type="reset">Clear</button>
         <button id="go" disabled>Log in</button></form>`,
     );
-    // The radio and file inputs are visible controls the executor cannot fill.
+    // The disabled and read-only fields and the radio and file inputs are visible controls
+    // the executor cannot fill.
     expect(observe().complete).toBe(false);
     expect(summary(observe()).map((candidate) => [candidate.target.value, candidate])).toEqual([
       [
@@ -526,19 +527,6 @@ describe("extractLoginObservation", () => {
     ]);
   });
 
-  it("observes image buttons as buttons named by their alt text", () => {
-    page(
-      `<form><input id="user"><input id="go" type="image" src="data:," alt="ログイン" width="40" height="20"></form>`,
-    );
-    const observation = observe();
-    expect(observation.complete).toBe(true);
-    expect(observation.candidates[1]).toMatchObject({
-      role: "button",
-      target: { by: "id", value: "go" },
-      label: "ログイン",
-    });
-  });
-
   it("keeps only links inside a form with fields, without affecting completeness", () => {
     page(
       `<nav><a id="home" href="/">Home</a></nav>
@@ -623,22 +611,6 @@ describe("extractLoginObservation", () => {
       ["link", { by: "text", value: "Use another account" }],
       ["button", { by: "id", value: "go" }],
     ]);
-  });
-
-  it("caps candidates at the contract limit and marks the rest missing", () => {
-    page(
-      `<form id="f">${Array.from({ length: 50 }, (_, index) => `<input id="i${index}">`).join("")}</form>`,
-    );
-    const observation = observe();
-    expect(observation.complete).toBe(false);
-    expect(observation.candidates).toHaveLength(48);
-  });
-
-  it("marks inputs inside a shadow root as unreachable", () => {
-    page(`<input id="user"><div id="host"></div>`);
-    const shadow = document.querySelector("#host")!.attachShadow({ mode: "open" });
-    shadow.innerHTML = `<input id="pw" type="password">`;
-    expect(observe().complete).toBe(false);
   });
 
   it("detects bilingual pages", () => {
@@ -797,10 +769,11 @@ describe("extractLoginObservation", () => {
 
   it("ignores unlocatable controls outside the login form but not inside it", () => {
     page(
-      `<header><button>☰</button><input type="image" src="data:," alt="検索" width="20" height="20"></header>
+      `<header><button>☰</button><button>☰</button></header>
       <form id="f"><input id="u"><button id="go">Log in</button></form>`,
     );
     expect(observe().complete).toBe(true);
+    expect(observe().candidates.map((candidate) => candidate.target.value)).toEqual(["u", "go"]);
     page(
       `<form id="f"><input id="u"><input type="checkbox"><button id="go">Log in</button></form>`,
     );
@@ -1076,14 +1049,6 @@ describe("extractLoginObservation", () => {
     });
   });
 
-  it("ignores shadow-root controls outside the login form", () => {
-    page(`<form id="f"><input id="u"><button id="go">Go</button></form><div id="host"></div>`);
-    document
-      .querySelector("#host")!
-      .attachShadow({ mode: "open" }).innerHTML = `<button>Chat</button>`;
-    expect(observe().complete).toBe(true);
-  });
-
   it("marks a field in any shadow root incomplete", () => {
     page(
       `<form id="s"><input name="q" aria-label="検索"><button id="sb">検索</button></form>
@@ -1093,16 +1058,17 @@ describe("extractLoginObservation", () => {
       .querySelector("#host")!
       .attachShadow({ mode: "open" }).innerHTML = `<input id="u"><input id="p" type="password">`;
     expect(observe().complete).toBe(false);
+    // A shadow host outside every form counts too.
+    page(`<input id="user"><div id="host"></div>`);
+    document
+      .querySelector("#host")!
+      .attachShadow({ mode: "open" }).innerHTML = `<input id="pw" type="password">`;
+    expect(observe().complete).toBe(false);
     page(`<form id="f"><input id="u"><button id="go">Go</button></form><div id="host"></div>`);
     document.querySelector("#host")!.attachShadow({
       mode: "open",
     }).innerHTML = `<label>Analytics <input type="checkbox"></label>`;
     expect(observe().complete).toBe(true);
-  });
-
-  it("separates text at line breaks", () => {
-    page(`<label for="u">User<br>ID</label><input id="u">`);
-    expect(observe().candidates[0]!.label).toBe("User ID");
   });
 
   it("refuses paths that may carry a session ID or token, and hides them on a signed-in page", () => {
@@ -1182,6 +1148,8 @@ describe("extractLoginObservation", () => {
       `<table><tr><th><div>Customer</div><div>Number</div></th><td><input id="u"></td></tr></table>`,
     );
     expect(observe().candidates[0]!.label).toBe("Customer Number");
+    page(`<label for="u">User<br>ID</label><input id="u">`);
+    expect(observe().candidates[0]!.label).toBe("User ID");
     page(`<label for="u">${"<span>ラベル</span>".repeat(20000)}</label><input id="u">`);
     expect(observe().candidates[0]!.label!.length).toBeLessThanOrEqual(120);
   });
