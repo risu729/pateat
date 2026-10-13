@@ -2257,6 +2257,7 @@ export function createLoginRuntime(
       recipe: paths.includes(path) ? "page" : paths.length ? "other-paths" : "none",
       ...(pageState ? { page: pageState } : {}),
       ...(known?.login ? { login: known.login } : {}),
+      ...(known?.refused ? { refused: known.refused } : {}),
       ...(known?.generation ? { generation: known.generation } : {}),
     };
   }

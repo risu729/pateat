@@ -51,7 +51,7 @@ const NOT_STARTED: Record<string, string> = {
   "tab-busy": "another login runs in this tab",
   "attempt-limit": "this page already started as many logins as allowed",
   "storage-unavailable": "Pateat could not save the login's state",
-  "no-route": "the recipe has no way to log in with this account",
+  "no-route": "the recipe has no way to log in with this vault item",
   "entry-blocked": "the site's sign-in link was not pressed",
   "account-changed": "the chosen account changed",
   "field-unavailable": "the account lacks a value the recipe needs",
@@ -70,6 +70,22 @@ const NOT_SENT: Record<string, string> = {
 };
 
 const plain = (table: Record<string, string>, code: string) => table[code] ?? code;
+
+/** Why a vault item without a password has no way in (ADR 0036), in plain words. */
+const NO_PASSWORD: Record<string, string> = {
+  "no-passkey": "the vault item has neither a password nor a passkey",
+  "no-advance": "the vault item has no password, and the recipe has no way on without one",
+};
+
+/** A refusal the badge shows as a failure, in plain words. */
+function refusalText(refused: NonNullable<Status["refused"]>): string {
+  const { reason, detail } = refused;
+  if (reason === "no-route" && detail?.startsWith("password-empty"))
+    return NO_PASSWORD[detail.slice("password-empty:".length)] ?? "the vault item has no password";
+  if (reason === "no-route")
+    return `the recipe has no way to log in with this vault item${detail ? ` (${detail})` : ""}`;
+  return plain(NOT_STARTED, reason);
+}
 
 function recipeLines(status: Status): StatusLine[] {
   const generation = status.generation;
@@ -126,8 +142,23 @@ function recipeLines(status: Status): StatusLine[] {
 }
 
 function loginLines(status: Status): StatusLine[] {
+  // A refusal is kept only until the next login starts, so it came after any login shown.
+  const refusal: StatusLine[] = status.refused
+    ? [
+        {
+          id: "refused",
+          tone: "err",
+          text: `Pateat did not log in: ${refusalText(status.refused)}.`,
+        },
+      ]
+    : [];
+  return [...attemptLines(status), ...refusal];
+}
+
+function attemptLines(status: Status): StatusLine[] {
   const login = status.login;
   if (!login) {
+    if (status.refused) return [];
     const why = status.page?.notStarted ?? status.page?.reason;
     // A page of a site with no recipe is ordinary browsing: the recipe line says enough.
     if (!why || why === "recipe-not-found") return [];

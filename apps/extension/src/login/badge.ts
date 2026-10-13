@@ -30,6 +30,19 @@ const FAILED = new Set([
   "wrong-account",
   "account-not-listed",
 ]);
+/**
+ * Refusals that stop a page's login before it starts and do not pass by themselves: the
+ * vault item cannot be used with the recipe (`no-route`, `field-unavailable`), or Pateat
+ * cannot keep the login's state (`storage-unavailable`, `attempt-limit`). The owner asked
+ * on 2026-10-13 at 20:42 UTC for a failure badge when a login fails after the AI was
+ * asked, as on a site whose only item has neither a password nor a passkey.
+ */
+const FAILED_REFUSALS = new Set([
+  "no-route",
+  "field-unavailable",
+  "storage-unavailable",
+  "attempt-limit",
+]);
 /** Outcomes that ended a login without a known result: shown briefly, as a warning. */
 const UNSETTLED = new Set([
   "challenge",
@@ -70,6 +83,8 @@ export type PageStatus = {
   origin: string;
   /** `started` until the login's first state change, then its state and outcome. */
   login?: { state: string; outcome?: string; cause?: string };
+  /** A refusal that shows a failure badge, until the tab's next login starts. */
+  refused?: { reason: string; detail?: string };
   /**
    * `sent` while a page is out, then what came back; `page` tells a list of accounts, a
    * sign-in entry or a continuation from a plain sign-in page.
@@ -108,8 +123,11 @@ export function badgeResult(
 ): Omit<BadgeResult, "origin"> | "clear" | undefined {
   if (report.type === "start") return "clear";
   if (report.type === "refused")
-    return report.reason === "storage-unavailable" && !report.repeat
-      ? { kind: "failed", reason: report.reason }
+    return FAILED_REFUSALS.has(report.reason) && !report.repeat && !report.unrelated
+      ? {
+          kind: "failed",
+          reason: report.detail ? `${report.reason}: ${report.detail}` : report.reason,
+        }
       : undefined;
   if (report.type === "generation")
     return report.outcome === "failed" || report.outcome === "unavailable"
@@ -283,6 +301,10 @@ export function createLoginBadge(deps: {
   function record(report: LoginReport): boolean {
     let change: Partial<Omit<PageStatus, "origin">> | undefined;
     if (report.type === "start") change = { login: { state: "started" } };
+    else if (report.type === "refused" && !report.unrelated && FAILED_REFUSALS.has(report.reason))
+      change = {
+        refused: { reason: report.reason, ...(report.detail ? { detail: report.detail } : {}) },
+      };
     else if (report.type === "attempt" && !report.repeat)
       change = {
         login: {
@@ -305,7 +327,9 @@ export function createLoginBadge(deps: {
     const origin = tops.get(report.tabId) ?? report.origin;
     const before = statuses.get(report.tabId);
     // A status of the page before this one does not carry over.
-    const next = { ...(before?.origin === origin ? before : {}), ...change, origin };
+    const next: PageStatus = { ...(before?.origin === origin ? before : {}), ...change, origin };
+    // A new login replaces the refusal it overcame.
+    if (report.type === "start") delete next.refused;
     recorded.add(report.tabId);
     if (JSON.stringify(next) === JSON.stringify(before)) return false;
     statuses.set(report.tabId, next);
@@ -523,6 +547,9 @@ const storedSchema = v.object({
             outcome: v.exactOptional(v.string()),
             cause: v.exactOptional(v.string()),
           }),
+        ),
+        refused: v.exactOptional(
+          v.object({ reason: v.string(), detail: v.exactOptional(v.string()) }),
         ),
         generation: v.exactOptional(
           v.object({

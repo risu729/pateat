@@ -381,18 +381,19 @@ on other paths only, or none; the AI's last answer for the tab (making a recipe,
 one, chose not to, could not, or a page sent with no answer recorded), or why the page
 was not sent; and the tab's last login on the site (logging in, logged in, waiting on a
 second step, or why it did not start, stopped or did not succeed, with a note that a
-broken recipe is not made again automatically). Known codes get a plain sentence and
-others show their log name; a link opens the diagnostics page. The worker answers from
-the recipe cache, its own record of the top page, and the last login and model request
-the badge keeps from the log reports, with the badge's lifetime: a top page of another
-origin or the tab's closing drops them, and `chrome.storage.session` keeps them across a
-worker restart. Item
-selection, field exclusions and custom-field review stay on the extension's settings
-page once synced ([ADR 0023](adr/0023-synced-vault-policy.md)). The service keeps one
-settings document per owner; [ADR 0024](adr/0024-settings-profiles.md) assigns its parts
-either to a settings profile that each device will choose later or to the owner. Chrome
-use access to these pages is not assumed. Keep settings and execution operations
-independent of their UI.
+broken recipe is not made again automatically), and a refusal the badge shows, such as
+"the vault item has neither a password nor a passkey". Known codes get a plain sentence
+and others show their log name; a link opens the diagnostics page. The worker answers
+from the recipe cache, its own record of the top page, and the last login and model
+request the badge keeps from the log reports, with the badge's lifetime: a top page of
+another origin or the tab's closing drops them, and `chrome.storage.session` keeps them
+across a worker restart. Item selection, field exclusions and custom-field review stay
+on the extension's settings page once synced
+([ADR 0023](adr/0023-synced-vault-policy.md)). The service keeps one settings document
+per owner; [ADR 0024](adr/0024-settings-profiles.md) assigns its parts either to a
+settings profile that each device will choose later or to the owner. Chrome use access
+to these pages is not assumed. Keep settings and execution operations independent of
+their UI.
 
 Each connection supports all items except exclusions or selected
 folders/collections/items only. Use existing Bitwarden metadata; independent
@@ -1036,16 +1037,17 @@ chosen at 14:04 UTC on 2026-10-13 and found unexpected in installed Chrome at 18
 While a first page or a continuation is sent for generation, a sign-in entry page is
 sent, or a page is sent to the judge, the badge cycles braille frames (`⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`, 100
 ms each) on indigo, from the send until the request returns, and at most two minutes,
-longer than the 90-second inference timeout. A failed login shows a red `!` until the
-tab starts another login, its top page loads another origin or it closes; a signed-in
-login shows a green `✓`, and a login whose result is unknown a yellow `!`, each for 4
-seconds. A waiting choice wins over all of them. Each write sends only the fields that
-changed, writes for one tab are applied in order, the badge is written again after each
-page load because Chrome resets tab-specific badges on navigation, and a tab Chrome
-replaces (`tabs.onReplaced`) keeps its badge. Results and spinning tabs are kept in
-`chrome.storage.session`, so a restarted worker redraws them. Each frame is an extension
-API call, so a spin keeps the worker running, at most for those two minutes; the model
-call keeps it running anyway.
+longer than the 90-second inference timeout. A failed login, or a refusal that stops one
+before it starts such as `no-route` for an item with neither a password nor a passkey,
+shows a red `!` until the tab starts another login, its top page loads another origin or
+it closes; a signed-in login shows a green `✓`, and a login whose result is unknown a
+yellow `!`, each for 4 seconds. A waiting choice wins over all of them. Each write sends
+only the fields that changed, writes for one tab are applied in order, the badge is
+written again after each page load because Chrome resets tab-specific badges on
+navigation, and a tab Chrome replaces (`tabs.onReplaced`) keeps its badge. Results and
+spinning tabs are kept in `chrome.storage.session`, so a restarted worker redraws them.
+Each frame is an extension API call, so a spin keeps the worker running, at most for
+those two minutes; the model call keeps it running anyway.
 
 The service's pages use the same unlocked logo as their favicon (owner request,
 2026-10-12). The owner web UI links the SVG, which Vite emits under `/manage/assets/`

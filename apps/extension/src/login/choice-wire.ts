@@ -114,6 +114,11 @@ export const statusResponseSchema = v.variant("ok", [
     login: v.optional(
       v.strictObject({ state: code, outcome: v.optional(code), cause: v.optional(code) }),
     ),
+    /**
+     * A refusal on this origin's page that the badge shows as a failure, such as `no-route`
+     * for a vault item with neither a password nor a passkey, until the next login starts.
+     */
+    refused: v.optional(v.strictObject({ reason: code, detail: v.optional(code) })),
     /** The tab's last page sent for generation on this origin's page, and what came back. */
     generation: v.optional(
       v.strictObject({
