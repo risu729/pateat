@@ -338,7 +338,8 @@ describe("createSiteAccountsHandler settings changes", () => {
       },
       matchUris,
       findPasskeys: passkeys({ "bank.example": [uriItem] }),
-      readField: async () => "alice@example.test",
+      // Every read is refused, so each search misses the username.
+      readField: async () => undefined,
     });
     expect(await handle(request())).toMatchObject({
       ok: true,
@@ -346,6 +347,48 @@ describe("createSiteAccountsHandler settings changes", () => {
     });
     // Three searches, each with its read before and its check after, but the last.
     expect(revision).toBe(8);
+  });
+  it("keeps a search that read every username, though the settings changed", async () => {
+    let revision = 3;
+    const readField = vi.fn<LoginFieldSource>(async () => "alice@example.test");
+    const handle = createSiteAccountsHandler({
+      settings: {
+        handle: async () => {
+          const value = saved();
+          value.snapshot.revision = revision;
+          revision += 1;
+          return value;
+        },
+      },
+      matchUris,
+      findPasskeys: passkeys({ "bank.example": [uriItem] }),
+      readField,
+    });
+    expect(await handle(request())).toMatchObject({ ok: true });
+    expect(readField).toHaveBeenCalledOnce();
+  });
+
+  it("keeps a search whose settings can no longer be read to compare", async () => {
+    let reads = 0;
+    const readField = vi.fn<LoginFieldSource>(async () => undefined);
+    const handle = createSiteAccountsHandler({
+      settings: {
+        handle: async () => {
+          reads += 1;
+          return reads === 1
+            ? saved()
+            : { version: 1, ok: false, error: { code: "storage-unavailable", message: "Down." } };
+        },
+      },
+      matchUris,
+      findPasskeys: passkeys({ "bank.example": [uriItem] }),
+      readField,
+    });
+    expect(await handle(request())).toMatchObject({
+      ok: true,
+      accounts: expect.arrayContaining([expect.objectContaining({ itemId: uriItem })]),
+    });
+    expect(readField).toHaveBeenCalledOnce();
   });
 });
 

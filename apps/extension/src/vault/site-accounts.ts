@@ -142,11 +142,14 @@ export function createSiteAccountsHandler(options: {
     if (!request.success) return { version: 1, ok: false, reason: "invalid-request" };
     // A username read while the settings change is refused, so a search that a save
     // overlapped, such as a login saving its picked account as the default, misses that
-    // username; such a search is made again, at most twice.
+    // username; a search with a missed read while the settings changed is made again, at
+    // most twice.
     for (let attempt = 0; ; attempt += 1) {
       // oxlint-disable-next-line no-await-in-loop -- each search reads the settings anew
       const saved = await options.settings.handle({ version: 1, type: "settings.get" });
       if (!saved.ok) return { version: 1, ok: false, reason: "unavailable" };
+      const { readField } = options;
+      let missed = false;
       // oxlint-disable-next-line no-await-in-loop -- searches run one after another
       const found = await findSiteAccounts({
         saved,
@@ -154,12 +157,26 @@ export function createSiteAccountsHandler(options: {
         origin: request.output.origin,
         matchUris: options.matchUris,
         findPasskeys: options.findPasskeys,
-        ...(options.readField ? { readField: options.readField } : {}),
+        ...(readField
+          ? {
+              readField: (field) =>
+                readField(field).then(
+                  (value) => {
+                    if (value === undefined) missed = true;
+                    return value;
+                  },
+                  (error: unknown) => {
+                    missed = true;
+                    throw error;
+                  },
+                ),
+            }
+          : {}),
       });
-      if (attempt === 2 || !options.readField) return found;
+      if (attempt === 2 || !missed) return found;
       // oxlint-disable-next-line no-await-in-loop -- compares with the settings searched
       const latest = await options.settings.handle({ version: 1, type: "settings.get" });
-      if (latest.ok && latest.snapshot.revision === saved.snapshot.revision) return found;
+      if (!latest.ok || latest.snapshot.revision === saved.snapshot.revision) return found;
     }
   };
   // A vault's crypto Worker takes one job at a time, so concurrent lookups (one per saved

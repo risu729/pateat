@@ -514,8 +514,8 @@ export function SiteApp({
     };
     // While the site's matches are still listed, the saved default is not missing yet: its
     // row then shows with its username rather than briefly as the item's saved labels.
-    const missingDefault =
-      currentOption || (accounts.isEnabled && accounts.isPending) ? undefined : savedDefault;
+    const listing = accounts.isEnabled && accounts.isPending;
+    const missingDefault = currentOption || listing ? undefined : savedDefault;
     const missingFromChoice = pickOptions.some((entry) => entry.value === currentValue)
       ? undefined
       : savedDefault;
@@ -571,7 +571,7 @@ export function SiteApp({
         id="popup-remove-default"
         type="button"
         variant="outline"
-        disabled={busy}
+        disabled={busy || listing}
         onClick={removeDefault}
       >
         Remove default

@@ -465,6 +465,8 @@ test("a saved default waits for the site's matches instead of showing its saved 
   // The default is not shown by its item name while its username is still being read.
   expect(document.querySelector("#popup-default")).toBeNull();
   expect(page.getByText("Demo team account", { exact: false }).query()).toBeNull();
+  // Nothing shows which account it would remove yet.
+  await expect.element(page.getByRole("button", { name: "Remove default" })).toBeDisabled();
   answer();
   await expect
     .element(
@@ -474,6 +476,7 @@ test("a saved default waits for the site's matches instead of showing its saved 
     )
     .toBeChecked();
   expect(document.querySelector("#popup-default")).toBeNull();
+  await expect.element(page.getByRole("button", { name: "Remove default" })).toBeEnabled();
 });
 
 test("a change saved elsewhere first is reloaded instead of overwritten", async () => {
