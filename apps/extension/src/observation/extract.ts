@@ -112,6 +112,21 @@ const locators = [
  */
 const generatedId =
   /:[Rr][0-9a-v]+(?:H[0-9a-v]+)?:|«[Rr][0-9a-v]+(?:H[0-9a-v]+)?»|(?:^|[^0-9A-Za-z])_[Rr]_[0-9a-v]+(?:H[0-9a-v]+)?_(?![0-9A-Za-z])/u;
+/**
+ * A run of eight or more lower-case base-36 characters that no other letter or digit
+ * touches, the shape of `Math.random().toString(36)` that Mantine's `useId` appends
+ * after mount (`mantine-4p5f7ku4o`, 2026-10-13): every load gives the element another ID.
+ */
+const base36Run = /(?<![0-9A-Za-z])[0-9a-z]{8,}(?![0-9A-Za-z])/gu;
+/**
+ * True for an ID holding a random-looking run: a `base36Run` with a digit and a letter
+ * that switches between digits and letters at least twice, which a name such as
+ * `password1`, `password-field-1` or `email-address-2024` does not. Stable IDs such as
+ * `oauth2login`, `step2of3` or `form-3a7bd3e2` match too, so such an ID is only demoted,
+ * not dropped.
+ */
+const randomId = (value: string) =>
+  (value.match(base36Run) ?? []).some((run) => run.match(/\d+|[a-z]+/gu)!.length >= 3);
 
 /**
  * Text that can reveal an account or a number is replaced before it is observed
@@ -241,7 +256,9 @@ function locatorIndex(document: Document): LocatorIndex {
 /**
  * Mirrors the executor's lookup: an attribute value, or else a fillable input's
  * `autocomplete` token, or else a button's text, that matches exactly one element. An ID
- * React's `useId` generated is not used, as another page gives it to another element. A
+ * React's `useId` generated is not used, as another page gives it to another element. One
+ * holding a random-looking run (`randomId`), which another load may change, is used only
+ * when no other locator is unique, as it may as well be stable. A
  * script link's text must also name no native button, shown or not, which the executor
  * would take first. Button text is used only when redaction leaves it unchanged, so a
  * locator never carries an email address or a long number. With
@@ -255,14 +272,26 @@ function locate(
   index: LocatorIndex,
   { redactAttributes = false, links = false } = {},
 ): LoginTarget | undefined {
+  let demoted: LoginTarget | undefined;
   for (const [by, attribute] of locators) {
     const value = element.getAttribute(attribute);
     if (value === null || index.get(attribute)!.get(value) !== 1) continue;
     if (attribute === "id" && generatedId.test(value)) continue;
     if (redactAttributes && (observedText(value) !== value || tokenSegment(value))) continue;
     const target = { by, value };
-    if (v.is(loginTargetSchema, target)) return target;
+    if (!v.is(loginTargetSchema, target)) continue;
+    if (attribute !== "id" || !randomId(value)) return target;
+    demoted = target;
   }
+  return contentTarget(element, index, links) ?? demoted;
+}
+
+/** `locate`'s `autocomplete` token, link text or button text, when one is unique. */
+function contentTarget(
+  element: Element,
+  index: LocatorIndex,
+  links: boolean,
+): LoginTarget | undefined {
   // Only a field the login fills; a button is named by its own attributes or text.
   if (element instanceof HTMLInputElement && fillTypes[element.type])
     for (const value of autocompleteTokens(element)) {
