@@ -195,6 +195,33 @@ describe("badgeResult", () => {
   });
 });
 
+describe("badgeResult for refusals", () => {
+  const refusal = (
+    reason: string,
+    fields: { detail?: string; repeat?: true; unrelated?: true } = {},
+  ): LoginReport => ({ type: "refused", tabId, origin, reason, ...fields });
+
+  it.each(["no-route", "field-unavailable", "storage-unavailable", "attempt-limit"])(
+    "keeps a failure for a %s refusal, naming its detail",
+    (reason) => {
+      expect(badgeResult(refusal(reason), 1000)).toEqual({ kind: "failed", reason });
+      expect(badgeResult(refusal(reason, { detail: "password-empty:no-passkey" }), 1000)).toEqual({
+        kind: "failed",
+        reason: `${reason}: password-empty:no-passkey`,
+      });
+      expect(badgeResult(refusal(reason, { repeat: true }), 1000)).toBeUndefined();
+      expect(badgeResult(refusal(reason, { unrelated: true }), 1000)).toBeUndefined();
+    },
+  );
+
+  it.each(["no-recipe", "logged-in", "account-ambiguous", "origin-busy", "tab-busy", "logged-out"])(
+    "shows nothing for a %s refusal",
+    (reason) => {
+      expect(badgeResult(refusal(reason, { detail: "x" }), 1000)).toBeUndefined();
+    },
+  );
+});
+
 describe("setActionBadge", () => {
   it("writes only the given fields", async () => {
     await setActionBadge({ tabId, text: "!", title: "t" });
@@ -508,7 +535,7 @@ describe("login badge", () => {
     h.badge.loaded(tabId, `${origin}/`);
     await h.flush();
     expect(h.calls).toHaveLength(count + 2);
-    expect(await h.storage.getValue()).toEqual({ results: [], busy: [] });
+    expect(await h.storage.getValue()).toEqual({ results: [], busy: [], statuses: [] });
     // What was written is forgotten, so the next badge writes every field.
     h.badge.observe(attempt({ state: "authenticated" }));
     await h.flush();
@@ -551,7 +578,7 @@ describe("login badge", () => {
     h.badge.observe(attempt({ outcome: "timeout" }));
     h.badge.loaded(tabId);
     await h.flush();
-    expect(await h.storage.getValue()).toEqual({ results: [], busy: [] });
+    expect(await h.storage.getValue()).toEqual({ results: [], busy: [], statuses: [] });
     // Unreadable pages count as one origin; a later readable one is a change.
     h.badge.observe(attempt({ outcome: "retry-limit" }));
     h.badge.loaded(tabId, "not a url");
@@ -559,7 +586,7 @@ describe("login badge", () => {
     expect(await h.storage.getValue()).toMatchObject({ results: [[tabId, { kind: "failed" }]] });
     h.badge.loaded(tabId, `${origin}/`);
     await h.flush();
-    expect(await h.storage.getValue()).toEqual({ results: [], busy: [] });
+    expect(await h.storage.getValue()).toEqual({ results: [], busy: [], statuses: [] });
   });
 
   it("keeps a note and a choice on same-origin loads and drops them on a top-origin change", async () => {
@@ -625,7 +652,7 @@ describe("login badge", () => {
     await h.flush();
     // Nothing is left to show, so nothing is written.
     expect(h.calls).toHaveLength(count);
-    expect(await h.storage.getValue()).toEqual({ results: [], busy: [] });
+    expect(await h.storage.getValue()).toEqual({ results: [], busy: [], statuses: [] });
   });
 
   it("moves a replaced tab's badge to its new ID", async () => {
@@ -640,6 +667,7 @@ describe("login badge", () => {
     expect(await h.storage.getValue()).toEqual({
       results: [[8, expect.objectContaining({ kind: "succeeded", origin })]],
       busy: [8],
+      statuses: [[8, { origin, login: { state: "authenticated" } }]],
     });
 
     // The moved spin still stops, and the moved success still expires.
@@ -670,7 +698,7 @@ describe("login badge", () => {
     expect(h.view(8)).toMatchObject(FAILED);
     h.badge.loaded(8, "https://other.example/");
     await h.flush();
-    expect(await h.storage.getValue()).toEqual({ results: [], busy: [] });
+    expect(await h.storage.getValue()).toEqual({ results: [], busy: [], statuses: [] });
   });
 
   it("persists results and spinning tabs", async () => {
@@ -682,12 +710,19 @@ describe("login badge", () => {
     expect(h.setValue).toHaveBeenLastCalledWith({
       results: [[tabId, { kind: "failed", origin, reason: "timeout: elements-timeout" }]],
       busy: [8],
+      statuses: [
+        [
+          tabId,
+          { origin, login: { state: "blocked", outcome: "timeout", cause: "elements-timeout" } },
+        ],
+      ],
     });
     stop();
     await h.flush();
     expect(h.setValue).toHaveBeenLastCalledWith({
       results: [[tabId, expect.objectContaining({ kind: "failed" })]],
       busy: [],
+      statuses: [[tabId, expect.objectContaining({ origin })]],
     });
   });
 
@@ -701,6 +736,7 @@ describe("login badge", () => {
           [3, { kind: "unsettled", origin, reason: "left-origin", until: now - 1 }],
         ],
         busy: [4],
+        statuses: [],
       },
     });
     await h.badge.restore();
@@ -715,18 +751,24 @@ describe("login badge", () => {
         [2, { kind: "succeeded", origin, reason: "authenticated", until: now + 1000 }],
       ],
       busy: [],
+      statuses: [],
     });
     await vi.advanceTimersByTimeAsync(1000);
     expect(h.view(2)).toMatchObject(NONE);
     expect(await h.storage.getValue()).toEqual({
       results: [[1, { kind: "failed", origin, reason: "timeout" }]],
       busy: [],
+      statuses: [],
     });
   });
 
   it("keeps a result reported before the restore", async () => {
     const h = harness({
-      stored: { results: [[tabId, { kind: "failed", origin, reason: "timeout" }]], busy: [] },
+      stored: {
+        results: [[tabId, { kind: "failed", origin, reason: "timeout" }]],
+        busy: [],
+        statuses: [],
+      },
     });
     h.badge.observe(attempt({ state: "authenticated" }));
     await h.badge.restore();
@@ -743,6 +785,7 @@ describe("login badge", () => {
           [9, { kind: "failed", origin, reason: "timeout" }],
         ],
         busy: [],
+        statuses: [],
       },
     });
     const restoring = h.badge.restore();
@@ -755,36 +798,50 @@ describe("login badge", () => {
     expect(await h.storage.getValue()).toEqual({
       results: [[9, { kind: "failed", origin, reason: "timeout" }]],
       busy: [],
+      // The started login is the tab's page status now.
+      statuses: [[tabId, { origin, login: { state: "started" } }]],
     });
   });
 
   it("does not bring back a stored result for a tab whose top origin changed during the restore", async () => {
     const h = harness({
-      stored: { results: [[tabId, { kind: "failed", origin, reason: "timeout" }]], busy: [] },
+      stored: {
+        results: [[tabId, { kind: "failed", origin, reason: "timeout" }]],
+        busy: [],
+        statuses: [],
+      },
     });
     h.badge.loaded(tabId, `${origin}/`);
     const restoring = h.badge.restore();
     h.badge.loaded(tabId, "https://other.example/");
     await restoring;
     await h.flush();
-    expect(await h.storage.getValue()).toEqual({ results: [], busy: [] });
+    expect(await h.storage.getValue()).toEqual({ results: [], busy: [], statuses: [] });
   });
 
   it("does not bring back a stored result for a tab that first loaded another origin during the restore", async () => {
     const h = harness({
-      stored: { results: [[tabId, { kind: "failed", origin, reason: "timeout" }]], busy: [] },
+      stored: {
+        results: [[tabId, { kind: "failed", origin, reason: "timeout" }]],
+        busy: [],
+        statuses: [],
+      },
     });
     const restoring = h.badge.restore();
     h.badge.loaded(tabId, "https://other.example/");
     await restoring;
     await h.flush();
     expect(h.calls.filter((call) => call.text === "!")).toEqual([]);
-    expect(await h.storage.getValue()).toEqual({ results: [], busy: [] });
+    expect(await h.storage.getValue()).toEqual({ results: [], busy: [], statuses: [] });
   });
 
   it("keeps a stored result for a tab that loaded its origin during the restore", async () => {
     const h = harness({
-      stored: { results: [[tabId, { kind: "failed", origin, reason: "timeout" }]], busy: [] },
+      stored: {
+        results: [[tabId, { kind: "failed", origin, reason: "timeout" }]],
+        busy: [],
+        statuses: [],
+      },
     });
     const restoring = h.badge.restore();
     h.badge.loaded(tabId, `${origin}/account`);
@@ -795,19 +852,27 @@ describe("login badge", () => {
 
   it("clears a restored result when the tab's first load after the restore is another origin", async () => {
     const h = harness({
-      stored: { results: [[tabId, { kind: "failed", origin, reason: "timeout" }]], busy: [] },
+      stored: {
+        results: [[tabId, { kind: "failed", origin, reason: "timeout" }]],
+        busy: [],
+        statuses: [],
+      },
     });
     await h.badge.restore();
     await h.flush();
     expect(h.view()).toMatchObject(FAILED);
     h.badge.loaded(tabId, "https://other.example/");
     await h.flush();
-    expect(await h.storage.getValue()).toEqual({ results: [], busy: [] });
+    expect(await h.storage.getValue()).toEqual({ results: [], busy: [], statuses: [] });
   });
 
   it("keeps a restored result when the tab's first load after the restore is its origin", async () => {
     const h = harness({
-      stored: { results: [[tabId, { kind: "failed", origin, reason: "timeout" }]], busy: [] },
+      stored: {
+        results: [[tabId, { kind: "failed", origin, reason: "timeout" }]],
+        busy: [],
+        statuses: [],
+      },
     });
     await h.badge.restore();
     await h.flush();
@@ -820,8 +885,23 @@ describe("login badge", () => {
 
   it.each([
     ["nothing", undefined],
-    ["a malformed value", { results: [[1, { kind: "lost", origin, reason: "x" }]], busy: [] }],
-    ["a fractional tab", { results: [], busy: [1.5] }],
+    [
+      "a malformed value",
+      { results: [[1, { kind: "lost", origin, reason: "x" }]], busy: [], statuses: [] },
+    ],
+    ["a fractional tab", { results: [], busy: [1.5], statuses: [] }],
+    [
+      "a value without statuses",
+      { results: [[1, { kind: "failed", origin, reason: "timeout" }]], busy: [] },
+    ],
+    [
+      "a malformed status",
+      {
+        results: [[1, { kind: "failed", origin, reason: "timeout" }]],
+        busy: [],
+        statuses: [[1, { origin, generation: { outcome: "sent", page: "other" } }]],
+      },
+    ],
     ["a string", "busy"],
   ])("ignores %s in storage", async (_name, stored) => {
     const h = harness(stored === undefined ? {} : { stored });
@@ -846,5 +926,462 @@ describe("login badge", () => {
     await h.flush();
     expect(h.view()).toMatchObject(SUCCEEDED);
     expect(h.setValue).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe("page status", () => {
+  type Generation = Extract<LoginReport, { type: "generation" }>;
+  const report = (fields: Partial<Generation> & Pick<Generation, "outcome">): Generation => ({
+    type: "generation",
+    tabId,
+    origin,
+    ...fields,
+  });
+
+  it("records a login's start, then each state, outcome and cause", () => {
+    const h = harness();
+    expect(h.badge.status(tabId)).toBeUndefined();
+    h.badge.observe(start());
+    expect(h.badge.status(tabId)).toEqual({ origin, login: { state: "started" } });
+    h.badge.observe(attempt({ state: "executing" }));
+    expect(h.badge.status(tabId)).toEqual({ origin, login: { state: "executing" } });
+    h.badge.observe(attempt({ outcome: "timeout", cause: "elements-timeout" }));
+    expect(h.badge.status(tabId)).toEqual({
+      origin,
+      login: { state: "blocked", outcome: "timeout", cause: "elements-timeout" },
+    });
+    // A new login starts afresh: no outcome or cause of the one before stays.
+    h.badge.observe(start());
+    expect(h.badge.status(tabId)).toEqual({ origin, login: { state: "started" } });
+    // Another tab keeps its own.
+    h.badge.observe(attempt({ tabId: 8, state: "authenticated" }));
+    expect(h.badge.status(8)).toEqual({ origin, login: { state: "authenticated" } });
+    expect(h.badge.status(tabId)).toEqual({ origin, login: { state: "started" } });
+  });
+
+  it("ignores repeat attempts, ordinary refusals and choices", () => {
+    const h = harness();
+    h.badge.observe(attempt({ state: "executing" }));
+    h.badge.observe(attempt({ state: "authenticated", repeat: true }));
+    h.badge.observe(attempt({ outcome: "timeout", repeat: true }));
+    h.badge.observe(refused("no-recipe"));
+    h.badge.observe({ type: "choice", tabId, origin, outcome: "saved" });
+    expect(h.badge.status(tabId)).toEqual({ origin, login: { state: "executing" } });
+    h.badge.observe(refused("no-recipe"));
+    expect(h.badge.status(8)).toBeUndefined();
+  });
+
+  it("records a model request and what came back, but not a skipped one", () => {
+    const h = harness();
+    h.badge.observe(report({ outcome: "skipped", reason: "sent" }));
+    expect(h.badge.status(tabId)).toBeUndefined();
+    h.badge.observe(report({ outcome: "sent" }));
+    expect(h.badge.status(tabId)).toEqual({ origin, generation: { outcome: "sent" } });
+    h.badge.observe(report({ outcome: "failed", reason: "invalid-output", check: "schema" }));
+    expect(h.badge.status(tabId)).toEqual({
+      origin,
+      generation: { outcome: "failed", reason: "invalid-output" },
+    });
+    // A skip leaves the last request as it was.
+    h.badge.observe(report({ outcome: "skipped", reason: "not-connected" }));
+    expect(h.badge.status(tabId)).toEqual({
+      origin,
+      generation: { outcome: "failed", reason: "invalid-output" },
+    });
+  });
+
+  it.each([
+    ["a list of accounts", { page: "accounts" as const }, "accounts"],
+    ["a sign-in entry", { page: "entry" as const }, "entry"],
+    ["a continuation", { recipeId: "recipe", baseRevision: 1 }, "continuation"],
+    ["a list of accounts after a recipe", { page: "accounts" as const, recipeId: "r" }, "accounts"],
+    ["a sign-in page", {}, undefined],
+  ])("tells %s apart", (_name, fields, page) => {
+    const h = harness();
+    h.badge.observe(report({ outcome: "recipe", ...fields }));
+    expect(h.badge.status(tabId)).toEqual({
+      origin,
+      generation: page ? { outcome: "recipe", page } : { outcome: "recipe" },
+    });
+  });
+
+  it("keeps a login and a model request of one origin together", () => {
+    const h = harness();
+    h.badge.observe(report({ outcome: "recipe" }));
+    h.badge.observe(attempt({ state: "authenticated" }));
+    expect(h.badge.status(tabId)).toEqual({
+      origin,
+      login: { state: "authenticated" },
+      generation: { outcome: "recipe" },
+    });
+    h.badge.observe(start());
+    expect(h.badge.status(tabId)).toEqual({
+      origin,
+      login: { state: "started" },
+      generation: { outcome: "recipe" },
+    });
+  });
+
+  it("starts afresh for a report of another origin before any load", () => {
+    const h = harness();
+    h.badge.observe(attempt({ state: "authenticated" }));
+    h.badge.observe(report({ origin: "https://other.example", outcome: "sent" }));
+    expect(h.badge.status(tabId)).toEqual({
+      origin: "https://other.example",
+      generation: { outcome: "sent" },
+    });
+  });
+
+  it("gives a frame's reports the tab's top origin and keeps them together", () => {
+    const h = harness();
+    h.badge.loaded(tabId, "https://shop.example/checkout");
+    h.badge.observe(report({ outcome: "sent" }));
+    h.badge.observe(attempt({ origin: "https://frame.example", state: "executing" }));
+    expect(h.badge.status(tabId)).toEqual({
+      origin: "https://shop.example",
+      login: { state: "executing" },
+      generation: { outcome: "sent" },
+    });
+  });
+
+  it("keeps the status on same-origin loads and drops it on a top-origin change", async () => {
+    const h = harness();
+    h.badge.loaded(tabId, `${origin}/signin`);
+    h.badge.observe(attempt({ outcome: "credential-rejected" }));
+    h.badge.loaded(tabId, `${origin}/again`);
+    expect(h.badge.status(tabId)).toEqual({
+      origin,
+      login: { state: "blocked", outcome: "credential-rejected" },
+    });
+    h.badge.loaded(tabId, "https://other.example/");
+    expect(h.badge.status(tabId)).toBeUndefined();
+    await h.flush();
+    expect(await h.storage.getValue()).toEqual({ results: [], busy: [], statuses: [] });
+
+    // A status without a result is dropped and saved too.
+    h.badge.observe(report({ origin: "https://other.example", outcome: "sent" }));
+    await h.flush();
+    expect(await h.storage.getValue()).toMatchObject({ statuses: [[tabId, expect.anything()]] });
+    h.badge.loaded(tabId);
+    expect(h.badge.status(tabId)).toBeUndefined();
+    await h.flush();
+    expect(await h.storage.getValue()).toEqual({ results: [], busy: [], statuses: [] });
+  });
+
+  it("starts afresh after a top-origin change and back", () => {
+    const h = harness();
+    h.badge.loaded(tabId, `${origin}/`);
+    h.badge.observe(report({ outcome: "recipe" }));
+    h.badge.loaded(tabId, "https://other.example/");
+    h.badge.loaded(tabId, `${origin}/`);
+    h.badge.observe(attempt({ state: "executing" }));
+    expect(h.badge.status(tabId)).toEqual({ origin, login: { state: "executing" } });
+  });
+
+  it("drops a removed tab's status", async () => {
+    const h = harness();
+    h.badge.observe(report({ outcome: "sent" }));
+    await h.flush();
+    h.setValue.mockClear();
+    h.badge.removed(tabId);
+    expect(h.badge.status(tabId)).toBeUndefined();
+    await h.flush();
+    expect(h.setValue).toHaveBeenCalledTimes(1);
+    expect(await h.storage.getValue()).toEqual({ results: [], busy: [], statuses: [] });
+  });
+
+  it("moves a replaced tab's status to its new ID", async () => {
+    const h = harness();
+    h.badge.loaded(tabId, `${origin}/`);
+    h.badge.observe(report({ outcome: "abstained", reason: "no-form" }));
+    h.badge.replaced(8, tabId);
+    expect(h.badge.status(tabId)).toBeUndefined();
+    expect(h.badge.status(8)).toEqual({
+      origin,
+      generation: { outcome: "abstained", reason: "no-form" },
+    });
+    await h.flush();
+    expect(await h.storage.getValue()).toEqual({
+      results: [],
+      busy: [],
+      statuses: [[8, { origin, generation: { outcome: "abstained", reason: "no-form" } }]],
+    });
+    // The new tab keeps the top origin: a later report merges, another origin drops it.
+    h.badge.observe(attempt({ tabId: 8, origin: "https://frame.example", state: "executing" }));
+    expect(h.badge.status(8)).toMatchObject({ origin, login: { state: "executing" } });
+    h.badge.loaded(8, "https://other.example/");
+    expect(h.badge.status(8)).toBeUndefined();
+  });
+
+  it("saves once per report, and not when the status stays", async () => {
+    const h = harness();
+    // A result and a status from one report share one save.
+    h.badge.observe(attempt({ outcome: "timeout" }));
+    await h.flush();
+    expect(h.setValue).toHaveBeenCalledTimes(1);
+    expect(h.setValue).toHaveBeenLastCalledWith({
+      results: [[tabId, { kind: "failed", origin, reason: "timeout" }]],
+      busy: [],
+      statuses: [[tabId, { origin, login: { state: "blocked", outcome: "timeout" } }]],
+    });
+    // A start clears the result and records the start: one save.
+    h.badge.observe(start());
+    await h.flush();
+    expect(h.setValue).toHaveBeenCalledTimes(2);
+    expect(h.setValue).toHaveBeenLastCalledWith({
+      results: [],
+      busy: [],
+      statuses: [[tabId, { origin, login: { state: "started" } }]],
+    });
+    // A second start changes nothing.
+    h.badge.observe(start());
+    await h.flush();
+    expect(h.setValue).toHaveBeenCalledTimes(2);
+    // A status change without a result change saves once.
+    h.badge.observe(report({ outcome: "sent" }));
+    await h.flush();
+    expect(h.setValue).toHaveBeenCalledTimes(3);
+    // The same request again, a skip, or a repeat changes nothing.
+    h.badge.observe(report({ outcome: "sent" }));
+    h.badge.observe(report({ outcome: "skipped", reason: "sent" }));
+    h.badge.observe(attempt({ state: "executing", repeat: true }));
+    await h.flush();
+    expect(h.setValue).toHaveBeenCalledTimes(3);
+    // A failed request sets both result and status: one save.
+    h.badge.observe(report({ outcome: "failed", reason: "invalid-output" }));
+    await h.flush();
+    expect(h.setValue).toHaveBeenCalledTimes(4);
+    expect(h.setValue).toHaveBeenLastCalledWith({
+      results: [[tabId, { kind: "failed", origin, reason: "generation failed: invalid-output" }]],
+      busy: [],
+      statuses: [
+        [
+          tabId,
+          {
+            origin,
+            login: { state: "started" },
+            generation: { outcome: "failed", reason: "invalid-output" },
+          },
+        ],
+      ],
+    });
+  });
+
+  const refusal = (
+    reason: string,
+    fields: { detail?: string; repeat?: true; unrelated?: true; tabId?: number } = {},
+  ): LoginReport => ({ type: "refused", tabId, origin, reason, ...fields });
+
+  it("records a refusal that stops a login until the next login starts", async () => {
+    const h = harness();
+    h.badge.observe(attempt({ outcome: "timeout" }));
+    h.badge.observe(refusal("no-route", { detail: "password-empty:no-advance" }));
+    expect(h.badge.status(tabId)).toEqual({
+      origin,
+      login: { state: "blocked", outcome: "timeout" },
+      refused: { reason: "no-route", detail: "password-empty:no-advance" },
+    });
+    // Another such refusal replaces it.
+    h.badge.observe(refusal("attempt-limit"));
+    expect(h.badge.status(tabId)).toEqual({
+      origin,
+      login: { state: "blocked", outcome: "timeout" },
+      refused: { reason: "attempt-limit" },
+    });
+    await h.flush();
+    expect(await h.storage.getValue()).toMatchObject({
+      statuses: [[tabId, { refused: { reason: "attempt-limit" } }]],
+    });
+    h.badge.observe(start());
+    expect(h.badge.status(tabId)).toEqual({ origin, login: { state: "started" } });
+    await h.flush();
+    expect(await h.storage.getValue()).toMatchObject({
+      statuses: [[tabId, { origin, login: { state: "started" } }]],
+    });
+  });
+
+  it("ignores ordinary and unrelated refusals, and saves a repeat refusal only when it changed", async () => {
+    const h = harness();
+    h.badge.observe(refusal("no-recipe"));
+    h.badge.observe(refusal("logged-in"));
+    h.badge.observe(refusal("no-route", { unrelated: true }));
+    expect(h.badge.status(tabId)).toBeUndefined();
+    await h.flush();
+    expect(h.setValue).not.toHaveBeenCalled();
+
+    h.badge.observe(refusal("field-unavailable", { detail: "custom" }));
+    await h.flush();
+    expect(h.setValue).toHaveBeenCalledTimes(1);
+    expect(h.view()).toMatchObject(FAILED);
+    // The same refusal again, as a repeat, changes nothing and saves nothing.
+    h.badge.observe(refusal("field-unavailable", { detail: "custom", repeat: true }));
+    await h.flush();
+    expect(h.setValue).toHaveBeenCalledTimes(1);
+    // A repeat with another detail is recorded, without a new badge result.
+    h.badge.observe(refusal("field-unavailable", { detail: "other", repeat: true }));
+    await h.flush();
+    expect(h.setValue).toHaveBeenCalledTimes(2);
+    expect(h.badge.status(tabId)?.refused).toEqual({
+      reason: "field-unavailable",
+      detail: "other",
+    });
+    expect(h.view().title).toContain("field-unavailable: custom");
+  });
+
+  // Netflix in the owner's Chrome (value-free log): the page went to the AI, a recipe came
+  // back, and the login was refused as the only item has neither a password nor a passkey.
+  // The spin ended without a badge before.
+  it.each([
+    ["after the spin ends", false],
+    ["while the spin still runs", true],
+  ])("shows a failure for a recipe the vault item cannot use, %s", async (_name, during) => {
+    const h = harness();
+    h.badge.loaded(tabId, `${origin}/login`);
+    const stop = h.badge.spin(tabId);
+    h.badge.observe(report({ outcome: "sent" }));
+    await h.flush();
+    expect(h.view()).toMatchObject({ ...BUSY, title: "Pateat: asking the AI…" });
+    h.badge.observe(report({ outcome: "recipe" }));
+    if (!during) stop();
+    h.badge.observe(refusal("no-route", { detail: "password-empty:no-passkey" }));
+    if (during) stop();
+    await h.flush();
+    expect(h.view()).toMatchObject(FAILED);
+    expect(h.view().title).toBe(
+      "Pateat: the login did not succeed (no-route: password-empty:no-passkey). Open Pateat for details.",
+    );
+    // A failure stays.
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(h.view()).toMatchObject(FAILED);
+    expect(h.badge.status(tabId)).toEqual({
+      origin,
+      refused: { reason: "no-route", detail: "password-empty:no-passkey" },
+      generation: { outcome: "recipe" },
+    });
+    expect(await h.storage.getValue()).toEqual({
+      results: [[tabId, { kind: "failed", origin, reason: "no-route: password-empty:no-passkey" }]],
+      busy: [],
+      statuses: [
+        [
+          tabId,
+          {
+            origin,
+            generation: { outcome: "recipe" },
+            refused: { reason: "no-route", detail: "password-empty:no-passkey" },
+          },
+        ],
+      ],
+    });
+  });
+
+  it("restores a stored refusal", async () => {
+    const status = {
+      origin,
+      refused: { reason: "no-route", detail: "password-empty:no-passkey" },
+      generation: { outcome: "recipe" },
+    };
+    const h = harness({ stored: { results: [], busy: [], statuses: [[tabId, status]] } });
+    await h.badge.restore();
+    expect(h.badge.status(tabId)).toEqual(status);
+  });
+
+  const stored = (statuses: unknown[], results: unknown[] = []) => ({
+    stored: { results, busy: [], statuses },
+  });
+  const kept = { origin, login: { state: "blocked", outcome: "timeout" } };
+
+  it("restores stored statuses, and the next load compares with their origin", async () => {
+    const h = harness(
+      stored([
+        [tabId, kept],
+        [8, { origin: "https://other.example", generation: { outcome: "sent", page: "entry" } }],
+      ]),
+    );
+    await h.badge.restore();
+    expect(h.badge.status(tabId)).toEqual(kept);
+    expect(h.badge.status(8)).toEqual({
+      origin: "https://other.example",
+      generation: { outcome: "sent", page: "entry" },
+    });
+    await h.flush();
+    expect(await h.storage.getValue()).toMatchObject({
+      statuses: [
+        [tabId, kept],
+        [8, {}],
+      ],
+    });
+    // A status writes no badge.
+    expect(h.calls).toEqual([]);
+
+    // The restore seeded the top origin: a same-origin load keeps the status, another drops it.
+    h.badge.loaded(tabId, `${origin}/account`);
+    expect(h.badge.status(tabId)).toEqual(kept);
+    h.badge.loaded(tabId, "https://elsewhere.example/");
+    expect(h.badge.status(tabId)).toBeUndefined();
+    // And a frame's later report takes the seeded top origin.
+    h.badge.observe(attempt({ tabId: 8, state: "executing" }));
+    expect(h.badge.status(8)).toEqual({
+      origin: "https://other.example",
+      login: { state: "executing" },
+      generation: { outcome: "sent", page: "entry" },
+    });
+  });
+
+  it("keeps a status recorded before or during the restore", async () => {
+    const h = harness(
+      stored([
+        [tabId, kept],
+        [8, kept],
+        [9, kept],
+        [10, kept],
+      ]),
+    );
+    h.badge.observe(report({ outcome: "sent" }));
+    const restoring = h.badge.restore();
+    h.badge.observe(attempt({ tabId: 8, state: "executing" }));
+    h.badge.removed(9);
+    await restoring;
+    expect(h.badge.status(tabId)).toEqual({ origin, generation: { outcome: "sent" } });
+    expect(h.badge.status(8)).toEqual({ origin, login: { state: "executing" } });
+    expect(h.badge.status(9)).toBeUndefined();
+    expect(h.badge.status(10)).toEqual(kept);
+  });
+
+  it("does not bring back a status for a tab whose top origin differs", async () => {
+    const h = harness(
+      stored([
+        [tabId, kept],
+        [8, kept],
+        [9, kept],
+      ]),
+    );
+    h.badge.loaded(tabId, "https://other.example/");
+    const restoring = h.badge.restore();
+    h.badge.loaded(8, "https://other.example/");
+    h.badge.loaded(9, `${origin}/account`);
+    await restoring;
+    expect(h.badge.status(tabId)).toBeUndefined();
+    expect(h.badge.status(8)).toBeUndefined();
+    expect(h.badge.status(9)).toEqual(kept);
+    await h.flush();
+    expect(await h.storage.getValue()).toEqual({ results: [], busy: [], statuses: [[9, kept]] });
+  });
+
+  it("does not bring back a status for a tab replaced during the restore", async () => {
+    const h = harness(stored([[8, kept]]));
+    const restoring = h.badge.restore();
+    h.badge.replaced(8, tabId);
+    await restoring;
+    expect(h.badge.status(8)).toBeUndefined();
+  });
+
+  it("restores a status beside the tab's result", async () => {
+    const h = harness(
+      stored([[tabId, kept]], [[tabId, { kind: "failed", origin, reason: "timeout" }]]),
+    );
+    await h.badge.restore();
+    await h.flush();
+    expect(h.view()).toMatchObject(FAILED);
+    expect(h.badge.status(tabId)).toEqual(kept);
   });
 });

@@ -1,0 +1,254 @@
+import { describe, expect, it } from "vitest";
+import type { StatusResponse } from "../login/choice-wire";
+import { pageStatusLines } from "./page-status";
+
+type Status = Extract<StatusResponse, { ok: true }>;
+const origin = "https://login.example";
+const status = (fields: Partial<Status> = {}): Status => ({
+  ok: true,
+  origin,
+  recipe: "none",
+  ...fields,
+});
+const lines = (fields: Partial<Status> = {}) =>
+  pageStatusLines(status(fields)).map(({ id, tone, text }) => [id, tone, text]);
+
+describe("pageStatusLines", () => {
+  it("names the site's recipe for the page", () => {
+    expect(lines({ recipe: "page" })).toEqual([
+      ["recipe", "idle", "This site has a recipe for this page."],
+    ]);
+    expect(lines({ recipe: "other-paths" })).toEqual([
+      ["recipe", "idle", "This site has a recipe, but none starts on this page."],
+    ]);
+    expect(lines()).toEqual([["recipe", "idle", "This site has no recipe yet."]]);
+  });
+
+  it("shows a recipe on the page and a login that signed in", () => {
+    expect(lines({ recipe: "page", login: { state: "authenticated" } })).toEqual([
+      ["recipe", "idle", "This site has a recipe for this page."],
+      ["login", "ok", "Logged in."],
+    ]);
+  });
+
+  it("says why a page without a recipe was not sent to the AI", () => {
+    expect(lines({ page: { generationSkip: "sent" } })).toEqual([
+      ["recipe", "idle", "This site has no recipe yet."],
+      [
+        "generation",
+        "idle",
+        "Not sent to the AI: the AI was asked about this page within the last 10 minutes, so it is not asked again yet.",
+      ],
+    ]);
+    // A code without a sentence shows as the log names it.
+    expect(lines({ page: { generationSkip: "new-code" } })[1]).toEqual([
+      "generation",
+      "idle",
+      "Not sent to the AI: new-code.",
+    ]);
+    // A page with a recipe says nothing about skips.
+    expect(lines({ recipe: "page", page: { generationSkip: "sent" } })).toEqual([
+      ["recipe", "idle", "This site has a recipe for this page."],
+    ]);
+  });
+
+  it.each([
+    [undefined, "the site's sign-in page"],
+    ["accounts", "the site's list of accounts"],
+    ["entry", "the site's sign-in link"],
+    ["continuation", "the rest of the site's sign-in"],
+  ] as const)("shows a request in flight for %s", (page, what) => {
+    const generation = { outcome: "sent", ...(page ? { page } : {}) };
+    expect(lines({ page: { state: "generating" }, generation })).toEqual([
+      ["recipe", "idle", "This site has no recipe yet."],
+      ["generation", "busy", `The AI is making a recipe for ${what}…`],
+    ]);
+  });
+
+  it("shows a page still generating after the worker lost the request as in flight", () => {
+    expect(lines({ page: { state: "generating" } })[1]).toEqual([
+      "generation",
+      "busy",
+      "The AI is making a recipe for the site's sign-in page…",
+    ]);
+  });
+
+  it("shows a request whose answer was not recorded", () => {
+    expect(lines({ generation: { outcome: "sent", page: "entry" } })[1]).toEqual([
+      "generation",
+      "warn",
+      "A page was sent to the AI for the site's sign-in link, and no answer was recorded.",
+    ]);
+  });
+
+  it("shows what the AI answered", () => {
+    expect(
+      lines({ recipe: "page", page: { state: "generating" }, generation: { outcome: "recipe" } }),
+    ).toEqual([
+      ["recipe", "idle", "This site has a recipe for this page."],
+      ["generation", "ok", "The AI made a recipe for the site's sign-in page."],
+    ]);
+    expect(lines({ generation: { outcome: "abstained", reason: "no-form" } })[1]).toEqual([
+      "generation",
+      "warn",
+      "The AI chose not to make a recipe for the site's sign-in page (no-form).",
+    ]);
+    expect(lines({ generation: { outcome: "abstained" } })[1]?.[2]).toBe(
+      "The AI chose not to make a recipe for the site's sign-in page (abstained).",
+    );
+  });
+
+  it("shows a failed request with its reason", () => {
+    expect(
+      lines({ generation: { outcome: "failed", reason: "invalid-output", page: "accounts" } }),
+    ).toEqual([
+      ["recipe", "idle", "This site has no recipe yet."],
+      [
+        "generation",
+        "err",
+        "The AI could not make a recipe for the site's list of accounts (failed: invalid-output).",
+      ],
+    ]);
+    expect(lines({ generation: { outcome: "unavailable" } })[1]).toEqual([
+      "generation",
+      "err",
+      "The AI could not make a recipe for the site's sign-in page (unavailable).",
+    ]);
+  });
+
+  it("shows a running login and one that waits for its result", () => {
+    expect(lines({ recipe: "page", login: { state: "started" } })[1]).toEqual([
+      "login",
+      "busy",
+      "Logging in…",
+    ]);
+    expect(lines({ recipe: "page", login: { state: "executing" } })[1]?.[2]).toBe("Logging in…");
+    expect(lines({ login: { state: "watching", outcome: "challenge" } })[1]).toEqual([
+      "login",
+      "warn",
+      "Waiting for you to finish the site's other step, such as a code.",
+    ]);
+    expect(lines({ login: { state: "watching", outcome: "unknown-submit" } })[1]).toEqual([
+      "login",
+      "warn",
+      "The result is not known yet; the next pages are checked for it.",
+    ]);
+  });
+
+  it.each(["structural-mismatch", "timeout", "retry-limit"])(
+    "adds that a recipe failing with %s is not made again automatically",
+    (outcome) => {
+      const shown = lines({ recipe: "page", login: { state: "blocked", outcome } });
+      expect(shown[1]?.[0]).toBe("login");
+      expect(shown[1]?.[1]).toBe("err");
+      expect(shown[1]?.[2]).toMatch(/^The login did not succeed: .+\.$/);
+      expect(shown[2]).toEqual([
+        "login-recipe",
+        "idle",
+        "This recipe is not made again automatically.",
+      ]);
+    },
+  );
+
+  it("names the outcome of a failed login without the recipe line", () => {
+    expect(lines({ login: { state: "blocked", outcome: "credential-rejected" } }).slice(1)).toEqual(
+      [["login", "err", "The login did not succeed: the site did not accept the password."]],
+    );
+    expect(lines({ login: { state: "blocked", outcome: "left-origin" } })[1]).toEqual([
+      "login",
+      "warn",
+      "The login did not succeed: the tab moved to another site during the login.",
+    ]);
+    expect(lines({ login: { state: "blocked", outcome: "new-outcome" } })[1]?.[2]).toBe(
+      "The login did not succeed: new-outcome.",
+    );
+    expect(lines({ login: { state: "blocked" } })[1]?.[2]).toBe(
+      "The login did not succeed: no reason was recorded.",
+    );
+  });
+
+  it.each(["cancelled", "account-switched", "interrupted", "policy-changed"])(
+    "says a login ended as %s stopped, not failed",
+    (outcome) => {
+      const shown = lines({ login: { state: "blocked", outcome } }).slice(1);
+      expect(shown).toHaveLength(1);
+      expect(shown[0]?.[1]).toBe("idle");
+      expect(shown[0]?.[2]).toMatch(/^The login stopped: .+\.$/);
+    },
+  );
+
+  it("reads a cancelled login as stopped", () => {
+    expect(lines({ login: { state: "blocked", outcome: "cancelled" } })[1]).toEqual([
+      "login",
+      "idle",
+      "The login stopped: the login was cancelled.",
+    ]);
+  });
+
+  it("says why the page's sign-in did not start a login", () => {
+    expect(lines({ recipe: "page", page: { notStarted: "logged-in" } })[1]).toEqual([
+      "login",
+      "idle",
+      "No login started: this site is already logged in.",
+    ]);
+    expect(lines({ recipe: "page", page: { reason: "origin-busy" } })[1]?.[2]).toBe(
+      "No login started: another tab's login to this site is running or did not succeed.",
+    );
+    // A page without a recipe is ordinary browsing.
+    expect(lines({ page: { reason: "recipe-not-found" } })).toEqual([
+      ["recipe", "idle", "This site has no recipe yet."],
+    ]);
+  });
+
+  it.each([
+    ["password-empty:no-passkey", "the vault item has neither a password nor a passkey"],
+    [
+      "password-empty:no-advance",
+      "the vault item has no password, and the recipe has no way on without one",
+    ],
+    ["password-empty:frame", "the vault item has no password"],
+    ["password-empty", "the vault item has no password"],
+    [
+      "password-not-allowed",
+      "the recipe has no way to log in with this vault item (password-not-allowed)",
+    ],
+    [undefined, "the recipe has no way to log in with this vault item"],
+  ])("says a no-route refusal with %s stopped the login", (detail, why) => {
+    expect(
+      lines({
+        recipe: "page",
+        generation: { outcome: "recipe" },
+        refused: { reason: "no-route", ...(detail ? { detail } : {}) },
+      }),
+    ).toEqual([
+      ["recipe", "idle", "This site has a recipe for this page."],
+      ["generation", "ok", "The AI made a recipe for the site's sign-in page."],
+      ["refused", "err", `Pateat did not log in: ${why}.`],
+    ]);
+  });
+
+  it("puts a refusal after the login before it, and shows no not-started line with it", () => {
+    expect(
+      lines({
+        recipe: "page",
+        login: { state: "blocked", outcome: "timeout" },
+        refused: { reason: "attempt-limit" },
+      }).map(([id]) => id),
+    ).toEqual(["recipe", "login", "login-recipe", "refused"]);
+    expect(
+      lines({
+        recipe: "page",
+        page: { notStarted: "logged-in" },
+        refused: { reason: "storage-unavailable" },
+      }),
+    ).toEqual([
+      ["recipe", "idle", "This site has a recipe for this page."],
+      ["refused", "err", "Pateat did not log in: Pateat could not save the login's state."],
+    ]);
+    expect(lines({ refused: { reason: "field-unavailable", detail: "x" } })[1]).toEqual([
+      "refused",
+      "err",
+      "Pateat did not log in: the account lacks a value the recipe needs.",
+    ]);
+  });
+});

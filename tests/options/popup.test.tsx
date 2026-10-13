@@ -891,3 +891,196 @@ test("after a logout, the popup asks even with one account", async () => {
     )
     .toBe(1);
 });
+
+/** The worker's answer about the tab's page, on bank.example. */
+function onPage(
+  fields: Partial<Extract<Awaited<ReturnType<ChoiceClient["status"]>>, { ok: true }>>,
+) {
+  const choices = noChoice();
+  choices.status.mockResolvedValue({
+    ok: true,
+    origin: "https://bank.example",
+    recipe: "none",
+    ...fields,
+  });
+  return choices;
+}
+/** A line of the page section by its id, as the popup shows it. */
+const lineText = (id: string) => document.querySelector(`#popup-page-${id}`)?.textContent;
+const pageLines = () =>
+  [...document.querySelectorAll("#popup-page-status > li")].map((item) => [
+    item.id,
+    item.textContent,
+  ]);
+
+test("the page section shows a recipe on the page and a login that signed in", async () => {
+  const { client } = store();
+  const choices = onPage({ recipe: "page", login: { state: "authenticated" } });
+  await mount(client, "https://bank.example/login", choices);
+  await expect.element(page.getByRole("heading", { name: "This page" })).toBeVisible();
+  await expect.poll(() => lineText("login")).toBe("Logged in.");
+  expect(pageLines()).toEqual([
+    ["popup-page-recipe", "This site has a recipe for this page."],
+    ["popup-page-login", "Logged in."],
+  ]);
+  expect(choices.status).toHaveBeenCalledWith(7);
+  // The section comes first, before the site's accounts.
+  await expect.element(page.getByRole("group", { name: "Default account" })).toBeVisible();
+  const section = document.querySelector("#popup-page-status")!;
+  const accounts = page.getByRole("group", { name: "Default account" }).element();
+  expect(section.compareDocumentPosition(accounts) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+});
+
+test("the page section says why a page without a recipe was not sent to the AI", async () => {
+  const { client } = store();
+  await mount(client, "https://bank.example/login", onPage({ page: { generationSkip: "sent" } }));
+  await expect
+    .poll(() => lineText("generation"))
+    .toBe(
+      "Not sent to the AI: the AI was asked about this page within the last 10 minutes, so it is not asked again yet.",
+    );
+  expect(pageLines()).toEqual([
+    ["popup-page-recipe", "This site has no recipe yet."],
+    ["popup-page-generation", expect.stringContaining("Not sent to the AI")],
+  ]);
+});
+
+test("the page section follows a request to the AI while the popup stays open", async () => {
+  const { client } = store();
+  const choices = onPage({ page: { state: "generating" }, generation: { outcome: "sent" } });
+  await mount(client, "https://bank.example/login", choices);
+  await expect
+    .poll(() => lineText("generation"))
+    .toBe("The AI is making a recipe for the site's sign-in page…");
+  choices.status.mockResolvedValue({
+    ok: true,
+    origin: "https://bank.example",
+    recipe: "page",
+    page: { state: "generating" },
+    generation: { outcome: "recipe" },
+  });
+  await expect
+    .poll(() => lineText("generation"), { timeout: 3000 })
+    .toBe("The AI made a recipe for the site's sign-in page.");
+  await expect.poll(() => lineText("recipe")).toBe("This site has a recipe for this page.");
+});
+
+test("the page section shows a failed request to the AI", async () => {
+  const { client } = store();
+  await mount(
+    client,
+    "https://bank.example/login",
+    onPage({ generation: { outcome: "failed", reason: "invalid-output", page: "accounts" } }),
+  );
+  await expect
+    .poll(() => lineText("generation"))
+    .toBe(
+      "The AI could not make a recipe for the site's list of accounts (failed: invalid-output).",
+    );
+});
+
+test("the page section says a recipe that did not match the page is not made again", async () => {
+  const { client } = store();
+  await mount(
+    client,
+    "https://bank.example/login",
+    onPage({ recipe: "page", login: { state: "blocked", outcome: "structural-mismatch" } }),
+  );
+  await expect
+    .poll(() => lineText("login"))
+    .toBe("The login did not succeed: the page did not match the recipe.");
+  await expect
+    .poll(() => lineText("login-recipe"))
+    .toBe("This recipe is not made again automatically.");
+});
+
+test("the page section reads a cancelled login as stopped", async () => {
+  const { client } = store();
+  await mount(
+    client,
+    "https://bank.example/login",
+    onPage({ recipe: "page", login: { state: "blocked", outcome: "cancelled" } }),
+  );
+  await expect.poll(() => lineText("login")).toBe("The login stopped: the login was cancelled.");
+  expect(document.querySelector("#popup-page-login-recipe")).toBeNull();
+});
+
+// Netflix in the owner's Chrome: the AI made a recipe, but the only item has neither a
+// password nor a passkey.
+test("the page section says a vault item without a password or passkey stopped the login", async () => {
+  const { client } = store();
+  await mount(
+    client,
+    "https://bank.example/login",
+    onPage({
+      recipe: "page",
+      generation: { outcome: "recipe" },
+      refused: { reason: "no-route", detail: "password-empty:no-passkey" },
+    }),
+  );
+  await expect
+    .poll(() => lineText("refused"))
+    .toBe("Pateat did not log in: the vault item has neither a password nor a passkey.");
+  expect(pageLines()).toEqual([
+    ["popup-page-recipe", "This site has a recipe for this page."],
+    ["popup-page-generation", "The AI made a recipe for the site's sign-in page."],
+    [
+      "popup-page-refused",
+      "Pateat did not log in: the vault item has neither a password nor a passkey.",
+    ],
+  ]);
+});
+
+test("the page section is hidden for a page the worker does not describe", async () => {
+  const { client } = store();
+  const choices = noChoice();
+  await mount(client, "https://bank.example/login", choices);
+  await expect.element(page.getByRole("group", { name: "Default account" })).toBeVisible();
+  // The second read follows the first answer, so that answer has been rendered.
+  await expect.poll(() => choices.status.mock.calls.length, { timeout: 3000 }).toBeGreaterThan(1);
+  expect(page.getByRole("heading", { name: "This page" }).query()).toBeNull();
+  expect(document.querySelector("#popup-page-status")).toBeNull();
+});
+
+test("the page section is hidden for another origin than the popup's", async () => {
+  const { client } = store();
+  // The tab moved on to another site after the popup read its address.
+  const other = noChoice();
+  other.status.mockResolvedValue({
+    ok: true,
+    origin: "https://other.example",
+    recipe: "page",
+    login: { state: "authenticated" },
+  });
+  await mount(client, "https://bank.example/login", other);
+  await expect.element(page.getByRole("group", { name: "Default account" })).toBeVisible();
+  // The second read follows the first answer, so that answer has been rendered.
+  await expect.poll(() => other.status.mock.calls.length, { timeout: 3000 }).toBeGreaterThan(1);
+  expect(page.getByRole("heading", { name: "This page" }).query()).toBeNull();
+  expect(document.querySelector("#popup-page-status")).toBeNull();
+});
+
+test("a tab Pateat cannot run on asks nothing about its page", async () => {
+  const { client } = store();
+  const choices = noChoice();
+  await mount(client, "chrome://newtab/", choices);
+  await expect
+    .element(page.getByText("Pateat works on HTTPS websites.", { exact: false }))
+    .toBeVisible();
+  expect(choices.status).not.toHaveBeenCalled();
+});
+
+test("the page section opens the detailed log", async () => {
+  const { client } = store();
+  const host = await mount(
+    client,
+    "https://bank.example/login",
+    onPage({ recipe: "page", login: { state: "authenticated" } }),
+  );
+  const link = page.getByRole("link", { name: "Open the detailed log" });
+  await expect.element(link).toBeVisible();
+  await userEvent.click(link);
+  expect(host.openDiagnostics).toHaveBeenCalledOnce();
+  expect(host.openSettings).not.toHaveBeenCalled();
+  expect(host.close).not.toHaveBeenCalled();
+});
