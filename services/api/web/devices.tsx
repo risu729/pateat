@@ -1,8 +1,6 @@
 import { DEVICE_IDLE_LIMIT_MS } from "@pateat/contracts";
-import { isoMinute } from "@pateat/contracts/time";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Clock, HardDrive, Laptop } from "lucide-react";
-import { Temporal } from "temporal-polyfill-lite";
 import { describeError, type ManageClient } from "./api";
 import { Button } from "./button";
 import {
@@ -21,12 +19,10 @@ import {
 export const DEVICES_QUERY_KEY = ["devices"] as const;
 
 export function formatTime(milliseconds: number) {
-  return isoMinute(milliseconds).replace("T", " ").replace(/Z$/u, " UTC");
+  return `${new Date(milliseconds).toISOString().replace("T", " ").slice(0, 16)} UTC`;
 }
 
-const IDLE_LIMIT_DAYS = Temporal.Duration.from({ milliseconds: DEVICE_IDLE_LIMIT_MS }).total(
-  "days",
-);
+const IDLE_LIMIT_DAYS = DEVICE_IDLE_LIMIT_MS / (24 * 60 * 60 * 1000);
 
 export function DevicesPage({ client }: { client: ManageClient }) {
   const queryClient = useQueryClient();

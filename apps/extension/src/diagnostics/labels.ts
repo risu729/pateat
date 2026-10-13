@@ -1,6 +1,5 @@
 // Plain-language labels shared by the diagnostics page, its checks and the copied report.
 // Each label that rewords a raw code keeps that code in parentheses.
-import { Temporal } from "temporal-polyfill-lite";
 import type { DiagnosticsConnection, DiagnosticsStatus } from "./wire";
 
 const INSTALL_LABELS: Record<string, string> = {

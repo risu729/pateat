@@ -1,21 +1,8 @@
 {
   "$schema": "https://raw.githubusercontent.com/oxc-project/oxc/main/npm/oxlint/configuration_schema.json",
   "plugins": ["typescript", "import", "promise", "react", "jsx-a11y"],
-  "categories": {
-    "correctness": "error",
-    "suspicious": "error",
-    "perf": "error"
-  },
-  "rules": {
-    "react/react-in-jsx-scope": "off",
-    "no-restricted-globals": [
-      "error",
-      {
-        "name": "Temporal",
-        "message": "Import Temporal from temporal-polyfill-lite: workerd and Chrome before 144 have no global Temporal."
-      }
-    ]
-  },
+  "categories": { "correctness": "error", "suspicious": "error", "perf": "error" },
+  "rules": { "react/react-in-jsx-scope": "off" },
   "ignorePatterns": [
     "**/.wxt/**",
     "**/.output/**",
@@ -24,9 +11,12 @@
   ],
   "overrides": [
     {
-      "files": ["scripts/**"],
+      "files": ["services/**", "packages/contracts/**", "packages/inference/**"],
       "rules": {
-        "no-restricted-globals": "off"
+        "no-restricted-globals": [
+          "error",
+          { "name": "Temporal", "message": "workerd has no Temporal; use Date on the server" }
+        ]
       }
     }
   ]

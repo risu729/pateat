@@ -43,7 +43,6 @@
         "lucide-react": "1.55.0",
         "react": "19.3.0",
         "react-dom": "19.3.0",
-        "temporal-polyfill-lite": "0.4.3",
         "tldts": "7.4.18",
         "valibot": "1.5.0",
       },
@@ -61,7 +60,6 @@
       "dependencies": {
         "@bitwarden/sdk-internal": "0.2.0-main.1100",
         "otpauth": "9.5.2",
-        "temporal-polyfill-lite": "0.4.3",
         "tldts": "7.4.18",
         "valibot": "1.5.0",
       },
@@ -70,7 +68,6 @@
       "name": "@pateat/contracts",
       "version": "0.1.0",
       "dependencies": {
-        "temporal-polyfill-lite": "0.4.3",
         "tldts": "7.4.18",
         "uuid": "14.0.3",
         "valibot": "1.5.0",
@@ -103,7 +100,6 @@
         "lucide-react": "1.55.0",
         "react": "19.3.0",
         "react-dom": "19.3.0",
-        "temporal-polyfill-lite": "0.4.3",
         "valibot": "1.5.0",
       },
       "devDependencies": {
@@ -814,8 +810,6 @@
     "tapable": ["tapable@2.3.3", "", {}, "sha512-uxc/zpqFg6x7C8vOE7lh6Lbda8eEL9zmVm/PLeTPBRhh1xCgdWaQ+J1CUieGpIfm2HdtsUpRv+HshiasBMcc6A=="],
 
     "tasuku": ["tasuku@2.3.0", "", {}, "sha512-9Jtk+XAnttslCw4i9RceSZGr2PT5TLn0vUyWnoP2SdlSYzkiYRY6kB5qnPi5IQ/Em8e4oBow1rpaA39iijTIrA=="],
-
-    "temporal-polyfill-lite": ["temporal-polyfill-lite@0.4.3", "", {}, "sha512-Lw/de9tydKmrU0icQy6Z+abX5mzDk4iqyt6Xp2iDDxY6SGISiuhuP3TcfWlYveM1FN1I7FjT5nG+Kh9eCiSnVg=="],
 
     "tiny-open": ["tiny-open@1.3.0", "", {}, "sha512-GUFS8yjJZq0oWqCKCJVHcBgMpmi2WEGXY1le3E5ncR0DsgTII5uUyxtfk8/vGyDDGBE42UYHR6Ocvlk8mkXSRg=="],
 

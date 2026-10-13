@@ -163,7 +163,7 @@ import {
 } from "./vault";
 import { newId } from "@pateat/contracts/ids";
 import { loginMoveFits } from "@pateat/contracts/site";
-import { isoTime, isoTimeMs, isoTimeSchema } from "@pateat/contracts/time";
+import { isoTime, isoTimeMs, isoTimeSchema } from "../time";
 
 const STORAGE_KEY = "pateat.login-attempts.v4";
 /** Accounts picked in the toolbar popup, per tab; session storage survives a worker restart. */

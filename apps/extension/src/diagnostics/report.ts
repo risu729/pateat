@@ -1,6 +1,6 @@
 // The text "Copy for bug report" copies (ADR 0019). It keeps the KDF family but leaves out
 // its parameters, which are shown on the page only.
-import { isoMinute } from "@pateat/contracts/time";
+import { isoMinute } from "../time";
 import {
   deviceFailureLabel,
   generationLabel,

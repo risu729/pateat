@@ -11,8 +11,7 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { useRef, useState } from "react";
-import { isoMinute } from "@pateat/contracts/time";
-import { Temporal } from "temporal-polyfill-lite";
+import { isoMinute } from "../time";
 import { Logo } from "../logo";
 import { Button } from "../options/button";
 import {

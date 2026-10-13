@@ -2,7 +2,7 @@
 // transaction per entry, from decisions it already makes. Every event allowlists its
 // fields by kind; identifiers become pseudonyms and unknown origins never appear in full.
 import type { IDBPObjectStore } from "idb";
-import { isoMinute, isoTime } from "@pateat/contracts/time";
+import { isoMinute, isoTime } from "../time";
 import * as v from "valibot";
 import {
   DIAGNOSTICS_DATABASE_NAME,

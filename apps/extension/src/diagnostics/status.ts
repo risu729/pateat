@@ -3,7 +3,6 @@
 import type { VaultSyncEntry } from "../connections/auto-sync";
 import type { BitwardenProfile } from "@pateat/bitwarden";
 import type { LocalSettings, ServiceState } from "@pateat/contracts";
-import { Temporal } from "temporal-polyfill-lite";
 import * as v from "valibot";
 import type { SetupReply } from "../connections/types";
 import type { DeviceStateResult } from "../service/transport";

@@ -1,5 +1,4 @@
 import type * as Sdk from "@bitwarden/sdk-internal";
-import { Temporal } from "temporal-polyfill-lite";
 import * as v from "valibot";
 
 import { isCoseSign1, verifiedSecurityStateVersion } from "./cose";

@@ -1,7 +1,6 @@
-// Times are kept as epoch milliseconds (`Date.now()`) in storage, IndexedDB and D1, and as
-// ISO 8601 strings in a few stored records. Temporal formats and reads them; it comes
-// from temporal-polyfill-lite because workerd and Chrome before 144 have no native one.
-import { Temporal } from "temporal-polyfill-lite";
+// Times are kept as epoch milliseconds (`Date.now()`) in extension storage and IndexedDB,
+// and as ISO 8601 strings in a few stored records. The native Temporal (Chrome 144, the
+// extension's minimum) formats and reads them. The service has no Temporal and uses Date.
 import * as v from "valibot";
 
 /** `2026-10-13T14:29:34.352Z`, the form `Date.prototype.toISOString` writes. */

@@ -630,11 +630,15 @@ replacements still require the owner's decision. On 2026-10-12 (14:31 UTC) the o
 chose i18next with react-i18next for the extension's UI text, so that the language can
 be chosen in Pateat's settings rather than only following Chrome's
 ([comparison](research/2026-10-12-extension-ui-translation.md)).
-On 2026-10-13 the owner chose temporal-polyfill-lite for dates and times. It is imported
-as a ponyfill rather than installed as a global: workerd has no native Temporal and
-Chrome has one only from 144, while the ponyfill runs the same implementation in every
-runtime and keeps the global `Intl` untouched. Node 26 has Temporal built in, so Node
-scripts use it directly.
+On 2026-10-13 the owner first chose temporal-polyfill-lite for dates and times; tried as
+a ponyfill, it added about 18 kB gzip to each extension context's bundle. At 16:12 UTC
+the same day the owner asked to enable the native Temporal where it can be enabled and
+otherwise to use `Date` on the server and the native Temporal in the extension. The
+extension uses Chrome's global `Temporal` and requires Chrome 144, the first version
+that ships it. The service keeps `Date`: workerd 1.20261006.1 does not expose Temporal,
+and no compatibility flag enables it (its V8 `harmony_temporal` flag cannot be set for a
+deployed Worker). Lint forbids the global `Temporal` in `services/` and in the packages
+the service imports.
 The current manifests and lockfile describe what is installed. WXT + TypeScript +
 Valibot remain confirmed choices; existing Vitest, Playwright and build tools remain in
 use. WXT drives Vite 8 (Rolldown) for the extension build
@@ -662,7 +666,7 @@ use. WXT drives Vite 8 (Rolldown) for the extension build
 | Identifiers | **Approved (2026-10-12) and implemented:** `uuid` for UUIDv7, since Web Crypto has only `randomUUID()` (v4) ([identifiers](architecture.md#identifiers)) | Phase 1 |
 | IndexedDB access | **Approved (2026-10-13) and implemented:** `idb` (Jake Archibald, ISC), a promise wrapper over the native API with the same transaction semantics, replacing the hand-written request and transaction wrappers in the vault, provider-session and diagnostics stores; a transaction still awaits only its own requests, because any other await lets it auto-commit; `idb` opens only the global `indexedDB`, so tests stub that global | Phase 1 |
 | DER signatures | **Approved (2026-10-13) and implemented:** `@noble/curves`, importing only the `DER` helper from `@noble/curves/abstract/der.js` (not `p256`), for the P1363/DER conversion of passkey assertion signatures; signing stays WebCrypto ([ADR 0007](adr/0007-existing-passkey-assertions.md)). Low value (about 50 lines removed): revert if bundle size matters | Phase 1 passkeys |
-| Dates and times | **Approved (2026-10-13) and implemented:** `temporal-polyfill-lite` (Gregorian bundle, imported as a ponyfill) for formatting, parsing and duration arithmetic; stored times stay epoch milliseconds and the clock stays `Date.now()` ([times](architecture.md#times)) | Phase 1 |
+| Dates and times | **Approved (2026-10-13) and implemented:** the native `Temporal` in the extension (minimum Chrome 144) for formatting, parsing and calendar arithmetic; the service keeps `Date`, because workerd (1.20261006.1) does not expose Temporal and has no compatibility flag for it; `temporal-polyfill-lite` was tried and dropped (bundle +18 kB gzip per context); stored times stay epoch milliseconds and the clock stays `Date.now()` ([times](architecture.md#times)) | Phase 1 |
 | Server configuration | Existing cf with cloudflare.config.ts and Vite | Retain verified build path |
 
 ### Integration conditions (pending candidates remain conditional)

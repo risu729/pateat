@@ -8,7 +8,6 @@ import {
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import * as v from "valibot";
 import { CircleCheck, CircleX, Clock, Link, Lock, TriangleAlert } from "lucide-react";
-import { Temporal } from "temporal-polyfill-lite";
 import { Button } from "./button";
 import type { ServiceClient } from "./service-client";
 import {
