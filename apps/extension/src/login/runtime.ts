@@ -8400,7 +8400,61 @@ export function createLoginRuntime(
     }
     if (ended) reviewRequests();
   }
-  browser.tabs.onRemoved.addListener((tabId) => {
+  browser.tabs.onRemoved.addListener((tabId) => forgetTab(tabId));
+  // Chrome gives a tab it discarded to save memory a new ID when it shows it again. It is
+  // the same tab to the user: what the tab did moves to the new ID, as if its page had
+  // reloaded, and the gone page is forgotten as on a close (ADR 0021).
+  browser.tabs.onReplaced.addListener((added, removed) => {
+    const moved = (key: string) =>
+      key.startsWith(`${removed} `) ? `${added}${key.slice(String(removed).length)}` : key;
+    void sessionLoaded.then(async () => {
+      let changed = false;
+      for (const keys of [logouts, stoppedAsks, rejectedAsks])
+        for (const key of [...keys])
+          if (moved(key) !== key) {
+            keys.delete(key);
+            keys.add(moved(key));
+            changed = true;
+          }
+      const press = entryPresses.get(removed);
+      if (press) {
+        entryPresses.delete(removed);
+        entryPresses.set(added, { ...press, tabId: added });
+        changed = true;
+      }
+      // A pick that started its login stays with that login; one for the gone page does not.
+      const pick = picked.get(removed);
+      if (pick?.attemptId !== undefined) {
+        picked.delete(removed);
+        picked.set(added, { ...pick, tabId: added });
+        changed = true;
+      }
+      if (changed) await quietly(saveSession);
+      return undefined;
+    });
+    storageQueue = storageQueue
+      .then(async () => {
+        await loaded;
+        let changed = false;
+        for (const [key, metadata] of [...persisted])
+          if (metadata.document.tabId === removed) {
+            persisted.delete(key);
+            persisted.set(recordKey(added, metadata.account.origin), {
+              ...metadata,
+              document: { ...metadata.document, tabId: added },
+            });
+            changed = true;
+          }
+        if (changed) await browser.storage.local.set({ [STORAGE_KEY]: [...persisted.values()] });
+        return undefined;
+      })
+      .catch(() => {
+        storageHealthy = false;
+      });
+    forgetTab(removed);
+  });
+  /** Forgets a closed tab, or the gone page of a replaced one. */
+  function forgetTab(tabId: number): void {
     passwordSubmits.delete(tabId);
     passwordFills.delete(tabId);
     afterSignIn.delete(tabId);
@@ -8443,7 +8497,7 @@ export function createLoginRuntime(
       .catch(() => {
         storageHealthy = false;
       });
-  });
+  }
   // A worker restart does not reinstall content scripts. Rebind browser-provided
   // document identity before reconciling, without restoring pending side effects.
   void loaded

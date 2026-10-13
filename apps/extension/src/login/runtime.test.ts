@@ -55,6 +55,7 @@ const fake = vi.hoisted(() => {
         return { ok: true };
       },
       onRemoved: { addListener: () => undefined },
+      onReplaced: { addListener: () => undefined },
     },
   };
   return { state, browser, pageUrl };

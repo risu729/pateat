@@ -30,6 +30,8 @@ export interface SignIns {
   add(tabId: number, record: { readonly origin: string; readonly rpId?: string }): Promise<void>;
   /** The tab's latest sign-ins, oldest first; none when storage failed. */
   list(tabId: number): Promise<readonly SignInRecord[]>;
+  /** Moves a tab's records to the new ID Chrome gave the tab when it replaced it. */
+  replaced(added: number, removed: number): Promise<void>;
 }
 
 /**
@@ -89,6 +91,17 @@ export function createSignIns(
     async list(tabId) {
       await loaded;
       return tabs.get(tabId) ?? [];
+    },
+    async replaced(added, removed) {
+      await loaded;
+      if (!tabs.has(removed)) return;
+      // In place, so the tab keeps its turn among the oldest.
+      const moved = [...tabs].map(
+        ([tabId, entry]) => [tabId === removed ? added : tabId, entry] as const,
+      );
+      tabs.clear();
+      for (const [tabId, entry] of moved) tabs.set(tabId, entry);
+      await save();
     },
   };
 }
