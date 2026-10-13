@@ -34,6 +34,9 @@ const time = v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(Number.MA
 const entrySchema = v.strictObject({
   /** Local `Date.now()` of the last check that was sent. */
   checkedAt: v.optional(time),
+  /** Local time the last check that found the revision unchanged was sent: the open
+   * snapshot matched Bitwarden then. Written only when that check finishes. */
+  unchangedAt: v.optional(time),
   /** Server milliseconds from `/accounts/revision-date` of the last applied sync. Never
    * compared with local time. */
   revisionMs: v.optional(time),
@@ -243,6 +246,9 @@ export function createVaultAutoSync(deps: {
         return {
           ...rest,
           outcome,
+          // Only this check's own answer confirms the snapshot; a record cleared meanwhile
+          // has no check time and gets none.
+          ...(outcome === "unchanged" && current.checkedAt === at ? { unchangedAt: at } : {}),
           ...(outcome === "deferred" ? { deferredSince: deferredSince ?? finished } : {}),
           ...(outcome === "rate-limited" ? { retryAt: finished + VAULT_RATE_LIMIT_MS } : {}),
         };
