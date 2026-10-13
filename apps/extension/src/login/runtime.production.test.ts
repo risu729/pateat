@@ -1,3 +1,4 @@
+import * as v from "valibot";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import {
   createSettingsStore,
@@ -22,7 +23,14 @@ import { createRecipeSync } from "../service/recipes";
 import { createSettingsSync } from "../service/settings-sync";
 import type { ServiceTransport } from "../service/transport";
 import { acceptsSecret, type SecretInput } from "./inputs";
-import { createLoginBadge, memoryBadgeStorage, setActionBadge } from "./badge";
+import { statusResponseSchema } from "./choice-wire";
+import {
+  createLoginBadge,
+  memoryBadgeStorage,
+  setActionBadge,
+  type BadgeDetails,
+  type LoginBadge,
+} from "./badge";
 import type { GenerationOutcome, LoginGeneration, LoginRecipeStart, LoginReport } from "./runtime";
 import type { LoginFieldSource } from "./vault";
 import type { ConditionalDecision, PasskeyItem } from "../passkeys/runtime";
@@ -384,6 +392,8 @@ function harness(
     signedIn?: (tabId: number, origin: string) => void;
     /** Spins a tab's toolbar badge while a model request is in flight. */
     spin?: (tabId: number) => () => void;
+    /** The toolbar badge, which keeps the tab's page status for the popup (ADR 0038). */
+    badge?: LoginBadge;
   } = {},
 ) {
   const customFields = (fields: CustomField[]) =>
@@ -531,14 +541,16 @@ function harness(
     ...(live.passkeyItems ? { passkeyItems: live.passkeyItems } : {}),
     ...(live.vault ? { vault: live.vault } : {}),
     ...(live.signedIn ? { signedIn: live.signedIn } : {}),
-    ...(live.spin
-      ? {
-          badge: {
-            ...createLoginBadge({ setBadge: setActionBadge, storage: memoryBadgeStorage() }),
-            spin: live.spin,
-          },
-        }
-      : {}),
+    ...(live.badge
+      ? { badge: live.badge }
+      : live.spin
+        ? {
+            badge: {
+              ...createLoginBadge({ setBadge: setActionBadge, storage: memoryBadgeStorage() }),
+              spin: live.spin,
+            },
+          }
+        : {}),
     ...(live.report
       ? {
           report: (entry: LoginReport) => {
@@ -5433,6 +5445,103 @@ describe("production login document admission", () => {
       expect(spin.mock.calls).toEqual([[1]]);
     });
 
+    it("tells the popup that the page went to the AI, then what came back", async () => {
+      fake.state.extracted = { login: loginPage };
+      let answer!: (outcome: GenerationOutcome) => void;
+      const service = generation({
+        generate: () =>
+          new Promise<GenerationOutcome>((resolve) => {
+            answer = resolve;
+          }),
+      });
+      const tabBadge = createLoginBadge({
+        setBadge: vi.fn(async () => undefined),
+        storage: memoryBadgeStorage(),
+      });
+      const h = harness(unsaved, {
+        allowedOrigins: [],
+        uris,
+        username: true,
+        custom: [],
+        generation: service,
+        badge: tabBadge,
+        report: (entry) => tabBadge.observe(entry),
+      });
+      h.recipes.recipe.mockResolvedValue(undefined);
+      h.recipes.starts.mockResolvedValue(startsOf([]));
+      const popup = {
+        id: "synthetic-extension",
+        url: "chrome-extension://synthetic-extension/popup.html",
+      } as never;
+      const ask = () => h.login.handle({ version: 1, type: "login.status.get", tabId: 1 }, popup);
+      expect(await ask()).toEqual({ ok: true, origin, recipe: "none" });
+      expect(await h.hello({}, false)).toMatchObject({ generate: true });
+      expect(await ask()).toMatchObject({ ok: true, origin, recipe: "none" });
+      expect(await h.signIn()).toEqual({ ok: false, reason: "generating" });
+      // The badge spins while the request is out, so the popup knows it is in flight.
+      await vi.waitFor(async () =>
+        expect(await ask()).toEqual({
+          ok: true,
+          origin,
+          recipe: "none",
+          asking: true,
+          page: expect.objectContaining({ state: "generating" }),
+          generation: { outcome: "sent" },
+        }),
+      );
+      expect(tabBadge.asking(1)).toBe(true);
+      answer({ outcome: "abstained", reason: "ambiguous" });
+      await vi.waitFor(async () =>
+        expect(await ask()).toMatchObject({
+          generation: { outcome: "abstained", reason: "ambiguous" },
+        }),
+      );
+      // The spin ended with the answer, though the page may still say `generating`.
+      const after = await ask();
+      expect(after).not.toHaveProperty("asking");
+      expect(tabBadge.asking(1)).toBe(false);
+    });
+
+    it("clips a page's over-long refusal reason to the popup's limit", async () => {
+      // The content script's refusal reason is any text it sent.
+      const reason = `extract-${"x".repeat(300)}`;
+      fake.state.extracted = { login: { ok: false, reason } };
+      const service = generation();
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness(unsaved, {
+        allowedOrigins: [],
+        uris,
+        username: true,
+        custom: [],
+        generation: service,
+        report,
+      });
+      h.recipes.recipe.mockResolvedValue(undefined);
+      h.recipes.starts.mockResolvedValue(startsOf([]));
+      expect(await h.hello({}, false)).toMatchObject({ generate: true });
+      await h.signIn();
+      await vi.waitFor(
+        () =>
+          expect(report).toHaveBeenCalledWith(
+            expect.objectContaining({ type: "generation", outcome: "skipped", reason }),
+          ),
+        { timeout: 6_000 },
+      );
+      expect(service.generate).not.toHaveBeenCalled();
+      const popup = {
+        id: "synthetic-extension",
+        url: "chrome-extension://synthetic-extension/popup.html",
+      } as never;
+      const answer = await h.login.handle(
+        { version: 1, type: "login.status.get", tabId: 1 },
+        popup,
+      );
+      // The popup's client parses the answer, so it must stay within its schema.
+      const parsed = v.parse(statusResponseSchema, answer);
+      expect(parsed).toMatchObject({ ok: true, origin, recipe: "none" });
+      expect(parsed.ok && parsed.page?.generationSkip).toBe(reason.slice(0, 200));
+    }, 10_000);
+
     it("logs a page that stopped answering before it was sent", async () => {
       const service = generation();
       const report = vi.fn<(report: LoginReport) => void>();
@@ -9760,6 +9869,180 @@ describe("production login document admission", () => {
           expect(h.store.update).not.toHaveBeenCalled();
         },
       );
+    });
+  });
+  describe("when the popup asks what Pateat did on the tab's page (ADR 0038)", () => {
+    const popup = {
+      id: "synthetic-extension",
+      url: "chrome-extension://synthetic-extension/popup.html",
+    } as never;
+    const ask = (h: ReturnType<typeof harness>, tabId = 1, from: never = popup) =>
+      h.login.handle({ version: 1, type: "login.status.get", tabId }, from);
+    const badge = () =>
+      createLoginBadge({ setBadge: vi.fn(async () => undefined), storage: memoryBadgeStorage() });
+
+    it.each([
+      ["an HTTP page", "http://login.example/signin"],
+      ["a browser page", "chrome://settings/"],
+      ["a malformed URL", "not a url"],
+      ["an empty URL", ""],
+    ])("answers no-page for %s", async (_name, url) => {
+      fake.state.tabUrls[1] = url;
+      const h = harness();
+      expect(await ask(h)).toEqual({ ok: false, reason: "no-page" });
+    });
+
+    it("reads the top document's URL when the tab's is not given", async () => {
+      const h = harness();
+      expect(await h.hello()).toEqual({ ok: true });
+      // Chrome leaves out a tab's URL without host access, and refuses a closed tab.
+      const get = vi
+        .spyOn(fake.browser.tabs, "get")
+        .mockImplementation(async (id: number) => ({ id, url: undefined }) as never);
+      try {
+        expect(await ask(h)).toMatchObject({ ok: true, origin, recipe: "page" });
+        get.mockRejectedValue(new Error("No tab with id"));
+        expect(await ask(h)).toMatchObject({ ok: true, origin, recipe: "page" });
+        // A tab without a document of its own has no page.
+        expect(await ask(h, 2)).toEqual({ ok: false, reason: "no-page" });
+      } finally {
+        get.mockRestore();
+      }
+    });
+
+    it("tells whether a recipe starts on the page, only elsewhere, or not at all", async () => {
+      const h = harness();
+      expect(await ask(h)).toEqual({ ok: true, origin, recipe: "page" });
+      fake.state.tabUrls[1] = `${origin}/home?next=%2Fsignin#signin`;
+      expect(await ask(h)).toEqual({ ok: true, origin, recipe: "other-paths" });
+      fake.state.tabUrls[1] = "https://other.example/signin";
+      expect(await ask(h)).toEqual({ ok: true, origin: "https://other.example", recipe: "none" });
+      // A recipe store that cannot be read counts as no recipe.
+      fake.state.tabUrls[1] = `${origin}/signin`;
+      h.recipes.starts.mockRejectedValueOnce(new Error("idb"));
+      expect(await ask(h)).toEqual({ ok: true, origin, recipe: "none" });
+    });
+
+    it("counts a sign-in entry's path as a recipe on the page", async () => {
+      const entry: LoginEntryRecipe = {
+        version: 1,
+        id: "synthetic-entry",
+        revision: 1,
+        origin,
+        entry: { path: "/", target: { by: "text", value: "Login" } },
+      };
+      const h = harness({}, { entries: [entry] });
+      h.recipes.starts.mockResolvedValue([]);
+      fake.state.tabUrls[1] = `${origin}/?return_to=%2Fbookmarks`;
+      expect(await ask(h)).toEqual({ ok: true, origin, recipe: "page" });
+      fake.state.tabUrls[1] = `${origin}/signin`;
+      expect(await ask(h)).toEqual({ ok: true, origin, recipe: "other-paths" });
+    });
+
+    it("gives the top document's state only while the tab shows its path", async () => {
+      const h = harness();
+      expect(await h.hello()).toEqual({ ok: true });
+      const answer = await ask(h);
+      expect(answer).toMatchObject({ ok: true, origin, recipe: "page", page: expect.any(Object) });
+      // Never a value, recipe step or query.
+      expect(JSON.stringify(answer)).not.toContain("synthetic-secret");
+      expect(JSON.stringify(answer)).not.toContain("password");
+      // The tab moved on before its new page announced.
+      fake.state.tabUrls[1] = `${origin}/home`;
+      expect(await ask(h)).toEqual({ ok: true, origin, recipe: "other-paths" });
+      fake.state.tabUrls[1] = "https://other.example/signin";
+      expect(await ask(h)).toEqual({ ok: true, origin: "https://other.example", recipe: "none" });
+    });
+
+    it("gives the tab's last login, refusal and model request only for the page's origin", async () => {
+      const tabBadge = badge();
+      const h = harness({}, { badge: tabBadge });
+      tabBadge.observe({ type: "generation", tabId: 1, origin, outcome: "recipe", page: "entry" });
+      tabBadge.observe({
+        type: "attempt",
+        tabId: 1,
+        origin,
+        recipeId: recipe.id,
+        recipeRevision: 1,
+        route: "password",
+        state: "blocked",
+        outcome: "credential-rejected",
+        cause: "elements-timeout",
+        stepIndex: 1,
+        stepCount: 2,
+      });
+      tabBadge.observe({
+        type: "refused",
+        tabId: 1,
+        origin,
+        reason: "no-route",
+        detail: "password-empty:no-passkey",
+      });
+      expect(await ask(h)).toEqual({
+        ok: true,
+        origin,
+        recipe: "page",
+        login: { state: "blocked", outcome: "credential-rejected", cause: "elements-timeout" },
+        refused: { reason: "no-route", detail: "password-empty:no-passkey" },
+        generation: { outcome: "recipe", page: "entry" },
+      });
+      // Another tab, or the tab on another origin before its badge heard of it, gets none.
+      fake.state.tabUrls[2] = `${origin}/signin`;
+      expect(await ask(h, 2)).toEqual({ ok: true, origin, recipe: "page" });
+      fake.state.tabUrls[1] = "https://other.example/signin";
+      expect(await ask(h)).toEqual({ ok: true, origin: "https://other.example", recipe: "none" });
+      fake.state.tabUrls[1] = `${origin}/signin`;
+      expect(await ask(h)).toMatchObject({ login: { state: "blocked" } });
+      // The badge drops it when the tab's top page changes origin.
+      tabBadge.loaded(1, `${origin}/signin`);
+      tabBadge.loaded(1, "https://other.example/");
+      expect(await ask(h)).toEqual({ ok: true, origin, recipe: "page" });
+    });
+
+    it("says a model request is in flight while the tab's badge spins", async () => {
+      const tabBadge = badge();
+      const h = harness({}, { badge: tabBadge });
+      expect(await ask(h)).toEqual({ ok: true, origin, recipe: "page" });
+      const stop = tabBadge.spin(1);
+      try {
+        expect(await ask(h)).toEqual({ ok: true, origin, recipe: "page", asking: true });
+        // Only that tab's.
+        fake.state.tabUrls[2] = `${origin}/signin`;
+        expect(await ask(h, 2)).toEqual({ ok: true, origin, recipe: "page" });
+      } finally {
+        stop();
+      }
+      expect(await ask(h)).toEqual({ ok: true, origin, recipe: "page" });
+    });
+
+    it("clips the badge's codes to the popup's limit", async () => {
+      const tabBadge = badge();
+      const h = harness({}, { badge: tabBadge });
+      const detail = `password-empty:${"y".repeat(250)}`;
+      tabBadge.observe({ type: "refused", tabId: 1, origin, reason: "no-route", detail });
+      const parsed = v.parse(statusResponseSchema, await ask(h));
+      expect(parsed).toMatchObject({
+        ok: true,
+        refused: { reason: "no-route", detail: detail.slice(0, 200) },
+      });
+    });
+
+    it("answers only the popup page, and only a well-formed request", async () => {
+      const tabBadge = badge();
+      const h = harness({}, { badge: tabBadge });
+      tabBadge.observe({ type: "generation", tabId: 1, origin, outcome: "sent" });
+      expect(await ask(h, 1, trusted)).toBeUndefined();
+      expect(await ask(h, 1, sender())).toBeUndefined();
+      expect(
+        await h.login.handle(
+          { version: 1, type: "login.status.get", tabId: 1, origin } as never,
+          popup,
+        ),
+      ).toBeUndefined();
+      expect(
+        await h.login.handle({ version: 1, type: "login.status.get", tabId: -1 }, popup),
+      ).toBeUndefined();
+      expect(await ask(h)).toMatchObject({ ok: true, generation: { outcome: "sent" } });
     });
   });
   it("does not answer probe controls outside the probe build", async () => {
@@ -20341,6 +20624,41 @@ describe("an item without a password, up to its password (ADR 0036)", () => {
     );
     expect(executed()).toEqual([]);
     expect(h.fields).not.toHaveBeenCalled();
+  });
+
+  // Netflix in the owner's Chrome: the only item has neither a password nor a passkey, and
+  // the refusal left no badge and nothing in the popup.
+  it("badges the refusal of an item without a passkey and tells the popup why", async () => {
+    const setBadge = vi.fn(async (_details: BadgeDetails) => undefined);
+    const tabBadge = createLoginBadge({ setBadge, storage: memoryBadgeStorage() });
+    const { h } = start({
+      passkeys: vi.fn(async () => ({ passkey: false, discoverable: false })),
+      badge: tabBadge,
+      report: (entry) => tabBadge.observe(entry),
+    });
+    expect(await h.hello()).toEqual({ ok: false, reason: "no-route" });
+    await vi.waitFor(() =>
+      expect(setBadge).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          tabId: 1,
+          text: "!",
+          title:
+            "Pateat: the login did not succeed (no-route: password-empty:no-passkey). Open Pateat for details.",
+        }),
+      ),
+    );
+    const popup = {
+      id: "synthetic-extension",
+      url: "chrome-extension://synthetic-extension/popup.html",
+    } as never;
+    expect(
+      await h.login.handle({ version: 1, type: "login.status.get", tabId: 1 }, popup),
+    ).toMatchObject({
+      ok: true,
+      origin,
+      recipe: "page",
+      refused: { reason: "no-route", detail: "password-empty:no-passkey" },
+    });
   });
 
   it("still refuses an item without a password in a frame, naming the frame", async () => {

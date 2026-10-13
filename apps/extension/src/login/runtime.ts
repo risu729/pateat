@@ -137,9 +137,11 @@ import {
   choiceRequestSchema,
   logoutReasonSchema,
   pickRequestSchema,
+  statusRequestSchema,
   type ChoiceResponse,
   type LogoutReason,
   type PickResponse,
+  type StatusResponse,
 } from "./choice-wire";
 import { customFieldOffers, type CustomFieldOffer } from "./generation-slots";
 import { emailUsername, namesUsername, type EntryMiss, type OtherMiss } from "../page/account-list";
@@ -433,6 +435,14 @@ type MoveMiss =
   | "not-quiet";
 /** Why a page offered for generation is not sent, for the log (ADR 0019). */
 type GenerationMiss = "no-vault-match" | "vault-unavailable" | "connection-disabled";
+/**
+ * The popup's codes within its 200 characters: a page's own refusal reason is any text the
+ * content script sent.
+ */
+const clipCodes = <T extends Record<string, string | undefined>>(fields: T): T =>
+  Object.fromEntries(
+    Object.entries(fields).map(([key, value]) => [key, value?.slice(0, 200)]),
+  ) as T;
 /** A provider's or vault's reason as a log code, within the log's 64 characters. */
 const logCode = (reason: string) =>
   reason
@@ -1586,10 +1596,11 @@ export function createLoginRuntime(
     /**
      * The toolbar badge (ADR 0038): the account choice a tab waits on, a tooltip, and a
      * spin while a model request for its page is in flight, from the request's `sent` until
-     * it returns. Without one the runtime writes `chrome.action` itself and keeps nothing
-     * across worker restarts.
+     * it returns; and the tab's last login and model request it read from the reports, for
+     * the popup's page section. Without one the runtime writes `chrome.action` itself and
+     * keeps nothing across worker restarts.
      */
-    badge?: Pick<LoginBadge, "choice" | "note" | "spin">;
+    badge?: Pick<LoginBadge, "choice" | "note" | "spin" | "status" | "asking">;
     /**
      * Told of each origin of a login that reached signed in, on any route, so a site's
      * passkey registration right after it can be refused (ADR 0007). Never changes the login.
@@ -2211,6 +2222,53 @@ export function createLoginRuntime(
       report({ frameId: 0 }, entry);
     }
     return answer;
+  }
+  /**
+   * What the popup's page section shows for a tab (ADR 0038): whether the top page's origin
+   * has a recipe, and for which path; the page's state as this worker last saw it; and the
+   * tab's last login and model request on that origin. Never a value, recipe step or query.
+   */
+  async function popupStatus(tabId: number): Promise<StatusResponse> {
+    const live = documents.get(frameKey({ tabId, frameId: 0 }));
+    // The tab's own URL, since its page may not have announced yet.
+    const url = (await browser.tabs.get(tabId).catch(() => undefined))?.url ?? live?.url;
+    let page: URL | undefined;
+    try {
+      page = url ? new URL(url) : undefined;
+    } catch {
+      page = undefined;
+    }
+    // The popup shows its page section only on HTTPS pages.
+    if (page?.protocol !== "https:") return { ok: false, reason: "no-page" };
+    const { origin: pageOrigin, pathname: path } = page;
+    const [starts, entries] = await Promise.all([
+      recipes.starts(pageOrigin).catch(() => []),
+      recipes.entries(pageOrigin).catch(() => []),
+    ]);
+    const paths = [
+      ...starts.map((start) => start.path),
+      ...entries.map((entry) => entry.entry.path),
+    ];
+    const status = badge.status(tabId);
+    const known = status?.origin === pageOrigin ? status : undefined;
+    // The worker's view of the page holds only while the tab still shows its path.
+    const shown = live?.document.origin === pageOrigin && live.path === path ? live : undefined;
+    const pageState = shown && {
+      ...(shown.state ? { state: shown.state } : {}),
+      ...(shown.reason ? { reason: shown.reason } : {}),
+      ...(shown.notStarted ? { notStarted: shown.notStarted } : {}),
+      ...(shown.generationSkip ? { generationSkip: shown.generationSkip } : {}),
+    };
+    return {
+      ok: true,
+      origin: pageOrigin,
+      recipe: paths.includes(path) ? "page" : paths.length ? "other-paths" : "none",
+      ...(badge.asking(tabId) ? { asking: true as const } : {}),
+      ...(pageState ? { page: clipCodes(pageState) } : {}),
+      ...(known?.login ? { login: clipCodes(known.login) } : {}),
+      ...(known?.refused ? { refused: clipCodes(known.refused) } : {}),
+      ...(known?.generation ? { generation: clipCodes(known.generation) } : {}),
+    };
   }
   /**
    * Restarts the refused document's login with the picked account: the document announces
@@ -8461,6 +8519,8 @@ export function createLoginRuntime(
     if (fromPopup(sender)) {
       const ask = v.safeParse(choiceRequestSchema, message);
       if (ask.success) return popupChoice(ask.output.tabId);
+      const asked = v.safeParse(statusRequestSchema, message);
+      if (asked.success) return popupStatus(asked.output.tabId);
       const pick = v.safeParse(pickRequestSchema, message);
       if (pick.success) return pickFor(pick.output);
       return undefined;
