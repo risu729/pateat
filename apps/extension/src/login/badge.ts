@@ -40,7 +40,10 @@ const UNSETTLED = new Set([
 
 export type BadgeResult = {
   kind: "failed" | "succeeded" | "unsettled";
-  /** The origin the result belongs to; a page of another origin in the tab clears it. */
+  /**
+   * The tab's top page origin when the result was set, else the reporting document's; a
+   * later top page of another origin clears it, also after a worker restart.
+   */
   origin: string;
   /** The outcome or reason, as the log names it. */
   reason: string;
@@ -319,7 +322,11 @@ export function createLoginBadge(deps: {
       if (report.type === "start") lastAttempt.delete(report.tabId);
       const result = badgeResult(report, now());
       if (result === "clear") setResult(report.tabId, undefined);
-      else if (result) setResult(report.tabId, { ...result, origin: report.origin });
+      else if (result)
+        setResult(report.tabId, {
+          ...result,
+          origin: tops.get(report.tabId) ?? report.origin,
+        });
     },
     /**
      * A page or frame of the tab loaded or committed: Chrome may have reset the tab's
@@ -399,11 +406,16 @@ export function createLoginBadge(deps: {
       }
       const value = parseStored(stored);
       if (!value) return;
-      for (const [tabId, result] of value.results)
-        if (!touched.has(tabId) && (result.until === undefined || result.until > now())) {
-          results.set(tabId, result);
-          expire(tabId);
-        }
+      for (const [tabId, result] of value.results) {
+        // A tab that already loaded a page of another origin since the start has moved on.
+        const top = tops.get(tabId);
+        if (touched.has(tabId) || (top !== undefined && top !== result.origin)) continue;
+        if (result.until !== undefined && result.until <= now()) continue;
+        results.set(tabId, result);
+        // The next load compares with the page the result was set on.
+        tops.set(tabId, result.origin);
+        expire(tabId);
+      }
       for (const tabId of new Set([...value.busy, ...value.results.map(([id]) => id)])) draw(tabId);
       save();
     },

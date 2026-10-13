@@ -532,6 +532,16 @@ describe("login badge", () => {
     h.badge.loaded(tabId, "https://shop.example/checkout#frame");
     await h.flush();
     expect(h.view()).toMatchObject(FAILED);
+    // The result belongs to the tab's top origin, not the frame's.
+    expect(await h.storage.getValue()).toMatchObject({
+      results: [[tabId, { origin: "https://shop.example" }]],
+    });
+  });
+
+  it("gives a result reported before any load the report's origin", async () => {
+    const h = harness();
+    h.badge.observe(attempt({ outcome: "timeout" }));
+    await h.flush();
     expect(await h.storage.getValue()).toMatchObject({ results: [[tabId, { origin }]] });
   });
 
@@ -748,8 +758,6 @@ describe("login badge", () => {
     });
   });
 
-  // `loaded()` marks a tab touched only when it drops a result already in memory, so a
-  // top-origin change seen before the stored value resolves lets the stale result return.
   it("does not bring back a stored result for a tab whose top origin changed during the restore", async () => {
     const h = harness({
       stored: { results: [[tabId, { kind: "failed", origin, reason: "timeout" }]], busy: [] },
@@ -760,6 +768,54 @@ describe("login badge", () => {
     await restoring;
     await h.flush();
     expect(await h.storage.getValue()).toEqual({ results: [], busy: [] });
+  });
+
+  it("does not bring back a stored result for a tab that first loaded another origin during the restore", async () => {
+    const h = harness({
+      stored: { results: [[tabId, { kind: "failed", origin, reason: "timeout" }]], busy: [] },
+    });
+    const restoring = h.badge.restore();
+    h.badge.loaded(tabId, "https://other.example/");
+    await restoring;
+    await h.flush();
+    expect(h.calls.filter((call) => call.text === "!")).toEqual([]);
+    expect(await h.storage.getValue()).toEqual({ results: [], busy: [] });
+  });
+
+  it("keeps a stored result for a tab that loaded its origin during the restore", async () => {
+    const h = harness({
+      stored: { results: [[tabId, { kind: "failed", origin, reason: "timeout" }]], busy: [] },
+    });
+    const restoring = h.badge.restore();
+    h.badge.loaded(tabId, `${origin}/account`);
+    await restoring;
+    await h.flush();
+    expect(h.view()).toMatchObject(FAILED);
+  });
+
+  it("clears a restored result when the tab's first load after the restore is another origin", async () => {
+    const h = harness({
+      stored: { results: [[tabId, { kind: "failed", origin, reason: "timeout" }]], busy: [] },
+    });
+    await h.badge.restore();
+    await h.flush();
+    expect(h.view()).toMatchObject(FAILED);
+    h.badge.loaded(tabId, "https://other.example/");
+    await h.flush();
+    expect(await h.storage.getValue()).toEqual({ results: [], busy: [] });
+  });
+
+  it("keeps a restored result when the tab's first load after the restore is its origin", async () => {
+    const h = harness({
+      stored: { results: [[tabId, { kind: "failed", origin, reason: "timeout" }]], busy: [] },
+    });
+    await h.badge.restore();
+    await h.flush();
+    const count = h.calls.length;
+    h.badge.loaded(tabId, `${origin}/account`);
+    await h.flush();
+    expect(h.calls.slice(count)).toEqual([{ tabId, ...FAILED, title: expect.any(String) }]);
+    expect(await h.storage.getValue()).toMatchObject({ results: [[tabId, { kind: "failed" }]] });
   });
 
   it.each([
