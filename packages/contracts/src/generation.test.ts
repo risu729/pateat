@@ -465,6 +465,20 @@ describe("page judgement contracts (ADR 0027)", () => {
       expect(v.is(recipeCompletionRequestSchema, { ...request, partial })).toBe(false);
   });
 
+  it("marks a page at a stop before a missing password only as true (ADR 0036)", () => {
+    const request = { version: 1, revision: 2, route: "password", observation };
+    expect(v.is(recipeCompletionRequestSchema, { ...request, stop: true })).toBe(true);
+    for (const stop of [false, "true"])
+      expect(v.is(recipeCompletionRequestSchema, { ...request, stop })).toBe(false);
+    // Only a password login without a chooser has a stop.
+    expect(v.is(recipeCompletionRequestSchema, { ...request, route: "passkey", stop: true })).toBe(
+      false,
+    );
+    expect(v.is(recipeCompletionRequestSchema, { ...request, branch: "account", stop: true })).toBe(
+      false,
+    );
+  });
+
   it("answers signed-in and challenge with or without a change", () => {
     for (const status of ["signed-in", "challenge"]) {
       expect(v.is(recipeCompletionResultSchema, { version: 1, status })).toBe(true);

@@ -1,6 +1,12 @@
 import { toJsonSchema } from "@valibot/to-json-schema";
 import { describe, expect, it } from "vitest";
-import { completionInstructions, completionPromptVersion, judgedPageSchema } from "./completion";
+import {
+  completionInstructions,
+  completionPromptVersion,
+  completionStopInstructions,
+  completionStopPromptVersion,
+  judgedPageSchema,
+} from "./completion";
 import {
   accountListGenerationInstructions,
   accountListGenerationPromptVersion,
@@ -23,6 +29,14 @@ describe("prompt versions", () => {
       await promptVersion(completionInstructions, JSON.stringify(toJsonSchema(judgedPageSchema))),
     );
     expect(await completionPromptVersion()).not.toBe(version);
+    // A page at a login's stop before a password (ADR 0036) is judged under its own version.
+    expect(await completionStopPromptVersion()).toBe(
+      await promptVersion(
+        completionStopInstructions,
+        JSON.stringify(toJsonSchema(judgedPageSchema)),
+      ),
+    );
+    expect(await completionStopPromptVersion()).not.toBe(await completionPromptVersion());
     // An entry request (ADR 0031) sends other instructions with the same response format.
     expect(await entryGenerationPromptVersion()).toBe(
       await promptVersion(entryGenerationInstructions, schema),

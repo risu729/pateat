@@ -236,20 +236,19 @@ the path ending before it), or `{ check: "plan", reason }` with the plan check's
   log row has the entry request's own prompt version and records `{ entry }` with the
   candidate ID.
 - `POST /v1/recipes/:recipeId/completion` takes
-  `{ version: 1, revision, route, observation, partial? }` for a page an effect step of
-  that revision led to, on the recipe's origin
+  `{ version: 1, revision, route, observation, partial?, stop? }` for a page an effect
+  step of that revision led to, on the recipe's origin
   ([ADR 0027](../../docs/adr/0027-per-account-login-routes.md)) or on another HTTPS
   origin that a `password` login's tab moved to: of its registrable domain, or, right
   after a second factor (a TOTP code, or a passkey answered after the password), of any
   site; the service cannot see the second factor, so the extension decides when to send
-  such a page
-  ([ADR 0022](../../docs/adr/0022-login-attempts-per-tab-and-origin.md); an origin
-  that is not HTTPS or is a bare public suffix, or another origin on another route,
-  answers 400). On that other origin the
-  recipe's paths are not compared with the page, only markers learned there count, a
-  `signed-in` marker is stored with that `origin` (or, when it cannot be learned, the
-  answer is still `signed-in`), and a `challenge` adds no handler. `partial: true` says
-  the description left out a disabled field that may not be a sign-in field
+  such a page ([ADR 0022](../../docs/adr/0022-login-attempts-per-tab-and-origin.md); an
+  origin that is not HTTPS or is a bare public suffix, or another origin on another
+  route, answers 400). On that other origin the recipe's paths are not compared with the
+  page, only markers learned there count, a `signed-in` marker is stored with that
+  `origin` (or, when it cannot be learned, the answer is still `signed-in`), and a
+  `challenge` adds no handler. `partial: true` says the description left out a disabled
+  field that may not be a sign-in field
   ([ADR 0029](../../docs/adr/0029-local-sign-in-state.md)). Another revision, or a route
   the stored recipe lacks, answers `recipe-conflict`. The request never names a
   `password` variant. On the `passkey` route, a page that shows a fill field of any
@@ -283,27 +282,43 @@ the path ending before it), or `{ check: "plan", reason }` with the plan check's
   `code-too-short`, `several-code-fields`, `submit-not-button` or `submit-other-form`. A
   `signed-in` marker on a `totp` handler's path that shows its code field fails
   `addCompletion` like one on the sign-in page, and the call answers `invalid-output`.
+- `stop: true` (only with the `password` route and no `branch`) marks the page of a
+  `password` login's stop before its item's missing password
+  ([ADR 0036](../../docs/adr/0036-passkey-after-the-identifier.md), owner 2026-10-13
+  05:39 UTC); like the `passkey` route's name, it tells the service that the item has no
+  password but a passkey. Such a page must show one of the route's fill fields as a
+  password input, and not the completion marker; the route's other fill fields and
+  sign-in targets do not keep it from the judge, but a list of accounts, a chooser
+  recipe, another origin or a path where the recipe already has a `passkey` handler
+  answers `not-judgeable` before any model call. The password input must match a fill
+  target's locator exactly; a site that changes the field's locator is not judged (a
+  known gap). It is judged with the stop's
+  instructions, which ask only for a button that signs in with a passkey or security key
+  instead of the password and name no fact of the account, under their own prompt
+  version. Only a `passkey` handler is kept from it, through `addHandler` as above; a
+  code is logged as not kept (`stop`), and `signed-in` or `rejected` stores no marker
+  and answers `unclear`.
 
 Judgements are limited under the lock, before credentials are resolved:
 `page_judgements` holds one row per recipe revision, page origin and path and judge
-prompt version (its instructions and output schema), so a repeat answers
-`judged-signed-in` when the model answered `signed-in`, `already-judged` when it
-abstained (`unclear`), and
-`judged-challenge`, `judged-rejected` or `judgement-unanswered` when it judged the page
-`challenge` or `rejected` or the row has no verdict, as after the request failed or
-while it still runs past the owner's lock (the row's `verdict`, ADR 0029). An abstention
-on a `partial` request is kept as `partial`: another `partial` request for the path
-answers `already-judged`, and one without it is judged again on the same row, which
-counts in the day it was first taken; that adds at most one model call per path, as the
-new verdict is never `partial`. A recipe judged 20 times since the start of the UTC
-day answers `judgement-limit`. A row of another judge prompt version does not answer a
-repeat, so a changed prompt judges the page again, as one that can now name a handler
-an earlier prompt could not. A change to the local checks that keep a handler alone
-does not; it
-needs a prompt change to reach pages already judged. The row is written with the spend
-reservation, so a request the role then refuses locally still
-uses it. Rows of older revisions or other judge prompt versions are deleted once their
-UTC day is over.
+prompt version (its instructions and output schema; a stop's page has its own), so a
+repeat answers `judged-signed-in` when the model answered `signed-in`, `already-judged`
+when it abstained (`unclear`), and `judged-challenge`, `judged-rejected` or
+`judgement-unanswered` when it judged the page `challenge` or `rejected` or the row has
+no verdict, as after the request failed or while it still runs past the owner's lock
+(the row's `verdict`, ADR 0029). An abstention on a `partial` request is kept as
+`partial`: another `partial` request for the path answers `already-judged`, and one
+without it is judged again on the same row, which counts in the day it was first taken;
+that adds at most one model call per path, as the new verdict is never `partial`. A
+recipe judged 20 times since the start of the UTC day answers `judgement-limit`. A row
+of another judge prompt version does not answer a repeat, so a changed prompt judges the
+page again, as one that can now name a handler an earlier prompt could not. A change to
+the local checks that keep a handler alone does not; it needs a prompt change to reach
+pages already judged. The row is written with the spend reservation, so a request the
+role then refuses locally still uses it. A stop's row is kept as `challenge` or
+undecided, so it answers only later stops' pages, and a stop's judgement counts toward
+the 20 a day. Rows of older revisions or of judge prompt versions other than the two
+current ones are deleted once their UTC day is over.
 
 `src/claude/calls.ts` wraps every model call. Per owner it takes a 90-second lock
 (`busy` otherwise), refuses past $100 of estimated spend a month or $5 a day (UTC, both

@@ -841,6 +841,12 @@ export interface LoginGeneration {
      * in full is judged again (ADR 0029).
      */
     partial?: true,
+    /**
+     * The page of a login's stop before its item's missing password, which still shows the
+     * stop step's password field: the service keeps only a `passkey` handler from it (ADR
+     * 0036, owner 2026-10-13 05:39 UTC).
+     */
+    stop?: true,
   ): Promise<{
     /**
      * `retry` for a temporary refusal before any model call, which gives the page back:
@@ -1329,6 +1335,11 @@ export type LoginReport = (
        * the submission or a second factor (ADR 0022); `origin` is that page's.
        */
       moved?: true;
+      /**
+       * The page of a login's stop before its item's missing password, judged for a passkey
+       * button beside the password field (ADR 0036, owner 2026-10-13 05:39 UTC).
+       */
+      stop?: "password";
     }
   | ({
       type: "state";
@@ -3868,9 +3879,15 @@ export function createLoginRuntime(
    * `totp` handler is never entered by a login that already types a code, and needs the
    * item's built-in TOTP field. Returns whether the attempt moved on: to the handler's
    * steps, or to `challenge` when no shown handler qualifies or the attempt's budget has
-   * no room for it.
+   * no room for it. At a login's stop before its item's missing password (`stop`, ADR
+   * 0036), only a `passkey` handler is entered, before the stop step, and the login ends
+   * there with `stop.end` instead.
    */
-  async function enterHandler(run: Execution, path: string): Promise<boolean> {
+  async function enterHandler(
+    run: Execution,
+    path: string,
+    stop?: { end: () => Promise<void> },
+  ): Promise<boolean> {
     // A fresh handler's elements must be usable: its code field a shown writable input and
     // its button shown, enabled or not, as a Verify button disabled until the code is typed
     // is; so a hidden code input rendered with the sign-in form never stands for a code
@@ -3890,13 +3907,41 @@ export function createLoginRuntime(
       .flatMap((variant) => variant.steps)
       .filter((step) => step.path === path)
       .flatMap((step) => (step.kind === "click" ? [step.target] : []));
+    // A login that may still type its password, on the `password` route without a stop, never
+    // enters a `passkey` handler on a path where its plan still has a route step to run that
+    // fills the password, nor while a fill field of the route shows on this path, as one
+    // learned beside the password field at another login's stop (ADR 0036): the button never
+    // pre-empts the password it types, even while the page swaps its identifier for its
+    // password field. A route step still to run that fills only another slot, as a code on
+    // the page after the password, does not keep it out. A login with a stop, recorded when
+    // it started and kept whatever the vault later holds, never types it.
+    const typesPassword = run.metadata.route === "password" && run.metadata.stopAt === undefined;
+    // The first plan step not yet run: the one after the step in flight, or the current one.
+    const unrun =
+      run.metadata.operationId === undefined ? run.metadata.stepIndex : run.metadata.stepIndex + 1;
+    const passwordAhead =
+      typesPassword &&
+      (attemptPlan(run.recipe, run.metadata) ?? []).some(
+        (entry, index) =>
+          index >= unrun &&
+          entry.handler === undefined &&
+          entry.step.kind === "fill" &&
+          entry.step.path === path &&
+          entry.step.fields.some((field) => field.slot === "password"),
+      );
     const entries = (run.recipe.handlers ?? []).flatMap((handler, index) => {
-      if (handler.path !== path) return [];
+      if (
+        handler.path !== path ||
+        (stop && handler.kind !== "passkey") ||
+        (passwordAhead && handler.kind === "passkey")
+      )
+        return [];
       const ran = run.metadata.handlers.some((entered) => entered.index === index);
       const sameForm =
         !ran &&
-        handler.kind === "totp" &&
-        routeClicks.some((target) => sameLoginTarget(target, handler.target));
+        ((handler.kind === "totp" &&
+          routeClicks.some((target) => sameLoginTarget(target, handler.target))) ||
+          (handler.kind === "passkey" && typesPassword));
       const targets = handlerTargets(handler);
       return [
         {
@@ -3960,7 +4005,9 @@ export function createLoginRuntime(
         steps: handlerSteps(entry.handler).length,
       });
     const challenge = () =>
-      change(run, { type: "OBSERVED", result: "challenge", document: run.live.document });
+      stop
+        ? stop.end()
+        : change(run, { type: "OBSERVED", result: "challenge", document: run.live.document });
     // A handler page shown again after its handler ran is left to the person, and so is a
     // second code in one login, so a wrong code or key is never retried into a lockout.
     const refusal = (entry: (typeof entries)[number]) =>
@@ -4004,7 +4051,9 @@ export function createLoginRuntime(
       }).length,
       document: run.live.document,
     };
-    if (transitionLoginAttempt(run.metadata, event).state !== "ready") {
+    // At a stop the attempt stays ready either way: only an entered handler counts.
+    const entered = transitionLoginAttempt(run.metadata, event);
+    if (entered.state !== "ready" || entered.handlers.length === run.metadata.handlers.length) {
       reportHandler(fresh, "no-room");
       await challenge();
       return true;
@@ -4109,6 +4158,57 @@ export function createLoginRuntime(
     }
     return readUsernames(run.live.document.origin, reads);
   }
+  /**
+   * The page's description for the judge, on `path`, with the usernames of the items that
+   * match it and the login's own hidden; or why it is not sent (`unsent`), or nothing when
+   * the run was superseded meanwhile.
+   */
+  async function describeForJudge(
+    run: Execution,
+    path: string,
+  ): Promise<
+    { observation: LoginObservation; disabledLeftOut: boolean } | { unsent: string } | undefined
+  > {
+    let observation: LoginObservation | undefined;
+    let unsent = "unreachable";
+    let disabledLeftOut = false;
+    try {
+      const extracted = v.safeParse(
+        extractResultSchema,
+        await send(run.live, { type: "login.extract", page: "signed-in" }),
+      );
+      const parsed =
+        extracted.success && extracted.output.ok
+          ? v.safeParse(loginObservationSchema, extracted.output.observation)
+          : undefined;
+      if (!extracted.success || !parsed?.success)
+        unsent =
+          extracted.success && !extracted.output.ok ? extracted.output.reason : "invalid-page";
+      else if (!parsed.output.complete)
+        unsent = (extracted.output.ok && extracted.output.gap) || "incomplete";
+      else if (
+        parsed.output.origin !== run.live.document.origin ||
+        // The description carries the path with any token-like segment replaced.
+        parsed.output.path !== signedInPath(path)
+      )
+        unsent = "page-changed";
+      else {
+        observation = parsed.output;
+        disabledLeftOut = extracted.output.ok && extracted.output.disabledLeftOut === true;
+      }
+    } catch {
+      // The page could not be asked: `unreachable`.
+    }
+    if (!current(run)) return undefined;
+    if (!observation) return { unsent };
+    // A judged page can show the identifier just entered: the usernames of the items that
+    // match it, and the login's own, are hidden first.
+    const usernames = await judgedUsernames(run).catch(() => undefined);
+    const hidden = hideUsernames(observation, usernames);
+    if (!current(run)) return undefined;
+    if ("reason" in hidden) return { unsent: hidden.reason };
+    return { observation: hidden.observation, disabledLeftOut };
+  }
   async function learn(run: Execution, reading?: SignInReading): Promise<boolean> {
     const { recipe, metadata } = run;
     const { operationId } = metadata;
@@ -4157,46 +4257,11 @@ export function createLoginRuntime(
         .some((state) => state === "unique" || state === "ambiguous")
     )
       return notSent("marker-shown");
-    let observation: LoginObservation | undefined;
-    let unsent = "unreachable";
-    let disabledLeftOut = false;
-    try {
-      const extracted = v.safeParse(
-        extractResultSchema,
-        await send(run.live, { type: "login.extract", page: "signed-in" }),
-      );
-      const parsed =
-        extracted.success && extracted.output.ok
-          ? v.safeParse(loginObservationSchema, extracted.output.observation)
-          : undefined;
-      if (!extracted.success || !parsed?.success)
-        unsent =
-          extracted.success && !extracted.output.ok ? extracted.output.reason : "invalid-page";
-      else if (!parsed.output.complete)
-        unsent = (extracted.output.ok && extracted.output.gap) || "incomplete";
-      else if (
-        parsed.output.origin !== run.live.document.origin ||
-        // The description carries the path with any token-like segment replaced.
-        parsed.output.path !== signedInPath(remaining.path)
-      )
-        unsent = "page-changed";
-      else {
-        observation = parsed.output;
-        disabledLeftOut = extracted.output.ok && extracted.output.disabledLeftOut === true;
-      }
-    } catch {
-      // The page could not be asked: `unreachable`.
-    }
-    if (!current(run)) return true;
+    const described = await describeForJudge(run, remaining.path);
+    if (!described) return true;
     // A page that cannot be described completely is not sent and does not count.
-    if (!observation) return notSent(unsent);
-    // A judged page can show the identifier just entered: the usernames of the items that
-    // match it, and the login's own, are hidden first.
-    const usernames = await judgedUsernames(run).catch(() => undefined);
-    const hidden = hideUsernames(observation, usernames);
-    if (!current(run)) return true;
-    if ("reason" in hidden) return notSent(hidden.reason);
-    observation = hidden.observation;
+    if ("unsent" in described) return notSent(described.unsent);
+    const { observation, disabledLeftOut } = described;
     const left = pagesLeft(run.metadata, operationId);
     await change(run, { type: "JUDGING", operationId });
     if (!current(run)) return true;
@@ -4344,6 +4409,7 @@ export function createLoginRuntime(
     answered: LoginRecipe | LoginChooserRecipe,
     path: string,
     taking: () => void,
+    stop?: { end: () => Promise<void> },
   ): Promise<boolean> {
     const next = routeOf(run, answered);
     if (!next || next.id !== run.recipe.id || !extendsRecipe(run.recipe, next)) return false;
@@ -4354,7 +4420,7 @@ export function createLoginRuntime(
     run.recipe = next;
     if (!isLoginRouteRecipe(answered)) run.chooser = answered;
     await change(run, event);
-    return current(run) && (await enterHandler(run, path));
+    return current(run) && (await enterHandler(run, path, stop));
   }
   /**
    * The route a login runs of a recipe the service sent or the cache holds: a chooser
@@ -9108,7 +9174,10 @@ export function createLoginRuntime(
         "password-empty",
       );
     if (!parked && bridged === undefined) {
-      await end();
+      // A passkey button beside the stop's password field is pressed instead (owner,
+      // 2026-10-13 05:39 UTC); its request is then answered here as any.
+      if (await pressAtStop(run, stopped, () => end())) return;
+      if (stopped()) await end();
       return;
     }
     // A stop just past the plan's last step holds the page on the path it answers on.
@@ -9167,6 +9236,139 @@ export function createLoginRuntime(
       run.answeredAt = Date.now();
     }
     await reconcileBounded(run);
+  }
+  /**
+   * At a login's stop with no passkey request in time (ADR 0036, owner 2026-10-13 05:39
+   * UTC): enters a `passkey` handler of the recipe shown on the page, before the stop step,
+   * so its button is pressed and the request that follows is answered with the item. With
+   * none, a page that still shows the stop step's password field on its path, where the
+   * recipe has no `passkey` handler yet, is sent once to be judged for such a button
+   * (`judgeStop`). Returns whether the caller leaves the
+   * login as it is: moved on, ended, or no longer this run's.
+   */
+  async function pressAtStop(
+    run: Execution,
+    stopped: () => boolean,
+    end: () => Promise<void>,
+  ): Promise<boolean> {
+    const step = (attemptPlan(run.recipe, run.metadata) ?? [])[run.metadata.stopAt!]?.step;
+    const stopFields = step ? stepTargets(step) : [];
+    const page = await observe(
+      run,
+      stopFields,
+      stopFields.map(() => "shown" as const),
+    );
+    if (!current(run)) return true;
+    if (!page || !stopped()) return false;
+    if (await enterHandler(run, page.path, { end })) return true;
+    if (!current(run)) return true;
+    // A path that has a `passkey` handler already gets no other: the service would refuse
+    // it as a duplicate, so the page is not judged for one.
+    if (
+      !stopped() ||
+      !step ||
+      page.path !== step.path ||
+      !page.targets.some((state) => state === "unique") ||
+      (run.recipe.handlers ?? []).some(
+        (handler) => handler.kind === "passkey" && handler.path === page.path,
+      )
+    )
+      return false;
+    return judgeStop(run, page.path, stopped, end);
+  }
+  /**
+   * Sends the page at a login's stop, which still shows the stop step's password field, to be
+   * judged once per attempt (`STOP_JUDGING`, recorded before the request), within the
+   * judge's limits on the service (ADR 0036, owner 2026-10-13 05:39 UTC). The service keeps
+   * only a `passkey` handler from it; the login takes the revision over and enters it
+   * before the stop. Any other answer leaves the login to end at its stop. Returns whether
+   * the caller leaves the login as it is.
+   */
+  async function judgeStop(
+    run: Execution,
+    path: string,
+    stopped: () => boolean,
+    end: () => Promise<void>,
+  ): Promise<boolean> {
+    if (!generation) return false;
+    const notSent = (reason: string) => {
+      report(run.live.document, {
+        type: "judge",
+        tabId: run.live.document.tabId,
+        origin: run.live.document.origin,
+        recipeId: run.recipe.id,
+        recipeRevision: run.recipe.revision,
+        route: run.metadata.route,
+        verdict: "not-sent",
+        reason,
+        stop: "password",
+      });
+      return false;
+    };
+    const judging: LoginAttemptEvent = { type: "STOP_JUDGING" };
+    if (run.metadata.stopJudged) return notSent("stop-judged");
+    if (transitionLoginAttempt(run.metadata, judging).stopJudged !== true) return false;
+    const described = await describeForJudge(run, path);
+    if (!described) return true;
+    if ("unsent" in described) return notSent(described.unsent);
+    if (!stopped()) return false;
+    const { observation, disabledLeftOut } = described;
+    await change(run, judging);
+    if (!current(run)) return true;
+    if (!stopped() || run.metadata.stopJudged !== true) return false;
+    const { recipe } = run;
+    const reportJudge = (
+      verdict: Extract<LoginReport, { type: "judge" }>["verdict"],
+      detail: { reason?: string; takenOver?: boolean } = {},
+    ) =>
+      report(run.live.document, {
+        type: "judge",
+        tabId: run.live.document.tabId,
+        origin: run.live.document.origin,
+        recipeId: recipe.id,
+        recipeRevision: recipe.revision,
+        route: "password",
+        verdict,
+        ...detail,
+        ...(disabledLeftOut ? { disabledLeftOut: true as const } : {}),
+        stop: "password",
+      });
+    const {
+      verdict,
+      reason,
+      recipe: added,
+    } = await generation.judge(
+      recipe.id,
+      recipe.revision,
+      "password",
+      observation,
+      () => reportJudge("sent"),
+      undefined,
+      disabledLeftOut ? true : undefined,
+      true,
+    );
+    let reported = false;
+    // Only a `passkey` handler is entered from the answer, at the stop.
+    const movedOn =
+      verdict === "challenge" &&
+      added !== undefined &&
+      stopped() &&
+      (await takeOver(
+        run,
+        added,
+        path,
+        () => {
+          reported = true;
+          reportJudge(verdict, { takenOver: true });
+        },
+        { end },
+      ));
+    if (!reported)
+      reportJudge(verdict, {
+        ...(reason ? { reason } : {}),
+        ...(added ? { takenOver: false } : {}),
+      });
+    return movedOn || !current(run);
   }
   /**
    * The `passkey` route that answers its page's own request goes back to the password

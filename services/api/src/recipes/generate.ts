@@ -35,6 +35,8 @@ import {
   claudeRefusalCategory,
   completionInstructions,
   completionPromptVersion,
+  completionStopInstructions,
+  completionStopPromptVersion,
   createCompletionJudge,
   createEntryGenerator,
   createRecipeGenerator,
@@ -47,7 +49,7 @@ import {
   type InferenceErrorCode,
   type InferenceOutcome,
 } from "@pateat/inference";
-import { and, count, eq, gt, gte, lt, ne, or } from "drizzle-orm";
+import { and, count, eq, gt, gte, lt, notInArray, or } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import * as v from "valibot";
 import type { DeviceScope } from "../auth";
@@ -624,6 +626,10 @@ export async function judgeCompletion(
   if (!head) return undefined;
   if (head.state === "revoked") return unavailable("recipe-revoked");
   const { observation, route, branch, partial } = request;
+  // A page at a `password` login's stop before its item's missing password (ADR 0036, owner
+  // 2026-10-13 05:39 UTC): judged though it shows the route's password field, for a
+  // `passkey` handler only.
+  const stop = request.stop === true;
   // Only a page of the revision that ran, on a route the stored recipe has, is judged: the
   // recipe's own, or for a chooser (ADR 0028) the route of the branch the login took. An
   // entry recipe (ADR 0031) has no route.
@@ -642,28 +648,43 @@ export async function judgeCompletion(
   if (!recipe || head.revision !== request.revision || !recipeHasRoute(recipe, route))
     return unavailable("recipe-conflict");
   if (!observation.complete) return failed("incomplete-observation");
-  // A list of accounts shown again is the sign-in's start, not its result (ADR 0028).
-  if (observation.accounts) return unavailable("not-judgeable");
+  // A list of accounts shown again is the sign-in's start, not its result (ADR 0028). A
+  // stop is never on a chooser's branch nor on another origin.
+  if (observation.accounts || (stop && (moved || "chooser" in head.recipe)))
+    return unavailable("not-judgeable");
   // The checks use the stored recipe, never the request: a page that still shows one of
   // the password route's fill fields, of any variant and on any path, or a signed-in
   // marker is not judged. The request never names the variant the login ran. The passkey
   // route starts beside that form, so the form counts for it too; and a page on its
   // sign-in paths that still shows its button is not judged either: its passkey exchange
   // may still be running, as the extension holds it.
-  const unexplained = [
-    ...routeFillTargets(recipe, "password"),
-    ...(recipe.completion ?? [])
-      .filter((marker) => (marker.origin ?? head.recipe.origin) === observation.origin)
-      .map((marker) => marker.target),
-  ];
+  const markers = (recipe.completion ?? [])
+    .filter((marker) => (marker.origin ?? head.recipe.origin) === observation.origin)
+    .map((marker) => marker.target);
   const shown = (targets: readonly LoginTarget[]) =>
     observation.candidates.some((candidate) =>
       targets.some((target) => sameLoginTarget(target, candidate.target)),
     );
+  // A stop's page is the sign-in page by design: it must show one of the route's fill
+  // fields as a password input, and never a signed-in marker.
+  const stopPage = observation.candidates.some(
+    (candidate) =>
+      candidate.role === "password" &&
+      routeFillTargets(recipe, "password").some((target) =>
+        sameLoginTarget(target, candidate.target),
+      ),
+  );
+  // A stop's page is judged only for a `passkey` handler, which a path that has one never
+  // gets again (`addHandler`'s `duplicate`), so it is not sent to the model.
+  const passkeyHandled = (recipe.handlers ?? []).some(
+    (handler) => handler.kind === "passkey" && handler.path === observation.path,
+  );
   if (
-    shown(unexplained) ||
-    (routeSignInPaths(recipe, route).includes(observation.path) &&
-      shown(routeSignInTargets(recipe, route)))
+    stop
+      ? !stopPage || shown(markers) || passkeyHandled
+      : shown([...routeFillTargets(recipe, "password"), ...markers]) ||
+        (routeSignInPaths(recipe, route).includes(observation.path) &&
+          shown(routeSignInTargets(recipe, route)))
   )
     return unavailable("not-judgeable");
 
@@ -682,15 +703,26 @@ export async function judgeCompletion(
   );
   // Each branch of a chooser is judged on its own; its limit per day is the chooser's.
   const judgedBranch = branch ?? "";
-  const promptVersion = await completionPromptVersion();
+  // A stop's page is judged under its own prompt version, so its row never answers another
+  // login's page of the path, nor theirs it (ADR 0036). Rows of either current version stay.
+  const usualVersion = await completionPromptVersion();
+  const stopVersion = await completionStopPromptVersion();
+  const promptVersion = stop ? stopVersion : usualVersion;
   const call = await callClaude(env, scope.ownerId, {
     role: "judge",
     promptVersion,
     origin: observation.origin,
     path: observation.path,
-    request: { instructions: completionInstructions, recipeId, route, loginPaths, observation },
+    request: {
+      instructions: stop ? completionStopInstructions : completionInstructions,
+      recipeId,
+      route,
+      loginPaths,
+      observation,
+      ...(stop ? { stop } : {}),
+    },
     // Each revision, origin and path is judged once per judge prompt version, and a recipe
-    // 20 times a UTC day (ADR 0027).
+    // 20 times a UTC day (ADR 0027), counting a stop's pages.
     gate: async (db, now) => {
       const stale = staleHead(await readHead(env.DB, scope.ownerId, recipeId), head.revision);
       if (stale) return stale;
@@ -769,13 +801,18 @@ export async function judgeCompletion(
             ofRecipe,
             or(
               lt(pageJudgements.revision, head.revision),
-              ne(pageJudgements.promptVersion, promptVersion),
+              notInArray(pageJudgements.promptVersion, [usualVersion, stopVersion]),
             ),
             lt(pageJudgements.judgedAt, utcDayStart(now)),
           ),
         ),
     ],
-    invoke: (model) => createCompletionJudge({ model, ...roleConfig })({ observation, loginPaths }),
+    invoke: (model) =>
+      createCompletionJudge({ model, ...roleConfig })({
+        observation,
+        loginPaths,
+        ...(stop ? { stop } : {}),
+      }),
     logValue: (judgement) => judgement,
   });
   if (call.status === "unavailable") return unavailable(call.reason);
@@ -810,6 +847,12 @@ export async function judgeCompletion(
     return { version: 1, status: "unclear" };
   }
   const judgement = outcome.value;
+  // A stop's page keeps a `passkey` handler and nothing else: no rejection, no marker and
+  // no `totp` handler. Its other answers are kept as undecided, under the stop's version.
+  if (stop && judgement.decision !== "challenge") {
+    await keepVerdict("unclear");
+    return { version: 1, status: "unclear" };
+  }
   await keepVerdict(judgement.decision);
   if (judgement.decision === "rejected") return { version: 1, status: "rejected" };
   if (judgement.decision === "challenge") {
@@ -827,7 +870,9 @@ export async function judgeCompletion(
         ...(added.ok ? {} : { reason: added.reason }),
       });
     }
-    if (judgement.totp) {
+    // A code on a stop's page is never learned (ADR 0036).
+    if (judgement.totp && stop) handlers.push({ kind: "totp", kept: false, reason: "stop" });
+    else if (judgement.totp) {
       const base = changed ?? recipe;
       const added = addHandler(base, observation, { kind: "totp", ...judgement.totp });
       // Both handlers land in the revision after the judged one.
@@ -839,7 +884,7 @@ export async function judgeCompletion(
       });
     }
     // A code the judge named but its local checks refused is logged with why (ADR 0027).
-    if (judgement.totpDropped)
+    if (judgement.totpDropped && !stop)
       handlers.push({ kind: "totp", kept: false, reason: judgement.totpDropped });
     if (handlers.length) console.info("Judged page handlers", { recipeId, handlers });
     const withHandlers = changed && stored(head.recipe, branch, changed);

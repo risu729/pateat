@@ -292,21 +292,35 @@ export const entryGenerationResultSchema = v.pipe(
  * that a `password` login's tab moved to right after the submission: of its site, or of
  * another site right after a second factor (ADR 0022).
  */
-export const recipeCompletionRequestSchema = v.strictObject({
-  version: v.literal(1),
-  revision: writtenRevision,
-  /** The login's route; the service checks the stored recipe has it. */
-  route: loginRouteSchema,
-  /** For a chooser recipe (ADR 0028): the branch the login took, whose route is judged. */
-  branch: v.optional(chooserBranchSchema),
-  observation: loginObservationSchema,
-  /**
-   * The description left out a disabled field that may not be a sign-in field (ADR 0029):
-   * a page the model cannot decide is judged again when the path is next described in
-   * full.
-   */
-  partial: v.optional(v.literal(true)),
-});
+export const recipeCompletionRequestSchema = v.pipe(
+  v.strictObject({
+    version: v.literal(1),
+    revision: writtenRevision,
+    /** The login's route; the service checks the stored recipe has it. */
+    route: loginRouteSchema,
+    /** For a chooser recipe (ADR 0028): the branch the login took, whose route is judged. */
+    branch: v.optional(chooserBranchSchema),
+    observation: loginObservationSchema,
+    /**
+     * The description left out a disabled field that may not be a sign-in field (ADR 0029):
+     * a page the model cannot decide is judged again when the path is next described in
+     * full.
+     */
+    partial: v.optional(v.literal(true)),
+    /**
+     * The page is a `password` login's stop before its item's missing password, with no
+     * passkey request in time, still showing the stop step's password field (ADR 0036, owner
+     * 2026-10-13 05:39 UTC). The service judges such a page though it shows the route's
+     * password field, and keeps only a `passkey` handler from it. Like the `passkey` route's
+     * name, it tells the service that the login's item has no password but a passkey.
+     */
+    stop: v.optional(v.literal(true)),
+  }),
+  v.check(
+    (request) => request.stop !== true || (request.route === "password" && !request.branch),
+    "A stop is a password login's without a chooser",
+  ),
+);
 
 export const recipeCompletionResultSchema = v.variant("status", [
   /**

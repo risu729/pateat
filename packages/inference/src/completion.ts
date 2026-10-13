@@ -91,6 +91,27 @@ export const completionInstructions = [
 /** The completion judge role's prompt version (`promptVersion`), for the request log. */
 export const completionPromptVersion = promptVersionOf(completionInstructions, outputSchemaJson);
 
+/**
+ * The judge's instructions for a sign-in page that still shows its password field, sent
+ * from a login's stop before it (ADR 0036, owner 2026-10-13 05:39 UTC): only a passkey
+ * button is learned there. They name no fact of the account.
+ */
+export const completionStopInstructions = [
+  completionInstructions,
+  "This sign-in page still shows its password field, and Pateat does not fill it here.",
+  "Answer challenge with passkeyButton when the page offers to sign in with a passkey or",
+  "security key instead of the password; otherwise answer unclear.",
+].join(" ");
+
+/**
+ * The stop's own prompt version: its judgements are kept apart from the other pages' (ADR
+ * 0029), with the same output format.
+ */
+export const completionStopPromptVersion = promptVersionOf(
+  completionStopInstructions,
+  outputSchemaJson,
+);
+
 /** A page after a generated recipe's effect step, judged (ADR 0018, ADR 0027). */
 export type SignInJudgement =
   /** `target` is the marker's locator on the judged page; `addCompletion` stores it. */
@@ -149,6 +170,11 @@ export type CompletionRequest = {
    * a returned login page.
    */
   loginPaths: unknown;
+  /**
+   * The page is a login's stop before a password it does not fill (ADR 0036): judged with
+   * `completionStopInstructions`.
+   */
+  stop?: boolean;
   abortSignal?: AbortSignal;
 };
 
@@ -188,13 +214,14 @@ export function createCompletionJudge(config: {
       loginPaths: loginPaths.output,
       observation: observation.output,
     });
-    if (requestBytes([completionInstructions, prompt, outputSchemaJson]) > limits.maxInputBytes)
+    const instructions = request.stop ? completionStopInstructions : completionInstructions;
+    if (requestBytes([instructions, prompt, outputSchemaJson]) > limits.maxInputBytes)
       return { status: "failed", error: "input-too-large", calls: 0, usage: noUsage };
 
     const page = observation.output;
     return runStructuredRole({
       model: config.model,
-      instructions: completionInstructions,
+      instructions,
       prompt,
       schema: judgedPageSchema,
       name: "sign_in_judgement",

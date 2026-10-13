@@ -505,7 +505,10 @@ own accounts, so they stay in the project's files rather than in this repository
   owner's decision of 2026-10-13 04:42 UTC its page after the email is continued as any
   login's, or judged to learn a passkey button, and the login stops at the continued
   password step. A refusal names why after the colon (local tests only); not yet
-  checked on the Bot.
+  checked on the Bot. By the owner's decision of 2026-10-13 05:39 UTC, at that stop a
+  "sign in with a passkey" button beside the password field is pressed: a learned
+  `passkey` handler is entered, or the page is judged once to learn one, and its request
+  is answered with the item (local tests only).
 - Answer Google's passkey step on the Grok Bot's browser. On build `a8350f5`
   (2026-10-12 19:49 UTC) both of the page's requests were logged as `passkey.request`
   `delegate` `invalid-request`, so the browser offered only the phone (hybrid) flow,

@@ -294,6 +294,8 @@ export const LOG_EVENTS = {
       disabledLeftOut: "flag",
       notCompleted: "code",
       moved: "flag",
+      // `password` for the page of a login's stop before its item's missing password (ADR 0036).
+      stop: "code",
       url: "url",
     },
   },

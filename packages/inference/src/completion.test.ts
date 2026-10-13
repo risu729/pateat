@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { completionInstructions, createCompletionJudge } from "./completion";
+import {
+  completionInstructions,
+  completionStopInstructions,
+  createCompletionJudge,
+} from "./completion";
 import { generationRequest, textModel, textResult } from "./testing/fake-models";
 
 // A synthetic page shown after signing in. No real site or account data.
@@ -599,6 +603,56 @@ describe("code answers checked locally, probed independently (ADR 0027)", () => 
     ).toMatchObject({ status: "failed", error: "invalid-output" });
     expect(
       await judged([field(), submit()], { decision: "challenge", code: { field: "code" } }),
+    ).toMatchObject({ status: "failed", error: "invalid-output" });
+  });
+});
+
+// Owner, 2026-10-13 05:39 UTC: a login stopped before a password its item lacks has the
+// page judged for a passkey button beside the password field (ADR 0036).
+describe("sign-in judge at a stop before the password", () => {
+  const passwordPage = {
+    version: 1,
+    origin: "https://bank.example",
+    path: "/password",
+    language: "en",
+    complete: true,
+    candidates: [
+      { id: "pw", role: "password", target: { by: "id", value: "pw" }, label: "Password" },
+      { id: "go", role: "button", target: { by: "id", value: "go" }, label: "Continue" },
+      { id: "key", role: "button", target: { by: "id", value: "key" }, label: "Use a passkey" },
+    ],
+  };
+  function judgeAt(result: unknown) {
+    const model = textModel(async () => textResult(JSON.stringify({ result })));
+    return { model, judge: createCompletionJudge({ model, limits, maxOutputTokens: 512 }) };
+  }
+  const system = (model: ReturnType<typeof judgeAt>["model"]) =>
+    model.doGenerateCalls[0]!.prompt.filter((message) => message.role === "system").map(
+      (message) => message.content,
+    );
+
+  it("sends the stop's instructions, which name no fact of the account", async () => {
+    const { model, judge } = judgeAt({ decision: "challenge", passkeyButton: "key" });
+    expect(
+      await judge({ observation: passwordPage, loginPaths: ["/login"], stop: true }),
+    ).toMatchObject({
+      status: "ok",
+      value: { decision: "challenge", passkey: { by: "id", value: "key" } },
+    });
+    expect(system(model)).toEqual([completionStopInstructions]);
+    expect(completionStopInstructions.startsWith(completionInstructions)).toBe(true);
+    expect(completionStopInstructions).toMatch(/passkeyButton when the page offers/u);
+    expect(completionStopInstructions).not.toMatch(/no password|has a passkey|empty/iu);
+    // Any other page keeps the usual instructions.
+    const usual = judgeAt({ decision: "unclear" });
+    await usual.judge({ observation: passwordPage, loginPaths: ["/login"] });
+    expect(system(usual.model)).toEqual([completionInstructions]);
+  });
+
+  it("still fails closed on a signed-in answer while the password field shows", async () => {
+    const { judge } = judgeAt({ decision: "signed-in", marker: "go" });
+    expect(
+      await judge({ observation: passwordPage, loginPaths: ["/login"], stop: true }),
     ).toMatchObject({ status: "failed", error: "invalid-output" });
   });
 });
