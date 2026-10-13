@@ -465,11 +465,12 @@ export function SiteApp({
     const pickOptions = siteAccountOptions(catalog, matches, false, saved.snapshot.settings).sort(
       (a, b) => Number(b.value === currentValue) - Number(a.value === currentValue),
     );
-    // After the site rejected the tab's login, nothing is chosen until the user picks, so
-    // Log in never sends the rejected account again by itself (ADR 0021).
+    // After the site rejected a login of this tab or another tab of the site, nothing is
+    // chosen until the user picks, so Log in never sends the rejected account again by
+    // itself (ADR 0021).
     const shownPick = pickOptions.some((entry) => entry.value === picked)
       ? picked
-      : offered?.logout === "rejected"
+      : offered?.logout === "rejected" || offered?.rejectedElsewhere
         ? ""
         : (pickOptions[0]?.value ?? "");
     const showChoice = Boolean(

@@ -29,7 +29,6 @@ export interface ProviderSessionStore {
 
 export function createIndexedDbProviderSessionStore(options: {
   profile: BitwardenProfile;
-  indexedDB?: IDBFactory;
   databaseName?: string;
   timeoutMs?: number;
 }): ProviderSessionStore {
@@ -46,20 +45,18 @@ export function createIndexedDbProviderSessionStore(options: {
           PROVIDER_SESSIONS_STORE,
           "readonly",
           database.timeout,
-          (stores, set, abort) => {
-            const request = stores(PROVIDER_SESSIONS_STORE).get(profile.connectionId);
-            request.onsuccess = () => {
-              if (request.result === undefined) {
-                set({ ok: true, data: null });
-                return;
-              }
-              const admitted = admitProviderSession(request.result, profile);
-              if (!admitted.ok) {
-                abort(admitted.error.code);
-                return;
-              }
-              set(admitted);
-            };
+          async (stores, set, abort) => {
+            const stored: unknown = await stores(PROVIDER_SESSIONS_STORE).get(profile.connectionId);
+            if (stored === undefined) {
+              set({ ok: true, data: null });
+              return;
+            }
+            const admitted = admitProviderSession(stored, profile);
+            if (!admitted.ok) {
+              abort(admitted.error.code);
+              return;
+            }
+            set(admitted);
           },
         );
       } catch {
@@ -81,54 +78,43 @@ export function createIndexedDbProviderSessionStore(options: {
           [RECORDS_STORE, PROVIDER_SESSIONS_STORE],
           "readwrite",
           database.timeout,
-          (stores, set, abort) => {
+          async (stores, set, abort) => {
             const sessions = stores(PROVIDER_SESSIONS_STORE);
-            const current = sessions.get(profile.connectionId);
-            current.onsuccess = () => {
-              // A stored session that fails admission is never reused. It has no trusted
-              // revision, so only an expected-null delete or replace may overwrite it.
-              const old =
-                current.result === undefined ? null : admitProviderSession(current.result, profile);
-              const oldRevision = old === null ? null : old.ok ? old.data.revision : undefined;
-              if (oldRevision === undefined && expectedRevision !== null) {
-                abort("invalid-cache-record");
-                return;
-              }
-              if (oldRevision !== undefined && oldRevision !== expectedRevision) {
+            const current: unknown = await sessions.get(profile.connectionId);
+            // A stored session that fails admission is never reused. It has no trusted
+            // revision, so only an expected-null delete or replace may overwrite it.
+            const old = current === undefined ? null : admitProviderSession(current, profile);
+            const oldRevision = old === null ? null : old.ok ? old.data.revision : undefined;
+            if (oldRevision === undefined && expectedRevision !== null) {
+              abort("invalid-cache-record");
+              return;
+            }
+            if (oldRevision !== undefined && oldRevision !== expectedRevision) {
+              abort("storage-conflict");
+              return;
+            }
+            if (guard) {
+              // The vault record is read raw: only its authority, not its encrypted contents.
+              const record = (await stores(RECORDS_STORE).get(profile.connectionId)) as
+                | { revision?: unknown; state?: unknown }
+                | undefined;
+              if (record?.state !== "active" || record.revision !== guard.cacheRevision) {
                 abort("storage-conflict");
                 return;
               }
-              const write = () => {
-                if (admitted) sessions.put(admitted, profile.connectionId);
-                else sessions.delete(profile.connectionId);
-                const readback = sessions.get(profile.connectionId);
-                readback.onsuccess = () => {
-                  if (
-                    admitted
-                      ? !sameProviderSession(readback.result, admitted)
-                      : readback.result !== undefined
-                  ) {
-                    abort("storage-uncertain");
-                    return;
-                  }
-                  set({ ok: true, data: { revision: admitted?.revision ?? null } });
-                };
-              };
-              if (!guard) {
-                write();
-                return;
-              }
-              // The vault record is read raw: only its authority, not its encrypted contents.
-              const record = stores(RECORDS_STORE).get(profile.connectionId);
-              record.onsuccess = () => {
-                const value = record.result as { revision?: unknown; state?: unknown } | undefined;
-                if (value?.state !== "active" || value.revision !== guard.cacheRevision) {
-                  abort("storage-conflict");
-                  return;
-                }
-                write();
-              };
-            };
+            }
+            // Both requests are queued before either is awaited; the read-back sees the write.
+            const [, readback] = await Promise.all([
+              admitted
+                ? sessions.put(admitted, profile.connectionId)
+                : sessions.delete(profile.connectionId),
+              sessions.get(profile.connectionId),
+            ]);
+            if (admitted ? !sameProviderSession(readback, admitted) : readback !== undefined) {
+              abort("storage-uncertain");
+              return;
+            }
+            set({ ok: true, data: { revision: admitted?.revision ?? null } });
           },
         );
       } catch {

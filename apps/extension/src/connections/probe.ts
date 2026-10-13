@@ -1,3 +1,4 @@
+import { deleteDB } from "idb";
 import * as v from "valibot";
 import type { BitwardenTransportOptions } from "@pateat/bitwarden";
 import {
@@ -59,8 +60,8 @@ async function probeSessionStore() {
       name,
       "readwrite",
       database.timeout,
-      (stores, set) => {
-        stores(name).put(value, accountProfile.connectionId);
+      async (stores, set) => {
+        await stores(name).put(value, accountProfile.connectionId);
         set({ ok: true, data: true });
       },
     );
@@ -119,7 +120,7 @@ async function probeSessionStore() {
   } finally {
     store.close();
     database.close();
-    indexedDB.deleteDatabase(databaseName);
+    void deleteDB(databaseName).catch(() => undefined);
   }
 }
 

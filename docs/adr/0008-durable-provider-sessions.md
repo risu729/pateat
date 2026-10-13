@@ -67,7 +67,8 @@ Chrome hit that on 2026-10-12, with 184 worker starts in 14 hours. Automatic che
 run under a keep-alive that calls an extension API every 20 seconds, which makes such a
 stop rarer but cannot prevent an update or crash. `chrome.storage.local` lacks the
 cross-record transaction used to guard sessions with the cache revision. No library is
-added.
+added. (2026-10-13: IndexedDB access now uses `idb`; see the
+[ADR 0006 amendment](0006-atomic-local-vault-cache.md#amendment-idb-for-indexeddb-access).)
 
 This retains a refresh token on the device, in the same extension-origin storage
 already accepted for the unlock key; it is not an OS keystore. No verified

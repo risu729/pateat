@@ -1,10 +1,14 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { activeEntry, disabledEntry } from "../vault/__fixtures__/vault";
 import { vaultFailure } from "../vault/record";
 import type { DurableVaultStore } from "../vault/storage";
 import {
   ACTION_ICON_PATHS,
+  BUSY_FRAME_MS,
+  BUSY_LIMIT_MS,
+  type ActionIconDetails,
   actionIconState,
+  busyIconPaths,
   createActionIcon,
   notifyingVaultStore,
   vaultRecordState,
@@ -62,7 +66,10 @@ describe("toolbar lock icon", () => {
     await icon.refresh();
     states = ["active"];
     await icon.refresh();
-    expect(setIcon.mock.calls).toEqual([[ACTION_ICON_PATHS.locked], [ACTION_ICON_PATHS.unlocked]]);
+    expect(setIcon.mock.calls).toEqual([
+      [{ path: ACTION_ICON_PATHS.locked }],
+      [{ path: ACTION_ICON_PATHS.unlocked }],
+    ]);
   });
 
   it("shows locked when the vault records cannot be read", async () => {
@@ -74,7 +81,7 @@ describe("toolbar lock icon", () => {
       setIcon,
     });
     await icon.refresh();
-    expect(setIcon).toHaveBeenCalledWith(ACTION_ICON_PATHS.locked);
+    expect(setIcon).toHaveBeenCalledWith({ path: ACTION_ICON_PATHS.locked });
   });
 
   it("applies refreshes in order and retries after a failed set", async () => {
@@ -95,7 +102,10 @@ describe("toolbar lock icon", () => {
     const second = icon.refresh();
     release();
     await Promise.all([first, second]);
-    expect(setIcon.mock.calls).toEqual([[ACTION_ICON_PATHS.unlocked], [ACTION_ICON_PATHS.locked]]);
+    expect(setIcon.mock.calls).toEqual([
+      [{ path: ACTION_ICON_PATHS.unlocked }],
+      [{ path: ACTION_ICON_PATHS.locked }],
+    ]);
 
     const failing = vi.fn(async () => {
       throw new Error("tab strip closed");
@@ -104,5 +114,166 @@ describe("toolbar lock icon", () => {
     await retry.refresh();
     await retry.refresh();
     expect(failing).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("toolbar icon spin", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+  const flush = () => vi.advanceTimersByTimeAsync(0);
+
+  it("turns the waiting tab's icon each frame and gives it the global icon back", async () => {
+    vi.useFakeTimers();
+    const setIcon = vi.fn(async () => undefined);
+    const icon = createActionIcon({ states: async () => ["active"], setIcon });
+    await icon.refresh();
+    setIcon.mockClear();
+    const stop = icon.spin(7);
+    await vi.advanceTimersByTimeAsync(BUSY_FRAME_MS * 2);
+    expect(setIcon.mock.calls).toEqual([
+      [{ tabId: 7, path: busyIconPaths(0) }],
+      [{ tabId: 7, path: busyIconPaths(1) }],
+      [{ tabId: 7, path: busyIconPaths(2) }],
+    ]);
+    setIcon.mockClear();
+    stop();
+    stop();
+    await vi.advanceTimersByTimeAsync(BUSY_FRAME_MS * 4);
+    expect(setIcon.mock.calls).toEqual([[{ tabId: 7, path: ACTION_ICON_PATHS.unlocked }]]);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("spins a tab until its last overlapping request ends, and only that tab", async () => {
+    vi.useFakeTimers();
+    const setIcon = vi.fn(async () => undefined);
+    const icon = createActionIcon({ states: async () => ["active"], setIcon });
+    await icon.refresh();
+    const first = icon.spin(1);
+    const second = icon.spin(1);
+    const other = icon.spin(2);
+    first();
+    await flush();
+    setIcon.mockClear();
+    await vi.advanceTimersByTimeAsync(BUSY_FRAME_MS);
+    expect(setIcon.mock.calls).toEqual([
+      [{ tabId: 1, path: busyIconPaths(1) }],
+      [{ tabId: 2, path: busyIconPaths(1) }],
+    ]);
+    setIcon.mockClear();
+    other();
+    second();
+    await vi.advanceTimersByTimeAsync(BUSY_FRAME_MS);
+    expect(setIcon.mock.calls).toEqual([
+      [{ tabId: 2, path: ACTION_ICON_PATHS.unlocked }],
+      [{ tabId: 1, path: ACTION_ICON_PATHS.unlocked }],
+    ]);
+  });
+
+  it("stops on its own when no stop arrives", async () => {
+    vi.useFakeTimers();
+    const setIcon = vi.fn(async () => undefined);
+    const icon = createActionIcon({ states: async () => ["disabled"], setIcon });
+    await icon.refresh();
+    icon.spin(3);
+    await vi.advanceTimersByTimeAsync(BUSY_LIMIT_MS);
+    setIcon.mockClear();
+    await vi.advanceTimersByTimeAsync(BUSY_FRAME_MS * 4);
+    expect(setIcon).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("switches a tab that spun along with the global icon", async () => {
+    vi.useFakeTimers();
+    let states: ("active" | "disabled")[] = ["active"];
+    const setIcon = vi.fn(async () => undefined);
+    const icon = createActionIcon({ states: async () => states, setIcon });
+    await icon.refresh();
+    icon.spin(4)();
+    await flush();
+    setIcon.mockClear();
+    states = ["disabled"];
+    await icon.refresh();
+    expect(setIcon.mock.calls).toEqual([
+      [{ path: ACTION_ICON_PATHS.locked }],
+      [{ tabId: 4, path: ACTION_ICON_PATHS.locked }],
+    ]);
+  });
+
+  it("forgets a closed tab", async () => {
+    vi.useFakeTimers();
+    let states: ("active" | "disabled")[] = ["active"];
+    const setIcon = vi.fn(async (details: { tabId?: number }) => {
+      if (details.tabId === 5) throw new Error("No tab with id: 5.");
+    });
+    const icon = createActionIcon({ states: async () => states, setIcon });
+    await icon.refresh();
+    const stop = icon.spin(5);
+    await flush();
+    setIcon.mockClear();
+    await vi.advanceTimersByTimeAsync(BUSY_FRAME_MS * 2);
+    stop();
+    await vi.advanceTimersByTimeAsync(BUSY_FRAME_MS);
+    expect(vi.getTimerCount()).toBe(0);
+    setIcon.mockClear();
+    states = ["disabled"];
+    await icon.refresh();
+    expect(setIcon.mock.calls).toEqual([[{ path: ACTION_ICON_PATHS.locked }]]);
+  });
+
+  it("lands a tab's writes in order, so the global icon is the last after a slow frame", async () => {
+    vi.useFakeTimers();
+    const landed: ActionIconDetails[] = [];
+    const pending: (() => void)[] = [];
+    const setIcon = vi.fn(
+      (details: ActionIconDetails) =>
+        new Promise<void>((resolve) => {
+          pending.push(() => {
+            landed.push(details);
+            resolve();
+          });
+        }),
+    );
+    const icon = createActionIcon({ states: async () => ["active"], setIcon });
+    const refreshed = icon.refresh();
+    await flush();
+    pending.shift()!();
+    await refreshed;
+    const stop = icon.spin(8);
+    await flush();
+    // The first frame is still loading when the tick comes and the answer arrives.
+    await vi.advanceTimersByTimeAsync(BUSY_FRAME_MS);
+    stop();
+    await flush();
+    expect(setIcon).toHaveBeenCalledTimes(2);
+    pending.shift()!();
+    await flush();
+    pending.shift()!();
+    await flush();
+    expect(landed.slice(1)).toEqual([
+      { tabId: 8, path: busyIconPaths(0) },
+      { tabId: 8, path: ACTION_ICON_PATHS.unlocked },
+    ]);
+    expect(pending).toHaveLength(0);
+  });
+
+  it("moves a spin to the tab's new ID when Chrome replaces the tab", async () => {
+    vi.useFakeTimers();
+    const setIcon = vi.fn(async () => undefined);
+    const icon = createActionIcon({ states: async () => ["active"], setIcon });
+    await icon.refresh();
+    const stop = icon.spin(10);
+    await flush();
+    setIcon.mockClear();
+    icon.replaced(11, 10);
+    await vi.advanceTimersByTimeAsync(BUSY_FRAME_MS);
+    expect(setIcon.mock.calls).toEqual([
+      [{ tabId: 11, path: busyIconPaths(0) }],
+      [{ tabId: 11, path: busyIconPaths(1) }],
+    ]);
+    setIcon.mockClear();
+    stop();
+    await flush();
+    expect(setIcon.mock.calls).toEqual([[{ tabId: 11, path: ACTION_ICON_PATHS.unlocked }]]);
   });
 });

@@ -107,6 +107,10 @@ The owner approved the following on 2026-10-11.
 - Library: no new dependency. A small logger with Valibot event schemas over plain
   IndexedDB, as in `vault/database.ts`. LogTape 2.4.1 was considered but has no
   IndexedDB sink and its free-text API would still need a separate allowlist.
+  (2026-10-13: the owner chose `idb` for IndexedDB access here and in the vault and
+  provider-session stores, replacing the hand-written wrappers; the logger, its
+  schemas and the single-transaction writes are unchanged. See
+  [development](../development.md#dependency-policy).)
 
 ## Consequences
 
