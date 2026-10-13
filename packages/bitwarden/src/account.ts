@@ -284,14 +284,19 @@ function boolean(input: unknown): boolean {
 }
 function canonicalBase64(input: unknown): string {
   const value = requiredText(input);
-  if (!decodeBase64(value)) reject();
+  base64Bytes(value);
   return value;
+}
+function base64Bytes(value: string): Uint8Array {
+  return decodeBase64(value) ?? reject();
 }
 function encrypted(input: unknown, formats = [2, 7]): Sdk.EncString {
   const value = requiredText(input);
   if (!formats.includes(Number(value[0])) || value[1] !== ".") reject("unsupported-crypto");
-  const parts = value.slice(2).split("|").map(canonicalBase64);
-  const lengths = parts.map((part) => decodeBase64(part)!.length);
+  const lengths = value
+    .slice(2)
+    .split("|")
+    .map((part) => base64Bytes(requiredText(part)).length);
   if (
     value[0] === "2" &&
     (lengths.length !== 3 ||

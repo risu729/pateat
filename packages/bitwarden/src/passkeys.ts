@@ -93,10 +93,7 @@ export function decodeBitwardenCredentialId(value: string): Uint8Array | undefin
     return bytes && bytes.length <= MAX_CREDENTIAL_ID_BYTES ? bytes : undefined;
   }
   if (!guid.test(value)) return undefined;
-  const hex = value.replace(/-/gu, "");
-  return Uint8Array.from({ length: 16 }, (_, index) =>
-    Number.parseInt(hex.slice(index * 2, index * 2 + 2), 16),
-  );
+  return Uint8Array.fromHex(value.replace(/-/gu, ""));
 }
 
 /**
