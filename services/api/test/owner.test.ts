@@ -321,7 +321,9 @@ describe("owner web UI", () => {
       manageApi("/manage/api/devices/not-a-device/revoke", first.token, "POST"),
     ]);
     expect(responses.map((response) => response.status)).toEqual([404, 404, 404, 404]);
-    expect(await responses[0]!.json()).toEqual({ error: "not_found" });
+    expect(await Promise.all(responses.map((response) => response.json()))).toEqual(
+      Array.from({ length: 4 }, () => ({ error: "not_found" })),
+    );
     expect((await deviceApi(target.credential)).status).toBe(200);
   });
 
