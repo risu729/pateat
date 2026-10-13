@@ -1167,6 +1167,8 @@ test("abstains without a saved account and does not try another eligible item", 
           JSON.stringify(await send(options, { version: 1, type: "login.probe.status" })),
         )
         .toContain("default-not-set");
+      // A fill or retry after the abstain would come within a second.
+      await page.waitForTimeout(1000);
       await expect(page.locator("#password")).toHaveValue("");
       expect(await clicks(page)).toBe(0);
       const status = await send(options, { version: 1, type: "login.probe.status" });
