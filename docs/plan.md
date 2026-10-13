@@ -430,8 +430,12 @@ own accounts, so they stay in the project's files rather than in this repository
     UTC), the judge named no button, so the owner pressed it, and Pateat answered with
     the item's passkey. The judge's instructions now name such a button, but its
     description had no text saying FIDO (recheck at 03:56 UTC), so the page also
-    carries the text near its buttons (owner, 2026-10-13 04:22 UTC, ADR 0027). Recheck
-    after that change's deploy and extension reload; this needs a paid judge call.
+    carries the text near its buttons (owner, 2026-10-13 04:22 UTC, ADR 0027). The
+    05:41 UTC recheck sent none, since the step's polite live region left out its text;
+    such a region that holds a button is now read. The path is already judged on this
+    recipe revision under the current judge prompt, so the recheck needs the Oracle
+    recipe revoked through `/manage`, an extension reload, and paid calls: one to
+    generate the recipe again and one to judge the page.
   - The `totp` handler on a site whose code page names an authenticator app, such as
     npmjs.com: a judged code page adds the handler and the
     same login types one code. It needs a paid judge call and a real account's code, so

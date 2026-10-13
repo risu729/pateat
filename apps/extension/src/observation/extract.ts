@@ -453,14 +453,19 @@ const nearScanLimit = 2000;
  * `samp`), which may show a setup key or recovery code. Such an element anywhere above
  * the field, as a page wrapped in a live region, leaves out every text.
  */
-const notNear = [
-  liveRegions,
+const notNearElements = [
   "a, button, label, input, select, textarea, output, h1, h2, h3, code, pre, kbd, samp",
   "[contenteditable]:not([contenteditable='false' i])",
   ...["button", "link", "heading", "textbox", "searchbox", "combobox", "spinbutton"].map(
     (role) => `[role~='${role}' i]`,
   ),
 ].join(", ");
+const notNear = `${liveRegions}, ${notNearElements}`;
+
+/** A live region announcing a page's step politely, without a role of its own. */
+const politeStep = `[aria-live='polite' i]:not(${["alert", "status", "log", "marquee", "timer"]
+  .map((role) => `[role~='${role}' i]`)
+  .join(", ")})`;
 
 /**
  * Up to three short texts a signed-in page shows near its code field, for the judge to
@@ -494,7 +499,13 @@ function nearCodeTexts(field: HTMLElement, keep: (text: string) => string | unde
  * that holds one of the buttons, or else the page's first shown main landmark, bounds
  * them: only the buttons inside it count and only texts inside it are read, so a help or
  * account widget beside it does not take the texts. Buttons and texts in the header and
- * navigation, which `headerText` already carries, never count.
+ * navigation, which `headerText` already carries, never count. A polite live region
+ * inside the modal or main that holds one of the counted buttons, as the step Oracle
+ * Cloud's sign-in swaps in place (2026-10-13), is read as any other parent: its text is
+ * the step's own (`politeStep`). Any other live region still leaves out its text: one
+ * that holds none of the buttons, an alert, status, log, marquee or timer even with a
+ * dismiss button, an assertive one, and one around the modal or main, such as a page
+ * wrapped whole.
  */
 function nearButtonTexts(
   buttons: readonly HTMLElement[],
@@ -508,20 +519,35 @@ function nearButtonTexts(
   const anchors = buttons.filter(
     (button) => (!bound || bound.contains(button)) && !button.closest(landmarks),
   );
-  return nearTexts(anchors, keep, [...document.querySelectorAll(landmarks)], bound);
+  const steps = new Set<Element>();
+  for (const anchor of anchors)
+    for (
+      let region = anchor.parentElement?.closest(liveRegions);
+      region && bound?.contains(region);
+      region = region.parentElement?.closest(liveRegions)
+    )
+      if (region.matches(politeStep) && !region.matches(notNearElements)) steps.add(region);
+  return nearTexts(anchors, keep, [...document.querySelectorAll(landmarks)], bound, steps);
 }
 
 /**
  * The texts near `anchors` that `nearCodeTexts` describes, read around each anchor in page
  * order, one parent further out at a time, until three are kept; `excluded` elements and
- * those inside them are left out, and with `within`, no parent outside it is read.
+ * those inside them are left out, with `within`, no parent outside it is read, and
+ * `read` live regions leave out none of their text.
  */
 function nearTexts(
   anchors: readonly HTMLElement[],
   keep: (text: string) => string | undefined,
   excluded: readonly Element[],
   within?: Element,
+  read: ReadonlySet<Element> = new Set(),
 ): string[] {
+  const notNearAbove = (element: Element) => {
+    let at = element.closest(notNear);
+    while (at && read.has(at)) at = at.parentElement?.closest(notNear) ?? null;
+    return at !== null;
+  };
   const found: { element: Element; text: string }[] = [];
   const keyParents = new Map<Element, boolean>();
   let scanned = 0;
@@ -546,7 +572,7 @@ function nearTexts(
         if (
           element.childElementCount > 0 ||
           inner.contains(element) ||
-          element.closest(notNear) ||
+          notNearAbove(element) ||
           excluded.some((error) => error.contains(element))
         )
           continue;

@@ -1492,7 +1492,10 @@ live regions, error messages, controls, labels, links and headings left out
 code field, it carries `nearButtons` instead: up to three such texts near its buttons,
 read inside an open modal that holds one or else the first shown main landmark, and
 never in the header or navigation, so the judge can tell that a button labelled only
-"Verify" starts a security-key check. Login pages keep the
+"Verify" starts a security-key check. There, a polite live region without a role of
+its own that holds one of those buttons, the modal or main itself or a region inside
+it, is read as any other part of the page; every other live region is still left out.
+Login pages keep the
 four-digit rule, since hints such as `4 digits` help map fields. When a login page
 already shows a chosen account and offers a button or link to use another one, the
 generation role may name it as the plan's `accountSwitch`; it must be an observed button
