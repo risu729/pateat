@@ -652,7 +652,9 @@ Once the fixes have settled:
   service, which [ADR 0013](adr/0013-service-held-recipes-and-settings.md) makes their
   source of truth, needs a design the owner approves before implementation.
 - The finite-choice role with Clef, which the owner chose to implement here. On
-  2026-10-11 the owner asked for a larger corpus of real pages before planning it.
+  2026-10-11 the owner asked for a larger corpus of real pages before planning it. After
+  Clef has been tried, compare it with Jev on the same pages (owner, 2026-10-13 15:11
+  UTC).
 - Anyone can use Pateat. The service is not opened to other people. Continuous delivery
   publishes each extension release on GitHub Releases and meets the
   [Corresponding Source](sdk-source.md) requirements. The owner has a Chrome Web Store
