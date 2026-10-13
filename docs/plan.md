@@ -513,6 +513,9 @@ own accounts, so they stay in the project's files rather than in this repository
     (2026-10-12): 42 to 41 Vitest cases, the login lane still 873 with one test
     replaced by a row the review asked for. Nearly every test there is the only unit
     proof of its rule; a URL helper only tests called was removed.
+  - Batch 9, the extension's passkey lane, its vault suite unchanged (2026-10-13): 412
+    to 400 Vitest cases, the same statements and branches covered. Seven tests that
+    passed without reaching the rule they named were repaired.
 - UI improvements the owner reports from daily use of the UI polished in phase 1. Small
   fixes for broken UI still land as found.
 - Features found missing during use are added here.

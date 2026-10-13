@@ -40,7 +40,7 @@ describe("tabs Pateat signed in from", () => {
   });
 
   it("ignores a malformed record and bounds what it keeps", async () => {
-    const backing = memory({ [KEY]: [{ tabId: -1, rpIds: [] }] });
+    const backing = memory({ [KEY]: [{ tabId: -1, rpIds: ["example.com"] }] });
     const tabs = createSignedTabs(backing.storage, backing.onTabRemoved);
     expect(await tabs.has(-1, "example.com")).toBe(false);
     // One after another, so the order of signing decides what is dropped.

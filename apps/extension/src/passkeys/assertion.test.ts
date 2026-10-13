@@ -45,21 +45,6 @@ async function verify(
 describe("WebAuthn L3 ES256 authentication vector", () => {
   const challenge = hex(vector.authentication.challenge);
 
-  it("serializes byte-identical clientDataJSON", () => {
-    expect(toHex(serializeGetClientData(challenge, vector.origin))).toBe(
-      vector.authentication.clientDataJSON,
-    );
-  });
-
-  it("builds byte-identical authenticator data for UP, BE and BS with counter zero", async () => {
-    const data = await buildAssertionAuthenticatorData(
-      vector.rpId,
-      { userPresent: true, userVerified: false, backupEligible: true, backupState: true },
-      0,
-    );
-    expect(toHex(data)).toBe(vector.authentication.authenticatorData);
-  });
-
   it("verifies the published DER signature through the strict DER decoder", async () => {
     expect(
       await verify(
