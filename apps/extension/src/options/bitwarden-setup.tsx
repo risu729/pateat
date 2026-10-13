@@ -4,6 +4,7 @@ import { Menu } from "@base-ui/react/menu";
 import {
   CircleCheck,
   CircleX,
+  Clock,
   Ellipsis,
   Globe,
   Info,
@@ -19,6 +20,7 @@ import {
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { SetupBegin, SetupReply } from "../connections/types";
 import { providerPermissionOrigins } from "../connections/permissions";
+import { localSyncTime } from "../time";
 import { Button } from "./button";
 import type { ConnectionClient } from "./connection-client";
 import {
@@ -70,7 +72,7 @@ function errorMessage(code: string, check?: string): string {
 }
 type Line = { tone: Tone; icon: typeof Info; text: string };
 
-/** The vault, the sync sign-in and automatic unlock, one line each. */
+/** The vault, the sync sign-in, the last sync and automatic unlock, one line each. */
 function statusLines(connection: Connection): Line[] {
   const lines: Line[] = [];
   switch (connection.state) {
@@ -115,6 +117,12 @@ function statusLines(connection: Connection): Line[] {
       lines.push({ tone: "warn", icon: TriangleAlert, text: "Sync sign-in unavailable" });
       break;
   }
+  if (connection.syncedAt !== undefined)
+    lines.push({
+      tone: "idle",
+      icon: Clock,
+      text: `Vault synced ${localSyncTime(connection.syncedAt)}`,
+    });
   if (connection.autoUnlock === "enabled")
     lines.push({ tone: "ok", icon: CircleCheck, text: "Automatic unlock on" });
   else if (connection.autoUnlock === "disabled")

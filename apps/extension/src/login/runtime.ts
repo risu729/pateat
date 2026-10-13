@@ -163,6 +163,7 @@ import {
 } from "./vault";
 import { newId } from "@pateat/contracts/ids";
 import { loginMoveFits } from "@pateat/contracts/site";
+import { isoTime, isoTimeMs, isoTimeSchema } from "../time";
 
 const STORAGE_KEY = "pateat.login-attempts.v4";
 /** Accounts picked in the toolbar popup, per tab; session storage survives a worker restart. */
@@ -294,7 +295,7 @@ const entryPressSchema = v.strictObject({
   origin: v.string(),
   recipeId: v.string(),
   revision: revisionSchema,
-  pressedAt: v.pipe(v.string(), v.isoTimestamp()),
+  pressedAt: isoTimeSchema,
   documentId: v.string(),
   url: v.string(),
   checked: v.optional(v.literal(true)),
@@ -311,7 +312,7 @@ const entryBlockSchema = v.strictObject({
   recipeId: v.string(),
   revision: revisionSchema,
   reason: v.picklist(["left-site", "no-sign-in", "sign-up"]),
-  blockedAt: v.pipe(v.string(), v.isoTimestamp()),
+  blockedAt: isoTimeSchema,
 });
 type EntryBlock = v.InferOutput<typeof entryBlockSchema>;
 /** The registrable domain of an origin or URL, as Bitwarden's Domain match compares it. */
@@ -7889,7 +7890,7 @@ export function createLoginRuntime(
       recipeId: press.recipeId,
       revision: press.revision,
       reason,
-      blockedAt: new Date().toISOString(),
+      blockedAt: isoTime(Date.now()),
     };
     const stored = await readEntryBlocks();
     if (!stored) {
@@ -8010,7 +8011,7 @@ export function createLoginRuntime(
   }
   function armEntryTimer(press: EntryPress): void {
     clearTimeout(entryTimers.get(press.tabId));
-    const due = Date.parse(press.pressedAt) + ENTRY_NEXT_PAGE_MS - Date.now();
+    const due = isoTimeMs(press.pressedAt) + ENTRY_NEXT_PAGE_MS - Date.now();
     entryTimers.set(
       press.tabId,
       setTimeout(() => void lateEntry(press, false).catch(() => undefined), Math.max(0, due)),
@@ -8037,7 +8038,7 @@ export function createLoginRuntime(
     if (running) return running;
     const check = (async (): Promise<void> => {
       // A page after the window settles the press but is never refused, on any site.
-      if (Date.now() - Date.parse(press.pressedAt) > ENTRY_NEXT_PAGE_MS + LOGIN_STEP_WAIT_MS)
+      if (Date.now() - isoTimeMs(press.pressedAt) > ENTRY_NEXT_PAGE_MS + LOGIN_STEP_WAIT_MS)
         return settleEntry(press, "no-sign-in");
       if (siteOf(pageOrigin) !== siteOf(press.origin))
         return settleEntry(press, "left-site", live.document);
@@ -8256,7 +8257,7 @@ export function createLoginRuntime(
     if (siteHeldElsewhere(tabId, site)) return "site-held";
     if (siteLoggedOut(site)) return "logged-out";
     const last = entryPresses.get(tabId);
-    if (last && Date.now() - Date.parse(last.pressedAt) < ENTRY_PRESS_MS) return "press-limit";
+    if (last && Date.now() - isoTimeMs(last.pressedAt) < ENTRY_PRESS_MS) return "press-limit";
     const snapshot = await settings
       .handle({ version: 1, type: "settings.get" })
       .catch(() => undefined);
@@ -8340,7 +8341,7 @@ export function createLoginRuntime(
         origin: live.document.origin,
         recipeId: recipe.id,
         revision: recipe.revision,
-        pressedAt: new Date().toISOString(),
+        pressedAt: isoTime(Date.now()),
         documentId: live.document.documentId,
         url,
       };

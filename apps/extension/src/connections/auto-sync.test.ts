@@ -75,7 +75,11 @@ describe("vault check schedule", () => {
     h.auto.refreshIfStale();
     await h.settle();
     expect(h.run.mock.calls.map(([id]) => id)).toEqual(["a", "b"]);
-    expect(h.stored()?.connections["a"]).toEqual({ checkedAt: h.now(), outcome: "unchanged" });
+    expect(h.stored()?.connections["a"]).toEqual({
+      checkedAt: h.now(),
+      unchangedAt: h.now(),
+      outcome: "unchanged",
+    });
     h.advance(VAULT_CHECK_INTERVAL_MS - 1);
     h.auto.refreshIfStale();
     await h.settle();
@@ -193,6 +197,33 @@ describe("vault replacement hold", () => {
     h.auto.refreshIfStale();
     await h.settle();
     expect(h.stored()?.connections["a"]?.["outcome"]).toBe("synced");
+  });
+  it("records an unchanged time only when that check answers, and keeps it after a failed one", async () => {
+    const h = harness();
+    h.auto.refreshIfStale();
+    await h.settle();
+    const confirmed = h.now();
+    h.advance(VAULT_CHECK_INTERVAL_MS);
+    let finish!: (outcome: VaultSyncOutcome) => void;
+    h.run.mockImplementationOnce(
+      () =>
+        new Promise<VaultSyncOutcome>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    h.auto.refreshIfStale();
+    await vi.waitFor(() => expect(h.run).toHaveBeenCalledTimes(2));
+    // A check in flight, or one cut off, has its check time but confirms nothing yet.
+    expect(h.stored()?.connections["a"]).toMatchObject({
+      checkedAt: h.now(),
+      unchangedAt: confirmed,
+    });
+    finish("failed");
+    await h.settle();
+    expect(h.stored()?.connections["a"]).toMatchObject({
+      outcome: "failed",
+      unchangedAt: confirmed,
+    });
   });
   it("is refused while a page has entered, and blocks pages while held", async () => {
     vi.useFakeTimers();

@@ -2032,6 +2032,23 @@ IDs from Bitwarden or sites are kept as given, and synthetic probes, tests and t
 hosted smoke check may use `crypto.randomUUID()`. Rows created before 2026-10-12 keep
 their UUIDv4 IDs; both validate as UUIDs.
 
+## Times
+
+Pateat reads the clock with `Date.now()` and keeps times as epoch milliseconds in
+extension storage, IndexedDB and D1, and durations as `*_MS` numbers for timers and
+comparisons. In the extension, Chrome's native `Temporal` formats, reads and measures
+them, which is why the extension requires Chrome 144: `isoTime`, `isoMinute`,
+`isoTimeMs` and `isoTimeSchema` in
+[`apps/extension/src/time.ts`](../apps/extension/src/time.ts) write and read the ISO
+8601 times of the diagnostics report and log export and the stored entry-page presses
+and blocks;
+the local times on the settings and diagnostics pages, the ages and day counts shown and
+the Bitwarden package's checks of server dates use Temporal too. The `Date` header of
+the service's health response is an HTTP date, which Temporal does not read, so
+`Date.parse` reads it. The service, its owner pages and the packages it imports
+(`packages/contracts`, `packages/inference`) use `Date`: workerd has no Temporal and no
+compatibility flag that enables it, and lint forbids the global `Temporal` there.
+
 ## Deferred interfaces and challenges
 
 Settings read/update, permitted selection, execution requests, status, cancel,

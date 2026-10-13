@@ -5,7 +5,8 @@ import { defineConfig } from "vitest/config";
 // Page-reading code (the observation extractor and the executor's element lookup)
 // depends on layout and computed styles, so it is tested in Chromium. Diagnostics use
 // Chromium's IndexedDB and WebCrypto; the vault and session stores' `*.browser.test.ts`
-// suites run their native transactions there too.
+// suites run their native transactions there too, and the time helpers run on its own
+// Temporal.
 export default defineConfig({
   root: fileURLToPath(new URL("../../../", import.meta.url)),
   // Browser Mode suites share this root; separate caches keep one suite's optimized
@@ -17,6 +18,7 @@ export default defineConfig({
     include: [
       "apps/extension/src/{diagnostics,observation,page}/*.test.ts",
       "apps/extension/src/{connections,vault}/*.browser.test.ts",
+      "apps/extension/src/time.test.ts",
     ],
     retry: 0,
     // Set by CI's Verify job; `mise run coverage:summary` reports the result.

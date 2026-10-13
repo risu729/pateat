@@ -8,5 +8,16 @@
     "**/.output/**",
     "**/.cloudflare/**",
     "**/worker-configuration.d.ts"
+  ],
+  "overrides": [
+    {
+      "files": ["services/**", "packages/contracts/**", "packages/inference/**"],
+      "rules": {
+        "no-restricted-globals": [
+          "error",
+          { "name": "Temporal", "message": "workerd has no Temporal; use Date on the server" }
+        ]
+      }
+    }
   ]
 }

@@ -7,7 +7,7 @@ import {
 } from "@pateat/bitwarden";
 import type { LocalVaultHandle } from "../vault/manager";
 import type { VaultEntry } from "../vault/record";
-import type { VaultApplyHold, VaultSyncOutcome } from "./auto-sync";
+import type { VaultApplyHold, VaultSyncEntry, VaultSyncOutcome } from "./auto-sync";
 import { setupBeginSchema, setupContinuationSchema } from "./wire";
 import type {
   BitwardenConnectionConfiguration,
@@ -377,9 +377,18 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
       { kind: "password", receivedAt },
     ) as Promise<SetupReply>;
   }
+  /** A finished unchanged check confirms the open snapshot was current when it was sent.
+   * One in the future (a clock set back) confirms nothing. */
+  function syncedAt(acceptedAt: number, check: VaultSyncEntry | undefined) {
+    const unchangedAt = check?.unchangedAt;
+    return unchangedAt !== undefined && unchangedAt <= now()
+      ? Math.max(acceptedAt, unchangedAt)
+      : acceptedAt;
+  }
   async function status(): Promise<SetupReply> {
     const configurations = await deps.registry.list();
     const connections: Extract<SetupReply, { kind: "status" }>["connections"] = [];
+    const checks = await deps.revisions?.read().catch(() => undefined);
     for (const configuration of configurations) {
       const vault = deps.vaultFor(configuration.profile);
       // Bounded sequential native-store reads; no provider HTTP is performed by status.
@@ -418,7 +427,15 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
               ? "disabled"
               : "unknown",
         providerSession,
-        ...(known?.accepted ? { snapshotId: known.accepted.snapshotId } : {}),
+        ...(known?.accepted
+          ? {
+              snapshotId: known.accepted.snapshotId,
+              syncedAt: syncedAt(
+                known.accepted.acceptedAt,
+                checks?.connections[configuration.profile.connectionId],
+              ),
+            }
+          : {}),
       });
     }
     return { ok: true, kind: "status", connections };
