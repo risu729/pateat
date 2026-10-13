@@ -426,7 +426,8 @@ export const executionResultSchema = v.strictObject({
   /**
    * `value-mismatch`: a value does not fit its input, and nothing was filled.
    * `fill-rejected`: after a preparing fill the page marked a filled input invalid or
-   * showed a new alert (ADR 0010).
+   * showed a new alert (ADR 0010), or while typing it kept a character out so the input
+   * does not hold the value.
    * `submitted`: after a `totp` handler's code fill the page showed that it submits the
    * code by itself (ADR 0027); nothing was clicked.
    * `captcha`: the page showed a CAPTCHA before a click, so the click was left to the
