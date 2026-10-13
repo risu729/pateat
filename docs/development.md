@@ -632,7 +632,8 @@ be chosen in Pateat's settings rather than only following Chrome's
 ([comparison](research/2026-10-12-extension-ui-translation.md)).
 On 2026-10-13 the owner chose to use `@webext-core/messaging` only for the messages
 addressed to the background service worker; the background's sends to one document of a
-tab, Ports and `window.postMessage` keep the browser APIs.
+tab, Ports and `window.postMessage` keep the browser APIs
+([route map](research/2026-10-13-extension-message-routes.md)).
 The current manifests and lockfile describe what is installed. WXT + TypeScript +
 Valibot remain confirmed choices; existing Vitest, Playwright and build tools remain in
 use. WXT drives Vite 8 (Rolldown) for the extension build
