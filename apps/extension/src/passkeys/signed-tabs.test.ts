@@ -1,15 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { createSignedTabs, type SignedTabsStorage } from "./signed-tabs";
+import { createSignedTabs, type SessionItem } from "./signed-tabs";
 
 const KEY = "pateat.passkey-signed.v1";
 
 function memory(initial: Record<string, unknown> = {}) {
   const items: Record<string, unknown> = { ...initial };
   const removed: Array<(tabId: number) => void> = [];
-  const storage: SignedTabsStorage = {
-    get: async (key) => (key in items ? { [key]: items[key] } : {}),
-    async set(values) {
-      Object.assign(items, values);
+  // WXT storage items read a missing value as null.
+  const storage: SessionItem = {
+    getValue: async () => items[KEY] ?? null,
+    async setValue(value) {
+      items[KEY] = value;
     },
   };
   return {
@@ -39,6 +40,21 @@ describe("tabs Pateat signed in from", () => {
     await expect.poll(() => restarted.items[KEY]).toEqual([{ tabId: 8, rpIds: ["example.com"] }]);
   });
 
+  it("moves a tab's record to the new ID Chrome gives a discarded tab", async () => {
+    const backing = memory();
+    const tabs = createSignedTabs(backing.storage, backing.onTabRemoved);
+    await tabs.add(7, "example.com");
+    await tabs.add(8, "other.example");
+    await tabs.replaced(9, 7);
+    expect(await tabs.has(7, "example.com")).toBe(false);
+    expect(await tabs.has(9, "example.com")).toBe(true);
+    // In place, so the tab keeps its turn among the oldest.
+    expect(backing.items[KEY]).toEqual([
+      { tabId: 9, rpIds: ["example.com"] },
+      { tabId: 8, rpIds: ["other.example"] },
+    ]);
+  });
+
   it("ignores a malformed record and bounds what it keeps", async () => {
     const backing = memory({ [KEY]: [{ tabId: -1, rpIds: ["example.com"] }] });
     const tabs = createSignedTabs(backing.storage, backing.onTabRemoved);
@@ -62,10 +78,10 @@ describe("tabs Pateat signed in from", () => {
   it("works without storage", async () => {
     const tabs = createSignedTabs(
       {
-        get: async () => {
+        getValue: async () => {
           throw new Error("unavailable");
         },
-        set: async () => {
+        setValue: async () => {
           throw new Error("unavailable");
         },
       },

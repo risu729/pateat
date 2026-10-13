@@ -703,7 +703,23 @@ test("after the site rejects a login, the popup says so and offers the accounts"
   await expect
     .element(page.getByText("The site did not accept the last login in this tab", { exact: true }))
     .toBeVisible();
-  await expect.element(page.getByRole("button", { name: "Log in" })).toBeEnabled();
+  // Nothing is chosen, so Log in cannot send the rejected account again by itself.
+  const offered = page.getByRole("group", { name: "Account to log in with" });
+  await expect.element(offered.getByRole("radio").first()).not.toBeChecked();
+  await expect.element(offered.getByRole("radio").last()).not.toBeChecked();
+  const logIn = page.getByRole("button", { name: "Log in" });
+  await expect.element(logIn).toBeDisabled();
+  // The default box keeps its usual state; it saves only after a login succeeds.
+  await expect
+    .element(page.getByRole("checkbox", { name: "Make it the default for bank.example" }))
+    .toBeChecked();
+  expect(choices.pick).not.toHaveBeenCalled();
+  await userEvent.click(offered.getByRole("radio", { name: "Demo team account, Demo work vault" }));
+  await expect.element(logIn).toBeEnabled();
+  await userEvent.click(logIn);
+  expect(choices.pick).toHaveBeenCalledWith(
+    expect.objectContaining({ documentId: "rejected-page", connectionId: "demo-work" }),
+  );
 });
 
 test("after a logout, the popup asks even with one account", async () => {

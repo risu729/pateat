@@ -9,7 +9,6 @@ import {
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { Hono } from "hono";
-import { validator } from "hono/validator";
 import * as v from "valibot";
 import type { ApiEnv } from "../auth";
 import { devices, recipeHeads } from "../db/schema";
@@ -17,7 +16,7 @@ import { apiError } from "../http";
 import { findOwner } from "../owners";
 import { selectHeads, toChange, writeRecipe } from "../recipe-store";
 import { readSettings, writeSettings } from "../settings-store";
-import { jsonBody, requireJsonBody } from "../validation";
+import { jsonBody, requireJsonBody, validate } from "../validation";
 
 const deviceParamSchema = v.strictObject({ deviceId: deviceIdSchema });
 const recipeParamSchema = v.strictObject({ recipeId: syncRecipeIdSchema });
@@ -46,10 +45,7 @@ export const manageApiRoutes = new Hono<ApiEnv>()
   })
   .post(
     "/devices/:deviceId/revoke",
-    validator("param", (value, c) => {
-      const result = v.safeParse(deviceParamSchema, value);
-      return result.success ? result.output : apiError(c, 404, { error: "not_found" });
-    }),
+    validate("param", deviceParamSchema, { status: 404, error: "not_found" }),
     async (c) => {
       const { deviceId } = c.req.valid("param");
       const ownerId = await findOwner(c.env.DB, c.get("identity"));
@@ -97,10 +93,7 @@ export const manageApiRoutes = new Hono<ApiEnv>()
   })
   .post(
     "/recipes/:recipeId/revoke",
-    validator("param", (value, c) => {
-      const result = v.safeParse(recipeParamSchema, value);
-      return result.success ? result.output : apiError(c, 404, { error: "not_found" });
-    }),
+    validate("param", recipeParamSchema, { status: 404, error: "not_found" }),
     requireJsonBody,
     jsonBody(manageRecipeRevokeSchema),
     async (c) => {

@@ -1,7 +1,7 @@
-import type { Context } from "hono";
+import { sValidator } from "@hono/standard-validator";
+import type { ValidationTargets } from "hono";
 import { createMiddleware } from "hono/factory";
-import { validator } from "hono/validator";
-import * as v from "valibot";
+import type * as v from "valibot";
 import { apiError } from "./http";
 
 /** Rejects other media types before any body parsing, including `+json` variants. */
@@ -11,12 +11,27 @@ export const requireJsonBody = createMiddleware(async (c, next) => {
   return next();
 });
 
-/** Valibot boundary validation; failures never echo the rejected input. */
+/**
+ * Valibot boundary validation. A failed check answers with a fixed error code. The hook
+ * always returns on failure, because `sValidator` would otherwise reply with the rejected
+ * input and the Valibot issues.
+ */
+export function validate<TTarget extends keyof ValidationTargets, TSchema extends v.GenericSchema>(
+  target: TTarget,
+  schema: TSchema,
+  failure: { status: 400; error: "bad_request" } | { status: 404; error: "not_found" } = {
+    status: 400,
+    error: "bad_request",
+  },
+) {
+  return sValidator(target, schema, (result, c) =>
+    result.success ? undefined : apiError(c, failure.status, { error: failure.error }),
+  );
+}
+
+/** Validates a JSON body; failures are `400 bad_request` and never echo the input. */
 export function jsonBody<TSchema extends v.GenericSchema>(schema: TSchema) {
-  return validator("json", (value, c: Context) => {
-    const result = v.safeParse(schema, value);
-    return result.success ? result.output : apiError(c, 400, { error: "bad_request" });
-  });
+  return validate("json", schema);
 }
 
 /** Owner pages accept only ordinary form posts; CSRF checks run before this. */

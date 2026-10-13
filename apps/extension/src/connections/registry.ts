@@ -1,6 +1,6 @@
 import * as v from "valibot";
 import { normalizeBitwardenProfile } from "@pateat/bitwarden";
-import { browser } from "wxt/browser";
+import { trustedRecord } from "../storage";
 import type { BitwardenConnectionConfiguration, ConnectionRegistry } from "./types";
 
 const key = "pateat.bitwarden-connections.v1";
@@ -72,22 +72,5 @@ export function createConnectionRegistry(storage: {
   };
 }
 export function createBrowserConnectionRegistry(): ConnectionRegistry {
-  let access: Promise<void> | undefined;
-  const restricted = () =>
-    (access ??= browser.storage.local
-      .setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" })
-      .catch((error: unknown) => {
-        access = undefined;
-        throw error;
-      }));
-  return createConnectionRegistry({
-    async read() {
-      await restricted();
-      return (await browser.storage.local.get(key))[key];
-    },
-    async write(value) {
-      await restricted();
-      await browser.storage.local.set({ [key]: value });
-    },
-  });
+  return createConnectionRegistry(trustedRecord(key));
 }

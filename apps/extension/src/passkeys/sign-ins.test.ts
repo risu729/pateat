@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createSignIns } from "./sign-ins";
-import type { SignedTabsStorage } from "./signed-tabs";
+import type { SessionItem } from "./signed-tabs";
 
 const KEY = "pateat.passkey-sign-ins.v1";
 const origin = "https://login.example.com";
@@ -8,10 +8,11 @@ const origin = "https://login.example.com";
 function memory(initial: Record<string, unknown> = {}) {
   const items: Record<string, unknown> = structuredClone(initial);
   const removed: Array<(tabId: number) => void> = [];
-  const storage: SignedTabsStorage = {
-    get: async (key) => (key in items ? { [key]: structuredClone(items[key]) } : {}),
-    async set(values) {
-      Object.assign(items, structuredClone(values));
+  // WXT storage items read a missing value as null.
+  const storage: SessionItem = {
+    getValue: async () => (KEY in items ? structuredClone(items[KEY]) : null),
+    async setValue(value) {
+      items[KEY] = structuredClone(value);
     },
   };
   return {
@@ -55,6 +56,16 @@ describe("Pateat's sign-ins per tab (ADR 0007)", () => {
       { origin: "https://other.example", at: 1_003_000 },
       { origin, at: 1_004_000 },
     ]);
+  });
+
+  it("moves a tab's sign-ins to the new ID Chrome gives a discarded tab", async () => {
+    const backing = memory();
+    const signIns = createSignIns(backing.storage, backing.onTabRemoved, ticking());
+    await signIns.add(7, { origin });
+    await signIns.replaced(9, 7);
+    expect(await signIns.list(7)).toEqual([]);
+    expect(await signIns.list(9)).toEqual([{ origin, at: 1_001_000 }]);
+    expect(backing.items[KEY]).toEqual([{ tabId: 9, records: [{ origin, at: 1_001_000 }] }]);
   });
 
   it("keeps the latest four sign-ins of a tab", async () => {
@@ -110,12 +121,12 @@ describe("Pateat's sign-ins per tab (ADR 0007)", () => {
   it("keeps stored records when a sign-in arrives before they were read", async () => {
     const backing = memory({ [KEY]: [{ tabId: 7, records: [{ origin, at: 1 }] }] });
     let release!: () => void;
-    const slow: SignedTabsStorage = {
-      get: async (key) => {
+    const slow: SessionItem = {
+      getValue: async () => {
         await new Promise<void>((resolve) => (release = resolve));
-        return backing.storage.get(key);
+        return backing.storage.getValue();
       },
-      set: backing.storage.set,
+      setValue: backing.storage.setValue,
     };
     const signIns = createSignIns(slow, backing.onTabRemoved, () => 2);
     const adding = signIns.add(7, { origin: "https://other.example" });
@@ -161,11 +172,11 @@ describe("Pateat's sign-ins per tab (ADR 0007)", () => {
   });
 
   it("works without storage, losing only what it would have kept", async () => {
-    const unavailable: SignedTabsStorage = {
-      get: async () => {
+    const unavailable: SessionItem = {
+      getValue: async () => {
         throw new Error("unavailable");
       },
-      set: async () => {
+      setValue: async () => {
         throw new Error("unavailable");
       },
     };

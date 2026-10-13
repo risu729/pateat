@@ -67,6 +67,13 @@ watches for its own end. The badge, popup and log name the rejection instead of 
 `rejected`). A pick marked "make default" is still saved only after `authenticated`, so
 a rejected pick is not kept as the default (part B) (implemented).
 
+In the tab whose login the site rejected, the popup's list has no account chosen, and
+Log in stays disabled until the user picks one, so a single press there never sends the
+rejected account again; the "make default" box keeps its usual state. The owner chose
+this on 2026-10-13 (13:54 UTC, decision card answer 「何も選ばない」) over choosing the
+first other account or also clearing the box (implemented). The site's other tabs ask
+as after a logout in another tab and still choose the first account.
+
 Date: 2026-10-11
 
 ## Context
@@ -242,6 +249,14 @@ restarted worker cannot click. The recipe's account switch is never clicked eith
 the page shows another account, the fill ends and the tab asks. The log shows such a
 login as `login.attempt` with reason `fill-only`, then the asking as `login.refused`
 `logged-out` with the tab that logged out.
+
+A tab is known by its Chrome tab ID. When Chrome's Memory Saver discards an idle tab,
+the tab gets a new ID (seen on Wise on 2026-10-13: the restored tab that logged out was
+then told it had logged out in another tab). Chrome reports the change with
+`tabs.onReplaced`, which may also start a stopped worker. The tab's logout state, its
+login records, its sign-in entry press, a pick that started its login and its passkey
+sign-ins then move to the new ID; the page that went away is forgotten as on a close,
+so the restored page asks as the tab that logged out.
 
 Amended 2026-10-12 by the owner (07:41 UTC, after a decision card): a tab whose login of
 the origin stopped (`blocked`) after it submitted something, other than an account

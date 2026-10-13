@@ -82,6 +82,8 @@ const fake = vi.hoisted(() => {
     gone: new Set<string>(),
     /** Every runtime's tab-closed listener, so a test can close its tabs afterwards. */
     removed: [] as ((tabId: number) => void)[],
+    /** Every runtime's tab-replaced listener, as Chrome calls it for a discarded tab. */
+    replaced: [] as ((added: number, removed: number) => void)[],
     /** The document's description of itself, by the page asked for. */
     extracted: {} as Record<string, unknown>,
     /**
@@ -254,6 +256,11 @@ const fake = vi.hoisted(() => {
       onRemoved: {
         addListener: (listener: (tabId: number) => void) => {
           state.removed.push(listener);
+        },
+      },
+      onReplaced: {
+        addListener: (listener: (added: number, removed: number) => void) => {
+          state.replaced.push(listener);
         },
       },
     },
@@ -567,6 +574,7 @@ describe("production login document admission", () => {
     // Close every test's tabs, so no attempt left reconciling answers a later test.
     for (const listener of fake.state.removed.splice(0))
       for (const tabId of [1, 2, 3, 4]) listener(tabId);
+    fake.state.replaced.length = 0;
   });
   beforeEach(() => {
     fake.state.storage = {};
@@ -1054,6 +1062,9 @@ describe("production login document admission", () => {
     expect(first).toMatchObject({ ok: false });
     expect(await h.hello()).toEqual(first);
     expect(await h.hello({ documentId: "next-page" })).toEqual(first);
+    // A restarted worker reconnects every page: the same page again is still a repeat.
+    const restarted = harness({ siteDefaults: [] }, { report });
+    expect(await restarted.hello({ documentId: "next-page" })).toEqual(first);
     const { reason } = first as { reason: string };
     expect(
       report.mock.calls.map(([entry]) => entry).filter((entry) => entry.type === "refused"),
@@ -1061,6 +1072,7 @@ describe("production login document admission", () => {
       expect.objectContaining({ reason }),
       expect.objectContaining({ reason, repeat: true }),
       expect.not.objectContaining({ repeat: true }),
+      expect.objectContaining({ reason, repeat: true }),
     ]);
   });
   it("logs an exception that stops a login with its name and message", async () => {
@@ -1894,6 +1906,10 @@ describe("production login document admission", () => {
         // The new page's own request, as the bridge reports it before the page announces.
         h.login.passkeyRequested(1, "https://www.login.example");
         await navigate(h, "https://www.login.example/verify", "verify-document", false);
+        // The login waits for the tab's next page, but the answer before that request no
+        // longer counts.
+        expect(at(origin)).not.toMatchObject({ state: "blocked" });
+        await navigate(h, "https://www.login.example/home", "home-document", false);
         expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
       });
       it("reads the tab's next page when the first one went away before it was read", async () => {
@@ -2162,6 +2178,170 @@ describe("production login document admission", () => {
         expect(await h.hello()).toEqual({ ok: true });
         await vi.waitFor(() => expect(executes()).toHaveLength(2));
         await navigate(h, "https://www.login.example/home", "home-document", false);
+        expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
+      });
+    });
+    describe("after a page of the site asked for a passkey (ADR 0022)", () => {
+      const quiet = { password: false, code: false, captcha: false, invalid: false, alert: false };
+      const auth = "https://auth.login.example";
+      const item = { connectionId, itemId };
+      /**
+       * Submits on the site, then moves the tab to a page of another origin of the site that
+       * asks for a passkey, which holds the login.
+       */
+      const askedThere = async (live: Parameters<typeof harness>[1] = {}) => {
+        holdClicks(origin);
+        const h = twoSites(live);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(executes()).toHaveLength(2));
+        fake.state.signs = quiet;
+        h.login.passkeyRequested(1, auth);
+        expect(await navigate(h, `${auth}/passkey`, "auth-document", false)).toEqual({
+          ok: false,
+          reason: "stale-document",
+        });
+        expect(at(origin)).not.toMatchObject({ state: "blocked" });
+        return h;
+      };
+      it("completes when the tab comes back after the login's item answered there", async () => {
+        const report = vi.fn<(report: LoginReport) => void>();
+        const signedIn = vi.fn<(tabId: number, origin: string) => void>();
+        const h = await askedThere({ report, signedIn });
+        h.login.passkeyAnswered(1, auth, "login.example", item);
+        await navigate(h, `${origin}/callback`, "callback-document", false);
+        expect(at(origin)).toMatchObject({ state: "authenticated", outcome: "authenticated" });
+        expect(await h.login.active()).toBe(false);
+        expect(executes()).toHaveLength(2);
+        expect(report.mock.calls.map(([entry]) => entry)).toContainEqual(
+          expect.objectContaining({
+            type: "move",
+            origin: auth,
+            reason: "passkey-request",
+            kept: true,
+          }),
+        );
+        expect(signedIn.mock.calls.toSorted()).toEqual([
+          [1, auth],
+          [1, origin],
+        ]);
+      });
+      it("keeps waiting while the page that asked announces again", async () => {
+        const h = await askedThere();
+        expect(await navigate(h, `${auth}/passkey`, "auth-document", false)).toMatchObject({
+          ok: false,
+        });
+        expect(at(origin)).not.toMatchObject({ state: "blocked" });
+        h.login.passkeyAnswered(1, auth, "login.example", item);
+        await navigate(h, `${origin}/callback`, "callback-document", false);
+        expect(at(origin)).toMatchObject({ state: "authenticated" });
+      });
+      it("leaves the move to the top page when a frame of the page that asked announces", async () => {
+        const h = await askedThere();
+        fake.state.tabUrls[1] = `${auth}/passkey`;
+        await h.hello(
+          {
+            frameId: 3,
+            documentId: "auth-frame",
+            url: `${auth}/frame`,
+            tab: { id: 1, url: `${auth}/passkey` },
+          },
+          false,
+        );
+        expect(at(origin)).not.toMatchObject({ state: "blocked" });
+        h.login.passkeyAnswered(1, auth, "login.example", item);
+        await navigate(h, `${origin}/callback`, "callback-document", false);
+        expect(at(origin)).toMatchObject({ state: "authenticated" });
+      });
+      it("ends left-origin when the page that asked shows a password field again", async () => {
+        const h = await askedThere();
+        fake.state.signs = { ...quiet, password: true };
+        await navigate(h, `${auth}/passkey`, "auth-document", false);
+        expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
+      });
+      it("ends left-origin when the page after the answer asks for a passkey again", async () => {
+        const h = await askedThere();
+        h.login.passkeyAnswered(1, auth, "login.example", item);
+        h.login.passkeyRequested(1, "https://www.login.example");
+        await navigate(h, "https://www.login.example/verify", "verify-document", false);
+        expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
+      });
+      it("ends left-origin when the page that asked stays open", async () => {
+        vi.useFakeTimers({ toFake: ["setTimeout"], shouldAdvanceTime: true });
+        onTestFinished(() => void vi.useRealTimers());
+        const h = await askedThere();
+        await vi.advanceTimersByTimeAsync(61_000);
+        vi.useRealTimers();
+        await vi.waitFor(() =>
+          expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" }),
+        );
+        expect(await h.login.active()).toBe(false);
+      });
+      it("completes on another host of the passkey's site", async () => {
+        const h = await askedThere();
+        h.login.passkeyAnswered(1, auth, "login.example", item);
+        await navigate(h, "https://www.login.example/home", "home-document", false);
+        expect(at(origin)).toMatchObject({ state: "authenticated" });
+      });
+      it("ends left-origin when another item answered there", async () => {
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = await askedThere({ report });
+        h.login.passkeyAnswered(1, auth, "login.example", {
+          connectionId,
+          itemId: "80000000-0000-4000-8000-000000000009",
+        });
+        await navigate(h, `${origin}/callback`, "callback-document", false);
+        expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
+        expect(report.mock.calls.map(([entry]) => entry)).toContainEqual(
+          expect.objectContaining({ type: "move", origin, reason: "no-factor" }),
+        );
+      });
+      it("ends left-origin when nothing answered there", async () => {
+        const h = await askedThere();
+        await navigate(h, `${origin}/callback`, "callback-document", false);
+        expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
+      });
+      it("ends left-origin when the page after the answer shows a password field", async () => {
+        const h = await askedThere();
+        h.login.passkeyAnswered(1, auth, "login.example", item);
+        fake.state.signs = { ...quiet, password: true };
+        await navigate(h, `${origin}/signin`, "signin-document", false);
+        expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
+      });
+      it("ends left-origin when the page after the answer comes more than 30 seconds later", async () => {
+        const h = await askedThere();
+        h.login.passkeyAnswered(1, auth, "login.example", item);
+        const now = Date.now.bind(Date);
+        const clock = vi.spyOn(Date, "now").mockImplementation(() => now() + 31_000);
+        onTestFinished(() => clock.mockRestore());
+        await navigate(h, `${origin}/callback`, "callback-document", false);
+        expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
+      });
+      it("reads the tab's next page when the one it came back to went away", async () => {
+        const h = await askedThere();
+        h.login.passkeyAnswered(1, auth, "login.example", item);
+        fake.state.gone = new Set(["callback-document"]);
+        expect(await navigate(h, `${origin}/callback`, "callback-document", false)).toEqual({
+          ok: false,
+          reason: "stale-document",
+        });
+        expect(at(origin)).not.toMatchObject({ state: "blocked" });
+        await navigate(h, `${origin}/home`, "home-document", false);
+        expect(at(origin)).toMatchObject({ state: "authenticated" });
+      });
+      it("never completes on the account's username once such a page asked", async () => {
+        const h = await askedThere();
+        fake.state.signs = { ...quiet, username: true };
+        await navigate(h, "https://www.login.example/home", "home-document", false);
+        expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
+      });
+      it("ends left-origin when the page of another site asks for a passkey", async () => {
+        holdClicks(origin);
+        const h = twoSites();
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(executes()).toHaveLength(2));
+        fake.state.signs = quiet;
+        h.login.passkeyRequested(1, "https://auth.elsewhere.example");
+        await navigate(h, "https://auth.elsewhere.example/passkey", "auth-document", false);
         expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
       });
     });
@@ -4396,10 +4576,12 @@ describe("production login document admission", () => {
           "pateat.login-stopped-asks.v1": [],
           "pateat.login-rejected-asks.v1": [],
           "pateat.login-entry-presses.v1": [],
+          "pateat.login-noted.v1": [["1 synthetic-document /signin", ["account-ambiguous "]]],
         });
         for (const listener of fake.state.removed) listener(1);
         await vi.waitFor(() =>
           expect(fake.state.session).toEqual({
+            "pateat.login-noted.v1": [],
             "pateat.login-picks.v1": [],
             "pateat.login-choices.v1": [],
             "pateat.login-logouts.v1": [],
@@ -4592,6 +4774,70 @@ describe("production login document admission", () => {
             { origin, provider: "bitwarden", userId, itemId },
           ]);
           expect(logouts()).toEqual([]);
+        });
+        it("keeps asking as the tab that logged out after Chrome replaces the tab", async () => {
+          const h = await loggedOut();
+          // Chrome discarded the idle tab and shows it again under a new ID.
+          fake.state.tabUrls[2] = fake.state.pageUrl;
+          for (const listener of fake.state.replaced) listener(2, 1);
+          await vi.waitFor(() => expect(logouts()).toEqual([{ tabId: 2, origin }]));
+          // The restored page fills once and asks as this tab, not as another tab.
+          await filledOnly(h, { tab: { id: 2 }, documentId: "restored" });
+          expect(
+            await h.login.handle({ version: 1, type: "login.choice.get", tabId: 2 }, popup),
+          ).toMatchObject({ documentId: "restored", logout: "this-tab" });
+          expect(fake.state.badges[2]?.title).toBe(
+            "Pateat: you logged out of this site in this tab. Click to choose an account.",
+          );
+        });
+        it("keeps the tab's login with it after Chrome replaces the tab", async () => {
+          const h = harness(
+            {},
+            { allowedOrigins: [], uris: async () => ({ ok: true, data: both }) },
+          );
+          expect(await h.hello()).toEqual({ ok: true });
+          await vi.waitFor(() => expect(attempts()).toMatchObject([{ state: "authenticated" }]));
+          fake.state.tabUrls[2] = fake.state.pageUrl;
+          for (const listener of fake.state.replaced) listener(2, 1);
+          await vi.waitFor(() =>
+            expect(attempts()).toMatchObject([{ state: "authenticated", document: { tabId: 2 } }]),
+          );
+          // The restored page of the site only watches, as after a reload.
+          expect(await h.hello({ tab: { id: 2 }, documentId: "restored" }, false)).toEqual({
+            ok: false,
+            reason: "logged-in",
+            starts: [signinStart],
+          });
+        });
+        it("keeps the tab's login when the replacement starts a stopped worker", async () => {
+          const h = harness(
+            {},
+            { allowedOrigins: [], uris: async () => ({ ok: true, data: both }) },
+          );
+          expect(await h.hello()).toEqual({ ok: true });
+          await vi.waitFor(() => expect(attempts()).toMatchObject([{ state: "authenticated" }]));
+          // The worker had stopped; only the tab's new ID is open when it starts again.
+          fake.state.replaced.length = 0;
+          fake.state.tabUrls[2] = fake.state.pageUrl;
+          const query = fake.browser.tabs.query;
+          fake.browser.tabs.query = async () => [{ id: 2 }] as never;
+          try {
+            const restarted = harness(
+              {},
+              { allowedOrigins: [], uris: async () => ({ ok: true, data: both }) },
+            );
+            for (const listener of fake.state.replaced) listener(2, 1);
+            await vi.waitFor(() =>
+              expect(attempts()).toMatchObject([
+                { state: "authenticated", document: { tabId: 2 } },
+              ]),
+            );
+            expect(
+              await restarted.hello({ tab: { id: 2 }, documentId: "restored" }, false),
+            ).toEqual({ ok: false, reason: "logged-in", starts: [signinStart] });
+          } finally {
+            fake.browser.tabs.query = query;
+          }
         });
         it("replaces the saved default with a pick marked as the default", async () => {
           const h = await loggedOut();

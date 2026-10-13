@@ -1,7 +1,7 @@
 import * as v from "valibot";
 
 /** Session storage outlives a worker restart, and ends with the browser session. */
-const STORAGE_KEY = "pateat.passkey-signed.v1";
+export const SIGNED_TABS_KEY = "session:pateat.passkey-signed.v1";
 const MAX_TABS = 256;
 const MAX_RP_IDS = 8;
 
@@ -18,15 +18,18 @@ const storedSchema = v.pipe(
   v.maxLength(MAX_TABS),
 );
 
-export interface SignedTabsStorage {
-  get(key: string): Promise<Record<string, unknown>>;
-  set(items: Record<string, unknown>): Promise<void>;
+/** One `storage.session` item: WXT's, or a fake in tests. */
+export interface SessionItem {
+  getValue(): Promise<unknown>;
+  setValue(value: unknown): Promise<void>;
 }
 
 /** The RP IDs Pateat returned an assertion for, per tab (ADR 0021 part D). */
 export interface SignedTabs {
   has(tabId: number, rpId: string): Promise<boolean>;
   add(tabId: number, rpId: string): Promise<void>;
+  /** Moves a tab's records to the new ID Chrome gave the tab when it replaced it. */
+  replaced(added: number, removed: number): Promise<void>;
 }
 
 /**
@@ -34,15 +37,15 @@ export interface SignedTabs {
  * which may follow a logout, asks again. A closed tab is forgotten.
  */
 export function createSignedTabs(
-  storage: SignedTabsStorage,
+  storage: SessionItem,
   onTabRemoved: (listener: (tabId: number) => void) => void,
 ): SignedTabs {
   // In the order they were last signed in, so the oldest tab goes first.
   const tabs = new Map<number, readonly string[]>();
   // Every change happens after this load; storage failures only lose the record.
   const load = async () => {
-    const stored = await storage.get(STORAGE_KEY).catch(() => ({}) as Record<string, unknown>);
-    const parsed = v.safeParse(storedSchema, stored[STORAGE_KEY] ?? []);
+    const stored = await storage.getValue().catch(() => undefined);
+    const parsed = v.safeParse(storedSchema, stored ?? []);
     if (parsed.success) for (const entry of parsed.output) tabs.set(entry.tabId, entry.rpIds);
   };
   const loaded = load();
@@ -50,7 +53,7 @@ export function createSignedTabs(
   const save = () => {
     const entries = [...tabs].map(([tabId, rpIds]) => ({ tabId, rpIds }));
     queue = queue.then(
-      () => storage.set({ [STORAGE_KEY]: entries }).catch(() => undefined),
+      () => storage.setValue(entries).catch(() => undefined),
       () => undefined,
     );
     return queue;
@@ -66,6 +69,17 @@ export function createSignedTabs(
     async has(tabId, rpId) {
       await loaded;
       return tabs.get(tabId)?.includes(rpId) ?? false;
+    },
+    async replaced(added, removed) {
+      await loaded;
+      if (!tabs.has(removed)) return;
+      // In place, so the tab keeps its turn among the oldest.
+      const moved = [...tabs].map(
+        ([tabId, entry]) => [tabId === removed ? added : tabId, entry] as const,
+      );
+      tabs.clear();
+      for (const [tabId, entry] of moved) tabs.set(tabId, entry);
+      await save();
     },
     async add(tabId, rpId) {
       await loaded;

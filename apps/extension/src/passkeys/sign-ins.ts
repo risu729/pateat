@@ -1,8 +1,8 @@
 import * as v from "valibot";
-import type { SignedTabsStorage } from "./signed-tabs";
+import type { SessionItem } from "./signed-tabs";
 
 /** Session storage outlives a worker restart, and ends with the browser session. */
-const STORAGE_KEY = "pateat.passkey-sign-ins.v1";
+export const SIGN_INS_KEY = "session:pateat.passkey-sign-ins.v1";
 const MAX_TABS = 64;
 const MAX_RECORDS = 4;
 
@@ -30,6 +30,8 @@ export interface SignIns {
   add(tabId: number, record: { readonly origin: string; readonly rpId?: string }): Promise<void>;
   /** The tab's latest sign-ins, oldest first; none when storage failed. */
   list(tabId: number): Promise<readonly SignInRecord[]>;
+  /** Moves a tab's records to the new ID Chrome gave the tab when it replaced it. */
+  replaced(added: number, removed: number): Promise<void>;
 }
 
 /**
@@ -38,7 +40,7 @@ export interface SignIns {
  * latest few tabs and records are kept.
  */
 export function createSignIns(
-  storage: SignedTabsStorage,
+  storage: SessionItem,
   onTabRemoved: (listener: (tabId: number) => void) => void,
   now: () => number = Date.now,
 ): SignIns {
@@ -46,8 +48,8 @@ export function createSignIns(
   const tabs = new Map<number, readonly SignInRecord[]>();
   // Every change happens after this load; storage failures only lose the records.
   const load = async () => {
-    const stored = await storage.get(STORAGE_KEY).catch(() => ({}) as Record<string, unknown>);
-    const parsed = v.safeParse(storedSchema, stored[STORAGE_KEY] ?? []);
+    const stored = await storage.getValue().catch(() => undefined);
+    const parsed = v.safeParse(storedSchema, stored ?? []);
     if (parsed.success) for (const entry of parsed.output) tabs.set(entry.tabId, entry.records);
   };
   const loaded = load();
@@ -55,7 +57,7 @@ export function createSignIns(
   const save = () => {
     const entries = [...tabs].map(([tabId, records]) => ({ tabId, records }));
     queue = queue.then(
-      () => storage.set({ [STORAGE_KEY]: entries }).catch(() => undefined),
+      () => storage.setValue(entries).catch(() => undefined),
       () => undefined,
     );
     return queue;
@@ -89,6 +91,17 @@ export function createSignIns(
     async list(tabId) {
       await loaded;
       return tabs.get(tabId) ?? [];
+    },
+    async replaced(added, removed) {
+      await loaded;
+      if (!tabs.has(removed)) return;
+      // In place, so the tab keeps its turn among the oldest.
+      const moved = [...tabs].map(
+        ([tabId, entry]) => [tabId === removed ? added : tabId, entry] as const,
+      );
+      tabs.clear();
+      for (const [tabId, entry] of moved) tabs.set(tabId, entry);
+      await save();
     },
   };
 }
