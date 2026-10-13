@@ -179,6 +179,11 @@ const STOPPED_ASKS_KEY = "pateat.login-stopped-asks.v1";
  * asking is the same, only its wording names the rejection (ADR 0021 D).
  */
 const REJECTED_ASKS_KEY = "pateat.login-rejected-asks.v1";
+/**
+ * Refusal reasons already logged, by tab, document and path, so a page that announces
+ * again after a worker restart does not log the same reason as news (ADR 0019).
+ */
+const NOTED_KEY = "pateat.login-noted.v1";
 const CONFIG_KEY = "pateat.login-probe-origin.v1";
 /**
  * How long another tab's login that has not succeeded holds its origin after its record
@@ -1702,6 +1707,8 @@ export function createLoginRuntime(
   const pending = new Map<number, PendingChoice>();
   /** By `recordKey`: tabs that logged out of an origin and have not picked an account yet. */
   const logouts = new Set<string>();
+  /** Reasons already logged, by tab, document and path; stored like the logout fills. */
+  const noted = new Map<string, Set<string>>();
   /** By `recordKey`: tabs that ask after their own login stopped once it submitted. */
   const stoppedAsks = new Set<string>();
   /** By `recordKey`: the `logouts` that the site's rejection of the tab's login began. */
@@ -1755,6 +1762,7 @@ export function createLoginRuntime(
       STOPPED_ASKS_KEY,
       REJECTED_ASKS_KEY,
       ENTRY_PRESSES_KEY,
+      NOTED_KEY,
     ]);
     const picks = v.safeParse(v.array(pickedAccountSchema), stored[PICKS_KEY] ?? []);
     if (picks.success) for (const entry of picks.output) picked.set(entry.tabId, entry);
@@ -1775,6 +1783,13 @@ export function createLoginRuntime(
       stored[LOGOUT_FILLS_KEY] ?? [],
     );
     if (filled.success) for (const entry of filled.output) logoutFills.add(entry);
+    const logged = v.safeParse(
+      v.pipe(v.array(v.tuple([v.string(), v.array(v.string())])), v.maxLength(256)),
+      stored[NOTED_KEY] ?? [],
+    );
+    // Every note waits for this load.
+    if (logged.success)
+      for (const [key, reasons] of logged.output) noted.set(key, new Set(reasons));
     const presses = v.safeParse(
       v.pipe(v.array(entryPressSchema), v.maxLength(256)),
       stored[ENTRY_PRESSES_KEY] ?? [],
@@ -1800,6 +1815,7 @@ export function createLoginRuntime(
       [STOPPED_ASKS_KEY]: scopes(stoppedAsks),
       [REJECTED_ASKS_KEY]: scopes(rejectedAsks),
       [ENTRY_PRESSES_KEY]: [...entryPresses.values()],
+      [NOTED_KEY]: [...noted].map(([page, ids]) => [page, [...ids]]),
     });
   }
   /**
@@ -6265,8 +6281,6 @@ export function createLoginRuntime(
       })
       .catch(() => undefined);
   }
-  /** Reasons already logged, by tab, document and path; bounded like the logout fills. */
-  const noted = new Map<string, Set<string>>();
   /**
    * Logs why Pateat did nothing on a page. The same reason again on the same page is
    * logged as a repeat (ADR 0019).
@@ -6290,6 +6304,9 @@ export function createLoginRuntime(
       if (noted.size <= 256) break;
       noted.delete(old);
     }
+    // Kept for the worker's next start. A repeat changes nothing worth storing, and
+    // ordinary browsing logs only at debug.
+    if (!repeat && !unrelated) void quietly(saveSession);
     report(document, {
       type: "refused",
       tabId: document.tabId,
@@ -8410,6 +8427,8 @@ export function createLoginRuntime(
       for (const key of logoutFills)
         if (key.startsWith(`${tabId} `)) changed = logoutFills.delete(key) || changed;
       if (entryPresses.delete(tabId)) changed = true;
+      for (const key of noted.keys())
+        if (key.startsWith(`${tabId} `)) changed = noted.delete(key) || changed;
       if (changed) await quietly(saveSession);
       return undefined;
     });
