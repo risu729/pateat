@@ -955,6 +955,18 @@ describe("passkey requests during a login (ADR 0027)", () => {
     expect(choose.choose).not.toHaveBeenCalled();
   });
 
+  it("delegates when the login lookup fails", async () => {
+    const backing = vault([siteDefault, ofLogin]);
+    const runtime = createPasskeyRuntime(backing, {
+      extensionId,
+      loginAccount: async () => {
+        throw new Error("storage unavailable");
+      },
+    });
+    expect(await runtime.handle(get(), sender())).toMatchObject({ kind: "delegate" });
+    expect(backing.sign).not.toHaveBeenCalled();
+  });
+
   it("answers as before once the login has ended", async () => {
     const backing = vault([siteDefault, ofLogin]);
     const runtime = createPasskeyRuntime(backing, {
