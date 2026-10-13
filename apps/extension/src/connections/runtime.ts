@@ -186,6 +186,18 @@ export function createConnectionRuntime(
       connected = false;
       caller.dispose();
     });
+    // A reply that cannot be sent ends the Port, so the page fails its requests at once
+    // instead of waiting out its timeout.
+    function send(message: { requestId: string; result: SetupReply }) {
+      if (!connected) return;
+      try {
+        port.postMessage(message);
+      } catch {
+        connected = false;
+        caller.dispose();
+        port.disconnect();
+      }
+    }
     port.onMessage.addListener((input: unknown) => {
       if (!connected) return;
       if (!boundedMessage(input)) {
@@ -202,7 +214,7 @@ export function createConnectionRuntime(
       const request = checked.output;
       used.add(request.requestId);
       if (pending >= 4) {
-        port.postMessage({
+        send({
           requestId: request.requestId,
           result: { ok: false, error: { code: "resource-limit" } },
         });
@@ -251,14 +263,7 @@ export function createConnectionRuntime(
               // Logging never holds back the reply.
             }
           }
-          if (connected) {
-            try {
-              port.postMessage({ requestId: request.requestId, result: reply });
-            } catch {
-              connected = false;
-              caller.dispose();
-            }
-          }
+          send({ requestId: request.requestId, result: reply });
           return undefined;
         });
     });
