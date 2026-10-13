@@ -48,7 +48,10 @@ Now in D, a login asks at once, as after a logout, in the page where the sign-in
 showed again in the first new document after the password submission with its password
 input and no other sign (no code input, CAPTCHA, passkey request or sign of a sign-in),
 also when the result there stays unknown, also after the submitted page settled first,
-and in the page a `credential-rejected` result was read in, on any path. That page is
+and in the page a `credential-rejected` result was read in, on any path. When the
+submitted page settled first and the form shows again on a path where a recipe starts,
+the watch ends `watch-abandoned` first (below): only that tab asks, as after a stopped
+login, and fills its page without pressing. That page is
 never filled again, because the site just refused what was filled there; nothing is
 submitted by itself. Like any sign-in page without a recipe it may be sent for one, and
 its accounts are offered once a recipe's first step is ready there. The record is
@@ -287,7 +290,8 @@ above (`pateat.login-stopped-asks.v1`, `logged-out` with `stopped-login`). The s
 other tabs and new tabs log in as before, which may show the challenge again there. The
 same holds when the first step shows in another tab first: that tab logs in, and the
 watched tab asks if its own first step shows again. `login.logout` and
-`pateat.login-logouts.v1` are left for a logout after a finished login, as above.
+`pateat.login-logouts.v1` are left for a logout after a finished login, and for a
+rejection, as above.
 
 Known gaps:
 
