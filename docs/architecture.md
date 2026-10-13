@@ -371,7 +371,9 @@ an account choice, the choice is the popup's only list (the owner asked for one 
 2026-10-13 at 03:54 UTC): its cards mark the saved default, its "Make it the default"
 checkbox makes the picked account the default once that login succeeds, and a saved
 default can still be removed there. The default-account list, where a default is chosen
-without logging in, returns once the page no longer waits. Item
+without logging in, returns once the page no longer waits. An open popup reads the
+settings again from the worker whenever the stored settings change, so a default saved
+by a picked login that succeeds while it is open shows without reopening it. Item
 selection, field exclusions and custom-field review stay on the extension's settings
 page once synced ([ADR 0023](adr/0023-synced-vault-policy.md)). The service keeps one
 settings document per owner; [ADR 0024](adr/0024-settings-profiles.md) assigns its parts

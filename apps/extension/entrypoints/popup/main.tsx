@@ -1,10 +1,12 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { createRoot } from "react-dom/client";
 import { browser } from "wxt/browser";
+import { storage } from "wxt/utils/storage";
 import { createMetadataQueryClient, createSettingsClient } from "../../src/options/client";
 import { createChoiceClient } from "../../src/login/choice-wire";
 import { sendMessage } from "../../src/messaging/protocol";
 import { SiteApp } from "../../src/popup/site-app";
+import { SETTINGS_STORAGE_KEY } from "../../src/settings";
 import { followThemePreference } from "../../src/theme";
 // oxlint-disable-next-line import/no-unassigned-import -- Share the settings page stylesheet.
 import "../options/style.css";
@@ -34,6 +36,8 @@ createRoot(root).render(
         close() {
           window.close();
         },
+        // Only a signal: the settings themselves are read again from the worker.
+        watchSettings: (onChange) => storage.watch(`local:${SETTINGS_STORAGE_KEY}`, onChange),
       }}
     />
   </QueryClientProvider>,

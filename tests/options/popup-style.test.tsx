@@ -73,6 +73,7 @@ test("long hostnames and usernames wrap inside the 360px popup", async () => {
           currentTab: async () => ({ id: 7, url: `${ORIGIN}/login`, incognito: false }),
           openSettings: vi.fn(),
           close: vi.fn(),
+          watchSettings: () => () => {},
         }}
       />
     </QueryClientProvider>,
