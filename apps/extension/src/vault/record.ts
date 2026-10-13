@@ -1,6 +1,7 @@
 import * as v from "valibot";
 import {
   admitPreparedBitwardenAccount,
+  decodeBase64,
   normalizeBitwardenProfile,
   type BitwardenErrorCode,
   type BitwardenProfile,
@@ -62,13 +63,7 @@ const entrySchema = v.variant("state", [
       v.string(),
       v.minLength(1),
       v.maxLength(1_048_576),
-      v.check((value) => {
-        try {
-          return btoa(atob(value)) === value;
-        } catch {
-          return false;
-        }
-      }),
+      v.check((value) => decodeBase64(value) !== undefined),
     ),
   }),
   v.strictObject({ ...base, state: v.literal("disabled"), accepted: v.optional(acceptedSchema) }),

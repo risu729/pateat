@@ -1,4 +1,5 @@
 import * as v from "valibot";
+import { decodeBase64 } from "./base64";
 
 const connectionId = v.pipe(v.string(), v.minLength(1), v.maxLength(200));
 const token = v.pipe(
@@ -9,11 +10,7 @@ const token = v.pipe(
 );
 const code = v.pipe(v.string(), v.minLength(1), v.maxLength(1024));
 function authenticationHash(value: string) {
-  try {
-    return btoa(atob(value)) === value && atob(value).length === 32;
-  } catch {
-    return false;
-  }
+  return decodeBase64(value)?.length === 32;
 }
 export const passwordTokenRequestSchema = v.strictObject({
   connectionId,

@@ -300,6 +300,34 @@ describe("acceptance verification and publication", () => {
       expect((await pending).ok).toBe(true);
     },
   );
+  it("keeps an accept whose written record a request on the old handle reads", async () => {
+    const held = gate();
+    let hold = false;
+    const h = harness({
+      checkpoint: async (stage) => {
+        if (hold && stage === "after-write") await held.promise;
+      },
+    });
+    const old = await accepted(h);
+    hold = true;
+    h.host.matchUris.mockClear();
+    const pending = h.manager.accept(candidate("preserve"));
+    await vi.waitFor(() => expect(h.store.compareAndSwap).toHaveBeenCalledTimes(2));
+    // A page or settings request still holding the replaced handle reads the new record.
+    expect(await h.manager.matchUris(old.handle, "https://example.com/login")).toEqual({
+      ok: false,
+      error: { code: "stale-vault-handle" },
+    });
+    expect(h.host.matchUris).not.toHaveBeenCalled();
+    held.release();
+    const next = await pending;
+    expect(next.ok).toBe(true);
+    if (!next.ok) throw new Error("Synthetic unit accept failed");
+    expect(h.manager.status()).toMatchObject({ ready: true, storageUncertain: false });
+    expect((await h.manager.matchUris(next.data.handle, "https://example.com/login")).ok).toBe(
+      true,
+    );
+  });
   it("locks both old and candidate sessions when commit success cannot be read back", async () => {
     const h = harness();
     const old = await accepted(h);

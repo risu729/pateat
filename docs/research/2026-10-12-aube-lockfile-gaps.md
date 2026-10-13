@@ -6,9 +6,10 @@ follows the two lockfile bugs found while moving to aube
 ([ADR 0032](../adr/0032-aube-package-manager.md),
 [package manager research](2026-10-12-package-manager-aube.md)). The owner asked for bug
 reports with minimal reproductions. Nothing had been filed upstream when this note was
-written; whether to file is the owner's call. Nothing in Pateat's setup changes with it.
-Bun 1.4.3 was npm's `latest`; gaps 1 and 3 gave the same results with the Bun canary
-`1.4.3-canary.20261011.1` (it prints `1.4.4`).
+written; whether to file is the owner's call. Fixes for gaps 3 and 4 were later prepared
+as pull requests; see [upstream status](#upstream-status-2026-10-13). Nothing in
+Pateat's setup changes with it. Bun 1.4.3 was npm's `latest`; gaps 1 and 3 gave the same
+results with the Bun canary `1.4.3-canary.20261011.1` (it prints `1.4.4`).
 
 Versions: aube 2.7.0 (release binary through mise `aqua:aubepkg/aube`), aube `main` at
 [1443128](https://github.com/aubepkg/aube/commit/1443128) built with
@@ -21,8 +22,8 @@ Versions: aube 2.7.0 (release binary through mise `aqua:aubepkg/aube`), aube `ma
 | --- | --- | --- | --- |
 | 1. A `bun.lock` rewrite drops the workspace member entries, then aube's own frozen install fails | reproduces | fixed | [#1721](https://github.com/aubepkg/aube/pull/1721), [#1723](https://github.com/aubepkg/aube/pull/1723), [#1724](https://github.com/aubepkg/aube/pull/1724), merged after 2.7.0, unreleased |
 | 2. `pnpm-lock.yaml` records `workspace:*` dependencies as a version, and pnpm refuses the file | reproduces | fixed; pnpm 12.11.2 accepts the file | reported in [discussion #1718](https://github.com/aubepkg/aube/discussions/1718), fixed by [#1719](https://github.com/aubepkg/aube/pull/1719), unreleased |
-| 3. A `bun.lock` rewrite adds resolved peers to `dependencies`, and Bun later installs a second copy of the peer | reproduces | reproduces | no issue, discussion or PR found |
-| 4. `aube update` and `aube install --lockfile-only` write `lockfileVersion: 2` back as `1` | reproduces | reproduces | no issue, discussion or PR found |
+| 3. A `bun.lock` rewrite adds resolved peers to `dependencies`, and Bun later installs a second copy of the peer | reproduces | reproduces | fix proposed in [#1727](https://github.com/aubepkg/aube/pull/1727), open |
+| 4. `aube update` and `aube install --lockfile-only` write `lockfileVersion: 2` back as `1` | reproduces | reproduces | fix on a fork branch, to be opened after #1727 merges |
 
 aube documents that it reads and writes `bun.lock` (text v1 to v3) and `pnpm-lock.yaml`
 v9 in place ([lockfiles](https://aube.sh/package-manager/lockfiles)). It also says "the
@@ -109,6 +110,23 @@ The same `aube update` also changes `"lockfileVersion": 2` (Bun 1.4's default) t
 as does `aube install --lockfile-only --no-frozen-lockfile`. `aube add` and
 `aube install --no-frozen-lockfile` keep `2`. Bun 1.4.3 reads the v1 file and does not
 change it back, so gap 4 only causes lockfile churn.
+
+## Upstream status, 2026-10-13
+
+Checked 2026-10-13 15:20 UTC from the project's records of the upstream work:
+
+- Gap 3: the owner opened [aubepkg/aube#1727](https://github.com/aubepkg/aube/pull/1727)
+  from `risu729:fix/bun-lock-peers-not-dependencies`. The bun writer leaves out a
+  `dependencies` entry for a name the package declares only as a peer. A second version
+  ([44bdb09](https://github.com/risu729/aube/commit/44bdb09)) avoids a new public field
+  so `cargo-semver-checks` reports no semver change; its CI passed, and the owner marked
+  the pull request ready for review at 13:57 UTC. It was still open at the time of this
+  check.
+- Gap 4: a fix on `risu729:fix/bun-lock-version-on-re-resolve` makes `aube update`,
+  `aube install --lockfile-only`, `aube dedupe`, `aube audit --fix` and the re-resolving
+  `aube remove` carry the existing lockfile's metadata forward, as the main install path
+  does. It will be opened as a draft after #1727 merges.
+- Gaps 1 and 2: no change; the fixes on aube main are still unreleased.
 
 ## Effect on Pateat's bun.lock
 

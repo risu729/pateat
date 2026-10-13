@@ -155,13 +155,8 @@ export function tokenSubject(accessToken: string): { sub?: string; email?: strin
   try {
     const part = accessToken.split(".")[1];
     if (!part || !/^[A-Za-z0-9_-]+$/.test(part)) return {};
-    const padding = "=".repeat((4 - (part.length % 4)) % 4);
-    const bytes = atob(part.replace(/-/g, "+").replace(/_/g, "/") + padding);
-    const claims: unknown = JSON.parse(
-      new TextDecoder("utf-8", { fatal: true }).decode(
-        Uint8Array.from(bytes, (c) => c.charCodeAt(0)),
-      ),
-    );
+    const bytes = Uint8Array.fromBase64(part, { alphabet: "base64url" });
+    const claims: unknown = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
     if (!claims || typeof claims !== "object") return {};
     const { sub, email, exp } = claims as Record<string, unknown>;
     return {

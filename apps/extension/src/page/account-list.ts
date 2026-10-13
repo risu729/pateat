@@ -573,8 +573,6 @@ export const foldName = (text: string) =>
 export const latinWord = /[\p{Script=Latin}\p{N}]/u;
 /** {@link latinWord} as a pattern source, for a lookbehind or lookahead. */
 export const latinEdge = "[\\p{Script=Latin}\\p{N}]";
-/** `text` matched literally in a regular expression. */
-export const escapePattern = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 
 /**
  * Where `names` show in a text normalized with NFKC, as ADR 0028 hides them: each folded
@@ -592,7 +590,7 @@ export function namePattern(names: readonly string[]): string | undefined {
   return folded
     .map(
       (name) =>
-        `${latinWord.test(name[0]!) ? `(?<!${latinEdge})` : ""}@?${escapePattern(name)}${
+        `${latinWord.test(name[0]!) ? `(?<!${latinEdge})` : ""}@?${RegExp.escape(name)}${
           latinWord.test(name.at(-1)!) ? `(?!${latinEdge})` : ""
         }`,
     )

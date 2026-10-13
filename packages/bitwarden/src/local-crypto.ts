@@ -1,6 +1,7 @@
 import type * as Sdk from "@bitwarden/sdk-internal";
 import * as v from "valibot";
 
+import { decodeBase64 } from "./base64";
 import { failure, type BitwardenResult } from "./errors";
 import { verifiedSecurityStateVersion } from "./security-state";
 
@@ -345,7 +346,7 @@ function framedEncryption(value: unknown, allowed: readonly number[]): boolean {
     return false;
   try {
     const parts = value.slice(2).split("|");
-    const lengths = parts.map((part) => atob(part).length);
+    const lengths = parts.map((part) => Uint8Array.fromBase64(part).length);
     if (value[0] === "2")
       return (
         lengths.length === 3 &&
@@ -453,18 +454,13 @@ export function admitLocalCryptoCipher(input: unknown): BitwardenResult<Sdk.Ciph
 }
 
 function bytesFromBase64(value: string): Uint8Array {
-  const decoded = atob(value);
-  if (btoa(decoded) !== value) throw new Error();
-  return Uint8Array.from(decoded, (character) => character.charCodeAt(0));
+  const bytes = decodeBase64(value);
+  if (!bytes) throw new Error();
+  return bytes;
 }
 
 function canonicalBase64(value: string): boolean {
-  try {
-    bytesFromBase64(value);
-    return true;
-  } catch {
-    return false;
-  }
+  return decodeBase64(value) !== undefined;
 }
 
 function passkeyMetadata({
@@ -750,8 +746,7 @@ export async function createLocalCryptoSession(
             new TextEncoder().encode(uri.uri),
           );
           const hash = new Uint8Array(digest);
-          if (btoa(String.fromCharCode(...hash)) !== uri.uriChecksum)
-            return failure("crypto-failed");
+          if (hash.toBase64() !== uri.uriChecksum) return failure("crypto-failed");
         }
         if (locked) return failure("crypto-locked");
         return { ok: true, data: view };
