@@ -32,6 +32,10 @@ judged). Amended on 2026-10-13 by [ADR 0036](0036-passkey-after-the-identifier.m
 a login that stops before its item's missing password, E2 is no sign-in, also while
 watched and on a move, and an undecided answer ends it `challenge`, watched
 (implemented).
+Amended on 2026-10-13 by [ADR 0021](0021-account-choice-outside-settings.md) (D, after
+the owner's github.com report): the decision is unchanged, but such a form shown again
+with its password input and no other sign (no S3, S4, S5 or E sign) stops being watched
+once it is confirmed unknown; the tab asks for an account at once (implemented).
 
 Date: 2026-10-12
 

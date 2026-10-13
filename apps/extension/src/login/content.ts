@@ -211,6 +211,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   let cancelled = false;
   // Set once this document's login has ended; it then watches for a logout (ADR 0021 D).
   let ended = false;
+  // The site rejected that login here: the form showing with the failure asks at once.
+  let rejected = false;
   const used = new Set<string>();
   // What this document showed when its last effect step ran (ADR 0029: F1, F2).
   let submitted: SubmittedPage | undefined;
@@ -506,8 +508,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     } else if (parsed.output.starts) {
       watch(parsed.output.starts, parsed.output.generate === true, parsed.output.entry === true);
       // In the document that logged in, a form still showing is not a logout; only its
-      // next appearance is (ADR 0021 D).
-      if (ended && !start) announced = starts.some(ready);
+      // next appearance is (ADR 0021 D). After a rejection it is the form shown again.
+      if (ended && !rejected && !start) announced = starts.some(ready);
       // A refused start means the background did not see the form on this path yet, for
       // example while the tab still shows the previous URL.
       if (start) retry();
@@ -608,8 +610,11 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         );
       respond({ ok: true });
       // A finished login keeps watching: its first step showing again means a logout.
+      // A new login in this document, as after a pick, watches for its own end.
+      if (command.state === "executing") ended = false;
       if (!ended && (command.state === "authenticated" || command.state === "blocked")) {
         ended = true;
+        rejected = command.outcome === "credential-rejected";
         void announce(false).catch(() => undefined);
       }
       return false;

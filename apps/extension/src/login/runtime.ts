@@ -172,6 +172,11 @@ const LOGOUT_FILLS_KEY = "pateat.login-logout-fills.v1";
  * showed again on a later page; they ask like a logout, in that tab only (ADR 0021 D).
  */
 const STOPPED_ASKS_KEY = "pateat.login-stopped-asks.v1";
+/**
+ * Tabs that ask like a logout because the site rejected their login of an origin; the
+ * asking is the same, only its wording names the rejection (ADR 0021 D).
+ */
+const REJECTED_ASKS_KEY = "pateat.login-rejected-asks.v1";
 const CONFIG_KEY = "pateat.login-probe-origin.v1";
 /**
  * How long another tab's login that has not succeeded holds its origin after its record
@@ -214,7 +219,30 @@ const WATCH_SETTLE_MS = 3000;
  * in the fully loaded document agreed, which every outcome but logging needs. `reshown`:
  * read on the sign-in form shown again in the first new document after the submission.
  */
-type SignInReading = { decision: SignInDecision; confirmed: boolean; reshown?: true };
+type SignInReading = {
+  decision: SignInDecision;
+  confirmed: boolean;
+  reshown?: true;
+  /**
+   * With `reshown`: the page shows the sign-in form with its password input and no other
+   * sign of a sign-in going on or done (no S3, S4, S5 or E sign), so the login did not go
+   * through and the tab asks again (ADR 0021 D).
+   */
+  formAgain?: true;
+};
+/**
+ * The sign-in form with its password input shown again in the first new document after
+ * the password submission, with no sign of another step or of a sign-in (ADR 0021 D).
+ */
+const formAgain = (signs: SignInSigns) =>
+  signs.reshown === true &&
+  signs.s2 &&
+  !signs.s3 &&
+  !signs.s4 &&
+  !signs.s5 &&
+  !signs.e1 &&
+  !signs.e2 &&
+  !signs.e3;
 /** A confirmed sign of another sign-in step (S2 to S5) without the sign-in fields. */
 const continuing = (reading: SignInReading | undefined) =>
   reading?.confirmed === true && reading.decision === "continuing";
@@ -1183,6 +1211,8 @@ export type LoginReport = (
       recipeId: string;
       /** The recipe revision the login runs. */
       recipeRevision: number;
+      /** The site rejected the login; its page showing that asks at once. */
+      rejected?: true;
     }
   | {
       /**
@@ -1199,6 +1229,24 @@ export type LoginReport = (
         | "login-in-progress"
         | "settings-unavailable"
         | "write-failed";
+    }
+  | {
+      /**
+       * What the toolbar popup was told about a tab's account choice (ADR 0021), logged when
+       * it changes for the tab: offered with how many accounts, or none, with the tab's
+       * login record and the page's last answer that explain why.
+       */
+      type: "popup";
+      tabId: number;
+      origin: string;
+      choice: "offered" | "none";
+      candidates?: number;
+      /** Why the tab asks after a logout (ADR 0021 D). */
+      logout?: LogoutReason;
+      held?: true;
+      recordState?: string;
+      recordOutcome?: string;
+      pageReason?: string;
     }
   | {
       /** An exception stopped a login; only its class name and message are passed on. */
@@ -1600,6 +1648,8 @@ export function createLoginRuntime(
   const logouts = new Set<string>();
   /** By `recordKey`: tabs that ask after their own login stopped once it submitted. */
   const stoppedAsks = new Set<string>();
+  /** By `recordKey`: the `logouts` that the site's rejection of the tab's login began. */
+  const rejectedAsks = new Set<string>();
   /**
    * Documents filled once after a logout, so neither a re-announcement nor a restarted
    * worker fills over what the user typed (ADR 0021 D). The oldest go first.
@@ -1647,6 +1697,7 @@ export function createLoginRuntime(
       LOGOUTS_KEY,
       LOGOUT_FILLS_KEY,
       STOPPED_ASKS_KEY,
+      REJECTED_ASKS_KEY,
       ENTRY_PRESSES_KEY,
     ]);
     const picks = v.safeParse(v.array(pickedAccountSchema), stored[PICKS_KEY] ?? []);
@@ -1660,6 +1711,9 @@ export function createLoginRuntime(
     const stopped = v.safeParse(v.array(logoutSchema), stored[STOPPED_ASKS_KEY] ?? []);
     if (stopped.success)
       for (const entry of stopped.output) stoppedAsks.add(recordKey(entry.tabId, entry.origin));
+    const rejected = v.safeParse(v.array(logoutSchema), stored[REJECTED_ASKS_KEY] ?? []);
+    if (rejected.success)
+      for (const entry of rejected.output) rejectedAsks.add(recordKey(entry.tabId, entry.origin));
     const filled = v.safeParse(
       v.pipe(v.array(v.string()), v.maxLength(256)),
       stored[LOGOUT_FILLS_KEY] ?? [],
@@ -1688,12 +1742,16 @@ export function createLoginRuntime(
       [LOGOUTS_KEY]: scopes(logouts),
       [LOGOUT_FILLS_KEY]: [...logoutFills],
       [STOPPED_ASKS_KEY]: scopes(stoppedAsks),
+      [REJECTED_ASKS_KEY]: scopes(rejectedAsks),
       [ENTRY_PRESSES_KEY]: [...entryPresses.values()],
     });
   }
-  /** Why a tab asks after a logout, for the log: which tab logged out (ADR 0021 D). */
+  /**
+   * Why a tab asks after a logout, for the log: which tab logged out, or `rejected` when
+   * the site rejected this tab's login (ADR 0021 D).
+   */
   function logoutDetail(key: string): LogoutReason {
-    if (logouts.has(key)) return "this-tab";
+    if (logouts.has(key)) return rejectedAsks.has(key) ? "rejected" : "this-tab";
     return stoppedAsks.has(key) ? "stopped-login" : "other-tab";
   }
   /** Badges the tab and records the refused document for the popup (ADR 0021). */
@@ -1713,6 +1771,8 @@ export function createLoginRuntime(
           ? {
               "this-tab":
                 "Pateat: you logged out of this site in this tab. Click to choose an account.",
+              rejected:
+                "Pateat: the site did not accept the last login in this tab. Click to choose an account.",
               "stopped-login":
                 "Pateat: the last login on this site stopped in this tab. Click to choose an account.",
               "other-tab":
@@ -1975,6 +2035,42 @@ export function createLoginRuntime(
       candidates: waiting.candidates,
       ...held,
     };
+  }
+  /** By tab: the popup's last logged answer, so an open popup asking each second logs once. */
+  const popupAnswers = new Map<number, string>();
+  /** Answers the popup and logs, value-free, what it was told when that changes (ADR 0019). */
+  async function popupChoice(tabId: number): Promise<ChoiceResponse> {
+    const answer = await choiceFor(tabId);
+    const page = documents.get(frameKey({ tabId, frameId: 0 }));
+    const pageOrigin = answer.ok ? answer.origin : page?.document.origin;
+    if (pageOrigin === undefined) return answer;
+    const record = recordFor(tabId, pageOrigin);
+    const entry: LoginReport = {
+      type: "popup",
+      tabId,
+      origin: pageOrigin,
+      choice: answer.ok ? "offered" : "none",
+      ...(answer.ok
+        ? {
+            candidates: answer.candidates.length,
+            ...(answer.logout ? { logout: answer.logout } : {}),
+            ...(answer.held ? { held: true as const } : {}),
+          }
+        : {}),
+      ...(record
+        ? {
+            recordState: record.state,
+            ...(record.outcome ? { recordOutcome: record.outcome } : {}),
+          }
+        : {}),
+      ...(page?.reason ? { pageReason: page.reason } : {}),
+    };
+    const key = JSON.stringify(entry);
+    if (popupAnswers.get(tabId) !== key) {
+      popupAnswers.set(tabId, key);
+      report({ frameId: 0 }, entry);
+    }
+    return answer;
   }
   /**
    * Restarts the refused document's login with the picked account: the document announces
@@ -2788,6 +2884,10 @@ export function createLoginRuntime(
     let chosen: Choice | undefined;
     let savedDefault = false;
     if (probeMode && recipe.origin === origin) {
+      // A page already filled after a logout asks, as `choose` answers it (ADR 0021 D); a
+      // page to fill after a logout still logs in fully here, without production's fill-only.
+      if (request.asking && !request.fill)
+        return { ok: false as const, reason: "logged-out" as const, logout: true as const };
       catalog = grantProbeOrigin(snapshot.catalog, origin, account);
       const top = await topScope(snapshot, live, account, catalog);
       if (top) return { ok: false as const, reason: top.reason };
@@ -3452,6 +3552,9 @@ export function createLoginRuntime(
         ? "sign-in-shown"
         : undefined,
     );
+    // The sign-in form shown again in the first new page after the password submission,
+    // with nothing else on it, means the login did not go through: the tab asks at once.
+    if (state?.formAgain && state.confirmed && state.decision === "unknown") await askAgain(run);
     return undefined;
   }
   /**
@@ -3485,6 +3588,72 @@ export function createLoginRuntime(
     await change(run, { type: "OBSERVED", result: "continue", document: run.live.document });
     return true;
   }
+  /**
+   * Releases a login whose submission the site answered with its sign-in form again, as
+   * after a logout: the tab asks for an account instead of watching, and the page that
+   * showed the form is never filled again (ADR 0021 D, amended 2026-10-13). Nothing is
+   * submitted again by itself. Its page is asked to announce again, so it asks once a
+   * recipe's first step is ready there, or may be sent for a recipe like any sign-in page.
+   */
+  async function askAgain(run: Execution): Promise<void> {
+    if (!current(run) || run.live.document.frameId !== 0) return;
+    const { metadata } = run;
+    const { document } = run.live;
+    const { tabId } = document;
+    const key = recordKey(tabId, document.origin);
+    if (persisted.get(key)?.id !== metadata.id) return;
+    const page = `${tabId} ${document.documentId}`;
+    const asked = { logout: logouts.has(key), rejected: rejectedAsks.has(key) };
+    const unfilled = !logoutFills.has(page);
+    logouts.add(key);
+    rejectedAsks.add(key);
+    if (unfilled) {
+      logoutFills.add(page);
+      for (const old of logoutFills) {
+        if (logoutFills.size <= 256) break;
+        logoutFills.delete(old);
+      }
+    }
+    try {
+      await saveSession();
+    } catch {
+      // The login stays watched, as before.
+      if (!asked.logout) logouts.delete(key);
+      if (!asked.rejected) rejectedAsks.delete(key);
+      if (unfilled) logoutFills.delete(page);
+      return;
+    }
+    if (!current(run) || persisted.get(key)?.id !== metadata.id) {
+      // The page went meanwhile: the login stays as it was, and so does the tab.
+      if (!asked.logout) logouts.delete(key);
+      if (!asked.rejected) rejectedAsks.delete(key);
+      if (unfilled) logoutFills.delete(page);
+      await quietly(saveSession);
+      return;
+    }
+    attempts.delete(tabId);
+    if (picked.get(tabId)?.attemptId === metadata.id) {
+      picked.delete(tabId);
+      void quietly(saveSession);
+    }
+    report(document, {
+      type: "logout",
+      tabId,
+      origin: document.origin,
+      recipeId: metadata.recipeId,
+      recipeRevision: metadata.recipeRevision,
+      rejected: true,
+    });
+    await forget(key).catch(() => undefined);
+    reviewRequests();
+    await browser.tabs
+      .sendMessage(
+        tabId,
+        { version: 1, type: "login.reconnect" },
+        { frameId: 0, documentId: document.documentId },
+      )
+      .catch(() => undefined);
+  }
   /** Whether the page has nothing a signed-in page's description could carry. */
   async function showsNothing(run: Execution): Promise<boolean> {
     const extracted = v.safeParse(
@@ -3507,19 +3676,25 @@ export function createLoginRuntime(
     // A decision counts once a later reading agrees in a fully loaded document, so a page
     // that is still redirecting or about to ask for a second factor is not settled; a
     // document still loading is read again, a second apart, up to `SIGN_IN_RECHECKS` times.
-    // `unknown` changes nothing and is not read again. Each reading depends on the time
-    // passed since the last, so they run one after another.
+    // `unknown` changes nothing and is not read again, unless it is the sign-in form shown
+    // again with nothing else, on which the tab asks again (ADR 0021 D). Each reading
+    // depends on the time passed since the last, so they run one after another.
     /* eslint-disable no-await-in-loop */
     if (run.metadata.route !== "passkey")
       for (
         let recheck = 0;
-        reading !== undefined && reading.decision !== "unknown" && recheck < SIGN_IN_RECHECKS;
+        reading !== undefined &&
+        (reading.decision !== "unknown" || formAgain(reading.signs)) &&
+        recheck < SIGN_IN_RECHECKS;
         recheck++
       ) {
         await new Promise<void>((resolve) => setTimeout(resolve, SIGN_IN_RECHECK_MS));
         if (!current(run) || terminal(run.metadata)) return undefined;
         const next = await readSignInState(run);
-        const agrees = next?.decision === reading.decision && next.loaded;
+        const agrees =
+          next?.decision === reading.decision &&
+          formAgain(next.signs) === formAgain(reading.signs) &&
+          next.loaded;
         reading = next;
         if (agrees) {
           confirmed = true;
@@ -3544,6 +3719,7 @@ export function createLoginRuntime(
       decision: reading.decision,
       confirmed,
       ...(reading.signs.reshown ? { reshown: true as const } : {}),
+      ...(formAgain(reading.signs) ? { formAgain: true as const } : {}),
     };
   }
   /** Whether a sign-in target is the passkey route's button rather than a field (ADR 0027). */
@@ -4783,6 +4959,12 @@ export function createLoginRuntime(
         result: "credential-rejected",
         document: run.live.document,
       });
+      return;
+    }
+    // So does that form shown again with nothing else on it ask again, as when the
+    // submitted page settled first.
+    if (state?.formAgain && state.confirmed && state.decision === "unknown") {
+      await askAgain(run);
       return;
     }
     // Only a page with no sign of a sign-in going on is judged; an undecided answer never
@@ -6495,14 +6677,30 @@ export function createLoginRuntime(
     ): Promise<Readiness | undefined> => {
       const { tabId } = released.document;
       const releasedKey = recordKey(tabId, document.origin);
+      const rejected = released.outcome === "credential-rejected";
       if (attempts.get(tabId)?.metadata.id === released.id) attempts.delete(tabId);
       if (picked.get(tabId)?.attemptId === released.id) picked.delete(tabId);
       // The tab must keep asking after a restart, so its logout is stored first.
       logouts.add(releasedKey);
+      if (rejected) rejectedAsks.add(releasedKey);
+      else rejectedAsks.delete(releasedKey);
+      // The page that showed the rejection is never filled with an account again: the site
+      // just refused what was filled there.
+      const rejectedPage = `${tabId} ${released.document.documentId}`;
+      const unfilled = rejected && !logoutFills.has(rejectedPage);
+      if (unfilled) {
+        logoutFills.add(rejectedPage);
+        for (const old of logoutFills) {
+          if (logoutFills.size <= 256) break;
+          logoutFills.delete(old);
+        }
+      }
       try {
         await saveSession();
       } catch {
         logouts.delete(releasedKey);
+        rejectedAsks.delete(releasedKey);
+        if (unfilled) logoutFills.delete(rejectedPage);
         return refuse("storage-unavailable");
       }
       // Logged once the logout is stored; a failed store undoes it, and the page's next
@@ -6513,6 +6711,7 @@ export function createLoginRuntime(
         origin: document.origin,
         recipeId: released.recipeId,
         recipeRevision: released.recipeRevision,
+        ...(rejected ? { rejected: true as const } : {}),
       });
       try {
         await forget(releasedKey);
@@ -6605,8 +6804,13 @@ export function createLoginRuntime(
       recorded.document.frameId === 0 &&
       document.frameId === 0
     ) {
-      // Until the recipe's first step shows again, the page keeps watching for it.
-      if (start?.path !== live.path) {
+      // Until the recipe's first step shows again, the page keeps watching for it. The page
+      // a rejection was read in shows the sign-in form again with the failure, which may be
+      // on another path, such as the one the form posted to: it asks at once.
+      const rejectedHere =
+        recorded.outcome === "credential-rejected" &&
+        recorded.document.documentId === document.documentId;
+      if (start?.path !== live.path && !rejectedHere) {
         const starts = await startsFor(document.origin);
         if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
         // Not a recipe's first step on its path, so not taken as a logout (ADR 0021 D).
@@ -7256,6 +7460,7 @@ export function createLoginRuntime(
       void quietly(saveSession);
     } else if (!previous) {
       const loggedOut = logouts.delete(logoutKey);
+      rejectedAsks.delete(logoutKey);
       if (stoppedAsks.delete(logoutKey) || loggedOut) void quietly(saveSession);
     }
     await save(run);
@@ -7856,6 +8061,8 @@ export function createLoginRuntime(
           ok: true,
           ...(checkpoint ? { checkpoint } : {}),
           attempts: [...persisted.values()],
+          // Tabs that ask after a logout, and whether the site's rejection began it.
+          asks: [...logouts].map((key) => (rejectedAsks.has(key) ? "rejected" : "logout")),
           documents: [...documents.values()].map((live) => ({
             ...live.document,
             ...(live.state ? { state: live.state } : {}),
@@ -7875,7 +8082,7 @@ export function createLoginRuntime(
     }
     if (fromPopup(sender)) {
       const ask = v.safeParse(choiceRequestSchema, message);
-      if (ask.success) return choiceFor(ask.output.tabId);
+      if (ask.success) return popupChoice(ask.output.tabId);
       const pick = v.safeParse(pickRequestSchema, message);
       if (pick.success) return pickFor(pick.output);
       return undefined;
@@ -7997,6 +8204,7 @@ export function createLoginRuntime(
     effects.delete(tabId);
     signInUrls.delete(tabId);
     choicePasskeys.delete(tabId);
+    popupAnswers.delete(tabId);
     clearTimeout(entryTimers.get(tabId));
     entryTimers.delete(tabId);
     for (const key of entryRefused) if (key.startsWith(`${tabId} `)) entryRefused.delete(key);
@@ -8005,7 +8213,7 @@ export function createLoginRuntime(
     void sessionLoaded.then(async () => {
       let changed = pending.delete(tabId);
       if (picked.delete(tabId)) changed = true;
-      for (const keys of [logouts, stoppedAsks])
+      for (const keys of [logouts, stoppedAsks, rejectedAsks])
         for (const key of keys)
           if (key.startsWith(`${tabId} `)) changed = keys.delete(key) || changed;
       for (const key of logoutFills)

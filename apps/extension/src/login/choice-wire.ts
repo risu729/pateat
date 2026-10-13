@@ -5,16 +5,23 @@ const tabId = v.pipe(v.number(), v.integer(), v.minValue(0));
 
 /**
  * Why a tab asks for an account after a logout (ADR 0021 D): it logged out of the site
- * (`this-tab`), another tab of the site did (`other-tab`), or this tab's own login stopped
- * after a submission or its watch ended before it signed in (`stopped-login`).
+ * (`this-tab`), the site did not accept its last login (`rejected`), another tab of the
+ * site logged out (`other-tab`), or this tab's own login stopped after a submission or its
+ * watch ended before it signed in (`stopped-login`).
  */
-export const logoutReasonSchema = v.picklist(["this-tab", "other-tab", "stopped-login"]);
+export const logoutReasonSchema = v.picklist([
+  "this-tab",
+  "rejected",
+  "other-tab",
+  "stopped-login",
+]);
 export type LogoutReason = v.InferOutput<typeof logoutReasonSchema>;
 /** The toolbar popup's line saying why it asks for an account (ADR 0021). */
 export function choiceReason(logout: LogoutReason | undefined, matches: number): string {
   if (logout === undefined) return `${matches} accounts match this page`;
   return {
     "this-tab": "You logged out of this site in this tab",
+    rejected: "The site did not accept the last login in this tab",
     "other-tab": "You logged out of this site in another tab",
     "stopped-login": "The last login on this site stopped in this tab",
   }[logout];

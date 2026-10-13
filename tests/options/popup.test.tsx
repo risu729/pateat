@@ -686,6 +686,26 @@ test("while a choice waits, the saved default can still be removed, and one miss
   await expect.element(page.getByRole("button", { name: "Log in" })).toBeEnabled();
 });
 
+test("after the site rejects a login, the popup says so and offers the accounts", async () => {
+  const { client } = store();
+  const choices = noChoice();
+  choices.get.mockResolvedValue({
+    ok: true,
+    origin: "https://bank.example",
+    documentId: "rejected-page",
+    candidates: [
+      { connectionId: "demo-personal", itemId: "primary" },
+      { connectionId: "demo-work", itemId: "primary" },
+    ],
+    logout: "rejected",
+  });
+  await mount(client, "https://bank.example/", choices);
+  await expect
+    .element(page.getByText("The site did not accept the last login in this tab", { exact: true }))
+    .toBeVisible();
+  await expect.element(page.getByRole("button", { name: "Log in" })).toBeEnabled();
+});
+
 test("after a logout, the popup asks even with one account", async () => {
   const { client } = store();
   const choices = noChoice();

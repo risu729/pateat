@@ -5,7 +5,11 @@ the PR that adds this record. Amends [ADR 0016](0016-recipe-generation-trigger.m
 (which tabs may offer a page) and [ADR 0017](0017-login-forms-in-frames.md) (one attempt
 per tab). Tested on synthetic fixtures only; no real site or account has been used.
 Amended on 2026-10-13 by [ADR 0036](0036-passkey-after-the-identifier.md) (moves of a
-login that stops before its item's missing password; implemented).
+login that stops before its item's missing password; implemented). Amended on 2026-10-13
+by [ADR 0021](0021-account-choice-outside-settings.md) (D, after the owner's github.com
+report): a top-level password login whose site answers with its sign-in form again, or
+that ends `credential-rejected`, is released as after a logout in its page, so other
+tabs of the site ask instead of being held; none submits by itself (implemented).
 
 Date: 2026-10-11
 
@@ -276,9 +280,12 @@ fix them now; the SSO policy itself is recorded separately.
   ended `interrupted` after a submission, stopped by Pateat while a fill or click may
   have reached the page, or ended `credential-rejected`, `challenge`, `submission-limit`
   or `left-origin`. A watched login, settled or `watching`, stops holding once its first
-  step shows in another tab's page first seen after the watch began (ADR 0027). So a
-  password is not submitted again while a first submission may still be in flight or was
-  refused, or while the user may be answering a challenge Pateat does not handle.
+  step shows in another tab's page first seen after the watch began (ADR 0027). A
+  top-level password login whose page shows its sign-in form again right after the
+  submission, or that ends `credential-rejected`, is released as after a logout once
+  that page announces, so other tabs ask instead of being held (ADR 0021 D, 2026-10-13).
+  So a password is not submitted again while a first submission may still be in flight
+  or was refused, or while the user may be answering a challenge Pateat does not handle.
   Releasing `account-switched` lets another tab start between the switch click and the
   first tab's fresh attempt, which then waits as `origin-busy`. A refused tab's tooltip
   says that another tab's login holds the site and that closing that tab, or waiting 5

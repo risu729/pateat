@@ -47,6 +47,10 @@ the person or comes from another source still adds nothing ("Learning a `totp` h
 in [Implementation choices](#implementation-choices)); implemented. On 2026-10-13 (build
 `fdf57ef`) Resend's code page was dropped with `totpDropped=source-unknown`, and on
 ニコニコ's two-step page nothing near the code field says where the code comes from.
+Amended on 2026-10-13 by [ADR 0021](0021-account-choice-outside-settings.md) (D): a
+login that settles unknown on the sign-in form shown again, with its password input and
+no other sign, stops being watched once that reading is confirmed; the tab asks for an
+account at once (implemented).
 
 Date: 2026-10-11
 
