@@ -569,7 +569,12 @@ export type AccountListRejection =
   | "duplicate-candidate"
   | "incompatible-role"
   /** A control's text holds an email address, a masked value or a long number. */
-  | "account-text";
+  | "account-text"
+  /**
+   * No control is named, and no listed account is an entry Pateat can click, so the list
+   * could never lead on.
+   */
+  | "no-list-control";
 
 /**
  * Text the observation shows in place of an address, a masked value or a run of four or
@@ -581,7 +586,8 @@ const accountText = /\[(?:email|masked|number|account)\]|@|\d{4}/u;
 /**
  * Validates an account-list answer (ADR 0028): the page must list accounts, and each named
  * control must be a button or link of the page, not hold account text and not be the
- * other control. Its locator is never `autocomplete`, which names only inputs.
+ * other control. A list whose accounts are all shown beside buttons needs a named
+ * control. Its locator is never `autocomplete`, which names only inputs.
  */
 export function validateAccountList(
   observation: LoginObservation,
@@ -609,6 +615,9 @@ export function validateAccountList(
   for (const result of [other, shown])
     if (typeof result === "string") return { ok: false, reason: result };
   const named = [other, shown].filter((entry): entry is ListControl => typeof entry === "object");
+  // Without an entry to click, only a named control leads on from the list.
+  if (named.length === 0 && observation.accountEntries === 0)
+    return { ok: false, reason: "no-list-control" };
   if (
     named.length === 2 &&
     (named[0]!.candidate === named[1]!.candidate ||

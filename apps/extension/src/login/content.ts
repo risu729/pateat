@@ -429,7 +429,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   /**
    * What this page offers as a list of accounts (ADR 0028): its path once it lists an
    * account by email, or else the short texts that may name one by a username that is not
-   * an email.
+   * an email; and whether it shows a control to sign in with another account.
    */
   function listed():
     | {
@@ -441,7 +441,13 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       }
     | undefined {
     const path = location.pathname;
-    if (listsAccounts()) return { path };
+    // A list by email may be sent without an email username only for its control to sign
+    // in with another account (ADR 0028).
+    if (listsAccounts())
+      return {
+        path,
+        ...(otherAccountMiss(document) === undefined ? { other: true as const } : {}),
+      };
     const names = accountNames(document);
     // Why a shown email address is not an entry, so a list missed is logged (ADR 0028).
     const missed = accountEntryMiss(document);

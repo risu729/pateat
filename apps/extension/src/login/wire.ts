@@ -110,9 +110,10 @@ export const helloSchema = v.strictObject({
    * Ten seconds after loading, this path shows no sign-in input but lists accounts (ADR
    * 0028): an entry or a text beside at most three buttons with an email, masked or not.
    * Without one, `names` are the short texts that may name an account by a username that
-   * is not an email, for the background to compare with the matching items' usernames,
-   * `other` that the page also shows a control to sign in with another account, so the
-   * list is sent even when no text names an item, `otherMiss` why words for another
+   * is not an email, for the background to compare with the matching items' usernames.
+   * `other` says that the page also shows a control to sign in with another account, so
+   * the list is sent even when no text names an item, or, for a list by email, when no
+   * matching item's username is an email. Without one, `otherMiss` says why words for another
    * account showed but no such control counts, and `missed` why a text with an email
    * address is not an entry, both for the log only.
    */

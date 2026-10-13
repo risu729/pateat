@@ -1199,14 +1199,23 @@ export function extractAccountListObservation(
   if (listed.length === 0) return { ok: false, reason: "no-candidates" };
   // A text in which an address survived redaction is left out, never sent; a name is sent
   // only as `[account]`.
-  const accounts = listed
+  const sent = listed
     .slice(0, maxAccounts)
-    .map((element) =>
-      named.includes(element)
+    .map((element) => ({
+      element,
+      text: named.includes(element)
         ? "[account]"
         : observedText(renderedText(element, rawLimit, { everyElement: true })),
-    )
-    .filter((text): text is string => text !== undefined && !atSign.test(text));
+    }))
+    .filter(
+      (account): account is { element: HTMLElement; text: string } =>
+        account.text !== undefined && !atSign.test(account.text),
+    );
+  const accounts = sent.map((account) => account.text);
+  // Only an entry is clicked for its account; one beside buttons needs a list button.
+  const clickable = sent.filter((account) =>
+    entries.some((entry) => entry.element === account.element),
+  ).length;
   let complete = listed.length <= maxAccounts && accounts.length === listed.length;
   for (const host of document.querySelectorAll("*"))
     if (host.shadowRoot !== null && inShadow(host.shadowRoot, shadowFields)) complete = false;
@@ -1247,7 +1256,17 @@ export function extractAccountListObservation(
     return [{ form: null, draft: { element, role: "button", label: text }, target }];
   });
   if (chosen.length > maxListControls) complete = false;
-  const result = observe(document, chosen.slice(0, maxListControls), complete, undefined, accounts);
+  const described = observe(
+    document,
+    chosen.slice(0, maxListControls),
+    complete,
+    undefined,
+    accounts,
+  );
+  const result: ObservationResult =
+    described.ok && described.observation.accounts
+      ? { ok: true, observation: { ...described.observation, accountEntries: clickable } }
+      : described;
   if (!result.ok || !names.length) return result;
   const hidden = beside.others.map((element) =>
     collapseText(renderedText(element, rawLimit) ?? ""),
