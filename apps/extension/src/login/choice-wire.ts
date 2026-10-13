@@ -33,6 +33,8 @@ export const choiceResponseSchema = v.variant("ok", [
     ),
     /** The tab logged out of the site after a Pateat login (ADR 0021 D). */
     logout: v.optional(v.literal(true)),
+    /** With `logout`: the site rejected the tab's login instead. */
+    rejected: v.optional(v.literal(true)),
     /** Another tab's login holds the site, so a pick cannot start yet (ADR 0022). */
     held: v.optional(v.literal(true)),
   }),

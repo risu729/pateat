@@ -35,7 +35,29 @@ tab's page waits for a choice the popup lists only the choice's candidates, sinc
 listing the site default's candidates below them showed each account twice (the owner
 asked for one list at 03:54 UTC). The saved default is marked in that list and can still
 be removed there; choosing a default without logging in waits until the page no longer
-waits, or uses the settings page (implemented).
+waits, or uses the settings page (implemented). Amended on 2026-10-13 after the owner's
+report from github.com (three matching items, the picked one's stored email stale):
+after GitHub's "Incorrect username or password" page the popup offered no account, so
+another one could not be tried. The log (build fdf57ef) showed the page at `/session`,
+the path the form posted to, read as the sign-in form shown again (`reshown`, S1 and S2)
+with no failure mark, so the login settled `unknown-submit` and was watched (ADR 0027);
+no recipe starts on that path, so the watch never released it and the tab never asked.
+Now in D, a login asks at once, as after a logout, in the page where the sign-in form
+showed again in the first new document after the password submission with its password
+input and no other sign (no code input, CAPTCHA, passkey request or sign of a sign-in),
+also when the result there stays unknown, also after the submitted page settled first,
+and in the page a `credential-rejected` result was read in, on any path. That page is
+never filled again, because the site just refused what was filled there; nothing is
+submitted by itself. Like any sign-in page without a recipe it may be sent for one, and
+its accounts are offered once a recipe's first step is ready there. The record is
+released as after a logout, so the site's other tabs ask too (and fill without pressing)
+instead of waiting out the 5-minute hold of ADR 0022 and then submitting the same
+account again. A document whose login ended with a rejection takes the form still
+showing as shown again, and a new login in the same document, as after a pick there,
+watches for its own end. The badge, popup and log name the rejection instead of a logout
+(`pateat.login-rejected-asks.v1`, `login.logout` marked `rejected`, `logged-out` with
+`rejected`). A pick marked "make default" is still saved only after `authenticated`, so
+a rejected pick is not kept as the default (part B) (implemented).
 
 Date: 2026-10-11
 

@@ -27,6 +27,10 @@ Amended on 2026-10-12 by the owner's choice at 22:03 UTC (「誤り表示時」,
 an error): a sign-in form that comes back as the first new document after the
 submission is rejected when it marks a failure next to it; see "Signs of a failure"
 below.
+Amended on 2026-10-13 by [ADR 0021](0021-account-choice-outside-settings.md) (D, after
+the owner's github.com report): the decision is unchanged, but such a form shown again
+with its password input and no other sign (no S3, S4, S5 or E sign) is not watched when
+it stays unknown; the tab asks for an account at once (implemented).
 Amends [ADR 0018](0018-recipe-generation-route.md) (how success is decided after a
 generated recipe's submission) and [ADR 0027](0027-per-account-login-routes.md) (when a
 page is judged).

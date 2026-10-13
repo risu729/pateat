@@ -563,9 +563,11 @@ export function SiteApp({
             <div className="popup-section-head">
               <h2 id="popup-choice-heading">Choose an account</h2>
               <p id="popup-choice-reason" className="popup-muted popup-reason">
-                {offered.logout
-                  ? "You logged out of this site in this tab"
-                  : `${pickOptions.length} accounts match this page`}
+                {offered.rejected
+                  ? "The site did not accept the last login in this tab"
+                  : offered.logout
+                    ? "You logged out of this site in this tab"
+                    : `${pickOptions.length} accounts match this page`}
               </p>
             </div>
             {offered.held && (

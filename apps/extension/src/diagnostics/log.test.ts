@@ -1626,6 +1626,67 @@ describe("unhandled errors", () => {
     vi.restoreAllMocks();
   });
 
+  it("logs what the popup was told about a tab's account choice, and a rejected logout", async () => {
+    const log = createDiagnosticsLog({
+      build: { version: "0.1.0", revision: "1c42ad3" },
+      settings: async () => {
+        throw new Error("not needed");
+      },
+      recipeCache: async () => undefined,
+      connections: async () => ({ ok: true, kind: "status", connections: [] }),
+      databaseName: `log-test-${crypto.randomUUID()}`,
+      scope: { addEventListener: () => undefined } as never,
+    });
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const site = { tabId: 4, origin: "https://login.example" };
+    log.login({
+      type: "popup",
+      ...site,
+      choice: "none",
+      recordState: "reconciling",
+      recordOutcome: "unknown-submit",
+      pageReason: "logged-in",
+    });
+    log.login({
+      type: "logout",
+      ...site,
+      recipeId: "synthetic-recipe",
+      recipeRevision: 4,
+      rejected: true,
+    });
+    log.login({
+      type: "popup",
+      ...site,
+      choice: "offered",
+      candidates: 3,
+      logout: true,
+      rejected: true,
+      pageReason: "logged-out",
+    });
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(3));
+    const entries = await log.logger.entries();
+    expect(entries.map((entry) => [entry.event, entry.level])).toEqual([
+      ["login.popup", "info"],
+      ["login.logout", "info"],
+      ["login.popup", "info"],
+    ]);
+    expect(entries[0]?.fields).toMatchObject({
+      choice: "none",
+      recordState: "reconciling",
+      recordOutcome: "unknown-submit",
+      pageReason: "logged-in",
+    });
+    expect(entries[1]?.fields).toMatchObject({ rejected: true });
+    expect(entries[2]?.fields).toMatchObject({
+      choice: "offered",
+      candidates: 3,
+      logout: true,
+      rejected: true,
+      pageReason: "logged-out",
+    });
+    vi.restoreAllMocks();
+  });
+
   it("logs a login's start, what a chooser's list showed, the account choice and a logout at info", async () => {
     const log = createDiagnosticsLog({
       build: { version: "0.1.0", revision: "1c42ad3" },

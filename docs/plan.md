@@ -2343,7 +2343,12 @@ cannot be listed, the saved default alone is offered. A login whose result is st
 `reconciling` is resumed, not taken as a logout. Since 2026-10-12 a tab whose own login
 stopped after a submission asks the same way, in that tab only, once a later page shows
 the login form after the record's 5-minute hold on other tabs has ended
-(`pateat.login-stopped-asks.v1`). Frame logins and sites whose logout
+(`pateat.login-stopped-asks.v1`). Since 2026-10-13 a tab asks at once, on any path,
+without filling that page again, when the site answers the password submission with its
+sign-in form again (its password input and no other sign, even when the result stays
+unknown) or the login ends `credential-rejected`; its record is released then, so other
+tabs of the site ask instead of being held, and the badge and popup say the site did not
+accept the login (`pateat.login-rejected-asks.v1`). Frame logins and sites whose logout
 page shows only a password step are not detected. By the owner's constraint (2026-10-12)
 a session that only expired never needs a manual press, so a logout of a session carried
 over from another tab's login or an earlier browser session is not detected either:

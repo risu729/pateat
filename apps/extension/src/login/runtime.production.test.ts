@@ -3862,6 +3862,148 @@ describe("production login document admission", () => {
         expect(fake.state.badges[1]?.text).toBe("2");
         expect(h.fields).not.toHaveBeenCalled();
       });
+      // Reported by the owner on 2026-10-13: three accounts matched github.com, the pick's
+      // stored email was stale, and after GitHub's "incorrect username or password" page the
+      // popup offered no account, so another one could not be tried.
+      const rejecting = { ...recipe, rejection: target("rejected") };
+      const rejectedOffer = {
+        ...offered,
+        logout: true,
+        rejected: true,
+        candidates: [
+          { connectionId, itemId },
+          { connectionId, itemId: otherItemId },
+        ],
+      };
+      const rejectedTitle =
+        "Pateat: the site did not accept the last login in this tab. Click to choose an account.";
+      it("offers the accounts again once the site rejects a picked account in its page", async () => {
+        const h = await refused();
+        h.recipes.recipe.mockResolvedValue(rejecting);
+        fake.state.observed = ["missing", "unique"];
+        expect(await pick(h, { makeDefault: true })).toEqual({ ok: true });
+        await vi.waitFor(() =>
+          expect(fake.state.storage["pateat.login-attempts.v4"]).toMatchObject([
+            { state: "blocked", outcome: "credential-rejected" },
+          ]),
+        );
+        const before = fake.state.messages.filter((entry) => entry.type === "login.execute");
+        // The page announces again on the result, then once its form's first step shows.
+        expect(await h.hello({}, false)).toMatchObject({ ok: false });
+        expect(await h.hello()).toEqual({ ok: false, reason: "logged-out" });
+        expect(fake.state.storage["pateat.login-attempts.v4"]).toEqual([]);
+        expect(await ask(h)).toEqual(rejectedOffer);
+        expect(fake.state.badges[1]).toEqual({ text: "2", title: rejectedTitle });
+        // Nothing was saved as the default, and the page is not filled again.
+        expect(h.store.update).not.toHaveBeenCalled();
+        expect(fake.state.messages.filter((entry) => entry.type === "login.execute")).toEqual(
+          before,
+        );
+        // Another account picked there logs in.
+        h.recipes.recipe.mockResolvedValue(recipe);
+        fake.state.observed = ["unique", "missing"];
+        fake.state.onReconnect = () => h.hello();
+        expect(await pick(h, { itemId })).toEqual({ ok: true });
+        await vi.waitFor(() =>
+          expect(fake.state.storage["pateat.login-attempts.v4"]).toMatchObject([
+            { state: "authenticated", account: { itemId } },
+          ]),
+        );
+      });
+      it("offers the accounts again once the site rejects a picked account in a page on another path", async () => {
+        const generate = vi.fn<LoginGeneration["generate"]>(async () => ({
+          outcome: "abstained",
+          reason: "ambiguous",
+        }));
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris: async () => ({ ok: true, data: both }),
+          generation: {
+            available: vi.fn(async () => true as const),
+            generate,
+            generateEntry: vi.fn(),
+            judge: vi.fn(async () => ({ verdict: "unclear" as const })),
+            slotFields: vi.fn(async () => undefined),
+          },
+        });
+        expect(await h.hello()).toEqual({ ok: false, reason: "account-ambiguous" });
+        // A login resumes its own recipe by ID on any path.
+        h.recipes.recipe.mockImplementation(async (_at: string, path: string, id?: string) =>
+          path === "/signin" || id === rejecting.id ? rejecting : undefined,
+        );
+        fake.state.observed = ["missing", "unique"];
+        fake.state.onReconnect = () => h.hello();
+        fake.state.onExecute = async (message) => {
+          if ((message["operation"] as { step: { kind: string } }).step.kind !== "click") return;
+          // The site answers with its form and an error on the path the form posted to, in a
+          // new document, where no recipe starts.
+          fake.state.gone.add("synthetic-document");
+          fake.state.pageUrl = "https://login.example/session";
+          fake.state.observedPath = "/session";
+          setTimeout(() => void h.hello({ documentId: "document-failed" }, false), 0);
+        };
+        expect(await pick(h, { makeDefault: true })).toEqual({ ok: true });
+        await vi.waitFor(() =>
+          expect(fake.state.storage["pateat.login-attempts.v4"]).toMatchObject([
+            {
+              state: "blocked",
+              outcome: "credential-rejected",
+              document: { documentId: "document-failed" },
+            },
+          ]),
+        );
+        // Its announcement on the result asks at once: the page may be sent for a recipe
+        // like any sign-in page without one, rather than being taken as signed in.
+        fake.state.onExecute = undefined;
+        expect(await h.hello({ documentId: "document-failed" }, false)).toMatchObject({
+          ok: false,
+          reason: "recipe-not-found",
+          generate: true,
+        });
+        expect(fake.state.storage["pateat.login-attempts.v4"]).toEqual([]);
+        // Once a recipe starts on that path, its form offers the accounts.
+        const session = {
+          ...recipe,
+          id: "synthetic-session",
+          steps: recipe.steps.map((step) => ({ ...step, path: "/session" })),
+        };
+        h.recipes.recipe.mockImplementation(async (_at, path) =>
+          path === "/session" ? session : undefined,
+        );
+        expect(await h.hello({ documentId: "document-failed" })).toEqual({
+          ok: false,
+          reason: "logged-out",
+        });
+        expect(await ask(h)).toEqual({ ...rejectedOffer, documentId: "document-failed" });
+        expect(h.store.update).not.toHaveBeenCalled();
+      });
+      it("asks without filling the page a saved default was rejected in", async () => {
+        const h = harness({}, { uris: async () => ({ ok: true, data: both }) });
+        h.recipes.recipe.mockResolvedValue(rejecting);
+        fake.state.observed = ["missing", "unique"];
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() =>
+          expect(fake.state.storage["pateat.login-attempts.v4"]).toMatchObject([
+            { state: "blocked", outcome: "credential-rejected" },
+          ]),
+        );
+        const before = fake.state.messages.filter((entry) => entry.type === "login.execute");
+        await h.hello({}, false);
+        expect(await h.hello()).toEqual({ ok: false, reason: "logged-out" });
+        expect(fake.state.messages.filter((entry) => entry.type === "login.execute")).toEqual(
+          before,
+        );
+        expect(await ask(h)).toEqual(rejectedOffer);
+        // A later page of the tab is filled with the default, as after a logout.
+        fake.state.observed = ["unique", "missing"];
+        const next = { documentId: "synthetic-next" };
+        expect(await h.hello(next)).toEqual({ ok: true });
+        await vi.waitFor(() =>
+          expect(fake.state.storage["pateat.login-attempts.v4"]).toMatchObject([
+            { fillOnly: true, document: { documentId: "synthetic-next" } },
+          ]),
+        );
+      });
       it("offers the choice again after a worker restart, or clears it once the page is gone", async () => {
         await refused();
         // A new worker starts with only session storage; its badge survived.
@@ -3992,6 +4134,7 @@ describe("production login document admission", () => {
           "pateat.login-logouts.v1": [],
           "pateat.login-logout-fills.v1": [],
           "pateat.login-stopped-asks.v1": [],
+          "pateat.login-rejected-asks.v1": [],
           "pateat.login-entry-presses.v1": [],
         });
         for (const listener of fake.state.removed) listener(1);
@@ -4002,6 +4145,7 @@ describe("production login document admission", () => {
             "pateat.login-logouts.v1": [],
             "pateat.login-logout-fills.v1": [],
             "pateat.login-stopped-asks.v1": [],
+            "pateat.login-rejected-asks.v1": [],
             "pateat.login-entry-presses.v1": [],
           }),
         );
@@ -8074,7 +8218,7 @@ describe("production login document admission", () => {
         const reads = fake.state.messages.filter((entry) => entry.type === "login.state");
         expect(reads.length).toBeGreaterThan(0);
         expect(reads.every((entry) => Array.isArray(entry.fields))).toBe(true);
-        return { service, states };
+        return { service, states, h };
       }
 
       it.each([
@@ -8100,18 +8244,38 @@ describe("production login document admission", () => {
         12_000,
       );
 
-      it("leaves the sign-in form shown again in a new document unknown without a mark", async () => {
-        const { service, states } = await reshown({ ...noSigns, password: true });
-        await vi.waitFor(
-          () =>
-            expect(status()).toMatchObject([{ state: "reconciling", outcome: "unknown-submit" }]),
-          { timeout: 8_000 },
-        );
+      it("asks for an account once the sign-in form shows again in a new document without a mark", async () => {
+        // Seen on github.com on 2026-10-13: its "Incorrect username or password" page was read
+        // as unknown, the login was watched, and the popup offered no account.
+        const { service, states, h } = await reshown({ ...noSigns, password: true });
+        await vi.waitFor(() => expect(status()).toEqual([]), { timeout: 8_000 });
         expect(states()).toEqual([
           expect.objectContaining({ s1: true, f1: false, f2: false, reshown: true }),
         ]);
         expect(states()[0]).toMatchObject({ decision: "unknown" });
         expect(service.judge).not.toHaveBeenCalled();
+        expect(fake.state.session["pateat.login-logouts.v1"]).toEqual([{ tabId: 1, origin }]);
+        expect(fake.state.session["pateat.login-rejected-asks.v1"]).toEqual([{ tabId: 1, origin }]);
+        // The page is asked to announce again, and asks once its first step shows.
+        expect(fake.state.reconnects).toContainEqual({
+          tabId: 1,
+          frameId: 0,
+          documentId: "document-again",
+        });
+        const executes = fake.state.messages.filter((entry) => entry.type === "login.execute");
+        expect(await h.hello({ documentId: "document-again" })).toEqual({
+          ok: false,
+          reason: "logged-out",
+        });
+        expect(fake.state.badges[1]).toEqual({
+          text: "1",
+          title:
+            "Pateat: the site did not accept the last login in this tab. Click to choose an account.",
+        });
+        // Nothing is filled or pressed on that page again.
+        expect(fake.state.messages.filter((entry) => entry.type === "login.execute")).toEqual(
+          executes,
+        );
       }, 12_000);
 
       it("never rejects the sign-in form shown again in a new document with a CAPTCHA", async () => {
@@ -8205,10 +8369,40 @@ describe("production login document admission", () => {
         expect(service.judge).not.toHaveBeenCalled();
       }, 20_000);
 
+      it("asks for an account when the form shows again without a mark after the submitted document settled", async () => {
+        await settledFirst([{ ...noSigns, password: true }]);
+        await vi.waitFor(() => expect(status()).toEqual([]), { timeout: 8_000 });
+        expect(fake.state.session["pateat.login-logouts.v1"]).toEqual([{ tabId: 1, origin }]);
+        expect(fake.state.reconnects).toContainEqual({
+          tabId: 1,
+          frameId: 0,
+          documentId: "document-1",
+        });
+      }, 20_000);
+
+      it.each([
+        ["a code input", { code: true }],
+        ["a CAPTCHA", { captcha: true }],
+      ])(
+        "keeps watching the sign-in form shown again with %s beside it",
+        async (_label, extra) => {
+          const { states } = await reshown({ ...noSigns, password: true, ...extra });
+          await vi.waitFor(
+            () =>
+              expect(status()).toMatchObject([{ state: "reconciling", outcome: "unknown-submit" }]),
+            { timeout: 8_000 },
+          );
+          expect(states()[0]).toMatchObject({ reshown: true, decision: "unknown" });
+          expect(fake.state.session["pateat.login-logouts.v1"] ?? []).toEqual([]);
+        },
+        12_000,
+      );
+
       it("reads only the first new document after the submission as the form shown again", async () => {
-        // The person's own retry in the form shown again loads a third document.
+        // The person's own retry in the form shown again loads a third document. A code input
+        // beside the form keeps the login watched rather than asking again.
         const { states } = await settledFirst([
-          { ...noSigns, password: true },
+          { ...noSigns, password: true, code: true },
           { ...noSigns, password: true, invalid: true, alert: true },
         ]);
         expect(states()[1]).toMatchObject({ reshown: true, decision: "unknown" });

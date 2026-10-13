@@ -336,9 +336,33 @@ export function createDiagnosticsLog(options: {
             recipe: report.recipeId,
             recipeRevision: report.recipeRevision,
             watched: report.watched,
+            rejected: report.rejected,
             url: report.url,
           },
           { source },
+        );
+      else if (report.type === "popup")
+        void logger.log(
+          "login.popup",
+          {
+            origin: report.origin,
+            choice: report.choice,
+            candidates: report.candidates,
+            logout: report.logout,
+            rejected: report.rejected,
+            held: report.held,
+            recordState: report.recordState,
+            recordOutcome: report.recordOutcome,
+            pageReason: report.pageReason,
+            url: report.url,
+          },
+          // Nothing offered to a tab without a login or a refused page is ordinary browsing.
+          {
+            source,
+            ...(report.choice === "none" && !report.recordState && !report.pageReason
+              ? { level: "debug" as const }
+              : {}),
+          },
         );
       else if (report.type === "choice")
         void logger.log(

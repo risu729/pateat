@@ -39,6 +39,10 @@ Amended on 2026-10-13 by [ADR 0036](0036-passkey-after-the-identifier.md): an it
 without a password but with a passkey takes the `password` route up to the step that
 fills the password, answers its page's passkey request there, and otherwise ends
 `challenge`, watched (implemented).
+Amended on 2026-10-13 by [ADR 0021](0021-account-choice-outside-settings.md) (D): a
+login that settles unknown on the sign-in form shown again, with its password input and
+no other sign, in the first new document after its password submission is not watched;
+the tab asks for an account at once (implemented).
 
 Date: 2026-10-11
 

@@ -227,10 +227,26 @@ export const LOG_EVENTS = {
       recipe: "recipe",
       recipeRevision: "count",
       watched: "flag",
+      rejected: "flag",
       url: "url",
     },
   },
   "login.choice": { level: "info", fields: { origin: "origin", outcome: "code", url: "url" } },
+  "login.popup": {
+    level: "info",
+    fields: {
+      origin: "origin",
+      choice: "code",
+      candidates: "count",
+      logout: "flag",
+      rejected: "flag",
+      held: "flag",
+      recordState: "code",
+      recordOutcome: "code",
+      pageReason: "code",
+      url: "url",
+    },
+  },
   "login.exception": {
     level: "warn",
     fields: {
