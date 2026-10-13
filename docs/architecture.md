@@ -2029,7 +2029,8 @@ comparisons. In the extension, Chrome's native `Temporal` formats, reads and mea
 them, which is why the extension requires Chrome 144: `isoTime`, `isoMinute`,
 `isoTimeMs` and `isoTimeSchema` in
 [`apps/extension/src/time.ts`](../apps/extension/src/time.ts) write and read the ISO
-8601 times of the diagnostics report and log export and the stored entry-page presses;
+8601 times of the diagnostics report and log export and the stored entry-page presses
+and blocks;
 the local times on the settings and diagnostics pages, the ages and day counts shown and
 the Bitwarden package's checks of server dates use Temporal too. The `Date` header of
 the service's health response is an HTTP date, which Temporal does not read, so

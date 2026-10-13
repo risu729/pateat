@@ -1,6 +1,6 @@
 import * as v from "valibot";
 import { describe, expect, it } from "vitest";
-import { isoMinute, isoTime, isoTimeSchema, isoTimeMs } from "./time";
+import { isoMinute, isoTime, isoTimeSchema, isoTimeMs, localSyncTime } from "./time";
 
 // Year 0 to 9999, including leap days, the epoch and times just before it.
 const TIMES = [
@@ -37,5 +37,15 @@ describe("ISO times", () => {
     expect(v.is(isoTimeSchema, "2026-02-29T00:00:00Z")).toBe(false);
     expect(v.is(isoTimeSchema, "2028-02-29T00:00:00Z")).toBe(true);
     expect(v.is(isoTimeSchema, isoTime(1_791_900_034_352))).toBe(true);
+  });
+});
+
+describe("local sync times", () => {
+  it("shows a time as Date did and an out-of-range one as unknown", () => {
+    const options = { dateStyle: "medium", timeStyle: "short" } as const;
+    expect(localSyncTime(1_791_900_034_352)).toBe(
+      new Date(1_791_900_034_352).toLocaleString(undefined, options),
+    );
+    expect(localSyncTime(8.64e15 + 1)).toBe("at an unknown time");
   });
 });

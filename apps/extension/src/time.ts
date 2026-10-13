@@ -13,6 +13,22 @@ export function isoMinute(ms: number): string {
   return Temporal.Instant.fromEpochMilliseconds(ms).toString({ smallestUnit: "minute" });
 }
 
+/**
+ * A sync time for a settings page, such as `Oct 13, 2026, 11:29 PM` in the browser's
+ * locale and time zone. A value outside Temporal's range, which only damaged storage can
+ * hold, reads `at an unknown time` instead of breaking the page.
+ */
+export function localSyncTime(ms: number): string {
+  try {
+    return Temporal.Instant.fromEpochMilliseconds(ms).toLocaleString(undefined, {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+  } catch {
+    return "at an unknown time";
+  }
+}
+
 /** The epoch milliseconds of an ISO 8601 time with a UTC offset; a RangeError for other text. */
 export function isoTimeMs(text: string): number {
   return Temporal.Instant.from(text).epochMilliseconds;
