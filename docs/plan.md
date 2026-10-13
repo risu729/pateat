@@ -671,6 +671,22 @@ Once the fixes have settled:
 - Proposed: the checks that matter once other people install Pateat: the install-time
   site-access warning and the prompt after site access was withheld, installed-Chrome
   dummy-account tests and measured limits.
+- A review of the wording of Pateat's UI text: the popup, the toolbar icon's title, the
+  options page and the in-page prompts. It includes the reason line the popup and the
+  icon's title show when another tab of the site logged out or the site did not accept
+  that tab's login: both say "You logged out of this site in another tab"
+  (`choiceReason` in `apps/extension/src/login/choice-wire.ts`, the `other-tab` title
+  in `apps/extension/src/login/runtime.ts`), which reads wrong after a rejection. Not started without the owner's
+  confirmation (owner, 2026-10-13 15:10 UTC).
+- Adopting Anthropic's
+  [Claude Security plugin](https://github.com/anthropics/claude-plugins-official/tree/main/plugins/claude-security)
+  for Claude Code: agents map the architecture and a threat model, look for
+  vulnerabilities in the whole repository or in a branch, pull request or commit, try to
+  disprove each finding, and write the surviving ones as a Markdown, JSONL and SARIF
+  report, with optional patch files that are never applied, committed or pushed on their
+  own. How it is run (which scans, when, and where the reports go) is decided when it
+  is adopted. Not started without the owner's confirmation (owner, 2026-10-13 15:10
+  UTC).
 
 ### Phase 4: issues and work as needed
 
