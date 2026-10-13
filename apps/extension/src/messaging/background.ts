@@ -31,8 +31,7 @@ export interface BackgroundAreas {
   passkeyProbe?: ((request: unknown) => unknown) | undefined;
   /**
    * A handler threw or rejected. The library would send the error back to the sender, and
-   * it may name vault data; the sender gets no answer instead, as from a raw listener that
-   * never answered.
+   * it may name vault data; the sender gets `undefined` instead, which its parser rejects.
    */
   failed(error: unknown): void;
 }
