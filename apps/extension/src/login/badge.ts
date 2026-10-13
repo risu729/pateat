@@ -329,8 +329,15 @@ export function createLoginBadge(deps: {
         }
       }
       shown.delete(tabId);
-      // A tab with nothing to show keeps the empty badge Chrome reset it to.
-      if (choices.has(tabId) || notes.has(tabId) || results.has(tabId) || spinning(tabId))
+      // A tab with nothing to show keeps the empty badge Chrome reset it to, unless a write
+      // still in flight could land on the new page after that reset.
+      if (
+        choices.has(tabId) ||
+        notes.has(tabId) ||
+        results.has(tabId) ||
+        spinning(tabId) ||
+        writes.has(tabId)
+      )
         draw(tabId);
     },
     removed(tabId: number): void {

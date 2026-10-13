@@ -321,18 +321,38 @@ describe("login badge", () => {
   it("writes only changed fields, and nothing when nothing changed", async () => {
     const h = harness();
     h.badge.choice(tabId, { count: 2, title: "choose" });
+    await h.flush();
     h.badge.choice(tabId, { count: 3, title: "choose" });
+    await h.flush();
     h.badge.choice(tabId, { count: 3, title: "choose" });
     await h.flush();
     expect(h.calls).toEqual([
       { tabId, text: "2", ...CHOICE, title: "choose" },
       { tabId, text: "3" },
     ]);
+    // A change that is undone before its write runs writes nothing.
+    h.badge.choice(tabId, { count: 4, title: "choose" });
+    h.badge.choice(tabId, { count: 3, title: "choose" });
+    await h.flush();
+    expect(h.calls).toHaveLength(2);
     // Removing an absent note or choice draws nothing.
     h.badge.note(9, undefined);
     h.badge.choice(9, undefined);
     await h.flush();
     expect(h.calls).toHaveLength(2);
+  });
+
+  it("writes several draws of one tab as one write of the latest state", async () => {
+    const h = harness();
+    h.badge.note(tabId, "held");
+    h.badge.observe(attempt({ outcome: "timeout" }));
+    h.badge.choice(tabId, { count: 2, title: "choose" });
+    h.badge.spin(8);
+    await h.flush();
+    expect(h.calls).toEqual([
+      { tabId, text: "2", ...CHOICE, title: "choose" },
+      { tabId: 8, text: BUSY_FRAMES[0], ...BUSY, title: "Pateat: asking the AI…" },
+    ]);
   });
 
   it("lands one tab's writes in order", async () => {
@@ -350,12 +370,24 @@ describe("login badge", () => {
       },
     });
     h.badge.choice(tabId, { count: 1, title: "choose" });
-    h.badge.choice(tabId, { count: 2, title: "choose" });
     await h.flush();
-    expect(h.calls.map((call) => call.text)).toEqual(["1"]);
+    // Draws while the first write is in flight wait for it and then write once.
+    h.badge.choice(tabId, { count: 2, title: "choose" });
+    h.badge.choice(tabId, { count: 3, title: "choose" });
+    h.badge.choice(8, { count: 1, title: "other" });
+    await h.flush();
+    expect(h.calls.map((call) => [call.tabId, call.text])).toEqual([
+      [tabId, "1"],
+      [8, "1"],
+    ]);
     release();
     await h.flush();
-    expect(h.calls.map((call) => call.text)).toEqual(["1", "2"]);
+    expect(h.calls.map((call) => [call.tabId, call.text])).toEqual([
+      [tabId, "1"],
+      [8, "1"],
+      [tabId, "3"],
+    ]);
+    expect(h.calls.at(-1)).toEqual({ tabId, text: "3" });
   });
 
   it("rewrites every field after a failed write", async () => {
@@ -371,6 +403,58 @@ describe("login badge", () => {
     h.badge.choice(tabId, { count: 2, title: "choose" });
     await h.flush();
     expect(h.calls.at(-1)).toEqual({ tabId, text: "2", ...CHOICE, title: "choose" });
+  });
+
+  it("sends every field again when a write fails while a later one waits", async () => {
+    let reject!: (error: Error) => void;
+    const failing = new Promise<void>((_resolve, fail) => {
+      reject = fail;
+    });
+    let first = true;
+    const h = harness({
+      setBadge: async () => {
+        if (first) {
+          first = false;
+          await failing;
+        }
+      },
+    });
+    h.badge.choice(tabId, { count: 1, title: "choose" });
+    await h.flush();
+    h.badge.choice(tabId, { count: 2, title: "choose" });
+    await h.flush();
+    expect(h.calls).toHaveLength(1);
+    reject(new Error("tab strip busy"));
+    await h.flush();
+    expect(h.calls).toEqual([
+      { tabId, text: "1", ...CHOICE, title: "choose" },
+      { tabId, text: "2", ...CHOICE, title: "choose" },
+    ]);
+  });
+
+  // Chrome resets the tab's badge on navigation; a write already in flight when the page
+  // of another origin is reported can land after that reset.
+  it("clears a result whose write was in flight when another origin loaded", async () => {
+    let release!: () => void;
+    const slow = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let first = true;
+    const h = harness({
+      setBadge: async () => {
+        if (first) {
+          first = false;
+          await slow;
+        }
+      },
+    });
+    h.badge.observe(attempt({ outcome: "timeout" }));
+    await h.flush();
+    expect(h.calls.at(-1)).toMatchObject(FAILED);
+    h.badge.loaded(tabId, "https://other.example/");
+    release();
+    await h.flush();
+    expect(h.calls.at(-1)).toMatchObject({ text: "" });
   });
 
   it("ignores an attempt report that changes no state, outcome or settlement", async () => {
@@ -410,17 +494,19 @@ describe("login badge", () => {
     await h.flush();
     expect(h.calls.slice(count)).toEqual([{ tabId, ...FAILED, title: expect.any(String) }]);
 
+    // Two loads before the write runs write once.
     h.badge.loaded(tabId);
     h.badge.loaded(tabId, "not a url");
     await h.flush();
     expect(h.view()).toMatchObject(FAILED);
-    expect(h.calls).toHaveLength(count + 3);
+    expect(h.calls).toHaveLength(count + 2);
+    expect(h.calls.at(-1)).toEqual({ tabId, ...FAILED, title: expect.any(String) });
 
     // Chrome reset the badge; with the result dropped there is nothing to write.
     h.badge.loaded(tabId, "https://other.example/");
     h.badge.loaded(tabId, `${origin}/`);
     await h.flush();
-    expect(h.calls).toHaveLength(count + 3);
+    expect(h.calls).toHaveLength(count + 2);
     expect(await h.storage.getValue()).toEqual({ results: [], busy: [] });
     // What was written is forgotten, so the next badge writes every field.
     h.badge.observe(attempt({ state: "authenticated" }));
