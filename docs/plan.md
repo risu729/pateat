@@ -850,7 +850,9 @@ still open on 2026-10-11.
   [lockfile gaps note](research/2026-10-12-aube-lockfile-gaps.md) reproduces aube
   2.7.0's `bun.lock` and `pnpm-lock.yaml` bugs (both fixed on aube main, unreleased) and
   two remaining `bun.lock` gaps (peers written as dependencies, `lockfileVersion`
-  reset), as drafts for upstream reports (not filed).
+  reset). The owner proposed the peers fix upstream as
+  [aubepkg/aube#1727](https://github.com/aubepkg/aube/pull/1727); the `lockfileVersion`
+  fix is opened after it merges.
 - Why the Bitwarden SDK's async exports never settle on unparsable arguments (owner,
   2026-10-13 14:38 UTC): the
   [research note](research/2026-10-13-bitwarden-sdk-async-hang.md) traces it to
