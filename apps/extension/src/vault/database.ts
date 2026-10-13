@@ -40,9 +40,11 @@ export function createVaultDatabase(options: VaultDatabaseOptions = {}) {
         let opened: VaultConnection;
         try {
           opened = await openDB(name, VAULT_DATABASE_VERSION, {
-            upgrade(db) {
+            upgrade(db, _oldVersion, _newVersion, upgrade) {
               db.createObjectStore(RECORDS_STORE);
               db.createObjectStore(PROVIDER_SESSIONS_STORE);
+              // A failed upgrade rejects the open; its `done` must not go unhandled.
+              void upgrade.done.catch(() => undefined);
             },
           });
         } catch {
@@ -143,8 +145,13 @@ export async function runVaultTransaction<T>(
         },
         abort,
       );
-    } catch {
-      abort("storage-failed");
+    } catch (error) {
+      // A failed request rejects its promise before the transaction records why it aborted.
+      abort(
+        error instanceof DOMException && error.name === "QuotaExceededError"
+          ? "cache-quota-exceeded"
+          : "storage-failed",
+      );
     }
   };
   // `tx.done` rejects at a failed request's error event, before the transaction records why it

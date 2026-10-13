@@ -37,11 +37,13 @@ export function openDiagnosticsDatabase(
       let database: DiagnosticsDatabase;
       try {
         database = await openDB<DiagnosticsSchema>(name, DIAGNOSTICS_DATABASE_VERSION, {
-          upgrade(upgrading) {
+          upgrade(upgrading, _oldVersion, _newVersion, upgrade) {
             upgrading.createObjectStore(META_STORE);
             const entries = upgrading.createObjectStore(ENTRIES_STORE, { autoIncrement: true });
             entries.createIndex(TIME_INDEX, "time");
             entries.createIndex(LEVEL_INDEX, ["level", "time"]);
+            // A failed upgrade rejects the open; its `done` must not go unhandled.
+            void upgrade.done.catch(() => undefined);
           },
           // idb reports a blocked open but keeps waiting for it; this opener fails closed.
           blocked() {

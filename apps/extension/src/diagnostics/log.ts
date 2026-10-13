@@ -538,7 +538,9 @@ export function createLogger(deps: LoggerDependencies) {
   }
 
   async function meta<T>(key: string, schema: v.GenericSchema<unknown, T>): Promise<T | undefined> {
-    const value = await (await open()).get(META_STORE, key);
+    // The read waits for its transaction too, so an abort never goes unhandled.
+    const transaction = (await open()).transaction(META_STORE);
+    const [value] = await Promise.all([transaction.store.get(key), transaction.done]);
     const parsed = v.safeParse(schema, value);
     return parsed.success ? parsed.output : undefined;
   }
@@ -798,7 +800,11 @@ export function createLogger(deps: LoggerDependencies) {
   }
 
   async function entries(): Promise<LogEntry[]> {
-    const values = await (await open()).getAllFromIndex(ENTRIES_STORE, TIME_INDEX);
+    const transaction = (await open()).transaction(ENTRIES_STORE);
+    const [values] = await Promise.all([
+      transaction.store.index(TIME_INDEX).getAll(),
+      transaction.done,
+    ]);
     return values.flatMap((value) => {
       const parsed = v.safeParse(entrySchema, value);
       return parsed.success ? [parsed.output] : [];

@@ -207,6 +207,21 @@ describe("native transaction completion controls publication", () => {
     expect(await pending).toEqual({ ok: false, error: { code: "cache-quota-exceeded" } });
   });
 
+  it("returns quota failure for a failed request before the transaction records it", async () => {
+    const h = nativeCallbacks();
+    const put = new FakeRequest();
+    h.objectStore.put.mockReturnValue(put);
+    const pending = h.store.compareAndSwap(null, activeEntry());
+    await h.ready();
+    await h.respond(0, undefined);
+    put.error = new DOMException("Synthetic quota", "QuotaExceededError");
+    put.dispatchEvent(new Event("error"));
+    await settle();
+    expect(h.tx.abort).toHaveBeenCalledOnce();
+    h.tx.fire("abort");
+    expect(await pending).toEqual({ ok: false, error: { code: "cache-quota-exceeded" } });
+  });
+
   it("aborts cancelled in-flight work and never returns successful readback", async () => {
     const h = nativeCallbacks();
     const abort = new AbortController();
