@@ -959,24 +959,31 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
               for (const [place, digit] of split.entries()) {
                 // eslint-disable-next-line no-await-in-loop
                 if (place > 0) await pause(FIELD_GAP_MS);
-                if (cancelled || location.pathname !== step.path)
-                  return fail("cancelled", cancelled ? "document-cancelled" : "page-changed");
-                // The page's handlers for an earlier digit may have changed this input.
-                if (
-                  !writable(digit) ||
-                  digit.form !== form ||
-                  digit.maxLength !== 1 ||
-                  !acceptsSecret(digit, value.secret) ||
-                  inputValueMismatch(digit, value.value[place]!) !== undefined
-                )
-                  return fail("cancelled", "field-changed");
+                // The page's handlers for an earlier digit may have changed this input; the
+                // same checks run after each wait of the digit's own typing.
+                const scope = () =>
+                  cancelled
+                    ? "document-cancelled"
+                    : location.pathname !== step.path
+                      ? "page-changed"
+                      : !writable(digit) ||
+                          digit.form !== form ||
+                          digit.maxLength !== 1 ||
+                          !acceptsSecret(digit, value.secret) ||
+                          inputValueMismatch(digit, value.value[place]!) !== undefined
+                        ? "field-changed"
+                        : undefined;
+                const before = scope();
+                if (before) return fail("cancelled", before);
                 filled.add(digit);
                 // eslint-disable-next-line no-await-in-loop
-                const refused = await typeValue(digit, value.value[place]!, setter, {
+                const stopped = await typeValue(digit, value.value[place]!, setter, {
                   beforeInput: place === split.length - 1 ? code?.typed : undefined,
+                  between: scope,
                 });
                 // A digit the page kept out is never followed by the rest.
-                if (refused) return fail("fill-rejected");
+                if (stopped === "refused") return fail("fill-rejected");
+                if (stopped) return fail("cancelled", stopped);
               }
             } else if (step.effect === "prepare") {
               filled.add(input);

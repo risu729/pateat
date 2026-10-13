@@ -510,10 +510,9 @@ clearing `beforeinput` and does not clear the field itself by that wait refuses 
 value the same way before any character is typed. A code split into one-digit inputs
 gets the same per digit, 25 ms apart.
 Typed keys are only a value's characters, so a page's Enter handler does not run. Each
-field's scope checks run after the wait before it and again after each wait of its
-typing; a
-typing they stop leaves the characters typed so far in the field and fails the step, so
-nothing is clicked. The 500 ms check of [ADR 0010](adr/0010-inference-field-hints.md)
+field's scope checks, and a split code's per-digit checks, run after the wait before
+it and again after each wait of its typing; a typing they stop leaves the characters
+typed so far in the field and fails the step, so nothing is clicked. The 500 ms check of [ADR 0010](adr/0010-inference-field-hints.md)
 follows the last field. A fill that advances or submits through the page's own event
 sets the value and sends that one `input` or `change` event alone, with no focus, keys
 or blur that could run its effect again. Known limits: the events are not trusted
