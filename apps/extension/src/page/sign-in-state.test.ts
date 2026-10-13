@@ -260,12 +260,14 @@ describe("pageSigns", () => {
       password: true,
       alertMiss: "other-form",
     });
-    // A hidden or disabled one, or one with a read-only input, asks for nothing.
+    // A hidden or disabled one, or one of buttons, check boxes and hidden inputs, asks for
+    // nothing.
     for (const other of [
       '<form hidden><input name="email"></form>',
       '<form><input name="email" disabled></form>',
       '<form><input name="email" style="display:none"></form>',
-      '<form><input name="email" readonly></form>',
+      '<form><input type="hidden" name="challenge"><button>Sign in with a passkey</button></form>',
+      '<form><input type="checkbox" name="remember"><input type="submit" value="Go"></form>',
     ]) {
       document.body.innerHTML = `<div class="box"><div role="alert">Wrong password</div>${form}${other}</div>`;
       expect(pageSigns(document, { reshown: inputs() }), other).toEqual({
@@ -274,8 +276,16 @@ describe("pageSigns", () => {
         alert: true,
       });
     }
-    // A text area or a select asks for input too.
-    for (const other of ["<form><textarea></textarea></form>", "<form><select></select></form>"]) {
+    // A text area, a select, a date or read-only date picker, an editable region, or a form
+    // laid out with display: contents asks for input too.
+    for (const other of [
+      "<form><textarea></textarea></form>",
+      "<form><select></select></form>",
+      '<form><input type="date"></form>',
+      '<form><input name="checkin" readonly><button>Search</button></form>',
+      '<form><div contenteditable="true"></div></form>',
+      '<form style="display:contents"><input name="email"></form>',
+    ]) {
       document.body.innerHTML = `<div class="box"><div role="alert">Sent</div>${form}${other}</div>`;
       expect(pageSigns(document, { reshown: inputs() }), other).toEqual({
         ...none,

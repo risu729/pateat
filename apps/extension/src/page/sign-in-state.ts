@@ -87,30 +87,37 @@ const tokens = (input: HTMLInputElement) => input.autocomplete.toLowerCase().spl
 const ariaInvalid = (input: HTMLInputElement) =>
   input.getAttribute("aria-invalid")?.trim().toLowerCase() === "true";
 
-/**
- * Input types a person types into. An input with no type, or one the browser does not
- * know, is a text input (`type` reads `text`).
- */
-const typedInputs = new Set(["text", "email", "tel", "number", "password", "search", "url"]);
+/** Input types that hold no value a person enters: buttons, check boxes and hidden data. */
+const unaskedInputs = new Set([
+  "hidden",
+  "checkbox",
+  "radio",
+  "submit",
+  "button",
+  "reset",
+  "image",
+]);
 
 /**
- * Whether `form` asks the person for something: it shows and holds a shown, enabled
- * control they type into or pick from (a text-like input, a text area or a select). A form
- * of buttons, hidden inputs or check boxes, as a passkey, social sign-in, language or
- * sign-out form, does not.
+ * Whether `form` asks the person for something: it holds a shown, enabled control they
+ * enter a value in or pick from (any input but a button, check box or hidden one, even a
+ * read-only date picker, a text area, a select or an editable region). A form of buttons,
+ * hidden inputs or check boxes, as a passkey, social sign-in, language or sign-out form,
+ * does not. Each control's own visibility counts, so a form laid out with
+ * `display: contents` still does.
  */
 function asksForInput(form: HTMLFormElement): boolean {
   return (
-    visible(form) &&
     [...form.elements].some(
       (control) =>
-        ((control instanceof HTMLInputElement &&
-          typedInputs.has(control.type) &&
-          !control.readOnly) ||
-          (control instanceof HTMLTextAreaElement && !control.readOnly) ||
+        ((control instanceof HTMLInputElement && !unaskedInputs.has(control.type)) ||
+          control instanceof HTMLTextAreaElement ||
           control instanceof HTMLSelectElement) &&
         !control.disabled &&
         visible(control),
+    ) ||
+    [...form.querySelectorAll<HTMLElement>("[contenteditable]")].some(
+      (element) => element.isContentEditable && visible(element),
     )
   );
 }

@@ -193,10 +193,11 @@ shown writable input, and F2 on the alerts and status regions inside one of thei
 forms, named by one of them, or whose nearest common container with a form (or the
 input outside any form) is not the body or the root and holds no `header`, `nav`,
 `footer`, banner, navigation or content-information landmark, dialog or other form, as
-GitHub's flash message beside its sign-in form's body. Any mark and any text count. The
-entry is logged with `reshown`, and the decision is `rejected` only without S4, then
-confirmed and acted on as every other row. This also applies when the submitted
-document's own reading settled the login as unknown first (a slow answer: a click's
+GitHub's flash message beside its sign-in form's body (refined on 2026-10-13, below).
+Any mark and any text count. The entry is logged with `reshown`, and the decision is
+`rejected` only without S4, then confirmed and acted on as every other row. This also
+applies when the submitted document's own reading settled the login as unknown first
+(a slow answer: a click's
 result settles 3 seconds after it), and when it was watched after `challenge`: a
 confirmed rejection there ends the watched login `credential-rejected`. The first new
 document alone counts, once per submission. The step and that document are kept in the
@@ -216,8 +217,9 @@ logged `unknown` with `reshown` and neither F1 nor F2, and the login ended
 `unknown-submit`. The message and the form share the sign-in box, which, as recalled and
 not captured, also holds a passkey form and possibly social sign-in forms of buttons and
 hidden inputs only, so the rule against another form refused the box. Now another form
-keeps a container from counting only when it shows and holds a shown, enabled field to
-type in or pick from (a text-like input, a text area or a select); a form of buttons,
+keeps a container from counting only when it holds a shown, enabled control to enter a
+value in or pick from (any input but a button, check box or hidden one, read-only date
+pickers included, a text area, a select or an editable region); a form of buttons,
 hidden inputs or check boxes, as a passkey, social sign-in, language or sign-out form,
 does not. A container that holds the page's main area (`main` or `role="main"`) does not
 count either, so a single-page site's root wrapper around a banner and the page is not
