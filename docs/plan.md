@@ -830,6 +830,10 @@ still open on 2026-10-11.
   wasm-bindgen converting async-export arguments inside the future, with tsify's
   deprecated `from_wasm_abi` and Bitwarden's pending migration as context. Worker
   termination already recovers. The owner chose not to report it upstream (15:00 UTC).
+- Which hand-written primitives should become libraries or standard APIs (owner,
+  2026-10-13 13:59 UTC): the [survey](research/2026-10-13-primitive-libraries.md)
+  covers base64 and hex, CBOR, IndexedDB and deep equality, the areas that need no
+  library, and the owner's choices that followed.
 - Earlier research kept as dated notes:
   [identity provider screens](research/2026-10-11-identity-provider-screens.md) behind
   [ADR 0026](adr/0026-sign-in-through-identity-providers.md);
