@@ -1282,6 +1282,8 @@ export type LoginReport = (
       /** Why the tab asks after a logout (ADR 0021 D). */
       logout?: LogoutReason;
       held?: true;
+      /** The site rejected another tab's login, so the popup chooses no account. */
+      rejectedElsewhere?: true;
       recordState?: string;
       recordOutcome?: string;
       pageReason?: string;
@@ -2122,6 +2124,9 @@ export function createLoginRuntime(
       documentId: waiting.document.documentId,
       candidates: waiting.candidates,
       ...held,
+      ...(rejectedElsewhere(tabId, waiting.document.origin)
+        ? { rejectedElsewhere: true as const }
+        : {}),
     };
   }
   /** By tab: the popup's last logged answer, so an open popup asking each second logs once. */
@@ -2143,6 +2148,7 @@ export function createLoginRuntime(
             candidates: answer.candidates.length,
             ...(answer.logout ? { logout: answer.logout } : {}),
             ...(answer.held ? { held: true as const } : {}),
+            ...(answer.rejectedElsewhere ? { rejectedElsewhere: true as const } : {}),
           }
         : {}),
       ...(record

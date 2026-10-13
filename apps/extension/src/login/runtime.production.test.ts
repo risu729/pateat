@@ -4151,6 +4151,12 @@ describe("production login document admission", () => {
         "Pateat: the site did not accept the last login in this tab. Click to choose an account.";
       it("offers the accounts again once the site rejects a picked account in its page", async () => {
         const h = await refused();
+        // Another tab of the site waits on its own choice of several accounts.
+        fake.state.tabUrls[2] = fake.state.pageUrl;
+        expect(await h.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({
+          ok: false,
+          reason: "account-ambiguous",
+        });
         h.recipes.recipe.mockResolvedValue(rejecting);
         fake.state.observed = ["missing", "unique"];
         expect(await pick(h, { makeDefault: true })).toEqual({ ok: true });
@@ -4166,6 +4172,10 @@ describe("production login document admission", () => {
         expect(fake.state.storage["pateat.login-attempts.v4"]).toEqual([]);
         expect(await ask(h)).toEqual(rejectedOffer);
         expect(fake.state.badges[1]).toEqual({ text: "2", title: rejectedTitle });
+        // The other tab's popup chooses no account either.
+        expect(
+          await h.login.handle({ version: 1, type: "login.choice.get", tabId: 2 }, popup),
+        ).toMatchObject({ documentId: "other-tab", rejectedElsewhere: true });
         // Nothing was saved as the default, and the page is not filled again.
         expect(h.store.update).not.toHaveBeenCalled();
         expect(fake.state.messages.filter((entry) => entry.type === "login.execute")).toEqual(
