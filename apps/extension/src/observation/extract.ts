@@ -405,7 +405,7 @@ function fieldDescription(input: HTMLInputElement, label: string | undefined) {
 
 const nearDepth = 6;
 const maxNear = 3;
-/** Elements examined for text near a code field; a code page is small. */
+/** Elements examined for text near a code field or a page's buttons. */
 const nearScanLimit = 2000;
 /**
  * Elements whose text is never text near a code field: live regions and error messages,
@@ -445,38 +445,87 @@ function nearCodeTexts(field: HTMLElement, keep: (text: string) => string | unde
     const element = field.ownerDocument.getElementById(id);
     return element ? [element] : [];
   });
+  return nearTexts([field], keep, errors);
+}
+
+/**
+ * Up to three short texts a signed-in page without a code field shows near its buttons,
+ * for the judge to tell what a button whose label says little, such as "Verify", starts
+ * (ADR 0027, owner decision 2026-10-13 04:22 UTC). They are read as `nearCodeTexts` reads
+ * them, around every given button at once, nearest parent first. An open modal dialog
+ * that holds one of the buttons, or else the page's first shown main landmark, bounds
+ * them: only the buttons inside it count and only texts inside it are read, so a help or
+ * account widget beside it does not take the texts. Buttons and texts in the header and
+ * navigation, which `headerText` already carries, never count.
+ */
+function nearButtonTexts(
+  buttons: readonly HTMLElement[],
+  keep: (text: string) => string | undefined,
+): string[] {
+  const document = buttons[0]?.ownerDocument;
+  if (!document) return [];
+  const bound =
+    openModals(document).find((modal) => buttons.some((button) => modal.contains(button))) ??
+    [...document.querySelectorAll("main, [role~='main' i]")].find((main) => shown(main));
+  const anchors = buttons.filter(
+    (button) => (!bound || bound.contains(button)) && !button.closest(landmarks),
+  );
+  return nearTexts(anchors, keep, [...document.querySelectorAll(landmarks)], bound);
+}
+
+/**
+ * The texts near `anchors` that `nearCodeTexts` describes, read around each anchor in page
+ * order, one parent further out at a time, until three are kept; `excluded` elements and
+ * those inside them are left out, and with `within`, no parent outside it is read.
+ */
+function nearTexts(
+  anchors: readonly HTMLElement[],
+  keep: (text: string) => string | undefined,
+  excluded: readonly Element[],
+  within?: Element,
+): string[] {
   const found: { element: Element; text: string }[] = [];
   const keyParents = new Map<Element, boolean>();
   let scanned = 0;
-  let inner: Element = field;
+  // Each anchor's innermost parent read so far; an anchor whose area may not grow is
+  // dropped.
+  let reached = anchors.map((anchor) => ({ anchor, inner: anchor as Element }));
   for (let depth = 0; depth < nearDepth && found.length < maxNear; depth += 1) {
-    const area = inner.parentElement;
-    if (
-      !area ||
-      area === field.ownerDocument.body ||
-      area === field.ownerDocument.documentElement ||
-      otherEntryField(area, field)
-    )
-      break;
-    for (const element of area.querySelectorAll("*")) {
-      if (found.length >= maxNear || (scanned += 1) > nearScanLimit) break;
+    const next: typeof reached = [];
+    for (const { anchor, inner } of reached) {
+      if (found.length >= maxNear || scanned > nearScanLimit) break;
+      const area = inner.parentElement;
       if (
-        element.childElementCount > 0 ||
-        inner.contains(element) ||
-        element.closest(notNear) ||
-        errors.some((error) => error.contains(element))
+        !area ||
+        area === anchor.ownerDocument.body ||
+        area === anchor.ownerDocument.documentElement ||
+        (within !== undefined && !within.contains(area)) ||
+        otherEntryField(area, anchor)
       )
         continue;
-      const rendered = renderedText(element, rawLimit);
-      // A text that looks like a key or recovery code may be a secret, and is never sent;
-      // it is read before redaction hides its digits. A key printed one group per element
-      // shows only in the text of a parent, so each parent up to the area is read too.
-      if (rendered === undefined || keyLike(rendered) || inKey(element, area, keyParents)) continue;
-      const raw = observedText(rendered, Number.POSITIVE_INFINITY);
-      const text = raw && keep(raw);
-      if (text && !found.some((entry) => entry.text === text)) found.push({ element, text });
+      for (const element of area.querySelectorAll("*")) {
+        if (found.length >= maxNear || (scanned += 1) > nearScanLimit) break;
+        if (
+          element.childElementCount > 0 ||
+          inner.contains(element) ||
+          element.closest(notNear) ||
+          excluded.some((error) => error.contains(element))
+        )
+          continue;
+        const rendered = renderedText(element, rawLimit);
+        // A text that looks like a key or recovery code may be a secret, and is never
+        // sent; it is read before redaction hides its digits. A key printed one group per
+        // element shows only in the text of a parent, so each parent up to the area is
+        // read too.
+        if (rendered === undefined || keyLike(rendered) || inKey(element, area, keyParents))
+          continue;
+        const raw = observedText(rendered, Number.POSITIVE_INFINITY);
+        const text = raw && keep(raw);
+        if (text && !found.some((entry) => entry.text === text)) found.push({ element, text });
+      }
+      next.push({ anchor, inner: area });
     }
-    inner = area;
+    reached = next;
   }
   return found
     .sort((left, right) =>
@@ -1090,7 +1139,8 @@ type Chosen = { form: HTMLFormElement | null; draft: Draft; target: LoginTarget 
 
 /**
  * Numbers the chosen elements in document order and adds the page's title and headings;
- * with `near`, also the texts near its first code field (`nearCodeTexts`).
+ * with `near`, also the texts near its first code field (`nearCodeTexts`) or, without one,
+ * near its buttons (`nearButtonTexts`).
  */
 function observe(
   document: Document,
@@ -1148,24 +1198,36 @@ function observe(
   const codeAt = near ? candidates.findIndex(isCodeField) : -1;
   const code = candidates[codeAt];
   const repeated = new Set([title, ...headings, code?.label, code?.placeholder, code?.description]);
-  const nearCode =
-    code === undefined
-      ? []
-      : nearCodeTexts(chosen[codeAt]!.draft.element, (raw) => {
-          const text = bounded(hide(raw));
-          // A text that repeats one the page already carries, or with fewer than two
-          // letters beside its placeholders, such as a timer or one typed character in
-          // a box of its own, says nothing about the code.
-          return text !== undefined &&
-            !repeated.has(text) &&
-            (text.replace(/\[(?:email|masked|number)\]/gu, "").match(/\p{L}/gu)?.length ?? 0) >= 2
-            ? text
-            : undefined;
-        });
+  // A text that repeats one the page already carries, or with fewer than two letters
+  // beside its placeholders, such as a timer or one typed character in a box of its own,
+  // says nothing about the code or the button.
+  const keepNear = (raw: string) => {
+    const text = bounded(hide(raw));
+    return text !== undefined &&
+      !repeated.has(text) &&
+      (text.replace(/\[(?:email|masked|number)\]/gu, "").match(/\p{L}/gu)?.length ?? 0) >= 2
+      ? text
+      : undefined;
+  };
+  const nearCode = code === undefined ? [] : nearCodeTexts(chosen[codeAt]!.draft.element, keepNear);
+  // A page without a code field carries the texts near its buttons instead.
+  const buttons =
+    near && code === undefined ? chosen.filter((_, at) => candidates[at]!.role === "button") : [];
+  for (const button of buttons) {
+    const candidate = candidates[chosen.indexOf(button)]!;
+    if (candidate.label) repeated.add(candidate.label);
+  }
+  const nearButtons = buttons.length
+    ? nearButtonTexts(
+        buttons.map((button) => button.draft.element),
+        keepNear,
+      )
+    : [];
   const texts = [
     title ?? "",
     ...headings,
     ...nearCode,
+    ...nearButtons,
     ...candidates.flatMap((candidate) => [
       candidate.label ?? "",
       candidate.placeholder ?? "",
@@ -1182,6 +1244,7 @@ function observe(
     ...(headings.length ? { headings } : {}),
     ...(header ? { headerText: header } : {}),
     ...(nearCode.length ? { nearCode } : {}),
+    ...(nearButtons.length ? { nearButtons } : {}),
     complete,
     candidates,
     ...(accounts?.length ? { accounts } : {}),
@@ -1495,8 +1558,9 @@ function mayBeSignIn(input: HTMLInputElement): boolean {
  * left out. A link is located by its text too, as for an account switch, and the
  * executor looks for the completion marker the same way. A path segment that may carry a
  * token is sent as `REDACTED_PATH_SEGMENT` (`signedInPath`). A page with a code field
- * also carries up to three texts near the first one (`nearCodeTexts`), hidden as the
- * rest of the page. While a modal dialog is open, the page behind it that the modal's
+ * also carries up to three texts near the first one (`nearCodeTexts`), and a page without
+ * one up to three texts near its buttons (`nearButtonTexts`), hidden as the rest of the
+ * page. While a modal dialog is open, the page behind it that the modal's
  * script marked `aria-hidden` or `inert` is read as shown (`readBehindModal`), and the
  * modal's controls rank right after the header's.
  */

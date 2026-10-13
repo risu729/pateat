@@ -124,6 +124,53 @@ describe("withoutUsernames", () => {
     ]);
   });
 
+  it("covers the texts near the buttons (ADR 0027)", () => {
+    const result = hidden(
+      observation({
+        nearButtons: ["Verify with the security key of TARO", "Not taro?", "Use another key"],
+      }),
+      ["taro"],
+    );
+    expect(result.nearButtons).toEqual([
+      "Verify with the security key of [account]",
+      "Not [account]?",
+      "Use another key",
+    ]);
+    expect(JSON.stringify(result).toLowerCase()).not.toContain("taro");
+  });
+
+  it("drops the texts near the buttons when every button showed a username (ADR 0027)", () => {
+    const page = observation({
+      candidates: [
+        { id: "c1", role: "link", target: { by: "id", value: "help" }, label: "Help" },
+        { id: "c2", role: "button", target: { by: "text", value: "taro" }, label: "taro" },
+        { id: "c3", role: "link", target: { by: "id", value: "other" }, label: "Other method" },
+      ],
+      nearButtons: ["Touch your security key to continue.", "Signed in as taro"],
+    });
+    const result = withoutUsernames(page, ["taro"]);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.observation).not.toHaveProperty("nearButtons");
+    expect(result.observation.candidates.map((candidate) => candidate.id)).toEqual(["c1", "c3"]);
+    expect(JSON.stringify(result).toLowerCase()).not.toContain("taro");
+    // With a button left, they stay, hidden.
+    const kept = hidden(
+      observation({
+        candidates: [
+          ...page.candidates,
+          { id: "c4", role: "button", target: { by: "id", value: "verify" }, label: "Verify" },
+        ],
+        nearButtons: page.nearButtons!,
+      }),
+      ["taro"],
+    );
+    expect(kept.nearButtons).toEqual([
+      "Touch your security key to continue.",
+      "Signed in as [account]",
+    ]);
+  });
+
   it("never finds a name inside a longer Latin word", () => {
     expect(
       headings(["Use another account", "Annual report", "Sign in with ann", "ANN"], ["ann"]),

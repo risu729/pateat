@@ -426,8 +426,10 @@ own accounts, so they stay in the project's files rather than in this repository
   - Added on 2026-10-13, not moved by the owner: a security-key second factor behind a
     button labelled only "Verify", as on Oracle Cloud. On `fdf57ef` (2026-10-13 02:57
     UTC), the judge named no button, so the owner pressed it, and Pateat answered with
-    the item's passkey. Recheck once the judge's instructions name such a button (ADR
-    0027); this needs a paid judge call.
+    the item's passkey. The judge's instructions now name such a button, but its
+    description had no text saying FIDO (recheck at 03:56 UTC), so the page also
+    carries the text near its buttons (owner, 2026-10-13 04:22 UTC, ADR 0027). Recheck
+    after that change's deploy and extension reload; this needs a paid judge call.
   - The `totp` handler on a site whose code page names an authenticator app, such as
     npmjs.com: a judged code page adds the handler and the
     same login types one code. It needs a paid judge call and a real account's code, so
