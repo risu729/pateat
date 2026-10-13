@@ -609,9 +609,12 @@ test("an edit made during a save that conflicts stays in the draft unsaved", asy
   });
   await expect.poll(() => control("settings-status").element().textContent).toMatch(/Reload/i);
   await expect.element(control("site-list")).toMatchTextContent("later.example");
-  // An edit after the conflict stays in the draft too.
+  // Edits after the conflict, to a site list and to a vault, stay in the draft too.
   await addSite("after.example");
   await expect.element(control("site-list")).toMatchTextContent("after.example");
+  const items = page.getByLabelText("Demo personal vault: Items for Pateat", { exact: true });
+  await items.selectOptions("selected");
+  await expect.element(items).toHaveValue("selected");
   expect(client.saveSettings).toHaveBeenCalledTimes(1);
 });
 
