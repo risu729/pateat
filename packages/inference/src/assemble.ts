@@ -294,7 +294,7 @@ export type HandlerRejection =
 /**
  * Adds a handler for the judged page to a generated recipe in its next revision (ADR
  * 0027): a `passkey` handler for its security-key or passkey button, or a `totp` handler
- * for its authenticator app code field and the button that submits it. The route's steps
+ * for its TOTP code field and the button that submits it. The route's steps
  * are kept as they are, so a running login can take the result over (`extendsRecipe`).
  * The page may be on a route path: a second-factor form on the sign-in path still gets a
  * handler. A `totp` handler's button may even be the route's own submit button on that
