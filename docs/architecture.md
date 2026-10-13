@@ -66,8 +66,8 @@ Extension pages and content scripts send their requests to the service worker th
 passkey chooser, login, passkey); the request keeps its own `type`. The worker checks
 the sender before the area's handler runs, and the handler still validates the request
 with Valibot and checks a content script's tab, frame and document. A handler that
-fails answers `undefined`, so no error the library would serialize reaches the sender. The
-worker's sends to a tab stay raw `tabs.sendMessage` calls addressed by `frameId` and
+fails answers `undefined`, so no error the library would serialize reaches the sender.
+The worker's sends to a tab stay raw `tabs.sendMessage` calls addressed by `frameId` and
 `documentId`, which the library's tab send cannot address. The Ports to the settings
 page and the offscreen crypto host, the offscreen document's Worker messages and the
 `window.postMessage` channel between the passkey scripts also stay raw.
