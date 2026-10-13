@@ -370,7 +370,7 @@ describe("judged passkey handler (ADR 0027)", () => {
 
   it("keeps a button whose label names no passkey, as a FIDO page's Verify", () => {
     // Oracle Cloud's FIDO page starts its WebAuthn call from "Verify" (2026-10-13); the
-    // judge decides what the button does, and only registration words refuse it.
+    // judge decides what the button does, and no passkey word is required.
     const verify = { by: "text", value: "Verify" } as const;
     const added = addHandler(
       recipe,
