@@ -1,3 +1,4 @@
+export { decodeBase64 } from "./base64";
 export {
   BITWARDEN_READ_PROTOCOL,
   normalizeBitwardenProfile,

@@ -645,6 +645,7 @@ use. WXT drives Vite 8 (Rolldown) for the extension build
 | Static checks | Existing Oxlint/Oxfmt and TypeScript with applicable React/JSX accessibility rules; **approved:** Knip | M2 React migration |
 | UI icons | **Approved (2026-10-12); implemented for the diagnostics page and `/manage`:** `lucide-react`, imported per icon, in each workspace that uses it | Phase 1 UI polish |
 | UI translation | **Approved (2026-10-12):** i18next with react-i18next, the language chosen in Pateat's settings; the manifest's `description` through a hand-written `_locales` file | Phase 3 Japanese for the extension |
+| Byte encoding | **Approved (2026-10-13) and implemented:** the standard `Uint8Array` `toBase64()`, `fromBase64()` and `toHex()` and `RegExp.escape()`, no library; the extension's `minimum_chrome_version` is 140 for them. `@scure/base` was the alternative that keeps older Chrome | Phase 1 |
 | Identifiers | **Approved (2026-10-12) and implemented:** `uuid` for UUIDv7, since Web Crypto has only `randomUUID()` (v4) ([identifiers](architecture.md#identifiers)) | Phase 1 |
 | Server configuration | Existing cf with cloudflare.config.ts and Vite | Retain verified build path |
 
@@ -692,9 +693,12 @@ explicitly include private suffix rules where appropriate. PSL information is
 not permission to fill or sign, and does not replace HTTPS, origin, ancestor or
 Permissions Policy checks. OTPAuth covers standard OTP mechanics; test Bitwarden
 Steam compatibility separately and do not advertise HOTP merely because parsing
-supports it. Evaluate `@scure/base`, `@noble/hashes` and `cbor-x` for actual protocol
-gaps. Do not write crypto/CBOR primitives ourselves, assume all primitives in a
-package are audited, or substitute a different KDF for Bitwarden Argon2id.
+supports it. Base64, base64url and hex use the standard `Uint8Array` methods;
+strict decoding (`lastChunkHandling: "strict"`) still needs the input checked for
+whitespace and, when unpadded, padded first. Evaluate `@noble/hashes` and `cbor-x`
+for actual protocol gaps. Do not write crypto/CBOR primitives ourselves, assume all
+primitives in a package are audited, or substitute a different KDF for Bitwarden
+Argon2id.
 
 Use the approved Hono and Drizzle for the first substantive service routes and
 schema. Verify generated SQL/migrations, explicit owner predicates, conditional

@@ -69,22 +69,20 @@ export function decodeBitwardenBase64(value: string): Uint8Array | undefined {
   const body = value.replace(/=+$/u, "");
   const padding = value.length - body.length;
   if (padding > 0 && (padding > 2 || value.length % 4 !== 0)) return undefined;
-  if (!/^[A-Za-z0-9+/_-]*$/u.test(body) || body.length % 4 === 1) return undefined;
-  const standard = body.replace(/-/gu, "+").replace(/_/gu, "/");
+  if (!/^[A-Za-z0-9+/_-]*$/u.test(body)) return undefined;
   try {
-    const binary = atob(standard + "=".repeat((4 - (standard.length % 4)) % 4));
-    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
-    if (encodeBase64Url(bytes) !== body.replace(/\+/gu, "-").replace(/\//gu, "_")) return undefined;
-    return bytes;
+    // Strict decoding rejects a one-character final chunk and non-zero trailing bits.
+    return Uint8Array.fromBase64(body.padEnd(Math.ceil(body.length / 4) * 4, "="), {
+      alphabet: urlSafe ? "base64url" : "base64",
+      lastChunkHandling: "strict",
+    });
   } catch {
     return undefined;
   }
 }
 
 export function encodeBase64Url(bytes: Uint8Array): string {
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/gu, "-").replace(/\//gu, "_").replace(/=+$/u, "");
+  return bytes.toBase64({ alphabet: "base64url", omitPadding: true });
 }
 
 /** Bitwarden credential IDs: a GUID for 16 raw bytes, or `b64.` plus base64url bytes. */

@@ -250,7 +250,7 @@ export function createVaultProbe(host: CryptoHost) {
         const next: VaultEntry = {
           ...old,
           revision: crypto.randomUUID(),
-          userKey: btoa(String.fromCharCode(...new Uint8Array(64))),
+          userKey: new Uint8Array(64).toBase64(),
         };
         const write = await store.compareAndSwap(old.revision, next);
         const check = await store.read();
