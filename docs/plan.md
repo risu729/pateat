@@ -708,7 +708,8 @@ Once the fixes have settled:
 - The finite-choice role with Clef, which the owner chose to implement here. On
   2026-10-11 the owner asked for a larger corpus of real pages before planning it. After
   Clef has been tried, compare it with Jev on the same pages (owner, 2026-10-13 15:11
-  UTC).
+  UTC). Include Chrome's built-in Prompt API (`LanguageModel`, an on-device model) in
+  that comparison (owner, 2026-10-13 21:36 UTC).
 - Anyone can use Pateat. The service is not opened to other people. Continuous delivery
   publishes each extension release on GitHub Releases and meets the
   [Corresponding Source](sdk-source.md) requirements. The owner has a Chrome Web Store
@@ -2634,7 +2635,8 @@ support for every site or vault format. Keep observed limitations explicit.
 - Benchmark generation/repair and finite-choice roles separately on the same
   Japanese/English synthetic login corpus. Measure the ADR 0014 Claude configuration for
   generation; for decisions, the owner chose Clef for
-  [phase 3](#phase-3-public-release), and Clef-flash and Jev remain candidates. Report
+  [phase 3](#phase-3-public-release), and Clef-flash, Jev and Chrome's Prompt API remain
+  candidates. Report
   semantic correctness, false-submit count, abstentions, joint mapping consistency,
   p50/p95 end-to-end latency and usage/cost. Test invalid candidate IDs, malformed
   probabilities, context overflow and incomplete observations. Clef vendor latency/price
