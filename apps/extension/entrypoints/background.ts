@@ -259,10 +259,21 @@ export default defineBackground(() => {
     import.meta.env.MODE === "probe"
       ? createProbePasskeySource(vaultPasskeys, rememberPasskey)
       : undefined;
-  // ADR 0022 and ADR 0007: a returned assertion may complete a login and is a sign-in.
-  const passkeyAnswered = (tabId: number, origin: string, rpId: string) => {
+  // ADR 0022 and ADR 0007: a returned assertion may complete a login and is a sign-in. The
+  // vault item that signed it lets a login whose tab moved to the page that asked complete.
+  const passkeyAnswered = (tabId: number, origin: string, rpId: string, signed: object) => {
     noteSignIn(tabId, origin, rpId);
-    login.passkeyAnswered(tabId, origin, rpId);
+    login.passkeyAnswered(
+      tabId,
+      origin,
+      rpId,
+      "connectionId" in signed &&
+        typeof signed.connectionId === "string" &&
+        "itemId" in signed &&
+        typeof signed.itemId === "string"
+        ? { connectionId: signed.connectionId, itemId: signed.itemId }
+        : undefined,
+    );
   };
   const passkeys = passkeyProbe
     ? createPasskeyRuntime(passkeyProbe.source, {

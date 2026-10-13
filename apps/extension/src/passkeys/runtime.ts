@@ -251,11 +251,11 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
      */
     requested?: (tabId: number, origin: string) => void;
     /**
-     * Told of each assertion returned to a page, with the RP ID it was made for, so a login
-     * that then moves to that site's other origin can complete (ADR 0022). Never changes
-     * the answer.
+     * Told of each assertion returned to a page, with the RP ID it was made for and the
+     * passkey that signed it, so a login that then moves to that site's other origin can
+     * complete (ADR 0022). Never changes the answer.
      */
-    answered?: (tabId: number, origin: string, rpId: string) => void;
+    answered?: (tabId: number, origin: string, rpId: string, signed: TCandidate) => void;
     /** Where Pateat signed before; a username-less request there asks again (ADR 0021 D). */
     signedTabs?: SignedTabs;
     /**
@@ -305,7 +305,7 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
     origin: string,
     context: { documentId: string; tabId: number; incognito: boolean; active: boolean },
     detail: ReportDetail,
-    after: { remember?: TCandidate },
+    after: { remember?: TCandidate; signed?: TCandidate },
   ): Promise<RuntimeResult> {
     const { documentId } = context;
     const documentOperations = [...operations.values()].filter(
@@ -521,6 +521,7 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
         return { kind: "cancelled" };
       }
       if (makeDefault) after.remember = credential;
+      after.signed = credential;
       return { kind: "assertion", assertion };
     };
     // Told whether the answer of a login's conditional request went back (ADR 0034).
@@ -628,7 +629,7 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
           // Never changes the answer.
         }
       const detail: ReportDetail = {};
-      const after: { remember?: TCandidate } = {};
+      const after: { remember?: TCandidate; signed?: TCandidate } = {};
       const result = await get(
         command,
         origin,
@@ -642,9 +643,9 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
         detail,
         after,
       );
-      if (result.kind === "assertion" && detail.rpId !== undefined)
+      if (result.kind === "assertion" && detail.rpId !== undefined && after.signed)
         try {
-          options.answered?.(sender.tab!.id!, origin, detail.rpId);
+          options.answered?.(sender.tab!.id!, origin, detail.rpId, after.signed);
         } catch {
           // Never changes the answer.
         }
