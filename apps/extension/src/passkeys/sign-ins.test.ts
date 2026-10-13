@@ -57,6 +57,16 @@ describe("Pateat's sign-ins per tab (ADR 0007)", () => {
     ]);
   });
 
+  it("moves a tab's sign-ins to the new ID Chrome gives a discarded tab", async () => {
+    const backing = memory();
+    const signIns = createSignIns(backing.storage, backing.onTabRemoved, ticking());
+    await signIns.add(7, { origin });
+    await signIns.replaced(9, 7);
+    expect(await signIns.list(7)).toEqual([]);
+    expect(await signIns.list(9)).toEqual([{ origin, at: 1_001_000 }]);
+    expect(backing.items[KEY]).toEqual([{ tabId: 9, records: [{ origin, at: 1_001_000 }] }]);
+  });
+
   it("keeps the latest four sign-ins of a tab", async () => {
     const backing = memory();
     const signIns = createSignIns(backing.storage, backing.onTabRemoved, ticking());

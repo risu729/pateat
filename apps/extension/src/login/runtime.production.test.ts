@@ -82,6 +82,8 @@ const fake = vi.hoisted(() => {
     gone: new Set<string>(),
     /** Every runtime's tab-closed listener, so a test can close its tabs afterwards. */
     removed: [] as ((tabId: number) => void)[],
+    /** Every runtime's tab-replaced listener, as Chrome calls it for a discarded tab. */
+    replaced: [] as ((added: number, removed: number) => void)[],
     /** The document's description of itself, by the page asked for. */
     extracted: {} as Record<string, unknown>,
     /**
@@ -254,6 +256,11 @@ const fake = vi.hoisted(() => {
       onRemoved: {
         addListener: (listener: (tabId: number) => void) => {
           state.removed.push(listener);
+        },
+      },
+      onReplaced: {
+        addListener: (listener: (added: number, removed: number) => void) => {
+          state.replaced.push(listener);
         },
       },
     },
@@ -567,6 +574,7 @@ describe("production login document admission", () => {
     // Close every test's tabs, so no attempt left reconciling answers a later test.
     for (const listener of fake.state.removed.splice(0))
       for (const tabId of [1, 2, 3, 4]) listener(tabId);
+    fake.state.replaced.length = 0;
   });
   beforeEach(() => {
     fake.state.storage = {};
@@ -4598,6 +4606,70 @@ describe("production login document admission", () => {
             { origin, provider: "bitwarden", userId, itemId },
           ]);
           expect(logouts()).toEqual([]);
+        });
+        it("keeps asking as the tab that logged out after Chrome replaces the tab", async () => {
+          const h = await loggedOut();
+          // Chrome discarded the idle tab and shows it again under a new ID.
+          fake.state.tabUrls[2] = fake.state.pageUrl;
+          for (const listener of fake.state.replaced) listener(2, 1);
+          await vi.waitFor(() => expect(logouts()).toEqual([{ tabId: 2, origin }]));
+          // The restored page fills once and asks as this tab, not as another tab.
+          await filledOnly(h, { tab: { id: 2 }, documentId: "restored" });
+          expect(
+            await h.login.handle({ version: 1, type: "login.choice.get", tabId: 2 }, popup),
+          ).toMatchObject({ documentId: "restored", logout: "this-tab" });
+          expect(fake.state.badges[2]?.title).toBe(
+            "Pateat: you logged out of this site in this tab. Click to choose an account.",
+          );
+        });
+        it("keeps the tab's login with it after Chrome replaces the tab", async () => {
+          const h = harness(
+            {},
+            { allowedOrigins: [], uris: async () => ({ ok: true, data: both }) },
+          );
+          expect(await h.hello()).toEqual({ ok: true });
+          await vi.waitFor(() => expect(attempts()).toMatchObject([{ state: "authenticated" }]));
+          fake.state.tabUrls[2] = fake.state.pageUrl;
+          for (const listener of fake.state.replaced) listener(2, 1);
+          await vi.waitFor(() =>
+            expect(attempts()).toMatchObject([{ state: "authenticated", document: { tabId: 2 } }]),
+          );
+          // The restored page of the site only watches, as after a reload.
+          expect(await h.hello({ tab: { id: 2 }, documentId: "restored" }, false)).toEqual({
+            ok: false,
+            reason: "logged-in",
+            starts: [signinStart],
+          });
+        });
+        it("keeps the tab's login when the replacement starts a stopped worker", async () => {
+          const h = harness(
+            {},
+            { allowedOrigins: [], uris: async () => ({ ok: true, data: both }) },
+          );
+          expect(await h.hello()).toEqual({ ok: true });
+          await vi.waitFor(() => expect(attempts()).toMatchObject([{ state: "authenticated" }]));
+          // The worker had stopped; only the tab's new ID is open when it starts again.
+          fake.state.replaced.length = 0;
+          fake.state.tabUrls[2] = fake.state.pageUrl;
+          const query = fake.browser.tabs.query;
+          fake.browser.tabs.query = async () => [{ id: 2 }] as never;
+          try {
+            const restarted = harness(
+              {},
+              { allowedOrigins: [], uris: async () => ({ ok: true, data: both }) },
+            );
+            for (const listener of fake.state.replaced) listener(2, 1);
+            await vi.waitFor(() =>
+              expect(attempts()).toMatchObject([
+                { state: "authenticated", document: { tabId: 2 } },
+              ]),
+            );
+            expect(
+              await restarted.hello({ tab: { id: 2 }, documentId: "restored" }, false),
+            ).toEqual({ ok: false, reason: "logged-in", starts: [signinStart] });
+          } finally {
+            fake.browser.tabs.query = query;
+          }
         });
         it("replaces the saved default with a pick marked as the default", async () => {
           const h = await loggedOut();

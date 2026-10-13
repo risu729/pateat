@@ -1003,6 +1003,7 @@ describe("asking again after Pateat signed in a tab", () => {
       add: vi.fn<SignedTabs["add"]>(async (tabId, rpId) => {
         entries.add(`${tabId} ${rpId}`);
       }),
+      replaced: vi.fn<SignedTabs["replaced"]>(async () => undefined),
     } satisfies SignedTabs & { entries: Set<string> };
   };
   const chosen = (index = 0, makeDefault = false) => ({

@@ -243,6 +243,14 @@ the page shows another account, the fill ends and the tab asks. The log shows su
 login as `login.attempt` with reason `fill-only`, then the asking as `login.refused`
 `logged-out` with the tab that logged out.
 
+A tab is known by its Chrome tab ID. When Chrome's Memory Saver discards an idle tab,
+the tab gets a new ID (seen on Wise on 2026-10-13: the restored tab that logged out was
+then told it had logged out in another tab). Chrome reports the change with
+`tabs.onReplaced`, which may also start a stopped worker. The tab's logout state, its
+login records, its sign-in entry press, a pick that started its login and its passkey
+sign-ins then move to the new ID; the page that went away is forgotten as on a close,
+so the restored page asks as the tab that logged out.
+
 Amended 2026-10-12 by the owner (07:41 UTC, after a decision card): a tab whose login of
 the origin stopped (`blocked`) after it submitted something, other than an account
 switch, is no longer stuck. Evidence: on APA Hotel a login stopped `policy-changed`

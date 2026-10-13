@@ -27,6 +27,8 @@ export interface SignedTabsStorage {
 export interface SignedTabs {
   has(tabId: number, rpId: string): Promise<boolean>;
   add(tabId: number, rpId: string): Promise<void>;
+  /** Moves a tab's records to the new ID Chrome gave the tab when it replaced it. */
+  replaced(added: number, removed: number): Promise<void>;
 }
 
 /**
@@ -66,6 +68,17 @@ export function createSignedTabs(
     async has(tabId, rpId) {
       await loaded;
       return tabs.get(tabId)?.includes(rpId) ?? false;
+    },
+    async replaced(added, removed) {
+      await loaded;
+      if (!tabs.has(removed)) return;
+      // In place, so the tab keeps its turn among the oldest.
+      const moved = [...tabs].map(
+        ([tabId, entry]) => [tabId === removed ? added : tabId, entry] as const,
+      );
+      tabs.clear();
+      for (const [tabId, entry] of moved) tabs.set(tabId, entry);
+      await save();
     },
     async add(tabId, rpId) {
       await loaded;

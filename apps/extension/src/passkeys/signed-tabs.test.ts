@@ -39,6 +39,21 @@ describe("tabs Pateat signed in from", () => {
     await expect.poll(() => restarted.items[KEY]).toEqual([{ tabId: 8, rpIds: ["example.com"] }]);
   });
 
+  it("moves a tab's record to the new ID Chrome gives a discarded tab", async () => {
+    const backing = memory();
+    const tabs = createSignedTabs(backing.storage, backing.onTabRemoved);
+    await tabs.add(7, "example.com");
+    await tabs.add(8, "other.example");
+    await tabs.replaced(9, 7);
+    expect(await tabs.has(7, "example.com")).toBe(false);
+    expect(await tabs.has(9, "example.com")).toBe(true);
+    // In place, so the tab keeps its turn among the oldest.
+    expect(backing.items[KEY]).toEqual([
+      { tabId: 9, rpIds: ["example.com"] },
+      { tabId: 8, rpIds: ["other.example"] },
+    ]);
+  });
+
   it("ignores a malformed record and bounds what it keeps", async () => {
     const backing = memory({ [KEY]: [{ tabId: -1, rpIds: ["example.com"] }] });
     const tabs = createSignedTabs(backing.storage, backing.onTabRemoved);

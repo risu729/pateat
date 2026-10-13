@@ -1686,7 +1686,8 @@ A top document's public-key registration with a non-empty `excludeCredentials` i
 checked by the background; every other one goes to the browser at once. The background
 keeps, per tab in session storage, Pateat's latest sign-ins: each assertion it returned
 (origin and RP ID) and each login that reached signed in on any route (origin), at most
-four per tab for the latest 64 tabs, forgotten when the tab closes. Within five minutes
+four per tab for the latest 64 tabs, forgotten when the tab closes and moved to the
+new tab ID when Chrome discards the tab (ADR 0021 D). Within five minutes
 of such a sign-in to the request's RP ID in that tab, a request whose
 `excludeCredentials` lists a passkey Pateat could sign with there, found by the same
 lookup a sign-in uses, is refused with `NotAllowedError`, as Chrome answers when its own
