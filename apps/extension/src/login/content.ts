@@ -1,5 +1,5 @@
 import * as v from "valibot";
-import type { LoginTarget } from "@pateat/contracts";
+import type { LoginMarkerTarget, LoginTarget } from "@pateat/contracts";
 import { browser } from "wxt/browser";
 import { accountText, showsOtherAccount, shownAccounts } from "../page/accounts";
 import { isButton, isScriptButton } from "../page/text";
@@ -54,7 +54,7 @@ import {
 import { newId } from "@pateat/contracts/ids";
 
 /** Fixed locators deliberately reject duplicates rather than taking the first match. */
-function matches(target: LoginTarget, links = false): Element[] {
+function matches(target: LoginMarkerTarget, links = false): Element[] {
   return findTargets(document, target, { links });
 }
 /** An input of a kind Pateat fills, whether or not it is shown or can be written now. */
@@ -102,7 +102,11 @@ function switchable(element: Element | undefined): element is HTMLElement {
  * Pateat fills, or such an input shown); without it, or with `present`, any one element
  * counts.
  */
-function targetState(target: LoginTarget, require?: TargetRequirement, links = false): TargetState {
+function targetState(
+  target: LoginMarkerTarget,
+  require?: TargetRequirement,
+  links = false,
+): TargetState {
   const found = matches(target, links);
   if (found.length !== 1) return found.length === 0 ? "missing" : "ambiguous";
   const [element] = found;
@@ -164,7 +168,7 @@ function showsSignIn(): boolean {
  * counts: a sign-up, password change or code form is not a sign-in page to continue on,
  * and a code page is judged instead (ADR 0027).
  */
-function credentialInputs(targets: readonly LoginTarget[]): {
+function credentialInputs(targets: readonly LoginMarkerTarget[]): {
   password: boolean;
   identifier: boolean;
 } {

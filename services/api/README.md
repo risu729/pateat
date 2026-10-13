@@ -279,7 +279,8 @@ the path ending before it), or `{ check: "plan", reason }` with the plan check's
   the page says it was sent to the person or names another source (`source-sms`,
   `source-email`, `source-other`), `unknown-field` or `unknown-submit` for an ID that is
   no element of the page, or `not-input`, `text-locator`, `not-code-field`,
-  `code-too-short`, `several-code-fields`, `submit-not-button` or `submit-other-form`. A
+  `code-too-short`, `several-code-fields`, `submit-not-button`, `submit-other-form` or
+  `href-locator` (an element located by a link's path, which only a marker may be). A
   `signed-in` marker on a `totp` handler's path that shows its code field fails
   `addCompletion` like one on the sign-in page, and the call answers `invalid-output`.
 - `stop: true` (only with the `password` route and no `branch`) marks the page of a

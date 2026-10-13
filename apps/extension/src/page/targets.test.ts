@@ -12,6 +12,18 @@ afterEach(() => {
 });
 
 describe("findTargets", () => {
+  it("matches links to the page's own origin by their exact path, never script links", () => {
+    page(
+      `<a id="a" href="/my?tab=1#top">A</a><a id="b" href="/my/">B</a>
+      <a id="c" href="https://other.example/my">C</a><a id="d" href="/my" hidden>D</a>
+      <a id="e" href="javascript:void(0)">E</a><a id="f" href="#">F</a>`,
+    );
+    // The caller rejects the two links rather than picking the shown one.
+    expect(ids(findTargets(document, { by: "href", value: "/my" }))).toEqual(["a", "d"]);
+    expect(ids(findTargets(document, { by: "href", value: "/my/" }))).toEqual(["b"]);
+    expect(ids(findTargets(document, { by: "href", value: location.pathname }))).toEqual([]);
+  });
+
   it("compares attribute strings, so selector syntax in a value is inert", () => {
     page(
       `<input id="a" name="ctl00$Main$txtUserId"><input id="b" name="user[login]">

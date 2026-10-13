@@ -2,6 +2,7 @@ import {
   actionRoles,
   genericSlotIdSchema,
   isCodeField,
+  isLoginTarget,
   loginStepSchema,
   personalDataAutocompleteTokens,
   sameLoginTarget,
@@ -178,7 +179,12 @@ export function validatePagePlan(
   plan: PagePlan,
 ): { ok: true; plan: ValidatedPagePlan } | { ok: false; reason: PlanRejection } {
   if (plan.fields.length === 0) return { ok: false, reason: "empty-plan" };
-  const candidates = new Map(observation.candidates.map((candidate) => [candidate.id, candidate]));
+  // A link named by its path is only ever a signed-in marker (ADR 0029), never a step's.
+  const candidates = new Map(
+    observation.candidates.flatMap(({ target, ...candidate }) =>
+      isLoginTarget(target) ? [[candidate.id, { ...candidate, target }] as const] : [],
+    ),
+  );
   const requested = new Map(slots.map((slot) => [slot.id, slot]));
   const usedSlots = new Set<string>();
   const usedCandidates = new Set<string>();
@@ -423,7 +429,13 @@ function passkeyButtonOf(
 ): { passkeyButton: string; passkeyTarget: LoginTarget } | undefined {
   if (candidateId === undefined) return undefined;
   const button = observation.candidates.find((candidate) => candidate.id === candidateId);
-  if (!button || button.role !== "button" || !namesPasskey(button) || registersPasskey(button))
+  if (
+    !button ||
+    button.role !== "button" ||
+    !isLoginTarget(button.target) ||
+    !namesPasskey(button) ||
+    registersPasskey(button)
+  )
     return undefined;
   const used = plans.flatMap((plan) => [
     ...plan.fields.map((field) => field.candidate),
@@ -604,6 +616,7 @@ export function validateAccountList(
     const { target } = candidate;
     if (
       (!isActionRole(candidate.role) && candidate.role !== "link") ||
+      !isLoginTarget(target) ||
       target.by === "autocomplete" ||
       target.by === "label"
     )
@@ -676,7 +689,12 @@ export function validateEntry(
   const candidate = observation.candidates.find((entry) => entry.id === candidateId);
   if (candidate === undefined) return { ok: false, reason: "unknown-candidate" };
   const { target } = candidate;
-  if (candidate.role !== "link" || target.by === "autocomplete" || target.by === "label")
+  if (
+    candidate.role !== "link" ||
+    !isLoginTarget(target) ||
+    target.by === "autocomplete" ||
+    target.by === "label"
+  )
     return { ok: false, reason: "incompatible-role" };
   if ([candidate.label, target.value].some((text) => text !== undefined && accountText.test(text)))
     return { ok: false, reason: "account-text" };

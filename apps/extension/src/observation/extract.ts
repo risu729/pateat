@@ -3,16 +3,18 @@ import {
   isCodeField,
   loginAutocompleteTokens,
   loginObservationSchema,
+  loginLinkTargetSchema,
   loginTargetSchema,
   observedAutocompleteTokens,
   type LoginObservation,
+  type LoginMarkerTarget,
   type LoginTarget,
   type ObservedCandidate,
 } from "@pateat/contracts";
 import * as v from "valibot";
 import { shortNumericInput } from "../login/inputs";
 import type { observationGaps } from "../login/wire";
-import { autocompleteTokens } from "../page/targets";
+import { autocompleteTokens, linkPath } from "../page/targets";
 import {
   buttonText,
   collapseText,
@@ -272,6 +274,7 @@ function locatorIndex(document: Document): LocatorIndex {
       "script-text",
       "link-text",
       "label",
+      "link-path",
     ].map((key) => [key, new Map()]),
   );
   const count = (key: string, value: string) => {
@@ -292,6 +295,8 @@ function locatorIndex(document: Document): LocatorIndex {
   for (const element of document.querySelectorAll("a[href]")) {
     const text = isScriptLink(element) ? undefined : linkText(element);
     if (text !== undefined) count("link-text", text);
+    const path = linkPath(element);
+    if (path !== undefined) count("link-path", path);
   }
   for (const input of document.querySelectorAll("input")) {
     const name = fieldName(input);
@@ -317,12 +322,31 @@ function locatorIndex(document: Document): LocatorIndex {
  * and names often carry the account, and a value that may be a token (`tokenSegment`),
  * such as an account ID, is skipped too. With `links`, a link is located by its text too,
  * which only an account switch uses: the text must name no other link and no button.
+ * With `paths`, which only a signed-in page's markers use (ADR 0029), a link to the
+ * page's own origin is located by its path before its text, when no other link goes there,
+ * the path carries no number or token and no segment repeats the link's text or one or
+ * two words of the page's header (`paths` holds those words, `shownWords`), so an account
+ * link whose text is the person's nickname still has a locator, while a handle or name the
+ * page shows (`/taro_y` beside "@taro_y") is not used. A handle the page never shows can still pass,
+ * which the judge must refuse.
  */
 function locate(
   element: Element,
   index: LocatorIndex,
-  { redactAttributes = false, links = false, lasting = false, labels = false } = {},
-): LoginTarget | undefined {
+  {
+    redactAttributes = false,
+    links = false,
+    lasting = false,
+    labels = false,
+    paths,
+  }: {
+    redactAttributes?: boolean;
+    links?: boolean;
+    lasting?: boolean | undefined;
+    labels?: boolean | undefined;
+    paths?: ReadonlySet<string>;
+  } = {},
+): LoginMarkerTarget | undefined {
   let demoted: LoginTarget | undefined;
   for (const [by, attribute] of locators) {
     const value = element.getAttribute(attribute);
@@ -334,7 +358,64 @@ function locate(
     if (attribute !== "id" || !changingId(value)) return target;
     if (!lasting) demoted = target;
   }
-  return contentTarget(element, index, links, labels) ?? demoted;
+  return (
+    (paths ? pathTarget(element, index, paths) : undefined) ??
+    contentTarget(element, index, links, labels) ??
+    demoted
+  );
+}
+
+/**
+ * `locate`'s link path, when one link alone goes there, it carries no token and no
+ * segment, with or without what may be a file extension, folds to the link's text or one
+ * of the `headerWords`.
+ */
+function pathTarget(
+  element: Element,
+  index: LocatorIndex,
+  headerWords: ReadonlySet<string>,
+): LoginMarkerTarget | undefined {
+  const path = linkPath(element);
+  if (path === undefined || index.get("link-path")!.get(path) !== 1 || tokenPath(path))
+    return undefined;
+  const own = shownWords(linkText(element));
+  if (
+    path
+      .split("/")
+      .flatMap((segment) => [segment, segment.replace(/\.[A-Za-z]+$/u, "")])
+      .some((segment) => {
+        const word = foldWord(segment);
+        return word !== "" && (headerWords.has(word) || own.has(word));
+      })
+  )
+    return undefined;
+  const target = { by: "href" as const, value: path };
+  return v.is(loginLinkTargetSchema, target) ? target : undefined;
+}
+
+/** A word's letters and numbers, lower-cased, so `Taro Y` and `taro_y` compare equal. */
+const foldWord = (text: string) =>
+  text
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[^\p{Letter}\p{Number}]/gu, "");
+
+/**
+ * The folded words of a text, each two neighbouring words together (a display name such
+ * as "Taro Y"), and the whole text folded, for `pathTarget`.
+ */
+function shownWords(text: string | undefined): Set<string> {
+  const words = new Set<string>();
+  if (text === undefined) return words;
+  // A word of punctuation alone, such as "·", does not part a name's two words.
+  const split = text.split(/\s+/u).map(foldWord).filter(Boolean);
+  for (const word of [
+    foldWord(text),
+    ...split,
+    ...split.slice(1).map((next, at) => split[at] + next),
+  ])
+    if (word) words.add(word);
+  return words;
 }
 
 /**
@@ -1201,7 +1282,7 @@ const unlocatedGap = (role: ObservedCandidate["role"]): LoginGap =>
       ? "unlocated-checkbox"
       : "unlocated-button";
 
-type Chosen = { form: HTMLFormElement | null; draft: Draft; target: LoginTarget };
+type Chosen = { form: HTMLFormElement | null; draft: Draft; target: LoginMarkerTarget };
 
 /**
  * Numbers the chosen elements in document order and adds the page's title and headings;
@@ -1663,6 +1744,8 @@ function describeSignedIn(document: Document): ObservationResult {
     else if (entry.draft.role !== "checkbox") markers.push(entry);
   }
   const index = locatorIndex(document);
+  const header = headerText(document);
+  const headerWords = shownWords(header);
   // A marker's locator is stored and must match every later sign-in, so text with a
   // number character, such as a balance or an unread count, never names one, nor does
   // an ID another load may change. A field that may be a sign-in field keeps such an
@@ -1679,6 +1762,7 @@ function describeSignedIn(document: Document): ObservationResult {
         links: true,
         lasting: !signIn,
         labels: signIn,
+        paths: headerWords,
       });
       return target && !(target.by === "text" && /\p{Number}/u.test(target.value))
         ? [{ ...entry, target }]
@@ -1721,7 +1805,7 @@ function describeSignedIn(document: Document): ObservationResult {
     gap === undefined,
     (text) => withoutNumbers(text),
     undefined,
-    headerText(document),
+    header,
     signedInPath(location.pathname),
     true,
   );

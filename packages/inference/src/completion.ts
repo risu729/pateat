@@ -1,9 +1,11 @@
 import {
+  isLoginTarget,
   totpCodeRefusal,
   loginObservationSchema,
   splitCodeInputs,
   loginPathSchema,
   type LoginFieldTarget,
+  type LoginMarkerTarget,
   type LoginObservation,
   type LoginTarget,
 } from "@pateat/contracts";
@@ -69,7 +71,8 @@ export const completionInstructions = [
   "you never see values. Use only candidate IDs from the input.",
   "The marker must show on every signed-in visit of every account. A marker whose target",
   "is by text is stored with that text, so the text must read the same everywhere: never",
-  "the person's name, a count or a balance.",
+  "the person's name, a count or a balance. A link by href is stored with its path, so",
+  "the path must read the same for every account too: never one that names the person.",
   "passkeyButton is a button that continues with a security key or passkey, never one",
   "that registers, creates, adds or sets up one, enters or sends a code, uses SMS, email",
   "or a recovery code, remembers the device, tries another way or cancels.",
@@ -115,7 +118,7 @@ export const completionStopPromptVersion = promptVersionOf(
 /** A page after a generated recipe's effect step, judged (ADR 0018, ADR 0027). */
 export type SignInJudgement =
   /** `target` is the marker's locator on the judged page; `addCompletion` stores it. */
-  | { decision: "signed-in"; target: LoginTarget }
+  | { decision: "signed-in"; target: LoginMarkerTarget }
   | { decision: "rejected" }
   /**
    * `passkey` is the judged page's passkey second-factor button; `totp` its code field
@@ -159,6 +162,9 @@ function totpCode(
   if (!submit) return { totpDropped: "unknown-submit" };
   const refusal = totpCodeRefusal(page, field, submit);
   if (refusal || field.target.by === "text") return { totpDropped: refusal ?? "text-locator" };
+  // A link named by its path is only ever a signed-in marker (ADR 0029).
+  if (field.target.by === "href" || !isLoginTarget(submit.target))
+    return { totpDropped: "href-locator" };
   return { totp: { field: field.target, target: submit.target } };
 }
 
@@ -235,9 +241,11 @@ export function createCompletionJudge(config: {
           return { status: "abstained", reason: "insufficient-evidence" };
         if (draft.decision === "rejected") return { status: "ok", value: draft };
         if (draft.decision === "challenge") {
-          const button = page.candidates.find(
+          const found = page.candidates.find(
             (candidate) => candidate.id === draft.passkeyButton && candidate.role === "button",
           );
+          const button =
+            found && isLoginTarget(found.target) ? { target: found.target } : undefined;
           const totp = totpCode(page, draft.code);
           // A named element that is not a button of this page, or a code that fails the
           // local checks, adds no handler.

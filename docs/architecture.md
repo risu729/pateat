@@ -1298,20 +1298,20 @@ text over 120 characters gives no locator. The `autocomplete` locator,
 carry only `autocomplete="username webauthn"` and
 `autocomplete="current-password webauthn"`. `webauthn` was added the same day for
 LinkedIn's remembered-account page, whose shown password field differs from a hidden
-copy (`current-password`) only by that token, once its React IDs no longer counted.
-The extractor gives it only to a field that
-no `id`, `name` or `data-testid` names alone. Such a token is generic: when another form
-on the page, such as a newsletter sign-up, also carries `email`, a step that names
-`{ "by": "autocomplete", "value": "email" }` matches twice and waits, or, if the login
-form has not rendered yet, fills the other input (never with a secret, which goes only
-into an input the fill check accepts for it, such as a password or `current-password`
-input for the password); and a signed-in page that shows such an input cannot become the
-completion. A script button is a control only scripts make clickable: a script link, or
-another element with `role="button"`, but never a form control or anything inside an
-`<a href>`. A script link is an `<a>` without `href` that has an `onclick` attribute or
-`role="button"`, such as `<a id="login" onclick="document.loginForm.submit()">`, or an
-`<a href>` that runs a script instead of following the link: a `javascript:` URL (or a
-`data:` or `vbscript:` one, which Chrome never follows from a page), such as
+copy (`current-password`) only by that token, once its React IDs no longer counted. The
+extractor gives it only to a field that no `id`, `name` or `data-testid` names alone.
+Such a token is generic: when another form on the page, such as a newsletter sign-up,
+also carries `email`, a step that names `{ "by": "autocomplete", "value": "email" }`
+matches twice and waits, or, if the login form has not rendered yet, fills the other
+input (never with a secret, which goes only into an input the fill check accepts for it,
+such as a password or `current-password` input for the password); and a signed-in page
+that shows such an input cannot become the completion. A script button is a control only
+scripts make clickable: a script link, or another element with `role="button"`, but
+never a form control or anything inside an `<a href>`. A script link is an `<a>` without
+`href` that has an `onclick` attribute or `role="button"`, such as
+`<a id="login" onclick="document.loginForm.submit()">`, or an `<a href>` that runs a
+script instead of following the link: a `javascript:` URL (or a `data:` or `vbscript:`
+one, which Chrome never follows from a page), such as
 `<a href="javascript:;" onclick="login()">ログイン</a>`, or an empty or fragment-only
 `href` on a link with an `onclick` attribute or `role="button"`, such as
 `<a id="login" href="#" onclick="document.loginForm.submit()">` (some pages' scripts add
@@ -1343,10 +1343,19 @@ a button instead if the page later shows one with the same text. A link's text i
 rendered text or, for an image-only link such as a header icon, its shown images' `alt`.
 The extractor gives a link a text locator only when no other link and no button shows
 that text, and only on a login page (for an account switch) or the signed-in page (for a
-completion marker). A click is not tied to the form the previous fill used: a page that
-shows a second, previously hidden button with the same text stops the attempt as
-ambiguous, but if the observed button is removed and another button with the same text
-remains, that one is clicked.
+completion marker). On the signed-in page a link to the page's own origin is located by
+its path first (`{ "by": "href", "value": "/my" }`), when no other link goes there and
+the path has only letters, `-`, `.`, `_`, `~` and `/`, no token segment and no segment
+that repeats the link's text or one or two words of the page's header (a handle or name
+the page shows);
+the executor finds it as the one non-script `<a href>` to that path on the page's
+origin, whatever its query or fragment, never one with an empty or fragment-only `href`
+(`#top`). Only completion markers take such a locator
+([ADR 0029](adr/0029-local-sign-in-state.md)), so an account link whose text is the
+person's nickname can still give a marker. A click is not tied to the
+form the previous fill used: a page that shows a second, previously hidden button with
+the same text stops the attempt as ambiguous, but if the observed button is removed and
+another button with the same text remains, that one is clicked.
 
 The extractor gives no `id` that React's `useId` generated (`:r1:`, `«r1»`, `_r_1_`,
 a hydrated `:R1aH1:`, also after a prefix such as `radix-`): it counts the components
@@ -1396,12 +1405,14 @@ generated again each time (2026-10-13). A site that rewords the field gets its r
 generated again.
 
 A text locator is stored in the recipe, unlike observation labels, which only reach
-inference. Redaction keeps email addresses and long numbers out of it, but a button
-such as "Continue as taro_y" still carries an account name, and so can a signed-in
-marker's link text, such as a header link showing the person's name: the judge is told
-never to pick one, and text with a number never names a marker, but nothing enforces the
-rest. Recipes are per owner today; before recipes are shared between users, such
-locators need a review.
+inference. Redaction keeps email addresses and long numbers out of it, but a button such
+as "Continue as taro_y" still carries an account name, and so can a signed-in marker's
+link text, such as a header link showing the person's name: the judge is told never to
+pick one, text with a number never names a marker, and a link to the page's own origin
+is named by its path instead when it can be, yet a path can still hold a handle the page
+never shows, which only the judge is told to refuse. Nothing enforces the rest. Recipes
+are per owner today; before recipes are shared between users, such locators need a
+review.
 
 Site recipes contain meanings such as branch-number/account-number/password. Keep
 account-specific bindings separate from recipes. They are stored in the synced settings

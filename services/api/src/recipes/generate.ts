@@ -17,7 +17,7 @@ import {
   type GenerationUnavailableReason,
   type LoginChooserRecipe,
   type LoginRecipe,
-  type LoginTarget,
+  type LoginMarkerTarget,
   type RecipeCompletionRequest,
   type RecipeCompletionResult,
   type RecipeGenerationRequest,
@@ -661,7 +661,7 @@ export async function judgeCompletion(
   const markers = (recipe.completion ?? [])
     .filter((marker) => (marker.origin ?? head.recipe.origin) === observation.origin)
     .map((marker) => marker.target);
-  const shown = (targets: readonly LoginTarget[]) =>
+  const shown = (targets: readonly LoginMarkerTarget[]) =>
     observation.candidates.some((candidate) =>
       targets.some((target) => sameLoginTarget(target, candidate.target)),
     );

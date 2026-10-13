@@ -79,6 +79,19 @@ describe("sign-in judge", () => {
     ).toMatchObject({ status: "ok", value: { target: { by: "text", value: "Sign out" } } });
   });
 
+  it("accepts a link located by its path as the marker (ADR 0029)", async () => {
+    const account = {
+      ...signedIn,
+      candidates: [{ id: "my", role: "link", target: { by: "href", value: "/my" }, label: "Nick" }],
+    };
+    expect(
+      await judgeReturning({ decision: "signed-in", marker: "my" }).judge({
+        ...request,
+        observation: account,
+      }),
+    ).toMatchObject({ status: "ok", value: { target: { by: "href", value: "/my" } } });
+  });
+
   it("fails closed on an unknown or non-clickable marker", async () => {
     expect(
       await judgeReturning({ decision: "signed-in", marker: "missing" }).judge(request),

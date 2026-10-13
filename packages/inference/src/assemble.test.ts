@@ -269,6 +269,17 @@ describe("judged completion", () => {
     ).toEqual({ ok: false, reason: "origin-mismatch" });
   });
 
+  it("stores a link located by its path as a marker (ADR 0029)", () => {
+    const link = { by: "href", value: "/my" } as const;
+    const shown = {
+      origin,
+      path: "/home",
+      candidates: [{ id: "my", role: "link" as const, target: link, label: "Nick" }],
+    };
+    const learned = addCompletion(recipe, shown, link);
+    expect(learned.ok && learned.recipe.completion).toEqual([{ target: link }]);
+  });
+
   it("refuses a step's own fill, click or text target on any path", () => {
     const at = (path: string, marker: LoginTarget) =>
       addCompletion(recipe, { origin, path, candidates: [candidate("m", marker)] }, marker);
@@ -496,7 +507,7 @@ describe("judged totp handler (ADR 0027)", () => {
     { kind: "click", path: "/pw", target: signIn, purpose: "submit" },
   ]);
   const verify = { by: "text", value: "Verify" } as const;
-  const codeInput = (id = "otp", extra: Partial<ObservedCandidate> = {}) => ({
+  const codeInput = (id = "otp", extra: Partial<Omit<ObservedCandidate, "target">> = {}) => ({
     ...candidate(id, target(id), "text"),
     autocomplete: "one-time-code" as const,
     ...extra,
@@ -898,7 +909,7 @@ describe("totp handler assembly, probed independently (ADR 0027)", () => {
     },
     { kind: "click", path: "/pw", target: signIn, purpose: "submit" },
   ]);
-  const code = (id: string, extra: Partial<ObservedCandidate> = {}) => ({
+  const code = (id: string, extra: Partial<Omit<ObservedCandidate, "target">> = {}) => ({
     ...candidate(id, target(id), "text"),
     inputMode: "numeric" as const,
     maxLength: 6,

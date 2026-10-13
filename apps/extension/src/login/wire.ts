@@ -3,6 +3,7 @@ import {
   chooserClickSchema,
   loginFieldTargetSchema,
   loginOperationSchema,
+  loginMarkerTargetSchema,
   loginTargetSchema,
   type LoginStep,
   type LoginTarget,
@@ -240,7 +241,8 @@ export const commandSchema = v.variant("type", [
     type: v.literal("login.observe"),
     token: id,
     path: v.string(),
-    targets: v.pipe(v.array(loginTargetSchema), v.maxLength(24)),
+    // A signed-in marker may name a link by its path (ADR 0029).
+    targets: v.pipe(v.array(loginMarkerTargetSchema), v.maxLength(24)),
     /**
      * Per target, what its one element must be to count as `unique`
      * (`targetRequirementSchema`); otherwise it is `unusable`. Without it, any one element
