@@ -973,8 +973,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                           inputValueMismatch(digit, value.value[place]!) !== undefined
                         ? "field-changed"
                         : undefined;
-                const before = scope();
-                if (before) return fail("cancelled", before);
+                const changed = scope();
+                if (changed) return fail("cancelled", changed);
                 filled.add(digit);
                 // eslint-disable-next-line no-await-in-loop
                 const stopped = await typeValue(digit, value.value[place]!, setter, {

@@ -508,11 +508,11 @@ only once its handlers ran), the fill stops as `fill-rejected` without `change`,
 a click, so a value the page changed is never submitted. A page that cancels the
 clearing `beforeinput` and does not clear the field itself by that wait refuses the
 value the same way before any character is typed. A code split into one-digit inputs
-gets the same per digit, 25 ms apart.
-Typed keys are only a value's characters, so a page's Enter handler does not run. Each
-field's scope checks, and a split code's per-digit checks, run after the wait before
-it and again after each wait of its typing; a typing they stop leaves the characters
-typed so far in the field and fails the step, so nothing is clicked. The 500 ms check of [ADR 0010](adr/0010-inference-field-hints.md)
+gets the same per digit, 25 ms apart. Typed keys are only a value's characters, so a
+page's Enter handler does not run. Each field's scope checks, and a split code's
+per-digit checks, run after the wait before it and again after each wait of its typing;
+a typing they stop leaves the characters typed so far in the field and fails the step,
+so nothing is clicked. The 500 ms check of [ADR 0010](adr/0010-inference-field-hints.md)
 follows the last field. A fill that advances or submits through the page's own event
 sets the value and sends that one `input` or `change` event alone, with no focus, keys
 or blur that could run its effect again. Known limits: the events are not trusted
@@ -522,15 +522,14 @@ focus, can still refuse a fill; only letters, digits and space get a `code` and
 window is not focused, so a page that reads a field only on blur may still miss it
 there; a hidden tab's timers are throttled, so the waits between fields and between the
 digits of a split code may stretch (those between a value's characters yield one task
-there instead); and
-a page that submits on its own from a key or blur handler of a preparing fill is not
-watched for, so the click after the 500 ms check still runs if its button stays
-clickable. Before 2026-10-13 a preparing fill sent only `input` and `change` after the
-setter, in one task; that day a bank page showed its required-field error under its
-filled fields. Until later that day it then set the whole value at once between bare key
-events, as Bitwarden's autofill does; the same page's React inputs kept their state
-empty after that (a dummy-value probe in the owner's Chrome), and took each value when
-it was typed a character at a time.
+there instead); and a page that submits on its own from a key or blur handler of a
+preparing fill is not watched for, so the click after the 500 ms check still runs if its
+button stays clickable. Before 2026-10-13 a preparing fill sent only `input` and
+`change` after the setter, in one task; that day a bank page showed its required-field
+error under its filled fields. Until later that day it then set the whole value at once
+between bare key events, as Bitwarden's autofill does; the same page's React inputs kept
+their state empty after that (a dummy-value probe in the owner's Chrome), and took each
+value when it was typed a character at a time.
 
 MV3 workers can stop. Persist only resumable metadata, never an instruction to blindly
 replay a submit. Input and change handlers can submit without a click. Declare whether a
