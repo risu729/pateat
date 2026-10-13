@@ -1090,6 +1090,7 @@ describe("production login document admission", () => {
       tabId: 1,
       origin,
       recipeId: recipe.id,
+      recipeRevision: recipe.revision,
       route: "password",
       state: expect.any(String),
       stepIndex: 1,
@@ -3098,6 +3099,7 @@ describe("production login document admission", () => {
           tabId: 1,
           origin,
           recipeId: recipe.id,
+          recipeRevision: recipe.revision,
           route: "password",
           variant: 0,
           account: "match",
@@ -4334,7 +4336,13 @@ describe("production login document admission", () => {
             .filter((entry) => entry.type === "start" || entry.type === "logout");
           expect(decisions).toEqual([
             expect.objectContaining({ type: "start", tabId: 1, account: "default" }),
-            { type: "logout", tabId: 1, origin, recipeId: recipe.id },
+            {
+              type: "logout",
+              tabId: 1,
+              origin,
+              recipeId: recipe.id,
+              recipeRevision: recipe.revision,
+            },
             expect.objectContaining({
               type: "start",
               tabId: 1,
@@ -6256,7 +6264,7 @@ describe("production login document admission", () => {
               tabId: 1,
               origin,
               recipeId: entryRecipe.id,
-              revision: 2,
+              recipeRevision: 2,
               outcome: "pressed",
             },
           ]);
@@ -6424,7 +6432,7 @@ describe("production login document admission", () => {
               tabId: 1,
               origin,
               recipeId: entryRecipe.id,
-              revision: 2,
+              recipeRevision: 2,
               outcome: "refused",
               reason,
             },
@@ -6607,7 +6615,7 @@ describe("production login document admission", () => {
               tabId: 1,
               origin,
               recipeId: entryRecipe.id,
-              revision: 2,
+              recipeRevision: 2,
               outcome: "refused",
               reason: "unconfirmed",
             },
@@ -6641,7 +6649,7 @@ describe("production login document admission", () => {
             tabId: 1,
             origin,
             recipeId: entryRecipe.id,
-            revision: 2,
+            recipeRevision: 2,
             outcome: "refused",
             reason: "target-missing",
           };
@@ -6813,7 +6821,7 @@ describe("production login document admission", () => {
               tabId: 1,
               origin,
               recipeId: entryRecipe.id,
-              revision: 2,
+              recipeRevision: 2,
               outcome: "blocked",
               reason,
             });
@@ -6949,7 +6957,11 @@ describe("production login document admission", () => {
             await h.hello({ tab: { id: 2 }, documentId: "revision-3", url: entryUrl }, false),
           ).toMatchObject({ reason: "entry" });
           await vi.waitFor(() => expect(reports("entry")).toHaveLength(3));
-          expect(reports("entry")[2]).toMatchObject({ tabId: 2, revision: 3, outcome: "pressed" });
+          expect(reports("entry")[2]).toMatchObject({
+            tabId: 2,
+            recipeRevision: 3,
+            outcome: "pressed",
+          });
         });
 
         it("checks in time a press a restarted worker finds unchecked, and leaves a checked one", async () => {
@@ -6974,7 +6986,7 @@ describe("production login document admission", () => {
               tabId: 1,
               origin,
               recipeId: entryRecipe.id,
-              revision: 2,
+              recipeRevision: 2,
               outcome: "blocked",
               reason: "no-sign-in",
             },
@@ -7010,7 +7022,7 @@ describe("production login document admission", () => {
             tabId: 1,
             origin,
             recipeId: entryRecipe.id,
-            revision: 2,
+            recipeRevision: 2,
             outcome: "blocked",
             reason: "no-sign-in",
           });
@@ -7115,7 +7127,7 @@ describe("production login document admission", () => {
                 tabId: 1,
                 origin,
                 recipeId: entryRecipe.id,
-                revision: 2,
+                recipeRevision: 2,
                 outcome: "blocked",
                 reason: "sign-up",
                 detail: "storage-unavailable",
@@ -7945,6 +7957,7 @@ describe("production login document admission", () => {
           tabId: 1,
           origin,
           recipeId: generated.id,
+          recipeRevision: generated.revision,
           route: "password",
           ...{ s1: true, s2: true, s3: false, s4: false, s5: false, f1: false, f2: true },
           ...{ e1: false, e2: false, e3: false },
@@ -9194,6 +9207,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         tabId: 1,
         origin,
         recipeId: handled.id,
+        recipeRevision: handled.revision,
         handler: 0,
         kind: "passkey",
         outcome: "missing-fact",

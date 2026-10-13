@@ -971,18 +971,21 @@ describe("unhandled errors", () => {
         "settings.changed",
       ),
     );
-    const page = { tabId: 3, origin: recipeOrigin, recipeId: "synthetic-recipe" };
+    const page = {
+      tabId: 3,
+      origin: recipeOrigin,
+      recipeId: "synthetic-recipe",
+      recipeRevision: 1,
+    };
     log.login({
       type: "judge",
       ...page,
-      recipeRevision: 1,
       route: "password",
       verdict: "sent",
     });
     log.login({
       type: "judge",
       ...page,
-      recipeRevision: 1,
       route: "password",
       verdict: "unclear",
       reason: "already-judged",
@@ -991,7 +994,6 @@ describe("unhandled errors", () => {
     log.login({
       type: "judge",
       ...page,
-      recipeRevision: 1,
       route: "password",
       verdict: "unclear",
       completed: true,
@@ -1000,7 +1002,6 @@ describe("unhandled errors", () => {
     log.login({
       type: "judge",
       ...page,
-      recipeRevision: 1,
       route: "password",
       verdict: "unclear",
       disabledLeftOut: true,
@@ -1010,7 +1011,6 @@ describe("unhandled errors", () => {
       log.login({
         type: "judge",
         ...page,
-        recipeRevision: 1,
         route: "password",
         verdict: "retry",
         reason,
@@ -1185,6 +1185,7 @@ describe("unhandled errors", () => {
         {
           origin: recipeOrigin,
           recipe: expect.any(String),
+          recipeRevision: 1,
           handler: 0,
           kind: "passkey",
           outcome: "entered",
@@ -1197,6 +1198,7 @@ describe("unhandled errors", () => {
         {
           origin: recipeOrigin,
           recipe: expect.any(String),
+          recipeRevision: 1,
           route: "password",
           decision: "rejected",
           s1: true,
@@ -1211,6 +1213,7 @@ describe("unhandled errors", () => {
         {
           origin: recipeOrigin,
           recipe: expect.any(String),
+          recipeRevision: 1,
           route: "password",
           variant: 1,
           state: "blocked",
@@ -1276,7 +1279,7 @@ describe("unhandled errors", () => {
       tabId: 3,
       origin: recipeOrigin,
       recipeId: "synthetic-entry",
-      revision: 2,
+      recipeRevision: 2,
       url: `${recipeOrigin}/?return_to=%2Fbookmarks`,
     } as const;
     log.login({ ...entry, outcome: "pressed" });
@@ -1295,7 +1298,7 @@ describe("unhandled errors", () => {
     const fields = {
       origin: recipeOrigin,
       recipe: expect.any(String),
-      revision: 2,
+      recipeRevision: 2,
       url: "/?return_to=%2Fbookmarks",
     };
     expect(entries.map((logged) => [logged.level, logged.fields])).toEqual([
@@ -1334,6 +1337,7 @@ describe("unhandled errors", () => {
       type: "attempt",
       ...site,
       recipeId: "synthetic-recipe",
+      recipeRevision: 1,
       route: "password",
       state: "reconciling",
       stepIndex: 1,
@@ -1346,6 +1350,7 @@ describe("unhandled errors", () => {
       type: "attempt",
       ...site,
       recipeId: "synthetic-recipe",
+      recipeRevision: 1,
       route: "password",
       state: "blocked",
       stepIndex: 2,
@@ -1360,6 +1365,7 @@ describe("unhandled errors", () => {
       type: "attempt",
       ...site,
       recipeId: "synthetic-recipe",
+      recipeRevision: 1,
       route: "password",
       state: "blocked",
       stepIndex: 1,
@@ -1401,6 +1407,7 @@ describe("unhandled errors", () => {
         tabId: 4,
         origin: "https://login.example",
         recipeId: "synthetic-recipe",
+        recipeRevision: 1,
         route: "password",
         state: "reconciling",
         stepIndex: 1,
@@ -1438,6 +1445,7 @@ describe("unhandled errors", () => {
       type: "attempt" as const,
       ...site,
       recipeId: "synthetic-recipe",
+      recipeRevision: 1,
       state: "ready" as const,
       stepIndex: 0,
     };
@@ -1497,6 +1505,7 @@ describe("unhandled errors", () => {
         type: "exception",
         ...site,
         recipeId: "synthetic-recipe",
+        recipeRevision: 1,
         route: "password",
         state: "reconciling",
         stepIndex: 1,
@@ -1528,6 +1537,7 @@ describe("unhandled errors", () => {
       // No settings or recipe names the site in this test, so it is a pseudonym.
       origin: expect.stringMatching(/^origin:/),
       recipe: "synthetic-recipe",
+      recipeRevision: 1,
       route: "password",
       state: "reconciling",
       step: 1,
@@ -1608,6 +1618,7 @@ describe("unhandled errors", () => {
       type: "start",
       ...site,
       recipeId: "synthetic-recipe",
+      recipeRevision: 4,
       route: "password",
       variant: 0,
       account: "match",
@@ -1615,7 +1626,7 @@ describe("unhandled errors", () => {
       itemId,
     });
     log.login({ type: "choice", ...site, outcome: "saved" });
-    log.login({ type: "logout", ...site, recipeId: "synthetic-recipe" });
+    log.login({ type: "logout", ...site, recipeId: "synthetic-recipe", recipeRevision: 4 });
     await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(3));
     const entries = await log.logger.entries();
     expect(entries.map((entry) => [entry.event, entry.level])).toEqual([
@@ -1624,12 +1635,14 @@ describe("unhandled errors", () => {
       ["login.logout", "info"],
     ]);
     expect(entries[0]?.fields).toMatchObject({
+      recipeRevision: 4,
       route: "password",
       variant: 0,
       account: "match",
       candidates: 1,
       item: expect.stringMatching(/^item:[0-9a-f]{8}$/),
     });
+    expect(entries[2]?.fields).toMatchObject({ recipeRevision: 4 });
     expect(JSON.stringify(entries)).not.toContain(itemId);
     vi.restoreAllMocks();
   });

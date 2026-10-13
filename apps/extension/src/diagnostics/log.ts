@@ -117,6 +117,7 @@ export const LOG_EVENTS = {
     fields: {
       origin: "origin",
       recipe: "recipe",
+      recipeRevision: "count",
       route: "code",
       variant: "count",
       state: "code",
@@ -138,7 +139,7 @@ export const LOG_EVENTS = {
     fields: {
       origin: "origin",
       recipe: "recipe",
-      revision: "count",
+      recipeRevision: "count",
       outcome: "code",
       reason: "code",
       detail: "code",
@@ -150,6 +151,7 @@ export const LOG_EVENTS = {
     fields: {
       origin: "origin",
       recipe: "recipe",
+      recipeRevision: "count",
       handler: "count",
       kind: "code",
       outcome: "code",
@@ -162,6 +164,7 @@ export const LOG_EVENTS = {
     fields: {
       origin: "origin",
       recipe: "recipe",
+      recipeRevision: "count",
       route: "code",
       decision: "code",
       s1: "flag",
@@ -195,6 +198,7 @@ export const LOG_EVENTS = {
     fields: {
       origin: "origin",
       recipe: "recipe",
+      recipeRevision: "count",
       route: "code",
       variant: "count",
       account: "code",
@@ -207,7 +211,13 @@ export const LOG_EVENTS = {
   },
   "login.logout": {
     level: "info",
-    fields: { origin: "origin", recipe: "recipe", watched: "flag", url: "url" },
+    fields: {
+      origin: "origin",
+      recipe: "recipe",
+      recipeRevision: "count",
+      watched: "flag",
+      url: "url",
+    },
   },
   "login.choice": { level: "info", fields: { origin: "origin", outcome: "code", url: "url" } },
   "login.exception": {
@@ -215,6 +225,7 @@ export const LOG_EVENTS = {
     fields: {
       origin: "origin",
       recipe: "recipe",
+      recipeRevision: "count",
       route: "code",
       state: "code",
       step: "count",
