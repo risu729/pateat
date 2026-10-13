@@ -246,6 +246,16 @@ describe("typeValue", () => {
     });
     expect(cause).toBe("page-changed");
     expect(field.value).toBe("ab");
+    // The wait for a page that clears the field itself is checked too, before any key.
+    document.body.innerHTML = '<input id="kept" value="old">';
+    const kept = document.getElementById("kept") as HTMLInputElement;
+    kept.addEventListener("beforeinput", (event) => event.preventDefault());
+    let keys = 0;
+    kept.addEventListener("keydown", () => keys++);
+    expect(await typeValue(kept, "new", setter, { between: () => "page-changed" })).toBe(
+      "page-changed",
+    );
+    expect(keys).toBe(0);
   });
 
   it("leaves focus where the page moved it", async () => {

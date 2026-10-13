@@ -74,7 +74,7 @@ function gap(): Promise<void> {
  * itself, the typing stops with `refused`, without `change` or blur, so a value the page
  * changed is never submitted. A page that cancels the clearing `beforeinput` and does not
  * clear the field itself within such a pause refuses the value before any character is
- * typed. Between characters it waits (see {@link gap}) and calls `between`, which
+ * typed. After each such wait, as between characters (see {@link gap}), it calls `between`, which
  * stops the typing with its cause when the page is no longer the one to type into. A
  * stopped typing leaves the characters typed so far in the field. `beforeInput` runs
  * once the last character is in, just before its `input` event. A page that moved focus
@@ -104,6 +104,8 @@ export async function typeValue<Cause extends string>(
     } else {
       // The page may clear the field itself, as a framework does once its handlers ran.
       await gap();
+      const cause = between?.();
+      if (cause) return cause;
       if (current() !== "") return "refused";
     }
   }
@@ -162,6 +164,8 @@ export async function typeValue<Cause extends string>(
     // A page that types a cancelled key itself, as a framework does, may write it only once
     // its handlers' microtasks and short timers ran.
     await gap();
+    const cause = between?.();
+    if (cause) return cause;
     if (current() !== value) return "refused";
   }
   input.dispatchEvent(new Event("change", { bubbles: true }));
