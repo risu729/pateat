@@ -168,6 +168,22 @@ const instagram = `
     <div role="button" aria-label="Use another profile">Use another profile</div>
     <a role="link" aria-label="Create new account" href="/accounts/emailsignup/">Create new account</a>
   </div>`;
+// Instagram's saved profile in the owner's Chrome on 2026-10-13, with made-up texts: a
+// settings gear with no text sits in the container that holds the profile and its buttons.
+const instagramGear = `
+  <div>
+    <div><div role="button" tabindex="0" aria-label="Open the settings of this profile"><svg aria-hidden="true"><path></path></svg><div role="none"></div></div></div>
+    <div><div role="img"><svg aria-hidden="true"><path></path></svg></div><span>taro.yamada</span></div>
+    <div>
+      <div role="button" tabindex="-1"><div role="button" tabindex="0" aria-label="Continue as taro.yamada"><div role="none"><div role="none"><span>Continue</span></div><div role="none"></div></div></div></div>
+      <form>${'<input type="hidden" name="h" value="x">'.repeat(11)}</form>
+    </div>
+    <div>
+      <div role="button" tabindex="0" aria-label="Use another profile"><div role="none"><div role="none"><span>Use another profile</span></div><div role="none"></div></div></div>
+      <a role="link" tabindex="0" aria-label="Create new account" href="/accounts/emailsignup/"><div role="none"><div role="none"><span>Create new account</span></div><div role="none"></div></div></a>
+      <svg role="img" aria-label="Instagram"><path></path><path></path></svg>
+    </div>
+  </div>`;
 
 describe("besideAccounts", () => {
   it("finds Wise's masked email beside its buttons, not the footer's address", () => {
@@ -188,6 +204,82 @@ describe("besideAccounts", () => {
     expect(besideAccounts(document).map((account) => account.text)).toEqual([]);
     document.body.innerHTML = `<div><button disabled><span>b@example.com</span></button><button>Go</button></div>`;
     expect(besideAccounts(document).map((account) => account.text)).toEqual([]);
+  });
+
+  it("finds Instagram's profile beside a settings gear with no text, and returns the gear too", () => {
+    document.body.innerHTML = instagramGear;
+    const beside = besideAccounts(document);
+    expect(beside.map((account) => account.text)).toEqual(["taro.yamada"]);
+    expect(beside[0]!.buttons.map((button) => button.getAttribute("aria-label"))).toEqual([
+      "Open the settings of this profile",
+      "Continue as taro.yamada",
+      "Use another profile",
+      "Create new account",
+    ]);
+    expect(accountNames(document)).toEqual(["taro.yamada"]);
+  });
+
+  it("still leaves out a text beside four buttons with text when a gear is there too", () => {
+    document.body.innerHTML = instagramGear.replace(
+      "<svg role",
+      `<a href="/help"><span>Help</span></a><svg role`,
+    );
+    expect(besideAccounts(document)).toEqual([]);
+  });
+
+  it("does not take a container whose only control has no text as the text's holder", () => {
+    document.body.innerHTML = `
+      <div>
+        <div><span>taro</span><button aria-label="Settings"><svg></svg></button></div>
+        <button>Continue</button>
+      </div>`;
+    const beside = besideAccounts(document);
+    expect(beside.map((account) => account.text)).toEqual(["taro"]);
+    // The text climbs to the ancestor holding a control with text; the gear is still one
+    // of the buttons beside it.
+    expect(
+      beside[0]!.buttons.map((button) => button.textContent || button.getAttribute("aria-label")),
+    ).toEqual(["Settings", "Continue"]);
+    // With no control with text around it, the text is not beside buttons at all.
+    document.body.innerHTML = `<div><span>taro</span><button aria-label="Settings"><svg></svg></button></div>`;
+    expect(besideAccounts(document)).toEqual([]);
+  });
+
+  it("counts no text a gear never shows, such as an SVG title or a hidden span", () => {
+    for (const icon of [
+      `<svg aria-hidden="true"><title>Settings</title><path></path></svg>`,
+      `<svg aria-hidden="true"><path></path></svg><span hidden>Settings</span>`,
+    ]) {
+      // With the gear counted, the profile's container would hold four controls.
+      document.body.innerHTML = instagramGear.replace(
+        `<svg aria-hidden="true"><path></path></svg><div role="none"></div>`,
+        icon,
+      );
+      expect(document.body.innerHTML).toContain(">Settings<");
+      expect(
+        besideAccounts(document).map((account) => account.text),
+        icon,
+      ).toEqual(["taro.yamada"]);
+      document.body.innerHTML = `<div><span>taro</span><button aria-label="Settings">${icon}</button></div>`;
+      expect(besideAccounts(document), icon).toEqual([]);
+    }
+  });
+
+  it("counts an input button's value or alt text and an image's alt text as words", () => {
+    for (const control of [
+      `<input type="submit" value="Continue">`,
+      `<input type="image" alt="Continue">`,
+      `<button><img alt="Continue"></button>`,
+    ]) {
+      document.body.innerHTML = `<div><span>taro</span>${control}</div>`;
+      expect(
+        besideAccounts(document).map((account) => account.text),
+        control,
+      ).toEqual(["taro"]);
+      // Counted, they also count toward the limit.
+      document.body.innerHTML = `<div><span>taro</span>${control.repeat(4)}</div>`;
+      expect(besideAccounts(document), control).toEqual([]);
+    }
   });
 });
 
@@ -213,6 +305,8 @@ describe("otherAccountMiss", () => {
 
   it("says why no control for another account counts, for the log", () => {
     document.body.innerHTML = instagram;
+    expect(otherAccountMiss(document, ["taro.yamada"])).toBeUndefined();
+    document.body.innerHTML = instagramGear;
     expect(otherAccountMiss(document, ["taro.yamada"])).toBeUndefined();
     document.body.innerHTML = `<div><span>taro</span><button>Continue</button></div><button>Not taro? Switch accounts</button>`;
     expect(otherAccountMiss(document, ["taro"])).toBe("other-holds-name");
@@ -430,6 +524,22 @@ describe("listChoice", () => {
         ...buttons,
       }).click,
     ).toBe("continue");
+    expect(
+      listChoice(document, { username: "hanako", others: [], othersComplete: true, ...buttons })
+        .click,
+    ).toBe("other");
+    // On the page with a settings gear beside the profile, 2026-10-13.
+    document.body.innerHTML = instagramGear;
+    const gear = listChoice(document, {
+      username: "taro.yamada",
+      others: [],
+      othersComplete: true,
+      ...buttons,
+    });
+    expect(gear.click).toBe("continue");
+    expect("element" in gear && gear.element.getAttribute("aria-label")).toBe(
+      "Continue as taro.yamada",
+    );
     expect(
       listChoice(document, { username: "hanako", others: [], othersComplete: true, ...buttons })
         .click,
