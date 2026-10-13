@@ -49,6 +49,8 @@ const landmarkSelector = 'header, nav, [role="banner"], [role="navigation"]';
  */
 const chromeSelector =
   'header, nav, footer, [role="banner"], [role="navigation"], [role="contentinfo"], dialog, [role="dialog"]';
+/** The page's main content area, which a container beside the form must not hold. */
+const mainSelector = 'main, [role="main"]';
 /** How much of an alert is read. */
 const alertReadLimit = 1000;
 /** How much of the header and navigation is read for the username. */
@@ -81,9 +83,39 @@ const ariaInvalid = (input: HTMLInputElement) =>
   input.getAttribute("aria-invalid")?.trim().toLowerCase() === "true";
 
 /**
+ * Input types a person types into. An input with no type, or one the browser does not
+ * know, is a text input (`type` reads `text`).
+ */
+const typedInputs = new Set(["text", "email", "tel", "number", "password", "search", "url"]);
+
+/**
+ * Whether `form` asks the person for something: it shows and holds a shown, enabled
+ * control they type into or pick from (a text-like input, a text area or a select). A form
+ * of buttons, hidden inputs or check boxes, as a passkey, social sign-in, language or
+ * sign-out form, does not.
+ */
+function asksForInput(form: HTMLFormElement): boolean {
+  return (
+    visible(form) &&
+    [...form.elements].some(
+      (control) =>
+        ((control instanceof HTMLInputElement &&
+          typedInputs.has(control.type) &&
+          !control.readOnly) ||
+          (control instanceof HTMLTextAreaElement && !control.readOnly) ||
+          control instanceof HTMLSelectElement) &&
+        !control.disabled &&
+        visible(control),
+    )
+  );
+}
+
+/**
  * Whether `region` sits beside a sign-in input's form (or the input, outside any form):
- * their nearest common container is neither the body nor the root, and holds no page
- * chrome and no other form, as a flash message above a sign-in form in its own box.
+ * their nearest common container is neither the body nor the root, holds no page chrome
+ * and no main content area (`main`, as a single-page site's root wrapper holds), and no
+ * other form that asks for input, as a flash message above a sign-in form in its own box
+ * beside a passkey or social sign-in button form.
  */
 function besideForm(
   region: Element,
@@ -97,7 +129,11 @@ function besideForm(
     if (!common || common === body || common === documentElement) return false;
     // A sign-in dialog of its own still counts; one inside the container does not.
     if (common.querySelector(chromeSelector)) return false;
-    return [...common.querySelectorAll("form")].every((form) => forms.has(form));
+    if (
+      ![...common.querySelectorAll("form")].every((form) => forms.has(form) || !asksForInput(form))
+    )
+      return false;
+    return !common.querySelector(mainSelector);
   });
 }
 

@@ -710,7 +710,9 @@ In the submitted document F1 and F2 are a new mark or new alert text. When the s
 form comes back in the first new top document of the tab after a password submission,
 announced within 30 seconds of it, any mark on its sign-in inputs or any text of an
 alert next to the form counts (inside it, named by one of its inputs, or sharing a
-container with it that holds no page chrome or other form), never while a recognised
+container with it that is not the body and holds no page chrome, no `main` area and no
+other shown form with a shown, enabled field to type in or pick from, as a passkey or
+social sign-in form of buttons and hidden inputs is not), never while a recognised
 CAPTCHA (S4: reCAPTCHA, hCaptcha, Turnstile) shows; this also ends a login already
 watched after the submitted document's reading. Later documents and pages after an
 `advance` or passkey step are not read this way. Otherwise a page no check explains is

@@ -209,6 +209,22 @@ another path, as GitHub's `/session`. Which ordering GitHub's 21:16:51 UTC login
 cannot be told from the code: within 3 seconds the new document settled it and was the
 watch's own page, later the submitted document did; both are covered now.
 
+The neighbourhood of a form shown again, refined (2026-10-13): on GitHub at 03:53 UTC,
+on a build with [#436](https://github.com/risu729/pateat/pull/436), a wrong password
+showed "Incorrect username or password." beside the form shown again, but `login.state`
+logged `unknown` with `reshown` and neither F1 nor F2, and the login ended
+`unknown-submit`. The message and the form share the sign-in box, which, as recalled and
+not captured, also holds a passkey form and possibly social sign-in forms of buttons and
+hidden inputs only, so the rule against another form refused the box. Now another form
+keeps a container from counting only when it shows and holds a shown, enabled field to
+type in or pick from (a text-like input, a text area or a select); a form of buttons,
+hidden inputs or check boxes, as a passkey, social sign-in, language or sign-out form,
+does not. A container that holds the page's main area (`main` or `role="main"`) does not
+count either, so a single-page site's root wrapper around a banner and the page is not
+taken for the form's box now that fewer forms rule it out. The body, page chrome and the
+CAPTCHA rule are unchanged. That GitHub's page now ends `credential-rejected` has not
+been checked on the site.
+
 Delivery 2, first part (2026-10-12): the owner chose, after reading the delivery 1 logs
 of アパホテル, to complete a login whose `login.state` decision is `signed-in`. There,
 at 06:29:50 UTC, the learned marker showed (E1) but the recipe's completion check did

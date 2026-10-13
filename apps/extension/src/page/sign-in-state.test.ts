@@ -186,6 +186,75 @@ describe("pageSigns", () => {
     expect(pageSigns(document, { reshown })).toEqual({ ...none, password: true });
   });
 
+  it("reads a flash message beside a passkey and a social sign-in form (2026-10-13)", () => {
+    // On 2026-10-13 GitHub's sign-in page after a wrong password showed its flash message
+    // in the sign-in box, which also held a passkey form and a social sign-in form with
+    // buttons and hidden inputs only (the shape is recalled, not captured). Such forms ask
+    // for nothing and no longer keep the message from counting.
+    document.body.innerHTML = `
+      <header role="banner"><a href="/">Home</a></header>
+      <main><div id="login" class="auth-form">
+        <div class="flash flash-full flash-error" role="alert">Incorrect username or password.</div>
+        <div class="auth-form-body"><form action="/session">
+          <input name="login"><input type="password" name="password">
+          <input type="hidden" name="authenticity_token" value="x">
+          <input type="submit" value="Sign in">
+        </form>
+        <form action="/session/passkey"><input type="hidden" name="webauthn" value="x">
+          <button type="submit">Sign in with a passkey</button></form>
+        <form action="/auth/provider"><input type="hidden" name="state" value="x">
+          <input type="checkbox" name="remember"><button>Continue with a provider</button></form>
+        </div>
+      </div></main>
+      <footer role="contentinfo">Terms</footer>`;
+    const reshown = [
+      ...document.querySelectorAll<HTMLInputElement>("[name=login], [name=password]"),
+    ];
+    expect(pageSigns(document, { reshown })).toEqual({ ...none, password: true, alert: true });
+  });
+
+  it("never reads a message beside another form that asks for input or the main area", () => {
+    const form =
+      '<form action="/session"><input name="login"><input type="password" name="password"></form>';
+    const inputs = () => [
+      ...document.querySelectorAll<HTMLInputElement>("[name=login], [name=password]"),
+    ];
+    // Another form in the box with a shown text input, as a newsletter or search form.
+    document.body.innerHTML = `<div class="box"><div role="alert">Subscribed</div>${form}<form><input name="email"></form></div>`;
+    expect(pageSigns(document, { reshown: inputs() })).toEqual({ ...none, password: true });
+    // A hidden or disabled one, or one with a read-only input, asks for nothing.
+    for (const other of [
+      '<form hidden><input name="email"></form>',
+      '<form><input name="email" disabled></form>',
+      '<form><input name="email" style="display:none"></form>',
+      '<form><input name="email" readonly></form>',
+    ]) {
+      document.body.innerHTML = `<div class="box"><div role="alert">Wrong password</div>${form}${other}</div>`;
+      expect(pageSigns(document, { reshown: inputs() }), other).toEqual({
+        ...none,
+        password: true,
+        alert: true,
+      });
+    }
+    // A text area or a select asks for input too.
+    for (const other of ["<form><textarea></textarea></form>", "<form><select></select></form>"]) {
+      document.body.innerHTML = `<div class="box"><div role="alert">Sent</div>${form}${other}</div>`;
+      expect(pageSigns(document, { reshown: inputs() }), other).toEqual({
+        ...none,
+        password: true,
+      });
+    }
+    // A single-page site's root wrapper around the main area is the page, not the form's.
+    for (const main of ["<main>", '<div role="main">']) {
+      const close = main === "<main>" ? "</main>" : "</div>";
+      document.body.innerHTML = `<div id="root"><div role="alert">New: dark mode</div>${main}${form}${close}</div>`;
+      expect(pageSigns(document, { reshown: inputs() }), main).toEqual({
+        ...none,
+        password: true,
+      });
+    }
+  });
+
   it("reads an error a re-shown sign-in input names, wherever it is", () => {
     document.body.innerHTML =
       '<div role="status" id="error"></div><main><input id="user" aria-describedby="hint error"><p id="hint">Your email</p></main>';
