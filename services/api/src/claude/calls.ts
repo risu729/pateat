@@ -13,6 +13,7 @@ import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
 import { inferenceLocks, inferenceLog, inferenceSpend } from "../db/schema";
 import { resolveClaudeCredential } from "./credentials";
 import { newId } from "@pateat/contracts/ids";
+import { Temporal } from "temporal-polyfill-lite";
 
 // Every Claude call the service makes goes through here (ADR 0018): one call at a time
 // per owner, the monthly and daily spend stops, and the ADR 0012 request
@@ -70,9 +71,10 @@ export type ClaudeCallResult<T> =
   | { status: "unavailable"; reason: GenerationUnavailableReason }
   | { status: "called"; outcome: InferenceOutcome<T> };
 
+/** The UTC month and day of `now`: `2026-10` and `2026-10-13`. */
 const periods = (now: number) => {
-  const day = new Date(now).toISOString().slice(0, 10);
-  return [day.slice(0, 7), day] as const;
+  const day = Temporal.Instant.fromEpochMilliseconds(now).toZonedDateTimeISO("UTC").toPlainDate();
+  return [day.toPlainYearMonth().toString(), day.toString()] as const;
 };
 
 function addSpend(db: Db, ownerId: string, period: string, calls: number, micro: number) {

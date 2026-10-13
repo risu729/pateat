@@ -1962,6 +1962,23 @@ IDs from Bitwarden or sites are kept as given, and synthetic probes, tests and t
 hosted smoke check may use `crypto.randomUUID()`. Rows created before 2026-10-12 keep
 their UUIDv4 IDs; both validate as UUIDs.
 
+## Times
+
+Pateat reads the clock with `Date.now()` and keeps times as epoch milliseconds in
+extension storage, IndexedDB and D1, and durations as `*_MS` numbers for timers and
+comparisons. Temporal formats, reads and measures them: `isoTime`, `isoMinute`,
+`isoTimeMs` and `isoTimeSchema` in
+[`packages/contracts/src/time.ts`](../packages/contracts/src/time.ts) write and read
+the ISO 8601 times of the diagnostics report and log export, the owner pages and the
+stored entry-page presses; the UTC day and month of the service's Claude spend and
+judgement limits, the local times on the settings and diagnostics pages and the ages
+and day counts shown come from Temporal too. Every workspace imports `Temporal` from
+temporal-polyfill-lite as a ponyfill, never the global: workerd has no Temporal and
+Chrome has it only from 144, so the same implementation runs in the Worker, every
+extension context and the tests. Two exceptions: the `Date` header of the service's
+health response is an HTTP date, which Temporal does not read, so `Date.parse` reads
+it; the Node script `scripts/server/oidc-key.mjs` uses Node's built-in Temporal.
+
 ## Deferred interfaces and challenges
 
 Settings read/update, permitted selection, execution requests, status, cancel,

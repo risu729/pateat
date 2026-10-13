@@ -1,4 +1,5 @@
 import type * as Sdk from "@bitwarden/sdk-internal";
+import { Temporal } from "temporal-polyfill-lite";
 import * as v from "valibot";
 
 import { normalizeBitwardenProfile, type BitwardenProfile } from "./environment";
@@ -217,12 +218,24 @@ function same(a: unknown, b: unknown): boolean {
   return a === b;
 }
 const isoDate = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,7})?(Z|[+-]\d{2}:\d{2})$/;
+/** The epoch milliseconds of a server date, or `undefined` for other text. */
+function dateMs(text: string): number | undefined {
+  if (!isoDate.test(text)) return undefined;
+  try {
+    return Temporal.Instant.from(text).epochMilliseconds;
+  } catch {
+    return undefined;
+  }
+}
 /** Server-stored legacy cipher Data omits nulls and may format dates differently from the
  * response model built from it. Present values must still agree. */
 function sameStored(a: unknown, b: unknown): boolean {
   if (a == null && b == null) return true;
-  if (typeof a === "string" && typeof b === "string")
-    return a === b || (isoDate.test(a) && isoDate.test(b) && Date.parse(a) === Date.parse(b));
+  if (typeof a === "string" && typeof b === "string") {
+    if (a === b) return true;
+    const ms = dateMs(a);
+    return ms !== undefined && ms === dateMs(b);
+  }
   if (Array.isArray(a) && Array.isArray(b))
     return a.length === b.length && a.every((entry, i) => sameStored(entry, b[i]));
   if (

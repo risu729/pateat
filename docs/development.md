@@ -621,6 +621,11 @@ replacements still require the owner's decision. On 2026-10-12 (14:31 UTC) the o
 chose i18next with react-i18next for the extension's UI text, so that the language can
 be chosen in Pateat's settings rather than only following Chrome's
 ([comparison](research/2026-10-12-extension-ui-translation.md)).
+On 2026-10-13 the owner chose temporal-polyfill-lite for dates and times. It is imported
+as a ponyfill rather than installed as a global: workerd has no native Temporal and
+Chrome has one only from 144, while the ponyfill runs the same implementation in every
+runtime and keeps the global `Intl` untouched. Node 26 has Temporal built in, so Node
+scripts use it directly.
 The current manifests and lockfile describe what is installed. WXT + TypeScript +
 Valibot remain confirmed choices; existing Vitest, Playwright and build tools remain in
 use. WXT drives Vite 8 (Rolldown) for the extension build
@@ -646,6 +651,7 @@ use. WXT drives Vite 8 (Rolldown) for the extension build
 | UI icons | **Approved (2026-10-12); implemented for the diagnostics page and `/manage`:** `lucide-react`, imported per icon, in each workspace that uses it | Phase 1 UI polish |
 | UI translation | **Approved (2026-10-12):** i18next with react-i18next, the language chosen in Pateat's settings; the manifest's `description` through a hand-written `_locales` file | Phase 3 Japanese for the extension |
 | Identifiers | **Approved (2026-10-12) and implemented:** `uuid` for UUIDv7, since Web Crypto has only `randomUUID()` (v4) ([identifiers](architecture.md#identifiers)) | Phase 1 |
+| Dates and times | **Approved (2026-10-13) and implemented:** `temporal-polyfill-lite` (Gregorian bundle, imported as a ponyfill) for formatting, parsing and duration arithmetic; stored times stay epoch milliseconds and the clock stays `Date.now()` ([times](architecture.md#times)) | Phase 1 |
 | Server configuration | Existing cf with cloudflare.config.ts and Vite | Retain verified build path |
 
 ### Integration conditions (pending candidates remain conditional)

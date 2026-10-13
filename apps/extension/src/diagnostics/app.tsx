@@ -11,6 +11,8 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { useRef, useState } from "react";
+import { isoMinute } from "@pateat/contracts/time";
+import { Temporal } from "temporal-polyfill-lite";
 import { Logo } from "../logo";
 import { Button } from "../options/button";
 import {
@@ -23,7 +25,7 @@ import {
   syncSignIn,
 } from "./labels";
 import { LOG_RETENTION_MS } from "./log";
-import { formatReport, shortRevision, utcMinute, type BrowserInfo } from "./report";
+import { formatReport, shortRevision, type BrowserInfo } from "./report";
 import type {
   DiagnosticsCheck,
   DiagnosticsResponse,
@@ -63,12 +65,11 @@ const TWO_PANELS = "grid grid-cols-[repeat(auto-fit,minmax(min(300px,100%),1fr))
 const PREVIEW =
   "m-0 overflow-auto rounded-lg border border-border bg-surface-sunken p-3 font-mono text-[13px] whitespace-pre-wrap";
 const NOTE = "m-0 text-[13px]/5 text-ink-muted";
-const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** UTC first, as in the copied report, then the local time for reading. */
 function time(ms: number | undefined): string {
   if (ms === undefined) return "—";
-  return `${utcMinute(ms)} (${new Date(ms).toLocaleString()})`;
+  return `${isoMinute(ms)} (${Temporal.Instant.fromEpochMilliseconds(ms).toLocaleString()})`;
 }
 
 function Row({ term, children, id }: { term: string; children: React.ReactNode; id?: string }) {
@@ -271,7 +272,7 @@ function Local({ status }: { status: DiagnosticsStatus }) {
 
 /** `pateat-logs-20261011-1035.jsonl`, from the UTC time of the export. */
 export function logFilename(ms: number): string {
-  const iso = new Date(ms).toISOString();
+  const iso = isoMinute(ms);
   return `pateat-logs-${iso.slice(0, 10).replaceAll("-", "")}-${iso.slice(11, 16).replace(":", "")}.jsonl`;
 }
 
@@ -394,7 +395,9 @@ function Logs({
           {logs ? `${logs.entries} (${Math.ceil(logs.bytes / 1024)} KB)` : "unreadable"}
         </Row>
         {logs && <Row term="Problems in the last 24 h">{problemCounts(logs)}</Row>}
-        <Row term="Kept on this device">{LOG_RETENTION_MS / DAY_MS} days</Row>
+        <Row term="Kept on this device">
+          {Temporal.Duration.from({ milliseconds: LOG_RETENTION_MS }).total("days")} days
+        </Row>
       </dl>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <span id="diagnostics-debug">

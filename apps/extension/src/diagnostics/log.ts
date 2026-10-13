@@ -1,6 +1,7 @@
 // The local diagnostics log (ADR 0019). Only the service worker writes it, one IndexedDB
 // transaction per entry, from decisions it already makes. Every event allowlists its
 // fields by kind; identifiers become pseudonyms and unknown origins never appear in full.
+import { isoMinute, isoTime } from "@pateat/contracts/time";
 import * as v from "valibot";
 import {
   DIAGNOSTICS_DATABASE_NAME,
@@ -976,7 +977,7 @@ export function formatLogExport(
   const substitute = context.includeSites ? undefined : siteSubstitution();
   const lines = entries.map((entry) =>
     JSON.stringify({
-      time: new Date(entry.time).toISOString(),
+      time: isoTime(entry.time),
       level: entry.level,
       event: entry.event,
       ...exportedFields(entry, substitute),
@@ -985,7 +986,7 @@ export function formatLogExport(
   const header = JSON.stringify({
     pateat: context.version,
     revision: context.revision,
-    exportedAt: new Date(context.exportedAt).toISOString(),
+    exportedAt: isoTime(context.exportedAt),
     sites: context.includeSites ? "included" : "replaced",
     entries: entries.length,
   });
@@ -1022,7 +1023,7 @@ export function recentLog(entries: readonly LogEntry[], now: number): RecentLog 
     .slice(0, RECENT_PROBLEMS)
     .map((entry) =>
       [
-        `${new Date(entry.time).toISOString().slice(0, 16)}Z`,
+        isoMinute(entry.time),
         entry.level,
         entry.event,
         ...Object.values(exportedFields(entry, substitute)).map(String),

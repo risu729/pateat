@@ -5,7 +5,8 @@ import { webcrypto } from "node:crypto";
 // To rotate, add the new key to the existing `keys`, publish for at least 15 minutes,
 // then switch `signingKeyId`; drop the old key once its assertions have expired.
 
-const kid = process.argv[2] || process.env.usage_kid || new Date().toISOString().slice(0, 10);
+// The repository's Node (mise) has Temporal built in, so this script needs no polyfill.
+const kid = process.argv[2] || process.env.usage_kid || Temporal.Now.plainDateISO("UTC").toString();
 if (!/^[A-Za-z0-9._-]{1,64}$/.test(kid)) {
   console.error("The key ID must be 1-64 letters, digits, dots, underscores or hyphens.");
   process.exit(1);

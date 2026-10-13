@@ -1,4 +1,5 @@
 import type * as Sdk from "@bitwarden/sdk-internal";
+import { Temporal } from "temporal-polyfill-lite";
 import * as v from "valibot";
 
 import { isCoseSign1, verifiedSecurityStateVersion } from "./cose";
@@ -132,13 +133,14 @@ const nullable = <TSchema extends v.GenericSchema>(schema: TSchema) =>
 const date = v.pipe(
   v.string(),
   v.isoTimestamp(),
+  // Temporal reads only a date that exists, such as no February 29 outside a leap year.
   v.check((value) => {
-    const year = Number(value.slice(0, 4));
-    const month = Number(value.slice(5, 7));
-    const day = Number(value.slice(8, 10));
-    const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
-    const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1] ?? 0;
-    return day <= days && Number.isFinite(Date.parse(value));
+    try {
+      Temporal.Instant.from(value);
+      return true;
+    } catch {
+      return false;
+    }
   }),
 );
 const groupEncryption = v.pipe(

@@ -8,9 +8,11 @@
     ".": "./src/index.ts",
     "./extension-id": "./src/extension-id.ts",
     "./ids": "./src/ids.ts",
-    "./site": "./src/site.ts"
+    "./site": "./src/site.ts",
+    "./time": "./src/time.ts"
   },
   "dependencies": {
+    "temporal-polyfill-lite": "0.4.3",
     "tldts": "7.4.18",
     "uuid": "14.0.3",
     "valibot": "1.5.0",

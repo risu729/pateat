@@ -3,6 +3,7 @@
 import type { VaultSyncEntry } from "../connections/auto-sync";
 import type { BitwardenProfile } from "@pateat/bitwarden";
 import type { LocalSettings, ServiceState } from "@pateat/contracts";
+import { Temporal } from "temporal-polyfill-lite";
 import * as v from "valibot";
 import type { SetupReply } from "../connections/types";
 import type { DeviceStateResult } from "../service/transport";
@@ -32,8 +33,6 @@ export const RECIPE_SYNC_OVERDUE_MS = 24 * 60 * 60 * 1000;
 export const HEALTH_TIMEOUT_MS = 5_000;
 /** A stalled store read must not leave the page collecting forever. */
 export const DIAGNOSTICS_TIMEOUT_MS = 15_000;
-const MINUTE_MS = 60_000;
-const HOUR_MS = 60 * MINUTE_MS;
 
 export type ServerConfigResult =
   | { ok: true; data: { version: string; kind: "bitwarden" | "vaultwarden" | "third-party" } }
@@ -243,6 +242,8 @@ async function health(
     }
     const parsed = v.safeParse(healthBodySchema, body);
     if (!parsed.success) return { ok: false, error: "invalid-response" };
+    // An HTTP date (`Tue, 13 Oct 2026 14:00:34 GMT`) is not ISO 8601, which is all
+    // Temporal reads, so Date.parse reads it.
     const date = Date.parse(response.headers.get("Date") ?? "");
     return {
       ok: true,
@@ -470,7 +471,7 @@ function serviceChecks(value: DiagnosticsStatus["service"], now: number): Diagno
     checks.push({
       id: "recipe-sync",
       level: "warn",
-      detail: `recipe sync overdue by ${Math.floor((now - value.syncedAt - RECIPE_SYNC_OVERDUE_MS) / HOUR_MS)} h`,
+      detail: `recipe sync overdue by ${Math.floor(Temporal.Duration.from({ milliseconds: now - value.syncedAt - RECIPE_SYNC_OVERDUE_MS }).total("hours"))} h`,
     });
   else checks.push({ id: "recipe-sync", level: "ok", detail: "recipes synced in the last 24 h" });
   return checks;

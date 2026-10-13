@@ -26,6 +26,7 @@ import {
   type SyncRecipeChange,
 } from "@pateat/contracts";
 import { loginMoveFits } from "@pateat/contracts/site";
+import { Temporal } from "temporal-polyfill-lite";
 import {
   accountListGenerationInstructions,
   accountListGenerationPromptVersion,
@@ -63,10 +64,11 @@ import { hasRecipeRoom, readHead, writeRecipe } from "../recipe-store";
 
 /** A page tried is not sent to the model again for this long (owner, 2026-10-12). */
 export const ATTEMPT_WINDOW_MS = 10 * 60 * 1000;
-const DAY_MS = 24 * 60 * 60 * 1000;
 /** Judgements per recipe per UTC day, whatever the path (owner, ADR 0027). */
 export const JUDGEMENTS_PER_RECIPE_DAY = 20;
-const utcDayStart = (now: number) => now - (now % DAY_MS);
+const utcDayStart = (now: number) =>
+  Temporal.Instant.fromEpochMilliseconds(now).toZonedDateTimeISO("UTC").startOfDay()
+    .epochMilliseconds;
 
 type AttemptDb = Parameters<NonNullable<ClaudeCall<unknown>["gate"]>>[0];
 type GenerationEnv = { DB: D1Database; OIDC_ISSUER?: string; OIDC_SIGNING_KEYS?: string };
