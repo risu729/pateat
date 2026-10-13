@@ -140,16 +140,27 @@ export function createSiteAccountsHandler(options: {
   const answer = async (message: unknown): Promise<SiteAccountsResponse> => {
     const request = v.safeParse(siteAccountsRequestSchema, message);
     if (!request.success) return { version: 1, ok: false, reason: "invalid-request" };
-    const saved = await options.settings.handle({ version: 1, type: "settings.get" });
-    if (!saved.ok) return { version: 1, ok: false, reason: "unavailable" };
-    return findSiteAccounts({
-      saved,
-      settings: request.output.settings,
-      origin: request.output.origin,
-      matchUris: options.matchUris,
-      findPasskeys: options.findPasskeys,
-      ...(options.readField ? { readField: options.readField } : {}),
-    });
+    // A username read while the settings change is refused, so a search that a save
+    // overlapped, such as a login saving its picked account as the default, misses that
+    // username; such a search is made again, at most twice.
+    for (let attempt = 0; ; attempt += 1) {
+      // oxlint-disable-next-line no-await-in-loop -- each search reads the settings anew
+      const saved = await options.settings.handle({ version: 1, type: "settings.get" });
+      if (!saved.ok) return { version: 1, ok: false, reason: "unavailable" };
+      // oxlint-disable-next-line no-await-in-loop -- searches run one after another
+      const found = await findSiteAccounts({
+        saved,
+        settings: request.output.settings,
+        origin: request.output.origin,
+        matchUris: options.matchUris,
+        findPasskeys: options.findPasskeys,
+        ...(options.readField ? { readField: options.readField } : {}),
+      });
+      if (attempt === 2 || !options.readField) return found;
+      // oxlint-disable-next-line no-await-in-loop -- compares with the settings searched
+      const latest = await options.settings.handle({ version: 1, type: "settings.get" });
+      if (latest.ok && latest.snapshot.revision === saved.snapshot.revision) return found;
+    }
   };
   // A vault's crypto Worker takes one job at a time, so concurrent lookups (one per saved
   // default, plus the picker) would refuse each other; answer them one after another.
