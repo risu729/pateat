@@ -79,7 +79,8 @@ SOFTWARE.
 
 ## Noble hashes
 
-OTPAuth includes @noble/hashes 2.4.0 for its hash operations.
+OTPAuth includes @noble/hashes 2.4.0 for its hash operations, and the Noble curves
+`DER` helper uses its byte utilities.
 [Pinned source](https://github.com/paulmillr/noble-hashes/tree/2.4.0).
 
 The MIT License (MIT)

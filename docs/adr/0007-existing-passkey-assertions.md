@@ -36,6 +36,8 @@ of the proposal reviewed with the owner): `navigator.credentials.create` is wrap
 five minutes of its own sign-in to that site in the same tab; every other registration
 is handed on (see [Registration after a sign-in](#registration-after-a-sign-in);
 implemented, and confirmed on Wise in the owner's Chrome on 2026-10-13).
+Amended on 2026-10-13: the owner chose the `DER` helper of `@noble/curves` for the
+signature wrapper (see [Alternatives](#alternatives)).
 
 Amended on 2026-10-12 under the owner's passkey-first policy of 13:58 UTC
 ([ADR 0034](0034-answer-page-passkey-requests.md)), after a log from the Grok Bot's
@@ -296,7 +298,7 @@ assertion code; until then every claimed request uses the initial policy.
   Assertions need no CBOR, and the DER signature wrapper is a fixed structure
   tested against the WebAuthn vectors. No dependency is added.
   Amended 2026-10-13: the owner chose the DER helper of `@noble/curves`
-  (`DER` from `@noble/curves/abstract/weierstrass.js`, not the `p256` curve) for the
+  (`DER` from `@noble/curves/abstract/der.js`, not the `p256` curve) for the
   DER signature wrapper; `p1363ToDer` and `derToP1363` now call it, with a check
   that each scalar fits in 32 bytes. Signing stays WebCrypto. The change is low
   value (about 50 lines removed) and may be reverted if bundle size matters.

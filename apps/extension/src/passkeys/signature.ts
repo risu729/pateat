@@ -1,4 +1,4 @@
-import { DER } from "@noble/curves/abstract/weierstrass.js";
+import { DER } from "@noble/curves/abstract/der.js";
 import { concatBytes } from "./encoding";
 
 const P256_SCALAR_BYTES = 32;
