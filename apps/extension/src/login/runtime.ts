@@ -8431,6 +8431,15 @@ export function createLoginRuntime(
     clearTimeout(entryTimers.get(tabId));
     entryTimers.delete(tabId);
     for (const key of entryRefused) if (key.startsWith(`${tabId} `)) entryRefused.delete(key);
+    let forgotten = false;
+    for (const key of noted.keys())
+      if (key.startsWith(`${tabId} `)) forgotten = noted.delete(key) || forgotten;
+    if (forgotten)
+      void quietly(() =>
+        browser.storage.session.set({
+          [NOTED_KEY]: [...noted].map(([page, ids]) => [page, [...ids]]),
+        }),
+      );
     for (const map of [passkeyRequests, passkeyAnswers])
       for (const key of map.keys()) if (key.startsWith(`${tabId} `)) map.delete(key);
     void sessionLoaded.then(async () => {

@@ -4400,10 +4400,12 @@ describe("production login document admission", () => {
           "pateat.login-stopped-asks.v1": [],
           "pateat.login-rejected-asks.v1": [],
           "pateat.login-entry-presses.v1": [],
+          "pateat.login-noted.v1": [["1 synthetic-document /signin", ["account-ambiguous "]]],
         });
         for (const listener of fake.state.removed) listener(1);
         await vi.waitFor(() =>
           expect(fake.state.session).toEqual({
+            "pateat.login-noted.v1": [],
             "pateat.login-picks.v1": [],
             "pateat.login-choices.v1": [],
             "pateat.login-logouts.v1": [],
