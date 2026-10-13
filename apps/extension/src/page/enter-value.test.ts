@@ -1,0 +1,154 @@
+import { createElement, useState } from "react";
+import { createRoot } from "react-dom/client";
+import { flushSync } from "react-dom";
+import { afterEach, describe, expect, it } from "vitest";
+import { FIELD_GAP_MS, enterValue } from "./enter-value";
+
+const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+const cleanups: (() => void)[] = [];
+
+afterEach(() => {
+  for (const cleanup of cleanups.splice(0)) cleanup();
+  document.body.innerHTML = "";
+});
+
+/** Fills the inputs in order, as a preparing fill step does. */
+async function fill(entries: readonly [HTMLInputElement, string][]): Promise<void> {
+  for (const [index, [input, value]] of entries.entries()) {
+    // eslint-disable-next-line no-await-in-loop
+    if (index > 0) await pause(FIELD_GAP_MS);
+    enterValue(input, value, setter);
+  }
+}
+
+/**
+ * A synthetic bank-style form: branch and account number inputs whose script records a
+ * field as entered only on one kind of signal, and on Next shows "required" under each
+ * field it never saw entered (as a page did after a fill on 2026-10-13).
+ */
+function requiredForm(entered: "keyup" | "blur" | "hidden"): {
+  branch: HTMLInputElement;
+  account: HTMLInputElement;
+  next: () => string[];
+} {
+  document.body.innerHTML = `<form>
+    <input id="branch" inputmode="numeric"><p id="branch-error"></p>
+    <input id="account" inputmode="numeric"><p id="account-error"></p>
+    <input type="hidden" id="branch-copy"><input type="hidden" id="account-copy">
+  </form>`;
+  const seen = new Map<string, string>();
+  for (const id of ["branch", "account"]) {
+    const field = document.getElementById(id) as HTMLInputElement;
+    const copy = document.getElementById(`${id}-copy`) as HTMLInputElement;
+    if (entered === "keyup") field.addEventListener("keyup", () => seen.set(id, field.value));
+    if (entered === "blur") field.addEventListener("blur", () => seen.set(id, field.value));
+    if (entered === "hidden") field.addEventListener("blur", () => (copy.value = field.value));
+  }
+  return {
+    branch: document.getElementById("branch") as HTMLInputElement,
+    account: document.getElementById("account") as HTMLInputElement,
+    next: () =>
+      ["branch", "account"].flatMap((id) => {
+        const value =
+          entered === "hidden"
+            ? (document.getElementById(`${id}-copy`) as HTMLInputElement).value
+            : seen.get(id);
+        const error = document.getElementById(`${id}-error`)!;
+        error.textContent = value ? "" : "必須項目です。";
+        return error.textContent ? [id] : [];
+      }),
+  };
+}
+
+describe("enterValue", () => {
+  for (const [entered, reads] of [
+    ["keyup", "on a key"],
+    ["blur", "on its blur"],
+    ["hidden", "from a hidden copy made on its blur"],
+  ] as const) {
+    it(`leaves no required-field error on a page that reads a field ${reads}`, async () => {
+      const page = requiredForm(entered);
+      await fill([
+        [page.branch, "007"],
+        [page.account, "00001234"],
+      ]);
+      expect(page.branch.value).toBe("007");
+      expect(page.account.value).toBe("00001234");
+      expect(page.next()).toEqual([]);
+    });
+  }
+
+  it("sends the events in the order typing does, and blurs the field afterwards", () => {
+    document.body.innerHTML = '<input id="before"><input id="field">';
+    const before = document.getElementById("before") as HTMLInputElement;
+    const field = document.getElementById("field") as HTMLInputElement;
+    before.focus();
+    const events: string[] = [];
+    before.addEventListener("blur", () => events.push("before:blur"));
+    for (const type of ["focus", "keydown", "input", "keyup", "change", "blur"])
+      field.addEventListener(type, (event) => {
+        events.push(
+          event instanceof InputEvent
+            ? `${type}:${event.inputType}:${String(event.data)}`
+            : event instanceof KeyboardEvent
+              ? `${type}:${JSON.stringify(event.key ?? "")}`
+              : `${type}:${field.value}`,
+        );
+      });
+    let typed = "";
+    enterValue(field, "secret-1", setter, () => {
+      typed = field.value;
+      events.push("typed");
+    });
+    expect(events).toEqual([
+      "before:blur",
+      "focus:",
+      'keydown:""',
+      "typed",
+      "input:insertReplacementText:null",
+      'keyup:""',
+      "change:secret-1",
+      "blur:secret-1",
+    ]);
+    expect(typed).toBe("secret-1");
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it("leaves focus where the page moved it", () => {
+    document.body.innerHTML = '<input id="field"><button id="keypad">1</button>';
+    const field = document.getElementById("field") as HTMLInputElement;
+    const keypad = document.getElementById("keypad")!;
+    field.addEventListener("focus", () => keypad.focus());
+    enterValue(field, "1234", setter);
+    expect(field.value).toBe("1234");
+    expect(document.activeElement).toBe(keypad);
+  });
+
+  it("updates a React controlled input's state", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    cleanups.push(() => root.unmount());
+    // The component shows its state next to the input.
+    function Field() {
+      const [value, setValue] = useState("");
+      return createElement(
+        "div",
+        null,
+        createElement("input", {
+          id: "react-field",
+          value,
+          onChange: (event: { target: HTMLInputElement }) => setValue(event.target.value),
+        }),
+        createElement("output", { id: "react-state" }, value),
+      );
+    }
+    flushSync(() => root.render(createElement(Field)));
+    const field = document.getElementById("react-field") as HTMLInputElement;
+    enterValue(field, "sato-7", setter);
+    await pause(FIELD_GAP_MS);
+    expect(document.getElementById("react-state")!.textContent).toBe("sato-7");
+    expect(field.value).toBe("sato-7");
+  });
+});
