@@ -465,9 +465,13 @@ export function SiteApp({
     const pickOptions = siteAccountOptions(catalog, matches, false, saved.snapshot.settings).sort(
       (a, b) => Number(b.value === currentValue) - Number(a.value === currentValue),
     );
+    // After the site rejected the tab's login, nothing is chosen until the user picks, so
+    // Log in never sends the rejected account again by itself (ADR 0021).
     const shownPick = pickOptions.some((entry) => entry.value === picked)
       ? picked
-      : (pickOptions[0]?.value ?? "");
+      : offered?.logout === "rejected"
+        ? ""
+        : (pickOptions[0]?.value ?? "");
     const showChoice = Boolean(
       offered && labelled && pickOptions.length > (offered.logout ? 0 : 1),
     );
@@ -600,7 +604,7 @@ export function SiteApp({
               id="popup-pick"
               type="button"
               className="w-full gap-2"
-              disabled={busy || offered.held}
+              disabled={busy || offered.held || !shownPick}
               aria-describedby={offered.held ? "popup-pick-held" : undefined}
               onClick={() => {
                 const selected = pickOptions.find((entry) => entry.value === shownPick);
