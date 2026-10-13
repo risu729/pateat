@@ -13,7 +13,13 @@ export function verifiedSecurityStateVersion(bytes: Uint8Array): number | undefi
     if (!Array.isArray(sign1) || sign1.length !== 4) return undefined;
     const payload: unknown = sign1[2];
     if (!(payload instanceof Uint8Array)) return undefined;
-    const state = decode(payload, { preferMap: true, rejectDuplicateKeys: true });
+    const state = decode(payload, {
+      preferMap: true,
+      rejectDuplicateKeys: true,
+      rejectFloats: true,
+      rejectStreaming: true,
+      requirePreferred: true,
+    });
     if (!(state instanceof Map)) return undefined;
     const version: unknown = state.get("version");
     return typeof version === "number" &&

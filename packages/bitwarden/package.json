@@ -4,6 +4,7 @@
   "private": true,
   "license": "GPL-3.0-only",
   "type": "module",
+  "sideEffects": false,
   "exports": {
     ".": "./src/index.ts",
     "./browser-sdk": "./src/browser-sdk.ts"

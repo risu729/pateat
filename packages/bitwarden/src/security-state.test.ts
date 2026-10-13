@@ -40,6 +40,20 @@ describe("verified security state version", () => {
       "a duplicate version",
       sign1(join(hex("a2"), encode("version"), hex("02"), encode("version"), hex("03"))),
     ],
+    [
+      "a long-form duplicate version",
+      sign1(
+        join(
+          hex("a2"),
+          encode("version"),
+          hex("02"),
+          hex("7807"),
+          encode("version").slice(1),
+          hex("02"),
+        ),
+      ),
+    ],
+    ["a half-float version", sign1(join(hex("a1"), encode("version"), hex("f94000")))],
     ["a negative version", sign1(state(-1))],
     ["a fractional version", sign1(state(1.5))],
     ["a text version", sign1(state("2"))],

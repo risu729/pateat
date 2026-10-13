@@ -195,7 +195,7 @@ describe("strict account initialization and metadata", () => {
       ["!not-base64", "AA"].map((value) => ({ field, value })),
     ),
   )(
-    "rejects non-canonical base64 in signed V2 $field ($value) before async SDK initialization",
+    "rejects invalid or non-canonical base64 in signed V2 $field ($value) before async SDK initialization",
     async ({ field, value }) => {
       const input = v2Input();
       input.accountCryptographicState.V2[field] = value;
