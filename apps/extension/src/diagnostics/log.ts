@@ -254,6 +254,7 @@ export const LOG_EVENTS = {
       candidates: "count",
       logout: "code",
       held: "flag",
+      rejectedElsewhere: "flag",
       recordState: "code",
       recordOutcome: "code",
       pageReason: "code",

@@ -1282,6 +1282,8 @@ export type LoginReport = (
       /** Why the tab asks after a logout (ADR 0021 D). */
       logout?: LogoutReason;
       held?: true;
+      /** The site rejected another tab's login, so the popup chooses no account. */
+      rejectedElsewhere?: true;
       recordState?: string;
       recordOutcome?: string;
       pageReason?: string;
@@ -2030,6 +2032,13 @@ export function createLoginRuntime(
       (key) => key !== recordKey(tabId, siteOrigin) && key.endsWith(` ${siteOrigin}`),
     );
   }
+  /** Whether another tab still asks after the site rejected its login (ADR 0021). */
+  function rejectedElsewhere(tabId: number, siteOrigin: string): boolean {
+    return [...rejectedAsks].some(
+      (key) =>
+        key !== recordKey(tabId, siteOrigin) && key.endsWith(` ${siteOrigin}`) && logouts.has(key),
+    );
+  }
   /** Tells the tab why it does not log in while another tab's login holds the site. */
   function showHeld(tabId: number): void {
     void quietly(() =>
@@ -2108,6 +2117,9 @@ export function createLoginRuntime(
         candidates: waiting.candidates,
         logout: waiting.logout,
         ...held,
+        ...(waiting.logout !== "rejected" && rejectedElsewhere(tabId, waiting.document.origin)
+          ? { rejectedElsewhere: true as const }
+          : {}),
       };
     // A default saved since the refusal decides the page's next login instead.
     const snapshot = await settings.handle({ version: 1, type: "settings.get" });
@@ -2127,6 +2139,9 @@ export function createLoginRuntime(
       documentId: waiting.document.documentId,
       candidates: waiting.candidates,
       ...held,
+      ...(rejectedElsewhere(tabId, waiting.document.origin)
+        ? { rejectedElsewhere: true as const }
+        : {}),
     };
   }
   /** By tab: the popup's last logged answer, so an open popup asking each second logs once. */
@@ -2148,6 +2163,7 @@ export function createLoginRuntime(
             candidates: answer.candidates.length,
             ...(answer.logout ? { logout: answer.logout } : {}),
             ...(answer.held ? { held: true as const } : {}),
+            ...(answer.rejectedElsewhere ? { rejectedElsewhere: true as const } : {}),
           }
         : {}),
       ...(record
