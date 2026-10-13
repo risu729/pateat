@@ -643,11 +643,21 @@ than in this repository.
 
 Once the fixes have settled:
 
-- First, before the work below that makes Pateat public: Japanese alongside English for
-  Pateat itself (owner, 2026-10-12 13:59 UTC): the README, the docs and the extension's
-  UI text. The service's pages, such as `/manage`, come later. The owner chose i18next
-  with react-i18next (2026-10-12 14:31 UTC), so that the language can be chosen in
-  Pateat's settings ([comparison](research/2026-10-12-extension-ui-translation.md),
+- First, a review of the wording of Pateat's UI text: the popup, the toolbar icon's
+  title, the options page and the in-page prompts. It includes the reason line the popup
+  and the icon's title show when another tab of the site logged out or the site did not
+  accept that tab's login: both say "You logged out of this site in another tab"
+  (`choiceReason` in `apps/extension/src/login/choice-wire.ts`, the `other-tab` title in
+  `apps/extension/src/login/runtime.ts`), which reads wrong after a rejection. The
+  review comes before the Japanese text below, so that the English text is settled
+  before it is translated (owner, 2026-10-13 15:17 UTC). Not started without the owner's
+  confirmation (owner, 2026-10-13 15:10 UTC).
+- Next, before the rest of the work below that makes Pateat public: Japanese alongside
+  English for Pateat itself (owner, 2026-10-12 13:59 UTC): the README, the docs and the
+  extension's UI text. The service's pages, such as `/manage`, come later. The owner
+  chose i18next with react-i18next (2026-10-12 14:31 UTC), so that the language can be
+  chosen in Pateat's settings
+  ([comparison](research/2026-10-12-extension-ui-translation.md),
   [dependency policy](development.md#dependency-policy)); where that setting is stored
   is not decided yet. The owner chose (2026-10-12 14:14 UTC) that "the docs" means the
   README and the user-facing pages, including those the docs website below adds; ADRs,
@@ -679,6 +689,15 @@ Once the fixes have settled:
 - Proposed: the checks that matter once other people install Pateat: the install-time
   site-access warning and the prompt after site access was withheld, installed-Chrome
   dummy-account tests and measured limits.
+- Adopting Anthropic's
+  [Claude Security plugin](https://github.com/anthropics/claude-plugins-official/tree/main/plugins/claude-security)
+  for Claude Code: agents map the architecture, build a threat model, look for
+  vulnerabilities in the whole repository or in a branch, pull request or commit, try to
+  disprove each finding, and write the surviving ones as a Markdown, JSONL and SARIF
+  report, with optional patch files that are never applied, committed or pushed on their
+  own. Each scan writes them to a `CLAUDE-SECURITY-<timestamp>/` directory in the
+  repository. Which scans run and when is decided when it is adopted. Not started
+  without the owner's confirmation (owner, 2026-10-13 15:10 UTC).
 
 ### Phase 4: issues and work as needed
 
