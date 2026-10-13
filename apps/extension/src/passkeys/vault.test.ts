@@ -224,7 +224,10 @@ describe("vault passkey candidates", () => {
       (await findVaultPasskeys({ saved: saved(overrides), origin, rpId, find }))?.siteDefault;
     expect(await state({})).toBe("unset");
     expect(await state({ siteDefault: second })).toBe("searched");
-    expect(await state({ siteDefault: second, defaultAccount: userId })).toBe("searched");
+    // A default in a connection that was not searched is not reported as searched.
+    expect(await state({ other: "locked", siteDefault: first, defaultAccount: otherUserId })).toBe(
+      "not-searched",
+    );
     // A default saved for an account that no connection here belongs to cannot resolve.
     expect(await state({ siteDefault: second, defaultAccount: crypto.randomUUID() })).toBe(
       "unresolved",
@@ -261,6 +264,7 @@ describe("vault passkey candidates", () => {
       undefined,
       { ok: true as const, data: { ...matches([first]), snapshotId: crypto.randomUUID() } },
       { ok: true as const, data: { ...matches([first]), rpId: "example.com" } },
+      { ok: true as const, data: { ...matches([first]), userId: crypto.randomUUID() } },
     ]) {
       // eslint-disable-next-line no-await-in-loop
       const found = await findVaultPasskeys({ saved: saved(), origin, rpId, find: finder(result) });
@@ -383,16 +387,6 @@ describe("vault passkey candidates", () => {
         reason: "ambiguous-credential",
       });
     }
-  });
-
-  it("rejects an answer bound to another account", async () => {
-    const found = await findVaultPasskeys({
-      saved: saved(),
-      origin,
-      rpId,
-      find: finder({ ok: true, data: { ...matches([first]), userId: crypto.randomUUID() } }),
-    });
-    expect(found).toEqual({ candidates: [], complete: false, siteDefault: "unset" });
   });
 
   it("skips disabled connections and answers nothing on an excluded site", async () => {
