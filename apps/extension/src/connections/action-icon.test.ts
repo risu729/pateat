@@ -6,6 +6,7 @@ import {
   ACTION_ICON_PATHS,
   BUSY_FRAME_MS,
   BUSY_LIMIT_MS,
+  type ActionIconDetails,
   actionIconState,
   busyIconPaths,
   createActionIcon,
@@ -152,6 +153,7 @@ describe("toolbar icon spin", () => {
     const second = icon.spin(1);
     const other = icon.spin(2);
     first();
+    await flush();
     setIcon.mockClear();
     await vi.advanceTimersByTimeAsync(BUSY_FRAME_MS);
     expect(setIcon.mock.calls).toEqual([
@@ -211,9 +213,67 @@ describe("toolbar icon spin", () => {
     setIcon.mockClear();
     await vi.advanceTimersByTimeAsync(BUSY_FRAME_MS * 2);
     stop();
+    await vi.advanceTimersByTimeAsync(BUSY_FRAME_MS);
+    expect(vi.getTimerCount()).toBe(0);
+    setIcon.mockClear();
     states = ["disabled"];
     await icon.refresh();
     expect(setIcon.mock.calls).toEqual([[{ path: ACTION_ICON_PATHS.locked }]]);
-    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("lands a tab's writes in order, so the global icon is the last after a slow frame", async () => {
+    vi.useFakeTimers();
+    const landed: ActionIconDetails[] = [];
+    const pending: (() => void)[] = [];
+    const setIcon = vi.fn(
+      (details: ActionIconDetails) =>
+        new Promise<void>((resolve) => {
+          pending.push(() => {
+            landed.push(details);
+            resolve();
+          });
+        }),
+    );
+    const icon = createActionIcon({ states: async () => ["active"], setIcon });
+    const refreshed = icon.refresh();
+    await flush();
+    pending.shift()!();
+    await refreshed;
+    const stop = icon.spin(8);
+    await flush();
+    // The first frame is still loading when the tick comes and the answer arrives.
+    await vi.advanceTimersByTimeAsync(BUSY_FRAME_MS);
+    stop();
+    await flush();
+    expect(setIcon).toHaveBeenCalledTimes(2);
+    pending.shift()!();
+    await flush();
+    pending.shift()!();
+    await flush();
+    expect(landed.slice(1)).toEqual([
+      { tabId: 8, path: busyIconPaths(0) },
+      { tabId: 8, path: ACTION_ICON_PATHS.unlocked },
+    ]);
+    expect(pending).toHaveLength(0);
+  });
+
+  it("moves a spin to the tab's new ID when Chrome replaces the tab", async () => {
+    vi.useFakeTimers();
+    const setIcon = vi.fn(async () => undefined);
+    const icon = createActionIcon({ states: async () => ["active"], setIcon });
+    await icon.refresh();
+    const stop = icon.spin(10);
+    await flush();
+    setIcon.mockClear();
+    icon.replaced(11, 10);
+    await vi.advanceTimersByTimeAsync(BUSY_FRAME_MS);
+    expect(setIcon.mock.calls).toEqual([
+      [{ tabId: 11, path: busyIconPaths(0) }],
+      [{ tabId: 11, path: busyIconPaths(1) }],
+    ]);
+    setIcon.mockClear();
+    stop();
+    await flush();
+    expect(setIcon.mock.calls).toEqual([[{ tabId: 11, path: ACTION_ICON_PATHS.unlocked }]]);
   });
 });

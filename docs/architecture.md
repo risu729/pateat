@@ -970,14 +970,18 @@ locked icon and the worker replaces it as soon as it reads the active records.
 While a model request for a tab's page is in flight (a first page or a continuation sent
 for generation, a sign-in entry page, or a page sent to the judge), that tab's icon
 spins, as the owner chose on 2026-10-13 (14:04 UTC) over a badge or nothing. Chrome's
-`action.setIcon` takes only still images, so the worker shows eight frames of the logo,
-turned in 45° steps and drawn at 92% so its corners stay inside the square, 125 ms each,
-with `setIcon({tabId, path})` (`public/icon-busy/<frame>/{16,32}.png`, written by
-`mise run render:icons`). It starts when the request leaves the device and stops when
-the answer settles, then the tab shows the global icon again and follows later switches
-of it; a spin also stops on its own after two minutes, longer than the 90-second
-inference timeout. The spin adds no worker lifetime: the model call already keeps the
-worker running. Other tabs keep the global icon, and the badge is unchanged.
+`action.setIcon` takes only still images, so the worker shows eight frames of the
+unlocked logo, turned in 45° steps and drawn at 92% so its corners stay inside the
+square, 125 ms each, with `setIcon({tabId, path})`
+(`public/icon-busy/<frame>/{16,32}.png`, written by `mise run render:icons`). It starts
+when the request leaves the device and stops when the request returns, including the
+recipe sync that follows an answer; a spin also stops on its own after two minutes,
+longer than the 90-second inference timeout. The tab then shows the global icon again
+and follows later switches of it. Writes for one tab are applied in order, so a late
+frame cannot land after the restore, and a tab Chrome replaces (`tabs.onReplaced`) keeps
+its spin. Each frame is an extension API call, so a spin keeps the worker running, at
+most for those two minutes; the model call keeps it running anyway. Other tabs keep the
+global icon, and the badge is unchanged.
 
 The service's pages use the same unlocked logo as their favicon (owner request,
 2026-10-12). The owner web UI links the SVG, which Vite emits under `/manage/assets/`

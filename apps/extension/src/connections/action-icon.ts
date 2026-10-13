@@ -56,20 +56,29 @@ export function createActionIcon(deps: {
 }) {
   let shown: ActionIconState | undefined;
   let queue: Promise<void> = Promise.resolve();
-  // Spins in flight per tab; a tab spins while it has one.
-  const spins = new Map<number, number>();
+  // Spins in flight; a tab spins while one names it. A replaced tab's spins move with it.
+  const spins = new Set<{ tabId: number }>();
   // Tabs given their own icon, which a later switch of the global icon does not reach.
   const pinned = new Set<number>();
+  // Each tab's last icon write: Chrome loads the images before it applies a write, so two
+  // writes for one tab could land out of order unless the next waits for the last.
+  const writes = new Map<number, Promise<void>>();
   let frame = 0;
   let timer: ReturnType<typeof setInterval> | undefined;
 
+  const spinning = (tabId: number) => [...spins].some((spin) => spin.tabId === tabId);
   function setTab(tabId: number, path: Record<16 | 32, string>): void {
     pinned.add(tabId);
-    // A closed tab refuses; Chrome drops its icon with it.
-    void deps.setIcon({ tabId, path }).catch(() => {
-      pinned.delete(tabId);
-      spins.delete(tabId);
-    });
+    const write = (writes.get(tabId) ?? Promise.resolve())
+      .then(() => deps.setIcon({ tabId, path }))
+      // A closed tab refuses; Chrome drops its icon with it.
+      .catch(() => {
+        pinned.delete(tabId);
+      })
+      .finally(() => {
+        if (writes.get(tabId) === write) writes.delete(tabId);
+      });
+    writes.set(tabId, write);
   }
   function tick(): void {
     if (!spins.size) {
@@ -78,7 +87,9 @@ export function createActionIcon(deps: {
       return;
     }
     frame = (frame + 1) % BUSY_FRAME_COUNT;
-    for (const tabId of spins.keys()) setTab(tabId, busyIconPaths(frame));
+    // A tab whose last frame has not landed skips this one rather than queueing it.
+    for (const tabId of new Set([...spins].map((spin) => spin.tabId)))
+      if (!writes.has(tabId)) setTab(tabId, busyIconPaths(frame));
   }
   async function apply() {
     let next: ActionIconState;
@@ -90,7 +101,7 @@ export function createActionIcon(deps: {
     if (next === shown) return;
     await deps.setIcon({ path: ACTION_ICON_PATHS[next] });
     shown = next;
-    for (const tabId of pinned) if (!spins.has(tabId)) setTab(tabId, ACTION_ICON_PATHS[next]);
+    for (const tabId of pinned) if (!spinning(tabId)) setTab(tabId, ACTION_ICON_PATHS[next]);
   }
   return {
     /** Serialized so a slow earlier read cannot overwrite a newer state. */
@@ -105,21 +116,24 @@ export function createActionIcon(deps: {
      * tab then shows the global icon again; overlapping spins of one tab end with the last.
      */
     spin(tabId: number): () => void {
-      const count = (spins.get(tabId) ?? 0) + 1;
-      spins.set(tabId, count);
-      if (count === 1) setTab(tabId, busyIconPaths(frame));
+      const spin = { tabId };
+      if (!spinning(tabId)) setTab(tabId, busyIconPaths(frame));
+      spins.add(spin);
       timer ??= setInterval(tick, BUSY_FRAME_MS);
-      let stopped = false;
       const limit = setTimeout(stop, BUSY_LIMIT_MS);
       function stop(): void {
-        if (stopped) return;
-        stopped = true;
+        if (!spins.delete(spin)) return;
         clearTimeout(limit);
-        const left = (spins.get(tabId) ?? 0) - 1;
-        if (left > 0) spins.set(tabId, left);
-        else if (spins.delete(tabId)) setTab(tabId, ACTION_ICON_PATHS[shown ?? "locked"]);
+        if (!spinning(spin.tabId)) setTab(spin.tabId, ACTION_ICON_PATHS[shown ?? "locked"]);
       }
       return stop;
+    },
+    /** Chrome gave a tab a new ID (`tabs.onReplaced`); its spins and own icon move with it. */
+    replaced(added: number, removed: number): void {
+      if (added === removed) return;
+      for (const spin of spins) if (spin.tabId === removed) spin.tabId = added;
+      if (!pinned.delete(removed)) return;
+      setTab(added, spinning(added) ? busyIconPaths(frame) : ACTION_ICON_PATHS[shown ?? "locked"]);
     },
   };
 }

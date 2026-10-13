@@ -1557,7 +1557,7 @@ export function createLoginRuntime(
     report?: (report: LoginReport) => void;
     /**
      * Spins the tab's toolbar icon while a model request for its page is in flight, from
-     * the request's `sent` to its answer (owner, 2026-10-13); returns the stop.
+     * the request's `sent` until the request returns (owner, 2026-10-13); returns the stop.
      */
     spin?: (tabId: number) => () => void;
     /**
@@ -1583,7 +1583,7 @@ export function createLoginRuntime(
   },
 ) {
   const { fields, sites, recipes = noLoginRecipes, uris, generation } = options;
-  /** Spins the tab's icon from a model request's `sent` until `stop`, once the answer settles. */
+  /** Spins the tab's icon from a model request's `sent` until `stop`, once the request returns. */
   function spinning(tabId: number) {
     let stop: (() => void) | undefined;
     return {

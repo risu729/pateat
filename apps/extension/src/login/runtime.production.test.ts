@@ -5203,6 +5203,31 @@ describe("production login document admission", () => {
       expect(spin).toHaveBeenCalledTimes(1);
     });
 
+    it("stops the spin when the request fails after it was sent", async () => {
+      fake.state.extracted = { login: loginPage };
+      const service = generation({
+        generate: async () => {
+          throw new Error("network");
+        },
+      });
+      const stop = vi.fn();
+      const spin = vi.fn((_tabId: number) => stop);
+      const h = harness(unsaved, {
+        allowedOrigins: [],
+        uris,
+        username: true,
+        custom: [],
+        generation: service,
+        spin,
+      });
+      h.recipes.recipe.mockResolvedValue(undefined);
+      h.recipes.starts.mockResolvedValue(startsOf([]));
+      expect(await h.hello({}, false)).toMatchObject({ generate: true });
+      expect(await h.signIn()).toEqual({ ok: false, reason: "generating" });
+      await vi.waitFor(() => expect(stop).toHaveBeenCalledTimes(1));
+      expect(spin.mock.calls).toEqual([[1]]);
+    });
+
     it("logs a page that stopped answering before it was sent", async () => {
       const service = generation();
       const report = vi.fn<(report: LoginReport) => void>();
@@ -8043,6 +8068,40 @@ describe("production login document admission", () => {
           ],
         }),
       ]);
+    }, 10_000);
+
+    it("spins the tab's icon while the page after the submission is judged", async () => {
+      fake.state.extracted = { "signed-in": homePage };
+      const stop = vi.fn();
+      const spin = vi.fn((_tabId: number) => stop);
+      const service = generation({
+        judge: async () => {
+          expect(stop).not.toHaveBeenCalled();
+          return { verdict: "signed-in" };
+        },
+      });
+      const h = harness(unsaved, {
+        allowedOrigins: [],
+        uris,
+        username: true,
+        generation: service,
+        spin,
+      });
+      h.recipes.recipe.mockResolvedValue(generated);
+      h.recipes.starts.mockResolvedValue(startsOf([generated.steps[0]!]));
+      fake.state.present = new Set(["user", "password", "login"]);
+      fake.state.onExecute = async (message) => {
+        if ((message["operation"] as { step: { kind: string } }).step.kind !== "click") return;
+        fake.state.present = new Set(["logout"]);
+        fake.state.observedPath = "/home";
+      };
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+        timeout: 6_000,
+      });
+      expect(service.judge).toHaveBeenCalledTimes(1);
+      expect(spin.mock.calls).toEqual([[1]]);
+      expect(stop).toHaveBeenCalledTimes(1);
     }, 10_000);
 
     it.each([

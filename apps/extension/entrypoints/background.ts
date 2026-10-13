@@ -244,8 +244,9 @@ export default defineBackground(() => {
   const signedTabs = createSignedTabs(storage.defineItem(SIGNED_TABS_KEY), (listener) =>
     browser.tabs.onRemoved.addListener(listener),
   );
-  // A tab Chrome discards to save memory gets a new ID; its sign-ins stay with it.
+  // A tab Chrome discards to save memory gets a new ID; its sign-ins and icon stay with it.
   browser.tabs.onReplaced.addListener((added, removed) => {
+    actionIcon.replaced(added, removed);
     void signIns.replaced(added, removed).catch(() => {});
     void signedTabs.replaced(added, removed).catch(() => {});
   });
