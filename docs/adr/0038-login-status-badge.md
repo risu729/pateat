@@ -78,7 +78,22 @@ it comes later. It says whether the site has a recipe, and if not whether the AI
 asked, is making one, or could not, and why; and whether this page's login started,
 is running, signed in, or why it did not start or did not succeed. Outcomes get a
 plain sentence; others show their log name. It ends with a link to the diagnostics
-page, and shows no value, recipe content or URL query. It is delivered after the badge.
+page, and shows no value, recipe content or URL query.
+
+The section sits under the popup's header and asks the worker with `login.status.get`
+every second while the popup is open. The worker answers from three sources:
+
+- the recipe cache: a recipe, list of accounts or sign-in entry that starts on the top
+  page's path (`page`), only on other paths, or none;
+- its record of the top page, while the tab still shows that path: watching, sent for
+  generation or refused with a reason, why its sign-in input did not start a login, and
+  why it was last not sent for generation;
+- the tab's last login and last model request, which the badge keeps from the log
+  reports with its result's lifetime (item 5), also in `pateat.login-badge.v1`.
+
+A page sent with no answer recorded, as after a worker restart, says so rather than
+showing the AI as still busy. For `structural-mismatch`, `timeout` and `retry-limit` the
+section adds that the recipe is not made again automatically.
 
 ## Consequences
 

@@ -373,7 +373,20 @@ checkbox makes the picked account the default once that login succeeds, and a sa
 default can still be removed there. The default-account list, where a default is chosen
 without logging in, returns once the page no longer waits. An open popup reads the
 settings again from the worker whenever the stored settings change, so a default saved
-by a picked login that succeeds while it is open shows without reopening it. Item
+by a picked login that succeeds while it is open shows without reopening it. Under the
+header, a "This page" section ([ADR 0038](adr/0038-login-status-badge.md#popup);
+`apps/extension/src/popup/page-status.tsx`) asks the worker every second with
+`login.status.get` and says whether the site has a recipe that starts on the page, one
+on other paths only, or none; the AI's last answer for the tab (making a recipe, made
+one, chose not to, could not, or a page sent with no answer recorded), or why the page
+was not sent; and the tab's last login on the site (logging in, logged in, waiting on a
+second step, or why it did not start, stopped or did not succeed, with a note that a
+broken recipe is not made again automatically). Known codes get a plain sentence and
+others show their log name; a link opens the diagnostics page. The worker answers from
+the recipe cache, its own record of the top page, and the last login and model request
+the badge keeps from the log reports, with the badge's lifetime: a top page of another
+origin or the tab's closing drops them, and `chrome.storage.session` keeps them across a
+worker restart. Item
 selection, field exclusions and custom-field review stay on the extension's settings
 page once synced ([ADR 0023](adr/0023-synced-vault-policy.md)). The service keeps one
 settings document per owner; [ADR 0024](adr/0024-settings-profiles.md) assigns its parts

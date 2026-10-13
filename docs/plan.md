@@ -396,10 +396,13 @@ than in this repository.
     for a failure, a green `✓` or a yellow `!` for 4 seconds for a sign-in or an
     unknown result ([ADR 0038](adr/0038-login-status-badge.md), owner 2026-10-13 19:28
     UTC). It replaced the spinning toolbar icon chosen at 14:04 UTC.
-  - Next: the popup section for the current page from ADR 0038: whether the site has a
-    recipe, whether the AI was asked or could not make one, and whether this page's
-    login started, signed in or why not, with a link to the diagnostics page. Check in
-    installed Chrome that Windows draws the braille frames.
+  - Done: the popup's "This page" section from ADR 0038 says whether the site has a
+    recipe for the page, what the AI last answered for the tab or why the page was not
+    sent, and whether the tab's last login is running, signed in, or why it did not
+    start or succeed, with a link to the diagnostics page. It is always shown; a setting
+    to hide it comes later.
+  - Next: check in installed Chrome that Windows draws the braille frames, and try the
+    "This page" section on a site with a recipe and one without.
 - Done: `https://my.jcb.co.jp/Login` was generated again after delivery 3. The recipe
   revision the Grok Bot computer's device generated on 2026-10-12 (13:45 UTC) names both
   routes: the password steps and the passkey button on `/Login`, read from D1 at 14:26
