@@ -511,32 +511,47 @@ new owner decision:
   its first input that the TOTP fill rule of ADR 0013 accepts by itself
   (`autocomplete="one-time-code"`, or a numeric or `tel` input with `maxlength` 1 to 10,
   as `isCodeField` reads an observed field; a split code's first input). They come from
-  the field's first three parents, never the body or above: each is the rendered text of
-  one shown element without child elements, nearest parent first and then in page order,
-  sent in page order. Live regions (`role="alert"`, `aria-live` and the like), the
-  element the field's `aria-errormessage` names, editable text (`contenteditable`, the
-  `textbox`, `searchbox`, `combobox` and `spinbutton` roles), `output` boxes, controls,
-  labels, links, buttons and `h1` to `h3` headings, and everything inside them, are left
-  out, since error text and such boxes can echo a typed value (ADR 0010) and the rest is
-  already described; such an element anywhere above the field, as a page wrapped in a
+  the field's first six parents, never the body or above, and stop below the first
+  parent that holds another shown field to type in (an enabled, writable text input,
+  text area or editable text; not a checkbox, radio, button, select or hidden input,
+  another one-character input of a split code, or one hidden from assistive technology
+  or out of the tab order, as a form's trap for bots is), so they stay with the code's
+  own part of the page. Each is the rendered text of one shown element without child
+  elements, nearest parent first and then in page order, sent in page order. Live
+  regions (`role="alert"`, `aria-live` and the like), the element the field's
+  `aria-errormessage` names, editable text (`contenteditable`, the `textbox`,
+  `searchbox`, `combobox` and `spinbutton` roles), `output` boxes, controls, labels,
+  links, buttons, `h1` to `h3` headings, and `code`, `pre`, `kbd` and `samp`, and
+  everything inside them, are left out, since error text and such boxes can echo a typed
+  value (ADR 0010), code-like text may show a setup key or recovery code, and the rest
+  is already described; such an element anywhere above the field, as a page wrapped in a
   live region, leaves out every text, and a field marked `aria-invalid="true"` gets
   none. Each text is redacted as the rest of that page (email addresses, masked runs and
   every number hidden, the account's own usernames as `[account]`) and then cut at 120
   characters. A text that repeats another, the title, a heading or the field's label,
   placeholder or description, or that has fewer than two letters beside its
   placeholders, such as a timer or one typed character in a box of its own, is dropped
-  and does not count toward the three. An element with child elements gives no text of
-  its own, so a sentence with an inline element inside, such as `<strong>`, `<br>` or an
-  icon, gives only that element's words or nothing. The judge's instructions name
-  `nearCode` as untrusted page text. Login pages, lists of accounts and sign-in entry
-  pages never carry it, so recipe generation never sees it. A misread or deceptive text
-  can at worst store a `totp` handler that fills the current TOTP code into that site's
-  checked field on every login until the recipe is revoked; the code never leaves the
-  site and the field checks still apply. The added text (at most 360 characters) is in
-  the request log for 90 days (ADR 0012); as with the header text of ADR 0029, it is
-  allowed while Pateat is for the owner's own use and decided again before the public
-  release (phase 3). The judge's prompt version changed with it, so judged pages are
-  judged again once.
+  and does not count toward the three, and so is one that looks like a key or recovery
+  code, or whose parent, up to the parent being read, shows one, as a key printed one
+  group per element does. A text looks like one when, read before redaction, without
+  invisible format characters and without email addresses, it has a word of ten or more
+  letters and digits holding both; two or more groups of four or five letters and digits
+  joined by hyphens, holding a letter and a digit, or three or more holding a letter;
+  two words side by side of four to eight letters and digits that each mix both; four
+  or more words in a row of four letters and digits of which two or more mix both; or
+  three or more words in a row of four or five capitals and digits of which two or more
+  hold a letter. An element with child elements gives no
+  text of its own, so a sentence with an inline element inside, such as `<strong>`,
+  `<br>` or an icon, gives only that element's words or nothing. The judge's
+  instructions name `nearCode` as untrusted page text. Login pages, lists of accounts
+  and sign-in entry pages never carry it, so recipe generation never sees it. A misread
+  or deceptive text can at worst store a `totp` handler that fills the current TOTP code
+  into that site's checked field on every login until the recipe is revoked; the code
+  never leaves the site and the field checks still apply. The added text (at most 360
+  characters) is in the request log for 90 days (ADR 0012); as with the header text of
+  ADR 0029, it is allowed while Pateat is for the owner's own use and decided again
+  before the public release (phase 3). The judge's prompt version changed with it, so
+  judged pages are judged again once.
 - **Entering handlers.** A handler that has not run is entered when all its elements
   are unique and usable on its path: a `totp` handler's field a shown writable input,
   and its button, like a `passkey` handler's, a shown one, enabled or not, since many

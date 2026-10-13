@@ -259,8 +259,12 @@ own accounts, so they stay in the project's files rather than in this repository
   - The `totp` handler ([ADR 0027](adr/0027-per-account-login-routes.md) delivery 4) on
     Resend's code page: one input (`autocomplete="one-time-code"`, numeric, six
     characters), with the sentence naming the authenticator app outside the form, which
-    the judge now reads as text near the code field (owner's option A, 2026-10-12 22:04
-    UTC). A judged code page adds the handler, and the same login fills the code and
+    the judge reads as text near the code field (owner's option A, 2026-10-12 22:04
+    UTC). On 2026-10-13 (build fdf57ef) the sentence sat more than three parents above
+    the field, so the judge request had no `nearCode` and the code was dropped as
+    `source-unknown`; the search now reaches six parents (local tests only). ニコニコ's
+    page sent the notes of its device-name field instead, which the search now stops
+    before. A judged code page adds the handler, and the same login fills the code and
     clicks once. It needs a paid judge call and the owner's own code entry or approval.
     A code split into one-digit inputs (owner decision, 2026-10-12 19:21 UTC) still
     needs a real site; Resend was first recorded as one, wrongly. ニコニコ's code page
