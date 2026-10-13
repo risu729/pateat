@@ -102,7 +102,6 @@ type FixedAction =
   | "abort"
   | "cas-conflict"
   | "export-gate"
-  | "oversize"
   | "corrupt-key";
 export type VaultRequest =
   | { action: FixedAction }
@@ -140,7 +139,7 @@ export async function vaultData<T>(page: Page, request: VaultRequest): Promise<T
 }
 
 /** Test-only native DB writer. Reads remain inside the trusted extension page. */
-export function mutateNativeVault(page: Page, action: "abort" | "malformed" | "replace") {
+export function mutateNativeVault(page: Page, action: "malformed" | "replace") {
   return page.evaluate(
     async ({ connectionId, operation }) => {
       const db = await new Promise<IDBDatabase>((resolve, reject) => {
@@ -172,10 +171,7 @@ export function mutateNativeVault(page: Page, action: "abort" | "malformed" | "r
               operation === "malformed"
                 ? { schemaVersion: 99 }
                 : { ...record, revision: crypto.randomUUID() };
-            const put = records.put(next, connectionId);
-            // Actual request success precedes transaction completion. Aborting
-            // here must roll back the write rather than publish a new revision.
-            if (operation === "abort") put.onsuccess = () => tx.abort();
+            records.put(next, connectionId);
           };
         });
         const unchanged = await new Promise<boolean>((resolve, reject) => {

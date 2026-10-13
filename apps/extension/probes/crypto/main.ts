@@ -1,6 +1,5 @@
 const status = document.querySelector<HTMLOutputElement>("#status")!;
 const results = document.querySelector<HTMLPreElement>("#results")!;
-const cancelButton = document.querySelector<HTMLButtonElement>("#cancel")!;
 let job: { worker: Worker; id: string; timer: ReturnType<typeof setTimeout> } | undefined;
 
 function stop(message: string) {
@@ -10,20 +9,15 @@ function stop(message: string) {
     clearTimeout(previous.timer);
     previous.worker.terminate();
   }
-  cancelButton.disabled = true;
   status.textContent = message;
 }
 
-function start(operation: "vectors" | "kdf") {
+function start() {
   stop("Loading packaged WASM");
   results.textContent = "";
-  const worker =
-    operation === "vectors"
-      ? new Worker(new URL("./worker.ts", import.meta.url), { type: "module" })
-      : new Worker(new URL("./kdf-worker.ts", import.meta.url), { type: "module" });
+  const worker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module" });
   const id = crypto.randomUUID();
   job = { worker, id, timer: setTimeout(() => stop("Timed out"), 30_000) };
-  cancelButton.disabled = false;
   worker.onerror = (event) => {
     event.preventDefault();
     if (job?.id === id) stop("Failed");
@@ -39,7 +33,5 @@ function start(operation: "vectors" | "kdf") {
   };
 }
 
-document.querySelector("#run-vectors")!.addEventListener("click", () => start("vectors"));
-document.querySelector("#run-kdf")!.addEventListener("click", () => start("kdf"));
-cancelButton.addEventListener("click", () => stop("Cancelled"));
+document.querySelector("#run-vectors")!.addEventListener("click", start);
 window.addEventListener("pagehide", () => stop("Closed"));

@@ -386,6 +386,15 @@ test("installed production offers manual setup with an empty real catalog and re
     if (!saved.ok) throw new Error("Production settings unavailable");
     expect(saved.catalog.connections).toEqual([]);
     expect(saved.snapshot.settings.connections).toEqual([]);
+    const extra = await page.evaluate(async () => {
+      const chrome = (globalThis as unknown as { chrome: TestChrome }).chrome;
+      return (await chrome.runtime.sendMessage({
+        version: 1,
+        type: "settings.get",
+        extra: true,
+      })) as unknown;
+    });
+    expect(extra).toMatchObject({ ok: false });
     expect(
       await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze(),
     ).toMatchObject({ violations: [] });

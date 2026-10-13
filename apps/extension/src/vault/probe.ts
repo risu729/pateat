@@ -5,7 +5,7 @@ import { accountProfile } from "../../../../packages/bitwarden/src/__fixtures__/
 import { uriCiphertexts, v1Password } from "../../../../packages/bitwarden/src/__fixtures__/crypto";
 import { createIndexedDbVaultStore } from "./storage";
 import { createLocalVaultManager, type VaultCheckpoint, type LocalVaultHandle } from "./manager";
-import { MAX_VAULT_RECORD_BYTES, vaultFailure, type VaultEntry } from "./record";
+import { vaultFailure, type VaultEntry } from "./record";
 
 const requestSchema = v.variant("action", [
   v.strictObject({
@@ -34,7 +34,6 @@ const requestSchema = v.variant("action", [
       "abort",
       "cas-conflict",
       "export-gate",
-      "oversize",
       "corrupt-key",
     ]),
   }),
@@ -235,7 +234,10 @@ export function createVaultProbe(host: CryptoHost) {
         if (!opened.ok) return opened;
         try {
           const result = await host.exportUnlockMaterial(opened.data.session);
-          return { ok: true, data: { denied: !result.ok } };
+          return {
+            ok: true,
+            data: { denied: !result.ok, code: result.ok ? null : result.error.code },
+          };
         } finally {
           await host.lock(opened.data.session);
         }
@@ -244,14 +246,11 @@ export function createVaultProbe(host: CryptoHost) {
       if (!read.ok) return read;
       if (read.data?.state !== "active") return vaultFailure("cache-missing");
       const old = read.data;
-      if (action.action === "oversize" || action.action === "corrupt-key") {
+      if (action.action === "corrupt-key") {
         const next: VaultEntry = {
           ...old,
           revision: crypto.randomUUID(),
-          userKey:
-            action.action === "oversize"
-              ? "A".repeat(MAX_VAULT_RECORD_BYTES)
-              : btoa(String.fromCharCode(...new Uint8Array(64))),
+          userKey: btoa(String.fromCharCode(...new Uint8Array(64))),
         };
         const write = await store.compareAndSwap(old.revision, next);
         const check = await store.read();
