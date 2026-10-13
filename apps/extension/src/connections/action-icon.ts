@@ -71,9 +71,9 @@ export function createActionIcon(deps: {
     pinned.add(tabId);
     const write = (writes.get(tabId) ?? Promise.resolve())
       .then(() => deps.setIcon({ tabId, path }))
-      // A closed tab refuses; Chrome drops its icon with it.
+      // A closed tab refuses; Chrome drops its icon with it. A later write keeps the pin.
       .catch(() => {
-        pinned.delete(tabId);
+        if (writes.get(tabId) === write) pinned.delete(tabId);
       })
       .finally(() => {
         if (writes.get(tabId) === write) writes.delete(tabId);
