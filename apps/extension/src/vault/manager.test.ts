@@ -310,6 +310,7 @@ describe("acceptance verification and publication", () => {
     });
     const old = await accepted(h);
     hold = true;
+    h.host.matchUris.mockClear();
     const pending = h.manager.accept(candidate("preserve"));
     await vi.waitFor(() => expect(h.store.compareAndSwap).toHaveBeenCalledTimes(2));
     // A page or settings request still holding the replaced handle reads the new record.
@@ -317,6 +318,7 @@ describe("acceptance verification and publication", () => {
       ok: false,
       error: { code: "stale-vault-handle" },
     });
+    expect(h.host.matchUris).not.toHaveBeenCalled();
     held.release();
     const next = await pending;
     expect(next.ok).toBe(true);

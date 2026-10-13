@@ -45,7 +45,8 @@ revision and accepted identity before dispatch and after the SDK response. A
 changed or unreadable record retires the live session and withholds the result.
 The record an accept of the same manager is writing is not another writer's: it
 withholds the result only, and that accept retires the old session when it
-adopts the record, so a request in flight cannot cancel the sync.
+adopts the record or fails after writing it, so a request in flight cannot cancel
+the sync merely by reading the new record.
 
 ## Alternatives and consequences
 
