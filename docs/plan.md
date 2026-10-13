@@ -333,6 +333,12 @@ than in this repository.
     Demo vaults panel.
   - Approved: `lucide-react` for icons in the polish (owner, 2026-10-12 20:53 UTC); the
     first PR that uses it adds it.
+  - Done: the settings page marks Bitwarden (its section in the menu and each connection
+    row) with the `lucide-react` `Shield` icon (owner, 2026-10-13 15:02 UTC). The owner
+    asked for Bitwarden's own logo, but Bitwarden's
+    [trademark guidelines](https://github.com/bitwarden/server/blob/main/TRADEMARK_GUIDELINES.md)
+    allow its logos only with written permission; the name stays as plain text
+    ([Extension icon](architecture.md#extension-icon)).
   - Done: the diagnostics page keeps its structure, with only its visuals and copy
     changed (owner, 2026-10-12 21:08 UTC): icon-led check lines, two-column panels,
     and in Logs the retention, debug logging's end time with **Turn off debug

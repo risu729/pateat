@@ -6,7 +6,7 @@ import {
 } from "@pateat/contracts";
 import { useForm, useStore } from "@tanstack/react-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bug, Globe, Info, Link, Vault, type LucideIcon } from "lucide-react";
+import { Bug, Globe, Info, Link, Shield, Vault, type LucideIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Logo } from "../logo";
 import { Button } from "./button";
@@ -290,7 +290,7 @@ export function SettingsApp({
   );
   const sections: NavSection[] = [
     connectionClient
-      ? { id: "bitwarden", label: "Bitwarden", icon: Vault }
+      ? { id: "bitwarden", label: "Bitwarden", icon: Shield }
       : { id: "demo-vaults", label: "Demo vaults", icon: Vault },
     { id: "sites", label: "Sites", icon: Globe },
     ...(serviceClient ? [{ id: "sync", label: "Sync service", icon: Link }] : []),
