@@ -2,41 +2,40 @@
 
 Status: accepted by the owner on 2026-10-12 (04:54 UTC). Delivery 1 (the local check,
 logged only, as `login.state`) is implemented. The owner started delivery 2 (acting on
-it) on 2026-10-12 at 06:58 UTC; its outcome table is implemented (completing on
-evidence first, the other rows on 2026-10-12 after 14:22 UTC), and so are the header and
+it) on 2026-10-12 at 06:58 UTC; its outcome table is implemented (completing on evidence
+first, the other rows on 2026-10-12 after 14:22 UTC), and so are the header and
 navigation text for the judge, the list of learned markers, and sendable pages with a
-token-like path or a field no locator names (owner, 19:23 UTC).
-Amended on 2026-10-12 (13:08 UTC, owner's choice) by
+token-like path or a field no locator names (owner, 19:23 UTC). Amended on 2026-10-12
+(13:08 UTC, owner's choice) by
 [ADR 0027](0027-per-account-login-routes.md#watching-after-a-challenge): the pages of a
 login watched after `challenge` or an unknown result; see the end of the implementation
-notes.
-Amended on 2026-10-12 by the owner's choice at 20:23 UTC (「入力だけ」, fill only): a
-click that would run while S4 shows is left to the person, after Q-move's login page
-showed a CAPTCHA before its submission; see S4 below.
-Amended on 2026-10-12 by the owner's choice at 21:18 UTC (「AI判定」,
+notes. Amended on 2026-10-12 by the owner's choice at 20:23 UTC (「入力だけ」, fill
+only): a click that would run while S4 shows is left to the person, after Q-move's login
+page showed a CAPTCHA before its submission; see S4 below. Amended on 2026-10-12 by the
+owner's choice at 21:18 UTC (「AI判定」,
 [ADR 0022](0022-login-attempts-per-tab-and-origin.md)): E2 is also read on a page of
 another origin of the same site that a `password` login's tab moves to right after the
 submission; see the end of the implementation notes. Amended again on 2026-10-13 by the
 owner's choice at 01:59 UTC (「コード送信後だけ」, ADR 0022): the same applies to a move
-to another site within 30 seconds of a TOTP code.
-Amended on 2026-10-12 by the owner's choice at 22:03 UTC (「除いて慎重に」, leave out
-with care): a disabled field that does not look like a sign-in field is left out of a
-judged page, and such a page completes only on `signed-in`, after Q-move's signed-in
-page was never judged; see "Disabled fields" in the implementation notes.
-Amended on 2026-10-12 by the owner's choice at 22:03 UTC (「誤り表示時」, when it shows
-an error): a sign-in form that comes back as the first new document after the
-submission is rejected when it marks a failure next to it; see "Signs of a failure"
-below.
+to another site within 30 seconds of a TOTP code, and, by the owner's choice at 03:13
+UTC (「同じ扱い」), of a passkey Pateat answered after the password. Amended on
+2026-10-12 by the owner's choice at 22:03 UTC (「除いて慎重に」, leave out with care): a
+disabled field that does not look like a sign-in field is left out of a judged page, and
+such a page completes only on `signed-in`, after Q-move's signed-in page was never
+judged; see "Disabled fields" in the implementation notes. Amended on 2026-10-12 by the
+owner's choice at 22:03 UTC (「誤り表示時」, when it shows an error): a sign-in form
+that comes back as the first new document after the submission is rejected when it marks
+a failure next to it; see "Signs of a failure" below. Amends
+[ADR 0018](0018-recipe-generation-route.md) (how success is decided after a generated
+recipe's submission) and [ADR 0027](0027-per-account-login-routes.md) (when a page is
+judged). Amended on 2026-10-13 by [ADR 0036](0036-passkey-after-the-identifier.md): for
+a login that stops before its item's missing password, E2 is no sign-in, also while
+watched and on a move, and an undecided answer ends it `challenge`, watched
+(implemented).
 Amended on 2026-10-13 by [ADR 0021](0021-account-choice-outside-settings.md) (D, after
 the owner's github.com report): the decision is unchanged, but such a form shown again
 with its password input and no other sign (no S3, S4, S5 or E sign) is not watched when
 it stays unknown; the tab asks for an account at once (implemented).
-Amends [ADR 0018](0018-recipe-generation-route.md) (how success is decided after a
-generated recipe's submission) and [ADR 0027](0027-per-account-login-routes.md) (when a
-page is judged).
-Amended on 2026-10-13 by [ADR 0036](0036-passkey-after-the-identifier.md): for a login
-that stops before its item's missing password, E2 is no sign-in, also while watched and
-on a move, and an undecided answer ends it `challenge`, watched (implemented).
 
 Date: 2026-10-12
 
@@ -378,7 +377,8 @@ markers learned on its origin only, and otherwise judged once; `signed-in` compl
 login and learns a marker for that origin, and anything else, an undecided answer
 included, ends it `left-origin` as before (ADR 0022). The same reading and judgement
 apply to a move to an HTTPS origin of another site within 30 seconds of a TOTP code the
-login submitted (owner, 2026-10-13 01:59 UTC), never right after the password step. The
+login submitted (owner, 2026-10-13 01:59 UTC) or of a passkey Pateat answered after the
+password (03:13 UTC), never right after the password step. The
 service keeps such a page's
 judgement row under its own origin, and answers a later request for a row judged
 `signed-in` with `judged-signed-in` instead of `already-judged`, which the "No S, no E"

@@ -159,6 +159,12 @@ export const loginObservationSchema = v.pipe(
      * 0027); no other page carries it.
      */
     nearCode: v.optional(v.pipe(v.array(observedText), v.minLength(1), v.maxLength(3))),
+    /**
+     * Up to three short texts a signed-in page without a code field shows near its
+     * buttons, redacted as the rest of that page, for the judge to tell what a button
+     * whose label says little starts (ADR 0027); no other page carries it.
+     */
+    nearButtons: v.optional(v.pipe(v.array(observedText), v.minLength(1), v.maxLength(3))),
     // The extractor sets false when it dropped an element a recipe may need; such an
     // observation is rejected rather than relying on a model to guess the rest.
     // Text bounded to its length limit or redacted is not counted as dropped.
@@ -191,6 +197,13 @@ export const loginObservationSchema = v.pipe(
   v.check(
     (observation) => observation.nearCode === undefined || observation.candidates.some(isCodeField),
     "Text near a code field needs a code field",
+  ),
+  v.check(
+    (observation) =>
+      observation.nearButtons === undefined ||
+      (!observation.candidates.some(isCodeField) &&
+        observation.candidates.some((candidate) => candidate.role === "button")),
+    "Text near buttons needs a button and no code field",
   ),
   v.check(
     (observation) => unique(observation.candidates.map((candidate) => candidate.id)),

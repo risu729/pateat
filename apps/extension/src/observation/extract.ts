@@ -156,6 +156,17 @@ const base36Run = /(?<![0-9A-Za-z])[0-9a-z]{8,}(?![0-9A-Za-z])/gu;
  */
 const randomId = (value: string) =>
   (value.match(base36Run) ?? []).some((run) => run.match(/\d+|[a-z]+/gu)!.length >= 3);
+/**
+ * An ID a UI library's own `useId` generated, recognized by the prefix it adds: a rule
+ * about the library, like `generatedId` for React's, not about a site (ADR 0033).
+ * Mantine's is `mantine-` and a random base-36 run, which can lack a digit
+ * (`mantine-ypxwydcwg`, 2026-10-13), or React 18's ID without its colons
+ * (`mantine-r5`), and its components derive IDs from it, such as Tabs'
+ * `mantine-ypxwydcwg-tab-mypage`.
+ */
+const libraryId = /^mantine-/u;
+/** True for an ID another load may change: `randomId`, or a `libraryId` prefix. */
+const changingId = (value: string) => libraryId.test(value) || randomId(value);
 
 /**
  * Text that can reveal an account or a number is replaced before it is observed
@@ -286,8 +297,9 @@ function locatorIndex(document: Document): LocatorIndex {
  * Mirrors the executor's lookup: an attribute value, or else a fillable input's
  * `autocomplete` token, or else a button's text, that matches exactly one element. An ID
  * React's `useId` generated is not used, as another page gives it to another element. One
- * holding a random-looking run (`randomId`), which another load may change, is used only
- * when no other locator is unique, as it may as well be stable. A
+ * that another load may change (`changingId`) is used only when no other locator is
+ * unique, as it may as well be stable, and never with `lasting`, which a signed-in
+ * marker needs, since it must match on every later visit. A
  * script link's text must also name no native button, shown or not, which the executor
  * would take first. Button text is used only when redaction leaves it unchanged, so a
  * locator never carries an email address or a long number. With
@@ -299,7 +311,7 @@ function locatorIndex(document: Document): LocatorIndex {
 function locate(
   element: Element,
   index: LocatorIndex,
-  { redactAttributes = false, links = false } = {},
+  { redactAttributes = false, links = false, lasting = false } = {},
 ): LoginTarget | undefined {
   let demoted: LoginTarget | undefined;
   for (const [by, attribute] of locators) {
@@ -309,8 +321,8 @@ function locate(
     if (redactAttributes && (observedText(value) !== value || tokenSegment(value))) continue;
     const target = { by, value };
     if (!v.is(loginTargetSchema, target)) continue;
-    if (attribute !== "id" || !randomId(value)) return target;
-    demoted = target;
+    if (attribute !== "id" || !changingId(value)) return target;
+    if (!lasting) demoted = target;
   }
   return contentTarget(element, index, links) ?? demoted;
 }
@@ -405,7 +417,7 @@ function fieldDescription(input: HTMLInputElement, label: string | undefined) {
 
 const nearDepth = 6;
 const maxNear = 3;
-/** Elements examined for text near a code field; a code page is small. */
+/** Elements examined for text near a code field or a page's buttons. */
 const nearScanLimit = 2000;
 /**
  * Elements whose text is never text near a code field: live regions and error messages,
@@ -445,38 +457,87 @@ function nearCodeTexts(field: HTMLElement, keep: (text: string) => string | unde
     const element = field.ownerDocument.getElementById(id);
     return element ? [element] : [];
   });
+  return nearTexts([field], keep, errors);
+}
+
+/**
+ * Up to three short texts a signed-in page without a code field shows near its buttons,
+ * for the judge to tell what a button whose label says little, such as "Verify", starts
+ * (ADR 0027, owner decision 2026-10-13 04:22 UTC). They are read as `nearCodeTexts` reads
+ * them, around every given button at once, nearest parent first. An open modal dialog
+ * that holds one of the buttons, or else the page's first shown main landmark, bounds
+ * them: only the buttons inside it count and only texts inside it are read, so a help or
+ * account widget beside it does not take the texts. Buttons and texts in the header and
+ * navigation, which `headerText` already carries, never count.
+ */
+function nearButtonTexts(
+  buttons: readonly HTMLElement[],
+  keep: (text: string) => string | undefined,
+): string[] {
+  const document = buttons[0]?.ownerDocument;
+  if (!document) return [];
+  const bound =
+    openModals(document).find((modal) => buttons.some((button) => modal.contains(button))) ??
+    [...document.querySelectorAll("main, [role~='main' i]")].find((main) => shown(main));
+  const anchors = buttons.filter(
+    (button) => (!bound || bound.contains(button)) && !button.closest(landmarks),
+  );
+  return nearTexts(anchors, keep, [...document.querySelectorAll(landmarks)], bound);
+}
+
+/**
+ * The texts near `anchors` that `nearCodeTexts` describes, read around each anchor in page
+ * order, one parent further out at a time, until three are kept; `excluded` elements and
+ * those inside them are left out, and with `within`, no parent outside it is read.
+ */
+function nearTexts(
+  anchors: readonly HTMLElement[],
+  keep: (text: string) => string | undefined,
+  excluded: readonly Element[],
+  within?: Element,
+): string[] {
   const found: { element: Element; text: string }[] = [];
   const keyParents = new Map<Element, boolean>();
   let scanned = 0;
-  let inner: Element = field;
+  // Each anchor's innermost parent read so far; an anchor whose area may not grow is
+  // dropped.
+  let reached = anchors.map((anchor) => ({ anchor, inner: anchor as Element }));
   for (let depth = 0; depth < nearDepth && found.length < maxNear; depth += 1) {
-    const area = inner.parentElement;
-    if (
-      !area ||
-      area === field.ownerDocument.body ||
-      area === field.ownerDocument.documentElement ||
-      otherEntryField(area, field)
-    )
-      break;
-    for (const element of area.querySelectorAll("*")) {
-      if (found.length >= maxNear || (scanned += 1) > nearScanLimit) break;
+    const next: typeof reached = [];
+    for (const { anchor, inner } of reached) {
+      if (found.length >= maxNear || scanned > nearScanLimit) break;
+      const area = inner.parentElement;
       if (
-        element.childElementCount > 0 ||
-        inner.contains(element) ||
-        element.closest(notNear) ||
-        errors.some((error) => error.contains(element))
+        !area ||
+        area === anchor.ownerDocument.body ||
+        area === anchor.ownerDocument.documentElement ||
+        (within !== undefined && !within.contains(area)) ||
+        otherEntryField(area, anchor)
       )
         continue;
-      const rendered = renderedText(element, rawLimit);
-      // A text that looks like a key or recovery code may be a secret, and is never sent;
-      // it is read before redaction hides its digits. A key printed one group per element
-      // shows only in the text of a parent, so each parent up to the area is read too.
-      if (rendered === undefined || keyLike(rendered) || inKey(element, area, keyParents)) continue;
-      const raw = observedText(rendered, Number.POSITIVE_INFINITY);
-      const text = raw && keep(raw);
-      if (text && !found.some((entry) => entry.text === text)) found.push({ element, text });
+      for (const element of area.querySelectorAll("*")) {
+        if (found.length >= maxNear || (scanned += 1) > nearScanLimit) break;
+        if (
+          element.childElementCount > 0 ||
+          inner.contains(element) ||
+          element.closest(notNear) ||
+          excluded.some((error) => error.contains(element))
+        )
+          continue;
+        const rendered = renderedText(element, rawLimit);
+        // A text that looks like a key or recovery code may be a secret, and is never
+        // sent; it is read before redaction hides its digits. A key printed one group per
+        // element shows only in the text of a parent, so each parent up to the area is
+        // read too.
+        if (rendered === undefined || keyLike(rendered) || inKey(element, area, keyParents))
+          continue;
+        const raw = observedText(rendered, Number.POSITIVE_INFINITY);
+        const text = raw && keep(raw);
+        if (text && !found.some((entry) => entry.text === text)) found.push({ element, text });
+      }
+      next.push({ anchor, inner: area });
     }
-    inner = area;
+    reached = next;
   }
   return found
     .sort((left, right) =>
@@ -1090,7 +1151,8 @@ type Chosen = { form: HTMLFormElement | null; draft: Draft; target: LoginTarget 
 
 /**
  * Numbers the chosen elements in document order and adds the page's title and headings;
- * with `near`, also the texts near its first code field (`nearCodeTexts`).
+ * with `near`, also the texts near its first code field (`nearCodeTexts`) or, without one,
+ * near its buttons (`nearButtonTexts`).
  */
 function observe(
   document: Document,
@@ -1148,24 +1210,36 @@ function observe(
   const codeAt = near ? candidates.findIndex(isCodeField) : -1;
   const code = candidates[codeAt];
   const repeated = new Set([title, ...headings, code?.label, code?.placeholder, code?.description]);
-  const nearCode =
-    code === undefined
-      ? []
-      : nearCodeTexts(chosen[codeAt]!.draft.element, (raw) => {
-          const text = bounded(hide(raw));
-          // A text that repeats one the page already carries, or with fewer than two
-          // letters beside its placeholders, such as a timer or one typed character in
-          // a box of its own, says nothing about the code.
-          return text !== undefined &&
-            !repeated.has(text) &&
-            (text.replace(/\[(?:email|masked|number)\]/gu, "").match(/\p{L}/gu)?.length ?? 0) >= 2
-            ? text
-            : undefined;
-        });
+  // A text that repeats one the page already carries, or with fewer than two letters
+  // beside its placeholders, such as a timer or one typed character in a box of its own,
+  // says nothing about the code or the button.
+  const keepNear = (raw: string) => {
+    const text = bounded(hide(raw));
+    return text !== undefined &&
+      !repeated.has(text) &&
+      (text.replace(/\[(?:email|masked|number)\]/gu, "").match(/\p{L}/gu)?.length ?? 0) >= 2
+      ? text
+      : undefined;
+  };
+  const nearCode = code === undefined ? [] : nearCodeTexts(chosen[codeAt]!.draft.element, keepNear);
+  // A page without a code field carries the texts near its buttons instead.
+  const buttons =
+    near && code === undefined ? chosen.filter((_, at) => candidates[at]!.role === "button") : [];
+  for (const button of buttons) {
+    const candidate = candidates[chosen.indexOf(button)]!;
+    if (candidate.label) repeated.add(candidate.label);
+  }
+  const nearButtons = buttons.length
+    ? nearButtonTexts(
+        buttons.map((button) => button.draft.element),
+        keepNear,
+      )
+    : [];
   const texts = [
     title ?? "",
     ...headings,
     ...nearCode,
+    ...nearButtons,
     ...candidates.flatMap((candidate) => [
       candidate.label ?? "",
       candidate.placeholder ?? "",
@@ -1182,6 +1256,7 @@ function observe(
     ...(headings.length ? { headings } : {}),
     ...(header ? { headerText: header } : {}),
     ...(nearCode.length ? { nearCode } : {}),
+    ...(nearButtons.length ? { nearButtons } : {}),
     complete,
     candidates,
     ...(accounts?.length ? { accounts } : {}),
@@ -1430,7 +1505,8 @@ export function extractEntryObservation(
       const href = element instanceof HTMLAnchorElement ? linkUrl(element) : undefined;
       if (!href || linkRefusal(href, onSite, page) || entryElementRefusal(element)) return [];
     }
-    const target = locate(element, index, { links: true });
+    // The chosen entry is stored like a marker, so an ID another load may change never names it.
+    const target = locate(element, index, { links: true, lasting: true });
     return target ? [{ form: entry.form, draft: entry.draft, target }] : [];
   });
   const chosen = byLandmark(shownControls).slice(0, maxCandidates);
@@ -1492,13 +1568,15 @@ function mayBeSignIn(input: HTMLInputElement): boolean {
  * the result says so (`disabledLeftOut`): it may be a code field waiting for a timer or a
  * sent code, so such a page completes only when the judge answers `signed-in`. Buttons
  * and links are only possible markers; those past the limit or without a locator are
- * left out. A link is located by its text too, as for an account switch, and the
- * executor looks for the completion marker the same way. A path segment that may carry a
- * token is sent as `REDACTED_PATH_SEGMENT` (`signedInPath`). A page with a code field
- * also carries up to three texts near the first one (`nearCodeTexts`), hidden as the
- * rest of the page. While a modal dialog is open, the page behind it that the modal's
- * script marked `aria-hidden` or `inert` is read as shown (`readBehindModal`), and the
- * modal's controls rank right after the header's.
+ * left out, and an ID another load may change (`changingId`) locates no element but a
+ * field that may be a sign-in field. A link is located by its text too, as for an
+ * account switch, and the executor looks for the completion marker the same way. A path
+ * segment that may carry a token is sent as `REDACTED_PATH_SEGMENT` (`signedInPath`). A
+ * page with a code field also carries up to three texts near the first one
+ * (`nearCodeTexts`), and a page without one up to three texts near its buttons
+ * (`nearButtonTexts`), hidden as the rest of the page. While a modal dialog is open, the
+ * page behind it that the modal's script marked `aria-hidden` or `inert` is read as
+ * shown (`readBehindModal`), and the modal's controls rank right after the header's.
  */
 export function extractSignedInObservation(
   document: Document = globalThis.document,
@@ -1530,11 +1608,22 @@ function describeSignedIn(document: Document): ObservationResult {
     else if (entry.draft.role !== "checkbox") markers.push(entry);
   }
   const index = locatorIndex(document);
-  // A marker's text locator is stored and must match every later sign-in, so text with a
-  // number character, such as a balance or an unread count, never names one.
+  // A marker's locator is stored and must match every later sign-in, so text with a
+  // number character, such as a balance or an unread count, never names one, nor does
+  // an ID another load may change. A field that may be a sign-in field keeps such an
+  // ID, as on a login page, rather than leave the page incomplete.
   const located = (entries: typeof fieldEntries) =>
     entries.flatMap((entry) => {
-      const target = locate(entry.draft.element, index, { redactAttributes: true, links: true });
+      const { element } = entry.draft;
+      const target = locate(element, index, {
+        redactAttributes: true,
+        links: true,
+        lasting: !(
+          element instanceof HTMLInputElement &&
+          fillTypes[element.type] &&
+          mayBeSignIn(element)
+        ),
+      });
       return target && !(target.by === "text" && /\p{Number}/u.test(target.value))
         ? [{ ...entry, target }]
         : [];

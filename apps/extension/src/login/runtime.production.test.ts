@@ -1892,6 +1892,147 @@ describe("production login document admission", () => {
         expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
         expect(signedIn).not.toHaveBeenCalled();
       });
+      describe("on another site, as a second factor after the password (ADR 0022)", () => {
+        const console = "https://console.elsewhere.example/home";
+        it("completes when the page shows the account's username", async () => {
+          holdClicks(origin);
+          const h = twoSites({ username: true });
+          expect(await h.hello()).toEqual({ ok: true });
+          await vi.waitFor(() => expect(executes()).toHaveLength(2));
+          h.login.passkeyAnswered(1, origin, "login.example");
+          fake.state.signs = { ...quiet, username: true };
+          await navigate(h, console, "console-document", false);
+          expect(at(origin)).toMatchObject({ state: "authenticated", outcome: "authenticated" });
+          expect(executes()).toHaveLength(2);
+        });
+        it("ends left-origin when the page does not show it and no judge is paired", async () => {
+          holdClicks(origin);
+          const h = twoSites({ username: true });
+          expect(await h.hello()).toEqual({ ok: true });
+          await vi.waitFor(() => expect(executes()).toHaveLength(2));
+          h.login.passkeyAnswered(1, origin, "login.example");
+          await navigate(h, console, "console-document", false);
+          expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
+        }, 10_000);
+        it("ends left-origin when the move comes more than 30 seconds after the answer", async () => {
+          holdClicks(origin);
+          const h = twoSites({ username: true });
+          expect(await h.hello()).toEqual({ ok: true });
+          await vi.waitFor(() => expect(executes()).toHaveLength(2));
+          h.login.passkeyAnswered(1, origin, "login.example");
+          fake.state.signs = { ...quiet, username: true };
+          const now = Date.now.bind(Date);
+          const clock = vi.spyOn(Date, "now").mockImplementation(() => now() + 31_000);
+          onTestFinished(() => clock.mockRestore());
+          await navigate(h, console, "console-document", false);
+          expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
+        });
+        it("completes when the judge answers signed-in for the page", async () => {
+          const judge = vi.fn<LoginGeneration["judge"]>(async (...args) => {
+            args[4]?.();
+            return { verdict: "signed-in" };
+          });
+          holdClicks(origin);
+          const h = twoSites({
+            username: true,
+            generation: {
+              available: vi.fn<LoginGeneration["available"]>(async () => true),
+              generate: vi.fn<LoginGeneration["generate"]>(),
+              generateEntry: vi.fn<LoginGeneration["generateEntry"]>(),
+              judge,
+              slotFields: vi.fn<LoginGeneration["slotFields"]>(async () => undefined),
+            },
+          });
+          const consoleHome = {
+            ok: true,
+            observation: {
+              version: 1,
+              origin: "https://console.elsewhere.example",
+              path: "/home",
+              language: "en",
+              complete: true,
+              candidates: [
+                { id: "c1", role: "button", target: target("logout"), label: "Sign out" },
+              ],
+            },
+          };
+          expect(await h.hello()).toEqual({ ok: true });
+          await vi.waitFor(() => expect(executes()).toHaveLength(2));
+          h.login.passkeyAnswered(1, origin, "login.example");
+          fake.state.signs = quiet;
+          fake.state.extracted = { "signed-in": consoleHome };
+          await navigate(h, console, "console-document", false);
+          expect(at(origin)).toMatchObject({ state: "authenticated", outcome: "authenticated" });
+          expect(judge).toHaveBeenCalledTimes(1);
+          expect(judge.mock.calls[0]![3]).toEqual(consoleHome.observation);
+          expect(executes()).toHaveLength(2);
+        }, 15_000);
+        it("ends left-origin when the answer came before the submission", async () => {
+          holdClicks(origin);
+          const h = twoSites({ username: true });
+          h.login.passkeyAnswered(1, origin, "login.example");
+          await new Promise((resolve) => setTimeout(resolve, 5));
+          fake.state.signs = { ...quiet, username: true };
+          expect(await h.hello()).toEqual({ ok: true });
+          await vi.waitFor(() => expect(executes()).toHaveLength(2));
+          await navigate(h, console, "console-document", false);
+          expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
+        });
+        it("ends left-origin when the password was filled but not submitted", async () => {
+          // The password goes in with the identifier, but the click only advances, and the
+          // site answers with a passkey as the sign-in itself.
+          const advancing = parseLoginRecipe({
+            ...recipe,
+            steps: [
+              recipe.steps[0]!,
+              { kind: "click", path: "/signin", target: target("login"), purpose: "advance" },
+            ],
+          });
+          holdClicks(origin);
+          const h = twoSites({ username: true });
+          h.recipes.recipe.mockImplementation(async (from: string, path: string) =>
+            from === origin && path === "/signin" ? advancing : undefined,
+          );
+          expect(await h.hello()).toEqual({ ok: true });
+          await vi.waitFor(() => expect(executes()).toHaveLength(2));
+          h.login.passkeyAnswered(1, origin, "login.example");
+          fake.state.signs = { ...quiet, username: true };
+          await navigate(h, console, "console-document", false);
+          expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
+        });
+        it("ends left-origin when no password was sent before the answer", async () => {
+          // An identifier step, then the passkey: the passkey is the sign-in itself.
+          const identifier = parseLoginRecipe({
+            ...recipe,
+            slots: ["username"],
+            steps: [
+              {
+                kind: "fill",
+                path: "/signin",
+                fields: [{ slot: "username", target: target("password") }],
+              },
+              { kind: "click", path: "/signin", target: target("login"), purpose: "advance" },
+            ],
+          });
+          holdClicks(origin);
+          const h = harness(
+            {
+              siteDefaults: [{ origin, provider: "bitwarden", userId, itemId }],
+              bindings: [{ ...savedBinding, slots: [{ slot: "username", field: "username" }] }],
+            },
+            { allowedOrigins: [origin], username: true },
+          );
+          h.recipes.recipe.mockImplementation(async (from: string, path: string) =>
+            from === origin && path === "/signin" ? identifier : undefined,
+          );
+          expect(await h.hello()).toEqual({ ok: true });
+          await vi.waitFor(() => expect(executes()).toHaveLength(2));
+          h.login.passkeyAnswered(1, origin, "login.example");
+          fake.state.signs = { ...quiet, username: true };
+          await navigate(h, console, "console-document", false);
+          expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
+        });
+      });
       it("ends left-origin when the answer came before the submission", async () => {
         holdClicks(origin);
         const h = twoSites();
@@ -10390,6 +10531,19 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         expect(status()).toMatchObject([{ state: "authenticated" }]);
         expect(live.generation!.judge).toHaveBeenCalledTimes(1);
         expect(live.generation!.judge.mock.calls[0]![3]).toEqual(portalHome.observation);
+      }, 15_000);
+
+      it("judges the page at the path it shows after changing its own URL", async () => {
+        // A signed-in single-page app moves on from the URL it announced (history.pushState).
+        const { h, live } = leaving("verify", async () => ({ verdict: "signed-in" }));
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(clicks("verify")).toBe(1), { timeout: 6_000 });
+        fake.state.signs = quiet;
+        const chat = { ...portalHome, observation: { ...portalHome.observation, path: "/chat/" } };
+        fake.state.extracted = { "signed-in": chat };
+        await move(h);
+        expect(status()).toMatchObject([{ state: "authenticated" }]);
+        expect(live.generation!.judge.mock.calls[0]![3]).toEqual(chat.observation);
       }, 15_000);
 
       it("ends left-origin when the judge cannot decide", async () => {

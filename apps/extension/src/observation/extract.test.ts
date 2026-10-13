@@ -365,6 +365,35 @@ describe("extractLoginObservation", () => {
     ]);
   });
 
+  it("locates by an ID Mantine's useId made only when nothing else is unique", () => {
+    // A Mantine-built site (2026-10-13): `mantine-ypxwydcwg` has no digit, so only the
+    // library's prefix tells it apart; `mantine-r5` is React 18's `:r5:` without
+    // colons.
+    page(
+      `<form><input id="mantine-ypxwydcwg" name="email">
+        <input id="mantine-r5" name="password" type="password">
+        <button id="mantine-ypxwydcwg-tab-login">Sign in</button></form>`,
+    );
+    expect(observe().candidates.map(({ target }) => target)).toEqual([
+      { by: "name", value: "email" },
+      { by: "name", value: "password" },
+      { by: "text", value: "Sign in" },
+    ]);
+    // With no other locator the ID is still used, so the form stays complete.
+    page(
+      `<form><input id="mantine-ypxwydcwg"><input id="mantine-r5" type="password">
+        <button id="mantine-qwhxkbtfz" aria-label="Sign in"></button></form>`,
+    );
+    const observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(observation.candidates.map(({ target }) => target)).toEqual(
+      ["mantine-ypxwydcwg", "mantine-r5", "mantine-qwhxkbtfz"].map((value) => ({
+        by: "id",
+        value,
+      })),
+    );
+  });
+
   it("locates by an ID holding a random-looking run only when nothing else is unique", () => {
     // A Mantine-built site (2026-10-13): `useId` appends Math.random().toString(36).
     page(
@@ -393,12 +422,12 @@ describe("extractLoginObservation", () => {
     // Only a run of eight or more lower-case letters and digits that no other letter or
     // digit touches looks random: not a shorter one, nor one beside an upper-case letter.
     page(
-      `<form><input id="x-a1b2c3d" name="a"><input id="mantine-4P5f7ku4o" name="b">
-        <input id="mantine4p5f7ku4o" name="c"></form>`,
+      `<form><input id="x-a1b2c3d" name="a"><input id="field-4P5f7ku4o" name="b">
+        <input id="field4p5f7ku4o" name="c"></form>`,
     );
     expect(observe().candidates.map(({ target }) => target)).toEqual([
       { by: "id", value: "x-a1b2c3d" },
-      { by: "id", value: "mantine-4P5f7ku4o" },
+      { by: "id", value: "field-4P5f7ku4o" },
       { by: "name", value: "c" },
     ]);
     // Stable IDs, random-looking (`input2fa`) or not, are used when nothing else is unique.
@@ -1295,6 +1324,35 @@ describe("extractSignedInObservation", () => {
     ]);
   });
 
+  it("never names a marker by an ID that another load may change", () => {
+    // A Mantine-built site (2026-10-13): Tabs give each tab `${useId}-tab-${value}`.
+    page(
+      `<header><nav><a id="mantine-ypxwydcwg-tab-mypage" href="/mypage">マイページ</a>
+        <a id="account-menu" href="/account">Account</a>
+        <a id="nav-k3j9x2m1q" href="/a">More</a>
+        <a id="nav-p8d2w5z7c" href="/b">More</a></nav></header>
+      <input id="mantine-v0zmrhrmb" aria-label="Search">`,
+    );
+    const observation = signedIn();
+    expect(observation.complete).toBe(true);
+    expect(summary(observation)).toEqual([
+      { role: "link", target: { by: "text", value: "マイページ" }, label: "マイページ" },
+      { role: "link", target: { by: "id", value: "account-menu" }, label: "Account" },
+    ]);
+    // A field that may be a sign-in field keeps such an ID rather than leave the page
+    // incomplete, as on a login page.
+    page(
+      `<a id="mantine-ypxwydcwg-tab-mypage" href="/mypage">マイページ</a>
+      <input id="mantine-v0zmrhrmb" type="password">`,
+    );
+    const withField = signedIn();
+    expect(withField.complete).toBe(true);
+    expect(withField.candidates.map(({ target }) => target)).toEqual([
+      { by: "text", value: "マイページ" },
+      { by: "id", value: "mantine-v0zmrhrmb" },
+    ]);
+  });
+
   it("hides every number in a signed-in page's text, whatever its length", () => {
     page(
       `<header><a id="points" href="/points">保有ポイント 1,234,567pt</a>
@@ -1781,6 +1839,292 @@ describe("extractSignedInObservation", () => {
       near(`<span>${text}</span>`);
       expect(signedIn().nearCode, text).toEqual([sent]);
     }
+  });
+
+  describe("texts near the buttons of a page without a code field (ADR 0027)", () => {
+    // Oracle Cloud's FIDO step (2026-10-13), reduced: a help widget beside the step, a
+    // tenant and account in the outer section, and in the main landmark a heading below
+    // h3, the sentence that says what "Verify" starts, the button three parents below it
+    // and a link.
+    const sentence =
+      "To verify your credentials using FIDO Authenticator Security Key or Windows Hello, click Verify.";
+    const help =
+      "An identity domain is a container for managing users and roles, federating and provisioning of users.";
+    const step = (main: string) =>
+      `<oj-idaas-module-adapter ${main}><oj-module><div class="oj-flex">
+        <h4>FIDO Authenticator Verification</h4>
+        <span>${sentence}</span>
+        <div><oj-button><button id="verify" type="button"><span>Verify</span></button></oj-button></div>
+        <a href="#">Show alternative login methods</a>
+      </div></oj-module></oj-idaas-module-adapter>`;
+    const widget = `<div><div>Default</div>
+      <div class="oj-idaas-signin-domain-info">
+        <a role="button" tabindex="0" id="oj-idaas-signin-section-domain-help-link"><span>What is an identity domain?</span></a>
+        <span>${help}</span></div></div>`;
+    // `wrap` more parents between the section and the step put the widget out of reach
+    // of the step's button.
+    const oracle = (main: string, wrap = 0) =>
+      page(
+        `<div id="app"><section><h1>Example Tenant</h1><h2>taro@example.com</h2>
+          ${widget}${"<div>".repeat(wrap)}${step(main)}${"</div>".repeat(wrap)}</section></div>`,
+        "Sign In | Example Cloud",
+      );
+    const outside = [help, "Default", "What is an identity domain?"];
+
+    it("sends the texts near the buttons inside the main landmark, not a widget beside it", () => {
+      for (const main of ['role="main"', 'role="MAIN"', 'role="region main"']) {
+        oracle(main, 2);
+        const observation = signedIn();
+        expect(observation.nearButtons, main).toEqual([
+          "FIDO Authenticator Verification",
+          sentence,
+        ]);
+        expect(observation, main).not.toHaveProperty("nearCode");
+      }
+      // A `main` element counts as the landmark too.
+      page(
+        `<div id="app"><section>${widget}<div><div>${step("")
+          .replace("<oj-idaas-module-adapter >", "<main>")
+          .replace("</oj-idaas-module-adapter>", "</main>")}</div></div></section></div>`,
+      );
+      expect(signedIn().nearButtons).toEqual(["FIDO Authenticator Verification", sentence]);
+    });
+
+    it("never sends a widget's text beside the main landmark, even within six parents", () => {
+      // The widget beside the landmark is within six parents of the step's button, but the
+      // climb from the button stops at the landmark.
+      oracle('role="main"');
+      const observation = signedIn();
+      for (const text of [...outside, "Verify", "Show alternative login methods"])
+        expect(observation.nearButtons, text).not.toContain(text);
+      expect(observation.nearButtons).toEqual(["FIDO Authenticator Verification", sentence]);
+    });
+
+    it("reads around every button by depth without a main landmark", () => {
+      // The help button comes first in the page, so its nearer texts are taken first, one
+      // parent at a time around both buttons, and the step's sentence is left out.
+      oracle("");
+      expect(signedIn().nearButtons).toEqual(["Default", help, "FIDO Authenticator Verification"]);
+      // With the widget out of the step button's reach, its texts still come first.
+      oracle("", 2);
+      expect(signedIn().nearButtons).toEqual(["Default", help, "FIDO Authenticator Verification"]);
+    });
+
+    it("reads the first shown main landmark, not a hidden one before it", () => {
+      for (const hidden of [
+        "<main hidden>",
+        '<main style="display: none">',
+        '<div role="main" hidden>',
+      ]) {
+        const close = hidden.startsWith("<main") ? "</main>" : "</div>";
+        page(
+          `${hidden}<p>Your dashboard overview</p><button id="refresh" type="button">Refresh</button>${close}
+          <main><p>Touch your security key to continue.</p>
+            <button id="verify" type="button">Verify</button></main>`,
+        );
+        expect(signedIn().nearButtons, hidden).toEqual(["Touch your security key to continue."]);
+      }
+    });
+
+    it("reads only the open modal dialog that holds a button", () => {
+      const behind = `<main aria-hidden="true"><div><p>Your dashboard overview</p>
+        <button id="refresh" type="button">Refresh</button></div></main>`;
+      const inside = `<div><p>Touch your security key to continue.</p>
+        <button id="verify" type="button">Verify</button></div>`;
+      page(`${behind}<div role="dialog" aria-modal="true">${inside}</div>`);
+      let observation = signedIn();
+      // The page behind the modal is read, as the existing modal tests show, but its texts
+      // are not sent near the buttons.
+      expect(observation.candidates).toContainEqual(
+        expect.objectContaining({ role: "button", label: "Refresh" }),
+      );
+      expect(observation.nearButtons).toEqual(["Touch your security key to continue."]);
+      // A native modal opened with `showModal()` bounds them the same way.
+      page(`${behind.replace(' aria-hidden="true"', "")}<dialog id="key">${inside}</dialog>`);
+      document.querySelector<HTMLDialogElement>("#key")!.showModal();
+      observation = signedIn();
+      expect(observation.nearButtons).toEqual(["Touch your security key to continue."]);
+      // A dialog that is not modal does not bound them: the main landmark does.
+      page(
+        `<main><div><p>Your dashboard overview</p>
+          <button id="refresh" type="button">Refresh</button></div></main>
+        <div role="dialog">${inside}</div>`,
+      );
+      expect(signedIn().nearButtons).toEqual(["Your dashboard overview"]);
+    });
+
+    it("never reads around the header's buttons or sends the header's texts", () => {
+      for (const [open, close] of [
+        ["<header>", "</header>"],
+        ["<nav>", "</nav>"],
+        ['<div role="banner">', "</div>"],
+        ['<div role="navigation">', "</div>"],
+      ] as const) {
+        page(
+          `<div id="app">${open}<div><span>Signed in to Example Tenant</span>
+              <button id="menu" type="button">Menu</button></div>${close}
+            <section><div><div><p>Touch your security key to continue.</p>
+              <div><button id="verify" type="button">Verify</button></div></div></div></section>
+          </div>`,
+        );
+        const observation = signedIn();
+        expect(observation.nearButtons, open).toEqual(["Touch your security key to continue."]);
+        // The header text carries it instead.
+        if (open === "<header>" || open.includes("banner"))
+          expect(observation.headerText, open).toContain("Signed in to Example Tenant");
+      }
+      // A page whose only button is in the header sends none.
+      page(
+        `<div id="app"><header><div><span>Signed in to Example Tenant</span>
+            <button id="menu" type="button">Menu</button></div></header>
+          <section><p>Touch your security key to continue.</p>
+            <a id="other" href="/other">Use another method</a></section></div>`,
+      );
+      expect(signedIn()).not.toHaveProperty("nearButtons");
+    });
+
+    it("sends texts near a code field instead when the page has one", () => {
+      page(
+        `<main><div><p>Touch your security key to continue.</p>
+          <div><span>Enter the code from your authenticator app.</span>
+            <input id="otp" autocomplete="one-time-code" aria-label="Code"></div>
+          <div><span>Or use your security key</span>
+            <button id="key" type="button">Use security key</button></div>
+          <button id="verify" type="submit">Verify</button></div></main>`,
+      );
+      const observation = signedIn();
+      expect(observation.nearCode).toEqual([
+        "Touch your security key to continue.",
+        "Enter the code from your authenticator app.",
+        "Or use your security key",
+      ]);
+      expect(observation).not.toHaveProperty("nearButtons");
+      // A split code's first input counts as a code field as well.
+      const digits = Array.from(
+        { length: 6 },
+        (_, index) =>
+          `<input id="d${index}" type="text" inputmode="numeric" maxlength="1"
+            aria-label="Digit ${index + 1}">`,
+      ).join("");
+      page(
+        `<main><div><p>Enter the code from your authenticator app.</p><div>${digits}</div>
+          <button id="verify" type="submit">Verify</button></div></main>`,
+      );
+      expect(signedIn().nearCode).toEqual(["Enter the code from your authenticator app."]);
+      expect(signedIn()).not.toHaveProperty("nearButtons");
+    });
+
+    it("sends none without a button, or without one inside the main landmark", () => {
+      // Links only.
+      page(
+        `<main><div><p>Touch your security key to continue.</p>
+          <a id="other" href="/other">Use another method</a></div></main>`,
+      );
+      expect(signedIn()).not.toHaveProperty("nearButtons");
+      // The only button sits outside the landmark, next to a text.
+      page(
+        `<div><div><p>Need help with your account?</p>
+          <button id="help" type="button">Help</button></div>
+        <main><div><p>Touch your security key to continue.</p>
+          <a id="other" href="/other">Use another method</a></div></main></div>`,
+      );
+      expect(signedIn()).not.toHaveProperty("nearButtons");
+    });
+
+    // A step with one button, and `text` beside its sentence.
+    const near = (text: string) =>
+      page(
+        `<main><div><p>Touch your security key to continue.</p>${text}
+          <div><button id="verify" type="button">Verify</button></div></div></main>`,
+        "Security check",
+      );
+
+    it("leaves out live regions, controls, labels, links, headings and repeated texts", () => {
+      near("");
+      expect(signedIn().nearButtons).toEqual(["Touch your security key to continue."]);
+      for (const text of [
+        '<p role="alert">Security key not detected</p>',
+        '<p role="status">Waiting for your security key</p>',
+        '<p aria-live="polite">Waiting for your security key</p>',
+        '<a href="/help">Trouble with your security key?</a>',
+        '<span role="link" tabindex="0">Trouble with your security key?</span>',
+        '<span role="button" tabindex="0">Try again later</span>',
+        '<label for="remember">Remember this device</label><input id="remember" type="checkbox">',
+        "<h1>Use your security key</h1>",
+        "<h2>Use your security key</h2>",
+        "<h3>Use your security key</h3>",
+        '<div role="heading" aria-level="4">Use your security key</div>',
+        "<code>Use your security key</code>",
+        // A text that repeats the title, a heading or a button's label.
+        "<span>Security check</span>",
+        "<h1>Use your security key</h1><span>Use your security key</span>",
+        "<span>Verify</span>",
+        // Fewer than two letters beside the placeholders.
+        "<span>9:59</span>",
+        "<span>A</span>",
+        "<span>5 s</span>",
+        "<span>taro@example.com 5</span>",
+      ]) {
+        near(text);
+        expect(signedIn().nearButtons, text).toEqual(["Touch your security key to continue."]);
+      }
+      // A key or recovery code leaves out every text read in the parent that shows it.
+      for (const text of [
+        "<span>Your key ABCD-EFGH-1234-5678</span>",
+        "<span>ABCD-EFGH-1234-5678</span>",
+        "<p><span>JBSW</span><span>Y3DP</span><span>EHPK</span><span>3PXP</span></p>",
+      ]) {
+        near(text);
+        expect(signedIn(), text).not.toHaveProperty("nearButtons");
+      }
+      // A parent that holds another shown field to type in stops the climb.
+      page(
+        `<div><p>Far away text</p>
+          <div><input id="q" type="search" aria-label="Search">
+            <div><p>Touch your security key to continue.</p>
+              <div><button id="verify" type="button">Verify</button></div></div></div></div>`,
+      );
+      expect(signedIn().nearButtons).toEqual(["Touch your security key to continue."]);
+    });
+
+    it("hides and cuts the texts as the rest of the page", () => {
+      near("<span>We sent a request to taro@example.com, valid for 5 minutes</span>");
+      expect(signedIn().nearButtons).toEqual([
+        "Touch your security key to continue.",
+        "We sent a request to [email], valid for [number] minutes",
+      ]);
+      near("<span>Call +1 0123-4567-8901 if you lost your key</span>");
+      expect(signedIn().nearButtons).toEqual([
+        "Touch your security key to continue.",
+        "Call +[number] [number]-[number]-[number] if you lost your key",
+      ]);
+      // A long text is cut at 120 characters.
+      const long = `To verify your credentials ${"using your security key ".repeat(8)}click Verify.`;
+      near(`<span>${long}</span>`);
+      const [, cut] = signedIn().nearButtons!;
+      expect(cut!.length).toBeLessThanOrEqual(120);
+      expect(long.startsWith(cut!)).toBe(true);
+      expect(cut!.length).toBeGreaterThan(110);
+    });
+
+    it("never sends texts near the buttons of a login page", () => {
+      page(
+        `<main><form><div><p>Touch your security key to continue.</p>
+          <input id="user" type="email" aria-label="Email">
+          <input id="pw" type="password" aria-label="Password">
+          <div><button id="go" type="submit">Sign in</button></div>
+          <div><span>Or use a passkey from your phone</span>
+            <button id="passkey" type="button">Use a passkey</button></div></div></form></main>`,
+      );
+      expect(observe()).not.toHaveProperty("nearButtons");
+      // Nor does a first step without a form that asks only for the account.
+      page(
+        `<main><div><p>Sign in with a passkey or your email address.</p>
+          <input id="user" type="email" aria-label="Email">
+          <div><button id="next" type="button">Next</button></div></div></main>`,
+      );
+      expect(observe()).not.toHaveProperty("nearButtons");
+    });
   });
 
   it("never locates by an id or name that carries an email address or a long number", () => {

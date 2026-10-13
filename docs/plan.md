@@ -57,6 +57,7 @@ on 2026-10-12 (20:50 UTC):
 | A CAPTCHA the person solves, then the signed-in page | Q-move | Recheck after this change's merge: a disabled field kept the signed-in page from the judge ([ADR 0029](adr/0029-local-sign-in-state.md)) |
 | A signed-in page on another host of the same site | JAL (`jallogin.jal.co.jp` to `www.jal.co.jp`, after a passkey), モッピー (`ssl.pc.moppy.jp` to `pc.moppy.jp`, after a password) | Both records ended `left-origin`. JAL: fix in progress. モッピー: done; a password login completes when the new host's page shows the account's username, or, when it does not, a marker learned on that host shows or the judge answers `signed-in` once (signed in on `fdf57ef` in the owner's Chrome, 2026-10-13 02:53 UTC: the `pc.moppy.jp` page was judged `signed-in`, marked `moved`, and the account choice was saved) ([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md)) |
 | A signed-in page on another site after a TOTP code | Microsoft (`login.microsoftonline.com` to `m365.cloud.microsoft`, Grok Bot) | Ended `left-origin` on 2026-10-12 22:05 UTC. A move to another site within 30 seconds of a submitted TOTP code now completes on the same checks as モッピー, the username or one judgement (owner's 「コード送信後だけ」, 2026-10-13 01:59 UTC; synthetic tests only; recheck on the Grok Bot) ([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md)) |
+| A signed-in page on another site after a passkey second factor | Oracle Cloud (security key after the password on an `oraclecloud.com` sign-in host, then `cloud.oracle.com`) | Ended `left-origin` on 2026-10-13 02:59 UTC, 3 seconds after Pateat answered the security key. A move to another site within 30 seconds of a passkey Pateat answered after the item's password now completes on the same checks (owner's 「同じ扱い」, 2026-10-13 03:13 UTC; synthetic tests only; recheck in the owner's Chrome) ([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md)) |
 | Google's own sign-in (email first, account choice) | Google | Not checked |
 | Choosing among several accounts of one site in the popup ([#187](https://github.com/risu729/pateat/pull/187)) | GitHub | Signed in; recheck the shortened item IDs and the silent stop while another tab's login holds the site, and that a pick of an item with a passkey signs in with it ([ADR 0034](adr/0034-answer-page-passkey-requests.md), local tests only) |
 | Fill only after a logout | アパホテル | Done |
@@ -79,6 +80,13 @@ own accounts, so they stay in the project's files rather than in this repository
   at 19:10 UTC, without Pateat). That Pateat does nothing there is judged from the code
   and from the Grok Bot's log of 2026-10-12, which has no ABEMA entry after the Bot
   opened `abema.tv/mylist` (build `a8350f5`).
+  myUNSW is one too: it signs in through UNSW's single sign-on page
+  (`sso.unsw.edu.au/cas/login`), which offers "Agree and sign on" with the account's
+  address while the matching item's username is not an address (owner, 2026-10-13
+  04:41 UTC). In the owner's Chrome on 2026-10-13 at 04:34 UTC, with build `2675f0f`
+  ([#454](https://github.com/risu729/pateat/pull/454)), Pateat saved no recipe there
+  and pressed nothing; the page was logged as `no-listed-account` with
+  `no-email-username`.
 - Done: login attempts whose result settled as unknown no longer hold settings writes
   for the next login, and a vault replacement no longer runs during a login
   ([declarative recipes](architecture.md#declarative-recipes-and-ai)); diagnostics log
@@ -419,8 +427,10 @@ own accounts, so they stay in the project's files rather than in this repository
   - Added on 2026-10-13, not moved by the owner: a security-key second factor behind a
     button labelled only "Verify", as on Oracle Cloud. On `fdf57ef` (2026-10-13 02:57
     UTC), the judge named no button, so the owner pressed it, and Pateat answered with
-    the item's passkey. Recheck once the judge's instructions name such a button (ADR
-    0027); this needs a paid judge call.
+    the item's passkey. The judge's instructions now name such a button, but its
+    description had no text saying FIDO (recheck at 03:56 UTC), so the page also
+    carries the text near its buttons (owner, 2026-10-13 04:22 UTC, ADR 0027). Recheck
+    after that change's deploy and extension reload; this needs a paid judge call.
   - The `totp` handler on a site whose code page names an authenticator app, such as
     npmjs.com: a judged code page adds the handler and the
     same login types one code. It needs a paid judge call and a real account's code, so
@@ -2208,8 +2218,8 @@ fills and the browser's validation, `pattern` included, before it clicks. Text i
 redacted as [architecture](architecture.md#declarative-recipes-and-ai) describes. Each
 target is the first of `id`, `name` and `data-testid` that matches exactly one element,
 as the executor resolves it, skipping an `id` React's `useId` generated and trying one
-holding a random-looking run such as Mantine's (2026-10-13) last, and for an input
-without one, its first `autocomplete` token that is `username`, `email`,
+holding a random-looking run or Mantine's `mantine-` prefix (2026-10-13) last, and for
+an input without one, its first `autocomplete` token that is `username`, `email`,
 `current-password`, `one-time-code` or `webauthn` and that no other input carries; a
 button without one gets a text locator when its text matches exactly one button and
 redaction leaves it unchanged, and a script link when its text matches no button and

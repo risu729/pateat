@@ -398,7 +398,8 @@ logs in as a new tab would, and a top-level attempt that may have submitted ends
 belongs to a passkey Pateat has just answered and its page shows no sign-in, or when a
 `password` login's tab moves, within 30 seconds of the login's last step that may have
 submitted (a fill or click), to another HTTPS origin of the same registrable domain,
-or within 30 seconds of a TOTP code it submitted to an HTTPS origin of any site, whose
+or within 30 seconds of a second factor (a TOTP code it submitted, or a passkey Pateat
+answered after the item's password) to an HTTPS origin of any site, whose
 page shows the account's username and no sign-in or, when it shows no username, a
 signed-in marker learned on that origin or the judge, asked once. An ended record of a
 site the tab left, including a frame's login on that site's page, never holds the new
@@ -981,7 +982,7 @@ kind's check is left out and a string over 512 characters becomes `"[truncated]"
 | `login.popup` | info; debug for `none` without a login record or a refused page | origin and what the toolbar popup was told about the tab's account choice (ADR 0021), logged when that changes for the tab: `offered` with how many accounts (`candidates`) and `logout`, `rejected` or `held`, or `none`; the tab's login record for the origin as `recordState` and `recordOutcome`, and the page's last refusal reason as `pageReason`, which together say why nothing was offered |
 | `login.exception` | warn | origin, recipe ID and revision (`recipeRevision`), route, the state the login was left in and its step, the exception's class name, its message only when it is a Pateat error code, and up to five of its stack positions inside the extension's own files; logged when an exception stops a running login. A document that stops answering is no exception: `login.attempt` logs it with `document-gone` |
 | `recipe.generate` | debug for `skipped` with `no-vault-match`, `not-connected`, `not-a-list`, `no-listed-account` or `nothing-offered`, warn for `failed`, else info | origin, outcome (`sent` when the page goes out, then `recipe`, `abstained`, `failed`, `unavailable`, `skipped`) and its reason: the abstention, failure or unavailable code, `device-rejected`, `error` for a thrown error, or why nothing was sent (`sending`, `sent`, `no-vault-match` with a detail (`no-item`, `no-slots`, `no-connection`, `incomplete-item`, `site-excluded`, `invalid-url`), `vault-unavailable` with the vault's reason (or `settings`, `tab`, `error`), `connection-disabled` when every vault connection is turned off, `not-a-list` with why a page whose text holds an `@` is not a list of accounts (ADR 0028: `aria-hidden`, `inert`, `hidden`, `not-rendered`, `page-chrome`, `inside-control`, `no-entry`, `unread-text`, `split-address`), `no-listed-account` when no short text beside the buttons named an item (`no-name-match` when the page also shows no control to sign in with another account; when words for another account show but no such control counts, why: for a usable control with the words, `other-holds-name` when its text or label holds a shown name, `other-not-clickable` when a list click could not press it, `other-text-long` when its text is over 64 characters, `other-label-only` when only an `aria-label` has them; for words outside every usable control, `other-in-chrome` in page chrome, `other-not-entry` with nothing shown, enabled and clickable around them, `other-not-control` in a clickable element that is not an innermost control; or the vault's reason), or for any list on a page whose path holds a matching item's username (`username-in-path`), or for a list by email when no matching item's username is an email and the page shows no control for another account (`no-email-username`), `nothing-offered` when a page that could be sent showed, by the end of the 10-second wait after loading, no list of accounts, sign-in entry or identifier input (`no-list`), was the page right after a submitted password form (`after-sign-in`), or showed a sign-in input only at the end of the wait (`sign-in-shown`), `field-not-described` for the page after a final `advance` step whose description lacks the sign-in input it qualified with (ADR 0018), `incomplete-observation` with why as `detail`: for an incomplete description the extractor's first cause, in this order for a login page `shadow-field` (a fillable field in any shadow root), `shadow-control` (another control in a shadow root inside a login form), `unfillable-field` (a faint, read-only or disabled fillable field of a login form), `unsupported-control` (a select, radio button, text area or other input the executor cannot act on in a login form), `unlocated-field`, `unlocated-checkbox` and `unlocated-button` (a login form's field, checkbox or button without a locator that names it alone, including an icon button in a form with no other button to submit with), `too-many-candidates` (more than 48), and for a list of accounts `shadow-field`, `too-many-accounts` (more than eight), `unlisted-accounts` (an account whose text could not be sent), `too-many-elements` (more than the 4,000 elements the list scan reads) and `too-many-controls` (more than eight other controls), or `incomplete` without one; `invalid-observation` for a description that fails its schema; for a complete one `origin-changed` or `path-changed` when it describes another origin or path than the document's, `list-mismatch` when a page announced as a list is described without accounts or another page with them, and for a page offered as a site's sign-in entry `not-entry` when it shows a field or lists accounts; the content script's refusal (`no-candidates` for no field or nothing in a login form to locate or act on, `no-locator` for a login form whose controls could not be located, `unsupported-page` for a refused path or a description that fails its schema, `extract-error` when the extractor threw, `cancelled` for a cancelled document), `extract-failed` for an answer that fails its check or never came, `unreachable` when the page went away or stopped answering before it could be read, as during a navigation, with how as `detail` (`no-receiver`, `port-closed`, `send-failed`), `exception` when reading the vault for it, or anything else, threw while the page still shows, `no-slots`, `not-connected`, `storage-unavailable`, `username-unread` when a matching item's username could not be read to hide it, `username-shown` when a username shows in the page's path or a field's locator, where it cannot be hidden, for the page after a final `advance` step `scope-incomplete` while the vault match could not evaluate every item, `after-sign-in` for the tab's next page after a submitted password form when it lists accounts, offers an entry or asks for an identifier alone, and for a page offered as a site's sign-in entry `no-return-target`, `site-record`, `logged-out` and `no-entry-link` when its description lists no link); `page` (also for a page that asks for an account identifier alone, [ADR 0016](adr/0016-recipe-generation-trigger.md#pages-that-ask-for-an-identifier-alone)), `accounts` for a list of accounts (ADR 0028) or `entry` for a page sent as a site's sign-in entry (ADR 0031); for `invalid-output`, the check that refused the model's output (`json`, `schema` or `plan`), the plan check's code or the output format's issue, and for a format issue where in the output it was; a page that is not sent is logged once per document, with the last reason after up to three reads a second apart; for the page after a final `advance` step, the recipe ID and the revision it continues, and for a returned revision whether this login took it over, left out when the page that asked was left before the answer |
-| `recipe.judge` | warn for `retry` after a request that failed (any reason but `not-connected`, where nothing was sent), for an undecided answer that completed the login (`completed`, ADR 0029) or that did not complete it only because a disabled field was left out or the login stops before its item's missing password (`notCompleted`), and for a watched login's `unclear` or `challenge` or its `not-sent` `page-limit`, which leave it without a result (ADR 0027), else info; `unclear` stays info even with a failure code such as `timeout`, since it also covers permanent refusals such as `already-judged`, and its reason tells them apart; `sent` is logged just before the request leaves the device and is kept because it is all that is left when no answer comes | origin, recipe ID and revision (`recipeRevision`), route; `sent` when the page goes out, then the verdict (`signed-in`, `rejected`, `challenge`, `unclear`, `retry`); for `unclear` and `retry`, the transport, service or model code (for example `already-judged`, `busy`, `timeout`); for a returned revision, whether this login took it over; `watched` for a page of a watched login; `completed` when the judge did not decide a page with no sign and no evidence and the login completed on it; `moved` for a page of another origin of the site that a `password` login's tab moved to right after the submission, or of another site right after a TOTP code, judged once, whose verdict alone decides the login (ADR 0022), with that page's origin; `disabledLeftOut` on each entry of a page whose description left out a disabled field that may not be a sign-in field, which completes the login only on `signed-in`, and `notCompleted` (`disabled-left-out`) when an undecided answer would otherwise have completed it (ADR 0029), or `password-empty` for a login that stops before its item's missing password, which ends `challenge` instead ([ADR 0036](adr/0036-passkey-after-the-identifier.md)); `not-sent` when the page after an effect step is not sent to the judge, with why: the step's two pages, or the watch's, were already sent (`page-limit`), a sign-in field of the route still shows on a sign-in path (`sign-in-shown`), a signed-in marker shows but does not prove the sign-in, as more than once or beside one of its `absent` elements (`marker-shown`), a field in a shadow root (`shadow-field`), one that cannot be filled and may be a sign-in field (`unfillable-field`: a password or email input, one with any autocomplete token the description carries other than `off`, such as `username`, `current-password`, `one-time-code` or a personal-data token such as `tel`, or a short numeric field; other read-only, disabled, transparent or tiny fields, as a read-only date picker, are left out), one that may be a sign-in field without a usable locator, as above, except a password field of a form with two or more of them or for a new password (`unlocated-field`; other fields without one are left out), more than 48 fields (`too-many-fields`), nothing to describe (`no-candidates`), a description that fails its schema (`unsupported-page`; a path that may carry a token is sent with `[id]` instead), an extractor that threw (`extract-error`), a response that fails its check (`invalid-page`), a cancelled login (`cancelled`), a page that changed meanwhile (`page-changed`) or could not be asked (`unreachable`), a username that could not be read to hide it (`username-unread`) or that shows where it cannot be hidden (`username-shown`), a sign-in page after a recipe's final `advance` step, which is sent to continue the recipe instead (`continuation`), or, for a `moved` page, a recipe revision no longer at hand (`recipe-unavailable`) or no paired service (`no-service`) |
+| `recipe.judge` | warn for `retry` after a request that failed (any reason but `not-connected`, where nothing was sent), for an undecided answer that completed the login (`completed`, ADR 0029) or that did not complete it only because a disabled field was left out or the login stops before its item's missing password (`notCompleted`), and for a watched login's `unclear` or `challenge` or its `not-sent` `page-limit`, which leave it without a result (ADR 0027), else info; `unclear` stays info even with a failure code such as `timeout`, since it also covers permanent refusals such as `already-judged`, and its reason tells them apart; `sent` is logged just before the request leaves the device and is kept because it is all that is left when no answer comes | origin, recipe ID and revision (`recipeRevision`), route; `sent` when the page goes out, then the verdict (`signed-in`, `rejected`, `challenge`, `unclear`, `retry`); for `unclear` and `retry`, the transport, service or model code (for example `already-judged`, `busy`, `timeout`); for a returned revision, whether this login took it over; `watched` for a page of a watched login; `completed` when the judge did not decide a page with no sign and no evidence and the login completed on it; `moved` for a page of another origin of the site that a `password` login's tab moved to right after the submission, or of another site right after a TOTP code or a passkey answered after the password, judged once, whose verdict alone decides the login (ADR 0022), with that page's origin; `disabledLeftOut` on each entry of a page whose description left out a disabled field that may not be a sign-in field, which completes the login only on `signed-in`, and `notCompleted` (`disabled-left-out`) when an undecided answer would otherwise have completed it (ADR 0029), or `password-empty` for a login that stops before its item's missing password, which ends `challenge` instead ([ADR 0036](adr/0036-passkey-after-the-identifier.md)); `not-sent` when the page after an effect step is not sent to the judge, with why: the step's two pages, or the watch's, were already sent (`page-limit`), a sign-in field of the route still shows on a sign-in path (`sign-in-shown`), a signed-in marker shows but does not prove the sign-in, as more than once or beside one of its `absent` elements (`marker-shown`), a field in a shadow root (`shadow-field`), one that cannot be filled and may be a sign-in field (`unfillable-field`: a password or email input, one with any autocomplete token the description carries other than `off`, such as `username`, `current-password`, `one-time-code` or a personal-data token such as `tel`, or a short numeric field; other read-only, disabled, transparent or tiny fields, as a read-only date picker, are left out), one that may be a sign-in field without a usable locator, as above, except a password field of a form with two or more of them or for a new password (`unlocated-field`; other fields without one are left out), more than 48 fields (`too-many-fields`), nothing to describe (`no-candidates`), a description that fails its schema (`unsupported-page`; a path that may carry a token is sent with `[id]` instead), an extractor that threw (`extract-error`), a response that fails its check (`invalid-page`), a cancelled login (`cancelled`), a page that changed meanwhile (`page-changed`) or could not be asked (`unreachable`), a username that could not be read to hide it (`username-unread`) or that shows where it cannot be hidden (`username-shown`), a sign-in page after a recipe's final `advance` step, which is sent to continue the recipe instead (`continuation`), or, for a `moved` page, a recipe revision no longer at hand (`recipe-unavailable`) or no paired service (`no-service`) |
 | `passkey.request` | info | the passkey report described in [development](development.md#why-a-passkey-request-was-delegated) |
 | `passkey.create` | info | the registration check described in [development](development.md#why-a-passkey-request-was-delegated) |
 | `error.unhandled` | error | `error` or `rejection`, class name, message only when it is a Pateat error code, up to five `file.js:line:column` positions inside the extension |
@@ -1157,14 +1158,14 @@ reports `authenticated` with it only when the sign-in state of
 `password` route (the username in the header or navigation, or the return target the
 sign-in page's URL named), or when the tab moves on to the site of a passkey Pateat has
 just answered, or, right after a password submission, to another origin of the site (or,
-right after a TOTP code, of any site) whose page shows the username or a marker learned
-there, or that the judge answers `signed-in` for (ADR 0022). A login that stops before
-its item's missing password never counts the username
-([ADR 0036](adr/0036-passkey-after-the-identifier.md)). Otherwise a submission ends
-`credential-rejected`, moves to a later step, or stays unknown (`unknown-submit`), so no
-account choice is saved. An unknown attempt stays in `reconciling` until its tab closes
-or, for a top-level attempt, until the tab shows a page of another origin that Pateat
-may run on (`left-origin`, ADR 0022): meanwhile it holds the origin. A top-level
+right after a TOTP code or a passkey answered after the password, of any site) whose
+page shows the username or a marker learned there, or that the judge answers `signed-in`
+for (ADR 0022). A login that stops before its item's missing password never counts the
+username ([ADR 0036](adr/0036-passkey-after-the-identifier.md)). Otherwise a submission
+ends `credential-rejected`, moves to a later step, or stays unknown (`unknown-submit`),
+so no account choice is saved. An unknown attempt stays in `reconciling` until its tab
+closes or, for a top-level attempt, until the tab shows a page of another origin that
+Pateat may run on (`left-origin`, ADR 0022): meanwhile it holds the origin. A top-level
 `password` attempt ends sooner, after its 10-minute watch or when its first step shows
 again in a new page
 ([ADR 0027](adr/0027-per-account-login-routes.md#watching-after-a-challenge)). The
@@ -1286,7 +1287,14 @@ rule flags about 88% of such IDs; it misses a run shorter than eight characters,
 that switches fewer than twice, and one beside an upper-case letter. Stable IDs such as
 `step2of3`, `input2fa` or `form-3a7bd3e2` also match, so an element that has no other
 unique locator still gets its `id`, and a form that only such IDs locate stays
-complete.
+complete. An `id` starting with `mantine-`, the prefix of Mantine's `useId` and of the
+IDs its components derive from it, is demoted the same way, as a rule about the UI
+library like the one for React's `useId`, not about a site (ADR 0033): the random run
+can lack a digit, and a signed-in marker on a Mantine-built site was chosen by
+`mantine-ypxwydcwg-tab-mypage`, a tab's ID (2026-10-13). On the signed-in page such an
+`id` or a random-looking one locates no marker, since a marker must match on every
+later visit; only a field that may be a sign-in field still gets it, so the page is
+not reported incomplete.
 
 A text locator is stored in the recipe, unlike observation labels, which only reach
 inference. Redaction keeps email addresses and long numbers out of it, but a button
@@ -1361,18 +1369,18 @@ a longer Latin word, so `ann` is not found in `annual`. It looks for each userna
 is and in the form the page's redaction left it in (`taro[number]` for `taro1234`), and
 also hides the start of a username at the end of a text cut at its limit (120
 characters, 1,000 for the header text). The title, headings, header text, texts near a
-code field, account texts and each candidate's label, placeholder and description are
-covered. A locator cannot be hidden, since it must name the element as it is: a button,
-link or checkbox whose locator (text, `id`, `name` or `data-testid`) holds a username is
-left out. The page is not sent (`username-shown`) when that control would leave it
-incomplete: a field, a button or link of a field's form, or a button outside every form
-beside a field outside every form; nor when a segment of its path holds a username under
-the same rule. A username read that fails also keeps the page from being sent
-(`username-unread`); an item without a username, with an empty one (the catalog's
-`empty` flag) or whose username the user excluded is not read and does not count. Not
-covered: an email username's local part shown alone (the address itself is already
-`[email]`), a username in the origin, such as a personal subdomain, the usernames of
-items on a connection that could not answer, and the sign-in entry pages of
+code field or the buttons, account texts and each candidate's label, placeholder and
+description are covered. A locator cannot be hidden, since it must name the element as
+it is: a button, link or checkbox whose locator (text, `id`, `name` or `data-testid`)
+holds a username is left out. The page is not sent (`username-shown`) when that control
+would leave it incomplete: a field, a button or link of a field's form, or a button
+outside every form beside a field outside every form; nor when a segment of its path
+holds a username under the same rule. A username read that fails also keeps the page
+from being sent (`username-unread`); an item without a username, with an empty one (the
+catalog's `empty` flag) or whose username the user excluded is not read and does not
+count. Not covered: an email username's local part shown alone (the address itself is
+already `[email]`), a username in the origin, such as a personal subdomain, the
+usernames of items on a connection that could not answer, and the sign-in entry pages of
 [ADR 0031](adr/0031-sign-in-entry-pages.md). Known limits: a username that is also a
 word in the page's path or its form controls, such as `admin` or `login`, keeps that
 page from being sent (`username-shown`), so such a site gets no recipe; on a judged
@@ -1391,18 +1399,22 @@ visible text of each outermost `header`, `nav`, banner and navigation landmark i
 document order, redacted the same way, with usernames hidden as above, and cut at 1,000
 characters. No other page carries it. While that page has an open modal dialog (a shown
 element with `aria-modal="true"` and the role `dialog` or `alertdialog`, or a `<dialog>`
-opened with `showModal()`), an `aria-hidden="true"` or `inert` element beside the
-dialog or one of its ancestors, as modal libraries mark the page behind, no longer hides
-what it holds: the description carries that page's header text, headings, fields and
-possible markers, with the modal's controls ranked right after the header's, and E2
-reads the header the same way (ADR 0029, 2026-10-13). An element the site hid at that
-level for another reason, such as a closed drawer, is read too. That page, when it shows
-a code field, also carries `nearCode`: up to three short texts near the first one, such
-as a sentence naming an authenticator app outside the code form, redacted the same way,
-with live regions, error messages, controls, labels, links and headings left out
-([ADR 0027](adr/0027-per-account-login-routes.md#implementation-choices)). Login pages
-keep the four-digit rule, since hints such as `4 digits` help map fields. When a login
-page already shows a chosen account and offers a button or link to use another one, the
+opened with `showModal()`), an `aria-hidden="true"` or `inert` element beside the dialog
+or one of its ancestors, as modal libraries mark the page behind, no longer hides what
+it holds: the description carries that page's header text, headings, fields and possible
+markers, with the modal's controls ranked right after the header's, and E2 reads the
+header the same way (ADR 0029, 2026-10-13). An element the site hid at that level for
+another reason, such as a closed drawer, is read too. That page, when it shows a code
+field, also carries `nearCode`: up to three short texts near the first one, such as a
+sentence naming an authenticator app outside the code form, redacted the same way, with
+live regions, error messages, controls, labels, links and headings left out
+([ADR 0027](adr/0027-per-account-login-routes.md#implementation-choices)). Without a
+code field, it carries `nearButtons` instead: up to three such texts near its buttons,
+read inside an open modal that holds one or else the first shown main landmark, and
+never in the header or navigation, so the judge can tell that a button labelled only
+"Verify" starts a security-key check. Login pages keep the
+four-digit rule, since hints such as `4 digits` help map fields. When a login page
+already shows a chosen account and offers a button or link to use another one, the
 generation role may name it as the plan's `accountSwitch`; it must be an observed button
 or link that the plan neither fills nor uses as its action. The generated recipe keeps
 the first switch a page names that no step clicks. Only links inside the login form are
