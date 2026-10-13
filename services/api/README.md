@@ -239,16 +239,17 @@ the path ending before it), or `{ check: "plan", reason }` with the plan check's
   `{ version: 1, revision, route, observation, partial? }` for a page an effect step of
   that revision led to, on the recipe's origin
   ([ADR 0027](../../docs/adr/0027-per-account-login-routes.md)) or on another HTTPS
-  origin of its registrable domain that a `password` login's tab moved to
-  ([ADR 0022](../../docs/adr/0022-login-attempts-per-tab-and-origin.md); a page of
-  another site, or of another origin on another route, answers 400). On that other
-  origin the recipe's paths are not compared with the page, only markers learned there
-  count, a `signed-in` marker is stored with that `origin` (or, when it cannot be
-  learned, the answer is still `signed-in`), and a `challenge` adds no handler.
-  `partial: true` says
+  origin that a `password` login's tab moved to: of its registrable domain, or of any
+  site for a recipe that may type a TOTP code (a variant has a step that fills only the
+  `totp` slot, or it has a `totp` handler)
+  ([ADR 0022](../../docs/adr/0022-login-attempts-per-tab-and-origin.md); any other
+  origin, or another origin on another route, answers 400). On that other origin the
+  recipe's paths are not compared with the page, only markers learned there count, a
+  `signed-in` marker is stored with that `origin` (or, when it cannot be learned, the
+  answer is still `signed-in`), and a `challenge` adds no handler. `partial: true` says
   the description left out a disabled field that may not be a sign-in field
-  ([ADR 0029](../../docs/adr/0029-local-sign-in-state.md)). Another revision, or a
-  route the stored recipe lacks, answers `recipe-conflict`. The request never names a
+  ([ADR 0029](../../docs/adr/0029-local-sign-in-state.md)). Another revision, or a route
+  the stored recipe lacks, answers `recipe-conflict`. The request never names a
   `password` variant. On the `passkey` route, a page that shows a fill field of any
   `password` variant on any path, or its button on its path or a `password` route path,
   answers `not-judgeable`, and its path and every `password` route path are login paths.
@@ -271,14 +272,14 @@ the path ending before it), or `{ check: "plan", reason }` with the plan check's
   next revision, and the answer carries it as `change`. The kept and dropped handler
   kinds, with the reason a handler was dropped, are logged without elements or values. A
   code the model named but the judge's own checks refused (its source or the TOTP fill
-  rule, before `addHandler`) is logged the same way, and its request
-  log's result carries why as `totpDropped`: its source when that is not an
-  authenticator app (`source-sms`, `source-email`, `source-unknown`), `unknown-field` or
-  `unknown-submit` for an ID that is no element of the page, or `not-input`,
-  `text-locator`, `not-code-field`, `code-too-short`, `several-code-fields`,
-  `submit-not-button` or `submit-other-form`. A `signed-in` marker on a `totp` handler's
-  path that shows its code field fails `addCompletion` like one on the sign-in page, and
-  the call answers `invalid-output`.
+  rule, before `addHandler`) is logged the same way, and its request log's result
+  carries why as `totpDropped`: its source when that is not an authenticator app
+  (`source-sms`, `source-email`, `source-unknown`), `unknown-field` or `unknown-submit`
+  for an ID that is no element of the page, or `not-input`, `text-locator`,
+  `not-code-field`, `code-too-short`, `several-code-fields`, `submit-not-button` or
+  `submit-other-form`. A `signed-in` marker on a `totp` handler's path that shows its
+  code field fails `addCompletion` like one on the sign-in page, and the call answers
+  `invalid-output`.
 
 Judgements are limited under the lock, before credentials are resolved:
 `page_judgements` holds one row per recipe revision, page origin and path and judge

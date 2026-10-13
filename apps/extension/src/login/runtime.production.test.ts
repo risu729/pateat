@@ -9989,6 +9989,168 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       expect(h.store.update).not.toHaveBeenCalled();
     }, 10_000);
 
+    describe("when the tab moves to another site after the code (ADR 0022)", () => {
+      const other = "https://portal.example";
+      const quiet = { password: false, code: false, captcha: false, invalid: false, alert: false };
+      const portalHome = {
+        ok: true,
+        observation: {
+          version: 1,
+          origin: other,
+          path: "/home",
+          language: "en",
+          complete: true,
+          candidates: [{ id: "c1", role: "button", target: target("logout"), label: "Sign out" }],
+        },
+      };
+      /** The page leaves on `leaveOn`'s click; the item has a username and a TOTP code. */
+      const leaving = (leaveOn: "login" | "verify", judge?: LoginGeneration["judge"]) => {
+        onClick(leaveOn === "login" ? { login: "hang" } : { login: toCode, verify: "hang" });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const live = judge ? { generation: generation(judge) } : {};
+        const h = harness({}, { passkeys: noPasskey, report, username: true, ...live });
+        withTotp(h);
+        codes(h);
+        h.recipes.recipe.mockResolvedValue(coded);
+        return { h, report, live };
+      };
+      const move = (h: ReturnType<typeof harness>) => {
+        fake.state.tabUrls[1] = `${other}/home`;
+        return h.hello({ documentId: "portal-document", url: `${other}/home` }, false);
+      };
+
+      it("completes when the other site's page shows the account's username", async () => {
+        const { h } = leaving("verify");
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(clicks("verify")).toBe(1), { timeout: 6_000 });
+        fake.state.signs = { ...quiet, username: true };
+        await move(h);
+        expect(status()).toMatchObject([{ state: "authenticated", outcome: "authenticated" }]);
+        // Nothing is filled or clicked on the other site's page.
+        expect(executed()).toHaveLength(4);
+      }, 10_000);
+
+      it("completes when the judge answers signed-in for the other site's page", async () => {
+        const { h, live } = leaving("verify", async () => ({ verdict: "signed-in" }));
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(clicks("verify")).toBe(1), { timeout: 6_000 });
+        fake.state.signs = quiet;
+        fake.state.extracted = { "signed-in": portalHome };
+        await move(h);
+        expect(status()).toMatchObject([{ state: "authenticated" }]);
+        expect(live.generation!.judge).toHaveBeenCalledTimes(1);
+        expect(live.generation!.judge.mock.calls[0]![3]).toEqual(portalHome.observation);
+      }, 15_000);
+
+      it("ends left-origin when the judge cannot decide", async () => {
+        const { h, report } = leaving("verify", async () => ({ verdict: "unclear" }));
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(clicks("verify")).toBe(1), { timeout: 6_000 });
+        fake.state.signs = quiet;
+        fake.state.extracted = { "signed-in": portalHome };
+        await move(h);
+        expect(status()).toMatchObject([{ state: "blocked", outcome: "left-origin" }]);
+        expect(
+          report.mock.calls.flatMap(([entry]) => (entry.type === "judge" ? [entry] : [])).at(-1),
+        ).toMatchObject({ verdict: "unclear", origin: other, moved: true });
+      }, 15_000);
+
+      it("ends left-origin when the move comes right after the password, before any code", async () => {
+        const { h } = leaving("login");
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(clicks("login")).toBe(1));
+        fake.state.signs = { ...quiet, username: true };
+        await move(h);
+        expect(status()).toMatchObject([{ state: "blocked", outcome: "left-origin" }]);
+        expect(fake.state.messages.filter((entry) => entry.type === "login.state")).toEqual([]);
+      });
+
+      it("ends left-origin when the move comes more than 30 seconds after the code", async () => {
+        const { h } = leaving("verify");
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(clicks("verify")).toBe(1), { timeout: 6_000 });
+        fake.state.signs = { ...quiet, username: true };
+        const now = Date.now.bind(Date);
+        const clock = vi.spyOn(Date, "now").mockImplementation(() => now() + 31_000);
+        onTestFinished(() => clock.mockRestore());
+        await move(h);
+        expect(status()).toMatchObject([{ state: "blocked", outcome: "left-origin" }]);
+      }, 10_000);
+
+      it("completes on a marker learned on the other site, without the judge", async () => {
+        const { h, live } = leaving("verify", async () => ({ verdict: "unclear" }));
+        h.recipes.recipe.mockResolvedValue(
+          parseLoginRecipe({
+            ...coded,
+            completion: [...home, { target: target("account"), origin: other }],
+          }),
+        );
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(clicks("verify")).toBe(1), { timeout: 6_000 });
+        fake.state.signs = quiet;
+        fake.state.present = new Set(["account"]);
+        await move(h);
+        expect(status()).toMatchObject([{ state: "authenticated" }]);
+        expect(live.generation!.judge).not.toHaveBeenCalled();
+        expect(
+          fake.state.messages.filter((entry) => entry.type === "login.observe").at(-1),
+        ).toMatchObject({ targets: [target("account")] });
+      }, 15_000);
+
+      it("completes after a route step's code, as after a handler's", async () => {
+        const routeCoded = parseLoginRecipe({
+          ...unlearned,
+          completion: home,
+          slots: [...unlearned.slots, "totp"],
+          steps: [
+            ...unlearned.steps,
+            {
+              kind: "fill",
+              path: "/two-factor",
+              fields: [{ slot: "totp", target: target("app-code") }],
+            },
+            { kind: "click", path: "/two-factor", target: target("verify"), purpose: "submit" },
+          ],
+          maxSubmissions: 2,
+        });
+        onClick({ login: toCode, verify: "hang" });
+        const bindings = [
+          {
+            ...savedBinding,
+            slots: [
+              { slot: "password", field: "password" as const },
+              { slot: "totp", field: "totp" as const },
+            ],
+          },
+        ];
+        const h = harness({ bindings }, { passkeys: noPasskey, username: true });
+        withTotp(h);
+        codes(h);
+        h.recipes.recipe.mockResolvedValue(routeCoded);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(clicks("verify")).toBe(1), { timeout: 6_000 });
+        fake.state.signs = { ...quiet, username: true };
+        await move(h);
+        expect(status()).toMatchObject([{ state: "authenticated" }]);
+      }, 10_000);
+
+      it("completes after the page submitted the code by itself", async () => {
+        const { h } = leaving("verify");
+        let filled = false;
+        onCodeFill(() => {
+          filled = true;
+          // The page submits the code itself and its tab leaves; the click never runs.
+          return new Promise<void>(() => undefined);
+        });
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(filled).toBe(true), { timeout: 6_000 });
+        fake.state.signs = { ...quiet, username: true };
+        await move(h);
+        expect(status()).toMatchObject([{ state: "authenticated" }]);
+        expect(clicks("verify")).toBe(0);
+      }, 10_000);
+    });
+
     it("never types a custom field a saved binding names for the code", async () => {
       onClick({ login: toCode, verify: toHome });
       const report = vi.fn<(report: LoginReport) => void>();

@@ -228,9 +228,24 @@ describe("judged completion", () => {
     expect(addCompletion(recipe, next, target("logout")).ok).toBe(true);
   });
 
-  it("refuses another site", () => {
+  it("refuses another site unless the recipe types a TOTP code (ADR 0022)", () => {
+    const other = { ...home, origin: "https://www.other.example" };
+    expect(addCompletion(recipe, other, target("logout"))).toEqual({
+      ok: false,
+      reason: "origin-mismatch",
+    });
+    const coded: LoginRecipe = {
+      ...recipe,
+      handlers: [
+        { kind: "totp", path: "/mfa", field: target("app-code"), target: target("verify") },
+      ],
+    };
+    const learned = addCompletion(coded, other, target("logout"));
+    expect(learned.ok && learned.recipe.completion).toEqual([
+      { target: target("logout"), origin: "https://www.other.example" },
+    ]);
     expect(
-      addCompletion(recipe, { ...home, origin: "https://www.other.example" }, target("logout")),
+      addCompletion(coded, { ...other, origin: "http://www.other.example" }, target("logout")),
     ).toEqual({ ok: false, reason: "origin-mismatch" });
   });
 

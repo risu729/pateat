@@ -14,30 +14,28 @@ another tab no longer holds the origin; see "Holding the origin in other tabs" b
 Amended again on 2026-10-12 (02:42 UTC, owner's choice on a decision card): a login
 Pateat itself stopped no longer holds the origin either. Evidence: in the owner's Chrome
 a `policy-changed` record from a transient vault error kept a new npm tab from logging
-in for 8 hours, across an extension reload.
-Amended again on 2026-10-12 (05:08 UTC, owner's choice in the thread after a decision
-card): a record that still holds the origin stops holding it 5 minutes after it last
-changed. Evidence: in the owner's Chrome a github.com login that had succeeded after a
-passkey step stayed `reconciling` with an unknown result in one tab, so a pick in
-another tab was refused `origin-busy` until that tab would close.
-Amended on 2026-10-12 (05:41 UTC, owner's request in the project chat): a tab that moves
-to another site starts clean there, also for a login form in a frame; see "A tab still
-runs one attempt at a time" below.
-Amended again on 2026-10-12 (bug fix applying the 02:42 UTC choice to the stopped tab
-itself): a login Pateat itself stopped with nothing in flight and before any submission
-no longer holds its own tab either. Evidence: in the owner's Chrome, removing
-github.com's saved default stopped that tab's login as `policy-changed`; after a reload
-the page was refused for several matching accounts, but it had resumed the stopped
-record, so the toolbar popup offered no account choice and the tab never logged in again
-until it was closed.
-Amended again on 2026-10-12 (08:22 UTC, owner's choice on a decision card, proposal in
-the project notes `jal-same-site-completion-proposal.md`): a move to the site of a
-passkey Pateat has just answered completes the attempt; see "Leaving the origin after a
-possible submission ends the attempt" below. Evidence: in the owner's Chrome, JMB's
-sign-in page `jallogin.jal.co.jp` asked for a passkey after the username step, Pateat
-answered, and the site moved to `www.jal.co.jp` signed in, but the login ended
-`left-origin`, so it held the site for 5 minutes and saved no account choice.
-Amended again on 2026-10-12 (13:08 UTC, owner's choice on a decision card, recorded in
+in for 8 hours, across an extension reload. Amended again on 2026-10-12 (05:08 UTC,
+owner's choice in the thread after a decision card): a record that still holds the
+origin stops holding it 5 minutes after it last changed. Evidence: in the owner's Chrome
+a github.com login that had succeeded after a passkey step stayed `reconciling` with an
+unknown result in one tab, so a pick in another tab was refused `origin-busy` until that
+tab would close. Amended on 2026-10-12 (05:41 UTC, owner's request in the project chat):
+a tab that moves to another site starts clean there, also for a login form in a frame;
+see "A tab still runs one attempt at a time" below. Amended again on 2026-10-12 (bug fix
+applying the 02:42 UTC choice to the stopped tab itself): a login Pateat itself stopped
+with nothing in flight and before any submission no longer holds its own tab either.
+Evidence: in the owner's Chrome, removing github.com's saved default stopped that tab's
+login as `policy-changed`; after a reload the page was refused for several matching
+accounts, but it had resumed the stopped record, so the toolbar popup offered no account
+choice and the tab never logged in again until it was closed. Amended again on
+2026-10-12 (08:22 UTC, owner's choice on a decision card, proposal in the project notes
+`jal-same-site-completion-proposal.md`): a move to the site of a passkey Pateat has just
+answered completes the attempt; see "Leaving the origin after a possible submission ends
+the attempt" below. Evidence: in the owner's Chrome, JMB's sign-in page
+`jallogin.jal.co.jp` asked for a passkey after the username step, Pateat answered, and
+the site moved to `www.jal.co.jp` signed in, but the login ended `left-origin`, so it
+held the site for 5 minutes and saved no account choice. Amended again on 2026-10-12
+(13:08 UTC, owner's choice on a decision card, recorded in
 [ADR 0027](0027-per-account-login-routes.md#watching-after-a-challenge)): a top-level
 `password` login that ends `challenge` or settles as unknown is watched for 10 minutes.
 A `challenge` login then waits as `watching`, which holds the origin like `challenge`
@@ -45,19 +43,26 @@ did, for 5 minutes after the record last changed; a page judged during the watch
 a change. Completing during the watch releases the origin, and the end of the watch
 keeps the record's last change time. During the watch, the recipe's first step showing
 in a page of another tab of the site, first seen after the watch began, releases the
-watched record as a logout
-(ADR 0021 D), so that tab asks and fills without pressing anything instead of being
-refused `origin-busy` (owner's request, 13:49 UTC, after the person restarted an
-expired QR approval on 三菱UFJ銀行 and Pateat did nothing until the old tab closed).
-Amended again on 2026-10-12 (21:18 UTC, owner's choice 「AI判定」 on a decision card): a
-`password` login whose tab moves to another origin of the same site right after the
-submission completes when the new page shows the account's username, and, as the next
-change, the judge decides once when it does not; see "Leaving the origin after a
-possible submission ends the attempt" below. Evidence: on モッピー at 20:52 UTC Pateat
-submitted the password on `ssl.pc.moppy.jp`, the site moved the tab to the signed-in
-`pc.moppy.jp`, and the login ended `left-origin`, so it saved no account choice and held
-the site in other tabs for 5 minutes. The judge for a page without the username was
-implemented as that choice's second delivery (2026-10-12).
+watched record as a logout (ADR 0021 D), so that tab asks and fills without pressing
+anything instead of being refused `origin-busy` (owner's request, 13:49 UTC, after the
+person restarted an expired QR approval on 三菱UFJ銀行 and Pateat did nothing until the
+old tab closed). Amended again on 2026-10-12 (21:18 UTC, owner's choice 「AI判定」 on a
+decision card): a `password` login whose tab moves to another origin of the same site
+right after the submission completes when the new page shows the account's username,
+and, as the next change, the judge decides once when it does not; see "Leaving the
+origin after a possible submission ends the attempt" below. Evidence: on モッピー at
+20:52 UTC Pateat submitted the password on `ssl.pc.moppy.jp`, the site moved the tab to
+the signed-in `pc.moppy.jp`, and the login ended `left-origin`, so it saved no account
+choice and held the site in other tabs for 5 minutes. The judge for a page without the
+username was implemented as that choice's second delivery (2026-10-12). Amended again on
+2026-10-13 (01:59 UTC, owner's choice 「コード送信後だけ」 on a decision card; confirmed
+in the thread at 02:25 UTC): the same check also completes a move to another site, but
+only right after a TOTP code was submitted; see "A move to another site after a TOTP
+code" below. Evidence: in the Grok Bot's browser at 22:05:05 UTC on 2026-10-12, Pateat
+submitted a TOTP handler's code on `login.microsoftonline.com`, the site moved the tab
+to the signed-in `m365.cloud.microsoft` two seconds later, and the login ended
+`left-origin`, so it saved no account choice and held the sign-in page in other tabs for
+5 minutes.
 
 ## Context
 
@@ -190,7 +195,7 @@ fix them now; the SSO policy itself is recorded separately.
     of it, wait for the answer; the same document announcing again meanwhile waits for
     that answer instead of sending the page again. The service judges a page of another
     HTTPS origin of the recipe's registrable domain, for the `password` route only, as
-    one of the recipe's own (one rule, `sameLoginSite` in the contracts, for the
+    one of the recipe's own (one rule, `loginMoveFits` in the contracts, for the
     extension's check, the service and the markers, so a later widening changes it in
     one place), except that the recipe's paths are not compared with it, its markers
     there are only those learned on that origin, a `challenge` there adds no handler,
@@ -203,6 +208,29 @@ fix them now; the SSO policy itself is recorded separately.
     page of that origin a login's tab moved to, never on the recipe's own origin, and
     markers of the recipe's own origin are never read on the other one. Pateat still
     fills and clicks nothing on that page and never reopens the login URL.
+  - **A move to another site after a TOTP code** (owner's choice at 01:59 UTC on
+    2026-10-13). The same two checks, the username in the header or navigation and
+    otherwise one judgement, also complete a move to an HTTPS origin of another
+    registrable domain, but only when the attempt submitted a TOTP code at most 30
+    seconds before the move: the click on a `totp` handler's or a route's code button,
+    or a code fill that the page may submit by itself
+    ([ADR 0027](0027-per-account-login-routes.md)). The passkey request and the readings
+    count from that code, and the page must show no password field, code input or
+    CAPTCHA, as above. Such a code also lets a move to another origin of the site count
+    when the last effect step was earlier. A move to another site right after the
+    password step, or later than 30 seconds after the code, still ends `left-origin`, as
+    does any answer but `signed-in` or `judged-signed-in`. The service judges a page of
+    another site for the `password` route only, and only for a recipe that may type a
+    code (a variant has a step that fills only the `totp` slot, or it has a `totp`
+    handler); it cannot see when the code was sent, so the extension's 30-second check
+    is the one that limits it. Its judgement row and any marker learned there are keyed
+    by that page's origin, as on another host of the site. The page's text goes to the
+    judge although Pateat was not set up for that site, with its header and navigation
+    and with the usernames, email addresses and numbers hidden as on any judged page;
+    the owner accepted that, and that a rare error page that shows the username may
+    complete the attempt, because the code page showing at all means the password was
+    accepted. No site is named in the code
+    ([ADR 0033](0033-no-site-specific-features.md)).
 - **Holding the origin in other tabs** (amended 2026-10-11 and three times on
   2026-10-12). Cookies can be shared across tabs, so another tab's record of the origin
   refuses a new attempt with `origin-busy` until that tab closes or the record has not
@@ -273,6 +301,13 @@ fix them now; the SSO policy itself is recorded separately.
   from one; the same for a return URL the sign-in page names was not chosen, as sites
   also return there after a cancel or failure. For a password submission the owner later
   chose the username on the new page, with the judge as its fallback (21:18 UTC, above).
+- **Treat a move to another site after any submission like one to the same site**
+  (「同じ扱い」, 2026-10-13). Not chosen: right after the password step, an error page
+  or an identity provider of another site could complete the login, while after a TOTP
+  code the password is known to have been accepted.
+- **Keep ending a move to another site `left-origin`** (「今のまま」, the rule before
+  2026-10-13). Not chosen: on Microsoft the signed-in page is on another site, so the
+  login never completed, saved no account choice and held the site in other tabs.
 - **After a password submission, keep ending such a move `left-origin`** (the rule
   before 21:18 UTC on 2026-10-12). Not chosen: on モッピー the signed-in page is on
   another host, so the login never completed and held the site in other tabs.

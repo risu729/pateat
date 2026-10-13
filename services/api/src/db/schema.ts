@@ -264,8 +264,9 @@ export const pageJudgements = sqliteTable(
     branch: text("branch").notNull().default(""),
     revision: integer("revision").notNull(),
     /**
-     * The judged page's origin: the recipe's own, or another origin of its site that a
-     * login's tab moved to (ADR 0022), whose paths are its own.
+     * The judged page's origin: the recipe's own, or another origin, of its site or after a
+     * TOTP code of another site, that a login's tab moved to (ADR 0022), whose paths are
+     * its own.
      */
     origin: text("origin").notNull(),
     path: text("path").notNull(),
