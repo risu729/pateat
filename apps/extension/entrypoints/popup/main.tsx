@@ -33,6 +33,10 @@ createRoot(root).render(
           void browser.runtime.openOptionsPage();
           window.close();
         },
+        openDiagnostics() {
+          void browser.tabs.create({ url: browser.runtime.getURL("/diagnostics.html") });
+          window.close();
+        },
         close() {
           window.close();
         },

@@ -339,6 +339,12 @@
 .popup-line--err > svg {
   color: var(--danger);
 }
+.popup-line--ok > svg {
+  color: var(--accent-ink);
+}
+.popup-line--busy > svg {
+  color: var(--accent-ink);
+}
 .popup-actions {
   display: flex;
   flex-wrap: wrap;
@@ -378,6 +384,10 @@
   font-weight: 600;
   color: var(--accent-ink);
   text-decoration: none;
+}
+.popup-link--icon {
+  gap: 6px;
+  padding: 0;
 }
 .popup-link:hover {
   text-decoration: underline;

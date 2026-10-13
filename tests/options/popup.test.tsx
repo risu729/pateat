@@ -76,6 +76,7 @@ function noChoice() {
   return {
     get: vi.fn<ChoiceClient["get"]>().mockResolvedValue({ ok: false, reason: "no-choice" }),
     pick: vi.fn<ChoiceClient["pick"]>().mockResolvedValue({ ok: true }),
+    status: vi.fn<ChoiceClient["status"]>().mockResolvedValue({ ok: false, reason: "no-page" }),
   };
 }
 
@@ -90,6 +91,7 @@ async function mount(
   const host = {
     currentTab: vi.fn<PopupHost["currentTab"]>().mockResolvedValue({ id: 7, url, incognito }),
     openSettings: vi.fn<PopupHost["openSettings"]>(),
+    openDiagnostics: vi.fn<PopupHost["openDiagnostics"]>(),
     close: vi.fn<PopupHost["close"]>(),
     watchSettings: vi.fn<PopupHost["watchSettings"]>((onChange) => {
       onSettings = onChange;

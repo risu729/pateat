@@ -1,5 +1,6 @@
 // The toolbar badge tells, per tab, what Pateat is doing or just did there (ADR 0038): a
-// waiting account choice, a model request in flight, and how the last login ended.
+// waiting account choice, a model request in flight, and how the last login ended. It also
+// keeps the tab's last login and model request for the popup's page section.
 import * as v from "valibot";
 import { browser } from "wxt/browser";
 import type { LoginReport } from "./runtime";
@@ -57,6 +58,23 @@ export type BadgeDetails = {
   color?: string;
   textColor?: string;
   title?: string;
+};
+
+/**
+ * A tab's last login and last model request, as the log names them, for the popup's page
+ * section (ADR 0038). They go with the badge's result: a top page of another origin, or
+ * the tab's closing, drops them.
+ */
+export type PageStatus = {
+  /** The tab's top page origin when they were recorded, else the reporting document's. */
+  origin: string;
+  /** `started` until the login's first state change, then its state and outcome. */
+  login?: { state: string; outcome?: string; cause?: string };
+  /**
+   * `sent` while a page is out, then what came back; `page` tells a list of accounts, a
+   * sign-in entry or a continuation from a plain sign-in page.
+   */
+  generation?: { outcome: string; reason?: string; page?: "accounts" | "entry" | "continuation" };
 };
 
 type Shown = Required<Omit<BadgeDetails, "tabId">>;
@@ -168,6 +186,9 @@ export function createLoginBadge(deps: {
   const tops = new Map<number, string>();
   // Tabs whose result changed since the worker started, which a restore leaves alone.
   const touched = new Set<number>();
+  const statuses = new Map<number, PageStatus>();
+  // Tabs whose page status changed since the worker started, which a restore leaves alone.
+  const recorded = new Set<number>();
   let frame = 0;
   let timer: ReturnType<typeof setInterval> | undefined;
   let saved: Promise<void> = Promise.resolve();
@@ -222,6 +243,7 @@ export function createLoginBadge(deps: {
     const value: Stored = {
       results: [...results],
       busy: [...new Set([...spins].map((spin) => spin.tabId))],
+      statuses: [...statuses],
     };
     saved = saved.then(() => deps.storage.setValue(value)).catch(() => undefined);
   }
@@ -244,13 +266,58 @@ export function createLoginBadge(deps: {
       ),
     );
   }
-  function setResult(tabId: number, result: BadgeResult | undefined): void {
+  /** Sets or clears the tab's result; true when that saved. */
+  function setResult(tabId: number, result: BadgeResult | undefined): boolean {
     touched.add(tabId);
     if (result) results.set(tabId, result);
-    else if (!results.delete(tabId)) return;
+    else if (!results.delete(tabId)) return false;
     expire(tabId);
     save();
     draw(tabId);
+    return true;
+  }
+  /**
+   * Keeps what a report tells the popup about the tab's login or model request; true when
+   * that changed, for the caller to save.
+   */
+  function record(report: LoginReport): boolean {
+    let change: Partial<Omit<PageStatus, "origin">> | undefined;
+    if (report.type === "start") change = { login: { state: "started" } };
+    else if (report.type === "attempt" && !report.repeat)
+      change = {
+        login: {
+          state: report.state,
+          ...(report.outcome ? { outcome: report.outcome } : {}),
+          ...(report.cause ? { cause: report.cause } : {}),
+        },
+      };
+    else if (report.type === "generation" && report.outcome !== "skipped") {
+      const page = report.page ?? (report.recipeId ? "continuation" : undefined);
+      change = {
+        generation: {
+          outcome: report.outcome,
+          ...(report.reason ? { reason: report.reason } : {}),
+          ...(page ? { page } : {}),
+        },
+      };
+    }
+    if (!change) return false;
+    const origin = tops.get(report.tabId) ?? report.origin;
+    const before = statuses.get(report.tabId);
+    // A status of the page before this one does not carry over.
+    const next = { ...(before?.origin === origin ? before : {}), ...change, origin };
+    recorded.add(report.tabId);
+    if (JSON.stringify(next) === JSON.stringify(before)) return false;
+    statuses.set(report.tabId, next);
+    return true;
+  }
+  /** Drops the tab's result and page status; true when either was there. */
+  function dropResult(tabId: number): boolean {
+    recorded.add(tabId);
+    clearTimeout(expiries.get(tabId));
+    expiries.delete(tabId);
+    const status = statuses.delete(tabId);
+    return results.delete(tabId) || status;
   }
   function tick(): void {
     if (!spins.size) {
@@ -271,9 +338,7 @@ export function createLoginBadge(deps: {
     lastAttempt.delete(tabId);
     shown.delete(tabId);
     for (const spin of spins) if (spin.tabId === tabId) spins.delete(spin);
-    clearTimeout(expiries.get(tabId));
-    expiries.delete(tabId);
-    if (results.delete(tabId)) save();
+    if (dropResult(tabId)) save();
   }
 
   return {
@@ -320,13 +385,16 @@ export function createLoginBadge(deps: {
         lastAttempt.set(report.tabId, key);
       }
       if (report.type === "start") lastAttempt.delete(report.tabId);
+      const recordedNow = record(report);
       const result = badgeResult(report, now());
-      if (result === "clear") setResult(report.tabId, undefined);
+      let savedNow = false;
+      if (result === "clear") savedNow = setResult(report.tabId, undefined);
       else if (result)
-        setResult(report.tabId, {
+        savedNow = setResult(report.tabId, {
           ...result,
           origin: tops.get(report.tabId) ?? report.origin,
         });
+      if (recordedNow && !savedNow) save();
     },
     /**
      * A page or frame of the tab loaded or committed: Chrome may have reset the tab's
@@ -348,11 +416,7 @@ export function createLoginBadge(deps: {
         notes.delete(tabId);
         // A restore still reading the stored results must not bring back this tab's.
         touched.add(tabId);
-        if (results.delete(tabId)) {
-          clearTimeout(expiries.get(tabId));
-          expiries.delete(tabId);
-          save();
-        }
+        if (dropResult(tabId)) save();
       }
       shown.delete(tabId);
       // A tab with nothing to show keeps the empty badge Chrome reset it to, unless a write
@@ -369,17 +433,24 @@ export function createLoginBadge(deps: {
     removed(tabId: number): void {
       forget(tabId);
     },
+    /** The tab's last login and model request, for the popup's page section. */
+    status(tabId: number): PageStatus | undefined {
+      return statuses.get(tabId);
+    },
     /** Chrome gave a tab a new ID (`tabs.onReplaced`); its badge moves with it. */
     replaced(added: number, removed: number): void {
       if (added === removed) return;
       const choice = choices.get(removed);
       const note = notes.get(removed);
       const result = results.get(removed);
+      const status = statuses.get(removed);
       const top = tops.get(removed);
       const moved = [...spins].filter((spin) => spin.tabId === removed);
       forget(removed);
       touched.add(added);
+      recorded.add(added);
       if (top !== undefined) tops.set(added, top);
+      if (status) statuses.set(added, status);
       if (choice) choices.set(added, choice);
       if (note) notes.set(added, note);
       for (const spin of moved) {
@@ -416,6 +487,12 @@ export function createLoginBadge(deps: {
         tops.set(tabId, result.origin);
         expire(tabId);
       }
+      for (const [tabId, status] of value.statuses) {
+        const top = tops.get(tabId);
+        if (recorded.has(tabId) || (top !== undefined && top !== status.origin)) continue;
+        statuses.set(tabId, status);
+        tops.set(tabId, status.origin);
+      }
       for (const tabId of new Set([...value.busy, ...value.results.map(([id]) => id)])) draw(tabId);
       save();
     },
@@ -435,6 +512,28 @@ const storedSchema = v.object({
     ]),
   ),
   busy: v.array(v.pipe(v.number(), v.integer())),
+  statuses: v.array(
+    v.tuple([
+      v.pipe(v.number(), v.integer()),
+      v.object({
+        origin: v.string(),
+        login: v.exactOptional(
+          v.object({
+            state: v.string(),
+            outcome: v.exactOptional(v.string()),
+            cause: v.exactOptional(v.string()),
+          }),
+        ),
+        generation: v.exactOptional(
+          v.object({
+            outcome: v.string(),
+            reason: v.exactOptional(v.string()),
+            page: v.exactOptional(v.picklist(["accounts", "entry", "continuation"])),
+          }),
+        ),
+      }),
+    ]),
+  ),
 });
 
 function parseStored(value: unknown): Stored | undefined {

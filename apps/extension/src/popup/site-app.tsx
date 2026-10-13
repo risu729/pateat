@@ -27,6 +27,7 @@ import { SETTINGS_QUERY_KEY, type SettingsClient } from "../options/client";
 import { siteAccountOptions } from "../options/site-policy";
 import { Logo } from "../logo";
 import { choiceReason, type ChoiceClient } from "../login/choice-wire";
+import { PageStatusSection } from "./page-status";
 
 /** What the toolbar popup needs from the browser besides the settings messages. */
 export interface PopupHost {
@@ -35,6 +36,8 @@ export interface PopupHost {
     { id: number | undefined; url: string | undefined; incognito: boolean } | undefined
   >;
   openSettings(): void;
+  /** Opens the diagnostics page with the detailed log. */
+  openDiagnostics(): void;
   /** Closes the popup, as once a picked login has started. */
   close(): void;
   /**
@@ -300,6 +303,15 @@ export function SiteApp({
     // restarted worker; asking again while open shows the choice once it waits, and
     // once another tab's login no longer holds the site.
     refetchInterval: (query) => (query.state.data?.ok && !query.state.data.held ? false : 1000),
+    staleTime: 0,
+    gcTime: 0,
+  });
+  // What Pateat did on the page (ADR 0038), read again while the popup is open.
+  const pageStatus = useQuery({
+    queryKey: ["popup", "page-status", tabId],
+    queryFn: () => choices.status(tabId!),
+    enabled: tabId !== undefined && origin !== undefined,
+    refetchInterval: 1000,
     staleTime: 0,
     gcTime: 0,
   });
@@ -578,8 +590,13 @@ export function SiteApp({
       </Button>
     );
 
+    const status =
+      pageStatus.data?.ok && pageStatus.data.origin === origin ? pageStatus.data : undefined;
     body = (
       <>
+        {status && (
+          <PageStatusSection status={status} onOpenDiagnostics={() => host.openDiagnostics()} />
+        )}
         {choice.isPending && choice.isEnabled && (
           <p id="popup-choice-checking" className="popup-muted">
             Checking whether this page waits for an account choice…

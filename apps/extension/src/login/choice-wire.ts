@@ -79,14 +79,63 @@ export const pickResponseSchema = v.variant("ok", [
     ]),
   }),
 ]);
+/** The toolbar popup asks what Pateat did on a tab's page (ADR 0038). */
+export const statusRequestSchema = v.strictObject({
+  version: v.literal(1),
+  type: v.literal("login.status.get"),
+  tabId,
+});
+/** A state, outcome or reason as the log names it. */
+const code = v.pipe(v.string(), v.maxLength(200));
+export const statusResponseSchema = v.variant("ok", [
+  v.strictObject({
+    ok: v.literal(true),
+    /** The tab's top page origin. */
+    origin: v.string(),
+    /**
+     * Whether the origin has a recipe: one that starts on the top page's path, as a sign-in
+     * page, a list of accounts or a sign-in entry (`page`), only on other paths, or none.
+     */
+    recipe: v.picklist(["page", "other-paths", "none"]),
+    /**
+     * The top page as the worker last saw it: watching for a recipe's first step, sent for
+     * generation, or refused with a reason; why its sign-in input did not start a login,
+     * and why it was last not sent for generation.
+     */
+    page: v.optional(
+      v.strictObject({
+        state: v.optional(code),
+        reason: v.optional(code),
+        notStarted: v.optional(code),
+        generationSkip: v.optional(code),
+      }),
+    ),
+    /** The tab's last login on this origin's page: `started`, then its state and outcome. */
+    login: v.optional(
+      v.strictObject({ state: code, outcome: v.optional(code), cause: v.optional(code) }),
+    ),
+    /** The tab's last page sent for generation on this origin's page, and what came back. */
+    generation: v.optional(
+      v.strictObject({
+        outcome: code,
+        reason: v.optional(code),
+        page: v.optional(v.picklist(["accounts", "entry", "continuation"])),
+      }),
+    ),
+  }),
+  v.strictObject({ ok: v.literal(false), reason: v.literal("no-page") }),
+]);
 export type ChoiceResponse = v.InferOutput<typeof choiceResponseSchema>;
+export type StatusResponse = v.InferOutput<typeof statusResponseSchema>;
 export type PickRequest = Omit<v.InferOutput<typeof pickRequestSchema>, "version" | "type">;
 export type PickResponse = v.InferOutput<typeof pickResponseSchema>;
 
-/** What the popup may ask the background about a refused login. */
+/** What the popup may ask the background about a refused login and the tab's page. */
 export interface ChoiceClient {
   get(tabId: number): Promise<ChoiceResponse>;
   pick(request: PickRequest): Promise<PickResponse>;
+  /** What Pateat did on the tab's page, for the popup's page section (ADR 0038). */
+  status(tabId: number): Promise<StatusResponse>;
 }
 
 export function createChoiceClient(send: (message: unknown) => Promise<unknown>): ChoiceClient {
@@ -100,6 +149,11 @@ export function createChoiceClient(send: (message: unknown) => Promise<unknown>)
       v.parse(
         pickResponseSchema,
         await send({ version: 1, type: "login.choice.pick", ...request }),
+      ),
+    status: async (tab) =>
+      v.parse(
+        statusResponseSchema,
+        await send({ version: 1, type: "login.status.get", tabId: tab }),
       ),
   };
 }

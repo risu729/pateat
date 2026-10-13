@@ -63,6 +63,7 @@ test("long hostnames and usernames wrap inside the 360px popup", async () => {
       held: true,
     }),
     pick: vi.fn<ChoiceClient["pick"]>(),
+    status: vi.fn<ChoiceClient["status"]>().mockResolvedValue({ ok: false, reason: "no-page" }),
   };
   await render(
     <QueryClientProvider client={createMetadataQueryClient()}>
@@ -72,6 +73,7 @@ test("long hostnames and usernames wrap inside the 360px popup", async () => {
         host={{
           currentTab: async () => ({ id: 7, url: `${ORIGIN}/login`, incognito: false }),
           openSettings: vi.fn(),
+          openDiagnostics: vi.fn(),
           close: vi.fn(),
           watchSettings: () => () => {},
         }}
