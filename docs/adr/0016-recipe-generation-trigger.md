@@ -2,19 +2,21 @@
 
 Status: accepted by the owner on 2026-10-11. Amends
 [ADR 0009](0009-install-time-https-site-access.md); amended by
-[ADR 0018](0018-recipe-generation-route.md), by the owner's account-switch decision
-of 2026-10-11 ([Pages where no recipe starts](#pages-where-no-recipe-starts)) and by
-the owner's username shape decision of 2026-10-11 ([Username shape](#username-shape)),
-by the owner's retry decision of 2026-10-12 (condition 4), by the owner's
-identifier-page decisions of 2026-10-12 ([Pages that ask for an identifier
-alone](#pages-that-ask-for-an-identifier-alone)), and by
-[ADR 0027](0027-per-account-login-routes.md) (implemented): each request also
-offers the matching items' allowed custom fields by name and position, with the Text
-shapes all of them agree on, read just before sending as for the username.
-Implemented in the extension
-([Background execution](../architecture.md#background-execution)), including that
-amendment; the service route enforces the retry window as well
-([API README](../../services/api/README.md#recipe-generation)).
+[ADR 0018](0018-recipe-generation-route.md), by the owner's account-switch decision of
+2026-10-11 ([Pages where no recipe starts](#pages-where-no-recipe-starts)) and by the
+owner's username shape decision of 2026-10-11 ([Username shape](#username-shape)), by
+the owner's retry decision of 2026-10-12 (condition 4), by the owner's identifier-page
+decisions of 2026-10-12
+([Pages that ask for an identifier alone](#pages-that-ask-for-an-identifier-alone)), and
+by [ADR 0027](0027-per-account-login-routes.md) (implemented): each request also offers
+the matching items' allowed custom fields by name and position, with the Text shapes all
+of them agree on, read just before sending as for the username. Implemented in the
+extension ([Background execution](../architecture.md#background-execution)), including
+that amendment; the service route enforces the retry window as well
+([API README](../../services/api/README.md#recipe-generation)). Amended on 2026-10-13 by
+ADR 0021's [site count badge](0021-account-choice-outside-settings.md#site-count-badge)
+(not implemented): condition 2's vault match is no longer the only vault access a page
+without a recipe gets.
 
 Date: 2026-10-11
 
