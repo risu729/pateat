@@ -669,8 +669,9 @@ stays filled and nothing is clicked: the click is left to the person and held as
 handler's click is, up to two minutes while its button shows
 ([ADR 0029](adr/0029-local-sign-in-state.md)); a chooser's click on its list is made as
 before. Explicit credential rejection stops retries with that credential. Structural
-mismatch can request bounded repair; unknown submission outcomes require reconciliation
-before any resubmission.
+mismatch is meant to request bounded repair (not implemented, see
+[Declarative recipes and AI](#declarative-recipes-and-ai)); unknown submission outcomes
+require reconciliation before any resubmission.
 
 A new login reads its item's facts once and records them in its attempt
 ([ADR 0027](adr/0027-per-account-login-routes.md)): a non-empty, not excluded password
@@ -1675,7 +1676,9 @@ Screenshot, audio and video collection are deferred. A provider's multimodal sup
 does not enable these inputs without a separate privacy/evaluation gate.
 
 Use a cached compatible recipe first. On structural mismatch or repeated genuine
-recipe failure, request repair within a separate bounded inference budget. Wrong
+recipe failure, request repair within a separate bounded inference budget (proposed, not
+implemented: a recipe whose elements no longer match is not regenerated until it is
+revoked; repair is planned early in [phase 3](plan.md#phase-3-public-release)). Wrong
 credentials, MFA, network errors, and account lockout do not trigger endless
 relearning or reset submission limits. Inference can abstain, refuse, time out,
 or return invalid output; all have explicit local outcomes.

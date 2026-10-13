@@ -649,15 +649,31 @@ than in this repository.
 
 Once the fixes have settled:
 
-- First, a review of the wording of Pateat's UI text: the popup, the toolbar icon's
-  title, the options page and the in-page prompts. It includes the reason line the popup
-  and the icon's title show when another tab of the site logged out or the site did not
-  accept that tab's login: both say "You logged out of this site in another tab"
-  (`choiceReason` in `apps/extension/src/login/choice-wire.ts`, the `other-tab` title in
-  `apps/extension/src/login/runtime.ts`), which reads wrong after a rejection. The
-  review comes before the Japanese text below, so that the English text is settled
-  before it is translated (owner, 2026-10-13 15:17 UTC). Not started without the owner's
-  confirmation (owner, 2026-10-13 15:10 UTC).
+- Early in this phase (owner, 2026-10-13 19:10 UTC; not needed before then): repair a
+  recipe whose elements no longer match its page. Today nothing regenerates such a
+  recipe: generation runs only on a path where no cached recipe starts
+  ([ADR 0016](adr/0016-recipe-generation-trigger.md)), and
+  [ADR 0018](adr/0018-recipe-generation-route.md) leaves repair to a later design, so a
+  stale recipe fails the same way on every visit until it is revoked on `/manage`. A
+  start page whose first step's elements are not found only logs `login.refused`
+  `not-started` with `first-step-missing` and never starts the login; a later step's
+  elements that do not show end the attempt `retry-limit` after three 10-second waits
+  (`elements-timeout`); a page after a submission whose next step does not show goes to
+  the [ADR 0029](adr/0029-local-sign-in-state.md) check and the judge, and settles as
+  `unknown-submit` while a sign-in field of the route still shows. The bounded repair
+  request on structural mismatch that the
+  [architecture](architecture.md#declarative-recipes-and-ai) describes needs a design
+  the owner approves first: when a miss counts as a stale recipe rather than a slow or
+  different page, its inference budget, and what happens to the stale revision.
+- First among the text work, a review of the wording of Pateat's UI text: the popup, the
+  toolbar icon's title, the options page and the in-page prompts. It includes the reason
+  line the popup and the icon's title show when another tab of the site logged out or
+  the site did not accept that tab's login: both say "You logged out of this site in
+  another tab" (`choiceReason` in `apps/extension/src/login/choice-wire.ts`, the
+  `other-tab` title in `apps/extension/src/login/runtime.ts`), which reads wrong after a
+  rejection. The review comes before the Japanese text below, so that the English text
+  is settled before it is translated (owner, 2026-10-13 15:17 UTC). Not started without
+  the owner's confirmation (owner, 2026-10-13 15:10 UTC).
 - Next, before the rest of the work below that makes Pateat public: Japanese alongside
   English for Pateat itself (owner, 2026-10-12 13:59 UTC): the README, the docs and the
   extension's UI text. The service's pages, such as `/manage`, come later. The owner
