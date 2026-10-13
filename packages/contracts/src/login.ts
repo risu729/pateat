@@ -1044,8 +1044,10 @@ export type PasswordStopMiss =
  * just past its last step: the stop is the route's step count. The login runs the steps
  * before the stop and never that step or a later one. It stops only when the item holds a
  * usable passkey, the recipe has no alternatives, an `advance` step comes before the stop,
- * and no step before it fills one of `lacking`, the slots whose values the item lacks. The
- * login's own scope, the tab's top document and no chooser, is the caller's to check.
+ * and no step before it fills one of `lacking`, the slots whose values the item lacks. On
+ * a chooser's route (`chooserRoute`, ADR 0028) its click on the list is that `advance`, and
+ * the stop lies in or just past the branch the click leads to. The login's own scope, the
+ * tab's top document, is the caller's to check.
  */
 export function passwordStopOrMiss(
   recipe: LoginRecipe,

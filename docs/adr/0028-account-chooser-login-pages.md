@@ -324,6 +324,14 @@ are sent as for any login; since the roadmap's redaction of the account's own us
 hidden as `[account]` by the same rule
 ([architecture](../architecture.md#declarative-recipes-and-ai)).
 
+Amended on 2026-10-13 by the owner's decision at 06:32 UTC
+([ADR 0036](0036-passkey-after-the-identifier.md#account-lists)): an item without a
+password but with a usable passkey also logs in from a list. The click is chosen as
+above; it is the `advance` before ADR 0036's stop, which lies at the branch's first step
+that fills the password or just past the branch (or the click, without a branch), and
+the page after it is continued and its passkey request answered as ADR 0036 says
+(implemented, local tests only).
+
 ### A shown account with a separate button, and usernames that are not emails
 
 On 2026-10-12 around 08:40 UTC the owner's Chrome showed two more pages without a field,

@@ -10,7 +10,9 @@ against the code by a subagent three times before it was put to the owner). Amen
 [ADR 0021](0021-account-choice-outside-settings.md) D (fill only). Amended on 2026-10-13
 by the owner (05:39 UTC): at the stop, a passkey button beside the password field is
 pressed when the item has a passkey (rule 6; implemented, with extensions by Claude that
-the owner has not confirmed separately).
+the owner has not confirmed separately). Since the owner's
+decision of 2026-10-13 06:32 UTC ([account lists](#account-lists), below), it also
+amends [ADR 0028](0028-account-chooser-login-pages.md) (a login on a list of accounts).
 
 Date: 2026-10-13
 
@@ -38,8 +40,10 @@ But the route choice never starts the `password` route for an item without a pas
    - the item holds a usable passkey for an RP ID the origin may use (the `passkey`
      fact; it need not be discoverable, since a page after the identifier usually
      names the account's credentials);
-   - the recipe has no `alternatives`, is not a chooser recipe (ADR 0028), and the
-     login runs in the tab's top document;
+   - the recipe has no `alternatives`, ~~is not a chooser recipe (ADR 0028),~~ and the
+     login runs in the tab's top document (Amended on 2026-10-13 by the owner's decision
+     at 06:32 UTC, [below](#account-lists): a chooser recipe qualifies, and its click on
+     the list is an `advance` before the stop);
    - the variant has a route step that fills the password, and at least one `advance`
      step comes before it, and no step before it fills a field the item lacks.
 2. **The stop.** The login records, when it starts, the step that fills the password,
@@ -204,6 +208,99 @@ its exact locator. If the page description gives that field another locator than
 recipe's step, the stop's page answers `not-judgeable` and no button is learned there.
 `password-not-allowed` is still out of scope.
 
+### Account lists
+
+**Account lists (owner, 2026-10-13 06:32 UTC, card 「進める」).** At 06:29 UTC the
+owner's Chrome showed `https://platform.openai.com/login` as a page that starts with
+buttons: a row for a remembered account, and "Continue with email", Google and others.
+It was generated as a list of accounts (ADR 0028, logged `page: accounts`), and the
+passkey-only item's login was refused `no-route` `password-empty:chooser` with nothing
+pressed. The owner answered:
+
+- Question:
+  「保存済みアカウントの一覧ページでも、パスワードのないアカウントで先へ進めますか？」
+  ("On a page that lists saved accounts, does an account without a password go on too?")
+- Chosen option:
+  「該当アカウントの行（なければ「別のアカウント」）を押します。次のページの手順を生成し（有料、サイトごとに
+  1 回）、passkey を待ちます。」 ("Press the matching account's row, or 'another
+  account' when there is none. Generate the next page's steps (paid, once per site) and
+  wait for the passkey.")
+
+As implemented (local tests only):
+
+1. **Scope.** Rule 1 applies to a chooser's route (`chooserRoute`): the click on the
+   list, then the steps of the branch it leads to. The click is the `advance` before the
+   stop. It is chosen exactly as ADR 0028 chooses it for any item: the account's row (or
+   its `continue` button), else the `other` button, else `account-not-listed` with
+   nothing pressed. The other conditions of rule 1 hold unchanged: the item's password
+   is empty (`password-empty`), it holds a usable passkey for an RP ID the origin may
+   use, and the login runs in the tab's top document; a frame still ends
+   `password-empty:frame`.
+2. **The stop.** As ADR 0028 plans a login on the list, the stop is found first on the
+   account branch's route and, when the list leads to `other`, again on that branch's
+   route. When the account branch cannot take the stop (item 3), the list is still read,
+   on the click alone, so that an account the list does not show goes on through `other`
+   as the owner's option says. A stored branch stops at its first step that fills the
+   password. A stored branch that fills none and ends with an `advance`, such as an
+   email and Continue after "another account", stops just past its last step, and the
+   identifier-only rules above apply. Without its branch the route is the click alone,
+   so the stop lies just past the click: the page after it goes on as the page after
+   Continue does above (a passkey request takes the login to the stop; otherwise the
+   page is continued as the branch's first page, a paid ADR 0018 call, offering the
+   `password` slot, and the stop moves into the continued branch).
+   *Claude's reading, not confirmed by the owner separately:* the owner's option says
+   「有料、サイトごとに 1 回」 (paid, once per site). In fact each branch
+   (`afterAccount` and `afterOther`) is generated once, so a site can take up to two
+   such calls, and an identifier-only branch takes one more for the page after its own
+   Continue: one login through `other` with no stored branch can make two paid calls
+   (ADR 0018's once per final advance).
+3. **A branch that cannot take a stop.** *Claude's extension, not confirmed by the owner
+   separately:* a stored branch that cannot take the stop, as one that first fills a
+   code the item lacks, is never run. When the list leads to it (the account's row or
+   its `continue` button for the account branch, `other` for the other branch), the
+   login is refused `no-route` with the `password-empty:<why>` detail, as a recipe
+   without a list is, and nothing on the list is pressed. When the list shows no account
+   that fits and has no `other` button, the login ends `account-not-listed` as any
+   chooser login does. A generated branch that cannot take the stop is not taken over;
+   the login ends at its stop past the click, `challenge`, watched, and the
+   `login.attempt` entry then names why as `password-empty:<why>` (such as
+   `password-empty:fills-lacking`) instead of the bare `password-empty`. That log detail
+   applies to every continuation that a stop past the plan cannot be moved into, with or
+   without a list. It is kept in memory only, in the document that asked for the
+   continuation: a later document of the login, or the same one after a worker restart,
+   names `password-empty`.
+4. **Submissions and restarts.** A chooser's route has the branch's submissions plus one
+   for the click, which the click spends as on any chooser login; a stop just past the
+   plan keeps its one more submission for the answer, as above. The attempt records the
+   stop when the login starts, and the attempt contract now accepts a stop on a chooser
+   login, so a restart after the click never runs the password step or a later one.
+5. **Unchanged.** Passkey requests follow rules 3 and 4 from the login's start, also one
+   that comes right after the click; with a discoverable passkey, a request on the list
+   before the click takes the `passkey` route first, as ADR 0034 does for any chooser
+   login. Rule 5 decides whether the login signed in. A login that only fills after a
+   logout presses nothing on the list (ADR 0021 D). `login.start` names the click
+   (`list`), and `login.attempt` names `stop=password`; the `password-empty:chooser`
+   detail is no longer logged.
+6. **A passkey button at the stop.** A branch's stop is its password fill, so the rule
+   of 05:39 UTC above ("A passkey button beside the password field") applies there too:
+   a `passkey` handler that the branch already holds, such as one learned when the
+   branch's page was judged after an earlier step, and that shows on the page at the
+   stop is entered before the stop and pressed, and the request that follows is answered
+   with the item. *Claude's extension, not confirmed by the owner separately:* the page
+   at a chooser login's stop is not sent to be judged for such a button, because the
+   service built for 05:39 judges no stop's page of a chooser (`not-judgeable`); the
+   extension logs `not-sent` with `chooser` instead of asking. Judging it per branch
+   would need a service change and its deployment, and is not proposed here.
+
+Known limit, *Claude's decision, not confirmed by the owner separately*: when the click
+loads a page of another origin, as OpenAI's row may (whether it leaves
+`platform.openai.com` is not verified), the login is moved off its origin as any chooser
+login is (ADR 0022): it ends `left-origin`, or `authenticated` when the move rules find
+the account signed in. It does not continue its branch there (its record ends on the
+move, and the service assembles a page only for the recipe's origin, `origin-mismatch`)
+and does not answer a passkey request there; a page of that origin is handled as any
+page of that origin.
+
 ## Consequences
 
 - A passkey-only account on a site that asks for the identifier first, such as OpenAI
@@ -224,3 +321,7 @@ recipe's step, the stop's page answers `not-judgeable` and no button is learned 
   whose passkey-only login stops there, a paid call; the handler it learns is shared
   with every account of the recipe, and only logins with a stop press it while the
   password field shows.
+- On a list of accounts, a passkey-only item's first login on a branch that is not
+  generated yet sends the page after its click for continuation: paid, once per branch
+  (and once more after an identifier-only branch's Continue), shared by later logins of
+  any account (item 2 of [account lists](#account-lists)).
