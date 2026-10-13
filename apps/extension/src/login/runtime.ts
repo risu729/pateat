@@ -402,7 +402,26 @@ type LiveDocument = {
   seenAt: number;
   /** Why this document's sign-in entry was not pressed, each reason logged once at info. */
   entryRefusals?: string[];
+  /**
+   * Why the last check of this page, the new top page of a login's move to another origin
+   * (ADR 0022), did not find the sign-in complete, for the log.
+   */
+  moveMiss?: MoveMiss;
 };
+/**
+ * Why a login's move to another origin did not complete it (ADR 0022): no step or second
+ * factor fits the move, the account has no username to look for, the page went away or
+ * could not be read, it shows a sign-in step or asked for a passkey, or it never read
+ * quiet twice.
+ */
+type MoveMiss =
+  | "no-factor"
+  | "no-username"
+  | "page-gone"
+  | "unreadable"
+  | "sign-in-shown"
+  | "passkey-request"
+  | "not-quiet";
 /** Why a page offered for generation is not sent, for the log (ADR 0019). */
 type GenerationMiss = "no-vault-match" | "vault-unavailable" | "connection-disabled";
 /** A provider's or vault's reason as a log code, within the log's 64 characters. */
@@ -1304,6 +1323,24 @@ export type LoginReport = (
        * site's sign-in entry (ADR 0031).
        */
       page?: "accounts" | "entry";
+    }
+  | {
+      /**
+       * A login's tab moved to a page of another origin that did not complete it (ADR
+       * 0022), and why; `origin` is that page's. Logged when the move ends the login, or,
+       * with `kept`, when the page went away before it was read and the tab's next page is
+       * checked instead. A move the judge decided is logged as `judge` instead.
+       */
+      type: "move";
+      tabId: number;
+      origin: string;
+      recipeId: string;
+      recipeRevision: number;
+      route: LoginRoute;
+      reason: MoveMiss;
+      /** A frame of the new page announced first; only the top page reads the sign-in. */
+      frame?: true;
+      kept?: true;
     }
   | {
       type: "judge";
@@ -6714,8 +6751,30 @@ export function createLoginRuntime(
         return { ok: false, reason: "stale-document" };
       const run = attempts.get(document.tabId);
       const latest = run?.metadata ?? tabAttempt(document.tabId);
+      const miss: MoveMiss | undefined =
+        document.frameId !== 0 ? (ending ? "no-factor" : undefined) : live.moveMiss;
+      const reportMove = (kept?: true) =>
+        miss &&
+        report(document, {
+          type: "move",
+          tabId: document.tabId,
+          origin: siteOrigin,
+          recipeId: holder.recipeId,
+          recipeRevision: holder.recipeRevision,
+          route: holder.route,
+          reason: miss,
+          ...(document.frameId === 0 ? {} : { frame: true as const }),
+          ...(kept ? { kept } : {}),
+        });
+      // A page that went away before it could be read, as a redirect through another
+      // page does, is not where the move ended: the tab's next page is checked instead.
+      if (miss === "page-gone" && latest?.id === holder.id && !terminal(latest)) {
+        reportMove(true);
+        return { ok: false, reason: "stale-document" };
+      }
       // Another page of the tab may have ended the attempt meanwhile.
       if (ending && latest?.id === holder.id && !terminal(latest)) {
+        if (!signedIn) reportMove();
         const before = run?.metadata ?? recoverLoginAttempt(latest);
         const ended = transitionLoginAttempt(before, {
           type: "NAVIGATED",
@@ -8422,8 +8481,12 @@ export function createLoginRuntime(
     record: LoginAttemptMetadata,
     live: LiveDocument,
   ): Promise<boolean> {
+    delete live.moveMiss;
     const answer = passkeyMoveFits(record, live.document.tabId, live.document.origin);
-    if (!answer || live.document.frameId !== 0 || live.topUrl !== undefined) return false;
+    if (!answer || live.document.frameId !== 0 || live.topUrl !== undefined) {
+      live.moveMiss = "no-factor";
+      return false;
+    }
     return quietMove(live, answer.at);
   }
   /**
@@ -8440,16 +8503,27 @@ export function createLoginRuntime(
     record: LoginAttemptMetadata,
     live: LiveDocument,
   ): Promise<boolean> {
-    if (live.document.frameId !== 0 || live.topUrl !== undefined) return false;
+    delete live.moveMiss;
+    if (live.document.frameId !== 0 || live.topUrl !== undefined) {
+      live.moveMiss = "no-factor";
+      return false;
+    }
     const stillLive = () => documents.get(frameKey(live.document)) === live;
     // The same document announcing again while its page is judged waits for that verdict.
     const judging = moveJudgements.get(record.id);
     if (judging?.documentId === live.document.documentId)
       return (await judging.verdict) && stillLive();
     const effect = passwordMoveFits(record, live.document.tabId, live.document.origin);
-    if (!effect) return false;
+    if (!effect) {
+      live.moveMiss = "no-factor";
+      return false;
+    }
     const username = await moveUsername(record);
-    if (!username || !stillLive()) return false;
+    if (!stillLive()) return false;
+    if (!username) {
+      live.moveMiss = "no-username";
+      return false;
+    }
     // A login that stops before its item's missing password is not signed in by the
     // username in the header or navigation (ADR 0036): a quiet page is judged.
     const reading =
@@ -8680,20 +8754,33 @@ export function createLoginRuntime(
           ...(username ? { account: { username } } : {}),
         });
       } catch {
+        live.moveMiss = "page-gone";
         return false;
       }
       const parsed = v.safeParse(stateResultSchema, response);
-      if (!parsed.success || !parsed.output.ok) return false;
+      if (!parsed.success || !parsed.output.ok) {
+        live.moveMiss = "unreadable";
+        return false;
+      }
       const { signs } = parsed.output;
       const requested = passkeyRequests.get(`${tabId} ${pageOrigin}`);
-      if (signs.password || signs.code || signs.captcha || (requested ?? 0) >= since) return false;
+      if (signs.password || signs.code || signs.captcha) {
+        live.moveMiss = "sign-in-shown";
+        return false;
+      }
+      if ((requested ?? 0) >= since) {
+        live.moveMiss = "passkey-request";
+        return false;
+      }
       // A page that renders its header late, as a single-page site does, is read again.
       quiet = parsed.output.loaded && (!username || signs.username === true) ? quiet + 1 : 0;
       calm = parsed.output.loaded ? calm + 1 : 0;
     }
     /* eslint-enable no-await-in-loop */
     if (quiet >= 2) return split ? "signed-in" : true;
-    return split && calm >= 2 ? "unproven" : false;
+    if (split && calm >= 2) return "unproven";
+    live.moveMiss = "not-quiet";
+    return false;
   }
   /**
    * The passkey answer that lets a top-level attempt's tab moving to `siteOrigin` complete

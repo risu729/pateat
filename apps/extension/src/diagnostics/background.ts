@@ -455,6 +455,21 @@ export function createDiagnosticsLog(options: {
               : {}),
           },
         );
+      else if (report.type === "move")
+        void logger.log(
+          "login.move",
+          {
+            origin: report.origin,
+            url: report.url,
+            recipe: report.recipeId,
+            recipeRevision: report.recipeRevision,
+            route: report.route,
+            reason: report.reason,
+            frame: report.frame,
+            kept: report.kept,
+          },
+          { source },
+        );
       else if (report.type === "state")
         void logger.log(
           "login.state",

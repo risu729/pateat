@@ -185,6 +185,19 @@ export const LOG_EVENTS = {
       url: "url",
     },
   },
+  "login.move": {
+    level: "info",
+    fields: {
+      origin: "origin",
+      recipe: "recipe",
+      recipeRevision: "count",
+      route: "code",
+      reason: "code",
+      frame: "flag",
+      kept: "flag",
+      url: "url",
+    },
+  },
   "login.refused": {
     level: "info",
     fields: {

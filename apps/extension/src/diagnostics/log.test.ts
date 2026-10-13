@@ -1595,6 +1595,62 @@ describe("unhandled errors", () => {
     vi.restoreAllMocks();
   });
 
+  it("logs why a move to another origin did not complete a login (ADR 0022)", async () => {
+    const log = createDiagnosticsLog({
+      build: { version: "0.1.0", revision: "1c42ad3" },
+      settings: async () => {
+        throw new Error("not needed");
+      },
+      recipeCache: async () => undefined,
+      connections: async () => ({ ok: true, kind: "status", connections: [] }),
+      databaseName: `log-test-${crypto.randomUUID()}`,
+      scope: { addEventListener: () => undefined } as never,
+    });
+    for (const level of ["debug", "info", "warn"] as const)
+      vi.spyOn(console, level).mockImplementation(() => undefined);
+    const move = {
+      type: "move",
+      tabId: 4,
+      origin: "https://console.elsewhere.example",
+      recipeId: "synthetic-recipe",
+      recipeRevision: 2,
+      route: "password",
+    } as const;
+    log.login({ ...move, reason: "page-gone", kept: true });
+    log.login({ ...move, reason: "no-factor", frame: true });
+    await vi.waitFor(async () =>
+      expect(
+        (await log.logger.entries()).filter((entry) => entry.event === "login.move"),
+      ).toHaveLength(2),
+    );
+    const entries = (await log.logger.entries()).filter((logged) => logged.event === "login.move");
+    expect(entries.map((entry) => [entry.level, entry.fields])).toEqual([
+      [
+        "info",
+        {
+          origin: expect.any(String),
+          recipe: expect.any(String),
+          recipeRevision: 2,
+          route: "password",
+          reason: "page-gone",
+          kept: true,
+        },
+      ],
+      [
+        "info",
+        {
+          origin: expect.any(String),
+          recipe: expect.any(String),
+          recipeRevision: 2,
+          route: "password",
+          reason: "no-factor",
+          frame: true,
+        },
+      ],
+    ]);
+    vi.restoreAllMocks();
+  });
+
   it("keeps why an item without a password does not go on to a passkey (ADR 0036)", async () => {
     const log = createDiagnosticsLog({
       build: { version: "0.1.0", revision: "1c42ad3" },

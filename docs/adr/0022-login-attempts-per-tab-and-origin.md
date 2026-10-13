@@ -10,6 +10,12 @@ by [ADR 0021](0021-account-choice-outside-settings.md) (D, after the owner's git
 report): a top-level password login whose site answers with its sign-in form again, or
 that ends `credential-rejected`, is released as after a logout in its page, so other
 tabs of the site ask instead of being held; none submits by itself (implemented).
+Amended on 2026-10-13 (after the owner's 「全部進めて」 at 06:58 UTC, as a bug fix): a
+new page that goes away before its quiet readings does not end a moved login, and a move
+that does not complete is logged with why. Evidence: on Oracle Cloud a login whose
+passkey second factor Pateat answered at 06:48:12 UTC ended `left-origin` 7 ms after its
+sign-in page went away, with no judgement of the console it reached; that a redirect
+page caused it is inferred.
 
 Date: 2026-10-11
 
@@ -158,7 +164,13 @@ fix them now; the SSO policy itself is recorded separately.
     failure signs next to the sign-in fields cannot apply to a new page. The page's
     announcement waits for the readings. A frame of the new page that announces first
     leaves the move to the top page (it is refused `tab-busy` while the attempt still
-    runs), and one that announces during the readings waits for them. The completion
+    runs), and one that announces during the readings waits for them. A new top page
+    that goes away before its quiet readings answer, as a redirect through another page
+    does, is not where the move ended (2026-10-13): the attempt is kept, as before any
+    new page announced, and the tab's next top page is read instead; it must still come
+    within the same 30 seconds of the step or answer. A page that goes away while it is
+    judged still ends the attempt as above. This and every other move that
+    does not complete the attempt is logged with why (`login.move`). The completion
     saves an automatic account choice and releases the origin like any other
     `authenticated` attempt; it is the one completion that needs neither a completion
     check, ADR 0029 evidence nor the judge, also on the `passkey` route of
