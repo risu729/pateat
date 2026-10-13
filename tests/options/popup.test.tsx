@@ -571,8 +571,8 @@ test("a pick in a private window is not made the default unless asked", async ()
   expect(choices.pick).toHaveBeenLastCalledWith(expect.objectContaining({ makeDefault: true }));
 });
 
-test("a pick that starts nothing says so, and a default set here ends the choice", async () => {
-  const { client, current } = store();
+test("a pick that starts nothing says so, and the default list returns once the choice ends", async () => {
+  const { client } = store();
   const choices = noChoice();
   choices.get.mockResolvedValue({
     ok: true,
@@ -585,6 +585,14 @@ test("a pick that starts nothing says so, and a default set here ends the choice
   });
   choices.pick.mockResolvedValue({ ok: false, reason: "not-started" });
   await mount(client, "https://bank.example/", choices);
+  await expect.element(page.getByRole("heading", { name: "Choose an account" })).toBeVisible();
+  // While the page waits, the account choice is the popup's only list.
+  await expect
+    .element(page.getByRole("group", { name: "Default account" }))
+    .not.toBeInTheDocument();
+  await expect.element(page.getByRole("radio")).toHaveLength(2);
+  // The failed pick asks the background again, and the page no longer waits.
+  choices.get.mockResolvedValue({ ok: false, reason: "no-choice" });
   await userEvent.click(page.getByRole("button", { name: "Log in" }));
   await expect
     .element(
@@ -593,21 +601,12 @@ test("a pick that starts nothing says so, and a default set here ends the choice
       ),
     )
     .toBeVisible();
-  // The background ends the waiting choice once the site has a default.
-  choices.get.mockResolvedValue({ ok: false, reason: "no-choice" });
-  const calls = choices.get.mock.calls.length;
-  await userEvent.click(
-    page.getByRole("group", { name: "Default account" }).getByRole("radio").first(),
-  );
-  await userEvent.click(page.getByRole("button", { name: "Use as default" }));
-  await expect
-    .element(page.getByText("is now the default for this site", { exact: false }))
-    .toBeVisible();
-  expect(current().snapshot.settings.siteDefaults).toHaveLength(1);
-  await expect.poll(() => choices.get.mock.calls.length).toBeGreaterThan(calls);
   await expect
     .element(page.getByRole("heading", { name: "Choose an account" }))
     .not.toBeInTheDocument();
+  await expect
+    .element(page.getByRole("group", { name: "Default account" }).getByRole("radio"))
+    .toHaveLength(3);
 });
 
 test("after a logout, the popup lists the saved default first", async () => {
@@ -643,6 +642,48 @@ test("after a logout, the popup lists the saved default first", async () => {
   expect(choices.pick).toHaveBeenCalledWith(
     expect.objectContaining({ documentId: "signed-out", connectionId: "demo-work" }),
   );
+});
+
+test("while a choice waits, the saved default can still be removed, and one missing from the choice is named", async () => {
+  const settings = createDefaultSettings();
+  settings.siteDefaults.push({
+    origin: "https://bank.example",
+    provider: "dummy",
+    userId: "demo-personal-account",
+    itemId: "secondary",
+    itemName: "Demo secondary account",
+  });
+  const { client, current } = store(saved(3, settings));
+  const choices = noChoice();
+  choices.get.mockResolvedValue({
+    ok: true,
+    origin: "https://bank.example",
+    documentId: "signed-out",
+    candidates: [
+      { connectionId: "demo-personal", itemId: "primary" },
+      { connectionId: "demo-work", itemId: "primary" },
+    ],
+    logout: true,
+  });
+  await mount(client, "https://bank.example/", choices);
+  await expect.element(page.getByRole("heading", { name: "Choose an account" })).toBeVisible();
+  await expect
+    .element(page.getByRole("group", { name: "Default account" }))
+    .not.toBeInTheDocument();
+  await expect
+    .element(
+      page.getByText(
+        "The saved default, Demo secondary account (Demo personal vault), is not one of these accounts",
+      ),
+    )
+    .toBeVisible();
+  await userEvent.click(page.getByRole("button", { name: "Remove default" }));
+  await expect
+    .element(page.getByText("The default account for this site was removed"))
+    .toBeVisible();
+  expect(current().snapshot.settings.siteDefaults).toEqual([]);
+  // The choice stays for a pick.
+  await expect.element(page.getByRole("button", { name: "Log in" })).toBeEnabled();
 });
 
 test("after a logout, the popup asks even with one account", async () => {

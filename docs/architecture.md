@@ -348,13 +348,18 @@ active tab's site default account and exclusion, through the same worker-owned s
 ([ADR 0021](adr/0021-account-choice-outside-settings.md)). Its "Pateat on this site"
 switch adds or removes only an exclusion rule for the exact hostname without subdomains;
 when a parent-domain rule or one with subdomains covers the site, the switch is disabled
-and the popup links each such rule to the settings page. Item selection, field
-exclusions and custom-field review stay on the extension's settings page once synced
-([ADR 0023](adr/0023-synced-vault-policy.md)). The service keeps one settings document
-per owner; [ADR 0024](adr/0024-settings-profiles.md) assigns its parts either to a
-settings profile that each device will choose later or to the owner. Chrome use access
-to these pages is not assumed. Keep settings and execution operations independent of
-their UI.
+and the popup links each such rule to the settings page. While the tab's page waits for
+an account choice, the choice is the popup's only list (the owner asked for one list on
+2026-10-13 at 03:54 UTC): its cards mark the saved default, its "Make it the default"
+checkbox makes the picked account the default once that login succeeds, and a saved
+default can still be removed there. The default-account list, where a default is chosen
+without logging in, returns once the page no longer waits. Item
+selection, field exclusions and custom-field review stay on the extension's settings
+page once synced ([ADR 0023](adr/0023-synced-vault-policy.md)). The service keeps one
+settings document per owner; [ADR 0024](adr/0024-settings-profiles.md) assigns its parts
+either to a settings profile that each device will choose later or to the owner. Chrome
+use access to these pages is not assumed. Keep settings and execution operations
+independent of their UI.
 
 Each connection supports all items except exclusions or selected
 folders/collections/items only. Use existing Bitwarden metadata; independent
