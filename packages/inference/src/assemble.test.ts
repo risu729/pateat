@@ -368,6 +368,21 @@ describe("judged passkey handler (ADR 0027)", () => {
     expect(onRoute.recipe.steps).toEqual(recipe.steps);
   });
 
+  it("keeps a button whose label names no passkey, as a FIDO page's Verify", () => {
+    // Oracle Cloud's FIDO page starts its WebAuthn call from "Verify" (2026-10-13); the
+    // judge decides what the button does, and only registration words refuse it.
+    const verify = { by: "text", value: "Verify" } as const;
+    const added = addHandler(
+      recipe,
+      { origin, path: "/ui/v1/signin", candidates: [candidate("verify", verify)] },
+      passkey(verify),
+    );
+    if (!added.ok) throw new Error(added.reason);
+    expect(added.recipe.handlers).toEqual([
+      { kind: "passkey", path: "/ui/v1/signin", target: verify },
+    ]);
+  });
+
   it("refuses a link or an element the page does not show", () => {
     const link = { by: "text", value: "Use a security key" } as const;
     expect(addHandler(recipe, webauthn(candidate("link", link, "link")), passkey(link))).toEqual({
