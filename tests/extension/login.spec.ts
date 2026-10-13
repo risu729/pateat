@@ -901,7 +901,10 @@ test("a passkey that is only a second factor signs in with the password (ADR 002
   }
 });
 
-/** What the synthetic code page recorded: counts and whether the code matched, never the code. */
+/**
+ * What the synthetic code page recorded: counts and whether the code matched, never the
+ * code. A typed code sends one input event per digit.
+ */
 async function codeEvidence(page: Page) {
   return page.evaluate(() => ({
     codeInputs: Number(sessionStorage.getItem("codeInputs") || 0),
@@ -923,8 +926,9 @@ test("fills the TOTP code on the code page and clicks Verify once (ADR 0027)", a
       await page.goto(`${fixture.origin}/totp`);
       await expect(page.locator("#authenticated")).toBeVisible();
       await expect.poll(status).toContain('"authenticated"');
+      // The code is typed once, one input event per digit.
       expect(await codeEvidence(page)).toEqual({
-        codeInputs: 1,
+        codeInputs: 6,
         verifyClicks: 1,
         autoSubmits: 0,
         codeMatched: "true",
@@ -953,8 +957,9 @@ test("a code page shown again after Verify ends as a challenge without a second 
       await page.goto(`${fixture.origin}/totp?wrong`);
       await expect.poll(status).toContain('"challenge"');
       await expect(page.locator("#code")).toHaveValue("");
+      // The code is typed once, one input event per digit.
       expect(await codeEvidence(page)).toEqual({
-        codeInputs: 1,
+        codeInputs: 6,
         verifyClicks: 1,
         autoSubmits: 0,
         codeMatched: "true",
@@ -1083,7 +1088,7 @@ for (const [mode, query] of [
         await expect(page.locator("#authenticated")).toBeVisible();
         await expect.poll(status).toContain('"authenticated"');
         expect(await codeEvidence(page)).toEqual({
-          codeInputs: 1,
+          codeInputs: 6,
           verifyClicks: 1,
           autoSubmits: 0,
           codeMatched: "true",
@@ -1122,7 +1127,7 @@ for (const [result, query] of [
           await expect.poll(status).toContain('"authenticated"');
         }
         expect(await codeEvidence(page)).toEqual({
-          codeInputs: 1,
+          codeInputs: 6,
           verifyClicks: 0,
           autoSubmits: 1,
           codeMatched: "true",
@@ -1151,7 +1156,7 @@ for (const [mode, query] of [
         await expect(page.locator("#authenticated")).toBeVisible();
         await expect.poll(status).toContain('"authenticated"');
         expect(await codeEvidence(page)).toEqual({
-          codeInputs: 1,
+          codeInputs: 6,
           verifyClicks: 0,
           autoSubmits: 1,
           codeMatched: "true",
