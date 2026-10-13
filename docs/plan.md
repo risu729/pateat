@@ -509,6 +509,10 @@ own accounts, so they stay in the project's files rather than in this repository
     statements and branches covered except one wrapper only tests called, removed.
     Six tests that passed without reaching the rule they named were repaired, and the
     account list's entry choice is now checked on an entry that is not the first.
+  - Batch 8, the server's management pages and the extension's smaller login suites
+    (2026-10-12): 42 to 41 Vitest cases, the login lane still 873 with one test
+    replaced by a row the review asked for. Nearly every test there is the only unit
+    proof of its rule; a URL helper only tests called was removed.
 - UI improvements the owner reports from daily use of the UI polished in phase 1. Small
   fixes for broken UI still land as found.
 - Features found missing during use are added here.
