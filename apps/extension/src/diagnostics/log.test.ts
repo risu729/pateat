@@ -1027,6 +1027,36 @@ describe("unhandled errors", () => {
       reshown: true,
       decision: "rejected",
     });
+    // Why the form was not read as shown again, or no alert beside it counted: codes only.
+    log.login({
+      type: "state",
+      ...page,
+      route: "password",
+      ...{ ...signs, s2: false, f2: false, e1: false, e2: false, e3: false },
+      decision: "unknown",
+      reshownMiss: "later-document",
+    });
+    log.login({
+      type: "state",
+      ...page,
+      route: "password",
+      ...{ ...signs, s2: false, f2: false, e1: false, e2: false, e3: false },
+      reshown: true,
+      decision: "unknown",
+      alertMiss: "other-form",
+    });
+    // A result that settled while the sign-in form still showed says so.
+    log.login({
+      type: "attempt",
+      ...page,
+      route: "password",
+      state: "reconciling",
+      stepIndex: 2,
+      stepCount: 2,
+      outcome: "unknown-submit",
+      cause: "sign-in-shown",
+      settled: true,
+    });
     log.login({
       type: "attempt",
       ...page,
@@ -1078,7 +1108,7 @@ describe("unhandled errors", () => {
       reason: "incomplete-observation",
       detail: "unlocated-button",
     });
-    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(18));
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(21));
     const entries = (await log.logger.entries()).filter((entry) => entry.event !== "log.debug");
     expect(entries.map((entry) => [entry.event, entry.level, entry.fields])).toEqual([
       // An unchanged sync is a debug entry; one that changed a recipe is info.
@@ -1196,6 +1226,49 @@ describe("unhandled errors", () => {
           s2: true,
           f2: true,
           reshown: true,
+        },
+      ],
+      [
+        "login.state",
+        "info",
+        {
+          origin: recipeOrigin,
+          recipe: expect.any(String),
+          recipeRevision: 1,
+          route: "password",
+          decision: "unknown",
+          s1: true,
+          reshownMiss: "later-document",
+        },
+      ],
+      [
+        "login.state",
+        "info",
+        {
+          origin: recipeOrigin,
+          recipe: expect.any(String),
+          recipeRevision: 1,
+          route: "password",
+          decision: "unknown",
+          s1: true,
+          reshown: true,
+          alertMiss: "other-form",
+        },
+      ],
+      [
+        "login.attempt",
+        "warn",
+        {
+          origin: recipeOrigin,
+          recipe: expect.any(String),
+          recipeRevision: 1,
+          route: "password",
+          state: "reconciling",
+          step: 2,
+          steps: 2,
+          outcome: "unknown-submit",
+          cause: "sign-in-shown",
+          settled: true,
         },
       ],
       [

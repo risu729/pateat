@@ -8,6 +8,7 @@ import {
   type LoginTarget,
 } from "@pateat/contracts";
 import { entryMisses, type ListMiss, otherMisses } from "../page/account-list";
+import { alertMisses } from "../page/sign-in-state";
 
 const id = v.pipe(v.string(), v.minLength(1), v.maxLength(120));
 /** Which inputs a secret value may fill; see `acceptsSecret` in `inputs.ts`. */
@@ -557,6 +558,8 @@ export const stateResultSchema = v.variant("ok", [
       captcha: v.boolean(),
       invalid: v.boolean(),
       alert: v.boolean(),
+      /** Why `alert` does not hold on a sign-in form shown again, for the log only. */
+      alertMiss: v.optional(v.picklist(alertMisses)),
       username: v.optional(v.boolean()),
     }),
     /** Whether the document has finished loading; the login completes only then. */

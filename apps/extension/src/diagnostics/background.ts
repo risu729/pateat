@@ -449,6 +449,9 @@ export function createDiagnosticsLog(options: {
               ),
             ),
             reshown: report.reshown,
+            // Why S1 was not read as the form shown again, or no alert beside it counted.
+            reshownMiss: report.reshownMiss,
+            alertMiss: report.alertMiss,
             settled: report.settled,
           },
           // Later pages of a settled attempt repeat what its first page showed.

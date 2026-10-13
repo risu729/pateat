@@ -179,6 +179,8 @@ export const LOG_EVENTS = {
       e2: "flag",
       e3: "flag",
       reshown: "flag",
+      reshownMiss: "code",
+      alertMiss: "code",
       settled: "flag",
       url: "url",
     },
