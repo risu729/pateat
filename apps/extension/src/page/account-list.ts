@@ -582,10 +582,41 @@ export function namedAccounts(
   };
 }
 
+/**
+ * What a list showed when nothing on it fits (ADR 0028), for the log only: the chosen
+ * username's kind, counts of what the page shows, and how the chooser's buttons were found.
+ * Never a name, address or other text.
+ */
+export interface ListMiss {
+  /** `email` for an address, `name` for another username, `empty` for none. */
+  readonly username: "email" | "name" | "empty";
+  /** Entries showing an address, or for a name, innermost entry-like controls. */
+  readonly entries: number;
+  /** For an address: entries whose shown address is masked. */
+  readonly masked?: number;
+  /** For an address: entries showing an address of the username's domain. */
+  readonly sameDomain?: number;
+  /**
+   * For an address: entries whose shown address fits the username ({@link chooses}),
+   * before masked ones are weighed against the other items' usernames.
+   */
+  readonly fits?: number;
+  /** For an address without entries: why a text with an `@` is not one. */
+  readonly entryMiss?: EntryMiss;
+  /** Short texts shown beside buttons ({@link besideAccounts}). */
+  readonly beside: number;
+  /** For a name: entry controls whose whole text names it. */
+  readonly named?: number;
+  /** The chooser's `other` and `continue` buttons: none in the recipe, or elements found. */
+  readonly other: ButtonFound;
+  readonly continue: ButtonFound;
+}
+type ButtonFound = "none" | "missing" | "one" | "many";
+
 /** What a chooser login clicks on a list (ADR 0028), and the element; `none` clicks nothing. */
 export type ListChoice =
   | { click: "entry" | "continue" | "other"; element: HTMLElement }
-  | { click: "none" };
+  | { click: "none"; miss: ListMiss };
 
 /** Whether `username` is an email: an `@` after its first character; `@name` is a handle. */
 export const emailUsername = (username: string) =>
@@ -659,5 +690,51 @@ export function listChoice(
       return { click: "continue", element: proceed };
   }
   const other = only(input.other);
-  return other ? { click: "other", element: other } : { click: "none" };
+  return other
+    ? { click: "other", element: other }
+    : { click: "none", miss: listMiss(document, input) };
+}
+
+/** {@link ListMiss} for a list on which nothing fits the chosen `username`. */
+function listMiss(
+  document: Document,
+  input: { username: string; other?: LoginTarget | undefined; continue?: LoginTarget | undefined },
+): ListMiss {
+  const found = (target: LoginTarget | undefined): ButtonFound => {
+    if (!target) return "none";
+    const count = listControls(document, target).length;
+    return count === 0 ? "missing" : count === 1 ? "one" : "many";
+  };
+  const buttons = { other: found(input.other), continue: found(input.continue) };
+  if (emailUsername(input.username)) {
+    const entries = accountEntries(document);
+    const domain = parts(input.username)?.domain;
+    const miss = entries.length ? undefined : accountEntryMiss(document);
+    return {
+      username: "email",
+      entries: entries.length,
+      masked: entries.filter((entry) => entry.accounts.some((account) => /[*●•]/u.test(account)))
+        .length,
+      sameDomain: entries.filter((entry) =>
+        entry.accounts.some((account) => domain !== undefined && parts(account)?.domain === domain),
+      ).length,
+      fits: entries.filter((entry) =>
+        entry.accounts.some((account) => chooses(account, input.username)),
+      ).length,
+      ...(miss ? { entryMiss: miss } : {}),
+      beside: besideEmails(document).length,
+      ...buttons,
+    };
+  }
+  if (!input.username.trim())
+    return { username: "empty", entries: 0, beside: besideAccounts(document).length, ...buttons };
+  const controls = entryControls(document);
+  return {
+    username: "name",
+    entries: controls.length,
+    beside: besideAccounts(document).length,
+    named: controls.filter((element) => namesUsername(listControlText(element), input.username))
+      .length,
+    ...buttons,
+  };
 }

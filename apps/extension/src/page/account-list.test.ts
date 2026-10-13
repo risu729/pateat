@@ -356,6 +356,16 @@ describe("listChoice", () => {
       listChoice(document, { username: "jiro@example.com", others: [], othersComplete: true }),
     ).toEqual({
       click: "none",
+      miss: {
+        username: "email",
+        entries: 2,
+        masked: 0,
+        sameDomain: 2,
+        fits: 0,
+        beside: 0,
+        other: "none",
+        continue: "none",
+      },
     });
   });
 
@@ -470,7 +480,19 @@ describe("listChoice", () => {
         othersComplete: true,
         other: named,
       }),
-    ).toEqual({ click: "none" });
+    ).toEqual({
+      click: "none",
+      miss: {
+        username: "email",
+        entries: 1,
+        masked: 0,
+        sameDomain: 1,
+        fits: 0,
+        beside: 0,
+        other: "missing",
+        continue: "none",
+      },
+    });
     document.body.innerHTML = `<form><input type="text" name="q"><button id="next">Next</button></form>`;
     expect(
       listChoice(document, {
@@ -479,7 +501,19 @@ describe("listChoice", () => {
         othersComplete: true,
         other: named,
       }),
-    ).toEqual({ click: "none" });
+    ).toEqual({
+      click: "none",
+      miss: {
+        username: "email",
+        entries: 0,
+        masked: 0,
+        sameDomain: 0,
+        fits: 0,
+        beside: 0,
+        other: "missing",
+        continue: "none",
+      },
+    });
     document.body.innerHTML = `<form><input type="hidden" name="q"><button id="next">Next</button></form>`;
     expect(
       listChoice(document, {
@@ -489,6 +523,149 @@ describe("listChoice", () => {
         other: named,
       }).click,
     ).toBe("other");
+  });
+});
+
+describe("listChoice miss", () => {
+  const none = (choice: ReturnType<typeof listChoice>) => {
+    expect(choice.click).toBe("none");
+    return "miss" in choice ? choice.miss : undefined;
+  };
+  const email = `
+    <h1>Choose an account</h1>
+    <div role="link" tabindex="0">tar***@example.com</div>
+    <div role="link" tabindex="0">hanako@example.com</div>
+    <div role="link" tabindex="0">jiro@other.test</div>
+    <div><p>s***@example.com</p><button>Log back in</button></div>`;
+
+  it("counts an address list's entries, masked, same-domain and fitting ones, and its buttons", () => {
+    document.body.innerHTML = email;
+    // The masked entry fits, but the other vault items are not all known.
+    const input = { username: "taro@example.com", others: [], othersComplete: false };
+    expect(none(listChoice(document, input))).toEqual({
+      username: "email",
+      entries: 3,
+      masked: 1,
+      sameDomain: 2,
+      fits: 1,
+      beside: 1,
+      other: "none",
+      continue: "none",
+    });
+    document.body.innerHTML = `${email}<button>Next</button><button>Next</button>`;
+    expect(
+      none(
+        listChoice(document, {
+          ...input,
+          other: { by: "text", value: "Use another account" },
+          continue: { by: "text", value: "Next" },
+        }),
+      ),
+    ).toMatchObject({ other: "missing", continue: "many" });
+    expect(
+      none(
+        listChoice(document, {
+          ...input,
+          username: "jiro@example.com",
+          continue: { by: "text", value: "Log back in" },
+        }),
+      ),
+    ).toMatchObject({ entries: 3, fits: 0, other: "none", continue: "one" });
+  });
+
+  it("names why a text with an @ is no entry", () => {
+    document.body.innerHTML = `<p>Signed in as hanako@example.com</p>`;
+    expect(
+      none(
+        listChoice(document, { username: "taro@example.com", others: [], othersComplete: true }),
+      ),
+    ).toEqual({
+      username: "email",
+      entries: 0,
+      masked: 0,
+      sameDomain: 0,
+      fits: 0,
+      entryMiss: "no-entry",
+      beside: 0,
+      other: "none",
+      continue: "none",
+    });
+  });
+
+  it("counts a name list's controls, the texts beside buttons and the controls naming it", () => {
+    document.body.innerHTML = `<ul><li><a href="#">hanako</a></li><li><a href="#">jiro</a></li></ul>
+      <div><span>hanako</span><button>Follow</button></div>`;
+    // The name shows both as a control and beside a button: nothing is clicked.
+    expect(
+      none(
+        listChoice(document, {
+          username: "Hanako",
+          others: [],
+          othersComplete: true,
+          continue: { by: "text", value: "Continue" },
+        }),
+      ),
+    ).toEqual({
+      username: "name",
+      entries: 3,
+      beside: 1,
+      named: 1,
+      other: "none",
+      continue: "missing",
+    });
+  });
+
+  it("counts only the texts beside buttons for an empty username", () => {
+    document.body.innerHTML = instagram;
+    expect(
+      none(
+        listChoice(document, {
+          username: " ",
+          others: [],
+          othersComplete: true,
+          continue: { by: "text", value: "Continue" },
+          other: { by: "text", value: "Switch accounts" },
+        }),
+      ),
+    ).toEqual({ username: "empty", entries: 0, beside: 1, other: "missing", continue: "one" });
+  });
+
+  it("holds no name, address or other text of the page or the account", () => {
+    const misses: unknown[] = [];
+    document.body.innerHTML = email;
+    misses.push(
+      none(
+        listChoice(document, { username: "taro@example.com", others: [], othersComplete: false }),
+      ),
+    );
+    document.body.innerHTML = `<p>Signed in as hanako@example.com</p>`;
+    misses.push(
+      none(
+        listChoice(document, { username: "taro@example.com", others: [], othersComplete: true }),
+      ),
+    );
+    document.body.innerHTML = `<div><span>hanako</span><button>Follow</button></div>${instagram}`;
+    misses.push(
+      none(listChoice(document, { username: "hanako", others: [], othersComplete: true })),
+      none(listChoice(document, { username: "", others: [], othersComplete: true })),
+    );
+    const serialized = JSON.stringify(misses);
+    for (const text of [
+      "@",
+      "taro",
+      "hanako",
+      "jiro",
+      "example",
+      "other.test",
+      "***",
+      "Choose",
+      "Signed",
+      "Follow",
+      "Log back",
+      "Continue",
+      "profile",
+    ])
+      expect(serialized, text).not.toContain(text);
   });
 });
 
