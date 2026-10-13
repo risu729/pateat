@@ -400,6 +400,10 @@ than in this repository.
   page's kind, recipes generated as `confirm` neither run nor count as logouts, a
   passkey re-verification after Pateat's login in the tab is handed on, and the logs for
   judging whether `confirm` can be split are kept.
+- The toolbar badge counts the matching items on every HTTPS site: teal with the usable
+  count, light gray when every match is excluded, amber while a login waits for a choice
+  (owner, 2026-10-13 14:42 UTC;
+  [ADR 0021](adr/0021-account-choice-outside-settings.md#site-count-badge)).
 - The owner uses Pateat on many sites and reports bugs; Claude may also fix problems it
   finds on its own. Reading the extension's error logs without a report needs a way for
   them to leave the device, which [ADR 0019](adr/0019-local-diagnostics-and-logs.md)
@@ -2418,8 +2422,7 @@ API keys, SSO or device approval; signing in to sites through an identity provid
 (policy in ADR 0026); external email/SMS OTP and magic links; and separately authorized
 post-login actions, including transactions and approvals. UI extensions, automatic
 account switching (logging out and in again when another account is picked while logged
-in, recorded in ADR 0021), a badge counting the matching items on every site that has
-one (also recorded in ADR 0021), recipe sharing, additional service auth, E2EE settings
+in, recorded in ADR 0021), recipe sharing, additional service auth, E2EE settings
 sync, MCP, Vaultwarden support and vaults other than Bitwarden are also deferred. They
 are extension points, not implicit permissions or initial acceptance requirements. A
 mode without the service and direct AI are planned for
