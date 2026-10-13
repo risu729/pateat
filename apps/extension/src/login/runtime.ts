@@ -1282,6 +1282,8 @@ export type LoginReport = (
       /** Why the tab asks after a logout (ADR 0021 D). */
       logout?: LogoutReason;
       held?: true;
+      /** The site rejected another tab's login, so the popup chooses no account. */
+      rejectedElsewhere?: true;
       recordState?: string;
       recordOutcome?: string;
       pageReason?: string;
@@ -1556,6 +1558,11 @@ export function createLoginRuntime(
     /** Receives each attempt state change, refusal and generation result. */
     report?: (report: LoginReport) => void;
     /**
+     * Spins the tab's toolbar icon while a model request for its page is in flight, from
+     * the request's `sent` until the request returns (owner, 2026-10-13); returns the stop.
+     */
+    spin?: (tabId: number) => () => void;
+    /**
      * Told of each origin of a login that reached signed in, on any route, so a site's
      * passkey registration right after it can be refused (ADR 0007). Never changes the login.
      */
@@ -1578,6 +1585,17 @@ export function createLoginRuntime(
   },
 ) {
   const { fields, sites, recipes = noLoginRecipes, uris, generation } = options;
+  /** Spins the tab's icon from a model request's `sent` until `stop`, once the request returns. */
+  function spinning(tabId: number) {
+    let stop: (() => void) | undefined;
+    return {
+      sent: (then: () => void) => () => {
+        stop ??= options.spin?.(tabId);
+        then();
+      },
+      stop: () => stop?.(),
+    };
+  }
   /** Reports about `source`'s document; only the tab's own page gets its URL (ADR 0019). */
   const report = (source: { frameId: number }, value: LoginReport) => {
     try {
@@ -1674,8 +1692,23 @@ export function createLoginRuntime(
   const signInUrls = new Map<number, { attemptId: string; url: string }>();
   /** By tab and origin: the last passkey request of the top document, outside conditional mediation. */
   const passkeyRequests = new Map<string, number>();
-  /** By tab and origin: the last assertion the passkey bridge returned, and its RP ID. */
-  const passkeyAnswers = new Map<string, { at: number; rpId: string }>();
+  /**
+   * By tab and origin: the last assertion the passkey bridge returned, its RP ID and the
+   * vault item it was signed with.
+   */
+  const passkeyAnswers = new Map<
+    string,
+    { at: number; rpId: string; item?: { connectionId: string; itemId: string } }
+  >();
+  /**
+   * By tab: the page of another origin of the site that a top-level attempt's tab moved to
+   * and that asked for a passkey, while the attempt waits for the tab's next top page (ADR
+   * 0022): a passkey answered there with the attempt's own item lets that page complete it.
+   */
+  const passkeyPages = new Map<
+    number,
+    { attemptId: string; document: LoginDocument; requestedAt: number }
+  >();
   /**
    * By tab: the check of a move to another origin after a passkey answer, a password
    * submission or a second factor, while its new top page is read (ADR 0022).
@@ -2015,6 +2048,13 @@ export function createLoginRuntime(
       (key) => key !== recordKey(tabId, siteOrigin) && key.endsWith(` ${siteOrigin}`),
     );
   }
+  /** Whether another tab still asks after the site rejected its login (ADR 0021). */
+  function rejectedElsewhere(tabId: number, siteOrigin: string): boolean {
+    return [...rejectedAsks].some(
+      (key) =>
+        key !== recordKey(tabId, siteOrigin) && key.endsWith(` ${siteOrigin}`) && logouts.has(key),
+    );
+  }
   /** Tells the tab why it does not log in while another tab's login holds the site. */
   function showHeld(tabId: number): void {
     void quietly(() =>
@@ -2093,6 +2133,9 @@ export function createLoginRuntime(
         candidates: waiting.candidates,
         logout: waiting.logout,
         ...held,
+        ...(waiting.logout !== "rejected" && rejectedElsewhere(tabId, waiting.document.origin)
+          ? { rejectedElsewhere: true as const }
+          : {}),
       };
     // A default saved since the refusal decides the page's next login instead.
     const snapshot = await settings.handle({ version: 1, type: "settings.get" });
@@ -2112,6 +2155,9 @@ export function createLoginRuntime(
       documentId: waiting.document.documentId,
       candidates: waiting.candidates,
       ...held,
+      ...(rejectedElsewhere(tabId, waiting.document.origin)
+        ? { rejectedElsewhere: true as const }
+        : {}),
     };
   }
   /** By tab: the popup's last logged answer, so an open popup asking each second logs once. */
@@ -2133,6 +2179,7 @@ export function createLoginRuntime(
             candidates: answer.candidates.length,
             ...(answer.logout ? { logout: answer.logout } : {}),
             ...(answer.held ? { held: true as const } : {}),
+            ...(answer.rejectedElsewhere ? { rejectedElsewhere: true as const } : {}),
           }
         : {}),
       ...(record
@@ -4362,21 +4409,24 @@ export function createLoginRuntime(
       : branch
         ? [branch]
         : [];
+    const spin = spinning(run.live.document.tabId);
     const {
       verdict,
       reason,
       recipe: added,
-    } = await generation.judge(
-      recipe.id,
-      recipe.revision,
-      // The service knows no `passkey` route on a recipe without its button; the page's
-      // own request is answered beside the password form, which the service checks for
-      // that route the same way (ADR 0034).
-      metadata.route === "passkey" && passkeyAnswersRequest(recipe) ? "password" : metadata.route,
-      observation,
-      () => reportJudge("sent"),
-      ...judgedTail,
-    );
+    } = await generation
+      .judge(
+        recipe.id,
+        recipe.revision,
+        // The service knows no `passkey` route on a recipe without its button; the page's
+        // own request is answered beside the password form, which the service checks for
+        // that route the same way (ADR 0034).
+        metadata.route === "passkey" && passkeyAnswersRequest(recipe) ? "password" : metadata.route,
+        observation,
+        spin.sent(() => reportJudge("sent")),
+        ...judgedTail,
+      )
+      .finally(spin.stop);
     if (!current(run)) {
       reportJudge(verdict, {
         ...(reason ? { reason } : {}),
@@ -4785,6 +4835,7 @@ export function createLoginRuntime(
     if (run.metadata.continuation?.operationId !== operationId) return refuse();
     // The page that asks, logged when its request leaves the device (ADR 0019).
     const page = run.live.document;
+    const spin = spinning(page.tabId);
     const asked = generation
       .generate(
         {
@@ -4800,7 +4851,7 @@ export function createLoginRuntime(
           // A chooser login's page is its branch's next page (ADR 0028).
           ...(metadata.chooser ? { branch: chooserClickBranch(metadata.chooser.click) } : {}),
         },
-        () =>
+        spin.sent(() =>
           report(page, {
             type: "generation",
             tabId: page.tabId,
@@ -4809,7 +4860,9 @@ export function createLoginRuntime(
             recipeId: recipe.id,
             baseRevision: recipe.revision,
           }),
+        ),
       )
+      .finally(spin.stop)
       // A thrown request frees its claim, so it is given back like any request that did not
       // reach the model.
       .catch((): GenerationOutcome => ({ outcome: "failed", reason: "error", retry: true }));
@@ -6181,6 +6234,7 @@ export function createLoginRuntime(
       }
       const custom = await customSlots(live.document.origin, scope);
       if (documents.get(key) !== live) return;
+      const spin = spinning(live.document.tabId);
       const result = await generation
         .generate(
           {
@@ -6193,7 +6247,7 @@ export function createLoginRuntime(
               ...custom,
             ],
           },
-          () =>
+          spin.sent(() =>
             report(live.document, {
               type: "generation",
               tabId: live.document.tabId,
@@ -6201,7 +6255,9 @@ export function createLoginRuntime(
               outcome: "sent",
               ...page,
             }),
+          ),
         )
+        .finally(spin.stop)
         .catch((): GenerationOutcome => ({ outcome: "failed", reason: "error" }));
       sent = true;
       report(live.document, {
@@ -6751,6 +6807,47 @@ export function createLoginRuntime(
         !(await loginRelated(document.tabId, document.frameId, document.origin)),
       );
     const holder = tabAttempt(document.tabId);
+    /** Logs why a move of `record` did not complete it, or that it was kept (ADR 0022). */
+    const reportMove = (record: LoginAttemptMetadata, reason: MoveMiss, kept?: true) =>
+      report(document, {
+        type: "move",
+        tabId: document.tabId,
+        origin: siteOrigin,
+        recipeId: record.recipeId,
+        recipeRevision: record.recipeRevision,
+        route: record.route,
+        reason,
+        ...(document.frameId === 0 ? {} : { frame: true as const }),
+        ...(kept ? { kept } : {}),
+      });
+    /**
+     * Ends the tab's top-level attempt `latest`, run by `run` if it still runs, on its
+     * tab's move to the page of `moved`, completed when `signedIn` (ADR 0022). Returns a
+     * refusal when the record could not be stored.
+     */
+    const endMove = async (
+      run: Execution | undefined,
+      latest: LoginAttemptMetadata,
+      moved: LoginDocument,
+      signedIn: boolean,
+    ) => {
+      const before = run?.metadata ?? recoverLoginAttempt(latest);
+      const ended = transitionLoginAttempt(before, {
+        type: "NAVIGATED",
+        document: moved,
+        ...(signedIn ? { signedIn } : {}),
+      });
+      noteSignedIn(before, ended, moved.origin);
+      if (run) run.metadata = ended;
+      reportAttempt(ended, run?.recipe);
+      try {
+        await keep(ended);
+      } catch {
+        return refuse("storage-unavailable");
+      }
+      if (ended.state === "authenticated" && run?.choice) await remember(run);
+      return undefined;
+    };
     if (holder && !terminal(holder) && holder.document.frameId === 0 && leftSite(holder)) {
       // The tab's page moved to another origin: the attempt there ends without
       // resubmitting and keeps its record, and this page or its frame may start its own.
@@ -6773,9 +6870,11 @@ export function createLoginRuntime(
           // eslint-disable-next-line no-await-in-loop
           await check;
         // A check that went stale, as when the top page announced again, ended nothing.
+        // A login held by a page that asked for a passkey is left to the tab's top pages.
         if (
           passkeyMoveFits(holder, document.tabId, siteOrigin) ||
-          passwordMoveFits(holder, document.tabId, siteOrigin)
+          passwordMoveFits(holder, document.tabId, siteOrigin) ||
+          passkeyPages.get(document.tabId)?.attemptId === holder.id
         )
           ending = false;
       } else {
@@ -6791,47 +6890,96 @@ export function createLoginRuntime(
       }
       if (hellos.get(helloKey) !== sequence || documents.get(key) !== live)
         return { ok: false, reason: "stale-document" };
-      const run = attempts.get(document.tabId);
-      const latest = run?.metadata ?? tabAttempt(document.tabId);
       const miss: MoveMiss | undefined =
         document.frameId !== 0 ? (ending ? "no-factor" : undefined) : live.moveMiss;
-      const reportMove = (kept?: true) =>
-        miss &&
-        report(document, {
-          type: "move",
-          tabId: document.tabId,
-          origin: siteOrigin,
-          recipeId: holder.recipeId,
-          recipeRevision: holder.recipeRevision,
-          route: holder.route,
-          reason: miss,
-          ...(document.frameId === 0 ? {} : { frame: true as const }),
-          ...(kept ? { kept } : {}),
-        });
+      // Another page of the tab may have ended the attempt meanwhile.
+      const running = () => {
+        const latest = attempts.get(document.tabId)?.metadata ?? tabAttempt(document.tabId);
+        return latest?.id === holder.id && !terminal(latest);
+      };
       // A page that went away before it could be read, as a redirect through another
       // page does, is not where the move ended: the tab's next page is checked instead.
-      if (miss === "page-gone" && latest?.id === holder.id && !terminal(latest)) {
-        reportMove(true);
+      if (miss === "page-gone" && running()) {
+        reportMove(holder, miss, true);
         return { ok: false, reason: "stale-document" };
       }
-      // Another page of the tab may have ended the attempt meanwhile.
-      if (ending && latest?.id === holder.id && !terminal(latest)) {
-        if (!signedIn) reportMove();
-        const before = run?.metadata ?? recoverLoginAttempt(latest);
-        const ended = transitionLoginAttempt(before, {
-          type: "NAVIGATED",
+      // Nor is a page of another origin of the site that asks for a passkey soon after the
+      // attempt's last step: the attempt waits for the tab's next page, which a passkey
+      // answered there with the attempt's own item lets complete it (`passkeyMoveFits`).
+      // This page starts no login of its own meanwhile.
+      const asked = async () =>
+        passkeyPageFits(holder, document, siteOrigin) &&
+        (passkeyPages.get(document.tabId)?.document.documentId !== document.documentId ||
+          (await stillAsking(live)));
+      const held =
+        document.frameId === 0 && !signedIn && miss !== undefined && running() && (await asked());
+      if (hellos.get(helloKey) !== sequence || documents.get(key) !== live)
+        return { ok: false, reason: "stale-document" };
+      if (held && running()) {
+        passkeyPages.set(document.tabId, {
+          attemptId: holder.id,
           document: { ...document, frameId: 0, origin: siteOrigin },
-          ...(signedIn ? { signedIn } : {}),
+          requestedAt: Math.max(
+            passkeyRequests.get(`${document.tabId} ${siteOrigin}`) ?? 0,
+            passkeyPages.get(document.tabId)?.attemptId === holder.id
+              ? passkeyPages.get(document.tabId)!.requestedAt
+              : 0,
+          ),
         });
-        noteSignedIn(before, ended, siteOrigin);
-        if (run) run.metadata = ended;
-        reportAttempt(ended, run?.recipe);
-        try {
-          await keep(ended);
-        } catch {
-          return refuse("storage-unavailable");
+        holdForPasskey(document.tabId);
+        reportMove(holder, "passkey-request", true);
+        return { ok: false, reason: "stale-document" };
+      }
+      const run = attempts.get(document.tabId);
+      const latest = run?.metadata ?? tabAttempt(document.tabId);
+      if (ending && latest?.id === holder.id && !terminal(latest)) {
+        if (!signedIn && miss) reportMove(holder, miss);
+        const refusal = await endMove(
+          run,
+          latest,
+          { ...document, frameId: 0, origin: siteOrigin },
+          signedIn,
+        );
+        if (refusal) return refusal;
+      }
+      if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+    } else if (
+      holder &&
+      !terminal(holder) &&
+      document.frameId === 0 &&
+      passkeyPages.get(document.tabId)?.attemptId === holder.id
+    ) {
+      // The tab came back to the attempt's origin from a page of another origin of the site
+      // that asked for a passkey (ADR 0022). A passkey answered there with the attempt's
+      // own item, and this page quiet, complete the attempt; otherwise it ends as that move
+      // would have, without resubmitting. A page that goes away before it is read leaves
+      // the decision to the tab's next page.
+      const asking = passkeyPages.get(document.tabId)!;
+      const check = signedInByPasskey(holder, live);
+      siteMoves.set(document.tabId, check);
+      let signedIn: boolean;
+      try {
+        signedIn = await check;
+      } finally {
+        if (siteMoves.get(document.tabId) === check) siteMoves.delete(document.tabId);
+      }
+      if (
+        hellos.get(helloKey) !== sequence ||
+        documents.get(key) !== live ||
+        passkeyPages.get(document.tabId) !== asking
+      )
+        return { ok: false, reason: "stale-document" };
+      const run = attempts.get(document.tabId);
+      const latest = run?.metadata ?? tabAttempt(document.tabId);
+      if (latest?.id === holder.id && !terminal(latest)) {
+        if (live.moveMiss === "page-gone") {
+          reportMove(holder, live.moveMiss, true);
+          return { ok: false, reason: "stale-document" };
         }
-        if (ended.state === "authenticated" && run?.choice) await remember(run);
+        passkeyPages.delete(document.tabId);
+        if (!signedIn && live.moveMiss) reportMove(holder, live.moveMiss);
+        const refusal = await endMove(run, latest, asking.document, signedIn);
+        if (refusal) return refusal;
       }
       if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
     }
@@ -8023,16 +8171,21 @@ export function createLoginRuntime(
         skipGeneration(live, "no-entry-link", "entry");
         return;
       }
+      const spin = spinning(live.document.tabId);
       const result = await generation
-        .generateEntry({ version: 1, observation }, () =>
-          report(live.document, {
-            type: "generation",
-            tabId: live.document.tabId,
-            origin: live.document.origin,
-            outcome: "sent",
-            page: "entry",
-          }),
+        .generateEntry(
+          { version: 1, observation },
+          spin.sent(() =>
+            report(live.document, {
+              type: "generation",
+              tabId: live.document.tabId,
+              origin: live.document.origin,
+              outcome: "sent",
+              page: "entry",
+            }),
+          ),
         )
+        .finally(spin.stop)
         .catch((): EntryGenerationOutcome => ({ outcome: "failed", reason: "error" }));
       sent = true;
       report(live.document, {
@@ -8475,6 +8628,7 @@ export function createLoginRuntime(
     if (closed) continuations.delete(closed.metadata.id);
     attempts.delete(tabId);
     effects.delete(tabId);
+    passkeyPages.delete(tabId);
     signInUrls.delete(tabId);
     choicePasskeys.delete(tabId);
     popupAnswers.delete(tabId);
@@ -8570,9 +8724,21 @@ export function createLoginRuntime(
   function passkeyRequested(tabId: number, siteOrigin: string): void {
     passkeyRequests.set(`${tabId} ${siteOrigin}`, Date.now());
   }
-  /** The passkey bridge returned an assertion for `rpId` to a page of this tab (ADR 0022). */
-  function passkeyAnswered(tabId: number, siteOrigin: string, rpId: string): void {
-    passkeyAnswers.set(`${tabId} ${siteOrigin}`, { at: Date.now(), rpId });
+  /**
+   * The passkey bridge returned an assertion for `rpId`, signed with `item`, to a page of
+   * this tab (ADR 0022).
+   */
+  function passkeyAnswered(
+    tabId: number,
+    siteOrigin: string,
+    rpId: string,
+    item?: { connectionId: string; itemId: string },
+  ): void {
+    passkeyAnswers.set(`${tabId} ${siteOrigin}`, {
+      at: Date.now(),
+      rpId,
+      ...(item ? { item: { connectionId: item.connectionId, itemId: item.itemId } } : {}),
+    });
   }
   /**
    * Whether a top-level attempt's tab moving to `live`, a top page of another origin, ended
@@ -8788,17 +8954,20 @@ export function createLoginRuntime(
       reportJudge("not-sent", hidden.reason);
       return false;
     }
-    const { verdict, reason } = await generation.judge(
-      recipe.id,
-      recipe.revision,
-      "password",
-      hidden.observation,
-      () => reportJudge("sent"),
-      // A description that left out a disabled field says so (ADR 0029); only `signed-in`
-      // completes a moved login anyway.
-      record.chooser ? chooserClickBranch(record.chooser.click) : undefined,
-      ...(disabledLeftOut ? [true as const] : []),
-    );
+    const spin = spinning(document.tabId);
+    const { verdict, reason } = await generation
+      .judge(
+        recipe.id,
+        recipe.revision,
+        "password",
+        hidden.observation,
+        spin.sent(() => reportJudge("sent")),
+        // A description that left out a disabled field says so (ADR 0029); only `signed-in`
+        // completes a moved login anyway.
+        record.chooser ? chooserClickBranch(record.chooser.click) : undefined,
+        ...(disabledLeftOut ? [true as const] : []),
+      )
+      .finally(spin.stop);
     reportJudge(verdict, reason);
     if (verdict !== "signed-in" && !(verdict === "unclear" && reason === "judged-signed-in"))
       return false;
@@ -8888,28 +9057,119 @@ export function createLoginRuntime(
   /**
    * The passkey answer that lets a top-level attempt's tab moving to `siteOrigin` complete
    * (ADR 0022), if any: given after the attempt's last effect step and at most
-   * `SITE_MOVE_MS` ago, for an RP ID that `siteOrigin`'s HTTPS host is or is under.
+   * `SITE_MOVE_MS` ago, for an RP ID that `siteOrigin`'s HTTPS host is or is under. It was
+   * given to the attempt's page, or to the page of another origin of the site the tab moved
+   * to and that asked for it (`passkeyPages`), there signed with the attempt's own item;
+   * once such a page asked, only an answer given since counts.
    */
   function passkeyMoveFits(
     record: LoginAttemptMetadata,
     tabId: number,
     siteOrigin: string,
   ): { at: number; rpId: string } | undefined {
-    const answer = passkeyAnswers.get(`${tabId} ${record.document.origin}`);
     const effect = effects.get(tabId);
-    if (
-      !answer ||
-      effect?.attemptId !== record.id ||
-      answer.at < effect.at ||
-      Date.now() - answer.at > SITE_MOVE_MS
-    )
-      return undefined;
+    if (effect?.attemptId !== record.id) return undefined;
+    const kept = passkeyPages.get(tabId);
+    const page = kept?.attemptId === record.id ? kept : undefined;
+    const moved = page && passkeyAnswers.get(`${tabId} ${page.document.origin}`);
     const { protocol, hostname } = new URL(siteOrigin);
-    return protocol === "https:" &&
-      (hostname === answer.rpId || hostname.endsWith(`.${answer.rpId}`))
-      ? answer
-      : undefined;
+    const fits = (answer: { at: number; rpId: string } | undefined) =>
+      answer !== undefined &&
+      answer.at >= (page?.requestedAt ?? effect.at) &&
+      Date.now() - answer.at <= SITE_MOVE_MS &&
+      protocol === "https:" &&
+      (hostname === answer.rpId || hostname.endsWith(`.${answer.rpId}`));
+    return [
+      passkeyAnswers.get(`${tabId} ${record.document.origin}`),
+      moved?.item?.connectionId === record.account.connectionId &&
+      moved.item.itemId === record.account.itemId
+        ? moved
+        : undefined,
+    ]
+      .filter(fits)
+      .sort((a, b) => b!.at - a!.at)[0];
   }
+  /**
+   * Whether `document`, the new top page of a top-level attempt's tab on `siteOrigin`, may
+   * hold the attempt while it answers a passkey (ADR 0022). The page already holding it
+   * may, within `SITE_MOVE_MS` of its request, or of an answer given there since (its
+   * signs are read by `stillAsking`). Another page may while none was answered since the
+   * last such page asked: an HTTPS origin of the attempt's registrable domain whose page
+   * asked for a passkey after the attempt's last effect step, at most `SITE_MOVE_MS` after
+   * it, and after the request of the page that held it before.
+   */
+  function passkeyPageFits(
+    record: LoginAttemptMetadata,
+    document: LoginDocument,
+    siteOrigin: string,
+  ): boolean {
+    const { tabId } = document;
+    const effect = effects.get(tabId);
+    const kept = passkeyPages.get(tabId);
+    const page = kept?.attemptId === record.id ? kept : undefined;
+    const answer = page && passkeyAnswers.get(`${tabId} ${page.document.origin}`);
+    const answered = page !== undefined && answer !== undefined && answer.at >= page.requestedAt;
+    if (page?.document.documentId === document.documentId)
+      return Date.now() - (answered ? answer!.at : page.requestedAt) <= SITE_MOVE_MS;
+    const requested = passkeyRequests.get(`${tabId} ${siteOrigin}`);
+    return (
+      record.document.frameId === 0 &&
+      effect?.attemptId === record.id &&
+      !answered &&
+      requested !== undefined &&
+      requested >= effect.at &&
+      requested - effect.at <= SITE_MOVE_MS &&
+      (page === undefined || requested > page.requestedAt) &&
+      loginMoveFits(record.document.origin, siteOrigin, false)
+    );
+  }
+  /**
+   * Whether the page holding a moved attempt while it answers a passkey, announcing again,
+   * still shows no password field, code input or CAPTCHA (ADR 0022), as when the person
+   * dismissed the passkey prompt and the page offers its sign-in form instead. Only reads.
+   */
+  async function stillAsking(live: LiveDocument): Promise<boolean> {
+    try {
+      const parsed = v.safeParse(stateResultSchema, await send(live, { type: "login.state" }));
+      if (!parsed.success || !parsed.output.ok) return false;
+      const { signs } = parsed.output;
+      return !signs.password && !signs.code && !signs.captcha;
+    } catch {
+      return false;
+    }
+  }
+  /**
+   * Ends a moved attempt still held by a page that asked for a passkey once no next page
+   * can complete it any more (ADR 0022), as when that page stays open: `left-origin`, on
+   * that page, without resubmitting. Kept in memory only, as the hold is.
+   */
+  function holdForPasskey(tabId: number): void {
+    const held = passkeyPages.get(tabId);
+    if (!held) return;
+    setTimeout(
+      () => {
+        if (passkeyPages.get(tabId) !== held) return;
+        // A check of the tab's next page decides instead.
+        if (siteMoves.has(tabId)) {
+          holdForPasskey(tabId);
+          return;
+        }
+        passkeyPages.delete(tabId);
+        const run = attempts.get(tabId);
+        const latest = run?.metadata ?? tabAttempt(tabId);
+        if (latest?.id !== held.attemptId || terminal(latest)) return;
+        const ended = transitionLoginAttempt(run?.metadata ?? recoverLoginAttempt(latest), {
+          type: "NAVIGATED",
+          document: held.document,
+        });
+        if (run) run.metadata = ended;
+        reportAttempt(ended, run?.recipe);
+        void keep(ended).catch(() => undefined);
+      },
+      2 * SITE_MOVE_MS + SIGN_IN_RECHECK_MS,
+    );
+  }
+
   /**
    * The time of the step that lets a top-level `password` attempt's tab moving to
    * `siteOrigin` complete on the account's username (ADR 0022), if any: the attempt's last
@@ -8919,7 +9179,8 @@ export function createLoginRuntime(
    * submitted (owner's choice on 2026-10-13, 01:59 UTC), or a passkey answered for its page
    * after its last effect step, once a submitting step followed its fill of the item's
    * password (03:13 UTC). A passkey answer for the new page's host decides the move instead
-   * (`passkeyMoveFits`).
+   * (`passkeyMoveFits`), and so does it alone once a page of the site the tab moved to asked
+   * for a passkey (`passkeyPages`).
    */
   function passwordMoveFits(
     record: LoginAttemptMetadata,
@@ -8931,7 +9192,9 @@ export function createLoginRuntime(
       record.route !== "password" ||
       record.document.frameId !== 0 ||
       effect?.attemptId !== record.id ||
-      passkeyMoveFits(record, tabId, siteOrigin)
+      passkeyMoveFits(record, tabId, siteOrigin) ||
+      // After a page of the site asked for a passkey, only an answer there decides.
+      passkeyPages.get(tabId)?.attemptId === record.id
     )
       return undefined;
     const now = Date.now();
@@ -9574,20 +9837,23 @@ export function createLoginRuntime(
         ...(disabledLeftOut ? { disabledLeftOut: true as const } : {}),
         stop: "password",
       });
+    const spin = spinning(run.live.document.tabId);
     const {
       verdict,
       reason,
       recipe: added,
-    } = await generation.judge(
-      recipe.id,
-      recipe.revision,
-      "password",
-      observation,
-      () => reportJudge("sent"),
-      undefined,
-      disabledLeftOut ? true : undefined,
-      true,
-    );
+    } = await generation
+      .judge(
+        recipe.id,
+        recipe.revision,
+        "password",
+        observation,
+        spin.sent(() => reportJudge("sent")),
+        undefined,
+        disabledLeftOut ? true : undefined,
+        true,
+      )
+      .finally(spin.stop);
     let reported = false;
     // Only a `passkey` handler is entered from the answer, at the stop.
     const movedOn =

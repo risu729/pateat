@@ -589,6 +589,29 @@ describe("recipe sync", () => {
     expect(response.status).toBe(400);
   });
 
+  it("never echoes a rejected body, query or path value", async () => {
+    const device = await enrollOwner();
+    const sentinel = "synthetic-rejected-value";
+    // A space fails the recipe ID pattern, so the path parameter itself is rejected.
+    const rejectedId = encodeURIComponent(`${sentinel} id`);
+    const rejected = [
+      await put(device, "/v1/settings", { version: 1, expectedRevision: 0, password: sentinel }),
+      await put(device, "/v1/recipes/bank-login", { version: 1, state: sentinel }),
+      await api(device, `/v1/recipes?owner=${sentinel}`),
+      await put(device, `/v1/recipes/${rejectedId}`, {
+        version: 1,
+        expectedRevision: 0,
+        state: "active",
+        recipe: recipe("bank-login", 1),
+      }),
+    ];
+    expect(rejected.map((response) => response.status)).toEqual([400, 400, 400, 400]);
+    const texts = await Promise.all(rejected.map((response) => response.text()));
+    expect(texts).toEqual(
+      Array.from({ length: 4 }, () => JSON.stringify({ error: "bad_request" })),
+    );
+  });
+
   it("syncs a recipe with password route variants and refuses an unchecked variant", async () => {
     const device = await enrollOwner();
     const contract = {

@@ -58,6 +58,11 @@ export const choiceResponseSchema = v.variant("ok", [
     logout: v.optional(logoutReasonSchema),
     /** Another tab's login holds the site, so a pick cannot start yet (ADR 0022). */
     held: v.optional(v.literal(true)),
+    /**
+     * The site rejected another tab's login and that tab still asks, so the popup chooses
+     * no account for this tab either (ADR 0021).
+     */
+    rejectedElsewhere: v.optional(v.literal(true)),
   }),
   v.strictObject({ ok: v.literal(false), reason: v.literal("no-choice") }),
 ]);

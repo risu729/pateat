@@ -4,11 +4,12 @@
 // 2026-10-13 a bank page showed its required-field error under filled fields. The same
 // page's React inputs kept their state empty when the whole value came in one
 // `insertReplacementText` input, and took it when typed a character at a time, so the
-// value is typed as a keyboard would type it.
+// value is typed as a keyboard would type it. Its characters are one task apart, as fast
+// as the page's handlers allow (owner decision, 2026-10-13).
 
 /**
  * How long a preparing fill waits between its inputs, between the digits of a split code
- * and between the characters it types, so the page's handlers for one, their microtasks
+ * and after a value's last character, so the page's handlers for one, their microtasks
  * and short timers, run before the next. Bitwarden's autofill waits 20 ms between
  * actions.
  */
@@ -43,12 +44,11 @@ function keyOf(character: string): KeyboardEventInit {
 }
 
 /**
- * Waits between two typed characters: {@link FIELD_GAP_MS} on a shown page, or one task
- * on a hidden one, whose timers Chrome throttles to a second or, after five minutes
- * hidden, to a minute, which would stretch a password across minutes.
+ * Waits one task, so the page's handlers for a typed character and their microtasks run
+ * before the next one. It is no timer, which Chrome throttles on a hidden page to a
+ * second or, after five minutes hidden, to a minute.
  */
-function gap(): Promise<void> {
-  if (!document.hidden) return new Promise((resolve) => setTimeout(resolve, FIELD_GAP_MS));
+function nextTask(): Promise<void> {
   return new Promise((resolve) => {
     const channel = new MessageChannel();
     channel.port1.onmessage = () => {
@@ -60,32 +60,41 @@ function gap(): Promise<void> {
 }
 
 /**
+ * Waits for the page after a value's characters: {@link FIELD_GAP_MS} on a shown page, so
+ * a framework's short timers run too, or one task on a hidden one.
+ */
+function gap(): Promise<void> {
+  if (!document.hidden) return new Promise((resolve) => setTimeout(resolve, FIELD_GAP_MS));
+  return nextTask();
+}
+
+/**
  * Types `value` into `input` as a person would: focus (which blurs the field focused
  * before) without scrolling; a field that already holds text is cleared first, as by
  * selecting it all and deleting; then each character as a keyboard sends it, `keydown`,
  * `keypress` (none for a control character), `beforeinput`, the character appended
- * through the native `setter` (so a framework that tracks the value, such as React,
- * sees a change) and an `input` event of type `insertText`, then `keyup`; then `change`
- * and blur. Key events carry Shift for the characters a US layout types with it. A
- * number input gets the characters typed so far rather than its current value, which
- * the browser empties while it is not yet a number, such as `1.`. A page that cancels a
- * character's `keydown`, `keypress` or `beforeinput` keeps it out, as a browser does.
- * After the last character the page gets a pause to write cancelled characters itself;
- * then the typing stops with `refused`, without `change` or blur, so a value the page
- * changed is never submitted, when the field does not hold `value` after a cancelled
- * event, or holds a value of another length, as when the page's own handlers dropped a
- * character it does not allow. A value of the same length, such as a mask or a case the
- * page changed, is kept. After `change` and blur the page gets another pause, and a
- * value of another length then is `refused` too, unless the page emptied the field, as a
- * form that switches to other fields does; the caller's checks see to that. A page that cancels the clearing
- * `beforeinput` and does not clear the field itself within such a pause refuses the
- * value before any character is typed. After each such wait, as between characters (see
- * {@link gap}), it calls `between`, which stops the typing with its cause when the page
- * is no longer the one to type into. A stopped typing leaves the characters typed so
- * far in the field. `beforeInput` runs once the last character is in, just before its
- * `input` event. A page that moved focus elsewhere meanwhile keeps it: `blur` only
- * leaves the input when it still has focus. Resolves to the cause when the typing
- * stopped, else `undefined`.
+ * through the native `setter` (so a framework that tracks the value, such as React, sees
+ * a change) and an `input` event of type `insertText`, then `keyup`; then `change` and
+ * blur. Characters are one task apart. Key events carry Shift for the characters a US
+ * layout types with it. A number input gets the characters typed so far rather than its
+ * current value, which the browser empties while it is not yet a number, such as `1.`. A
+ * page that cancels a character's `keydown`, `keypress` or `beforeinput` keeps it out,
+ * as a browser does. After the last character the page gets a pause to write cancelled
+ * characters itself; then the typing stops with `refused`, without `change` or blur, so
+ * a value the page changed is never submitted, when the field does not hold `value`
+ * after a cancelled event, or holds a value of another length, as when the page's own
+ * handlers dropped a character it does not allow. A value of the same length, such as a
+ * mask or a case the page changed, is kept. After `change` and blur the page gets
+ * another pause, and a value of another length then is `refused` too, unless the page
+ * emptied the field, as a form that switches to other fields does; the caller's checks
+ * see to that. A page that cancels the clearing `beforeinput` and does not clear the
+ * field itself within such a pause refuses the value before any character is typed.
+ * After each such wait, as between characters (see {@link gap} and {@link nextTask}), it
+ * calls `between`, which stops the typing with its cause when the page is no longer the
+ * one to type into. A stopped typing leaves the characters typed so far in the field.
+ * `beforeInput` runs once the last character is in, just before its `input` event. A
+ * page that moved focus elsewhere meanwhile keeps it: `blur` only leaves the input when
+ * it still has focus. Resolves to the cause when the typing stopped, else `undefined`.
  */
 export async function typeValue<Cause extends string>(
   input: HTMLInputElement,
@@ -120,7 +129,7 @@ export async function typeValue<Cause extends string>(
   for (const [index, character] of characters.entries()) {
     if (index > 0) {
       // eslint-disable-next-line no-await-in-loop
-      await gap();
+      await nextTask();
       const cause = between?.();
       if (cause) return cause;
     }

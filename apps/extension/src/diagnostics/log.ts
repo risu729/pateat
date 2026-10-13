@@ -1,6 +1,7 @@
 // The local diagnostics log (ADR 0019). Only the service worker writes it, one IndexedDB
 // transaction per entry, from decisions it already makes. Every event allowlists its
 // fields by kind; identifiers become pseudonyms and unknown origins never appear in full.
+import type { IDBPObjectStore } from "idb";
 import * as v from "valibot";
 import {
   DIAGNOSTICS_DATABASE_NAME,
@@ -8,11 +9,18 @@ import {
   LEVEL_INDEX,
   META_STORE,
   TIME_INDEX,
-  completion,
   openDiagnosticsDatabase,
-  request,
+  type DiagnosticsDatabase,
+  type DiagnosticsSchema,
 } from "./database";
 import type { Pseudonyms } from "./pseudonym";
+
+type EntriesStore = IDBPObjectStore<
+  DiagnosticsSchema,
+  [typeof ENTRIES_STORE],
+  typeof ENTRIES_STORE,
+  "readwrite"
+>;
 
 export const LOG_LEVELS = ["debug", "info", "warn", "error"] as const;
 export type LogLevel = (typeof LOG_LEVELS)[number];
@@ -254,6 +262,7 @@ export const LOG_EVENTS = {
       candidates: "count",
       logout: "code",
       held: "flag",
+      rejectedElsewhere: "flag",
       recordState: "code",
       recordOutcome: "code",
       pageReason: "code",
@@ -439,7 +448,6 @@ export type LoggerDependencies = {
   knownSites(): Promise<KnownSites>;
   build: { version: string; revision: string };
   now?: () => number;
-  indexedDB?: IDBFactory;
   databaseName?: string;
   console?: Pick<Console, "debug" | "info" | "warn" | "error">;
   /** Smaller limits for tests. */
@@ -488,7 +496,6 @@ export function stackPositions(stack: unknown): string | undefined {
 
 export function createLogger(deps: LoggerDependencies) {
   const now = deps.now ?? Date.now;
-  const factory = deps.indexedDB ?? globalThis.indexedDB;
   const name = deps.databaseName ?? DIAGNOSTICS_DATABASE_NAME;
   const out = deps.console ?? console;
   const limits = deps.limits ?? {
@@ -496,7 +503,7 @@ export function createLogger(deps: LoggerDependencies) {
     problems: LOG_PROBLEM_LIMIT,
     pruneEvery: PRUNE_EVERY_WRITES,
   };
-  let database: Promise<IDBDatabase> | undefined;
+  let database: Promise<DiagnosticsDatabase> | undefined;
   let queue: Promise<unknown> = Promise.resolve();
   let writes = 0;
   let debugUntil: Promise<number> | undefined;
@@ -517,17 +524,9 @@ export function createLogger(deps: LoggerDependencies) {
   // The debug deadline once read, so a debug event can be skipped without queueing.
   let knownDebugUntil: number | undefined;
 
-  function open(): Promise<IDBDatabase> {
-    database ??= openDiagnosticsDatabase(factory, name).then((opened) => {
-      // A closed connection, after a version change, is reopened on the next use.
-      opened.addEventListener("close", () => (database = undefined));
-      const onVersionChange = opened.onversionchange;
-      opened.onversionchange = (event) => {
-        database = undefined;
-        onVersionChange?.call(opened, event);
-      };
-      return opened;
-    });
+  function open(): Promise<DiagnosticsDatabase> {
+    // A closed connection, after a version change, is reopened on the next use.
+    database ??= openDiagnosticsDatabase(name, () => (database = undefined));
     database.catch(() => (database = undefined));
     return database;
   }
@@ -540,20 +539,16 @@ export function createLogger(deps: LoggerDependencies) {
   }
 
   async function meta<T>(key: string, schema: v.GenericSchema<unknown, T>): Promise<T | undefined> {
-    const opened = await open();
-    const value = await request(() =>
-      opened.transaction(META_STORE, "readonly").objectStore(META_STORE).get(key),
-    );
+    // The read waits for its transaction too, so an abort never goes unhandled.
+    const transaction = (await open()).transaction(META_STORE);
+    const [value] = await Promise.all([transaction.store.get(key), transaction.done]);
     const parsed = v.safeParse(schema, value);
     return parsed.success ? parsed.output : undefined;
   }
 
   async function putMeta(key: string, value: unknown): Promise<void> {
-    const opened = await open();
-    const transaction = opened.transaction(META_STORE, "readwrite");
-    const done = completion(transaction);
-    transaction.objectStore(META_STORE).put(value, key);
-    await done;
+    // The shortcut resolves when the transaction commits.
+    await (await open()).put(META_STORE, value, key);
   }
 
   function debugDeadline(): Promise<number> {
@@ -613,11 +608,7 @@ export function createLogger(deps: LoggerDependencies) {
   }
 
   async function write(entry: LogEntry): Promise<void> {
-    const opened = await open();
-    const transaction = opened.transaction(ENTRIES_STORE, "readwrite");
-    const done = completion(transaction);
-    transaction.objectStore(ENTRIES_STORE).add(entry);
-    await done;
+    await (await open()).add(ENTRIES_STORE, entry);
     writes += 1;
     if (writes % limits.pruneEvery === 0) await prune();
   }
@@ -744,27 +735,24 @@ export function createLogger(deps: LoggerDependencies) {
   }
 
   async function deleteOldest(
-    store: IDBObjectStore,
+    store: EntriesStore,
     range: IDBKeyRange,
-    index: string,
+    index: typeof TIME_INDEX | typeof LEVEL_INDEX,
     limit: number,
     keep?: (entry: unknown) => boolean,
   ): Promise<number> {
     if (limit <= 0) return 0;
     let deleted = 0;
-    await new Promise<void>((resolve, reject) => {
-      const cursor = store.index(index).openCursor(range);
-      cursor.onerror = () => reject(new Error("storage-failed"));
-      cursor.onsuccess = () => {
-        const current = cursor.result;
-        if (!current || deleted >= limit) return resolve();
-        if (!keep?.(current.value)) {
-          current.delete();
-          deleted += 1;
-        }
-        current.continue();
-      };
-    });
+    let cursor = await store.index(index).openCursor(range);
+    while (cursor && deleted < limit) {
+      if (!keep?.(cursor.value)) {
+        // oxlint-disable-next-line no-await-in-loop -- one cursor, one entry at a time
+        await cursor.delete();
+        deleted += 1;
+      }
+      // oxlint-disable-next-line no-await-in-loop -- one cursor, one entry at a time
+      cursor = await cursor.continue();
+    }
     return deleted;
   }
 
@@ -775,10 +763,11 @@ export function createLogger(deps: LoggerDependencies) {
   async function prune(): Promise<void> {
     flushDrops();
     const at = now();
-    const opened = await open();
-    const transaction = opened.transaction(ENTRIES_STORE, "readwrite");
-    const done = completion(transaction);
-    const store = transaction.objectStore(ENTRIES_STORE);
+    const transaction = (await open()).transaction(ENTRIES_STORE, "readwrite");
+    await Promise.all([pruneEntries(transaction.store, at), transaction.done]);
+  }
+
+  async function pruneEntries(store: EntriesStore, at: number): Promise<void> {
     await deleteOldest(
       store,
       IDBKeyRange.upperBound(at - LOG_RETENTION_MS, true),
@@ -795,10 +784,7 @@ export function createLogger(deps: LoggerDependencies) {
       await Promise.all(
         LOG_LEVELS.map(
           async (level) =>
-            [
-              level,
-              await request(() => store.index(LEVEL_INDEX).count(levelRange(level))),
-            ] as const,
+            [level, await store.index(LEVEL_INDEX).count(levelRange(level))] as const,
         ),
       ),
     ) as Record<LogLevel, number>;
@@ -812,18 +798,14 @@ export function createLogger(deps: LoggerDependencies) {
       counts.warn + counts.error - limits.problems,
       (entry) => !v.is(v.object({ level: v.picklist(["warn", "error"]) }), entry),
     );
-    await done;
   }
 
   async function entries(): Promise<LogEntry[]> {
-    const opened = await open();
-    const values = await request(() =>
-      opened
-        .transaction(ENTRIES_STORE, "readonly")
-        .objectStore(ENTRIES_STORE)
-        .index(TIME_INDEX)
-        .getAll(),
-    );
+    const transaction = (await open()).transaction(ENTRIES_STORE);
+    const [values] = await Promise.all([
+      transaction.store.index(TIME_INDEX).getAll(),
+      transaction.done,
+    ]);
     return values.flatMap((value) => {
       const parsed = v.safeParse(entrySchema, value);
       return parsed.success ? [parsed.output] : [];
@@ -873,11 +855,7 @@ export function createLogger(deps: LoggerDependencies) {
     /** Deletes every entry and starts a new pseudonym key. */
     clear: () =>
       serial(async () => {
-        const opened = await open();
-        const transaction = opened.transaction(ENTRIES_STORE, "readwrite");
-        const done = completion(transaction);
-        transaction.objectStore(ENTRIES_STORE).clear();
-        await done;
+        await (await open()).clear(ENTRIES_STORE);
         sites = undefined;
         windows.clear();
         await deps.pseudonym.rotate();

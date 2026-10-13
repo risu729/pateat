@@ -285,4 +285,32 @@ describe("DER signature encoding", () => {
       expect(derToP1363(invalid)).toBeUndefined();
     expect(() => p1363ToDer(new Uint8Array(63))).toThrow();
   });
+
+  it("encodes zero scalars as a single zero byte and round-trips them", () => {
+    const raw = new Uint8Array(64);
+    const der = p1363ToDer(raw);
+    expect(toHex(der)).toBe("3006020100020100");
+    expect(derToP1363(der)).toEqual(raw);
+  });
+
+  it("rejects long-form lengths, oversized integers and outer-tag or length mismatches", () => {
+    const wide = "00".repeat(32);
+    for (const invalid of [
+      hex("308106020101020102"), // long-form sequence length below 128
+      hex("300702810101020102"), // long-form integer length below 128
+      hex("30820006020101020102"), // zero-padded long-form length
+      hex(`302702220080${wide}020101`), // r is a 34-byte integer
+      hex(`302702010102220080${wide}`), // s is a 34-byte integer
+      hex(`3026022101${wide}020101`), // r is 33 bytes without a sign byte (>= 2^256)
+      hex(`3026020101022101${wide}`), // s is 33 bytes without a sign byte (>= 2^256)
+      hex("300702010102010200"), // trailing byte inside the sequence
+      hex("30050201010201"), // truncated s
+      hex("3006030101020102"), // r is not an INTEGER
+      hex("3006020101030102"), // s is not an INTEGER
+      hex("3000"), // empty sequence
+      hex("300302010102"), // missing s
+      new Uint8Array(0),
+    ])
+      expect(derToP1363(invalid), toHex(invalid)).toBeUndefined();
+  });
 });

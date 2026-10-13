@@ -7,7 +7,13 @@ import {
   type VaultResult,
   type VaultErrorCode,
 } from "./record";
-import { createVaultDatabase, RECORDS_STORE, runVaultTransaction } from "./database";
+import {
+  createVaultDatabase,
+  RECORDS_STORE,
+  runVaultTransaction,
+  type VaultConnection,
+  type VaultStore,
+} from "./database";
 
 export interface DurableVaultStore {
   read(): Promise<VaultResult<VaultEntry | null>>;
@@ -23,7 +29,6 @@ export interface DurableVaultStore {
 /** Background-owned native IndexedDB. No content/page message API exposes this store. */
 export function createIndexedDbVaultStore(options: {
   profile: BitwardenProfile;
-  indexedDB?: IDBFactory;
   databaseName?: string;
   timeoutMs?: number;
 }): DurableVaultStore {
@@ -32,13 +37,13 @@ export function createIndexedDbVaultStore(options: {
   const database = createVaultDatabase(options);
   const open = () => (profile ? database.open() : Promise.reject(new Error()));
   function transaction<T>(
-    db: IDBDatabase,
+    db: VaultConnection,
     mode: IDBTransactionMode,
     work: (
-      store: IDBObjectStore,
+      store: VaultStore,
       set: (result: VaultResult<T>) => void,
       abort: (code: VaultErrorCode) => void,
-    ) => void,
+    ) => Promise<void>,
     signal?: AbortSignal,
   ): Promise<VaultResult<T>> {
     return runVaultTransaction<T>(
@@ -57,20 +62,18 @@ export function createIndexedDbVaultStore(options: {
         return await transaction<VaultEntry | null>(
           await open(),
           "readonly",
-          (store, set, abort) => {
-            const request = store.get(profile.connectionId);
-            request.onsuccess = () => {
-              if (request.result === undefined) {
-                set({ ok: true, data: null });
-                return;
-              }
-              const admitted = admitVaultEntry(request.result, profile);
-              if (!admitted.ok) {
-                abort(admitted.error.code);
-                return;
-              }
-              set(admitted);
-            };
+          async (store, set, abort) => {
+            const stored: unknown = await store.get(profile.connectionId);
+            if (stored === undefined) {
+              set({ ok: true, data: null });
+              return;
+            }
+            const admitted = admitVaultEntry(stored, profile);
+            if (!admitted.ok) {
+              abort(admitted.error.code);
+              return;
+            }
+            set(admitted);
           },
         );
       } catch {
@@ -86,31 +89,30 @@ export function createIndexedDbVaultStore(options: {
         return await transaction<{ revision: string }>(
           await open(),
           "readwrite",
-          (store, set, abort) => {
-            const current = store.get(profile.connectionId);
-            current.onsuccess = () => {
-              const old =
-                current.result === undefined
-                  ? { ok: true as const, data: null }
-                  : admitVaultEntry(current.result, profile);
-              if (!old.ok) {
-                abort(old.error.code);
-                return;
-              }
-              if ((old.data?.revision ?? null) !== expectedRevision) {
-                abort("storage-conflict");
-                return;
-              }
-              store.put(admitted.data, profile.connectionId);
-              const readback = store.get(profile.connectionId);
-              readback.onsuccess = () => {
-                if (!sameVaultEntry(readback.result, admitted.data)) {
-                  abort("storage-uncertain");
-                  return;
-                }
-                set({ ok: true, data: { revision: admitted.data.revision } });
-              };
-            };
+          async (store, set, abort) => {
+            const current: unknown = await store.get(profile.connectionId);
+            const old =
+              current === undefined
+                ? { ok: true as const, data: null }
+                : admitVaultEntry(current, profile);
+            if (!old.ok) {
+              abort(old.error.code);
+              return;
+            }
+            if ((old.data?.revision ?? null) !== expectedRevision) {
+              abort("storage-conflict");
+              return;
+            }
+            // Both requests are queued before either is awaited; the read-back sees the write.
+            const [, readback] = await Promise.all([
+              store.put(admitted.data, profile.connectionId),
+              store.get(profile.connectionId),
+            ]);
+            if (!sameVaultEntry(readback, admitted.data)) {
+              abort("storage-uncertain");
+              return;
+            }
+            set({ ok: true, data: { revision: admitted.data.revision } });
           },
           signal,
         );
@@ -124,17 +126,17 @@ export function createIndexedDbVaultStore(options: {
         return await transaction<true>(
           await open(),
           "readwrite",
-          (store, set, abort) => {
+          async (store, set, abort) => {
             // A corrupt record is deleted too; deletion never needs to admit it.
-            store.delete(profile.connectionId);
-            const readback = store.count(profile.connectionId);
-            readback.onsuccess = () => {
-              if (readback.result !== 0) {
-                abort("storage-uncertain");
-                return;
-              }
-              set({ ok: true, data: true });
-            };
+            const [, remaining] = await Promise.all([
+              store.delete(profile.connectionId),
+              store.count(profile.connectionId),
+            ]);
+            if (remaining !== 0) {
+              abort("storage-uncertain");
+              return;
+            }
+            set({ ok: true, data: true });
           },
           signal,
         );

@@ -385,6 +385,9 @@ than in this repository.
     and `/manage/claude`) use the same tokens, light or dark as the browser prefers,
     with the logo beside "Pateat" and the page in one panel. With this, every screen of
     the extension and the service has had its polish pass.
+  - Done: the toolbar icon spins in a tab while a model request for that tab's page is
+    in flight (owner, 2026-10-13 14:04 UTC); see the
+    [architecture](architecture.md#extension-icon) for the frames and limits.
 - Done: `https://my.jcb.co.jp/Login` was generated again after delivery 3. The recipe
   revision the Grok Bot computer's device generated on 2026-10-12 (13:45 UTC) names both
   routes: the password steps and the passkey button on `/Login`, read from D1 at 14:26
@@ -513,7 +516,13 @@ than in this repository.
   presses the account's row (or `other`) and stops at, or continues to, the branch's
   password step
   ([account lists](adr/0036-passkey-after-the-identifier.md#account-lists); local tests
-  only, not yet checked in that Chrome).
+  only, not yet checked in that Chrome). In that Chrome on `4deb95d` (08:51 UTC) the
+  row's click moved the tab to `auth.openai.com`, which asked for a passkey; Pateat
+  answered it and the tab came back signed in, but the login had ended `left-origin`.
+  By the owner's 「完了扱い」 (13:54 UTC), a passkey answered on such a page with the
+  login's item now lets the next quiet page complete the login
+  ([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md); local tests only; recheck
+  in the owner's Chrome).
 - Answer Google's passkey step on the Grok Bot's browser. On build `a8350f5`
   (2026-10-12 19:49 UTC) both of the page's requests were logged as `passkey.request`
   `delegate` `invalid-request`, so the browser offered only the phone (hybrid) flow,
@@ -815,6 +824,12 @@ still open on 2026-10-11.
   2.7.0's `bun.lock` and `pnpm-lock.yaml` bugs (both fixed on aube main, unreleased) and
   two remaining `bun.lock` gaps (peers written as dependencies, `lockfileVersion`
   reset), as drafts for upstream reports (not filed).
+- Why the Bitwarden SDK's async exports never settle on unparsable arguments (owner,
+  2026-10-13 14:38 UTC): the
+  [research note](research/2026-10-13-bitwarden-sdk-async-hang.md) traces it to
+  wasm-bindgen converting async-export arguments inside the future, with tsify's
+  deprecated `from_wasm_abi` and Bitwarden's pending migration as context. Worker
+  termination already recovers. The owner chose not to report it upstream (15:00 UTC).
 - Earlier research kept as dated notes:
   [identity provider screens](research/2026-10-11-identity-provider-screens.md) behind
   [ADR 0026](adr/0026-sign-in-through-identity-providers.md);
