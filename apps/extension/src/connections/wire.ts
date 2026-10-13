@@ -137,6 +137,9 @@ const replySchema = v.union([
             "unavailable",
           ]),
           snapshotId: v.optional(v.pipe(v.string(), v.uuid())),
+          syncedAt: v.optional(
+            v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(Number.MAX_SAFE_INTEGER)),
+          ),
         }),
       ),
       v.maxLength(100),

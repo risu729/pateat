@@ -4,6 +4,7 @@ import { Menu } from "@base-ui/react/menu";
 import {
   CircleCheck,
   CircleX,
+  Clock,
   Ellipsis,
   Globe,
   Info,
@@ -70,7 +71,7 @@ function errorMessage(code: string, check?: string): string {
 }
 type Line = { tone: Tone; icon: typeof Info; text: string };
 
-/** The vault, the sync sign-in and automatic unlock, one line each. */
+/** The vault, the sync sign-in, the last sync and automatic unlock, one line each. */
 function statusLines(connection: Connection): Line[] {
   const lines: Line[] = [];
   switch (connection.state) {
@@ -115,6 +116,12 @@ function statusLines(connection: Connection): Line[] {
       lines.push({ tone: "warn", icon: TriangleAlert, text: "Sync sign-in unavailable" });
       break;
   }
+  if (connection.syncedAt !== undefined)
+    lines.push({
+      tone: "idle",
+      icon: Clock,
+      text: `Vault synced ${new Date(connection.syncedAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`,
+    });
   if (connection.autoUnlock === "enabled")
     lines.push({ tone: "ok", icon: CircleCheck, text: "Automatic unlock on" });
   else if (connection.autoUnlock === "disabled")
