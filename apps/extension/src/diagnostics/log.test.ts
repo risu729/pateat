@@ -14,6 +14,7 @@ import {
   stackPositions,
   type KnownSites,
   type LogEntry,
+  type LogEventName,
   type LoggerDependencies,
 } from "./log";
 import { createPseudonyms } from "./pseudonym";
@@ -245,7 +246,7 @@ describe("diagnostics log", () => {
     vi.restoreAllMocks();
   });
 
-  it("keeps a page URL's path, query and fragment only for a site named in full", async () => {
+  it("keeps a page URL's path and parameter names only for a site named in full", async () => {
     const { logger } = setup();
     const long = `https://bank.example/signin?return=${"a".repeat(600)}`;
     for (const [origin, url] of [
@@ -266,23 +267,81 @@ describe("diagnostics log", () => {
     });
     const entries = await logger.entries();
     expect(entries.map((entry) => entry.fields["url"])).toEqual([
-      "/signin?next=%2Fhome#top",
+      "/signin?next=#",
       undefined,
       undefined,
       undefined,
-      `/signin?return=${"a".repeat(600)}`.slice(0, 512),
-      "/signin?next=%2Fhome#top",
+      "/signin?return=",
+      "/signin?next=#",
     ]);
     expect(JSON.stringify(entries)).not.toContain("cart");
     // Hiding sites leaves URLs out of a download, and the bug report never carries them.
     const context = { version: "0.1.0", revision: "1c42ad3", exportedAt: NOW };
     expect(formatLogExport(entries, { ...context, includeSites: true })).toContain(
-      "/signin?next=%2Fhome#top",
+      "/signin?next=#",
     );
     expect(formatLogExport(entries, { ...context, includeSites: false })).not.toContain("/signin");
     const recent = recentLog(entries, NOW);
     expect(recent.problems).toHaveLength(1);
     expect(JSON.stringify(recent)).not.toContain("/signin");
+  });
+
+  it("keeps no query or fragment value in any event's URL", async () => {
+    const { logger } = setup();
+    const secret = "S3cr3tC0de";
+    const shapes: [string, string][] = [
+      [`/auth/callback?code=${secret}&state=${secret}`, "/auth/callback?code=&state="],
+      [`/cb#access_token=${secret}&token_type=bearer`, "/cb#access_token=&token_type="],
+      [`/app#/reset?token=${secret}`, "/app#/reset?token="],
+      [`/app#!/signin`, "/app#!/signin"],
+      [`/magic?${secret}`, "/magic?"],
+      [`/verify#${secret}`, "/verify#"],
+      [
+        `/signin?login_hint=me%40example.com&${encodeURIComponent("x y")}=${secret}`,
+        "/signin?login_hint=",
+      ],
+      ["/reset?dG9rZW4xMjM0NTY3OA==", "/reset?"],
+      ["/cb#YWJjZGVmZ2hpams=", "/cb#"],
+      [`/app#/a#${secret}`, "/app#/a"],
+      [
+        `/long?${Array.from({ length: 200 }, (_, index) => `p${index}=${secret}`).join("&")}`,
+        "/long",
+      ],
+    ];
+    const events = Object.entries(LOG_EVENTS).filter(([, definition]) =>
+      Object.values(definition.fields).includes("url"),
+    );
+    expect(events.length).toBeGreaterThan(10);
+    for (const [event, definition] of events) {
+      for (const [path] of shapes) {
+        const fields = Object.fromEntries(
+          Object.entries(definition.fields).map(([key, kind]) => [
+            key,
+            kind === "origin"
+              ? "https://bank.example"
+              : kind === "url"
+                ? `https://bank.example${path}`
+                : undefined,
+          ]),
+        );
+        // oxlint-disable-next-line no-await-in-loop -- entries are written in order
+        await logger.log(event as LogEventName, fields as never);
+      }
+    }
+    const entries = await logger.entries();
+    expect(entries).toHaveLength(events.length * shapes.length);
+    expect(JSON.stringify(entries)).not.toContain(secret);
+    expect(JSON.stringify(entries)).not.toContain("example.com");
+    for (const [index, entry] of entries.entries())
+      expect(entry.fields["url"]).toBe(shapes[index % shapes.length]![1]);
+    const exported = formatLogExport(entries, {
+      version: "0.1.0",
+      revision: "1c42ad3",
+      exportedAt: NOW,
+      includeSites: true,
+    });
+    for (const [, shape] of shapes) expect(exported).toContain(`"url":${JSON.stringify(shape)}`);
+    expect(exported).not.toContain(secret);
   });
 
   it("records debug entries only while debug logging is on, across workers", async () => {
@@ -627,6 +686,28 @@ describe("log export", () => {
     expect(text).not.toContain("token");
     expect(text).not.toContain("a@b");
     expect(text).toContain('"reason":"x"');
+  });
+
+  it("leaves out a page URL stored with its parameters' values", () => {
+    const stored = (url: string): LogEntry => ({
+      time: NOW,
+      level: "info",
+      event: "login.attempt",
+      fields: { origin: "https://bank.example", url },
+    });
+    const text = formatLogExport(
+      [
+        stored("/callback?code=S3cr3t&state=S3cr3t"),
+        stored("/cb#access_token=S3cr3t"),
+        stored("/magic?S3cr3t"),
+        stored("/callback?code=&state="),
+        stored("/app#/reset?token="),
+      ],
+      { ...context, includeSites: true },
+    );
+    expect(text).not.toContain("S3cr3t");
+    expect(text).toContain('"url":"/callback?code=&state="');
+    expect(text).toContain('"url":"/app#/reset?token="');
   });
 });
 
@@ -1373,7 +1454,7 @@ describe("unhandled errors", () => {
       origin: recipeOrigin,
       recipe: expect.any(String),
       recipeRevision: 2,
-      url: "/?return_to=%2Fbookmarks",
+      url: "/?return_to=",
     };
     expect(entries.map((logged) => [logged.level, logged.fields])).toEqual([
       ["info", { ...fields, outcome: "pressed" }],
