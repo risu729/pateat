@@ -69,10 +69,12 @@ function gap(): Promise<void> {
  * blur. Key events carry Shift for the characters a US layout types with it. A number
  * input gets the characters typed so far rather than its current value, which the
  * browser empties while it is not yet a number, such as `1.`. A page that cancels a
- * character's `keydown`, `keypress` or `beforeinput`, or the clearing `beforeinput`,
- * keeps it out, as a browser does; if the field then does not hold `value`, the typing
- * stops with `refused`, without `change` or blur, so a value the page changed is never
- * submitted. Between characters it waits (see {@link gap}) and calls `between`, which
+ * character's `keydown`, `keypress` or `beforeinput` keeps it out, as a browser does; if
+ * the field does not hold `value` once the page had a pause to write the characters
+ * itself, the typing stops with `refused`, without `change` or blur, so a value the page
+ * changed is never submitted. A page that cancels the clearing `beforeinput` and does not
+ * clear the field itself within such a pause refuses the value before any character is
+ * typed. Between characters it waits (see {@link gap}) and calls `between`, which
  * stops the typing with its cause when the page is no longer the one to type into. A
  * stopped typing leaves the characters typed so far in the field. `beforeInput` runs
  * once the last character is in, just before its `input` event. A page that moved focus
@@ -99,7 +101,11 @@ export async function typeValue<Cause extends string>(
     if (input.dispatchEvent(new InputEvent("beforeinput", { ...clear, cancelable: true }))) {
       setter.call(input, "");
       input.dispatchEvent(new InputEvent("input", clear));
-    } else refused = true;
+    } else {
+      // The page may clear the field itself, as a framework does once its handlers ran.
+      await gap();
+      if (current() !== "") return "refused";
+    }
   }
   const characters = [...value];
   let typed = "";
@@ -152,7 +158,12 @@ export async function typeValue<Cause extends string>(
     }
     input.dispatchEvent(new KeyboardEvent("keyup", key));
   }
-  if (refused && current() !== value) return "refused";
+  if (refused) {
+    // A page that types a cancelled key itself, as a framework does, may write it only once
+    // its handlers' microtasks and short timers ran.
+    await gap();
+    if (current() !== value) return "refused";
+  }
   input.dispatchEvent(new Event("change", { bubbles: true }));
   if (document.activeElement === input) input.blur();
   return undefined;

@@ -502,10 +502,13 @@ characters typed so far, as Chrome empties one that is not yet a number, such as
 `input` (an `InputEvent` of type `insertText` with the character as its data) and
 `keyup`; then `change`, and blur unless the page moved focus elsewhere. Key events carry
 Shift for the characters a US layout types with it. A page that cancels a character's
-`keydown`, `keypress` or `beforeinput`, or the clearing `beforeinput`, keeps it out, as
-a browser does; when the input then does not hold the value, the fill stops as
-`fill-rejected` without `change`, blur or a click, so a value the page changed is never
-submitted. A code split into one-digit inputs gets the same per digit, 25 ms apart.
+`keydown`, `keypress` or `beforeinput` keeps it out, as a browser does; when the input
+still does not hold the value after one more wait (a framework writes a key it cancelled
+only once its handlers ran), the fill stops as `fill-rejected` without `change`, blur or
+a click, so a value the page changed is never submitted. A page that cancels the
+clearing `beforeinput` and does not clear the field itself by that wait refuses the
+value the same way before any character is typed. A code split into one-digit inputs
+gets the same per digit, 25 ms apart.
 Typed keys are only a value's characters, so a page's Enter handler does not run. Each
 field's scope checks run after the wait before it and again between its characters; a
 typing they stop leaves the characters typed so far in the field and fails the step, so
@@ -517,7 +520,9 @@ or blur that could run its effect again. Known limits: the events are not truste
 focus, can still refuse a fill; only letters, digits and space get a `code` and
 `keyCode`, after a US layout; Chrome sends no focus or blur events to a page whose
 window is not focused, so a page that reads a field only on blur may still miss it
-there; a hidden tab's timers are throttled, so the waits between fields may stretch; and
+there; a hidden tab's timers are throttled, so the waits between fields and between the
+digits of a split code may stretch (those between a value's characters yield one task
+there instead); and
 a page that submits on its own from a key or blur handler of a preparing fill is not
 watched for, so the click after the 500 ms check still runs if its button stays
 clickable. Before 2026-10-13 a preparing fill sent only `input` and `change` after the

@@ -164,6 +164,38 @@ describe("typeValue", () => {
       if ((event as InputEvent).inputType === "deleteContentBackward") event.preventDefault();
     });
     expect(await typeValue(kept, "new", setter)).toBe("refused");
+    expect(kept.value).toBe("old");
+  });
+
+  it("refuses no value a page writes itself once its handlers' microtasks run", async () => {
+    // A React input that cancels the key and sets its state writes the field in a
+    // microtask, after the key's events returned.
+    document.body.innerHTML = '<input id="field" value="old">';
+    const field = document.getElementById("field") as HTMLInputElement;
+    field.addEventListener("beforeinput", (event) => {
+      if ((event as InputEvent).inputType === "deleteContentBackward") {
+        event.preventDefault();
+        queueMicrotask(() => (field.value = ""));
+      }
+    });
+    field.addEventListener("keydown", (event) => {
+      if (event.key.length !== 1) return;
+      event.preventDefault();
+      queueMicrotask(() => (field.value += event.key));
+    });
+    expect(await typeValue(field, "7", setter)).toBeUndefined();
+    expect(field.value).toBe("7");
+  });
+
+  it("waits a task rather than a timer between characters in a hidden tab", async () => {
+    Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
+    cleanups.push(() => Reflect.deleteProperty(document, "hidden"));
+    document.body.innerHTML = '<input id="field">';
+    const field = document.getElementById("field") as HTMLInputElement;
+    const started = performance.now();
+    expect(await typeValue(field, "abcdefgh", setter)).toBeUndefined();
+    expect(field.value).toBe("abcdefgh");
+    expect(performance.now() - started).toBeLessThan(FIELD_GAP_MS * 4);
   });
 
   it("accepts a page that types a cancelled key itself, as a masked field does", async () => {
