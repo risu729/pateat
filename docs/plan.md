@@ -537,6 +537,9 @@ own accounts, so they stay in the project's files rather than in this repository
     without their rule now check it (an address on another port, the judge's origin
     key, a renamed path test), and one login-generation row repeated by the ADR 0031
     identifier-page case was removed.
+  - Batch 15, the login runtime suite (2026-10-13): 737 to 720 Vitest cases. Removed
+    cases repeated a kept test's setup, branch and assertions; nine tests that passed
+    before reaching their rule were repaired.
 - UI improvements the owner reports from daily use of the UI polished in phase 1. Small
   fixes for broken UI still land as found.
 - Features found missing during use are added here.

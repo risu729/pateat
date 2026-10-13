@@ -613,6 +613,10 @@ describe("production login document admission", () => {
       account: { origin, connectionId, itemId },
       fieldId: "login.password",
     });
+    // An item without a username never asks the page to compare the shown account.
+    expect(
+      fake.state.messages.filter((entry) => entry.type === "login.execute" && entry.account),
+    ).toEqual([]);
   });
   it("sends the username with a password-only fill and stops on a wrong displayed account", async () => {
     fake.state.executeReply = { ok: false, reason: "wrong-account" };
@@ -761,10 +765,16 @@ describe("production login document admission", () => {
           2,
         ),
       );
-      await new Promise((resolve) => setTimeout(resolve, 50));
-      expect(attempts()[0]?.state).not.toBe("authenticated");
+      // Wait for the observation budget to end without seeing the completion.
+      await vi.waitFor(
+        () =>
+          expect(attempts()).toMatchObject([
+            { state: "reconciling", outcome: "unknown-submit", settled: true },
+          ]),
+        { timeout: 6_000 },
+      );
       expect(signedIn).not.toHaveBeenCalled();
-    });
+    }, 10_000);
     it("completes the login when telling of it throws", async () => {
       const signedIn = vi.fn(() => {
         throw new Error("storage");
@@ -786,16 +796,6 @@ describe("production login document admission", () => {
       ]),
     );
     expect(fake.state.messages.filter((entry) => entry.type === "login.execute")).toHaveLength(1);
-  });
-  it("does not compare the page when the item has no username", async () => {
-    const h = harness();
-    expect(await h.hello()).toEqual({ ok: true });
-    await vi.waitFor(() =>
-      expect(fake.state.messages.filter((entry) => entry.type === "login.execute")).toHaveLength(2),
-    );
-    expect(
-      fake.state.messages.filter((entry) => entry.type === "login.execute" && entry.account),
-    ).toEqual([]);
   });
   it.each([
     ["an origin without a saved default", "https://other.example/signin"],
@@ -873,12 +873,6 @@ describe("production login document admission", () => {
     expect(await h.hello()).toEqual({ ok: true });
     await vi.waitFor(() => expect(answers).toHaveLength(2));
     expect(answers).toEqual([true, false]);
-  });
-  it("respects site access the user withheld in Chrome", async () => {
-    fake.state.granted = false;
-    const h = harness();
-    expect(await h.hello()).toEqual({ ok: false, reason: "unauthorized-document" });
-    expect(h.store.handle).not.toHaveBeenCalled();
   });
   const signinStart = {
     path: "/signin",
@@ -1316,17 +1310,12 @@ describe("production login document admission", () => {
       fake.state.pageUrl = signin;
       expect(await h.hello(framed(top))).toEqual({ ok: true });
       await vi.waitFor(() => expect(executes()).toHaveLength(2));
+      expect(h.fields).toHaveBeenCalledTimes(1);
       const reports = report.mock.calls
         .map(([entry]) => entry)
         .filter((entry) => entry.type !== "refused");
       expect(reports.map((entry) => entry.type)).toContain("attempt");
       expect(reports.filter((entry) => entry.url !== undefined)).toEqual([]);
-    });
-    it("logs in when the item also allows the tab's page", async () => {
-      const h = harness();
-      expect(await h.hello(framed("https://login.example/home"))).toEqual({ ok: true });
-      await vi.waitFor(() => expect(executes()).toHaveLength(2));
-      expect(h.fields).toHaveBeenCalledTimes(1);
     });
     it("logs in on another site's page only when both URLs match the item's URIs", async () => {
       const uris = vi.fn<LiveUriMatcher>(async (_connection, url) => ({
@@ -3353,13 +3342,14 @@ describe("production login document admission", () => {
       }, 10_000);
     });
     it("saves nothing while another login is still running", async () => {
+      const report = vi.fn<(report: LoginReport) => void>();
       const second = "https://second.example";
       const h = harness(
         {
           siteDefaults: [{ origin: second, provider: "bitwarden", userId, itemId }],
           bindings: [],
         },
-        { allowedOrigins: [second], uris: async () => ({ ok: true, data: uriMatch() }) },
+        { allowedOrigins: [second], uris: async () => ({ ok: true, data: uriMatch() }), report },
       );
       h.recipes.recipe.mockImplementation(async (at: string) =>
         at === origin ? recipe : at === second ? { ...recipe, origin: second } : undefined,
@@ -3376,6 +3366,14 @@ describe("production login document admission", () => {
       expect(await h.hello()).toEqual({ ok: true });
       await vi.waitFor(() =>
         expect(JSON.stringify(fake.state.messages)).toContain("authenticated"),
+      );
+      await vi.waitFor(() =>
+        expect(report).toHaveBeenCalledWith({
+          type: "choice",
+          tabId: 1,
+          origin,
+          outcome: "login-in-progress",
+        }),
       );
       expect(h.store.update).not.toHaveBeenCalled();
     });
@@ -3459,6 +3457,10 @@ describe("production login document admission", () => {
       expect(h.settings.settings.bindings).toEqual([
         { ...savedBinding, accountName: "Synthetic live vault" },
       ]);
+      // The default is used through this device's connection.
+      expect(h.fields.mock.calls[0]![0]).toMatchObject({
+        account: { origin, connectionId, itemId },
+      });
     });
     it("names a new default after this device's connection but keeps a stored binding", async () => {
       // A binding made by AI generation has no account name.
@@ -3477,18 +3479,6 @@ describe("production login document admission", () => {
         },
       ]);
       expect(h.settings.settings.bindings).toEqual([savedBinding]);
-    });
-    it("uses a provider-account default through this device's connection", async () => {
-      const uris = vi.fn<LiveUriMatcher>(async () => ({ ok: true, data: both }));
-      const h = harness(
-        { siteDefaults: [{ origin, provider: "bitwarden", userId, itemId }] },
-        { allowedOrigins: [], uris },
-      );
-      expect(await h.hello()).toEqual({ ok: true });
-      await vi.waitFor(() => expect(h.fields).toHaveBeenCalled());
-      expect(h.fields.mock.calls[0]![0]).toMatchObject({
-        account: { origin, connectionId, itemId },
-      });
     });
     it("reports a locked vault, not a missing account, for a provider-account default", async () => {
       const h = harness(
@@ -5977,12 +5967,8 @@ describe("production login document admission", () => {
         });
 
         it.each([
+          // entry.test.ts reads every other kind of return target.
           ["the bare top page", `${origin}/`],
-          ["a word, not a path", `${origin}/?lang=en`],
-          ["the page's own path", `${origin}/?return_to=%2F`],
-          ["another site, scheme-relative", `${origin}/?return_to=%2F%2Fevil.example%2Fx`],
-          ["another site after a backslash", `${origin}/?return_to=%2F%5Cevil.example%2Fx`],
-          ["another site after a tab", `${origin}/?return_to=%2F%09%2Fevil.example%2Fx`],
           ["another site's URL", `${origin}/?return_to=https%3A%2F%2Fevil.example%2Fx`],
         ])("offers no entry for %s, and logs a page announced anyway", async (_label, url) => {
           fake.state.pageUrl = url;
@@ -6442,24 +6428,17 @@ describe("production login document admission", () => {
           expect(presses() ?? []).toEqual([]);
         });
 
-        it("refuses a page with an excluded site before anything is pressed", async () => {
-          fake.state.entry.inspect = inspected();
-          const { h, reports } = setup({
-            entries: [entryRecipe],
-            overrides: { excludedSites: [{ hostname: "login.example", includeSubdomains: false }] },
-          });
-          expect(await h.hello({}, false)).not.toMatchObject({ reason: "entry" });
-          expect(reports("entry")).toEqual([]);
-          expect(sent("login.entry.inspect")).toEqual([]);
-        });
-
         it("refuses a press while the recipe changed or a frame announces", async () => {
           fake.state.entry.inspect = inspected();
           const { h, reports } = setup({ entries: [entryRecipe] });
           // A frame never presses; it gets no entry recipe at all.
-          expect(await h.hello({ frameId: 3, documentId: "frame" }, false)).not.toMatchObject({
-            reason: "entry",
-          });
+          expect(
+            await h.hello(
+              { frameId: 3, documentId: "frame", tab: { id: 1, url: entryUrl } },
+              false,
+            ),
+          ).toEqual({ ok: false, reason: "recipe-not-found" });
+          expect(sent("login.entry.inspect")).toEqual([]);
           // The cache moved on to a newer revision before the press.
           h.recipes.entries.mockResolvedValueOnce([entryRecipe]);
           h.recipes.entries.mockResolvedValue([{ ...entryRecipe, revision: 3 }]);
@@ -6904,7 +6883,10 @@ describe("production login document admission", () => {
           await h.hello({}, false);
           // Nor is a frame of the tab, or a page of the site in another tab.
           fake.state.pageUrl = loginUrl;
-          await h.hello({ frameId: 3, documentId: "frame", url: loginUrl }, false);
+          await h.hello(
+            { frameId: 3, documentId: "frame", url: loginUrl, tab: { id: 1, url: loginUrl } },
+            false,
+          );
           fake.state.tabUrls[2] = loginUrl;
           expect(
             await h.hello({ tab: { id: 2 }, documentId: "other-tab", url: loginUrl }, false),
@@ -7260,7 +7242,7 @@ describe("production login document admission", () => {
       // Recipes that start on this path (two, so neither is selected), or an unreadable cache.
       fake.state.extracted = { login: loginPage };
       h.recipes.starts.mockResolvedValue(startsOf([generated.steps[0]!, generated.steps[0]!]));
-      expect(await h.signIn()).not.toHaveProperty("generate");
+      expect(await h.signIn()).toEqual({ ok: false, reason: "recipe-not-found" });
       h.recipes.starts.mockRejectedValue(new Error("cache"));
       expect(await h.signIn()).toEqual({ ok: false, reason: "recipe-not-found" });
       h.recipes.starts.mockResolvedValue(startsOf([]));
@@ -7886,14 +7868,6 @@ describe("production login document admission", () => {
         );
       }, 12_000);
 
-      it("keeps a page undecided when the request failed", async () => {
-        const { judges } = await judged({ verdict: "unclear", reason: "timeout" });
-        await vi.waitFor(() =>
-          expect(status()).toMatchObject([{ state: "reconciling", outcome: "unknown-submit" }]),
-        );
-        expect(judges()[0]).not.toHaveProperty("completed");
-      }, 12_000);
-
       it("never completes on a page judged challenge before", async () => {
         await judged({ verdict: "unclear", reason: "judged-challenge" });
         await vi.waitFor(() =>
@@ -7901,7 +7875,7 @@ describe("production login document admission", () => {
         );
       }, 12_000);
 
-      it.each(["judged-rejected", "judgement-unanswered"])(
+      it.each(["timeout", "judged-rejected", "judgement-unanswered"])(
         "never completes on %s",
         async (reason) => {
           const { judges } = await judged({ verdict: "unclear", reason });
@@ -8576,23 +8550,6 @@ describe("production login document admission", () => {
         expect(sent.reads).toEqual([`${otherItemId} ${field(0)}`]);
       });
 
-      it("shapes a Linked field that reads a Text field like that Text field", async () => {
-        const sent = await sendPage(
-          { [`${itemId} ${field(0)}`]: "123", [`${itemId} ${field(1)}`]: "123" },
-          {
-            custom: [
-              { name: "Branch", kind: "text" },
-              { name: "Branch copy", kind: "linked", linkedFieldId: field(0) },
-            ],
-          },
-        );
-        expect(sent.custom.map((slot) => [slot.fieldName, slot.kind, slot.valueShape])).toEqual([
-          ["Branch", "identifier", digits(3)],
-          ["Branch copy", "identifier", digits(3)],
-        ]);
-        expect(sent.reads).toEqual([`${itemId} ${field(0)}`, `${itemId} ${field(1)}`]);
-      });
-
       it("offers names without shapes when an item could not be checked", async () => {
         const sent = await sendPage(
           { [`${itemId} ${field(0)}`]: "123" },
@@ -8741,27 +8698,6 @@ describe("production login document admission", () => {
         expect(h.fields).not.toHaveBeenCalled();
         expect(executes()).toEqual([]);
         expect(h.store.update).not.toHaveBeenCalled();
-      });
-
-      it("refuses a built binding whose field the item excludes", async () => {
-        const { h, answer } = await login(
-          [],
-          [{ slot: "branch", field: { custom: "Branch" } }],
-          regionAndBranch,
-          {
-            connections: [
-              {
-                connectionId,
-                enabled: true,
-                selection: { mode: "all", groupIds: [], itemIds: [] },
-                excludedItemIds: [],
-                excludedFields: [{ itemId, fieldId: `custom.${snapshotId}.0` }],
-              },
-            ],
-          },
-        );
-        expect(answer).toEqual({ ok: false, reason: "binding-field-excluded" });
-        expect(h.fields).not.toHaveBeenCalled();
       });
 
       it.each<[string, SavedLoginBinding[], Awaited<ReturnType<LoginGeneration["slotFields"]>>]>([
@@ -10053,24 +9989,6 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       expect(h.store.update).not.toHaveBeenCalled();
     }, 10_000);
 
-    it.each([
-      ["has no TOTP field", undefined],
-      ["has an empty TOTP field", true],
-    ])("ends as a challenge without filling when the item %s", async (_label, empty) => {
-      onClick({ login: toCode, verify: toHome });
-      const report = vi.fn<(report: LoginReport) => void>();
-      const h = harness({}, { passkeys: noPasskey, report });
-      if (empty !== undefined) withTotp(h, empty);
-      h.recipes.recipe.mockResolvedValue(coded);
-      expect(await h.hello()).toEqual({ ok: true });
-      await vi.waitFor(() =>
-        expect(status()).toMatchObject([{ state: "watching", outcome: "challenge" }]),
-      );
-      expect(codeFills()).toEqual([]);
-      expect(clicks("verify")).toBe(0);
-      expect(handlerReports(report)).toEqual([[0, "totp", "missing-fact", 2]]);
-    });
-
     it("never types a custom field a saved binding names for the code", async () => {
       onClick({ login: toCode, verify: toHome });
       const report = vi.fn<(report: LoginReport) => void>();
@@ -10095,20 +10013,28 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       expect(handlerReports(report)).toEqual([[0, "totp", "missing-fact", 2]]);
     });
 
-    it("is not entered while only its field or only its button shows", async () => {
-      onClick({ login: { path: "/two-factor", present: ["app-code"] } });
-      const report = vi.fn<(report: LoginReport) => void>();
-      const h = harness({}, { passkeys: noPasskey, report });
-      withTotp(h);
-      h.recipes.recipe.mockResolvedValue(coded);
-      expect(await h.hello()).toEqual({ ok: true });
-      await vi.waitFor(
-        () => expect(status()).toMatchObject([{ state: "reconciling", outcome: "unknown-submit" }]),
-        { timeout: 6_000 },
-      );
-      expect(codeFills()).toEqual([]);
-      expect(handlerReports(report)).toEqual([]);
-    }, 10_000);
+    it.each([
+      ["field", ["app-code"]],
+      ["button", ["verify"]],
+    ])(
+      "is not entered while only its %s shows",
+      async (_label, present) => {
+        onClick({ login: { path: "/two-factor", present } });
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness({}, { passkeys: noPasskey, report });
+        withTotp(h);
+        h.recipes.recipe.mockResolvedValue(coded);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(
+          () =>
+            expect(status()).toMatchObject([{ state: "reconciling", outcome: "unknown-submit" }]),
+          { timeout: 6_000 },
+        );
+        expect(codeFills()).toEqual([]);
+        expect(handlerReports(report)).toEqual([]);
+      },
+      10_000,
+    );
 
     it("is not entered while its field is hidden or disabled", async () => {
       onClick({ login: toCode });
@@ -10526,6 +10452,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       expect(status()![0]).toMatchObject({ facts: { totp: false }, handlers: [] });
       expect(reads(h)).toEqual(["login.password"]);
       expect(codeFills()).toEqual([]);
+      expect(clicks("verify")).toBe(0);
       expect(handlerOutcomes(report)).toEqual([[0, "totp", "missing-fact"]]);
     });
 
@@ -10591,21 +10518,6 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         values: [{ slot: "totp", value: CODE, secret: "otp" }],
         account: { username: "synthetic-user" },
       });
-      // The TOTP fill rule accepts a code input and refuses a password input.
-      const numeric: SecretInput = {
-        type: "text",
-        autocomplete: "",
-        inputMode: "numeric",
-        maxLength: 6,
-      };
-      const password: SecretInput = {
-        type: "password",
-        autocomplete: "",
-        inputMode: "",
-        maxLength: -1,
-      };
-      expect(acceptsSecret(numeric, "otp")).toBe(true);
-      expect(acceptsSecret(password, "otp")).toBe(false);
     }, 10_000);
 
     it("ends as wrong-account without a click when the code page shows another account", async () => {
@@ -12010,14 +11922,6 @@ describe("password route variants (ADR 0027)", () => {
     expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.execute");
   });
 
-  it("removes the previous attempt store on load", async () => {
-    fake.state.storage["pateat.login-attempts.v3"] = [{ id: "retired-record" }];
-    const { h } = start({ bindings: [byContract] });
-    expect(await h.hello()).toEqual({ ok: true });
-    await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]));
-    expect(fake.state.storage).not.toHaveProperty(["pateat.login-attempts.v3"]);
-  });
-
   it.each<[string, Partial<LocalSettings>, Parameters<typeof harness>[1], string]>([
     [
       "an item awaiting review",
@@ -13096,6 +13000,12 @@ describe("an advance whose next step is on the same path (ADR 0013)", () => {
     await until(settled("reconciling", "unknown-submit"), 15_000);
     await vi.advanceTimersByTimeAsync(20_000);
     expect(executed()).toEqual(["fill:email", "click:next"]);
+    // The Next click measured no next step: the step after it clicks the same button.
+    expect(
+      fake.state.messages
+        .filter((entry) => entry.type === "login.execute")
+        .map((entry) => (entry as Record<string, unknown>)["next"]),
+    ).toEqual([undefined, undefined]);
   });
 
   it("never continues on the same path after a click that submits", async () => {
@@ -14714,38 +14624,6 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
     expect(service.generate).toHaveBeenCalledTimes(1);
     expect(executed()).toEqual(allSteps.slice(0, 2));
     expect(h.fields.mock.calls.map(([request]) => request.fieldId)).not.toContain("login.password");
-  });
-
-  it("judges a code page instead of continuing on it", async () => {
-    // A one-time-code input alone is not a sign-in input to continue on.
-    const codePage = describedPage("/signin/verify", [
-      {
-        id: "c1",
-        role: "text",
-        target: target("code"),
-        autocomplete: "one-time-code",
-        label: "Code",
-      },
-      { id: "c2", role: "button", target: target("verify"), label: "Verify" },
-    ]);
-    onClick(() => {
-      fake.state.observedPath = "/signin/verify";
-      fake.state.present = new Set(["code", "verify"]);
-      fake.state.signIn = false;
-      fake.state.extracted = { "signed-in": codePage };
-    });
-    const service = generation(undefined, async () => ({ verdict: "challenge" }));
-    const h = start(service);
-    expect(await h.hello()).toEqual({ ok: true });
-    await until(settled("watching", "challenge"));
-    expect(service.generate).not.toHaveBeenCalled();
-    expect(service.judge).toHaveBeenCalledWith(
-      emailFirst.id,
-      1,
-      "password",
-      codePage.observation,
-      expect.any(Function),
-    );
   });
 
   it("judges the page instead when the recipe already has a completion", async () => {
@@ -16728,19 +16606,6 @@ describe("the start page's own passkey request (ADR 0034)", () => {
       expect(routeChanges(report)).toEqual([]);
     });
 
-    it("withholds a request of the asked document after four minutes", async () => {
-      vi.useFakeTimers();
-      const { h } = await loggedOut();
-      const sent = executed().length;
-      const request = ask(h, { documentId: "signed-out" });
-      await flush();
-      await vi.advanceTimersByTimeAsync(235_000);
-      expect(request.decided()).toBeUndefined();
-      await until(() => request.decided() !== undefined, 10_000);
-      expect(request.decided()).toEqual({ kind: "withhold" });
-      expect(executed()).toHaveLength(sent);
-    });
-
     it("hands on a request of another document of the tab that was not asked", async () => {
       vi.useFakeTimers();
       const { h } = await loggedOut();
@@ -17184,15 +17049,6 @@ describe("the start page's own passkey request (ADR 0034)", () => {
       const request = ask(h);
       await flush();
       expect(passkeyItems).toHaveBeenCalledTimes(1);
-      await handedOnSoon(request);
-    });
-
-    it("hands a request on after three seconds without an item lookup", async () => {
-      vi.useFakeTimers();
-      const { h } = choosing();
-      await offered(h);
-      const request = ask(h);
-      await flush();
       await handedOnSoon(request);
     });
 
