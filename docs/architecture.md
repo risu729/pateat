@@ -1014,22 +1014,22 @@ phase; this is expected, because the built manifest's `action.default_icon` is t
 locked icon and the worker replaces it as soon as it reads the active records.
 
 The toolbar badge shows, per tab, a waiting account choice, a model request in flight,
-and how the last login ended
-([ADR 0038](adr/0038-login-status-badge.md); `apps/extension/src/login/badge.ts`). It
-replaced a spinning toolbar icon the owner had chosen at 14:04 UTC on 2026-10-13 and
-found unexpected in installed Chrome at 18:56 UTC. While a first page or a continuation
-is sent for generation, a sign-in entry page is sent, or a page is sent to the judge,
-the badge cycles braille frames (`⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`, 100 ms each) on indigo, from the send
-until the request returns, and at most two minutes, longer than the 90-second inference
-timeout. A failed login shows a red `!` until the tab starts another login, loads a page
-of another origin or closes; a signed-in login shows a green `✓`, and a login whose
-result is unknown a yellow `!`, each for 4 seconds. A waiting choice wins over all of
-them. Each write sends only the fields that changed, writes for one tab are applied in
-order, the badge is written again after each page load because Chrome resets
-tab-specific badges on navigation, and a tab Chrome replaces (`tabs.onReplaced`) keeps
-its badge. Results and spinning tabs are kept in `chrome.storage.session`, so a
-restarted worker redraws them. Each frame is an extension API call, so a spin keeps the
-worker running, at most for those two minutes; the model call keeps it running anyway.
+and how the last login ended ([ADR 0038](adr/0038-login-status-badge.md);
+`apps/extension/src/login/badge.ts`). It replaced a spinning toolbar icon the owner had
+chosen at 14:04 UTC on 2026-10-13 and found unexpected in installed Chrome at 18:56 UTC.
+While a first page or a continuation is sent for generation, a sign-in entry page is
+sent, or a page is sent to the judge, the badge cycles braille frames (`⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`, 100
+ms each) on indigo, from the send until the request returns, and at most two minutes,
+longer than the 90-second inference timeout. A failed login shows a red `!` until the
+tab starts another login, its top page loads another origin or it closes; a signed-in
+login shows a green `✓`, and a login whose result is unknown a yellow `!`, each for 4
+seconds. A waiting choice wins over all of them. Each write sends only the fields that
+changed, writes for one tab are applied in order, the badge is written again after each
+page load because Chrome resets tab-specific badges on navigation, and a tab Chrome
+replaces (`tabs.onReplaced`) keeps its badge. Results and spinning tabs are kept in
+`chrome.storage.session`, so a restarted worker redraws them. Each frame is an extension
+API call, so a spin keeps the worker running, at most for those two minutes; the model
+call keeps it running anyway.
 
 The service's pages use the same unlocked logo as their favicon (owner request,
 2026-10-12). The owner web UI links the SVG, which Vite emits under `/manage/assets/`

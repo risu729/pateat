@@ -108,9 +108,10 @@ export default defineBackground(() => {
     storage: sessionValue(LOGIN_BADGE_KEY),
   });
   void loginBadge.restore();
-  // Chrome resets a tab's badge when it navigates; the url shows only on pages Pateat can read.
+  // Chrome resets a tab's badge when its page commits a navigation, which a url change
+  // marks; the url shows only on pages Pateat can read.
   browser.tabs.onUpdated.addListener((tabId, change, tab) => {
-    if (change.status === "loading" || change.status === "complete")
+    if (change.url !== undefined || change.status === "loading" || change.status === "complete")
       loginBadge.loaded(tabId, tab.url);
   });
   browser.tabs.onRemoved.addListener((tabId) => loginBadge.removed(tabId));

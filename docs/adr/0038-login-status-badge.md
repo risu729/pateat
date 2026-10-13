@@ -51,17 +51,21 @@ One state shows per tab, the first that applies:
    refusal for `storage-unavailable`; or a generation that came back `failed` or
    `unavailable`.
 3. **Unknown.** A submission whose result settled as `unknown-submit`, a second factor
-   the page asks for (`challenge`), and a login that ended `challenge-abandoned`,
-   `watch-abandoned` or `left-origin`.
+   the page asks for (`challenge`), and a login that ended `blocked` with one of those
+   (a watch that ran out) or with `challenge-abandoned`, `watch-abandoned` or
+   `left-origin`.
 4. **No result badge.** `cancelled`, `account-switched`, `interrupted` and
    `policy-changed` end a login without one, and a new login clears the last result.
    The vault's lock stays shown by the gray icon only (ADR 0021).
-5. **Lifetime.** A result belongs to the tab and the origin the report named. It is
-   cleared when the tab starts another login, loads a page of another origin, or
-   closes. Chrome resets tab-specific badges when a tab navigates, so the badge is
-   written again after each load. Results and spinning tabs are kept in
-   `chrome.storage.session` (`pateat.login-badge.v1`), so a restarted worker redraws
-   them and clears a spin that died with it.
+5. **Lifetime.** A result belongs to the tab. It is cleared when the tab starts another
+   login, when the tab's top page loads with another origin than at its previous load
+   (a page Pateat cannot read counts as another origin), or when the tab closes; the
+   held-login tooltip and a waiting choice go with it. A login in a frame of another
+   origin keeps its result while the top page stays. Chrome resets tab-specific badges
+   when a tab commits a navigation, so the badge is written again after each commit and
+   load. Results and spinning tabs are kept in `chrome.storage.session`
+   (`pateat.login-badge.v1`), so a restarted worker redraws them and clears a spin that
+   died with it; a result that changed since the start is not restored over.
 6. **Tooltip.** The title names the state and, for a result, the outcome as the log
    names it, such as `Pateat: the login did not succeed (credential-rejected). Open
    Pateat for details.` The strings are English until the Japanese localisation.

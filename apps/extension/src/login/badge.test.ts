@@ -134,7 +134,7 @@ describe("badgeResult", () => {
     });
   });
 
-  it.each(["challenge-abandoned", "watch-abandoned", "left-origin"])(
+  it.each(["challenge-abandoned", "watch-abandoned", "left-origin", "challenge", "unknown-submit"])(
     "shows blocked %s as unsettled",
     (outcome) => {
       expect(badgeResult(attempt({ outcome }), now)).toEqual({
@@ -448,6 +448,7 @@ describe("login badge", () => {
         }
       },
     });
+    h.badge.loaded(tabId, `${origin}/`);
     h.badge.observe(attempt({ outcome: "timeout" }));
     await h.flush();
     expect(h.calls.at(-1)).toMatchObject(FAILED);
@@ -484,8 +485,9 @@ describe("login badge", () => {
     expect(h.view(8)).toMatchObject(SUCCEEDED);
   });
 
-  it("rewrites the badge after a page loads and drops a result of another origin", async () => {
+  it("rewrites the badge after a page loads and drops the result when the top origin changes", async () => {
     const h = harness();
+    h.badge.loaded(tabId, `${origin}/signin`);
     h.badge.observe(attempt({ outcome: "timeout" }));
     await h.flush();
     const count = h.calls.length;
@@ -495,10 +497,9 @@ describe("login badge", () => {
     expect(h.calls.slice(count)).toEqual([{ tabId, ...FAILED, title: expect.any(String) }]);
 
     // Two loads before the write runs write once.
-    h.badge.loaded(tabId);
-    h.badge.loaded(tabId, "not a url");
+    h.badge.loaded(tabId, `${origin}/a`);
+    h.badge.loaded(tabId, `${origin}/b`);
     await h.flush();
-    expect(h.view()).toMatchObject(FAILED);
     expect(h.calls).toHaveLength(count + 2);
     expect(h.calls.at(-1)).toEqual({ tabId, ...FAILED, title: expect.any(String) });
 
@@ -514,14 +515,82 @@ describe("login badge", () => {
     expect(h.calls.at(-1)).toEqual({ tabId, ...SUCCEEDED, title: "Pateat: logged in." });
   });
 
-  it("writes the note of a tab whose result another origin dropped", async () => {
+  it("keeps a result through the first load after start, which only sets the baseline", async () => {
     const h = harness();
-    h.badge.note(tabId, "held");
     h.badge.observe(attempt({ outcome: "timeout" }));
+    h.badge.loaded(tabId, "https://other.example/");
+    await h.flush();
+    expect(h.calls.at(-1)).toMatchObject(FAILED);
+  });
+
+  it("keeps a frame's result while the tab's top origin stays", async () => {
+    const h = harness();
+    h.badge.loaded(tabId, "https://shop.example/checkout");
+    // A login in a cross-origin frame reports the frame's origin.
+    h.badge.observe(attempt({ outcome: "credential-rejected" }));
+    h.badge.loaded(tabId, "https://shop.example/checkout");
+    h.badge.loaded(tabId, "https://shop.example/checkout#frame");
+    await h.flush();
+    expect(h.view()).toMatchObject(FAILED);
+    expect(await h.storage.getValue()).toMatchObject({ results: [[tabId, { origin }]] });
+  });
+
+  it("drops the result when a readable page is followed by an unreadable one", async () => {
+    const h = harness();
+    h.badge.loaded(tabId, `${origin}/`);
+    h.badge.observe(attempt({ outcome: "timeout" }));
+    h.badge.loaded(tabId);
+    await h.flush();
+    expect(await h.storage.getValue()).toEqual({ results: [], busy: [] });
+    // Unreadable pages count as one origin; a later readable one is a change.
+    h.badge.observe(attempt({ outcome: "retry-limit" }));
+    h.badge.loaded(tabId, "not a url");
+    await h.flush();
+    expect(await h.storage.getValue()).toMatchObject({ results: [[tabId, { kind: "failed" }]] });
+    h.badge.loaded(tabId, `${origin}/`);
+    await h.flush();
+    expect(await h.storage.getValue()).toEqual({ results: [], busy: [] });
+  });
+
+  it("keeps a note and a choice on same-origin loads and drops them on a top-origin change", async () => {
+    const h = harness();
+    h.badge.loaded(tabId, `${origin}/`);
+    h.badge.note(tabId, "held");
+    await h.flush();
+    h.badge.loaded(tabId, `${origin}/again`);
+    await h.flush();
+    expect(h.calls.at(-1)).toEqual({ tabId, text: "", ...CHOICE, title: "held" });
+
+    h.badge.choice(tabId, { count: 2, title: "choose" });
+    await h.flush();
+    h.badge.loaded(tabId, `${origin}/more`);
+    await h.flush();
+    expect(h.calls.at(-1)).toEqual({ tabId, text: "2", ...CHOICE, title: "choose" });
+
+    const count = h.calls.length;
+    h.badge.loaded(tabId, "https://other.example/");
+    await h.flush();
+    // Nothing is left to show, so Chrome's reset badge stays.
+    expect(h.calls).toHaveLength(count);
+    // The choice and note are gone: a spin's stop shows the plain tooltip.
+    h.badge.spin(tabId)();
+    await h.flush();
+    expect(h.calls.at(-1)).toMatchObject(NONE);
+  });
+
+  it("keeps a spin through a top-origin change", async () => {
+    const h = harness();
+    h.badge.loaded(tabId, `${origin}/`);
+    h.badge.spin(tabId);
     await h.flush();
     h.badge.loaded(tabId, "https://other.example/");
     await h.flush();
-    expect(h.calls.at(-1)).toEqual({ tabId, text: "", ...CHOICE, title: "held" });
+    expect(h.calls.at(-1)).toEqual({
+      tabId,
+      text: expect.any(String),
+      ...BUSY,
+      title: "Pateat: asking the AI…",
+    });
   });
 
   it("writes nothing for a loaded tab with nothing to show", async () => {
@@ -530,15 +599,6 @@ describe("login badge", () => {
     h.badge.loaded(tabId);
     await h.flush();
     expect(h.calls).toEqual([]);
-  });
-
-  it("rewrites a spin and a choice after a page loads", async () => {
-    const h = harness();
-    h.badge.choice(tabId, { count: 2, title: "choose" });
-    await h.flush();
-    h.badge.loaded(tabId, "https://other.example/");
-    await h.flush();
-    expect(h.calls.at(-1)).toEqual({ tabId, text: "2", ...CHOICE, title: "choose" });
   });
 
   it("forgets a removed tab's choice, note, spin and result", async () => {
@@ -587,6 +647,20 @@ describe("login badge", () => {
     h.badge.replaced(9, 9);
     await h.flush();
     expect(h.calls).toHaveLength(count);
+  });
+
+  it("keeps a replaced tab's top origin", async () => {
+    const h = harness();
+    h.badge.loaded(tabId, `${origin}/`);
+    h.badge.observe(attempt({ outcome: "timeout" }));
+    h.badge.replaced(8, tabId);
+    // The same origin in the new tab keeps the result; another origin drops it.
+    h.badge.loaded(8, `${origin}/account`);
+    await h.flush();
+    expect(h.view(8)).toMatchObject(FAILED);
+    h.badge.loaded(8, "https://other.example/");
+    await h.flush();
+    expect(await h.storage.getValue()).toEqual({ results: [], busy: [] });
   });
 
   it("persists results and spinning tabs", async () => {
@@ -648,6 +722,44 @@ describe("login badge", () => {
     await h.badge.restore();
     await h.flush();
     expect(h.view()).toMatchObject(SUCCEEDED);
+  });
+
+  it("does not bring back a stored result for a tab whose login started during the restore", async () => {
+    const h = harness({
+      stored: {
+        results: [
+          [tabId, { kind: "failed", origin, reason: "timeout" }],
+          [8, { kind: "failed", origin, reason: "timeout" }],
+          [9, { kind: "failed", origin, reason: "timeout" }],
+        ],
+        busy: [],
+      },
+    });
+    const restoring = h.badge.restore();
+    h.badge.observe(start());
+    h.badge.removed(8);
+    await restoring;
+    await h.flush();
+    expect(h.view(tabId)).toMatchObject(NONE);
+    expect(h.view(9)).toMatchObject(FAILED);
+    expect(await h.storage.getValue()).toEqual({
+      results: [[9, { kind: "failed", origin, reason: "timeout" }]],
+      busy: [],
+    });
+  });
+
+  // `loaded()` marks a tab touched only when it drops a result already in memory, so a
+  // top-origin change seen before the stored value resolves lets the stale result return.
+  it("does not bring back a stored result for a tab whose top origin changed during the restore", async () => {
+    const h = harness({
+      stored: { results: [[tabId, { kind: "failed", origin, reason: "timeout" }]], busy: [] },
+    });
+    h.badge.loaded(tabId, `${origin}/`);
+    const restoring = h.badge.restore();
+    h.badge.loaded(tabId, "https://other.example/");
+    await restoring;
+    await h.flush();
+    expect(await h.storage.getValue()).toEqual({ results: [], busy: [] });
   });
 
   it.each([

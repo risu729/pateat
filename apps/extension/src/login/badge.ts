@@ -30,7 +30,13 @@ const FAILED = new Set([
   "account-not-listed",
 ]);
 /** Outcomes that ended a login without a known result: shown briefly, as a warning. */
-const UNSETTLED = new Set(["challenge-abandoned", "watch-abandoned", "left-origin"]);
+const UNSETTLED = new Set([
+  "challenge",
+  "unknown-submit",
+  "challenge-abandoned",
+  "watch-abandoned",
+  "left-origin",
+]);
 
 export type BadgeResult = {
   kind: "failed" | "succeeded" | "unsettled";
@@ -155,6 +161,10 @@ export function createLoginBadge(deps: {
   const writes = new Map<number, Promise<void>>();
   const waiting = new Set<number>();
   const expiries = new Map<number, ReturnType<typeof setTimeout>>();
+  // Each tab's top page origin at its last load.
+  const tops = new Map<number, string>();
+  // Tabs whose result changed since the worker started, which a restore leaves alone.
+  const touched = new Set<number>();
   let frame = 0;
   let timer: ReturnType<typeof setInterval> | undefined;
   let saved: Promise<void> = Promise.resolve();
@@ -232,6 +242,7 @@ export function createLoginBadge(deps: {
     );
   }
   function setResult(tabId: number, result: BadgeResult | undefined): void {
+    touched.add(tabId);
     if (result) results.set(tabId, result);
     else if (!results.delete(tabId)) return;
     expire(tabId);
@@ -250,6 +261,8 @@ export function createLoginBadge(deps: {
       if (!writes.has(tabId)) draw(tabId);
   }
   function forget(tabId: number): void {
+    touched.add(tabId);
+    tops.delete(tabId);
     choices.delete(tabId);
     notes.delete(tabId);
     lastAttempt.delete(tabId);
@@ -309,21 +322,26 @@ export function createLoginBadge(deps: {
       else if (result) setResult(report.tabId, { ...result, origin: report.origin });
     },
     /**
-     * A page of the tab loaded: Chrome reset the tab's badge, so it is written again, and
-     * a result of another origin no longer applies. `url` is absent for a page Pateat
-     * cannot read, which keeps the result.
+     * A page or frame of the tab loaded or committed: Chrome may have reset the tab's
+     * badge, so it is written again. When the top page's origin changed since the last
+     * load, the result, tooltip and choice of the page before no longer apply. `url` is
+     * the top page's, absent for a page Pateat cannot read, which counts as another origin.
      */
     loaded(tabId: number, url?: string): void {
-      const result = results.get(tabId);
-      if (result && url) {
-        let origin: string | undefined;
-        try {
-          origin = new URL(url).origin;
-        } catch {
-          origin = undefined;
-        }
-        if (origin && origin !== result.origin) {
-          results.delete(tabId);
+      let origin = "unreadable";
+      try {
+        if (url) origin = new URL(url).origin;
+      } catch {
+        origin = "unreadable";
+      }
+      const before = tops.get(tabId);
+      tops.set(tabId, origin);
+      if (before !== undefined && before !== origin) {
+        choices.delete(tabId);
+        notes.delete(tabId);
+        // A restore still reading the stored results must not bring back this tab's.
+        touched.add(tabId);
+        if (results.delete(tabId)) {
           clearTimeout(expiries.get(tabId));
           expiries.delete(tabId);
           save();
@@ -350,8 +368,11 @@ export function createLoginBadge(deps: {
       const choice = choices.get(removed);
       const note = notes.get(removed);
       const result = results.get(removed);
+      const top = tops.get(removed);
       const moved = [...spins].filter((spin) => spin.tabId === removed);
       forget(removed);
+      touched.add(added);
+      if (top !== undefined) tops.set(added, top);
       if (choice) choices.set(added, choice);
       if (note) notes.set(added, note);
       for (const spin of moved) {
@@ -379,7 +400,7 @@ export function createLoginBadge(deps: {
       const value = parseStored(stored);
       if (!value) return;
       for (const [tabId, result] of value.results)
-        if (!results.has(tabId) && (result.until === undefined || result.until > now())) {
+        if (!touched.has(tabId) && (result.until === undefined || result.until > now())) {
           results.set(tabId, result);
           expire(tabId);
         }
