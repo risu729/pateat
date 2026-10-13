@@ -1286,7 +1286,14 @@ rule flags about 88% of such IDs; it misses a run shorter than eight characters,
 that switches fewer than twice, and one beside an upper-case letter. Stable IDs such as
 `step2of3`, `input2fa` or `form-3a7bd3e2` also match, so an element that has no other
 unique locator still gets its `id`, and a form that only such IDs locate stays
-complete.
+complete. An `id` starting with `mantine-`, the prefix of Mantine's `useId` and of the
+IDs its components derive from it, is demoted the same way, as a rule about the UI
+library like the one for React's `useId`, not about a site (ADR 0033): the random run
+can lack a digit, and a signed-in marker on a Mantine-built site was chosen by
+`mantine-ypxwydcwg-tab-mypage`, a tab's ID (2026-10-13). On the signed-in page such an
+`id` or a random-looking one locates no marker, since a marker must match on every
+later visit; only a field that may be a sign-in field still gets it, so the page is
+not reported incomplete.
 
 A text locator is stored in the recipe, unlike observation labels, which only reach
 inference. Redaction keeps email addresses and long numbers out of it, but a button

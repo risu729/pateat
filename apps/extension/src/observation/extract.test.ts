@@ -365,6 +365,35 @@ describe("extractLoginObservation", () => {
     ]);
   });
 
+  it("locates by an ID Mantine's useId made only when nothing else is unique", () => {
+    // A Mantine-built site (2026-10-13): `mantine-ypxwydcwg` has no digit, so only the
+    // library's prefix tells it apart; `mantine-r5` is React 18's `:r5:` without
+    // colons.
+    page(
+      `<form><input id="mantine-ypxwydcwg" name="email">
+        <input id="mantine-r5" name="password" type="password">
+        <button id="mantine-ypxwydcwg-tab-login">Sign in</button></form>`,
+    );
+    expect(observe().candidates.map(({ target }) => target)).toEqual([
+      { by: "name", value: "email" },
+      { by: "name", value: "password" },
+      { by: "text", value: "Sign in" },
+    ]);
+    // With no other locator the ID is still used, so the form stays complete.
+    page(
+      `<form><input id="mantine-ypxwydcwg"><input id="mantine-r5" type="password">
+        <button id="mantine-qwhxkbtfz" aria-label="Sign in"></button></form>`,
+    );
+    const observation = observe();
+    expect(observation.complete).toBe(true);
+    expect(observation.candidates.map(({ target }) => target)).toEqual(
+      ["mantine-ypxwydcwg", "mantine-r5", "mantine-qwhxkbtfz"].map((value) => ({
+        by: "id",
+        value,
+      })),
+    );
+  });
+
   it("locates by an ID holding a random-looking run only when nothing else is unique", () => {
     // A Mantine-built site (2026-10-13): `useId` appends Math.random().toString(36).
     page(
@@ -393,12 +422,12 @@ describe("extractLoginObservation", () => {
     // Only a run of eight or more lower-case letters and digits that no other letter or
     // digit touches looks random: not a shorter one, nor one beside an upper-case letter.
     page(
-      `<form><input id="x-a1b2c3d" name="a"><input id="mantine-4P5f7ku4o" name="b">
-        <input id="mantine4p5f7ku4o" name="c"></form>`,
+      `<form><input id="x-a1b2c3d" name="a"><input id="field-4P5f7ku4o" name="b">
+        <input id="field4p5f7ku4o" name="c"></form>`,
     );
     expect(observe().candidates.map(({ target }) => target)).toEqual([
       { by: "id", value: "x-a1b2c3d" },
-      { by: "id", value: "mantine-4P5f7ku4o" },
+      { by: "id", value: "field-4P5f7ku4o" },
       { by: "name", value: "c" },
     ]);
     // Stable IDs, random-looking (`input2fa`) or not, are used when nothing else is unique.
@@ -1292,6 +1321,35 @@ describe("extractSignedInObservation", () => {
       { role: "link", target: { by: "id", value: "home" }, label: "Home" },
       { role: "link", target: { by: "id", value: "account" }, label: "Account [number]-[number]" },
       { role: "button", target: { by: "id", value: "logout" }, label: "Sign out" },
+    ]);
+  });
+
+  it("never names a marker by an ID that another load may change", () => {
+    // A Mantine-built site (2026-10-13): Tabs give each tab `${useId}-tab-${value}`.
+    page(
+      `<header><nav><a id="mantine-ypxwydcwg-tab-mypage" href="/mypage">マイページ</a>
+        <a id="account-menu" href="/account">Account</a>
+        <a id="nav-k3j9x2m1q" href="/a">More</a>
+        <a id="nav-p8d2w5z7c" href="/b">More</a></nav></header>
+      <input id="mantine-v0zmrhrmb" aria-label="Search">`,
+    );
+    const observation = signedIn();
+    expect(observation.complete).toBe(true);
+    expect(summary(observation)).toEqual([
+      { role: "link", target: { by: "text", value: "マイページ" }, label: "マイページ" },
+      { role: "link", target: { by: "id", value: "account-menu" }, label: "Account" },
+    ]);
+    // A field that may be a sign-in field keeps such an ID rather than leave the page
+    // incomplete, as on a login page.
+    page(
+      `<a id="mantine-ypxwydcwg-tab-mypage" href="/mypage">マイページ</a>
+      <input id="mantine-v0zmrhrmb" type="password">`,
+    );
+    const withField = signedIn();
+    expect(withField.complete).toBe(true);
+    expect(withField.candidates.map(({ target }) => target)).toEqual([
+      { by: "text", value: "マイページ" },
+      { by: "id", value: "mantine-v0zmrhrmb" },
     ]);
   });
 
