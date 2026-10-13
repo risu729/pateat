@@ -558,36 +558,39 @@ flows must explicitly describe tested preparation behavior. Exactly-once effects
 remote website cannot be guaranteed by local state alone. Apply a finite retry budget
 per attempt, with a terminal outcome for lockout risk. The submission budget reserves
 each executor effect before delivery; only a validated failure proving that the current
-operation made no mutation can release its reservation. A separate retry budget still
-applies: a failure that changed nothing on the page (`retryable`) is tried again from
-the same step at most twice, and a spent budget ends the attempt `blocked` with
-`retry-limit`. A TOTP code's click after the code is in, a `totp` handler's or a route
-step's, is never retried, since a late click could submit an expired code; its failure
-ends the attempt `retry-limit` at once (ADR 0027). Initiated or possibly initiated
-effects remain counted, not proven server requests: one page handler can itself issue
-more than one request. Each fill step writes only inputs inside one form (or only inputs
-outside any form). A provider password goes only into a password input, and a TOTP code
-only into a one-time-code or short numeric input, so a recipe cannot place them in a
-search box. A Hidden custom field goes only into a password or short numeric input, and
-a Linked custom field follows the field it reads. Before a fill step that writes a
-secret but not the username (a site that remembers the account and asks only for the
-password), the background sends the selected item's username to the content script with
-that one fill. The content script compares it with the account identifiers shown in the
-form, or the page when there is no form, and the first eight `h1`-`h3` headings; every
-element boundary separates words, and `mailto:` links, `<address>` and `<footer>` are
-skipped as contact addresses. The username never leaves the content script or reaches
-status. An email username is compared with shown email addresses. A username of digits
-only is compared with masked IDs that show at least two characters (`****1234`), and
-only on a step that fills a password or Hidden field, because a one-time-code page
-usually shows the masked phone number the code was sent to. If comparable identifiers
-are shown and none fits (`myaccount@example.com` or `****9999` shown while
-`my2@example.com` or `00001234` is selected), the step fills nothing and the attempt
-ends `wrong-account` without a retry or a spent submission. A masked value consistent
-with the username (`m***@example.com`, `****1234`) proceeds, as does an item without a
-username, a username of another kind (`taro99`) or a page that shows no comparable
-identifier. A masked number that is not the account, such as a card number on a password
-page, still stops a digits-only username: a known limitation. A recipe can name an
-`accountSwitch` target: the button or `<a href>` link that switches to another account
+operation made no mutation can release its reservation. A fill whose operation no longer
+validates just before the worker reads its values (`operation-invalid`, as when it
+expired while its authorization was read) never reached the page, so it is such a
+failure and is tried again. A separate retry budget still applies: a failure that
+changed nothing on the page (`retryable`) is tried again from the same step at most
+twice, and a spent budget ends the attempt `blocked` with `retry-limit`. A TOTP code's
+click after the code is in, a `totp` handler's or a route step's, is never retried,
+since a late click could submit an expired code; its failure ends the attempt
+`retry-limit` at once (ADR 0027). Initiated or possibly initiated effects remain
+counted, not proven server requests: one page handler can itself issue more than one
+request. Each fill step writes only inputs inside one form (or only inputs outside any
+form). A provider password goes only into a password input, and a TOTP code only into a
+one-time-code or short numeric input, so a recipe cannot place them in a search box. A
+Hidden custom field goes only into a password or short numeric input, and a Linked
+custom field follows the field it reads. Before a fill step that writes a secret but not
+the username (a site that remembers the account and asks only for the password), the
+background sends the selected item's username to the content script with that one fill.
+The content script compares it with the account identifiers shown in the form, or the
+page when there is no form, and the first eight `h1`-`h3` headings; every element
+boundary separates words, and `mailto:` links, `<address>` and `<footer>` are skipped as
+contact addresses. The username never leaves the content script or reaches status. An
+email username is compared with shown email addresses. A username of digits only is
+compared with masked IDs that show at least two characters (`****1234`), and only on a
+step that fills a password or Hidden field, because a one-time-code page usually shows
+the masked phone number the code was sent to. If comparable identifiers are shown and
+none fits (`myaccount@example.com` or `****9999` shown while `my2@example.com` or
+`00001234` is selected), the step fills nothing and the attempt ends `wrong-account`
+without a retry or a spent submission. A masked value consistent with the username
+(`m***@example.com`, `****1234`) proceeds, as does an item without a username, a
+username of another kind (`taro99`) or a page that shows no comparable identifier. A
+masked number that is not the account, such as a card number on a password page, still
+stops a digits-only username: a known limitation. A recipe can name an `accountSwitch`
+target: the button or `<a href>` link that switches to another account
 (`{ "by": "text", "value": "Use another account" }`; text locators match link text only
 here and in a signed-in marker; the recipe must not use it for a click step or
 `rejection`). When the page shows another account, nothing was submitted in the attempt,

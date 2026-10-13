@@ -5266,7 +5266,26 @@ export function createLoginRuntime(
           run.metadata.policyRevision,
         )
       ) {
-        await change(run, { type: "FAILED", reason: "timeout" }, undefined, "operation-invalid");
+        // Nothing went to the page, so a fill is tried again, as one the page refused before
+        // any input is, rather than observed as one that may have submitted.
+        await change(
+          run,
+          {
+            type: "FAILED",
+            reason: "timeout",
+            ...(operation.step.kind === "fill" &&
+            run.metadata.operationId === operation.operationId &&
+            run.metadata.mutationIntent === true
+              ? {
+                  mutation: "none" as const,
+                  operationId: operation.operationId,
+                  document: operation.document,
+                }
+              : {}),
+          },
+          undefined,
+          "operation-invalid",
+        );
         return;
       }
       const values: { slot: string; value: string; secret?: LoginSecretKind }[] = [];
