@@ -9,6 +9,7 @@ import {
   loginStepEffect,
   MAX_COMPLETION_MARKERS,
   passwordVariants,
+  recipeTypesCode,
   refillsLoginSlot,
   routeFillTargets,
   sameLoginTarget as sameTarget,
@@ -20,7 +21,7 @@ import {
   type LoginStep,
   type LoginTarget,
 } from "@pateat/contracts";
-import { sameLoginSite } from "@pateat/contracts/site";
+import { loginMoveFits } from "@pateat/contracts/site";
 import * as v from "valibot";
 import { registersPasskey, type EntryTarget } from "./plan";
 
@@ -195,8 +196,9 @@ export function appendPageSteps(
  * any path: a failed sign-in that shows the login form again, on its own path or where
  * the form posted, is not learned as signed in. On a step's own path the marker also
  * lists that path's fill fields as `absent`, since the executor checks it after every
- * step and counts hidden elements. A page of another origin of the recipe's site, which a
- * login's tab moved to (ADR 0022), stores that origin with its marker; the recipe's paths
+ * step and counts hidden elements. A page of another origin of the recipe's site, or of
+ * another site for a recipe that types a TOTP code, which a login's tab moved to (ADR
+ * 0022), stores that origin with its marker; the recipe's paths
  * are not that origin's, so its own steps' paths are not compared there.
  */
 export function addCompletion(
@@ -214,7 +216,7 @@ export function addCompletion(
   )
     return { ok: false, reason: "already-learned" };
   if (markers.length >= MAX_COMPLETION_MARKERS) return { ok: false, reason: "marker-limit" };
-  if (moved && !sameLoginSite(base.origin, page.origin))
+  if (moved && !loginMoveFits(base.origin, page.origin, recipeTypesCode(base)))
     return { ok: false, reason: "origin-mismatch" };
   if (!page.candidates.some((candidate) => sameTarget(candidate.target, target)))
     return { ok: false, reason: "not-on-page" };

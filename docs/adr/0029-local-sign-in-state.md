@@ -16,7 +16,9 @@ showed a CAPTCHA before its submission; see S4 below.
 Amended on 2026-10-12 by the owner's choice at 21:18 UTC (「AI判定」,
 [ADR 0022](0022-login-attempts-per-tab-and-origin.md)): E2 is also read on a page of
 another origin of the same site that a `password` login's tab moves to right after the
-submission; see the end of the implementation notes.
+submission; see the end of the implementation notes. Amended again on 2026-10-13 by the
+owner's choice at 01:59 UTC (「コード送信後だけ」, ADR 0022): the same applies to a move
+to another site within 30 seconds of a TOTP code.
 Amended on 2026-10-12 by the owner's choice at 22:03 UTC (「除いて慎重に」, leave out
 with care): a disabled field that does not look like a sign-in field is left out of a
 judged page, and such a page completes only on `signed-in`, after Q-move's signed-in
@@ -370,7 +372,10 @@ those signs. S1, F1, F2 and E3 are not read there, and no `login.state` entry is
 logged. A page that shows none of those signs but not E2 is checked for E1 with the
 markers learned on its origin only, and otherwise judged once; `signed-in` completes the
 login and learns a marker for that origin, and anything else, an undecided answer
-included, ends it `left-origin` as before (ADR 0022). The service keeps such a page's
+included, ends it `left-origin` as before (ADR 0022). The same reading and judgement
+apply to a move to an HTTPS origin of another site within 30 seconds of a TOTP code the
+login submitted (owner, 2026-10-13 01:59 UTC), never right after the password step. The
+service keeps such a page's
 judgement row under its own origin, and answers a later request for a row judged
 `signed-in` with `judged-signed-in` instead of `already-judged`, which the "No S, no E"
 row above treats as before.

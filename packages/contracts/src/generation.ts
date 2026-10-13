@@ -81,7 +81,7 @@ export const generationUnavailableReasonSchema = v.picklist([
   "already-judged",
   /**
    * As `already-judged`, and that judgement was `signed-in`, so a page of another origin
-   * of the site that a login moved to completes it again (ADR 0022).
+   * that a login moved to completes it again (ADR 0022).
    */
   "judged-signed-in",
   /**
@@ -289,7 +289,8 @@ export const entryGenerationResultSchema = v.pipe(
  * revision that no recipe check explained, judged at most once per revision, origin, path
  * and judge prompt version so the service can learn a signed-in marker or a handler (ADR
  * 0018, ADR 0027, ADR 0029). The page is on the recipe's origin, or on another HTTPS origin
- * of its site that a `password` login's tab moved to right after the submission (ADR 0022).
+ * that a `password` login's tab moved to right after the submission: of its site, or of
+ * another site right after a TOTP code, for a recipe that may type one (ADR 0022).
  */
 export const recipeCompletionRequestSchema = v.strictObject({
   version: v.literal(1),

@@ -19,6 +19,7 @@ import {
   passwordVariants,
   recipeHasRoute,
   recipeSlots,
+  recipeTypesCode,
   recipeStartSteps,
   routeFillTargets,
   routePaths,
@@ -604,6 +605,41 @@ describe("second-factor page handlers (ADR 0027)", () => {
           withHandlers([code({ path: "/password", target: { by: "id", value: "login" } })]),
         ).handlers,
       ).toHaveLength(1);
+    });
+
+    it("makes the recipe one that types a code, as a route step filling only the code does", () => {
+      const base = recipe();
+      expect(recipeTypesCode(base)).toBe(false);
+      expect(recipeTypesCode(parseLoginRecipe(withHandlers([passkeyHandler()])))).toBe(false);
+      expect(recipeTypesCode(parseLoginRecipe(withHandlers([code()])))).toBe(true);
+      const otp = { slot: "totp", target: { by: "id" as const, value: "otp" } };
+      const routeCode = parseLoginRecipe({
+        ...base,
+        slots: [...base.slots, "totp"],
+        steps: [
+          ...base.steps,
+          { kind: "fill", effect: "prepare", path: "/verify", fields: [otp] },
+          {
+            kind: "click",
+            path: "/verify",
+            target: { by: "id", value: "verify" },
+            purpose: "submit",
+          },
+        ],
+        maxSubmissions: 3,
+      });
+      expect(recipeTypesCode(routeCode)).toBe(true);
+      // A code typed with the password is no code page of its own.
+      const together = parseLoginRecipe({
+        ...base,
+        slots: [...base.slots, "totp"],
+        steps: base.steps.map((step) =>
+          step.kind === "fill" && step.path === "/password"
+            ? { ...step, fields: [...step.fields, otp] }
+            : step,
+        ),
+      });
+      expect(recipeTypesCode(together)).toBe(false);
     });
 
     it("refuses a text-located field, a field that is its button and a second one per path", () => {

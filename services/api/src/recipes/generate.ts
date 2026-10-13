@@ -5,6 +5,7 @@ import {
   loginStepEffect,
   recipeHasRoute,
   recipeSlots,
+  recipeTypesCode,
   routeFillTargets,
   routeSignInPaths,
   routeSignInTargets,
@@ -25,7 +26,7 @@ import {
   type StoredLoginRecipe,
   type SyncRecipeChange,
 } from "@pateat/contracts";
-import { sameLoginSite } from "@pateat/contracts/site";
+import { loginMoveFits } from "@pateat/contracts/site";
 import {
   accountListGenerationInstructions,
   accountListGenerationPromptVersion,
@@ -610,9 +611,9 @@ export function staleHead(
 
 /**
  * `POST /v1/recipes/:recipeId/completion`: judges a page after an effect step of the
- * login's route (ADR 0027), on the recipe's origin or on another origin of its site that
- * the login's tab moved to (ADR 0022). Returns `undefined` for a missing recipe and `null`
- * for a page on another site, which the route answers as 404 and 400.
+ * login's route (ADR 0027), on the recipe's origin or on another origin that the login's
+ * tab moved to (ADR 0022). Returns `undefined` for a missing recipe and `null` for a page
+ * of an origin no move could reach, which the route answers as 404 and 400.
  */
 export async function judgeCompletion(
   env: GenerationEnv,
@@ -624,16 +625,25 @@ export async function judgeCompletion(
   if (!head) return undefined;
   if (head.state === "revoked") return unavailable("recipe-revoked");
   const { observation, route, branch, partial } = request;
-  // A page of another origin of the site is one the login's tab moved to right after the
-  // submission (ADR 0022): the recipe's paths are not that origin's, and its markers there
-  // carry that origin.
-  const moved = observation.origin !== head.recipe.origin;
-  if (moved && (route !== "password" || !sameLoginSite(head.recipe.origin, observation.origin)))
-    return null;
   // Only a page of the revision that ran, on a route the stored recipe has, is judged: the
   // recipe's own, or for a chooser (ADR 0028) the route of the branch the login took. An
   // entry recipe (ADR 0031) has no route.
   const recipe = routeOf(head.recipe, branch);
+  // A page of another origin is one a `password` login's tab moved to right after its
+  // submission (ADR 0022): of the site, or of another site when the route may type a TOTP
+  // code, after which the extension sends such a page. The recipe's paths are not that
+  // origin's, and its markers there carry that origin.
+  const moved = observation.origin !== head.recipe.origin;
+  if (
+    moved &&
+    (route !== "password" ||
+      !loginMoveFits(
+        head.recipe.origin,
+        observation.origin,
+        recipe !== undefined && recipeTypesCode(recipe),
+      ))
+  )
+    return null;
   if (!recipe || head.revision !== request.revision || !recipeHasRoute(recipe, route))
     return unavailable("recipe-conflict");
   if (!observation.complete) return failed("incomplete-observation");
