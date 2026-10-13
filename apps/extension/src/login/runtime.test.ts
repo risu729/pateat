@@ -20,9 +20,12 @@ const fake = vi.hoisted(() => {
     storage: {
       local: {
         setAccessLevel: async () => undefined,
-        get: async (keys: string[]) =>
+        get: async (keys: string | string[]) =>
           Object.fromEntries(
-            keys.filter((key) => key in state.storage).map((key) => [key, state.storage[key]]),
+            [keys]
+              .flat()
+              .filter((key) => key in state.storage)
+              .map((key) => [key, state.storage[key]]),
           ),
         set: async (values: Record<string, unknown>) => {
           Object.assign(state.storage, structuredClone(values));
@@ -58,6 +61,8 @@ const fake = vi.hoisted(() => {
       onReplaced: { addListener: () => undefined },
     },
   };
+  // WXT storage reads `chrome` when it loads.
+  Object.assign(globalThis, { chrome: browser });
   return { state, browser, pageUrl };
 });
 vi.mock("wxt/browser", () => ({ browser: fake.browser }));

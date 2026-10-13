@@ -2458,11 +2458,11 @@ separate from refreshed data, configure retry/refetch behavior explicitly and
 retain runtime payload/sender authorization. Use the approved XState for the M2
 executor; verify navigation cancellation, timeout handling and interrupted-submit
 reconciliation before expanding execution. Persist allowlisted resumable metadata
-only; restoring state must not blindly replay submission. WXT storage items hold the
-settings, connection, service sync and passkey sign-in records; `storage.local` is
-restricted to trusted contexts before an item is defined, and the existing
-single-writer revision checks and fail-closed handling of corrupt settings stay in
-Pateat's code. The login runtime's records move to WXT storage next.
+only; restoring state must not blindly replay submission. Every Pateat record,
+including the login runtime's, is read and written through WXT storage;
+`storage.local` is restricted to trusted contexts before any read or write, and the
+existing single-writer revision checks and fail-closed handling of corrupt settings
+stay in Pateat's code.
 
 Approved for M4: Hono and Drizzle for the first substantive API/schema. Keep
 Valibot boundary validation, verify generated SQL and migrations, and test owner

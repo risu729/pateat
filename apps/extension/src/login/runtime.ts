@@ -88,6 +88,8 @@ import {
   type VaultItemMetadata,
 } from "@pateat/contracts";
 import { browser, type Browser } from "wxt/browser";
+import { storage } from "wxt/utils/storage";
+import { trustedRecord } from "../storage";
 import { domainKey } from "@pateat/bitwarden";
 import {
   authorizeSchema,
@@ -164,26 +166,26 @@ import { loginMoveFits } from "@pateat/contracts/site";
 
 const STORAGE_KEY = "pateat.login-attempts.v4";
 /** Accounts picked in the toolbar popup, per tab; session storage survives a worker restart. */
-const PICKS_KEY = "pateat.login-picks.v1";
-const CHOICES_KEY = "pateat.login-choices.v1";
-const LOGOUTS_KEY = "pateat.login-logouts.v1";
+const PICKS_KEY = "session:pateat.login-picks.v1";
+const CHOICES_KEY = "session:pateat.login-choices.v1";
+const LOGOUTS_KEY = "session:pateat.login-logouts.v1";
 /** Documents filled once after a logout, as `${tabId} ${documentId}` (ADR 0021 D). */
-const LOGOUT_FILLS_KEY = "pateat.login-logout-fills.v1";
+const LOGOUT_FILLS_KEY = "session:pateat.login-logout-fills.v1";
 /**
  * Tabs whose login of an origin stopped after a submission and whose login form then
  * showed again on a later page; they ask like a logout, in that tab only (ADR 0021 D).
  */
-const STOPPED_ASKS_KEY = "pateat.login-stopped-asks.v1";
+const STOPPED_ASKS_KEY = "session:pateat.login-stopped-asks.v1";
 /**
  * Tabs that ask like a logout because the site rejected their login of an origin; the
  * asking is the same, only its wording names the rejection (ADR 0021 D).
  */
-const REJECTED_ASKS_KEY = "pateat.login-rejected-asks.v1";
+const REJECTED_ASKS_KEY = "session:pateat.login-rejected-asks.v1";
 /**
  * Refusal reasons already logged, by tab, document and path, so a page that announces
  * again after a worker restart does not log the same reason as news (ADR 0019).
  */
-const NOTED_KEY = "pateat.login-noted.v1";
+const NOTED_KEY = "session:pateat.login-noted.v1";
 const CONFIG_KEY = "pateat.login-probe-origin.v1";
 /**
  * How long another tab's login that has not succeeded holds its origin after its record
@@ -270,7 +272,7 @@ const UNDECIDED_COMPLETES = new Set([
   "monthly-limit",
 ]);
 /** Sign-in entry presses per tab, until the tab closes (ADR 0031). */
-const ENTRY_PRESSES_KEY = "pateat.login-entry-presses.v1";
+const ENTRY_PRESSES_KEY = "session:pateat.login-entry-presses.v1";
 /** Entry recipe revisions blocked on this device after a press that led nowhere (ADR 0031). */
 const ENTRY_BLOCKS_KEY = "pateat.login-entry-blocks.v1";
 /** A tab presses a sign-in entry at most once in this time (ADR 0031). */
@@ -1759,7 +1761,7 @@ export function createLoginRuntime(
   // Picks and waiting choices outlive a worker restart, as the tab's badge does. Every
   // change to them happens after this load.
   const sessionLoaded = quietly(async () => {
-    const stored = await browser.storage.session.get([
+    const items = await storage.getItems([
       PICKS_KEY,
       CHOICES_KEY,
       LOGOUTS_KEY,
@@ -1769,6 +1771,7 @@ export function createLoginRuntime(
       ENTRY_PRESSES_KEY,
       NOTED_KEY,
     ]);
+    const stored = Object.fromEntries(items.map(({ key, value }) => [key, value]));
     const picks = v.safeParse(v.array(pickedAccountSchema), stored[PICKS_KEY] ?? []);
     if (picks.success) for (const entry of picks.output) picked.set(entry.tabId, entry);
     const choices = v.safeParse(v.array(pendingChoiceSchema), stored[CHOICES_KEY] ?? []);
@@ -1812,16 +1815,16 @@ export function createLoginRuntime(
       return { tabId: Number(key.slice(0, at)), origin: key.slice(at + 1) };
     });
   async function saveSession(): Promise<void> {
-    await browser.storage.session.set({
-      [PICKS_KEY]: [...picked.values()],
-      [CHOICES_KEY]: [...pending.values()],
-      [LOGOUTS_KEY]: scopes(logouts),
-      [LOGOUT_FILLS_KEY]: [...logoutFills],
-      [STOPPED_ASKS_KEY]: scopes(stoppedAsks),
-      [REJECTED_ASKS_KEY]: scopes(rejectedAsks),
-      [ENTRY_PRESSES_KEY]: [...entryPresses.values()],
-      [NOTED_KEY]: [...noted].map(([page, ids]) => [page, [...ids]]),
-    });
+    await storage.setItems([
+      { key: PICKS_KEY, value: [...picked.values()] },
+      { key: CHOICES_KEY, value: [...pending.values()] },
+      { key: LOGOUTS_KEY, value: scopes(logouts) },
+      { key: LOGOUT_FILLS_KEY, value: [...logoutFills] },
+      { key: STOPPED_ASKS_KEY, value: scopes(stoppedAsks) },
+      { key: REJECTED_ASKS_KEY, value: scopes(rejectedAsks) },
+      { key: ENTRY_PRESSES_KEY, value: [...entryPresses.values()] },
+      { key: NOTED_KEY, value: [...noted].map(([page, ids]) => [page, [...ids]]) },
+    ]);
   }
   /**
    * Why a tab asks after a logout, for the log: which tab logged out, or `rejected` when
@@ -1865,6 +1868,10 @@ export function createLoginRuntime(
     void quietly(() => browser.action.setBadgeText({ tabId, text: "" }));
     void quietly(() => browser.action.setTitle({ tabId, title: "Pateat" }));
   }
+  // Attempts, the probe configuration and entry blocks are trusted-only device records.
+  const attemptRecords = trustedRecord<LoginAttemptMetadata[]>(STORAGE_KEY);
+  const probeConfig = trustedRecord<object>(CONFIG_KEY);
+  const entryBlockRecords = trustedRecord<EntryBlock[]>(ENTRY_BLOCKS_KEY);
   let storageQueue: Promise<void> = Promise.resolve();
   let storageHealthy = true;
   let checkpoint: "before-delivery" | "before-ack" | undefined;
@@ -1892,9 +1899,7 @@ export function createLoginRuntime(
   }
   const loaded = (async () => {
     try {
-      await browser.storage.local.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" });
-      const storage = await browser.storage.local.get([STORAGE_KEY, CONFIG_KEY]);
-      const config: unknown = storage[CONFIG_KEY];
+      const [config, stored] = await Promise.all([probeConfig.read(), attemptRecords.read()]);
       if (probeMode && config !== undefined) {
         const parsed = v.parse(configureSchema, {
           version: 1,
@@ -1906,7 +1911,6 @@ export function createLoginRuntime(
         probePasskey = parsed.passkey;
         probeTotp = parsed.totp === true;
       }
-      const stored = storage[STORAGE_KEY];
       if (stored === undefined) return;
       if (!Array.isArray(stored) || stored.length > 100) throw new Error("Invalid attempt store");
       for (const entry of stored) {
@@ -1922,7 +1926,7 @@ export function createLoginRuntime(
       for (const [key, metadata] of persisted)
         if (!liveIds.has(metadata.document.tabId) && !replacedTabs.has(metadata.document.tabId))
           persisted.delete(key);
-      await browser.storage.local.set({ [STORAGE_KEY]: [...persisted.values()] });
+      await attemptRecords.write([...persisted.values()]);
     } catch {
       storageHealthy = false;
     }
@@ -2269,7 +2273,7 @@ export function createLoginRuntime(
     const snapshot = [...persisted.values()];
     storageQueue = storageQueue.then(async () => {
       if (!storageHealthy) throw new Error("storage-failed");
-      await browser.storage.local.set({ [STORAGE_KEY]: snapshot });
+      await attemptRecords.write(snapshot);
       return undefined;
     });
     try {
@@ -7714,18 +7718,16 @@ export function createLoginRuntime(
   /** The blocks stored on this device; a read that fails is not kept, so it is read again. */
   let entryBlocks: Promise<EntryBlock[] | undefined> | undefined;
   function readEntryBlocks(): Promise<EntryBlock[] | undefined> {
-    const read: Promise<EntryBlock[] | undefined> = browser.storage.local
-      .get([ENTRY_BLOCKS_KEY])
-      .then(
-        (stored) => {
-          const parsed = v.safeParse(v.array(entryBlockSchema), stored[ENTRY_BLOCKS_KEY] ?? []);
-          return parsed.success ? parsed.output : [];
-        },
-        () => {
-          if (entryBlocks === read) entryBlocks = undefined;
-          return undefined;
-        },
-      );
+    const read: Promise<EntryBlock[] | undefined> = entryBlockRecords.read().then(
+      (stored) => {
+        const parsed = v.safeParse(v.array(entryBlockSchema), stored ?? []);
+        return parsed.success ? parsed.output : [];
+      },
+      () => {
+        if (entryBlocks === read) entryBlocks = undefined;
+        return undefined;
+      },
+    );
     entryBlocks ??= read;
     return entryBlocks;
   }
@@ -7753,7 +7755,7 @@ export function createLoginRuntime(
     ].slice(-MAX_ENTRY_BLOCKS);
     entryBlocks = Promise.resolve(next);
     try {
-      await browser.storage.local.set({ [ENTRY_BLOCKS_KEY]: next });
+      await entryBlockRecords.write(next);
       return true;
     } catch {
       unsavedBlocks.push(block);
@@ -8258,13 +8260,11 @@ export function createLoginRuntime(
         account = config.output.account ?? DEMO_PROBE_ACCOUNT;
         probePasskey = config.output.passkey;
         probeTotp = config.output.totp === true;
-        await browser.storage.local.set({
-          [CONFIG_KEY]: {
-            origin,
-            ...(config.output.account ? { account } : {}),
-            ...(probePasskey ? { passkey: probePasskey } : {}),
-            ...(probeTotp ? { totp: true } : {}),
-          },
+        await probeConfig.write({
+          origin,
+          ...(config.output.account ? { account } : {}),
+          ...(probePasskey ? { passkey: probePasskey } : {}),
+          ...(probeTotp ? { totp: true } : {}),
         });
         return { ok: true };
       }
@@ -8456,7 +8456,7 @@ export function createLoginRuntime(
             changed = true;
           }
         replacedTabs.delete(removed);
-        if (changed) await browser.storage.local.set({ [STORAGE_KEY]: [...persisted.values()] });
+        if (changed) await attemptRecords.write([...persisted.values()]);
         return undefined;
       })
       .catch(() => {
@@ -8502,7 +8502,7 @@ export function createLoginRuntime(
         await loaded;
         for (const [key, metadata] of persisted)
           if (metadata.document.tabId === tabId) persisted.delete(key);
-        await browser.storage.local.set({ [STORAGE_KEY]: [...persisted.values()] });
+        await attemptRecords.write([...persisted.values()]);
         return undefined;
       })
       .catch(() => {
