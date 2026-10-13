@@ -13,6 +13,7 @@ wait_for = [
   ":test:connections",
   ":test:crypto",
   ":test:login",
+  ":test:messaging",
   ":test:passkeys",
   ":test:service",
   ":test:vault",
@@ -39,6 +40,10 @@ run = "node ../../node_modules/vitest/vitest.mjs run src/crypto --coverage.repor
 [tasks."test:login"]
 depends = [":prepare"]
 run = "node ../../node_modules/vitest/vitest.mjs run src/login --coverage.reportsDirectory=../../coverage/extension-login"
+
+[tasks."test:messaging"]
+depends = [":prepare"]
+run = "node ../../node_modules/vitest/vitest.mjs run src/messaging --coverage.reportsDirectory=../../coverage/extension-messaging"
 
 [tasks."test:passkeys"]
 depends = [":prepare"]
@@ -67,6 +72,7 @@ depends = [
   ":test:crypto",
   ":test:dom",
   ":test:login",
+  ":test:messaging",
   ":test:passkeys",
   ":test:service",
   ":test:vault",

@@ -1,4 +1,5 @@
 import { expect, test, type BrowserContext, type Page, type Worker } from "@playwright/test";
+import { backgroundMessage, sendToBackground as send } from "./background-message";
 import { withLoginExtension, withStoppedLoginWorker } from "./login-fixture";
 
 type ProbeAction =
@@ -141,13 +142,6 @@ const expectedVectors = {
   fields: true,
   denied: true,
 };
-
-async function send(page: Page, message: unknown): Promise<unknown> {
-  return page.evaluate(async (request) => {
-    const { chrome } = globalThis as unknown as { chrome: ExtensionChrome };
-    return chrome.runtime.sendMessage(request);
-  }, message);
-}
 
 async function invoke(page: Page, action: ProbeAction): Promise<unknown> {
   return send(page, { type: "crypto.probe", action });
@@ -516,23 +510,29 @@ test("service-worker restart destroys the held native session and replaces the o
       expect(
         await send(page, { type: "crypto.probe", action: "arm", checkpoint: "after-result" }),
       ).toEqual({ ok: true, data: { armed: true } });
-      await page.evaluate(() => {
-        const state = globalThis as unknown as {
-          chrome: ExtensionChrome;
-          pateatOldHostReply?: { state: string; reply?: unknown };
-        };
-        state.pateatOldHostReply = { state: "pending" };
-        // Unlike the vector action's completed authentication hash, lock first
-        // opens a V1 native session. Hold that open reply while its keys remain live.
-        void state.chrome.runtime.sendMessage({ type: "crypto.probe", action: "lock" }).then(
-          (reply) => {
-            return (state.pateatOldHostReply = { state: "settled", reply });
-          },
-          () => {
-            return (state.pateatOldHostReply = { state: "closed" });
-          },
-        );
-      });
+      await page.evaluate(
+        (message) => {
+          const state = globalThis as unknown as {
+            chrome: ExtensionChrome;
+            pateatOldHostReply?: { state: string; reply?: unknown };
+          };
+          state.pateatOldHostReply = { state: "pending" };
+          // Unlike the vector action's completed authentication hash, lock first
+          // opens a V1 native session. Hold that open reply while its keys remain live.
+          void state.chrome.runtime.sendMessage(message).then(
+            (reply) => {
+              return (state.pateatOldHostReply = {
+                state: "settled",
+                reply: (reply as { res?: unknown } | undefined)?.res,
+              });
+            },
+            () => {
+              return (state.pateatOldHostReply = { state: "closed" });
+            },
+          );
+        },
+        backgroundMessage({ type: "crypto.probe", action: "lock" }),
+      );
       await expect
         .poll(() => status(page), { timeout: 10_000 })
         .toMatchObject({

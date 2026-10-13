@@ -7,6 +7,7 @@ import type {
 import type { SettingsRequest, SettingsResponse } from "../../packages/contracts/src/index";
 import type { CustomAccountVariant } from "../../packages/bitwarden/src/__fixtures__/connection";
 import { v1Email, v1Password } from "../../packages/bitwarden/src/__fixtures__/crypto";
+import { sendToBackground } from "./background-message";
 
 type Port = {
   postMessage(value: unknown): void;
@@ -23,7 +24,6 @@ type ExtensionScope = typeof globalThis & {
   chrome: {
     runtime: {
       connect(options: { name: string }): Port;
-      sendMessage(value: unknown): Promise<unknown>;
     };
   };
   syntheticSetupPort?: Port;
@@ -124,24 +124,13 @@ export type ProbeRequest =
   | { action: "status" | "inspect" | "session-store" }
   | { action: "resolve"; field: "password" | "custom-0" | "custom-1" | "linked" };
 export function setupProbe<T = ProbeStatus>(page: Page, request: ProbeRequest): Promise<T> {
-  return page.evaluate(
-    async (input) =>
-      (globalThis as ExtensionScope).chrome.runtime.sendMessage({
-        type: "setup.probe",
-        ...input,
-      }) as Promise<T>,
-    request,
-  );
+  return sendToBackground(page, { type: "setup.probe", ...request }) as Promise<T>;
 }
 export async function settingsRequest(
   page: Page,
   request: SettingsRequest = { version: 1, type: "settings.get" },
 ): Promise<Extract<SettingsResponse, { ok: true }>> {
-  const result = await page.evaluate(
-    async (input) =>
-      (globalThis as ExtensionScope).chrome.runtime.sendMessage(input) as Promise<SettingsResponse>,
-    request,
-  );
+  const result = (await sendToBackground(page, request)) as SettingsResponse;
   if (!result.ok) throw new Error(`Synthetic settings operation: ${result.error.code}`);
   return result;
 }

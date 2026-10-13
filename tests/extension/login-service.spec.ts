@@ -3,6 +3,7 @@ import { beginInput, settingsRequest, setupProbe, setupRequest } from "./connect
 import { startLoginFixture } from "./login-server";
 import { startSyncService } from "./sync-service";
 import { withVaultProfile } from "./vault-fixture";
+import { sendToBackground as send } from "./background-message";
 
 // The synthetic Bitwarden item stores the URI https://synthetic.example.test/login, so
 // the production executor may choose it on that site without a saved default. Its
@@ -10,18 +11,6 @@ import { withVaultProfile } from "./vault-fixture";
 // "00001234". The login password is "test_password". The fixture site expects them.
 const site = "https://synthetic.example.test";
 const recipeId = "synthetic-identity";
-
-async function send(page: Page, message: unknown): Promise<unknown> {
-  return page.evaluate(
-    async (request) =>
-      (
-        globalThis as unknown as {
-          chrome: { runtime: { sendMessage(value: unknown): Promise<unknown> } };
-        }
-      ).chrome.runtime.sendMessage(request),
-    message,
-  );
-}
 
 /** The synthetic HTTPS site is served by the loopback fixture; nothing leaves the browser. */
 async function serveSite(context: BrowserContext, fixture: { origin: string }) {

@@ -19,6 +19,7 @@ import {
 } from "node:crypto";
 import { PROBE_PASSKEY } from "../../apps/extension/src/passkeys/probe";
 import { fidoPrivateKey } from "../../packages/bitwarden/src/__fixtures__/crypto";
+import { sendToBackground } from "./background-message";
 import { beginInput, settingsRequest, setupProbe, setupRequest } from "./connection-fixture";
 import { withLoginExtension } from "./login-fixture";
 import { passkeyPageHtml, startPasskeyRelyingParty as startRelyingParty } from "./passkey-server";
@@ -186,15 +187,8 @@ type ProbeControl = { ok: boolean; signatures: number; remembered: string[] };
 async function probeControls(context: BrowserContext, extensionId: string) {
   const options = await context.newPage();
   await options.goto(`chrome-extension://${extensionId}/options.html`);
-  const send = (message: Record<string, unknown>) =>
-    options.evaluate(async (request) => {
-      const chrome = (
-        globalThis as unknown as {
-          chrome: { runtime: { sendMessage(message: unknown): Promise<unknown> } };
-        }
-      ).chrome;
-      return (await chrome.runtime.sendMessage(request)) as ProbeControl;
-    }, message);
+  const send = async (message: Record<string, unknown> & { type: string }) =>
+    (await sendToBackground(options, message)) as ProbeControl;
   return {
     configure: async (settings: Record<string, unknown> = {}) =>
       expect(

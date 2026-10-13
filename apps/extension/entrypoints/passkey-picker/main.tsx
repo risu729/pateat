@@ -1,5 +1,5 @@
 import { createRoot } from "react-dom/client";
-import { browser } from "wxt/browser";
+import { sendMessage } from "../../src/messaging/protocol";
 import { ChooserApp } from "../../src/passkeys/chooser-app";
 import { followThemePreference } from "../../src/theme";
 // oxlint-disable-next-line import/no-unassigned-import -- Share the settings page stylesheet.
@@ -15,7 +15,7 @@ createRoot(root).render(
   <ChooserApp
     client={{
       request: new URLSearchParams(location.search).get("request"),
-      send: (message) => browser.runtime.sendMessage(message),
+      send: (message) => sendMessage("passkey-chooser", message),
       close: () => window.close(),
     }}
   />,

@@ -5,6 +5,7 @@ import { SettingsApp } from "../../src/options/settings-app";
 import { createMetadataQueryClient, createSettingsClient } from "../../src/options/client";
 import { createConnectionClient } from "../../src/options/connection-client";
 import { createServiceClient } from "../../src/options/service-client";
+import { sendMessage } from "../../src/messaging/protocol";
 import { followThemePreference } from "../../src/theme";
 // oxlint-disable-next-line import/no-unassigned-import -- Bundle the options page stylesheet.
 import "./style.css";
@@ -22,10 +23,10 @@ const connectionClient = createConnectionClient({
 createRoot(root).render(
   <QueryClientProvider client={createMetadataQueryClient()}>
     <SettingsApp
-      client={createSettingsClient((message) => browser.runtime.sendMessage(message))}
+      client={createSettingsClient((message) => sendMessage("settings", message))}
       connectionClient={connectionClient}
       serviceClient={createServiceClient({
-        send: (message) => browser.runtime.sendMessage(message),
+        send: (message) => sendMessage("service", message),
         openTab: (url) => browser.tabs.create({ url }),
         // Chrome match patterns do not carry ports; site access is granted per host.
         requestSiteAccess: (origin) =>

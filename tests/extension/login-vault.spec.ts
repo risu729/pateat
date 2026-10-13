@@ -3,22 +3,11 @@ import type { SettingsResponse } from "../../packages/contracts/src/index";
 import { beginInput, settingsRequest, setupProbe, setupRequest } from "./connection-fixture";
 import { startLoginFixture } from "./login-server";
 import { withVaultProfile } from "./vault-fixture";
+import { sendToBackground as send } from "./background-message";
 
 // The synthetic Bitwarden item: custom field 0 is "007", hidden custom field 1 is
 // "00001234" and the login password is "test_password". The fixture site expects them.
 const vaultPassword = "test_password";
-
-async function send(page: Page, message: unknown): Promise<unknown> {
-  return page.evaluate(
-    async (request) =>
-      (
-        globalThis as unknown as {
-          chrome: { runtime: { sendMessage(value: unknown): Promise<unknown> } };
-        }
-      ).chrome.runtime.sendMessage(request),
-    message,
-  );
-}
 
 /** Connect the synthetic vault, bind its fields explicitly and save one exact-origin default. */
 async function connectAndBind(options: Page, origin: string) {

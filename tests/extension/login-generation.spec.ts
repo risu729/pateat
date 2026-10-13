@@ -3,6 +3,7 @@ import { beginInput, settingsRequest, setupProbe, setupRequest } from "./connect
 import { startLoginFixture } from "./login-server";
 import { startSyncService } from "./sync-service";
 import { withVaultProfile, type VaultBrowser } from "./vault-fixture";
+import { sendToBackground as send } from "./background-message";
 
 // The synthetic Bitwarden item stores the URI https://synthetic.example.test/login, the
 // username "test_username" and the login password "test_password". The site has no recipe;
@@ -11,18 +12,6 @@ import { withVaultProfile, type VaultBrowser } from "./vault-fixture";
 const site = "https://synthetic.example.test";
 const username = "test_username";
 const password = "test_password";
-
-async function send(page: Page, message: unknown): Promise<unknown> {
-  return page.evaluate(
-    async (request) =>
-      (
-        globalThis as unknown as {
-          chrome: { runtime: { sendMessage(value: unknown): Promise<unknown> } };
-        }
-      ).chrome.runtime.sendMessage(request),
-    message,
-  );
-}
 
 async function serveSite(context: BrowserContext, fixture: { origin: string }) {
   await context.route(`${site}/**`, async (route) => {

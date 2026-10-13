@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { browser } from "wxt/browser";
 import { createMetadataQueryClient, createSettingsClient } from "../../src/options/client";
 import { createChoiceClient } from "../../src/login/choice-wire";
+import { sendMessage } from "../../src/messaging/protocol";
 import { SiteApp } from "../../src/popup/site-app";
 import { followThemePreference } from "../../src/theme";
 // oxlint-disable-next-line import/no-unassigned-import -- Share the settings page stylesheet.
@@ -19,8 +20,8 @@ if (!root) throw new Error("Missing popup root");
 createRoot(root).render(
   <QueryClientProvider client={createMetadataQueryClient()}>
     <SiteApp
-      client={createSettingsClient((message) => browser.runtime.sendMessage(message))}
-      choices={createChoiceClient((message) => browser.runtime.sendMessage(message))}
+      client={createSettingsClient((message) => sendMessage("settings", message))}
+      choices={createChoiceClient((message) => sendMessage("login", message))}
       host={{
         async currentTab() {
           const [tab] = await browser.tabs.query({ active: true, currentWindow: true });

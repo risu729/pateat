@@ -160,6 +160,8 @@ export function createDiagnosticsLog(options: {
   return {
     logger,
     pseudonyms,
+    /** Logs a rejection that was caught before it became unhandled, as an unhandled one. */
+    rejection: (error: unknown) => unhandled("rejection", error),
     /** Compares connection states after a vault write or setup request. */
     vaultStateMayChange() {
       if (watching) {
