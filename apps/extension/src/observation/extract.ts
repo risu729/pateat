@@ -16,6 +16,7 @@ import { autocompleteTokens } from "../page/targets";
 import {
   buttonText,
   collapseText,
+  fieldName,
   hasNativeButton,
   isScriptButton,
   isScriptLink,
@@ -269,6 +270,7 @@ function locatorIndex(document: Document): LocatorIndex {
       "text",
       "script-text",
       "link-text",
+      "label",
     ].map((key) => [key, new Map()]),
   );
   const count = (key: string, value: string) => {
@@ -290,12 +292,19 @@ function locatorIndex(document: Document): LocatorIndex {
     const text = isScriptLink(element) ? undefined : linkText(element);
     if (text !== undefined) count("link-text", text);
   }
+  for (const input of document.querySelectorAll("input")) {
+    const name = fieldName(input);
+    if (name !== undefined) count("label", name);
+  }
   return index;
 }
 
 /**
  * Mirrors the executor's lookup: an attribute value, or else a fillable input's
- * `autocomplete` token, or else a button's text, that matches exactly one element. An ID
+ * `autocomplete` token, or else a button's text, that matches exactly one element. With
+ * `labels`, a fillable input none of those name is located by its visible name
+ * (`fieldName`, ADR 0037) when no other shown fillable input has that name, it holds no
+ * number and redaction leaves it unchanged, before an ID another load may change. An ID
  * React's `useId` generated is not used, as another page gives it to another element. One
  * that another load may change (`changingId`) is used only when no other locator is
  * unique, as it may as well be stable, and never with `lasting`, which a signed-in
@@ -311,7 +320,7 @@ function locatorIndex(document: Document): LocatorIndex {
 function locate(
   element: Element,
   index: LocatorIndex,
-  { redactAttributes = false, links = false, lasting = false } = {},
+  { redactAttributes = false, links = false, lasting = false, labels = false } = {},
 ): LoginTarget | undefined {
   let demoted: LoginTarget | undefined;
   for (const [by, attribute] of locators) {
@@ -324,23 +333,39 @@ function locate(
     if (attribute !== "id" || !changingId(value)) return target;
     if (!lasting) demoted = target;
   }
-  return contentTarget(element, index, links) ?? demoted;
+  return contentTarget(element, index, links, labels) ?? demoted;
 }
 
-/** `locate`'s `autocomplete` token, link text or button text, when one is unique. */
+/**
+ * `locate`'s `autocomplete` token, visible name (with `labels`), link text or button text,
+ * when one is unique.
+ */
 function contentTarget(
   element: Element,
   index: LocatorIndex,
   links: boolean,
+  labels: boolean,
 ): LoginTarget | undefined {
   // Only a field the login fills; a button is named by its own attributes or text.
-  if (element instanceof HTMLInputElement && fillTypes[element.type])
+  if (element instanceof HTMLInputElement && fillTypes[element.type]) {
     for (const value of autocompleteTokens(element)) {
       if (!(loginAutocompleteTokens as readonly string[]).includes(value)) continue;
       if (index.get("autocomplete")!.get(value) !== 1) continue;
       const target = { by: "autocomplete" as const, value };
       if (v.is(loginTargetSchema, target)) return target;
     }
+    const name = labels ? fieldName(element) : undefined;
+    // A name holding a number may change as the person types, such as a counter "0/20".
+    if (
+      name === undefined ||
+      /\p{Number}/u.test(name) ||
+      observedText(name) !== name ||
+      index.get("label")!.get(name) !== 1
+    )
+      return undefined;
+    const target = { by: "label" as const, value: name };
+    return v.is(loginTargetSchema, target) ? target : undefined;
+  }
   if (
     element instanceof HTMLAnchorElement &&
     element.hasAttribute("href") &&
@@ -1016,6 +1041,8 @@ export function extractLoginObservation(
   const filled = (field: HTMLInputElement) =>
     (field.readOnly || field.disabled) &&
     known.some((target) => {
+      if (target.by === "label")
+        return fieldName(field) === target.value && index.get("label")!.get(target.value) === 1;
       const attribute = locators.find(([by]) => by === target.by)?.[1];
       return (
         attribute !== undefined &&
@@ -1102,7 +1129,7 @@ export function extractLoginObservation(
   let unlocated = false;
   const located = (entries: typeof required, { optional = false } = {}) =>
     entries.flatMap((entry) => {
-      const target = locate(entry.draft.element, index, { links: true });
+      const target = locate(entry.draft.element, index, { links: true, labels: true });
       if (!target) unlocated = true;
       if (!target && !optional) flaw(entry.form, unlocatedGap(entry.draft.role));
       return target ? [{ ...entry, target }] : [];
@@ -1611,18 +1638,19 @@ function describeSignedIn(document: Document): ObservationResult {
   // A marker's locator is stored and must match every later sign-in, so text with a
   // number character, such as a balance or an unread count, never names one, nor does
   // an ID another load may change. A field that may be a sign-in field keeps such an
-  // ID, as on a login page, rather than leave the page incomplete.
+  // ID, as on a login page, rather than leave the page incomplete, and is located by its
+  // visible name before it (ADR 0037), as a recipe's fill and a `totp` handler's code
+  // field name it; a name with a number, which this page's text never shows, is not used.
   const located = (entries: typeof fieldEntries) =>
     entries.flatMap((entry) => {
       const { element } = entry.draft;
+      const signIn =
+        element instanceof HTMLInputElement && fillTypes[element.type] && mayBeSignIn(element);
       const target = locate(element, index, {
         redactAttributes: true,
         links: true,
-        lasting: !(
-          element instanceof HTMLInputElement &&
-          fillTypes[element.type] &&
-          mayBeSignIn(element)
-        ),
+        lasting: !signIn,
+        labels: signIn,
       });
       return target && !(target.by === "text" && /\p{Number}/u.test(target.value))
         ? [{ ...entry, target }]

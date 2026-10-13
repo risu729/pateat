@@ -436,6 +436,11 @@ own accounts, so they stay in the project's files rather than in this repository
     npmjs.com: a judged code page adds the handler and the
     same login types one code. It needs a paid judge call and a real account's code, so
     it waits for the owner's approval.
+- A login form whose fields only per-load IDs name, such as 外資就活ドットコム's
+  (Mantine), was generated again on every visit (2026-10-13). Such fields are now
+  located by their visible name ([ADR 0037](adr/0037-fields-by-visible-name.md), owner,
+  2026-10-13 04:50 UTC; synthetic tests only). Check in the owner's Chrome that the
+  second visit logs in with the saved recipe and no generation call.
 - Known faults moved from phase 1 (owner, 2026-10-12 20:35 UTC), fixed when a real site
   shows them again: the `reconciling` exception seen on SBI証券, and `generate` ignoring
   a failed sync after generation (both recorded under phase 1).
@@ -2228,7 +2233,9 @@ target is the first of `id`, `name` and `data-testid` that matches exactly one e
 as the executor resolves it, skipping an `id` React's `useId` generated and trying one
 holding a random-looking run or Mantine's `mantine-` prefix (2026-10-13) last, and for
 an input without one, its first `autocomplete` token that is `username`, `email`,
-`current-password`, `one-time-code` or `webauthn` and that no other input carries; a
+`current-password`, `one-time-code` or `webauthn` and that no other input carries, then
+its visible name when no other shown fillable input has it, before such an `id`
+([ADR 0037](adr/0037-fields-by-visible-name.md)); a
 button without one gets a text locator when its text matches exactly one button and
 redaction leaves it unchanged, and a script link when its text matches no button and
 exactly one script link. In a login form, a field, button or

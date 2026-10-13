@@ -40,6 +40,58 @@ describe("findTargets", () => {
     expect(ids(findTargets(document, { by: "autocomplete", value: "email" }))).toEqual(["d", "e"]);
   });
 
+  it("matches shown fillable inputs by their visible name (ADR 0037)", () => {
+    // A Mantine-built form (2026-10-13): random per-load IDs, a placeholder each.
+    page(
+      `<form><input id="mantine-v0zmrhrmb" placeholder=" メール\u200bアドレス ">
+        <input id="mantine-k2j4h6g8f" type="password" placeholder="パスワード">
+        <input id="h" placeholder="パスワード" hidden><input id="i" type="checkbox" aria-label="パスワード">
+        <textarea id="j" placeholder="パスワード"></textarea>
+        <button id="k" type="submit">ログインする</button></form>`,
+    );
+    expect(ids(findTargets(document, { by: "label", value: "メールアドレス" }))).toEqual([
+      "mantine-v0zmrhrmb",
+    ]);
+    // Hidden inputs, checkboxes and text areas never match.
+    expect(ids(findTargets(document, { by: "label", value: "パスワード" }))).toEqual([
+      "mantine-k2j4h6g8f",
+    ]);
+    expect(findTargets(document, { by: "label", value: "ログインする" })).toEqual([]);
+    // The next load's IDs differ; the name still finds the field.
+    document.getElementById("mantine-v0zmrhrmb")!.id = "mantine-p9o8i7u6y";
+    expect(ids(findTargets(document, { by: "label", value: "メールアドレス" }))).toEqual([
+      "mantine-p9o8i7u6y",
+    ]);
+    // Callers reject two shown inputs with one name.
+    document.getElementById("h")!.hidden = false;
+    expect(ids(findTargets(document, { by: "label", value: "パスワード" }))).toEqual([
+      "mantine-k2j4h6g8f",
+      "h",
+    ]);
+  });
+
+  it("names a field by aria-labelledby, then its labels, aria-label and placeholder", () => {
+    page(
+      `<span id="n1">Customer</span><span id="n2">number</span><span id="n3" hidden>x</span>
+      <input id="a" aria-labelledby="n1 n3 n2" aria-label="Ignored" placeholder="Ignored">
+      <label for="b">User <b>ID</b></label><input id="b" aria-label="Ignored" placeholder="Ignored">
+      <label>Email <input id="c" placeholder="Ignored"></label>
+      <input id="d" aria-label="PIN" placeholder="Ignored"><input id="e" placeholder="Code">
+      <label for="f"> </label><input id="f" placeholder="Branch">
+      <label for="g">${"x".repeat(121)}</label><input id="g" placeholder="Long">`,
+    );
+    const named = (value: string) => ids(findTargets(document, { by: "label", value }));
+    expect(named("Customer number")).toEqual(["a"]);
+    expect(named("User ID")).toEqual(["b"]);
+    expect(named("Email")).toEqual(["c"]);
+    expect(named("PIN")).toEqual(["d"]);
+    expect(named("Code")).toEqual(["e"]);
+    // An empty label gives way to the next source; a long one leaves no name at all.
+    expect(named("Branch")).toEqual(["f"]);
+    expect(named("Long")).toEqual([]);
+    expect(named("Ignored")).toEqual([]);
+  });
+
   it("matches links by text only when asked and no button shows the text, for an account switch", () => {
     page(
       `<a id="a" href="/switch"> Use another <b>account</b> </a><a id="b">Use another account</a>

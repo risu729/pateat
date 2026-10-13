@@ -3,7 +3,7 @@ import {
   loginObservationSchema,
   splitCodeInputs,
   loginPathSchema,
-  type LoginAttributeTarget,
+  type LoginFieldTarget,
   type LoginObservation,
   type LoginTarget,
 } from "@pateat/contracts";
@@ -103,7 +103,7 @@ export type SignInJudgement =
   | {
       decision: "challenge";
       passkey?: LoginTarget;
-      totp?: { field: LoginAttributeTarget; target: LoginTarget };
+      totp?: { field: LoginFieldTarget; target: LoginTarget };
       /**
        * Why a code the model named was not kept as `totp`, for the log: its source when
        * the page says it was sent to the person or names another source
@@ -125,7 +125,7 @@ function totpCode(
   page: LoginObservation,
   code: { field: string; submit: string; source: string } | undefined,
 ):
-  | { totp: { field: LoginAttributeTarget; target: LoginTarget } }
+  | { totp: { field: LoginFieldTarget; target: LoginTarget } }
   | { totpDropped: string }
   | undefined {
   if (!code) return undefined;

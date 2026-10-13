@@ -231,6 +231,10 @@ describe("entry plan check (ADR 0031)", () => {
       target: { by: "autocomplete", value: "username" },
     };
     expect(validateEntry(page(field), "x")).toEqual({ ok: false, reason: "incompatible-role" });
+    // A visible name names only a field (ADR 0037), even on a link the check is given.
+    expect(
+      validateEntry(page({ id: "x", role: "link", target: { by: "label", value: "Login" } }), "x"),
+    ).toEqual({ ok: false, reason: "incompatible-role" });
     expect(validateEntry(page(button), "y")).toEqual({ ok: false, reason: "unknown-candidate" });
   });
 });

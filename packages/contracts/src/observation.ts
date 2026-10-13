@@ -247,9 +247,10 @@ export const loginObservationSchema = v.pipe(
     (observation) =>
       observation.candidates.every(
         ({ role, target }) =>
-          target.by !== "autocomplete" || (fillRoles as readonly string[]).includes(role),
+          (target.by !== "autocomplete" && target.by !== "label") ||
+          (fillRoles as readonly string[]).includes(role),
       ),
-    "Autocomplete locators apply only to fields",
+    "Autocomplete and label locators apply only to fields",
   ),
 );
 
@@ -408,7 +409,8 @@ export function isCodeField(candidate: ObservedCandidate): boolean {
  * The inputs of a code split into one input per digit that `field` is one of (ADR 0027,
  * owner decision 2026-10-12 19:21 UTC), in page order: every fill-role input of its form
  * that {@link isCodeField} accepts, when there are 6 to 8, each takes one character
- * (`maxlength` 1) and each has an attribute locator. Undefined for any other field.
+ * (`maxlength` 1) and each has an attribute or visible-name locator. Undefined for any
+ * other field.
  */
 export function splitCodeInputs(
   page: Pick<LoginObservation, "candidates">,
@@ -430,7 +432,8 @@ export function splitCodeInputs(
 
 /**
  * Whether `field` and `button` of this page may be a `totp` handler's code field and the
- * button that submits it (ADR 0027): a fill-role input located by an attribute that
+ * button that submits it (ADR 0027): a fill-role input located by an attribute or its
+ * visible name (ADR 0037) that
  * {@link isCodeField} accepts, either with at least 6 characters when it limits them and
  * the only such input in its form, or the first of a code split into one input per digit
  * ({@link splitCodeInputs}), which the executor fills one digit per input; and a button

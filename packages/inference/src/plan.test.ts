@@ -136,6 +136,55 @@ describe("custom-field slot names (ADR 0027)", () => {
   });
 });
 
+describe("fields located by their visible name (ADR 0037)", () => {
+  // A Mantine-built form whose fields only per-load IDs name.
+  const named: LoginObservation = {
+    ...observation,
+    candidates: [
+      input("c1", { role: "email", target: { by: "label", value: "メールアドレス" } }),
+      input("c2", { role: "password", target: { by: "label", value: "パスワード" } }),
+      input("c3", { role: "button", target: { by: "text", value: "ログインする" } }),
+    ],
+  };
+
+  it("fills each field by the locator the observation offered for it", () => {
+    const result = validatePagePlan(named, slots, {
+      fields: [
+        { slot: "username", candidate: "c1" },
+        { slot: "password", candidate: "c2" },
+      ],
+      action: { candidate: "c3", purpose: "submit" },
+    });
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.plan.steps).toEqual([
+      {
+        kind: "fill",
+        path: "/login",
+        effect: "prepare",
+        fields: [
+          { slot: "username", target: { by: "label", value: "メールアドレス" } },
+          { slot: "password", target: { by: "label", value: "パスワード" } },
+        ],
+      },
+      {
+        kind: "click",
+        path: "/login",
+        target: { by: "text", value: "ログインする" },
+        purpose: "submit",
+      },
+    ]);
+  });
+
+  it("never takes a field's name as the action", () => {
+    expect(
+      validatePagePlan(named, slots, {
+        fields: [{ slot: "username", candidate: "c1" }],
+        action: { candidate: "c2", purpose: "submit" },
+      }),
+    ).toMatchObject({ ok: false });
+  });
+});
+
 describe("the Hidden fill rule in plan validation (ADR 0027)", () => {
   it.each<[string, Partial<Candidate>, boolean]>([
     ["a password input", { role: "password" }, true],
