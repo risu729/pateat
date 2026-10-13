@@ -522,6 +522,9 @@ own accounts, so they stay in the project's files rather than in this repository
     cancellation page. Three checks were folded into the tests that kept their path.
     The login spec (2026-10-13) went from 68 to 66 tests, and two tests whose negative
     passed before Pateat acted now wait for it.
+  - Batch 11, the extension's passkey vault suite (2026-10-13): one test folded into the
+    table that checks the same guard, and a repeated row replaced by one that fails when
+    a site default in an unsearched connection is reported as searched.
 - UI improvements the owner reports from daily use of the UI polished in phase 1. Small
   fixes for broken UI still land as found.
 - Features found missing during use are added here.
