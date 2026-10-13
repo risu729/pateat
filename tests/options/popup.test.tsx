@@ -722,6 +722,27 @@ test("after the site rejects a login, the popup says so and offers the accounts"
   );
 });
 
+test("after the site rejects a login in another tab, the popup chooses no account", async () => {
+  const { client } = store();
+  const choices = noChoice();
+  choices.get.mockResolvedValue({
+    ok: true,
+    origin: "https://bank.example",
+    documentId: "other-tab",
+    candidates: [
+      { connectionId: "demo-personal", itemId: "primary" },
+      { connectionId: "demo-work", itemId: "primary" },
+    ],
+    logout: "other-tab",
+    rejectedElsewhere: true,
+  });
+  await mount(client, "https://bank.example/", choices);
+  const offered = page.getByRole("group", { name: "Account to log in with" });
+  await expect.element(offered.getByRole("radio").first()).not.toBeChecked();
+  await expect.element(offered.getByRole("radio").last()).not.toBeChecked();
+  await expect.element(page.getByRole("button", { name: "Log in" })).toBeDisabled();
+});
+
 test("after a logout, the popup asks even with one account", async () => {
   const { client } = store();
   const choices = noChoice();

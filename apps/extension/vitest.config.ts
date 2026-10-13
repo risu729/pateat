@@ -1,7 +1,9 @@
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
+    // Native IndexedDB suites run in Chromium (`src/vitest.dom.config.ts`).
+    exclude: [...configDefaults.exclude, "**/*.browser.test.ts"],
     // Set by CI's Verify job; `mise run coverage:summary` merges every area's result with
     // the Browser Mode suites'. Each test:<area> task names its own reports directory.
     coverage: {

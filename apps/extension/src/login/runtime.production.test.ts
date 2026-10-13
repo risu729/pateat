@@ -22,7 +22,7 @@ import { createRecipeSync } from "../service/recipes";
 import { createSettingsSync } from "../service/settings-sync";
 import type { ServiceTransport } from "../service/transport";
 import { acceptsSecret, type SecretInput } from "./inputs";
-import type { LoginGeneration, LoginRecipeStart, LoginReport } from "./runtime";
+import type { GenerationOutcome, LoginGeneration, LoginRecipeStart, LoginReport } from "./runtime";
 import type { LoginFieldSource } from "./vault";
 import type { ConditionalDecision, PasskeyItem } from "../passkeys/runtime";
 
@@ -371,6 +371,8 @@ function harness(
     entries?: LoginEntryRecipe[];
     /** Told of each origin a login signed in (ADR 0007). */
     signedIn?: (tabId: number, origin: string) => void;
+    /** Spins a tab's toolbar icon while a model request is in flight. */
+    spin?: (tabId: number) => () => void;
   } = {},
 ) {
   const customFields = (fields: CustomField[]) =>
@@ -518,6 +520,7 @@ function harness(
     ...(live.passkeyItems ? { passkeyItems: live.passkeyItems } : {}),
     ...(live.vault ? { vault: live.vault } : {}),
     ...(live.signedIn ? { signedIn: live.signedIn } : {}),
+    ...(live.spin ? { spin: live.spin } : {}),
     ...(live.report
       ? {
           report: (entry: LoginReport) => {
@@ -4319,6 +4322,12 @@ describe("production login document admission", () => {
         "Pateat: the site did not accept the last login in this tab. Click to choose an account.";
       it("offers the accounts again once the site rejects a picked account in its page", async () => {
         const h = await refused();
+        // Another tab of the site waits on its own choice of several accounts.
+        fake.state.tabUrls[2] = fake.state.pageUrl;
+        expect(await h.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({
+          ok: false,
+          reason: "account-ambiguous",
+        });
         h.recipes.recipe.mockResolvedValue(rejecting);
         fake.state.observed = ["missing", "unique"];
         expect(await pick(h, { makeDefault: true })).toEqual({ ok: true });
@@ -4334,6 +4343,10 @@ describe("production login document admission", () => {
         expect(fake.state.storage["pateat.login-attempts.v4"]).toEqual([]);
         expect(await ask(h)).toEqual(rejectedOffer);
         expect(fake.state.badges[1]).toEqual({ text: "2", title: rejectedTitle });
+        // The other tab's popup chooses no account either.
+        expect(
+          await h.login.handle({ version: 1, type: "login.choice.get", tabId: 2 }, popup),
+        ).toMatchObject({ documentId: "other-tab", rejectedElsewhere: true });
         // Nothing was saved as the default, and the page is not filled again.
         expect(h.store.update).not.toHaveBeenCalled();
         expect(fake.state.messages.filter((entry) => entry.type === "login.execute")).toEqual(
@@ -4442,6 +4455,15 @@ describe("production login document admission", () => {
           expect(fake.state.storage["pateat.login-attempts.v4"]).toMatchObject([
             { fillOnly: true, document: { documentId: "synthetic-next" } },
           ]),
+        );
+        await vi.waitFor(async () => expect(await h.login.active()).toBe(false));
+        // Another tab of the site fills and asks too; its popup chooses no account either.
+        fake.state.tabUrls[2] = fake.state.pageUrl;
+        expect(await h.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({ ok: true });
+        await vi.waitFor(async () =>
+          expect(
+            await h.login.handle({ version: 1, type: "login.choice.get", tabId: 2 }, popup),
+          ).toMatchObject({ logout: "other-tab", rejectedElsewhere: true }),
         );
       });
       it("offers the choice again after a worker restart, or clears it once the page is gone", async () => {
@@ -5335,6 +5357,62 @@ describe("production login document admission", () => {
         { type: "generation", tabId: 1, origin, outcome: "sent" },
         { type: "generation", tabId: 1, origin, outcome: "abstained", reason: "ambiguous" },
       ]);
+    });
+
+    it("spins the tab's icon from the page's send until its answer", async () => {
+      fake.state.extracted = { login: loginPage };
+      let answer!: (outcome: GenerationOutcome) => void;
+      const service = generation({
+        generate: () =>
+          new Promise<GenerationOutcome>((resolve) => {
+            answer = resolve;
+          }),
+      });
+      const stop = vi.fn();
+      const spin = vi.fn((_tabId: number) => stop);
+      const h = harness(unsaved, {
+        allowedOrigins: [],
+        uris,
+        username: true,
+        custom: [],
+        generation: service,
+        spin,
+      });
+      h.recipes.recipe.mockResolvedValue(undefined);
+      h.recipes.starts.mockResolvedValue(startsOf([]));
+      expect(await h.hello({}, false)).toMatchObject({ generate: true });
+      expect(spin).not.toHaveBeenCalled();
+      expect(await h.signIn()).toEqual({ ok: false, reason: "generating" });
+      await vi.waitFor(() => expect(spin).toHaveBeenCalledWith(1));
+      expect(stop).not.toHaveBeenCalled();
+      answer({ outcome: "abstained", reason: "ambiguous" });
+      await vi.waitFor(() => expect(stop).toHaveBeenCalledTimes(1));
+      expect(spin).toHaveBeenCalledTimes(1);
+    });
+
+    it("stops the spin when the request fails after it was sent", async () => {
+      fake.state.extracted = { login: loginPage };
+      const service = generation({
+        generate: async () => {
+          throw new Error("network");
+        },
+      });
+      const stop = vi.fn();
+      const spin = vi.fn((_tabId: number) => stop);
+      const h = harness(unsaved, {
+        allowedOrigins: [],
+        uris,
+        username: true,
+        custom: [],
+        generation: service,
+        spin,
+      });
+      h.recipes.recipe.mockResolvedValue(undefined);
+      h.recipes.starts.mockResolvedValue(startsOf([]));
+      expect(await h.hello({}, false)).toMatchObject({ generate: true });
+      expect(await h.signIn()).toEqual({ ok: false, reason: "generating" });
+      await vi.waitFor(() => expect(stop).toHaveBeenCalledTimes(1));
+      expect(spin.mock.calls).toEqual([[1]]);
     });
 
     it("logs a page that stopped answering before it was sent", async () => {
@@ -8177,6 +8255,40 @@ describe("production login document admission", () => {
           ],
         }),
       ]);
+    }, 10_000);
+
+    it("spins the tab's icon while the page after the submission is judged", async () => {
+      fake.state.extracted = { "signed-in": homePage };
+      const stop = vi.fn();
+      const spin = vi.fn((_tabId: number) => stop);
+      const service = generation({
+        judge: async () => {
+          expect(stop).not.toHaveBeenCalled();
+          return { verdict: "signed-in" };
+        },
+      });
+      const h = harness(unsaved, {
+        allowedOrigins: [],
+        uris,
+        username: true,
+        generation: service,
+        spin,
+      });
+      h.recipes.recipe.mockResolvedValue(generated);
+      h.recipes.starts.mockResolvedValue(startsOf([generated.steps[0]!]));
+      fake.state.present = new Set(["user", "password", "login"]);
+      fake.state.onExecute = async (message) => {
+        if ((message["operation"] as { step: { kind: string } }).step.kind !== "click") return;
+        fake.state.present = new Set(["logout"]);
+        fake.state.observedPath = "/home";
+      };
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+        timeout: 6_000,
+      });
+      expect(service.judge).toHaveBeenCalledTimes(1);
+      expect(spin.mock.calls).toEqual([[1]]);
+      expect(stop).toHaveBeenCalledTimes(1);
     }, 10_000);
 
     it.each([

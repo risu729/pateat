@@ -1875,11 +1875,22 @@ describe("unhandled errors", () => {
       logout: "rejected",
       pageReason: "logged-out",
     });
-    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(3));
+    // Another tab of the site, whose popup chooses no account after that rejection.
+    log.login({
+      type: "popup",
+      tabId: 5,
+      origin: site.origin,
+      choice: "offered",
+      candidates: 3,
+      logout: "other-tab",
+      rejectedElsewhere: true,
+    });
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(4));
     const entries = await log.logger.entries();
     expect(entries.map((entry) => [entry.event, entry.level])).toEqual([
       ["login.popup", "info"],
       ["login.logout", "info"],
+      ["login.popup", "info"],
       ["login.popup", "info"],
     ]);
     expect(entries[0]?.fields).toMatchObject({
@@ -1895,6 +1906,7 @@ describe("unhandled errors", () => {
       logout: "rejected",
       pageReason: "logged-out",
     });
+    expect(entries[3]?.fields).toMatchObject({ logout: "other-tab", rejectedElsewhere: true });
     vi.restoreAllMocks();
   });
 
