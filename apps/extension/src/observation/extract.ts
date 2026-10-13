@@ -345,7 +345,7 @@ function fieldDescription(input: HTMLInputElement, label: string | undefined) {
   return text === label ? undefined : text;
 }
 
-const nearDepth = 3;
+const nearDepth = 6;
 const maxNear = 3;
 /** Elements examined for text near a code field; a code page is small. */
 const nearScanLimit = 2000;
@@ -353,12 +353,13 @@ const nearScanLimit = 2000;
  * Elements whose text is never text near a code field: live regions and error messages,
  * which can echo a typed value (ADR 0010), editable text and output boxes, which can
  * show it, controls, labels and links, which the observation describes as candidates,
- * and headings, which it already carries. Such an element anywhere above the field, as
- * a page wrapped in a live region, leaves out every text.
+ * headings, which it already carries, and code-like text (`code`, `pre`, `kbd`,
+ * `samp`), which may show a setup key or recovery code. Such an element anywhere above
+ * the field, as a page wrapped in a live region, leaves out every text.
  */
 const notNear = [
   liveRegions,
-  "a, button, label, input, select, textarea, output, h1, h2, h3",
+  "a, button, label, input, select, textarea, output, h1, h2, h3, code, pre, kbd, samp",
   "[contenteditable]:not([contenteditable='false' i])",
   ...["button", "link", "heading", "textbox", "searchbox", "combobox", "spinbutton"].map(
     (role) => `[role~='${role}' i]`,
@@ -369,10 +370,14 @@ const notNear = [
  * Up to three short texts a signed-in page shows near its code field, for the judge to
  * tell where the code comes from (ADR 0027, owner decision 2026-10-12 22:04 UTC), such as
  * an authenticator-app sentence outside the code form: each the rendered text of one
- * shown element without child elements, within three parents of the field (never the body
- * or above), nearest parent first and then in page order, returned in page order. Each
- * text is normalized as `observedText` does but not cut, then passed to `keep`, which
- * hides it, cuts it or drops it; only kept texts count, and each once. Elements matching
+ * shown element without child elements, within six parents of the field (never the body
+ * or above) and below the first parent that holds another shown field to type in, so the
+ * texts stay with the code's own part of the page, nearest parent first and then in page
+ * order, returned in page order. A text that looks like a key or recovery code
+ * ({@link keyLike}, read before redaction), or whose parent up to the area shows one
+ * ({@link inKey}), is left out; any other is normalized as
+ * `observedText` does but not cut, then passed to `keep`, which hides it, cuts it or
+ * drops it; only kept texts count, and each once. Elements matching
  * `notNear`, those inside one and those the field's `aria-errormessage` names are left
  * out, and a field marked `aria-invalid="true"` gets none, as its description does.
  */
@@ -383,11 +388,17 @@ function nearCodeTexts(field: HTMLElement, keep: (text: string) => string | unde
     return element ? [element] : [];
   });
   const found: { element: Element; text: string }[] = [];
+  const keyParents = new Map<Element, boolean>();
   let scanned = 0;
   let inner: Element = field;
   for (let depth = 0; depth < nearDepth && found.length < maxNear; depth += 1) {
     const area = inner.parentElement;
-    if (!area || area === field.ownerDocument.body || area === field.ownerDocument.documentElement)
+    if (
+      !area ||
+      area === field.ownerDocument.body ||
+      area === field.ownerDocument.documentElement ||
+      otherEntryField(area, field)
+    )
       break;
     for (const element of area.querySelectorAll("*")) {
       if (found.length >= maxNear || (scanned += 1) > nearScanLimit) break;
@@ -398,7 +409,12 @@ function nearCodeTexts(field: HTMLElement, keep: (text: string) => string | unde
         errors.some((error) => error.contains(element))
       )
         continue;
-      const raw = observedText(renderedText(element, rawLimit), Number.POSITIVE_INFINITY);
+      const rendered = renderedText(element, rawLimit);
+      // A text that looks like a key or recovery code may be a secret, and is never sent;
+      // it is read before redaction hides its digits. A key printed one group per element
+      // shows only in the text of a parent, so each parent up to the area is read too.
+      if (rendered === undefined || keyLike(rendered) || inKey(element, area, keyParents)) continue;
+      const raw = observedText(rendered, Number.POSITIVE_INFINITY);
       const text = raw && keep(raw);
       if (text && !found.some((entry) => entry.text === text)) found.push({ element, text });
     }
@@ -411,6 +427,129 @@ function nearCodeTexts(field: HTMLElement, keep: (text: string) => string | unde
         : 1,
     )
     .map(({ text }) => text);
+}
+
+/** How much of a parent's text is read to tell whether it shows a key. */
+const keyScanLimit = 2000;
+/**
+ * Whether a parent of `element`, up to and including `area`, shows text that looks like
+ * a key or recovery code ({@link keyLike}), as a key printed one group per element does.
+ * Answers are kept in `seen`, since leaves share their parents.
+ */
+function inKey(element: Element, area: Element, seen: Map<Element, boolean>): boolean {
+  for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+    let key = seen.get(parent);
+    if (key === undefined) {
+      const text = renderedText(parent, keyScanLimit);
+      key = text !== undefined && keyLike(text);
+      seen.set(parent, key);
+    }
+    if (key) return true;
+    if (parent === area) break;
+  }
+  return false;
+}
+
+/**
+ * Fields a person types in: inputs other than buttons, checkboxes, radios, hidden and
+ * other non-text inputs, text areas, and editable text.
+ */
+const typedFields = [
+  "input:not([type='hidden' i], [type='checkbox' i], [type='radio' i], [type='submit' i], [type='button' i], [type='reset' i], [type='image' i], [type='file' i], [type='range' i], [type='color' i])",
+  "textarea",
+  "[contenteditable]:not([contenteditable='false' i])",
+  "[role~='textbox' i]",
+  "[role~='searchbox' i]",
+].join(", ");
+/**
+ * Whether `area` holds a shown, enabled and writable field to type in other than the code
+ * field `field`, or than another one-character input of a code split into one input per
+ * digit. A read-only field, such as the account shown above a code, does not count.
+ */
+function otherEntryField(area: Element, field: HTMLElement): boolean {
+  const split = field instanceof HTMLInputElement && field.maxLength === 1;
+  for (const element of area.querySelectorAll<HTMLElement>(typedFields)) {
+    if (element === field || field.contains(element) || !shown(element)) continue;
+    // A disabled or read-only field, or one kept out of reach as a form's trap for bots is.
+    if (
+      element.matches(
+        ":disabled, [readonly], [aria-readonly='true' i], [aria-disabled='true' i], [tabindex='-1']",
+      ) ||
+      element.closest("[aria-hidden='true' i]")
+    )
+      continue;
+    if (split && element instanceof HTMLInputElement && element.maxLength === 1) continue;
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Whether a text shows what may be a key or recovery code, as one printed whole or in
+ * groups is: a word of ten or more letters and digits that holds both, such as an
+ * unspaced setup key; two or more groups of four or five letters and digits joined by
+ * hyphens, holding a letter and a digit, or three or more such groups holding a letter;
+ * two words side by side of four to eight letters and digits that each mix both; four or
+ * more words in a row of four letters and digits of which two or more mix both; or three
+ * or more words in a row of four or five capitals and digits of which two or more hold a
+ * letter. Invisible format characters, such as a zero-width
+ * space inside a key, are read as nothing; an email address is not read at all; and
+ * digits alone, such as a phone number after a word, never make one.
+ */
+function keyLike(text: string): boolean {
+  // An email address names where a code went, and is no key; digits alone, such as a
+  // phone number, are hidden anyway.
+  const normalized = text
+    .replace(/\p{Cf}/gu, "")
+    .normalize("NFKC")
+    .replace(/\S+@\S+/gu, " ");
+  const groups = normalized.match(
+    /(?<![A-Za-z0-9-])[A-Za-z0-9]{4,5}(?:-[A-Za-z0-9]{4,5})+(?![A-Za-z0-9-])/gu,
+  );
+  if (
+    groups?.some(
+      (group) => /[A-Za-z]/u.test(group) && (/\d/u.test(group) || group.split("-").length >= 3),
+    )
+  )
+    return true;
+  const words = normalized.split(/[^\p{L}\p{N}]+/u);
+  if (
+    words.some(
+      (word) => /^[A-Za-z0-9]{10,}$/u.test(word) && /\d/u.test(word) && /[A-Za-z]/u.test(word),
+    )
+  )
+    return true;
+  let mixedBefore = false;
+  let fourRun = 0;
+  let fourMixed = 0;
+  let capitalRun = 0;
+  let lettered = 0;
+  for (const word of words) {
+    const letter = /[A-Za-z]/u.test(word);
+    const mixed = letter && /\d/u.test(word);
+    // Two mixed words side by side, such as `XK7Q 9PLM` or `JBSWY3DP EHPK3PXP`.
+    const mixedNow = mixed && /^[A-Za-z0-9]{4,8}$/u.test(word);
+    if (mixedNow && mixedBefore) return true;
+    mixedBefore = mixedNow;
+    // Four or more groups of four, such as `jbsw y3dp ehpk 3pxp`.
+    if (/^[A-Za-z0-9]{4}$/u.test(word)) {
+      fourRun += 1;
+      if (mixed) fourMixed += 1;
+      if (fourRun >= 4 && fourMixed >= 2) return true;
+    } else {
+      fourRun = 0;
+      fourMixed = 0;
+    }
+    if (/^[A-Z0-9]{4,5}$/u.test(word)) {
+      capitalRun += 1;
+      if (letter) lettered += 1;
+      if (capitalRun >= 3 && lettered >= 2) return true;
+    } else {
+      capitalRun = 0;
+      lettered = 0;
+    }
+  }
+  return false;
 }
 
 /** True for an element that belongs to another control: a control or its `<label for>`. */

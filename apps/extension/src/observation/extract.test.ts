@@ -1349,7 +1349,7 @@ describe("extractSignedInObservation", () => {
       "Enter the [number]-digit code from your authenticator app.",
     ]);
     // Live regions, error messages, labels, links, buttons and headings are left out, and
-    // so is text more than three parents above the field.
+    // once three texts are found nothing further up is read.
     page(
       `<div><p>Far away</p><div><div><div>
         <p role="alert">Wrong code 123456</p><p aria-live="polite">Sent again</p>
@@ -1370,13 +1370,13 @@ describe("extractSignedInObservation", () => {
       "Trouble? Contact support",
     ]);
     // Only kept texts count: one repeating the label, a timer and one typed character in a
-    // box of its own leave room for the sentence a parent further up holds, and editable
-    // text is never read. Text in the third parent counts and in the fourth does not.
+    // box of its own leave room for the sentence a parent further up holds, and the text of
+    // a text box is never read, even a read-only one that lets the climb go on.
     page(
-      `<div><p>Fourth parent</p><div><p>Enter the code from your authenticator app, taro@example.com</p>
+      `<div><div><p>Enter the code from your authenticator app, taro@example.com</p>
         <div><span>Verification code</span><div>
           <input id="otp" autocomplete="one-time-code" aria-label="Verification code">
-          <div>A</div><div>B</div><div role="textbox" contenteditable>my words</div></div>
+          <div>A</div><div>B</div><div role="textbox" aria-readonly="true">my words</div></div>
           <span>0:30</span><span>Didn't receive it?</span><span>Didn't receive it?</span>
         </div><button id="verify" type="submit">Verify</button></div></div>`,
     );
@@ -1403,6 +1403,274 @@ describe("extractSignedInObservation", () => {
         <button id="verify">Verify</button></form>`,
     );
     expect(observe()).not.toHaveProperty("nearCode");
+  });
+
+  it("reads text up to six parents above the code field, below any other field to type in (ADR 0027)", () => {
+    // A code input wrapped in several elements, with the sentence that names the code's
+    // source outside its form, e.g. a site whose sentence sits outside the form: text in
+    // the fourth and sixth parents counts.
+    const wrapped = (extra: number) =>
+      page(
+        `<main><div><p>Enter the code from your authenticator app.</p>
+          ${"<div>".repeat(extra)}<div><form><p>Codes change every 30 seconds</p>
+            <div><div><div><input id="otp" autocomplete="one-time-code" inputmode="numeric"
+              maxlength="6" aria-label="Code"></div></div></div>
+            <button id="verify" type="submit">Verify</button></form></div>${"</div>".repeat(extra)}
+        </div></main>`,
+      );
+    wrapped(0);
+    expect(signedIn().nearCode).toEqual([
+      "Enter the code from your authenticator app.",
+      "Codes change every [number] seconds",
+    ]);
+    // Text in the seventh parent does not.
+    wrapped(1);
+    expect(signedIn().nearCode).toEqual(["Codes change every [number] seconds"]);
+    // A parent that holds another shown field to type in, such as a search box, stops the
+    // climb: neither its text nor any further up is read.
+    page(
+      `<div><p>Far text</p>
+        <div><span>Search the help center</span><input id="q" type="search" aria-label="Search">
+          <div><p>Enter the code from your authenticator app.</p>
+            <form><div><input id="otp" autocomplete="one-time-code" aria-label="Code"></div>
+              <button id="verify" type="submit">Verify</button></form></div></div></div>`,
+    );
+    expect(signedIn().nearCode).toEqual(["Enter the code from your authenticator app."]);
+    // So does an email field in the code's own form.
+    page(
+      `<div><p>Enter the code from your authenticator app.</p>
+        <form><input id="email" type="email" aria-label="Email">
+          <div><span>Codes change every 30 seconds</span>
+            <input id="otp" autocomplete="one-time-code" aria-label="Code"></div>
+          <button id="verify" type="submit">Verify</button></form></div>`,
+    );
+    expect(signedIn().nearCode).toEqual(["Codes change every [number] seconds"]);
+    // A hidden input, a field not shown and a "Remember this device" checkbox do not.
+    page(
+      `<div><p>Enter the code from your authenticator app.</p>
+        <form><input type="hidden" name="token" value="abc">
+          <input id="backup" type="text" hidden aria-label="Backup code">
+          <div><input id="otp" autocomplete="one-time-code" aria-label="Code"></div>
+          <input id="remember" type="checkbox"><label for="remember">Remember this device</label>
+          <button id="verify" type="submit">Verify</button></form></div>`,
+    );
+    expect(signedIn().nearCode).toEqual(["Enter the code from your authenticator app."]);
+    // Nor does a field kept out of reach, as a form's trap for bots is.
+    for (const trap of [
+      '<input id="trap" type="text" aria-disabled="true" aria-label="Website">',
+      '<input id="trap" type="text" tabindex="-1" aria-label="Website">',
+      '<div aria-hidden="true"><input id="trap" type="text" aria-label="Website"></div>',
+      '<div aria-hidden="TRUE"><input id="trap" type="text" aria-label="Website"></div>',
+    ]) {
+      page(
+        `<div><p>Enter the code from your authenticator app.</p>
+          <form>${trap}
+            <div><input id="otp" autocomplete="one-time-code" aria-label="Code"></div>
+            <button id="verify" type="submit">Verify</button></form></div>`,
+      );
+      expect(signedIn().nearCode, trap).toEqual(["Enter the code from your authenticator app."]);
+    }
+    // Nor does a field that cannot be typed in, e.g. the account shown read-only above the
+    // code: a read-only, `aria-readonly` or disabled input.
+    for (const attribute of ["readonly", 'aria-readonly="true"', "disabled"]) {
+      page(
+        `<div><p>Enter the code from your authenticator app.</p>
+          <form><input id="account" type="email" value="taro@example.com" ${attribute}
+              aria-label="Account">
+            <div><input id="otp" autocomplete="one-time-code" aria-label="Code"></div>
+            <button id="verify" type="submit">Verify</button></form></div>`,
+      );
+      expect(signedIn().nearCode, attribute).toEqual([
+        "Enter the code from your authenticator app.",
+      ]);
+    }
+    // Nor does a select, such as a choice of where the code comes from.
+    page(
+      `<div><p>Enter the code from your authenticator app.</p>
+        <form><select id="method" aria-label="Method"><option>Authenticator app</option>
+            <option>Text message</option></select>
+          <div><input id="otp" autocomplete="one-time-code" aria-label="Code"></div>
+          <button id="verify" type="submit">Verify</button></form></div>`,
+    );
+    expect(signedIn().nearCode).toEqual(["Enter the code from your authenticator app."]);
+    // Shown editable text stops it, as an input does; text marked not editable does not.
+    const editable = (box: string) =>
+      page(
+        `<div><p>Enter the code from your authenticator app.</p>
+          <form>${box}
+            <div><span>Codes change every 30 seconds</span>
+              <input id="otp" autocomplete="one-time-code" aria-label="Code"></div>
+            <button id="verify" type="submit">Verify</button></form></div>`,
+      );
+    for (const box of [
+      "<div contenteditable>Notes</div>",
+      '<div role="textbox" tabindex="0">Notes</div>',
+      '<div role="searchbox" tabindex="0">Search</div>',
+    ]) {
+      editable(box);
+      expect(signedIn().nearCode, box).toEqual(["Codes change every [number] seconds"]);
+    }
+    editable('<div contenteditable="false">Notes</div>');
+    expect(signedIn().nearCode).toEqual([
+      "Enter the code from your authenticator app.",
+      "Notes",
+      "Codes change every [number] seconds",
+    ]);
+    // An element inside the code field itself is not another field, even one that counts
+    // as shown (a child with `display: contents` of a shown input).
+    page(
+      `<div><p>Enter the code from your authenticator app.</p>
+        <form><div><input id="otp" autocomplete="one-time-code" aria-label="Code"></div>
+          <button id="verify" type="submit">Verify</button></form></div>`,
+    );
+    const inside = document.createElement("span");
+    inside.contentEditable = "true";
+    inside.style.display = "contents";
+    document.getElementById("otp")!.append(inside);
+    expect(signedIn().nearCode).toEqual(["Enter the code from your authenticator app."]);
+    // A code split into one input per digit reaches a sentence a few parents up: the other
+    // one-character inputs do not stop the climb.
+    const digits = Array.from(
+      { length: 6 },
+      (_, index) =>
+        `<div><input id="d${index}" type="text" inputmode="numeric" maxlength="1"
+          aria-label="Digit ${index + 1}"></div>`,
+    ).join("");
+    page(
+      `<main><div><p>Enter the code from your authenticator app.</p>
+        <form><div>${digits}</div><button id="verify" type="submit">Verify</button></form>
+      </div></main>`,
+    );
+    expect(signedIn().nearCode).toEqual(["Enter the code from your authenticator app."]);
+    // A form card that also names the device being trusted (as one page did, 2026-10-13):
+    // the device name's notes stay out, and the text in the code's own group is sent.
+    page(
+      `<main><div><h1>Two-step verification</h1>
+        <form>
+          <div><p>Enter the 6-digit code from your authenticator app.</p>
+            <div>${digits}</div></div>
+          <div><input id="trust" type="checkbox"><label for="trust">Trust this device</label></div>
+          <div><label for="device">Device name</label>
+            <input id="device" type="text" value="Chrome on Windows">
+            <p>※ You can rename this device</p><p>※ This cannot be changed later</p></div>
+          <button id="verify" type="submit">Verify</button></form></div></main>`,
+    );
+    expect(signedIn().nearCode).toEqual([
+      "Enter the [number]-digit code from your authenticator app.",
+    ]);
+  });
+
+  it("never sends code-like text near the code field (ADR 0027)", () => {
+    const near = (text: string) =>
+      page(
+        `<div><div>${text}</div>
+          <input id="otp" autocomplete="one-time-code" aria-label="Code"></div>
+        <button id="verify" type="submit">Verify</button>`,
+      );
+    // Text in `code`, `pre`, `kbd` or `samp`, which may show a setup key or recovery code,
+    // is left out, and so is everything inside one.
+    for (const tag of ["code", "pre", "kbd", "samp"]) {
+      near(
+        `<p>Enter the code from your authenticator app.</p>
+        <${tag}>Setup words <span>for this app</span></${tag}><${tag}>Plain words</${tag}>`,
+      );
+      expect(signedIn().nearCode, tag).toEqual(["Enter the code from your authenticator app."]);
+    }
+    // A text that looks like a key or recovery code is never sent: an unspaced key, a key
+    // in groups of capitals and digits, hyphenated groups and lowercase groups with digits.
+    for (const text of [
+      "Enter this key: JBSWY3DPEHPK3PXP",
+      "JBSW Y3DP EHPK 3PXP",
+      "ABCD EFGH IJKL",
+      "abcd-efgh-ijkl",
+      "a1b2 c3d4 e5f6",
+      // A key with four or more digits in a row is read before redaction hides them.
+      "Key: ABCDEFGH2345IJKL",
+      "ABCD 2345 EFGH IJ2K",
+      "Your key ABCD-EFGH-2345-IJKL",
+      // An invisible character inside a key does not split it.
+      "Key: JBSWY3DP\u200bEHPK3PXP",
+      "Key: JBSWY3DP\u00adEHPK3PXP",
+    ]) {
+      near(`<span>${text}</span>`);
+      expect(signedIn(), text).not.toHaveProperty("nearCode");
+    }
+    // Two hyphenated groups holding a letter and a digit, two words side by side of four to
+    // eight letters and digits that each mix them, and four or more groups of four of which
+    // two mix them are keys too. Two model names side by side look the same and are left
+    // out as well, an accepted false positive.
+    for (const text of [
+      "a1b2c-3d4e5",
+      "JBSW-Y3DP",
+      "XK7Q 9PLM",
+      "JBSWY3DP EHPK3PXP",
+      "jbsw y3dp ehpk 3pxp",
+      "Use iPhone15 iPad10",
+    ]) {
+      near(`<span>${text}</span>`);
+      expect(signedIn(), text).not.toHaveProperty("nearCode");
+    }
+    // A key printed one group per element, inline or in blocks, and recovery codes one per
+    // list item show as a key only in a parent's text; none of their parts is sent.
+    for (const key of [
+      "<p><span>JBSW</span><span>Y3DP</span><span>EHPK</span><span>3PXP</span></p>",
+      "<div><div>JBSW</div><div>Y3DP</div><div>EHPK</div><div>3PXP</div></div>",
+      "<ul><li>7FJ2K9PL</li><li>AB3D9XYZ</li><li>Q8RT4MNB</li><li>Z2XC7VBN</li></ul>",
+    ]) {
+      near(key);
+      expect(signedIn(), key).not.toHaveProperty("nearCode");
+    }
+    // A parent that shows a key leaves out every text read in it, also those in another
+    // branch than the key's; texts found nearer the field, before it was reached, stay.
+    page(
+      `<div><div><span>JBSW</span><span>Y3DP</span><span>EHPK</span><span>3PXP</span></div>
+        <div><p>Enter the code from your authenticator app.</p>
+          <div><span>Codes change every 30 seconds</span>
+            <input id="otp" autocomplete="one-time-code" aria-label="Code"></div></div>
+        <p>Trouble? Contact support</p></div>
+      <button id="verify" type="submit">Verify</button>`,
+    );
+    expect(signedIn().nearCode).toEqual([
+      "Enter the code from your authenticator app.",
+      "Codes change every [number] seconds",
+    ]);
+    // Ordinary sentences are, in any language.
+    near(
+      `<p>Enter the 6-digit code from your authenticator app.</p><p>your code from this app</p>
+      <p>認証アプリに表示されている6桁のコードを入力してください</p>`,
+    );
+    expect(signedIn().nearCode).toEqual([
+      "Enter the [number]-digit code from your authenticator app.",
+      "your code from this app",
+      "認証アプリに表示されている[number]桁のコードを入力してください",
+    ]);
+    // So are sentences with an email address, a phone number, a device or key model or a
+    // number in groups, hidden as the rest of the page.
+    for (const [text, sent] of [
+      ["We sent a code to user42@example.com", "We sent a code to [email]"],
+      ["Code sent to yamada2024@example.com", "Code sent to [email]"],
+      ["Code sent to your iPhone15", "Code sent to your iPhone[number]"],
+      [
+        "Enter the code we sent to +1 0123-4567-8901",
+        "Enter the code we sent to +[number] [number]-[number]-[number]",
+      ],
+      ["Open your FIDO2 key", "Open your FIDO[number] key"],
+      ["SMS to 090-1234-5678", "SMS to [number]-[number]-[number]"],
+      ["Call 0123 4567 8901 for help", "Call [number] [number] [number] for help"],
+      ["Dial 0800 1234 5678 for help", "Dial [number] [number] [number] for help"],
+      ["CALL 0123 4567 8901", "CALL [number] [number] [number]"],
+      ["Use your iPhone15 to sign in", "Use your iPhone[number] to sign in"],
+      // Mixed words apart from each other are not a key.
+      ["Use your iPhone15 with your iPad2", "Use your iPhone[number] with your iPad[number]"],
+      ["Open Authy2 then your FIDO2 key", "Open Authy[number] then your FIDO[number] key"],
+      // Nor are fewer than four groups of four, or groups of four with one mixed word.
+      ["Use Pix7 with Mac2", "Use Pix[number] with Mac[number]"],
+      ["Sign into your Pix7 with this code", "Sign into your Pix[number] with this code"],
+      ["ABCD-EFGH", "ABCD-EFGH"],
+    ]) {
+      near(`<span>${text}</span>`);
+      expect(signedIn().nearCode, text).toEqual([sent]);
+    }
   });
 
   it("never locates by an id or name that carries an email address or a long number", () => {
