@@ -7,7 +7,7 @@ import {
 import type { PasskeySource } from "./runtime";
 import type { PasskeyCandidate } from "./select";
 import { createSignIns, type SignInRecord, type SignIns } from "./sign-ins";
-import type { SignedTabsStorage } from "./signed-tabs";
+import type { SessionItem } from "./signed-tabs";
 
 const extensionId = "synthetic-extension";
 const origin = "https://login.example.com";
@@ -554,12 +554,12 @@ describe("passkey create check (ADR 0007)", () => {
   });
 });
 
-function memoryStorage(): SignedTabsStorage {
-  const items: Record<string, unknown> = {};
+function memoryStorage(): SessionItem {
+  let stored: unknown = null;
   return {
-    get: async (key) => (key in items ? { [key]: structuredClone(items[key]) } : {}),
-    async set(values) {
-      Object.assign(items, structuredClone(values));
+    getValue: async () => structuredClone(stored),
+    async setValue(value) {
+      stored = structuredClone(value);
     },
   };
 }
