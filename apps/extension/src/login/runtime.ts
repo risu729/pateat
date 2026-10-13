@@ -1558,6 +1558,11 @@ export function createLoginRuntime(
     /** Receives each attempt state change, refusal and generation result. */
     report?: (report: LoginReport) => void;
     /**
+     * Spins the tab's toolbar icon while a model request for its page is in flight, from
+     * the request's `sent` until the request returns (owner, 2026-10-13); returns the stop.
+     */
+    spin?: (tabId: number) => () => void;
+    /**
      * Told of each origin of a login that reached signed in, on any route, so a site's
      * passkey registration right after it can be refused (ADR 0007). Never changes the login.
      */
@@ -1580,6 +1585,17 @@ export function createLoginRuntime(
   },
 ) {
   const { fields, sites, recipes = noLoginRecipes, uris, generation } = options;
+  /** Spins the tab's icon from a model request's `sent` until `stop`, once the request returns. */
+  function spinning(tabId: number) {
+    let stop: (() => void) | undefined;
+    return {
+      sent: (then: () => void) => () => {
+        stop ??= options.spin?.(tabId);
+        then();
+      },
+      stop: () => stop?.(),
+    };
+  }
   /** Reports about `source`'s document; only the tab's own page gets its URL (ADR 0019). */
   const report = (source: { frameId: number }, value: LoginReport) => {
     try {
@@ -4393,21 +4409,24 @@ export function createLoginRuntime(
       : branch
         ? [branch]
         : [];
+    const spin = spinning(run.live.document.tabId);
     const {
       verdict,
       reason,
       recipe: added,
-    } = await generation.judge(
-      recipe.id,
-      recipe.revision,
-      // The service knows no `passkey` route on a recipe without its button; the page's
-      // own request is answered beside the password form, which the service checks for
-      // that route the same way (ADR 0034).
-      metadata.route === "passkey" && passkeyAnswersRequest(recipe) ? "password" : metadata.route,
-      observation,
-      () => reportJudge("sent"),
-      ...judgedTail,
-    );
+    } = await generation
+      .judge(
+        recipe.id,
+        recipe.revision,
+        // The service knows no `passkey` route on a recipe without its button; the page's
+        // own request is answered beside the password form, which the service checks for
+        // that route the same way (ADR 0034).
+        metadata.route === "passkey" && passkeyAnswersRequest(recipe) ? "password" : metadata.route,
+        observation,
+        spin.sent(() => reportJudge("sent")),
+        ...judgedTail,
+      )
+      .finally(spin.stop);
     if (!current(run)) {
       reportJudge(verdict, {
         ...(reason ? { reason } : {}),
@@ -4816,6 +4835,7 @@ export function createLoginRuntime(
     if (run.metadata.continuation?.operationId !== operationId) return refuse();
     // The page that asks, logged when its request leaves the device (ADR 0019).
     const page = run.live.document;
+    const spin = spinning(page.tabId);
     const asked = generation
       .generate(
         {
@@ -4831,7 +4851,7 @@ export function createLoginRuntime(
           // A chooser login's page is its branch's next page (ADR 0028).
           ...(metadata.chooser ? { branch: chooserClickBranch(metadata.chooser.click) } : {}),
         },
-        () =>
+        spin.sent(() =>
           report(page, {
             type: "generation",
             tabId: page.tabId,
@@ -4840,7 +4860,9 @@ export function createLoginRuntime(
             recipeId: recipe.id,
             baseRevision: recipe.revision,
           }),
+        ),
       )
+      .finally(spin.stop)
       // A thrown request frees its claim, so it is given back like any request that did not
       // reach the model.
       .catch((): GenerationOutcome => ({ outcome: "failed", reason: "error", retry: true }));
@@ -6212,6 +6234,7 @@ export function createLoginRuntime(
       }
       const custom = await customSlots(live.document.origin, scope);
       if (documents.get(key) !== live) return;
+      const spin = spinning(live.document.tabId);
       const result = await generation
         .generate(
           {
@@ -6224,7 +6247,7 @@ export function createLoginRuntime(
               ...custom,
             ],
           },
-          () =>
+          spin.sent(() =>
             report(live.document, {
               type: "generation",
               tabId: live.document.tabId,
@@ -6232,7 +6255,9 @@ export function createLoginRuntime(
               outcome: "sent",
               ...page,
             }),
+          ),
         )
+        .finally(spin.stop)
         .catch((): GenerationOutcome => ({ outcome: "failed", reason: "error" }));
       sent = true;
       report(live.document, {
@@ -8146,16 +8171,21 @@ export function createLoginRuntime(
         skipGeneration(live, "no-entry-link", "entry");
         return;
       }
+      const spin = spinning(live.document.tabId);
       const result = await generation
-        .generateEntry({ version: 1, observation }, () =>
-          report(live.document, {
-            type: "generation",
-            tabId: live.document.tabId,
-            origin: live.document.origin,
-            outcome: "sent",
-            page: "entry",
-          }),
+        .generateEntry(
+          { version: 1, observation },
+          spin.sent(() =>
+            report(live.document, {
+              type: "generation",
+              tabId: live.document.tabId,
+              origin: live.document.origin,
+              outcome: "sent",
+              page: "entry",
+            }),
+          ),
         )
+        .finally(spin.stop)
         .catch((): EntryGenerationOutcome => ({ outcome: "failed", reason: "error" }));
       sent = true;
       report(live.document, {
@@ -8924,17 +8954,20 @@ export function createLoginRuntime(
       reportJudge("not-sent", hidden.reason);
       return false;
     }
-    const { verdict, reason } = await generation.judge(
-      recipe.id,
-      recipe.revision,
-      "password",
-      hidden.observation,
-      () => reportJudge("sent"),
-      // A description that left out a disabled field says so (ADR 0029); only `signed-in`
-      // completes a moved login anyway.
-      record.chooser ? chooserClickBranch(record.chooser.click) : undefined,
-      ...(disabledLeftOut ? [true as const] : []),
-    );
+    const spin = spinning(document.tabId);
+    const { verdict, reason } = await generation
+      .judge(
+        recipe.id,
+        recipe.revision,
+        "password",
+        hidden.observation,
+        spin.sent(() => reportJudge("sent")),
+        // A description that left out a disabled field says so (ADR 0029); only `signed-in`
+        // completes a moved login anyway.
+        record.chooser ? chooserClickBranch(record.chooser.click) : undefined,
+        ...(disabledLeftOut ? [true as const] : []),
+      )
+      .finally(spin.stop);
     reportJudge(verdict, reason);
     if (verdict !== "signed-in" && !(verdict === "unclear" && reason === "judged-signed-in"))
       return false;
@@ -9804,20 +9837,23 @@ export function createLoginRuntime(
         ...(disabledLeftOut ? { disabledLeftOut: true as const } : {}),
         stop: "password",
       });
+    const spin = spinning(run.live.document.tabId);
     const {
       verdict,
       reason,
       recipe: added,
-    } = await generation.judge(
-      recipe.id,
-      recipe.revision,
-      "password",
-      observation,
-      () => reportJudge("sent"),
-      undefined,
-      disabledLeftOut ? true : undefined,
-      true,
-    );
+    } = await generation
+      .judge(
+        recipe.id,
+        recipe.revision,
+        "password",
+        observation,
+        spin.sent(() => reportJudge("sent")),
+        undefined,
+        disabledLeftOut ? true : undefined,
+        true,
+      )
+      .finally(spin.stop);
     let reported = false;
     // Only a `passkey` handler is entered from the answer, at the stop.
     const movedOn =
