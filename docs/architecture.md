@@ -490,27 +490,34 @@ generation (`generationSlotsFor`) uses that URL too, on a first page as on the p
 after an `advance` step.
 
 A preparing fill (`prepare`) enters its inputs in order, 25 ms apart so the page's
-handlers for one field run before the next, each as typing would leave it: focus
-without scrolling, which blurs the field before; a bare `keydown`; the value through
-the native `HTMLInputElement` value setter, so a framework that tracks the value, such
-as React, sees a change; an `input` event (an `InputEvent` of type
-`insertReplacementText`); a bare `keyup`; `change`; then blur, unless the page moved
-focus elsewhere. A code split into one-digit inputs gets the same per digit, 25 ms
-apart. The key events name no key, as those of Bitwarden's autofill
-(`insert-autofill-content.service.ts`, which also waits 20 ms between actions) do, so a
-page's Enter handler does not run. Each field's scope checks run after the wait before
-it, and the 500 ms check of [ADR 0010](adr/0010-inference-field-hints.md) follows the
-last field. A fill that advances or submits through the page's own event sets the value
-and sends that one `input` or `change` event alone, with no focus, keys or blur that
-could run its effect again. Known limits: the events are not trusted (`isTrusted` is
-false), so a page that checks that, or opens a software keyboard on focus, can still
-refuse a fill; Chrome sends no focus or blur events to a page whose window is not
-focused, so a page that reads a field only on blur may still miss it there; a hidden
-tab's timers are throttled, so the gaps may stretch; and a page that submits on its
-own from a key or blur handler of a preparing fill is not watched for, so the click
-after the 500 ms check still runs if its button stays clickable. Before 2026-10-13 a
-preparing fill sent only `input` and `change` after the setter, in one task; that day a
-bank page showed its required-field error under its filled fields.
+handlers for one field run before the next, each typed as a keyboard would type it:
+focus without scrolling, which blurs the field before; a field that already holds text
+is cleared first (`beforeinput` and `input` of type `deleteContentBackward`); then each
+character, 25 ms apart, as `keydown` and `keypress` naming its key, `beforeinput`, the
+character appended through the native `HTMLInputElement` value setter (so a framework
+that tracks the value, such as React, sees a change), `input` (an `InputEvent` of type
+`insertText` with the character as its data) and `keyup`; then `change`, and blur unless
+the page moved focus elsewhere. A page that cancels a character's `keydown`, `keypress`
+or `beforeinput` keeps it out, as a browser does. A code split into one-digit inputs
+gets the same per digit, 25 ms apart. Typed keys are only a value's characters, never
+Enter, so a page's Enter handler does not run. Each field's scope checks run after the
+wait before it and again between its characters, and the 500 ms check of
+[ADR 0010](adr/0010-inference-field-hints.md) follows the last field. A fill that
+advances or submits through the page's own event sets the value and sends that one
+`input` or `change` event alone, with no focus, keys or blur that could run its effect
+again. Known limits: the events are not trusted (`isTrusted` is false), so a page that
+checks that, or opens a software keyboard on focus, can still refuse a fill; the key
+codes follow a US layout, and a character with no key there gets no `code`; Chrome sends
+no focus or blur events to a page whose window is not focused, so a page that reads a
+field only on blur may still miss it there; a hidden tab's timers are throttled, so
+the gaps may stretch; and a page that submits on its own from a key or blur handler of
+a preparing fill is not watched for, so the click after the 500 ms check still runs if
+its button stays clickable. Before 2026-10-13 a preparing fill sent only `input` and
+`change` after the setter, in one task; that day a bank page showed its required-field
+error under its filled fields. Until later that day it then set the whole value at once
+between bare key events, as Bitwarden's autofill does; the same page's React inputs
+kept their state empty after that (a dummy-value probe in the owner's Chrome), and took
+each value when it was typed a character at a time.
 
 MV3 workers can stop. Persist only resumable metadata, never an instruction to blindly
 replay a submit. Input and change handlers can submit without a click. Declare whether a

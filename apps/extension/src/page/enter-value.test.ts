@@ -2,7 +2,7 @@ import { createElement, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 import { afterEach, describe, expect, it } from "vitest";
-import { FIELD_GAP_MS, enterValue } from "./enter-value";
+import { FIELD_GAP_MS, typeValue } from "./enter-value";
 
 const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
 const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -18,7 +18,8 @@ async function fill(entries: readonly [HTMLInputElement, string][]): Promise<voi
   for (const [index, [input, value]] of entries.entries()) {
     // eslint-disable-next-line no-await-in-loop
     if (index > 0) await pause(FIELD_GAP_MS);
-    enterValue(input, value, setter);
+    // eslint-disable-next-line no-await-in-loop
+    await typeValue(input, value, setter);
   }
 }
 
@@ -61,7 +62,7 @@ function requiredForm(entered: "keyup" | "blur" | "hidden"): {
   };
 }
 
-describe("enterValue", () => {
+describe("typeValue", () => {
   for (const [entered, reads] of [
     ["keyup", "on a key"],
     ["blur", "on its blur"],
@@ -79,48 +80,110 @@ describe("enterValue", () => {
     });
   }
 
-  it("sends the events in the order typing does, and blurs the field afterwards", () => {
+  it("sends the events in the order typing does, and blurs the field afterwards", async () => {
     document.body.innerHTML = '<input id="before"><input id="field">';
     const before = document.getElementById("before") as HTMLInputElement;
     const field = document.getElementById("field") as HTMLInputElement;
     before.focus();
     const events: string[] = [];
     before.addEventListener("blur", () => events.push("before:blur"));
-    for (const type of ["focus", "keydown", "input", "keyup", "change", "blur"])
+    for (const type of ["focus", "keydown", "keypress", "beforeinput", "input", "keyup"])
       field.addEventListener(type, (event) => {
         events.push(
           event instanceof InputEvent
-            ? `${type}:${event.inputType}:${String(event.data)}`
+            ? `${type}:${event.inputType}:${String(event.data)}:${field.value}`
             : event instanceof KeyboardEvent
-              ? `${type}:${JSON.stringify(event.key ?? "")}`
+              ? `${type}:${event.key}:${event.code}`
               : `${type}:${field.value}`,
         );
       });
+    for (const type of ["change", "blur"])
+      field.addEventListener(type, () => events.push(`${type}:${field.value}`));
     let typed = "";
-    enterValue(field, "secret-1", setter, () => {
-      typed = field.value;
-      events.push("typed");
+    await typeValue(field, "a1", setter, {
+      beforeInput: () => {
+        typed = field.value;
+        events.push("typed");
+      },
     });
     expect(events).toEqual([
       "before:blur",
       "focus:",
-      'keydown:""',
+      "keydown:a:KeyA",
+      "keypress:a:KeyA",
+      "beforeinput:insertText:a:",
+      "input:insertText:a:a",
+      "keyup:a:KeyA",
+      "keydown:1:Digit1",
+      "keypress:1:Digit1",
+      "beforeinput:insertText:1:a",
       "typed",
-      "input:insertReplacementText:null",
-      'keyup:""',
-      "change:secret-1",
-      "blur:secret-1",
+      "input:insertText:1:a1",
+      "keyup:1:Digit1",
+      "change:a1",
+      "blur:a1",
     ]);
-    expect(typed).toBe("secret-1");
+    expect(typed).toBe("a1");
     expect(document.activeElement).toBe(document.body);
   });
 
-  it("leaves focus where the page moved it", () => {
+  it("types into a page that builds the value from its keys and resets it on blur", async () => {
+    // A field whose script keeps its own copy from key events, as a bank's password field
+    // did on 2026-10-13, clearing the field on blur when the copy differs.
+    document.body.innerHTML = '<input id="field" type="password">';
+    const field = document.getElementById("field") as HTMLInputElement;
+    let keys = "";
+    field.addEventListener("keydown", (event) => {
+      if (event.key.length === 1) keys += event.key;
+    });
+    field.addEventListener("blur", () => {
+      if (field.value !== keys) field.value = "";
+    });
+    await typeValue(field, "pa55-word", setter);
+    expect(field.value).toBe("pa55-word");
+  });
+
+  it("keeps out a character whose key the page cancels, as a browser does", async () => {
+    document.body.innerHTML = '<input id="field" inputmode="numeric">';
+    const field = document.getElementById("field") as HTMLInputElement;
+    field.addEventListener("keydown", (event) => {
+      if (!/^\d$/u.test(event.key)) event.preventDefault();
+    });
+    field.addEventListener("beforeinput", (event) => {
+      if (event.data === "3") event.preventDefault();
+    });
+    await typeValue(field, "12-34", setter);
+    expect(field.value).toBe("124");
+  });
+
+  it("clears a field's earlier text before typing", async () => {
+    document.body.innerHTML = '<input id="field" value="old">';
+    const field = document.getElementById("field") as HTMLInputElement;
+    const inputs: string[] = [];
+    field.addEventListener("input", (event) =>
+      inputs.push(`${(event as InputEvent).inputType}:${field.value}`),
+    );
+    await typeValue(field, "ab", setter);
+    expect(inputs).toEqual(["deleteContentBackward:", "insertText:a", "insertText:ab"]);
+  });
+
+  it("stops between characters with the cause the check gives", async () => {
+    document.body.innerHTML = '<input id="field">';
+    const field = document.getElementById("field") as HTMLInputElement;
+    let checks = 0;
+    const cause = await typeValue(field, "abcd", setter, {
+      between: () => (++checks === 2 ? "page-changed" : undefined),
+    });
+    expect(cause).toBe("page-changed");
+    expect(field.value).toBe("ab");
+  });
+
+  it("leaves focus where the page moved it", async () => {
     document.body.innerHTML = '<input id="field"><button id="keypad">1</button>';
     const field = document.getElementById("field") as HTMLInputElement;
     const keypad = document.getElementById("keypad")!;
     field.addEventListener("focus", () => keypad.focus());
-    enterValue(field, "1234", setter);
+    await typeValue(field, "1234", setter);
     expect(field.value).toBe("1234");
     expect(document.activeElement).toBe(keypad);
   });
@@ -146,7 +209,7 @@ describe("enterValue", () => {
     }
     flushSync(() => root.render(createElement(Field)));
     const field = document.getElementById("react-field") as HTMLInputElement;
-    enterValue(field, "sato-7", setter);
+    await typeValue(field, "sato-7", setter);
     await pause(FIELD_GAP_MS);
     expect(document.getElementById("react-state")!.textContent).toBe("sato-7");
     expect(field.value).toBe("sato-7");

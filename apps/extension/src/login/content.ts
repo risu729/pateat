@@ -12,7 +12,7 @@ import {
   watchCodeSubmission,
 } from "../page/code-submission";
 import { fillBaseline, inputValueMismatch, rejectsFill, unreadyForm } from "../page/fill-checks";
-import { FIELD_GAP_MS, enterValue } from "../page/enter-value";
+import { FIELD_GAP_MS, typeValue } from "../page/enter-value";
 import {
   extractAccountListObservation,
   extractEntryObservation,
@@ -971,17 +971,32 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                 )
                   return fail("cancelled", "field-changed");
                 filled.add(digit);
-                enterValue(
-                  digit,
-                  value.value[place]!,
-                  setter,
-                  place === split.length - 1 ? code?.typed : undefined,
-                );
+                // eslint-disable-next-line no-await-in-loop
+                await typeValue(digit, value.value[place]!, setter, {
+                  beforeInput: place === split.length - 1 ? code?.typed : undefined,
+                });
               }
             } else if (step.effect === "prepare") {
               filled.add(input);
-              // The code goes in now; the page's own reaction is measured from here.
-              enterValue(input, value.value, setter, code?.typed);
+              // The code goes in now; the page's own reaction is measured from here. The
+              // page may change between characters, so each one repeats the checks.
+              // eslint-disable-next-line no-await-in-loop
+              const stopped = await typeValue(input, value.value, setter, {
+                beforeInput: code?.typed,
+                between: () => {
+                  if (cancelled) return "document-cancelled";
+                  if (location.pathname !== step.path) return "page-changed";
+                  const now = matches(field.target);
+                  return now.length !== 1 ||
+                    now[0] !== input ||
+                    !writable(input) ||
+                    input.form !== form ||
+                    !acceptsSecret(input, value.secret)
+                    ? "field-changed"
+                    : undefined;
+                },
+              });
+              if (stopped) return fail("cancelled", stopped);
             } else {
               // An advance or a submission through the page's own event gets that one event
               // alone, with no focus, keys or blur that could run its effect again.
