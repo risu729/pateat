@@ -38,6 +38,10 @@ site default and asked in the popup (`account-ambiguous`); at 21:12:38 its condi
 request was handed on (`no-login`); the pick at 21:16:51 started the login on the
 `password` route; after a reload at 21:17:15, the saved default's login took the
 `passkey` route and Pateat answered the page's request.
+Amended on 2026-10-13 by [ADR 0036](0036-passkey-after-the-identifier.md): for a login
+that stops before its item's missing password, a `conditional` request made after the
+first submission waits until the login reaches its stop and is answered there (rules 3
+and 5; implemented).
 
 Date: 2026-10-12
 

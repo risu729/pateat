@@ -17774,3 +17774,579 @@ describe("the start page's own passkey request (ADR 0034)", () => {
     expect(executed()).toEqual([]);
   });
 });
+
+describe("an item without a password, up to its password (ADR 0036)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    for (const listener of fake.state.removed.splice(0)) listener(1);
+  });
+  beforeEach(() => {
+    fake.state.storage = {};
+    fake.state.session = {};
+    fake.state.badges = {};
+    fake.state.messages = [];
+    fake.state.granted = true;
+    fake.state.pageUrl = "https://login.example/signin";
+    fake.state.tabUrls = {};
+    fake.state.observedPath = "/signin";
+    fake.state.present = new Set(["email", "next"]);
+    fake.state.unusable = new Set();
+    fake.state.awaited = { ok: true };
+    fake.state.executeReply = undefined;
+    fake.state.gone = new Set();
+    fake.state.extracted = {};
+    fake.state.signs = undefined;
+    // Next leads to the password page in the same document.
+    fake.state.onExecute = async (message) => {
+      const step = (message["operation"] as { step: LoginStep }).step;
+      if (step.kind === "click" && step.target.value === "next") {
+        fake.state.observedPath = "/password";
+        fake.state.present = new Set(["password", "login"]);
+      }
+    };
+  });
+  const emailFirst = parseLoginRecipe({
+    version: 1,
+    id: "synthetic-email-first",
+    revision: 1,
+    origin,
+    slots: ["username", "password"],
+    steps: [
+      { kind: "fill", path: "/signin", fields: [{ slot: "username", target: target("email") }] },
+      { kind: "click", path: "/signin", target: target("next"), purpose: "advance" },
+      {
+        kind: "fill",
+        path: "/password",
+        fields: [{ slot: "password", target: target("password") }],
+      },
+      { kind: "click", path: "/password", target: target("login"), purpose: "submit" },
+    ],
+    maxSubmissions: 2,
+  });
+  const status = () =>
+    fake.state.storage["pateat.login-attempts.v4"] as Record<string, unknown>[] | undefined;
+  const executed = () =>
+    fake.state.messages
+      .filter((entry) => entry.type === "login.execute")
+      .map((entry) => (entry as unknown as { operation: { step: LoginStep } }).operation.step);
+  /**
+   * A login of the item, whose password is empty unless `password`, with a passkey that
+   * need not be discoverable.
+   */
+  function start(
+    live: Parameters<typeof harness>[1] = {},
+    {
+      password = false,
+      overrides = {},
+    }: { password?: boolean; overrides?: Partial<LocalSettings> } = {},
+  ) {
+    const report = vi.fn<(report: LoginReport) => void>();
+    const h = harness(overrides, {
+      username: true,
+      report,
+      passkeys: vi.fn(async () => ({ passkey: true, discoverable: false })),
+      ...live,
+    });
+    h.recipes.recipe.mockResolvedValue(emailFirst);
+    const original = h.store.handle.getMockImplementation()!;
+    if (!password)
+      h.store.handle.mockImplementation(async () => {
+        const response = await original();
+        if (response.ok)
+          for (const field of response.catalog.connections[0]!.items[0]!.fields)
+            if (field.id === "login.password") field.empty = true;
+        return response;
+      });
+    return { h, report };
+  }
+  async function until(check: () => boolean, maxMs = 60_000) {
+    for (let spent = 0; !check(); spent += 100) {
+      if (spent > maxMs) throw new Error("Condition not reached in fake time");
+      // eslint-disable-next-line no-await-in-loop
+      await vi.advanceTimersByTimeAsync(100);
+    }
+  }
+
+  it("fills the identifier, stops before the password and ends challenge, watched", async () => {
+    vi.useFakeTimers();
+    const { h, report } = start();
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => status()?.[0]?.["state"] === "watching");
+    expect(status()![0]).toMatchObject({ outcome: "challenge", stepIndex: 2, stopAt: 2 });
+    expect(executed().map((step) => step.kind)).toEqual(["fill", "click"]);
+    expect(h.fields.mock.calls.map(([read]) => read.fieldId)).not.toContain("login.password");
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "attempt",
+        state: "watching",
+        stop: "password",
+        reason: "password-empty",
+      }),
+    );
+  });
+
+  it("answers the document's waiting request at the stop as one submission", async () => {
+    vi.useFakeTimers();
+    const { h } = start();
+    let decided: ConditionalDecision | undefined;
+    void h.login
+      .conditionalRequest({
+        tabId: 1,
+        origin,
+        documentId: "synthetic-document",
+        signal: new AbortController().signal,
+      })
+      .then((value) => (decided = value));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => decided !== undefined);
+    expect(decided).toMatchObject({ kind: "answer", item: { connectionId, itemId } });
+    expect(status()![0]).toMatchObject({ state: "reconciling", stepIndex: 2, submissions: 2 });
+    (decided as Extract<ConditionalDecision, { kind: "answer" }>).answered(true);
+    // The password form still shows: held for 15 seconds, then left to the person.
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(status()![0]).toMatchObject({ state: "reconciling" });
+    await until(() => status()?.[0]?.["state"] === "watching");
+    expect(status()![0]).toMatchObject({ outcome: "challenge" });
+    expect(executed().map((step) => step.kind)).toEqual(["fill", "click"]);
+  });
+
+  /** The passkey bridge passes the top document's conditional request to the login. */
+  const ask = (h: ReturnType<typeof harness>) => {
+    let decided: ConditionalDecision | undefined;
+    void h.login
+      .conditionalRequest({
+        tabId: 1,
+        origin,
+        documentId: "synthetic-document",
+        signal: new AbortController().signal,
+      })
+      .then((value) => (decided = value));
+    return () => decided;
+  };
+  const answered = (decision: ConditionalDecision | undefined) => {
+    expect(decision).toMatchObject({ kind: "answer", item: { connectionId, itemId } });
+    return decision as Extract<ConditionalDecision, { kind: "answer" }>;
+  };
+  const attempts = (report: ReturnType<typeof start>["report"]) =>
+    report.mock.calls.flatMap(([entry]) => (entry.type === "attempt" ? [entry] : []));
+  const judgements = (report: ReturnType<typeof start>["report"]) =>
+    report.mock.calls.flatMap(([entry]) => (entry.type === "judge" ? [entry] : []));
+  /** No sign of a sign-in step; the username shows in the header when the page is told it. */
+  const quiet = (message: Record<string, unknown>) => ({
+    password: false,
+    code: false,
+    captcha: false,
+    invalid: false,
+    alert: false,
+    username: (message["account"] as { username?: string } | undefined)?.username !== undefined,
+  });
+  /** Next leads to a page of `path` without the password field, as a passkey's page. */
+  const nextLeadsTo = (path: string, then?: () => void) => {
+    fake.state.onExecute = async (message) => {
+      const step = (message["operation"] as { step: LoginStep }).step;
+      if (step.kind === "click" && step.target.value === "next") {
+        fake.state.observedPath = path;
+        fake.state.present = new Set();
+        then?.();
+      }
+    };
+  };
+  const described = (path: string) => ({
+    ok: true,
+    observation: {
+      version: 1,
+      origin,
+      path,
+      language: "en",
+      complete: true,
+      candidates: [{ id: "c1", role: "button", target: target("logout"), label: "Sign out" }],
+    },
+  });
+  type JudgeAnswer = Awaited<ReturnType<LoginGeneration["judge"]>>;
+  const judging = (answer: JudgeAnswer) => {
+    const judge = vi.fn<LoginGeneration["judge"]>(async (...args) => {
+      args[4]?.();
+      return answer;
+    });
+    return {
+      judge,
+      generation: {
+        available: vi.fn<LoginGeneration["available"]>(async () => true),
+        generate: vi.fn<LoginGeneration["generate"]>(),
+        generateEntry: vi.fn<LoginGeneration["generateEntry"]>(),
+        judge,
+        slotFields: vi.fn<LoginGeneration["slotFields"]>(async () => undefined),
+      },
+    };
+  };
+  const passwordRead = (h: ReturnType<typeof harness>) =>
+    h.fields.mock.calls.some(([read]) => read.fieldId === "login.password");
+
+  it("names its stop in every report of the login", async () => {
+    vi.useFakeTimers();
+    const { h, report } = start();
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => status()?.[0]?.["state"] === "watching");
+    const reports = attempts(report);
+    expect(reports.length).toBeGreaterThan(1);
+    for (const entry of reports) expect(entry).toMatchObject({ stop: "password" });
+    // Only the end at the stop names the missing password.
+    expect(reports.filter((entry) => entry.reason === "password-empty")).toEqual([
+      expect.objectContaining({ state: "watching", outcome: "challenge", stepIndex: 2 }),
+    ]);
+    // The stop waits a moment for a request before it ends.
+    expect(passwordRead(h)).toBe(false);
+  });
+
+  it("waits three seconds at the stop for a request before it ends", async () => {
+    vi.useFakeTimers();
+    const { h } = start();
+    let reached: number | undefined;
+    nextLeadsTo("/password", () => {
+      fake.state.present = new Set(["password", "login"]);
+    });
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => {
+      if (reached === undefined && status()?.[0]?.["stepIndex"] === 2) reached = Date.now();
+      return status()?.[0]?.["state"] === "watching";
+    });
+    expect(Date.now() - reached!).toBeGreaterThanOrEqual(2_900);
+    expect(Date.now() - reached!).toBeLessThan(4_000);
+  });
+
+  it("answers at the stop a request that came after the identifier's submission", async () => {
+    vi.useFakeTimers();
+    const { h } = start();
+    let decided: (() => ConditionalDecision | undefined) | undefined;
+    // The password page asks for a passkey by itself once Next was clicked.
+    fake.state.onExecute = async (message) => {
+      const step = (message["operation"] as { step: LoginStep }).step;
+      if (step.kind === "click" && step.target.value === "next") {
+        fake.state.observedPath = "/password";
+        fake.state.present = new Set(["password", "login"]);
+        decided = ask(h);
+      }
+    };
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => decided?.() !== undefined);
+    // Recorded as a submission at the stop before the answer went back.
+    expect(status()![0]).toMatchObject({ state: "reconciling", stepIndex: 2, submissions: 2 });
+    answered(decided!());
+    expect(executed().map((step) => step.kind)).toEqual(["fill", "click"]);
+    expect(passwordRead(h)).toBe(false);
+  });
+
+  it("counts a request the bridge answered after the identifier as the stop's answer", async () => {
+    vi.useFakeTimers();
+    const { h } = start();
+    // A request that showed a prompt, answered with the login's item, then the tab moves to
+    // another page of the passkey's site.
+    nextLeadsTo("/password", () => {
+      fake.state.present = new Set(["password", "login"]);
+      h.login.passkeyAnswered(1, origin, "login.example");
+    });
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(
+      () => status()?.[0]?.["state"] === "reconciling" && status()?.[0]?.["submissions"] === 2,
+    );
+    expect(status()![0]).toMatchObject({ stepIndex: 2, stopAt: 2 });
+    fake.state.signs = quiet;
+    fake.state.tabUrls[1] = "https://www.login.example/home";
+    // The new page is read a second apart before the move completes the login.
+    void h.hello({ documentId: "home-document", url: "https://www.login.example/home" }, false);
+    await until(() => status()?.[0]?.["state"] === "authenticated");
+    expect(executed().map((step) => step.kind)).toEqual(["fill", "click"]);
+    expect(passwordRead(h)).toBe(false);
+  });
+
+  it("holds the answered login for 15 seconds while the password form shows", async () => {
+    vi.useFakeTimers();
+    const { h, report } = start();
+    const decided = ask(h);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => decided() !== undefined);
+    answered(decided()).answered(true);
+    const since = Date.now();
+    await until(() => status()?.[0]?.["state"] === "watching");
+    expect(Date.now() - since).toBeGreaterThanOrEqual(14_000);
+    expect(Date.now() - since).toBeLessThan(17_000);
+    expect(status()![0]).toMatchObject({ outcome: "challenge", stepIndex: 2, submissions: 2 });
+    expect(attempts(report).at(-1)).toMatchObject({
+      state: "watching",
+      stop: "password",
+      reason: "password-empty",
+    });
+    expect(passwordRead(h)).toBe(false);
+  });
+
+  it("ends at the stop when the bridge could not answer", async () => {
+    vi.useFakeTimers();
+    const { h, report } = start();
+    const decided = ask(h);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => decided() !== undefined);
+    answered(decided()).answered(false);
+    await until(() => status()?.[0]?.["state"] === "watching");
+    expect(status()![0]).toMatchObject({ outcome: "challenge", submissions: 2 });
+    expect(attempts(report).at(-1)).toMatchObject({
+      state: "watching",
+      cause: "answer-failed",
+      reason: "password-empty",
+    });
+  });
+
+  it("still refuses an item whose password the account may not fill", async () => {
+    const excluded = {
+      connections: [
+        {
+          connectionId,
+          enabled: true,
+          selection: { mode: "all" as const, groupIds: [], itemIds: [] },
+          excludedItemIds: [],
+          excludedFields: [{ itemId, fieldId: "login.password" }],
+        },
+      ],
+    };
+    // A route that fills the password cannot bind it.
+    const bound = start({}, { password: true, overrides: excluded });
+    expect(await bound.h.hello()).toEqual({ ok: false, reason: "binding-field-excluded" });
+    // A route that binds only the identifier ends no-route, naming the password apart from
+    // an empty one.
+    const { h, report } = start({}, { password: true, overrides: excluded });
+    h.recipes.recipe.mockResolvedValue(
+      parseLoginRecipe({
+        ...emailFirst,
+        id: "synthetic-identifier-only",
+        slots: ["username"],
+        steps: emailFirst.steps.slice(0, 2),
+        maxSubmissions: 1,
+      }),
+    );
+    expect(await h.hello()).toEqual({ ok: false, reason: "no-route" });
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "refused",
+        reason: "no-route",
+        detail: "password-not-allowed",
+      }),
+    );
+    expect(executed()).toEqual([]);
+    expect(status() ?? []).toEqual([]);
+  });
+
+  it("still refuses an item without a passkey, as without a password", async () => {
+    const { h, report } = start({
+      passkeys: vi.fn(async () => ({ passkey: false, discoverable: false })),
+    });
+    expect(await h.hello()).toEqual({ ok: false, reason: "no-route" });
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "refused", reason: "no-route", detail: "password-empty" }),
+    );
+    expect(executed()).toEqual([]);
+    expect(h.fields).not.toHaveBeenCalled();
+  });
+
+  it("still refuses a form that asks for the password with the identifier", async () => {
+    const { h, report } = start();
+    h.recipes.recipe.mockResolvedValue(
+      parseLoginRecipe({
+        ...emailFirst,
+        id: "synthetic-one-page",
+        steps: [
+          {
+            kind: "fill",
+            path: "/signin",
+            fields: [
+              { slot: "username", target: target("email") },
+              { slot: "password", target: target("password") },
+            ],
+          },
+          { kind: "click", path: "/signin", target: target("login"), purpose: "submit" },
+        ],
+        maxSubmissions: 1,
+      }),
+    );
+    expect(await h.hello()).toEqual({ ok: false, reason: "no-route" });
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "refused", reason: "no-route", detail: "password-empty" }),
+    );
+    expect(executed()).toEqual([]);
+  });
+
+  it("completes on a page after the identifier that the judge finds signed in", async () => {
+    vi.useFakeTimers();
+    const { judge, generation } = judging({ verdict: "signed-in" });
+    const { h, report } = start({ generation });
+    nextLeadsTo("/verify");
+    fake.state.signs = quiet;
+    fake.state.extracted = { "signed-in": described("/verify") };
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => status()?.[0]?.["state"] === "authenticated");
+    expect(judge).toHaveBeenCalledTimes(1);
+    expect(judge.mock.calls[0]!.slice(0, 3)).toEqual([
+      emailFirst.id,
+      emailFirst.revision,
+      "password",
+    ]);
+    expect(judgements(report).at(-1)).toMatchObject({ verdict: "signed-in" });
+    expect(executed().map((step) => step.kind)).toEqual(["fill", "click"]);
+    expect(passwordRead(h)).toBe(false);
+  });
+
+  it("completes on a page after the identifier judged signed-in before", async () => {
+    vi.useFakeTimers();
+    const { judge, generation } = judging({ verdict: "unclear", reason: "judged-signed-in" });
+    const { h, report } = start({ generation });
+    nextLeadsTo("/verify");
+    fake.state.signs = quiet;
+    fake.state.extracted = { "signed-in": described("/verify") };
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => status()?.[0]?.["state"] === "authenticated");
+    expect(judge).toHaveBeenCalledTimes(1);
+    expect(judgements(report).at(-1)).toMatchObject({
+      verdict: "unclear",
+      reason: "judged-signed-in",
+      completed: true,
+    });
+    expect(judgements(report).at(-1)).not.toHaveProperty("notCompleted");
+    expect(passwordRead(h)).toBe(false);
+  });
+
+  it.each([undefined, "already-judged", "judgement-limit", "daily-limit", "timeout"])(
+    "ends challenge, watched, when the judge cannot decide the page after the identifier (%s)",
+    async (reason) => {
+      vi.useFakeTimers();
+      const { judge, generation } = judging({
+        verdict: "unclear",
+        ...(reason ? { reason } : {}),
+      } as JudgeAnswer);
+      const { h, report } = start({ generation });
+      nextLeadsTo("/verify");
+      fake.state.signs = quiet;
+      fake.state.extracted = { "signed-in": described("/verify") };
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(() => status()?.[0]?.["state"] === "watching");
+      expect(status()![0]).toMatchObject({ outcome: "challenge", stepIndex: 1 });
+      expect(judge).toHaveBeenCalledTimes(1);
+      expect(judgements(report).at(-1)).toMatchObject({
+        verdict: "unclear",
+        notCompleted: "password-empty",
+      });
+      expect(judgements(report).at(-1)).not.toHaveProperty("completed");
+      expect(passwordRead(h)).toBe(false);
+    },
+  );
+
+  it("ends at the stop when the attempt refuses the answer", async () => {
+    vi.useFakeTimers();
+    // A login left at its stop by a stopped worker, with its submissions spent.
+    const first = start();
+    expect(await first.h.hello()).toEqual({ ok: true });
+    await until(() => status()?.[0]?.["state"] === "watching");
+    const { watch: _watch, outcome: _outcome, ...record } = status()![0] as Record<string, unknown>;
+    expect(record).toMatchObject({ stepIndex: 2, stopAt: 2, maxSubmissions: 2 });
+    fake.state.storage["pateat.login-attempts.v4"] = [
+      { ...record, state: "ready", submissions: 2 },
+    ];
+    fake.state.messages = [];
+    fake.state.observedPath = "/password";
+    fake.state.present = new Set(["password", "login"]);
+    const query = fake.browser.tabs.query;
+    fake.browser.tabs.query = async () => [{ id: 1 }] as never;
+    try {
+      const { h, report } = start();
+      // The password page of the restarted worker asks for a passkey by itself.
+      let decided: ConditionalDecision | undefined;
+      void h.login
+        .conditionalRequest({
+          tabId: 1,
+          origin,
+          documentId: "after-restart",
+          signal: new AbortController().signal,
+        })
+        .then((value) => (decided = value));
+      await vi.advanceTimersByTimeAsync(0);
+      void h.hello({ documentId: "after-restart" }, false);
+      await until(() => status()?.[0]?.["state"] === "watching");
+      expect(status()![0]).toMatchObject({ outcome: "challenge", stepIndex: 2, submissions: 2 });
+      expect(attempts(report).at(-1)).toMatchObject({
+        state: "watching",
+        reason: "password-empty",
+      });
+      // The request is not the login's to answer: it is handed on once the login ended.
+      await until(() => decided !== undefined);
+      expect(decided).toMatchObject({ kind: "delegate" });
+      expect(executed()).toEqual([]);
+      expect(passwordRead(h)).toBe(false);
+    } finally {
+      fake.browser.tabs.query = query;
+    }
+  });
+
+  it("is not signed in by the username in the header after the identifier", async () => {
+    vi.useFakeTimers();
+    const { h, report } = start();
+    nextLeadsTo("/verify");
+    fake.state.signs = quiet;
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => status()?.[0]?.["state"] === "watching");
+    expect(status()![0]).toMatchObject({ outcome: "challenge" });
+    // The page is never told the username, so it cannot show it as a sign-in.
+    const states = fake.state.messages.filter((entry) => entry.type === "login.state");
+    expect(states).not.toEqual([]);
+    for (const entry of states) expect(entry).not.toHaveProperty("account");
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "state", e2: false, decision: "judge" }),
+    );
+    expect(h.fields.mock.calls.map(([read]) => read.fieldId)).not.toContain("login.password");
+  });
+
+  it("is signed in by the username in the header with a password, as before", async () => {
+    vi.useFakeTimers();
+    // The same pages for an item that holds its password: no stop, so E2 counts.
+    const { h } = start({}, { password: true });
+    nextLeadsTo("/verify");
+    fake.state.signs = quiet;
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => status()?.[0]?.["state"] === "authenticated");
+    expect(status()![0]).not.toHaveProperty("stopAt");
+    expect(fake.state.messages.some((entry) => entry.type === "login.state" && entry.account)).toBe(
+      true,
+    );
+  });
+
+  it.each([
+    ["is not signed in by", false, { state: "blocked", outcome: "left-origin" }],
+    ["with a password is signed in by", true, { state: "authenticated" }],
+  ] as const)(
+    "%s the username on another origin of the site its tab moved to",
+    async (_label, password, expected) => {
+      vi.useFakeTimers();
+      const { h } = start({ allowedOrigins: [origin] }, { password });
+      // Next never answers: the tab moves to another origin of the site meanwhile.
+      fake.state.onExecute = (message) => {
+        const step = (message["operation"] as { step: LoginStep }).step;
+        return step.kind === "click" ? new Promise(() => undefined) : Promise.resolve();
+      };
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(() => executed().length === 2);
+      fake.state.signs = quiet;
+      fake.state.tabUrls[1] = "https://www.login.example/home";
+      void h.hello({ documentId: "home-document", url: "https://www.login.example/home" }, false);
+      await until(
+        () =>
+          status()?.[0]?.["state"] !== "awaiting-result" &&
+          status()?.[0]?.["state"] !== "submit-intent",
+      );
+      expect(status()![0]).toMatchObject(expected);
+      // The moved page is told the username only for an item that signs in with its password.
+      const told = fake.state.messages.some(
+        (entry) => entry.type === "login.state" && entry.account !== undefined,
+      );
+      expect(told).toBe(password);
+    },
+  );
+});

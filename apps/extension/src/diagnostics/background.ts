@@ -520,6 +520,7 @@ export function createDiagnosticsLog(options: {
             reason: report.reason,
             settled: report.settled,
             routeChange: report.routeChange,
+            stop: report.stop,
           },
           {
             source,

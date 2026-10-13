@@ -191,7 +191,24 @@ export const attemptMetadataSchema = v.pipe(
      * before the first step with an effect, so it never clicks or submits.
      */
     fillOnly: v.optional(v.literal(true)),
+    /**
+     * For an item without a password (ADR 0036): where in the attempt's plan the step that
+     * fills the password is, recorded when the login starts (`passwordStop`). On the
+     * `password` route no step there or after it is ever prepared, whatever the item holds
+     * later; a handler entered before it moves it along with the plan. A `passkey` route
+     * the login switched to keeps it, and never falls back to the password.
+     */
+    stopAt: v.optional(v.pipe(integer(MAX_ATTEMPT_STEPS - 1), v.minValue(1))),
   }),
+  v.check(
+    (metadata) =>
+      metadata.stopAt === undefined ||
+      (metadata.variant !== undefined &&
+        metadata.document.frameId === 0 &&
+        metadata.chooser === undefined &&
+        (metadata.route !== "password" || metadata.stopAt < metadata.stepCount)),
+    "A stop needs a top-level password variant without a chooser, inside its plan",
+  ),
   v.check(
     (metadata) =>
       metadata.document.origin === metadata.account.origin &&
@@ -391,6 +408,14 @@ export const loginAttemptEventSchema = v.variant("type", [
     routeStep: v.optional(v.literal(true)),
   }),
   /**
+   * A login of an item without a password reached its stop (ADR 0036) and its document's
+   * passkey request is answered there with its item: the answer counts as a submission
+   * under `operationId`, a new click step at the stop, so the page is settled and judged as
+   * after a click. Recorded before a waiting request is answered, or once the passkey
+   * bridge answered one.
+   */
+  v.strictObject({ type: v.literal("STOP_ANSWERED"), operationId: identifier }),
+  /**
    * A chooser's list shows no account that fits the login's own, and no button for another
    * account (ADR 0028): the login ends before its first step, as `account-not-listed`.
    */
@@ -445,6 +470,20 @@ const maySubmit = (context: LoginAttemptMetadata) =>
   (context.operationKind === "click" && context.submissions > 0);
 const operationMatches = (context: LoginAttemptMetadata, event: LoginAttemptEvent) =>
   "operationId" in event && event.operationId === context.operationId;
+/**
+ * Whether the plan step at `index` comes before the login's stop (ADR 0036): always, but
+ * on the `password` route of a login with a stop.
+ */
+const beforeStop = (
+  context: Pick<LoginAttemptMetadata, "route" | "stopAt">,
+  index: number,
+): boolean =>
+  context.route !== "password" || context.stopAt === undefined || index < context.stopAt;
+/** The current operation is a click or a fill that advances or submits. */
+const effectfulOperation = (context: LoginAttemptMetadata) =>
+  context.operationKind === "click" ||
+  context.operationEffect === "advance" ||
+  context.operationEffect === "submit";
 const confirmedNoMutation = (context: LoginAttemptMetadata, event: LoginAttemptEvent) =>
   event.type === "FAILED" &&
   event.mutation === "none" &&
@@ -611,6 +650,10 @@ function record(
     case "HANDLER":
       return {
         handlers: [...context.handlers, { index: event.handler, start: context.stepIndex + 1 }],
+        // The handler's steps go in before the stop, which moves along with the plan.
+        ...(context.route === "password" && context.stopAt !== undefined
+          ? { stopAt: context.stopAt + event.steps }
+          : {}),
         stepIndex: context.stepIndex + 1,
         stepCount: context.stepCount + event.steps,
         maxSubmissions: context.maxSubmissions + event.effects,
@@ -627,6 +670,19 @@ function record(
       return {
         // A fill still in flight is done, so the step is its handler's click.
         stepIndex: context.operationKind === "fill" ? context.stepIndex + 1 : context.stepIndex,
+        operationId: event.operationId,
+        operationKind: "click",
+        operationEffect: "submit",
+        mutationIntent: true,
+        submissions: context.submissions + 1,
+        usedOperationIds: [...context.usedOperationIds, event.operationId],
+        outcome: undefined,
+        retryRequired: undefined,
+        settled: undefined,
+      };
+    case "STOP_ANSWERED":
+      return {
+        // The step stays the stop: nothing after it runs.
         operationId: event.operationId,
         operationKind: "click",
         operationEffect: "submit",
@@ -722,6 +778,8 @@ function createLoginAttemptMachine() {
       canPrepare: ({ context, event }) =>
         event.type === "PREPARE" &&
         context.stepIndex < context.stepCount &&
+        // Nothing at or after the stop of an item without a password runs (ADR 0036).
+        beforeStop(context, context.stepIndex) &&
         !context.usedOperationIds.includes(event.operationId) &&
         context.usedOperationIds.length < 96,
       operationMatches: ({ context, event }) => operationMatches(context, event),
@@ -787,6 +845,17 @@ function createLoginAttemptMachine() {
         event.type === "OBSERVED" &&
         ["credential-rejected", "challenge"].includes(event.result) &&
         (!event.document || sameScope(context.document, event.document)),
+      // A login of an item without a password that ends at its stop, with nothing in
+      // flight, is watched as one stopped at a step left to the person (ADR 0036).
+      observedStop: ({ context, event }) =>
+        event.type === "OBSERVED" &&
+        event.result === "challenge" &&
+        context.route === "password" &&
+        context.stopAt !== undefined &&
+        context.stepIndex === context.stopAt &&
+        context.operationId === undefined &&
+        context.document.frameId === 0 &&
+        (!event.document || sameScope(context.document, event.document)),
       // A top-level password login that stops at a step left to the person is watched.
       observedWatched: ({ context, event }) =>
         event.type === "OBSERVED" &&
@@ -813,6 +882,9 @@ function createLoginAttemptMachine() {
             context.mutationIntent === true &&
             context.submissions > 0 &&
             context.stepIndex + 1 < context.stepCount)) &&
+        // A login with a stop goes on at most to it (ADR 0036).
+        (beforeStop(context, context.stepIndex) ||
+          (context.stepIndex === context.stopAt && !effectfulOperation(context))) &&
         (!event.document || sameScope(context.document, event.document)),
       observedRetryRequired: ({ context, event }) =>
         context.retryRequired === true &&
@@ -871,7 +943,9 @@ function createLoginAttemptMachine() {
         context.operationId === undefined &&
         context.submissions === 0 &&
         context.handlers.length === 0 &&
-        context.fillOnly !== true,
+        context.fillOnly !== true &&
+        // A login with a stop never goes back to the password it lacks (ADR 0036).
+        !(event.route === "password" && context.stopAt !== undefined),
       // After the passkey answer, once, to the variant the login recorded.
       canFallBack: ({ context, event }) =>
         event.type === "ROUTE" &&
@@ -880,7 +954,8 @@ function createLoginAttemptMachine() {
         context.variant !== undefined &&
         context.operationKind === "click" &&
         context.submissions > 0 &&
-        context.handlers.length === 0,
+        context.handlers.length === 0 &&
+        context.stopAt === undefined,
       newerRevision: ({ context, event }) =>
         event.type === "REVISED" && event.recipeRevision > context.recipeRevision,
       newerPolicy: ({ context, event }) =>
@@ -899,6 +974,8 @@ function createLoginAttemptMachine() {
           context.operationEffect === "submit") &&
         !context.handlers.some((entry) => entry.index === event.handler) &&
         context.handlers.length < MAX_ENTERED_HANDLERS &&
+        // A handler shown after the stop is left to the person (ADR 0036).
+        beforeStop(context, context.stepIndex) &&
         context.stepIndex < context.stepCount &&
         context.stepCount + event.steps <= MAX_ATTEMPT_STEPS &&
         context.maxSubmissions + event.effects <= MAX_ATTEMPT_SUBMISSIONS &&
@@ -915,6 +992,7 @@ function createLoginAttemptMachine() {
         (context.operationId === undefined
           ? context.stepIndex > 0 &&
             context.stepIndex < context.stepCount &&
+            beforeStop(context, context.stepIndex) &&
             context.retryRequired !== true &&
             (event.routeStep === true ||
               context.handlers.some((entry) => entry.start === context.stepIndex - 1))
@@ -922,8 +1000,22 @@ function createLoginAttemptMachine() {
             context.operationEffect === "prepare" &&
             context.mutationIntent === true &&
             context.stepIndex + 1 < context.stepCount &&
+            beforeStop(context, context.stepIndex + 1) &&
             (event.routeStep === true ||
               context.handlers.some((entry) => entry.start === context.stepIndex))),
+      // At the stop, with nothing in flight, once the login submitted (ADR 0036).
+      canAnswerAtStop: ({ context, event }) =>
+        event.type === "STOP_ANSWERED" &&
+        context.route === "password" &&
+        context.stopAt !== undefined &&
+        context.stepIndex === context.stopAt &&
+        context.operationId === undefined &&
+        context.retryRequired !== true &&
+        context.fillOnly !== true &&
+        context.submissions > 0 &&
+        context.submissions < context.maxSubmissions &&
+        !context.usedOperationIds.includes(event.operationId) &&
+        context.usedOperationIds.length < 96,
     },
   }).createMachine({
     id: "login-attempt",
@@ -952,8 +1044,10 @@ function createLoginAttemptMachine() {
           FAILED: [{ guard: "staleFailure" }, { target: "retryable", actions: "record" }],
           OBSERVED: [
             { guard: "observedAuthenticated", target: "authenticated", actions: "record" },
+            { guard: "observedStop", target: "watching", actions: "record" },
             { guard: "observedRejected", target: "blocked", actions: "record" },
           ],
+          STOP_ANSWERED: { guard: "canAnswerAtStop", target: "reconciling", actions: "record" },
           ROUTE: { guard: "canSwitchRoute", target: "ready", actions: "record" },
           NOT_LISTED: {
             guard: ({ context }) =>
@@ -1090,6 +1184,8 @@ export function createAttemptMetadata(input: {
   fillOnly?: boolean;
   /** For a chooser recipe's login (ADR 0028): what it clicks on the list. */
   chooser?: ChooserClick;
+  /** For an item without a password: where its `password` route stops (ADR 0036). */
+  stopAt?: number;
 }): LoginAttemptMetadata {
   const recipe = parseLoginRecipe(input.recipe);
   if (input.account.origin !== recipe.origin)
@@ -1122,6 +1218,7 @@ export function createAttemptMetadata(input: {
     ...(input.accountSwitched ? { accountSwitched: true } : {}),
     ...(input.fillOnly ? { fillOnly: true } : {}),
     ...(input.chooser ? { chooser: { click: input.chooser } } : {}),
+    ...(input.stopAt === undefined ? {} : { stopAt: input.stopAt }),
   });
 }
 /** A step that may advance or submit the page: a click, or a fill whose event may. */
@@ -1260,6 +1357,9 @@ export function nextLoginOperation(
   const step = plan?.length === metadata.stepCount ? plan[metadata.stepIndex]?.step : undefined;
   if (
     !step ||
+    // The step that fills the password of an item without one, and every later step, never
+    // runs (ADR 0036).
+    !beforeStop(metadata, metadata.stepIndex) ||
     (effectfulStep(step) &&
       // A fill-only attempt never takes a step with an effect (ADR 0021 D).
       (metadata.fillOnly === true || metadata.submissions >= metadata.maxSubmissions))
@@ -1296,6 +1396,7 @@ export function validateLoginOperation(
   return (
     readyToExecute &&
     !(metadata.fillOnly === true && effectfulStep(operation.step)) &&
+    beforeStop(metadata, operation.stepIndex) &&
     (!(operation.step.kind === "fill" || operation.step.kind === "click") ||
       metadata.mutationIntent === true) &&
     operation.attemptId === metadata.id &&

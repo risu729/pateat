@@ -451,7 +451,11 @@ own accounts, so they stay in the project's files rather than in this repository
   abstained; a password input hidden there for the browser to fill counting as the
   password page is the inferred cause. Such an input no longer counts, and a
   description without the input the page qualified with is read again
-  ([ADR 0018](adr/0018-recipe-generation-route.md#continuing-after-an-advance)).
+  ([ADR 0018](adr/0018-recipe-generation-route.md#continuing-after-an-advance)). On the
+  Bot's eighth round (build `25b08b2`, 2026-10-12 23:13 UTC), OpenAI Platform was
+  refused `no-route` `password-empty`: its item holds no password, only a TOTP secret
+  and a passkey. [ADR 0036](adr/0036-passkey-after-the-identifier.md) lets such an item
+  go on after the email to a passkey (local tests only); not yet checked on the Bot.
 - Answer Google's passkey step on the Grok Bot's browser. On build `a8350f5`
   (2026-10-12 19:49 UTC) both of the page's requests were logged as `passkey.request`
   `delegate` `invalid-request`, so the browser offered only the phone (hybrid) flow,
