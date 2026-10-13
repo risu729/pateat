@@ -158,6 +158,26 @@ describe("findTargets", () => {
     ]);
   });
 
+  it("matches other role=button elements by text only without links, and after buttons and script links", () => {
+    page(
+      `<div id="a" role="button" aria-disabled="true">Log in</div>
+      <div id="b" role="button">次へ</div><a id="c" href="#" onclick="go()">次へ</a>
+      <span id="d" role="button">Help</span><a id="e" href="/help">Help</a>
+      <div id="f" role="button">Next</div><button id="g" hidden>Next</button>`,
+    );
+    expect(ids(findTargets(document, { by: "text", value: "Log in" }))).toEqual(["a"]);
+    // A script link with the text comes first.
+    expect(ids(findTargets(document, { by: "text", value: "次へ" }))).toEqual(["c"]);
+    expect(ids(findTargets(document, { by: "text", value: "Help" }))).toEqual(["d"]);
+    // A lookup that may name a link compares links and never role=button elements.
+    expect(ids(findTargets(document, { by: "text", value: "Help" }, { links: true }))).toEqual([
+      "e",
+    ]);
+    expect(findTargets(document, { by: "text", value: "Log in" }, { links: true })).toEqual([]);
+    // A hidden native button with the text holds it back, as it does script links.
+    expect(ids(findTargets(document, { by: "text", value: "Next" }))).toEqual([]);
+  });
+
   it("matches buttons by collapsed rendered text, input value or image alt", () => {
     page(
       `<button id="a"> <span>ログ</span><span>​イン</span> </button>
