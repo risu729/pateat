@@ -1707,7 +1707,7 @@ export function createLoginRuntime(
   const pending = new Map<number, PendingChoice>();
   /** By `recordKey`: tabs that logged out of an origin and have not picked an account yet. */
   const logouts = new Set<string>();
-  /** Reasons already logged, by tab, document and path; bounded like the logout fills. */
+  /** Reasons already logged, by tab, document and path; stored like the logout fills. */
   const noted = new Map<string, Set<string>>();
   /** By `recordKey`: tabs that ask after their own login stopped once it submitted. */
   const stoppedAsks = new Set<string>();
@@ -1787,21 +1787,9 @@ export function createLoginRuntime(
       v.pipe(v.array(v.tuple([v.string(), v.array(v.string())])), v.maxLength(256)),
       stored[NOTED_KEY] ?? [],
     );
-    // Reasons noted before the load are newer, so they stay last.
-    if (logged.success) {
-      const newer = [...noted];
-      noted.clear();
+    // Every note waits for this load.
+    if (logged.success)
       for (const [key, reasons] of logged.output) noted.set(key, new Set(reasons));
-      for (const [key, reasons] of newer) {
-        const known = noted.get(key);
-        noted.delete(key);
-        noted.set(key, new Set([...(known ?? []), ...reasons]));
-      }
-      for (const old of noted.keys()) {
-        if (noted.size <= 256) break;
-        noted.delete(old);
-      }
-    }
     const presses = v.safeParse(
       v.pipe(v.array(entryPressSchema), v.maxLength(256)),
       stored[ENTRY_PRESSES_KEY] ?? [],
@@ -1827,6 +1815,7 @@ export function createLoginRuntime(
       [STOPPED_ASKS_KEY]: scopes(stoppedAsks),
       [REJECTED_ASKS_KEY]: scopes(rejectedAsks),
       [ENTRY_PRESSES_KEY]: [...entryPresses.values()],
+      [NOTED_KEY]: [...noted].map(([page, ids]) => [page, [...ids]]),
     });
   }
   /**
@@ -6315,13 +6304,9 @@ export function createLoginRuntime(
       if (noted.size <= 256) break;
       noted.delete(old);
     }
-    // Kept for the worker's next start; a repeat changes nothing worth storing.
-    if (!repeat)
-      void quietly(() =>
-        browser.storage.session.set({
-          [NOTED_KEY]: [...noted].map(([page, ids]) => [page, [...ids]]),
-        }),
-      );
+    // Kept for the worker's next start. A repeat changes nothing worth storing, and
+    // ordinary browsing logs only at debug.
+    if (!repeat && !unrelated) void quietly(saveSession);
     report(document, {
       type: "refused",
       tabId: document.tabId,
@@ -8431,15 +8416,6 @@ export function createLoginRuntime(
     clearTimeout(entryTimers.get(tabId));
     entryTimers.delete(tabId);
     for (const key of entryRefused) if (key.startsWith(`${tabId} `)) entryRefused.delete(key);
-    let forgotten = false;
-    for (const key of noted.keys())
-      if (key.startsWith(`${tabId} `)) forgotten = noted.delete(key) || forgotten;
-    if (forgotten)
-      void quietly(() =>
-        browser.storage.session.set({
-          [NOTED_KEY]: [...noted].map(([page, ids]) => [page, [...ids]]),
-        }),
-      );
     for (const map of [passkeyRequests, passkeyAnswers])
       for (const key of map.keys()) if (key.startsWith(`${tabId} `)) map.delete(key);
     void sessionLoaded.then(async () => {
@@ -8451,6 +8427,8 @@ export function createLoginRuntime(
       for (const key of logoutFills)
         if (key.startsWith(`${tabId} `)) changed = logoutFills.delete(key) || changed;
       if (entryPresses.delete(tabId)) changed = true;
+      for (const key of noted.keys())
+        if (key.startsWith(`${tabId} `)) changed = noted.delete(key) || changed;
       if (changed) await quietly(saveSession);
       return undefined;
     });
