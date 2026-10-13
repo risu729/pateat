@@ -324,6 +324,7 @@ describe("otherAccountMiss", () => {
       ],
       [`${go}<div aria-label="Use another profile"><span></span></div>`, "other-label-only"],
       [`<header><button>Switch account</button></header>${go}`, "other-in-chrome"],
+      [`${go}<footer><a href="/switch">Switch account</a></footer>`, "other-in-chrome"],
       [`${go}<button disabled>Use another profile</button>`, "other-not-entry"],
       [`${go}<p>Use another profile</p>`, "other-not-entry"],
       [

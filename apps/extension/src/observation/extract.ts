@@ -30,6 +30,7 @@ import {
   accountEntries,
   besideEmails,
   chromeSelector,
+  inPageChrome,
   entryLike,
   foldName,
   namedAccounts,
@@ -98,22 +99,6 @@ export type ObservationResult =
 const maxCandidates = 48;
 /** Where account menus usually sit: the page's header and navigation. */
 const landmarks = chromeSelector;
-/**
- * Whether `element` is in the page's footer: a `contentinfo` landmark, or a `footer`
- * without a role outside sectioning content and dialogs, which HTML maps to one. A card's
- * own footer, inside a section, is not the page's.
- */
-const inPageFooter = (element: Element): boolean => {
-  if (element.closest("[role='contentinfo' i]")) return true;
-  const footer = element.closest("footer:not([role])");
-  return (
-    footer !== null &&
-    !footer.parentElement?.closest(
-      "article, aside, main, nav, section, dialog, [role='main' i], [role='article' i], " +
-        "[role='region' i], [role='complementary' i], [role='dialog' i]",
-    )
-  );
-};
 /**
  * How far above a login form a button outside every form still counts as the form's,
  * such as a passkey button beside the password form (SBI Securities: form, list item,
@@ -1400,9 +1385,8 @@ export function extractAccountListObservation(
   const listControls = scanned.slice(0, listScanLimit).filter(
     (element): element is HTMLElement =>
       entryLike(element) &&
-      !element.closest(landmarks) &&
       // The page's footer links, as Instagram's 16 on 2026-10-13, are chrome too.
-      !inPageFooter(element) &&
+      !inPageChrome(element) &&
       !inEntry(element),
   );
   // A control holding another one is not innermost; marking ancestors keeps this linear.
