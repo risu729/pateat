@@ -595,7 +595,9 @@ new owner decision:
   that holds a button inside the main is read too. Every other live region is still
   left out: one that holds none of the buttons, an alert, status, log, marquee or timer
   even when it holds a button such as a dismiss button, an assertive one, and one
-  around the modal or main, such as a page wrapped whole. When every button is left out
+  around the modal or main, such as a page wrapped whole. On `8b60ff2` (06:48 UTC),
+  with the recipe revoked so the page was judged again, the judge named Verify and
+  Pateat pressed it and answered with the passkey. When every button is left out
   because its locator shows a username, the texts go with it. The
   judge's instructions name `nearButtons` as untrusted page text. Unlike `nearCode`,
   this text comes from most judged signed-in pages, such as a dashboard: numbers, email
