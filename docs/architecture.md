@@ -803,7 +803,7 @@ login (`left-origin`). Newer settings end it `policy-changed` only when they no 
 allow its account on the page; otherwise the watch takes over their revision, since it
 only reads, so another site's saved account choice does not end it. A login in a
 frame and the `passkey` route still end `challenge` at once. The attempt store is
-`pateat.login-attempts.v4`; the v3 store is removed on load.
+`pateat.login-attempts.v4`.
 
 Chrome use coordination is an open integration gate. Expose a scoped status
 contract for a future trusted consumer, but do not assume Chrome use already

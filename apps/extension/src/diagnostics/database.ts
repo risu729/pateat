@@ -33,12 +33,10 @@ export function openDiagnosticsDatabase(factory: IDBFactory, name: string): Prom
     const opening = factory.open(name, DIAGNOSTICS_DATABASE_VERSION);
     opening.onupgradeneeded = () => {
       const database = opening.result;
-      if (!database.objectStoreNames.contains(META_STORE)) database.createObjectStore(META_STORE);
-      if (!database.objectStoreNames.contains(ENTRIES_STORE)) {
-        const entries = database.createObjectStore(ENTRIES_STORE, { autoIncrement: true });
-        entries.createIndex(TIME_INDEX, "time");
-        entries.createIndex(LEVEL_INDEX, ["level", "time"]);
-      }
+      database.createObjectStore(META_STORE);
+      const entries = database.createObjectStore(ENTRIES_STORE, { autoIncrement: true });
+      entries.createIndex(TIME_INDEX, "time");
+      entries.createIndex(LEVEL_INDEX, ["level", "time"]);
     };
     opening.onsuccess = () => {
       const database = opening.result;

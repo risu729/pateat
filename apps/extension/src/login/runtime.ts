@@ -157,8 +157,6 @@ import { newId } from "@pateat/contracts/ids";
 import { sameLoginSite } from "@pateat/contracts/site";
 
 const STORAGE_KEY = "pateat.login-attempts.v4";
-/** The previous attempt store, removed on load; its records are not read. */
-const RETIRED_STORAGE_KEY = "pateat.login-attempts.v3";
 /** Accounts picked in the toolbar popup, per tab; session storage survives a worker restart. */
 const PICKS_KEY = "pateat.login-picks.v1";
 const CHOICES_KEY = "pateat.login-choices.v1";
@@ -1698,7 +1696,6 @@ export function createLoginRuntime(
     try {
       await browser.storage.local.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" });
       const storage = await browser.storage.local.get([STORAGE_KEY, CONFIG_KEY]);
-      await browser.storage.local.remove(RETIRED_STORAGE_KEY).catch(() => undefined);
       const config: unknown = storage[CONFIG_KEY];
       if (probeMode && config !== undefined) {
         const parsed = v.parse(configureSchema, {

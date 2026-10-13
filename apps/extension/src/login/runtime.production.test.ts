@@ -10946,15 +10946,6 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
     );
   });
 
-  it("removes the previous attempt store and logs in without reading it", async () => {
-    fake.state.present = undefined;
-    fake.state.storage["pateat.login-attempts.v3"] = [{ id: "retired-record" }];
-    const h = harness({}, { passkeys: withPasskey });
-    expect(await h.hello()).toEqual({ ok: true });
-    await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]));
-    expect(fake.state.storage).not.toHaveProperty(["pateat.login-attempts.v3"]);
-  });
-
   describe("the item a running login uses", () => {
     it("is named only while the tab's login on that origin has not ended", async () => {
       onClick({ login: "hang" });
