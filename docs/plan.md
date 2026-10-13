@@ -664,7 +664,11 @@ Once the fixes have settled:
   request on structural mismatch that the
   [architecture](architecture.md#declarative-recipes-and-ai) describes needs a design
   the owner approves first: when a miss counts as a stale recipe rather than a slow or
-  different page, its inference budget, and what happens to the stale revision.
+  different page, its inference budget, and what happens to the stale revision. Cases
+  the design must cover (owner, 2026-10-13 19:14 UTC): the same page in another
+  language, where a text or label locator no longer matches though the recipe is still
+  right, and a maintenance page that replaces the login page on the same URL without a
+  redirect, which must not be taken as a changed login page.
 - First among the text work, a review of the wording of Pateat's UI text: the popup, the
   toolbar icon's title, the options page and the in-page prompts. It includes the reason
   line the popup and the icon's title show when another tab of the site logged out or
