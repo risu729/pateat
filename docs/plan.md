@@ -549,6 +549,15 @@ own accounts, so they stay in the project's files rather than in this repository
   - Batch 15, the login runtime suite (2026-10-13): 737 to 720 Vitest cases. Removed
     cases repeated a kept test's setup, branch and assertions; nine tests that passed
     before reaching their rule were repaired.
+  - Done (2026-10-13): every test file was audited in the fifteen batches above. On
+    the last batch's PR, [#450](https://github.com/risu729/pateat/pull/450), the CI
+    workflow took 8 min 2 s, `Verify` 7 min 55 s and the six Linux end-to-end shards
+    1 min 30 s to 3 min 54 s; the suite has grown with features since the survey's
+    snapshot. Production code the audit found that only tests or older storage reach,
+    left for the owner: the retired login attempt-store removal in the login runtime,
+    the version 1 upgrade guards in the diagnostics database, the unreachable
+    `!moved &&` exemption in the service's judgement gate, and the Demo vaults panel of
+    the settings page.
 - UI improvements the owner reports from daily use of the UI polished in phase 1. Small
   fixes for broken UI still land as found.
 - Features found missing during use are added here.
