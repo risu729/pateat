@@ -12,9 +12,9 @@ import {
   LogOut,
   Pause,
   RefreshCw,
+  Shield,
   Trash2,
   TriangleAlert,
-  Vault,
 } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { SetupBegin, SetupReply } from "../connections/types";
@@ -506,7 +506,7 @@ export function BitwardenSetup({
           return (
             <Row
               key={connection.connectionId}
-              icon={Vault}
+              icon={Shield}
               main={
                 <>
                   <RowTitle>{connection.label}</RowTitle>

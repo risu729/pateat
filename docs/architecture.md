@@ -963,6 +963,23 @@ confused with the official Bitwarden extension. The source is
 in `apps/extension/public/icon/`, drawing the 128 px store icon at 96 px with
 transparent padding.
 
+Pateat shows no Bitwarden logo. Bitwarden's
+[trademark guidelines](https://github.com/bitwarden/server/blob/main/TRADEMARK_GUIDELINES.md)
+allow its logos only with written permission, and open-source licences grant no
+trademark rights. Pateat names Bitwarden only in plain text, to say which vault it
+connects to, and marks Bitwarden in the settings page with the generic `lucide-react`
+`Shield` icon (owner, 2026-10-13 15:02 UTC); the shield stands for Bitwarden there, so
+Pateat's own mark still avoids shield shapes. This follows independent
+Bitwarden-compatible projects checked on 2026-10-13:
+[Vaultwarden](https://github.com/dani-garcia/vaultwarden/blob/main/README.md), which
+renamed from bitwarden_rs to avoid trademark and branding issues, and
+[Keyguard](https://github.com/AChep/keyguard-app/blob/master/README.md) use their own
+logos and state that they are not associated with Bitwarden, Inc. Small launcher plugins
+such as the
+[Raycast extension](https://github.com/raycast/extensions/blob/main/extensions/bitwarden/package.json)
+use the Bitwarden shield without any stated permission, although the guidelines
+require it. Using the logo needs Bitwarden's written permission first.
+
 The toolbar icon shows whether Pateat can log in without asking for a password, as the
 Bitwarden extension shows its lock state (owner-approved). Unlocked shows the logo;
 locked draws the whole mark gray `#8A8F98` with the keystone lifted out of the arch
