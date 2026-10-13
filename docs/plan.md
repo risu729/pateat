@@ -409,8 +409,9 @@ own accounts, so they stay in the project's files rather than in this repository
   there is not decided.
 - Installed-Chrome checks moved from phase 1 (owner, 2026-10-12 20:35 UTC), checked
   when daily use reaches them:
-  - On 三菱UFJ銀行, after an expired QR code, the sign-in page, in the same tab or a new
-    one, is filled without pressing anything.
+  - On 三菱UFJ銀行, after an expired QR code, the sign-in page in the same tab is filled
+    without pressing anything, while a new tab logs in as before (owner, 2026-10-13:
+    「このタブだけ」; ADR 0027).
   - M3's password login on a real site, and M4's sync against the deployed service:
     `https://www.npmjs.com` logs in with no action from the owner through a recipe the
     service generated, and a later login makes no Claude call (after
@@ -2362,11 +2363,14 @@ cannot be listed, the saved default alone is offered. A login whose result is st
 `reconciling` is resumed, not taken as a logout. Since 2026-10-12 a tab whose own login
 stopped after a submission asks the same way, in that tab only, once a later page shows
 the login form after the record's 5-minute hold on other tabs has ended
-(`pateat.login-stopped-asks.v1`). Frame logins and sites whose logout
-page shows only a password step are not detected. By the owner's constraint (2026-10-12)
-a session that only expired never needs a manual press, so a logout of a session carried
-over from another tab's login or an earlier browser session is not detected either:
-Pateat logs in again there.
+(`pateat.login-stopped-asks.v1`). Since 2026-10-13 (owner, after Oracle Cloud and Sony
+Bank) a watched login (ADR 0027) whose first step shows again never signed in, so it is
+no logout: it ends `challenge-abandoned` or `watch-abandoned`, only its tab asks that
+way, and the site's other tabs log in (local tests only). Frame logins and sites whose
+logout page shows only a password step are not detected. By the owner's constraint
+(2026-10-12) a session that only expired never needs a manual press, so a logout of a
+session carried over from another tab's login or an earlier browser session is not
+detected either: Pateat logs in again there.
 
 Later work includes independently permitted vault create/update operations, nonzero
 passkey counter writeback and passkey creation; Bitwarden provider login with passkeys,

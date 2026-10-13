@@ -335,7 +335,6 @@ export function createDiagnosticsLog(options: {
             origin: report.origin,
             recipe: report.recipeId,
             recipeRevision: report.recipeRevision,
-            watched: report.watched,
             url: report.url,
           },
           { source },

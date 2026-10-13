@@ -11723,9 +11723,24 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       fake.state.observedPath = "/signin";
       fake.state.present = new Set(["password", "login"]);
       await h.hello({ documentId: "signed-out" });
-      expect(reports).toHaveBeenCalledWith(expect.objectContaining({ type: "logout" }));
-      expect(reports).not.toHaveBeenCalledWith(
-        expect.objectContaining({ type: "logout", watched: true }),
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(reports).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "logout", tabId: 1, origin }),
+      );
+      expect(fake.state.session["pateat.login-logouts.v1"]).toEqual([{ tabId: 1, origin }]);
+      expect(fake.state.session["pateat.login-stopped-asks.v1"]).toEqual([]);
+      // Another tab of the site asks too and only fills, as after any logout.
+      const before = executed().length;
+      fake.state.tabUrls[2] = fake.state.pageUrl;
+      expect(await h.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({ ok: true });
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(
+        executed()
+          .slice(before)
+          .map((step) => step.kind),
+      ).toEqual(["fill"]);
+      expect(reports).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "start", tabId: 2, fillOnly: true }),
       );
     });
 
@@ -11863,10 +11878,23 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       }
     });
 
-    it("releases the login when its first step shows in a new page, and only fills", async () => {
+    /** The tab's page shows the recipe's first step as a new document of `tabId`. */
+    async function signInPage(h: ReturnType<typeof harness>, tabId: number, documentId: string) {
+      fake.state.pageUrl = `${origin}/signin`;
+      fake.state.observedPath = "/signin";
+      fake.state.present = new Set(["password", "login"]);
+      fake.state.tabUrls[tabId] = fake.state.pageUrl;
+      const answer = await h.hello({ tab: { id: tabId }, documentId });
+      await vi.advanceTimersByTimeAsync(5_000);
+      return answer;
+    }
+    const abandoned = (outcome: string, tabId = 1) =>
+      expect.objectContaining({ type: "attempt", tabId, state: "blocked", outcome });
+
+    it("ends a watch that never signed in when its first step shows again: no logout, this tab only fills", async () => {
       const { h } = await watched();
       const steps = executed().length;
-      // The approval expired and the site went back to its sign-in page.
+      // The approval expired and the site went back to its sign-in page (owner, 2026-10-13).
       expect(await open(h, "/signin", ["password", "login"], 0)).toEqual({
         ok: true,
         starts: expect.any(Array),
@@ -11874,40 +11902,66 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       // The page reports the first step ready.
       expect(await h.hello({ documentId: "document-signin" })).toEqual({ ok: true });
       await vi.advanceTimersByTimeAsync(5_000);
-      expect(reports).toHaveBeenCalledWith(
-        expect.objectContaining({ type: "logout", watched: true }),
-      );
-      expect(fake.state.session["pateat.login-logouts.v1"]).toEqual([{ tabId: 1, origin }]);
+      expect(reports).not.toHaveBeenCalledWith(expect.objectContaining({ type: "logout" }));
+      expect(reports).toHaveBeenCalledWith(abandoned("challenge-abandoned"));
+      expect(fake.state.session["pateat.login-logouts.v1"]).toEqual([]);
+      expect(fake.state.session["pateat.login-stopped-asks.v1"]).toEqual([{ tabId: 1, origin }]);
       // The tab fills the form once, without pressing anything.
       expect(
         executed()
           .slice(steps)
           .map((step) => step.kind),
       ).toEqual(["fill"]);
+      expect(reports).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "start", tabId: 1, fillOnly: true }),
+      );
+      expect(fake.state.badges[1]?.title).toBe(
+        "Pateat: the last login on this site stopped in this tab. Click to choose an account.",
+      );
       expect(status() ?? []).toEqual([]);
+      // Another tab, or a new one, logs in as before and presses the button.
+      const before = executed().length;
+      expect(await signInPage(h, 2, "other-tab")).toEqual({ ok: true });
+      expect(
+        executed()
+          .slice(before)
+          .map((step) => step.kind),
+      ).toEqual(["fill", "click"]);
+      expect(reports).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: "start", tabId: 2, fillOnly: true }),
+      );
+      expect(reports).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: "refused", tabId: 2, reason: "logged-out" }),
+      );
     });
 
-    it("releases the login when the person starts over in another tab", async () => {
+    it("ends the watch when the person starts over in another tab, which logs in as before", async () => {
       const { h } = await watched();
       const steps = executed().length;
       // The approval expired and the person opened the sign-in page in a new tab.
-      fake.state.pageUrl = `${origin}/signin`;
-      fake.state.observedPath = "/signin";
-      fake.state.present = new Set(["password", "login"]);
-      fake.state.tabUrls[2] = fake.state.pageUrl;
-      expect(await h.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({ ok: true });
-      await vi.advanceTimersByTimeAsync(5_000);
-      expect(reports).toHaveBeenCalledWith(
-        expect.objectContaining({ type: "logout", tabId: 1, watched: true }),
-      );
-      expect(fake.state.session["pateat.login-logouts.v1"]).toEqual([{ tabId: 1, origin }]);
-      // The new tab fills the form once, without pressing anything, and holds nothing.
+      expect(await signInPage(h, 2, "other-tab")).toEqual({ ok: true });
+      expect(reports).not.toHaveBeenCalledWith(expect.objectContaining({ type: "logout" }));
+      expect(reports).toHaveBeenCalledWith(abandoned("challenge-abandoned", 1));
+      expect(fake.state.session["pateat.login-logouts.v1"]).toEqual([]);
+      // Only the watched tab asks if its own sign-in page shows again.
+      expect(fake.state.session["pateat.login-stopped-asks.v1"]).toEqual([{ tabId: 1, origin }]);
+      // The new tab logs in and presses the button.
       expect(
         executed()
           .slice(steps)
           .map((step) => step.kind),
+      ).toEqual(["fill", "click"]);
+      expect(reports).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: "start", tabId: 2, fillOnly: true }),
+      );
+      // The watched tab's own sign-in page then only fills.
+      const before = executed().length;
+      expect(await signInPage(h, 1, "document-signin")).toEqual({ ok: true });
+      expect(
+        executed()
+          .slice(before)
+          .map((step) => step.kind),
       ).toEqual(["fill"]);
-      expect(status() ?? []).toEqual([]);
     });
 
     it("keeps holding the site against another tab's page left open from before", async () => {
@@ -11943,7 +11997,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       expect(status()).toMatchObject([{ state: "watching", document: { tabId: 1 } }]);
     });
 
-    it("releases a login whose result settled as unknown the same way", async () => {
+    it("ends a login whose result settled as unknown the same way, as Sony Bank's", async () => {
       vi.useFakeTimers();
       reports.mockClear();
       fake.state.signs = quiet;
@@ -11959,12 +12013,28 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         ok: true,
         starts: expect.any(Array),
       });
+      const steps = executed().length;
       expect(await h.hello({ documentId: "document-signin" })).toEqual({ ok: true });
       await vi.advanceTimersByTimeAsync(5_000);
-      expect(reports).toHaveBeenCalledWith(
-        expect.objectContaining({ type: "logout", watched: true }),
-      );
+      // 2026-10-13: Sony Bank's sign-in page after a password submit settled as unknown was
+      // taken as a logout, and every other tab of the site only filled after it.
+      expect(reports).not.toHaveBeenCalledWith(expect.objectContaining({ type: "logout" }));
+      expect(reports).toHaveBeenCalledWith(abandoned("watch-abandoned"));
+      expect(fake.state.session["pateat.login-logouts.v1"]).toEqual([]);
+      expect(fake.state.session["pateat.login-stopped-asks.v1"]).toEqual([{ tabId: 1, origin }]);
+      expect(
+        executed()
+          .slice(steps)
+          .map((step) => step.kind),
+      ).toEqual(["fill"]);
       expect(status() ?? []).toEqual([]);
+      const before = executed().length;
+      expect(await signInPage(h, 2, "other-tab")).toEqual({ ok: true });
+      expect(
+        executed()
+          .slice(before)
+          .map((step) => step.kind),
+      ).toEqual(["fill", "click"]);
     });
 
     it("asks on a page the watch followed once its first step shows after the watch", async () => {

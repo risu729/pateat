@@ -365,7 +365,7 @@ type LiveDocument = {
   notStarted?: string;
   /**
    * When this worker first saw the document. Only a page first seen after another tab's
-   * login began to be watched releases that login (ADR 0027).
+   * login began to be watched ends that login (ADR 0027).
    */
   seenAt: number;
   /** Why this document's sign-in entry was not pressed, each reason logged once at info. */
@@ -1161,8 +1161,6 @@ export type LoginReport = (
       recipeId: string;
       /** The recipe revision the login runs. */
       recipeRevision: number;
-      /** It showed in a new page while the login was watched (ADR 0027). */
-      watched?: true;
     }
   | {
       /**
@@ -6291,7 +6289,6 @@ export function createLoginRuntime(
      */
     const releaseAsLogout = async (
       released: LoginAttemptMetadata,
-      watchedLogin: boolean,
     ): Promise<Readiness | undefined> => {
       const { tabId } = released.document;
       const releasedKey = recordKey(tabId, document.origin);
@@ -6313,7 +6310,6 @@ export function createLoginRuntime(
         origin: document.origin,
         recipeId: released.recipeId,
         recipeRevision: released.recipeRevision,
-        ...(watchedLogin ? { watched: true as const } : {}),
       });
       try {
         await forget(releasedKey);
@@ -6322,6 +6318,47 @@ export function createLoginRuntime(
       }
       // A page of that tab admitted meanwhile may have resumed the record; it stops too.
       if (attempts.get(tabId)?.metadata.id === released.id) attempts.delete(tabId);
+      if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+      return undefined;
+    };
+    /**
+     * Ends a watched login, which never signed in, once the recipe's first step shows again,
+     * as after a code or an approval expired (ADR 0027): no logout (ADR 0021 D). Only the
+     * watched login's tab asks and fills, as after a stopped login, while the site's other
+     * tabs log in as before (owner, 2026-10-13). Returns a refusal when it could not, else
+     * undefined.
+     */
+    const abandonWatch = async (
+      watchedLogin: LoginAttemptMetadata,
+    ): Promise<Readiness | undefined> => {
+      const { tabId } = watchedLogin.document;
+      const watchedKey = recordKey(tabId, document.origin);
+      const run = attempts.get(tabId);
+      const own = run?.metadata.id === watchedLogin.id ? run : undefined;
+      if (own) attempts.delete(tabId);
+      if (picked.get(tabId)?.attemptId === watchedLogin.id) picked.delete(tabId);
+      // The tab must keep asking after a restart, so its ask is stored first.
+      stoppedAsks.add(watchedKey);
+      try {
+        await saveSession();
+      } catch {
+        stoppedAsks.delete(watchedKey);
+        return refuse("storage-unavailable");
+      }
+      reportAttempt(
+        transitionLoginAttempt(own?.metadata ?? watchedLogin, {
+          type: "WATCH_ENDED",
+          abandoned: true,
+        }),
+        own?.recipe,
+      );
+      try {
+        await forget(watchedKey);
+      } catch {
+        return refuse("storage-unavailable");
+      }
+      // A page of that tab admitted meanwhile may have resumed the record; it stops too.
+      if (attempts.get(tabId)?.metadata.id === watchedLogin.id) attempts.delete(tabId);
       if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
       return undefined;
     };
@@ -6347,15 +6384,15 @@ export function createLoginRuntime(
     }
     // While a login is watched, its recipe's first step showing in a new page of the tab
     // means the person is back at the start, as when a code or an approval expired: the
-    // record is released as after a logout, so the tab asks and fills without pressing
-    // anything (ADR 0027). The page the watch began in never releases it.
+    // login never signed in, so this is no logout. It ends, and only this tab asks and fills
+    // without pressing anything (ADR 0027). The page the watch began in never ends it.
     if (
       recorded?.watch &&
       document.frameId === 0 &&
       start?.path === live.path &&
       document.documentId !== recorded.watch.documentId
     ) {
-      const refused = await releaseAsLogout(recorded, true);
+      const refused = await abandonWatch(recorded);
       if (refused) return refused;
       recorded = undefined;
     }
@@ -6375,7 +6412,7 @@ export function createLoginRuntime(
       }
       // It shows again after a finished login: a logout. Only this tab's record for this
       // origin is released, and the tab asks for an account (ADR 0021 D).
-      const refused = await releaseAsLogout(recorded, false);
+      const refused = await releaseAsLogout(recorded);
       if (refused) return refused;
       recorded = undefined;
     }
@@ -6451,13 +6488,13 @@ export function createLoginRuntime(
       recorded = undefined;
     }
     // The same holds when the person starts over in another tab, such as after closing a
-    // code page that expired: another tab's watched login of the site is released as after
-    // a logout, so this tab asks and fills without pressing anything instead of waiting
-    // for that login's hold to end (ADR 0027). Only a page first seen during the watch
-    // does, not one left open from before.
+    // code page that expired: another tab's watched login of the site ends, so this tab logs
+    // in as before instead of waiting for that login's hold to end, and only the watched
+    // tab asks if its own first step shows again (ADR 0027). Only a page first seen during
+    // the watch does, not one left open from before.
     if (!recorded && document.frameId === 0 && start?.path === live.path) {
       const keys = [...persisted.keys()];
-      // One at a time, each read again: a release awaits, and another watched login may
+      // One at a time, each read again: ending one awaits, and another watched login may
       // have moved on meanwhile.
       /* eslint-disable no-await-in-loop */
       for (const entryKey of keys) {
@@ -6473,7 +6510,7 @@ export function createLoginRuntime(
           live.seenAt < latest.watch.since
         )
           continue;
-        const refused = await releaseAsLogout(latest, true);
+        const refused = await abandonWatch(latest);
         if (refused) return refused;
       }
       /* eslint-enable no-await-in-loop */
@@ -7017,7 +7054,7 @@ export function createLoginRuntime(
     await save(run);
     await publish(live, metadata);
     void drive(run);
-    // A page of a watched login watches for the recipe's first step, which releases the
+    // A page of a watched login watches for the recipe's first step, which ends the
     // login (ADR 0027).
     if (metadata.watch && document.documentId !== metadata.watch.documentId) {
       const starts = await startsFor(document.origin);

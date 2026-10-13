@@ -359,9 +359,11 @@ export const loginAttemptEventSchema = v.variant("type", [
   v.strictObject({ type: v.literal("UNJUDGED"), operationId: identifier }),
   /**
    * The watch of a login (ADR 0027) is over: it ends where it stopped, `challenge` or an
-   * unknown result, and its later pages are no longer read.
+   * unknown result, and its later pages are no longer read. `abandoned`: the recipe's first
+   * step showed again before the login signed in, so it ends `challenge-abandoned` from a
+   * `challenge`, else `watch-abandoned`.
    */
-  v.strictObject({ type: v.literal("WATCH_ENDED") }),
+  v.strictObject({ type: v.literal("WATCH_ENDED"), abandoned: v.optional(v.literal(true)) }),
   /**
    * The page after the final `advance` step `operationId` is about to be sent to continue
    * the recipe (ADR 0018). Recorded before the request: one request per effect step.
@@ -773,6 +775,14 @@ function createLoginAttemptMachine() {
         document: event.type === "NAVIGATED" ? event.document : context.document,
       })),
       notListed: assign({ outcome: "account-not-listed" }),
+      watchEnded: assign(({ context, event }) => ({
+        outcome:
+          event.type !== "WATCH_ENDED" || !event.abandoned
+            ? context.outcome
+            : context.outcome === "challenge"
+              ? ("challenge-abandoned" as const)
+              : ("watch-abandoned" as const),
+      })),
     },
     guards: {
       canPrepare: ({ context, event }) =>
@@ -1118,7 +1128,7 @@ function createLoginAttemptMachine() {
           OBSERVED: observedTransitions,
           JUDGING: { guard: "canJudge", actions: "record" },
           UNJUDGED: { guard: "canUnjudge", actions: "record" },
-          WATCH_ENDED: { guard: "watchEnds", target: "blocked" },
+          WATCH_ENDED: { guard: "watchEnds", target: "blocked", actions: "watchEnded" },
           CONTINUING: { guard: "canContinue", actions: "record" },
           UNCONTINUED: { guard: "canUncontinue", actions: "record" },
           CONTINUED: { guard: "continued", target: "ready", actions: "record" },
@@ -1144,7 +1154,7 @@ function createLoginAttemptMachine() {
           ],
           JUDGING: { guard: "canJudge", actions: "record" },
           UNJUDGED: { guard: "canUnjudge", actions: "record" },
-          WATCH_ENDED: { target: "blocked" },
+          WATCH_ENDED: { target: "blocked", actions: "watchEnded" },
           // A restart or a new page of the tab keeps the watch; it has nothing in flight.
           INTERRUPTED: { actions: [] },
           NAVIGATED: [

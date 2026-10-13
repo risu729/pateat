@@ -228,7 +228,6 @@ export const LOG_EVENTS = {
       origin: "origin",
       recipe: "recipe",
       recipeRevision: "count",
-      watched: "flag",
       url: "url",
     },
   },

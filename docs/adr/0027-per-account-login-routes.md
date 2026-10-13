@@ -791,6 +791,23 @@ writes or the passkey bridge, as a settled one. Logs: `login.attempt` with state
 `watching` (warn), `recipe.judge` with `watched`, warn for its undecided answers and
 `page-limit`, and `login.logout` with `watched` for a release.
 
+Amended 2026-10-13 by the owner (04:30 UTC, decision card asking whether a sign-in page
+shown again after a confirmation page timed out also makes the site's other tabs only
+fill; answer 「このタブだけ」, this tab only), replacing the release above: a watched
+login never signed in, so the first step showing again is no logout
+([ADR 0021 D](0021-account-choice-outside-settings.md)). Evidence: Oracle Cloud's
+challenge page timed out back to its sign-in page (2026-10-13 03:59 UTC), and Sony
+Bank's login settled as unknown saw its sign-in page again (04:16 UTC), which was
+released as a logout, so the site's other tabs only filled. Now the login ends
+(`WATCH_ENDED` with `abandoned`): `blocked` with `challenge-abandoned` when it stopped
+at `challenge`, else `watch-abandoned`, logged by `login.attempt` with no value. Its
+record is forgotten, so it no longer holds the site. Only the watched login's tab asks
+and fills without pressing anything, as after a login that stopped after a submission
+(ADR 0021 D, `stopped-login`); the site's other tabs and new tabs log in as before, and
+may show the challenge again. When the first step shows in a new page of another tab,
+that tab logs in, and the watched tab asks if its own first step shows again.
+`login.logout` and its `watched` mark are no longer logged for a watch.
+
 ## Consequences
 
 - npm in any order: B's login teaches the completion; A's login adds the security-key

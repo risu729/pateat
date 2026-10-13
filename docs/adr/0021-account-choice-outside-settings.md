@@ -247,6 +247,24 @@ Rejected for this reason: counting a signed-in marker seen in the tab (it would 
 every expiry after such a page ask), and counting another tab's finished login (also
 against ADR 0022's choice that a new tab logs in).
 
+Amended 2026-10-13 by the owner (04:30 UTC, decision card asking whether a sign-in page
+shown again after a confirmation page timed out also makes the site's other tabs only
+fill; answer 「このタブだけ」, this tab only): the first step showing again while a
+login is watched under
+[ADR 0027](0027-per-account-login-routes.md#watching-after-a-challenge) is no logout,
+since that login never signed in. Evidence: on Oracle Cloud (2026-10-13 03:59 UTC) a
+challenge page timed out and the site went back to its sign-in page with no action from
+the person; on Sony Bank (04:16 UTC) a password login whose result settled as unknown
+saw its sign-in page again, was logged `login.logout` `watched`, and every other tab of
+the site then only filled. Now such a login ends `challenge-abandoned` (from a
+`challenge`) or `watch-abandoned` (from a result settled as unknown), and only the
+watched login's tab asks and fills without pressing anything, as after a stopped login
+above (`pateat.login-stopped-asks.v1`, `logged-out` with `stopped-login`). The site's
+other tabs and new tabs log in as before, which may show the challenge again there. The
+same holds when the first step shows in another tab first: that tab logs in, and the
+watched tab asks if its own first step shows again. `login.logout` and
+`pateat.login-logouts.v1` are left for a logout after a finished login, as above.
+
 Known gaps:
 
 - Frame logins are not detected (ADR 0017).
