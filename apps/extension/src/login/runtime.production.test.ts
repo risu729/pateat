@@ -4341,6 +4341,83 @@ describe("production login document admission", () => {
         expect(fake.state.reconnects).toEqual([]);
         expect(h.fields).not.toHaveBeenCalled();
       });
+      it("dispatches the offered choice snapshot before a badge can reenter tab cleanup", async () => {
+        const badge = createLoginBadge({
+          setBadge: setActionBadge,
+          storage: memoryBadgeStorage(),
+        });
+        const snapshots: Record<string, unknown>[] = [];
+        const set = fake.browser.storage.session.set;
+        const writing = vi
+          .spyOn(fake.browser.storage.session, "set")
+          .mockImplementation((values) => {
+            snapshots.push(structuredClone(values));
+            return set(values);
+          });
+        onTestFinished(() => writing.mockRestore());
+        const choicesAtBadge: unknown[] = [];
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris: async () => ({ ok: true, data: both }),
+          badge: {
+            ...badge,
+            choice: (tabId, value) => {
+              if (value) {
+                choicesAtBadge.push(snapshots.at(-1)?.["pateat.login-choices.v1"]);
+                // Chrome can close a tab while the toolbar reacts to its choice.
+                for (const listener of fake.state.removed) listener(tabId);
+              }
+              badge.choice(tabId, value);
+            },
+          },
+        });
+        expect(await h.hello()).toEqual({ ok: false, reason: "account-ambiguous" });
+        expect(choicesAtBadge).toMatchObject([
+          [{ document: { tabId: 1, documentId: "synthetic-document" } }],
+        ]);
+        await vi.waitFor(() => expect(fake.state.session["pateat.login-choices.v1"]).toEqual([]));
+        const restarted = matching();
+        expect(await ask(restarted)).toEqual({ ok: false, reason: "no-choice" });
+        expect(fake.state.reconnects).toEqual([]);
+      });
+      it.each(["throw", "reject"] as const)(
+        "continues admission after session initialization fails by %s",
+        async (failure) => {
+          const reading = vi
+            .spyOn(fake.browser.storage.session, "get")
+            .mockImplementationOnce(() => {
+              if (failure === "throw") throw new Error("Synthetic session read failure");
+              return Promise.reject(new Error("Synthetic session read failure"));
+            });
+          try {
+            const h = matching();
+            expect(await h.hello()).toEqual({ ok: false, reason: "account-ambiguous" });
+            expect(await ask(h)).toEqual(offered);
+            expect(fake.state.session["pateat.login-choices.v1"]).toMatchObject([
+              { document: { documentId: "synthetic-document" } },
+            ]);
+          } finally {
+            reading.mockRestore();
+          }
+        },
+      );
+      it.each(["throw", "reject"] as const)(
+        "keeps an offered choice usable after its session write fails by %s",
+        async (failure) => {
+          const writing = vi.spyOn(fake.browser.storage.session, "set").mockImplementation(() => {
+            if (failure === "throw") throw new Error("Synthetic session write failure");
+            return Promise.reject(new Error("Synthetic session write failure"));
+          });
+          try {
+            const h = matching();
+            expect(await h.hello()).toEqual({ ok: false, reason: "account-ambiguous" });
+            expect(await ask(h)).toEqual(offered);
+            expect(h.fields).not.toHaveBeenCalled();
+          } finally {
+            writing.mockRestore();
+          }
+        },
+      );
       it("restarts only the refused document with a one-time pick and saves nothing", async () => {
         const h = await refused();
         expect(await pick(h)).toEqual({ ok: true });
@@ -5153,6 +5230,43 @@ describe("production login document admission", () => {
             { origin, provider: "bitwarden", userId, itemId },
           ]);
           expect(logouts()).toEqual([]);
+        });
+        it("snapshots the started pick together with the cleared choice and logout", async () => {
+          const h = await loggedOut();
+          // A worker may stop between writes: no written started pick may still carry the
+          // old logout, which would make the restarted worker ask instead of resuming it.
+          const snapshots: Record<string, unknown>[] = [];
+          const set = fake.browser.storage.session.set;
+          const writing = vi
+            .spyOn(fake.browser.storage.session, "set")
+            .mockImplementation((values) => {
+              snapshots.push(structuredClone(values));
+              return set(values);
+            });
+          try {
+            expect(await pick(h, { documentId: "signed-out" })).toEqual({ ok: true });
+            const started = snapshots.filter(
+              (snapshot) =>
+                (snapshot["pateat.login-picks.v1"] as { attemptId?: string }[])[0]?.attemptId,
+            );
+            expect(started.length).toBeGreaterThan(0);
+            for (const snapshot of started) {
+              expect(snapshot["pateat.login-choices.v1"]).toEqual([]);
+              expect(snapshot["pateat.login-logouts.v1"]).toEqual([]);
+              expect(snapshot["pateat.login-stopped-asks.v1"]).toEqual([]);
+              expect(snapshot["pateat.login-rejected-asks.v1"]).toEqual([]);
+            }
+            // Keep the tab open for startup's attempt-record reconciliation.
+            vi.spyOn(fake.browser.tabs, "query").mockResolvedValue([{ id: 1 }] as never);
+            fake.state.onReconnect = undefined;
+            const restarted = matching();
+            expect(await restarted.hello({ documentId: "signed-out" })).toEqual({ ok: true });
+            expect(await ask(restarted)).toEqual({ ok: false, reason: "no-choice" });
+            expect(logouts()).toEqual([]);
+          } finally {
+            writing.mockRestore();
+            vi.mocked(fake.browser.tabs.query).mockRestore();
+          }
         });
         it("keeps asking as the tab that logged out after Chrome replaces the tab", async () => {
           const h = await loggedOut();
