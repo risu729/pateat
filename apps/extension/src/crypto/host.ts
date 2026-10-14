@@ -199,6 +199,7 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
     ready = false;
     sessions.clear();
     rejectHello?.();
+    // Finish deletes pending jobs; process the IDs present when invalidation starts.
     for (const id of [...pending.keys()]) finish(id, fail("crypto-failed"));
   }
   async function connect(port: CryptoHostPort) {
@@ -591,9 +592,9 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
       pending.size >= (destructive ? 16 : 8) ||
       (operation.kind === "open" && sessions.size >= 4) ||
       ((operation.kind === "open" || operation.kind === "derive-auth") &&
-        [...pending.values()].some(
-          (job) => job.operation.kind === "open" || job.operation.kind === "derive-auth",
-        ))
+        pending
+          .values()
+          .some((job) => job.operation.kind === "open" || job.operation.kind === "derive-auth"))
     )
       return fail("resource-limit");
     // A session's Worker runs one job at a time, so a job for a busy session waits for its

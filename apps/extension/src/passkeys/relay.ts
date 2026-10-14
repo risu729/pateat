@@ -137,6 +137,7 @@ export function installPasskeyRelay(send: Send, alive: () => boolean = () => tru
     );
   };
   const leave = () => {
+    // Cancel deletes heartbeats; keep a snapshot of the requests leaving this page.
     for (const id of [...heartbeats.keys()]) cancel(id);
   };
   window.addEventListener("message", listener);
@@ -144,6 +145,7 @@ export function installPasskeyRelay(send: Send, alive: () => boolean = () => tru
   return () => {
     window.removeEventListener("message", listener);
     window.removeEventListener("pagehide", leave);
+    // Settle deletes heartbeats; clean up only the requests present at teardown.
     for (const id of [...heartbeats.keys()]) settle(id);
   };
 }

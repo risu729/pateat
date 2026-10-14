@@ -745,7 +745,10 @@ Promises settled from outside use `Promise.withResolvers()`, input grouping uses
 these make the existing behavior clearer. `Promise.withResolvers()` and `Map.groupBy()`
 also run in the Worker. Narrower TypeScript projects add `ES2024.Promise`,
 `ES2024.Collection` and `ESNext.Collection` as needed for the production code they
-import.
+import. Collection predicates and maps consumed by a spread use Iterator Helpers instead
+of copying the collection into an array. Callbacks that can change the collection keep
+a snapshot; array results stay arrays. The narrower projects importing this code add
+`ESNext.Iterator`, the Iterator Helpers lib in the pinned TypeScript.
 
 ### Integration conditions (pending candidates remain conditional)
 

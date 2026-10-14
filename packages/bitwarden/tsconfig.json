@@ -5,6 +5,7 @@
     "lib": [
       "ES2022",
       "ES2024.Promise",
+      "ESNext.Iterator",
       "ESNext.TypedArrays",
       "ESNext.Temporal",
       "DOM",
