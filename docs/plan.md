@@ -659,14 +659,6 @@ than in this repository.
   text around a control, which the extractor leaves out today
   ([AI evaluation harness progress](#ai-evaluation-harness-progress)); not before
   (owner, 2026-10-12 05:57 UTC).
-- Proposed placement (2026-10-13): recognise a passkey request made with
-  `uiMode: "immediate"` (Chrome 149's Immediate UI) and delegate it, as
-  [ADR 0007](adr/0007-existing-passkey-assertions.md#admission) requires for
-  `immediate` requests, and log it as `immediate`. Today such a request without
-  `password` is admitted as a modal one
-  ([login standards](research/2026-10-13-login-standards.md#what-this-means-for-pateat-now)).
-  Answering these requests instead would need the owner's decision and an amendment of
-  ADR 0007.
 
 ### Phase 3: public release
 
@@ -784,6 +776,14 @@ still open on 2026-10-11.
 - Settings to limit Pateat as an extension that handles personal data: only allowed
   sites (an allowlist), and a choice of how long the vault stays unlocked, as the
   official Bitwarden extension offers.
+- Possibly later (owner, 2026-10-14 06:44 UTC): answering Chrome's Immediate UI
+  requests (`navigator.credentials.get` with `uiMode: "immediate"`, made when the
+  person presses a site's sign-in button) instead of delegating them as
+  [ADR 0007](adr/0007-existing-passkey-assertions.md) does today. With a stored
+  passkey, Pateat would answer as it answers a modal request; answering `password: true`
+  would hand the page a `PasswordCredential`, which needs a design of its own. The
+  [login standards](research/2026-10-13-login-standards.md) note records how the
+  official Bitwarden extension treats these requests.
 - Bitwarden writes (with their own permission), so that the official Bitwarden
   extension can be uninstalled; vaults other than Bitwarden.
 - Low priority (owner, 2026-10-11 18:29 UTC): pages that add another account while one
