@@ -1,6 +1,7 @@
 import {
   createDefaultSettings,
   DEVICE_IDLE_LIMIT_MS,
+  MAX_ACTIVE_RECIPE_BYTES,
   type LocalSettings,
   type LoginRecipe,
   type SyncRecipeChanges,
@@ -9,6 +10,8 @@ import { env, exports } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import { createDeviceToken, hashDeviceToken } from "../src/auth";
 import { KEPT_RECIPE_REVISIONS, MAX_ACTIVE_RECIPES } from "../src/limits";
+import { writeRecipe } from "../src/recipe-store";
+import { documentBytes, seedRecipeBytes, storedRecipeBytes } from "./recipe-byte-helpers";
 import { awaitRoomInMinute } from "./limiter";
 
 // Synthetic owners, devices and recipes only. Each test creates its own owner so
@@ -781,6 +784,117 @@ describe("per-owner limits", () => {
 
     // Another owner has its own limit.
     expect((await publish(await enrollOwner(), "over", 0)).status).toBe(200);
+  });
+
+  it("caps UTF-8 head bytes for creates and growth, while equal, shrinking and revoke writes pass", async () => {
+    const device = await enrollOwner();
+    const japanese = recipe("japanese", 1);
+    japanese.completion = [{ target: { by: "text", value: "ようこそ".repeat(20) } }];
+    const bytes = documentBytes(japanese);
+    expect(bytes).toBeGreaterThan(JSON.stringify(japanese).length);
+    await seedRecipeBytes(device.ownerId, MAX_ACTIVE_RECIPE_BYTES - bytes);
+    const write = (document: LoginRecipe, expectedRevision: number) =>
+      put(device, `/v1/recipes/${document.id}`, {
+        version: 1,
+        state: "active",
+        expectedRevision,
+        recipe: document,
+      });
+    expect((await write(japanese, 0)).status).toBe(200);
+    expect(await storedRecipeBytes(device.ownerId)).toBe(MAX_ACTIVE_RECIPE_BYTES);
+    const growing = {
+      ...japanese,
+      revision: 2,
+      completion: [{ target: { by: "text" as const, value: "ようこそ".repeat(21) } }],
+    };
+    const refused = await write(growing, 1);
+    expect(refused.status).toBe(409);
+    expect(await refused.json()).toEqual({ error: "recipe_limit" });
+    expect(await revisions(device.ownerId, japanese.id)).toEqual([
+      { revision: 1, state: "active" },
+    ]);
+    const over = await publish(device, "over-bytes", 0);
+    expect(await over.json()).toEqual({ error: "recipe_limit" });
+    expect(await revisions(device.ownerId, "over-bytes")).toEqual([]);
+    expect((await write({ ...japanese, revision: 2 }, 1)).status).toBe(200);
+    // Only the current head counts, despite two retained revisions.
+    expect(await storedRecipeBytes(device.ownerId)).toBe(MAX_ACTIVE_RECIPE_BYTES);
+    expect((await publish(device, japanese.id, 2)).status).toBe(200);
+    expect(await storedRecipeBytes(device.ownerId)).toBeLessThan(MAX_ACTIVE_RECIPE_BYTES);
+    // Growth that fits replaces its old head, rather than counting both documents.
+    expect((await write({ ...japanese, revision: 4 }, 3)).status).toBe(200);
+    expect(await storedRecipeBytes(device.ownerId)).toBe(MAX_ACTIVE_RECIPE_BYTES);
+    const stale = await write(growing, 1);
+    expect(await stale.json()).toMatchObject({ error: "recipe_conflict" });
+    expect(
+      (
+        await put(device, "/v1/recipes/byte-seed", {
+          version: 1,
+          expectedRevision: 1,
+          state: "revoked",
+        })
+      ).status,
+    ).toBe(200);
+    expect(await storedRecipeBytes(device.ownerId)).toBe(
+      documentBytes({ ...japanese, revision: 4 }),
+    );
+    expect((await publish(device, "over-bytes", 0)).status).toBe(200);
+    expect((await publish(await enrollOwner(), "isolated", 0)).status).toBe(200);
+  });
+
+  it("allows equal and shrinking repairs even when existing active bytes exceed the cap", async () => {
+    const device = await enrollOwner();
+    expect((await publish(device, "repair", 0)).status).toBe(200);
+    await seedRecipeBytes(device.ownerId, MAX_ACTIVE_RECIPE_BYTES);
+    expect((await publish(device, "repair", 1)).status).toBe(200);
+    const smaller = { ...recipe("repair", 3), completion: undefined };
+    expect(
+      (
+        await put(device, "/v1/recipes/repair", {
+          version: 1,
+          expectedRevision: 2,
+          state: "active",
+          recipe: smaller,
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await put(device, "/v1/recipes/repair", {
+          version: 1,
+          expectedRevision: 3,
+          state: "revoked",
+        })
+      ).status,
+    ).toBe(200);
+    const republished = await publish(device, "repair", 4);
+    expect(await republished.json()).toEqual({ error: "recipe_limit" });
+  });
+
+  it("serializes competing claims for the last available bytes", async () => {
+    const device = await enrollOwner();
+    const first = recipe("race-one", 1);
+    const second = recipe("race-two", 1);
+    await seedRecipeBytes(device.ownerId, MAX_ACTIVE_RECIPE_BYTES - documentBytes(first));
+    const results = await Promise.all(
+      [first, second].map((document) =>
+        writeRecipe(
+          env.DB,
+          device.ownerId,
+          document.id,
+          {
+            version: 1,
+            expectedRevision: 0,
+            state: "active",
+            recipe: document,
+          },
+          device.deviceId,
+        ),
+      ),
+    );
+    expect(results.filter((result) => result.ok)).toHaveLength(1);
+    expect(results.filter((result) => !result.ok && result.limited)).toHaveLength(1);
+    expect(await storedRecipeBytes(device.ownerId)).toBe(MAX_ACTIVE_RECIPE_BYTES);
   });
 
   it("keeps the newest revisions of a recipe and only the tombstone of a revoked one", async () => {

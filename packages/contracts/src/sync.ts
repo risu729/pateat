@@ -40,6 +40,10 @@ export const syncSettingsStateSchema = v.pipe(
  * to 128 KiB; the document leaves room for the rest of the write.
  */
 export const MAX_SETTINGS_DOCUMENT_BYTES = 120 * 1024;
+/** UTF-8 bytes of an owner's active recipe documents; tombstones do not count. */
+export const MAX_ACTIVE_RECIPE_BYTES = 1.5 * 1024 * 1024;
+/** Serialized device cache, including its envelope; leaves margin above the service cap. */
+export const MAX_RECIPE_CACHE_BYTES = 2 * 1024 * 1024;
 export const settingsDocumentBytes = (settings: unknown) =>
   new TextEncoder().encode(JSON.stringify(settings)).byteLength;
 
@@ -125,7 +129,7 @@ export const syncErrorCodeSchema = v.picklist([
   "payload_too_large",
   "unsupported_media_type",
   "rate_limited",
-  /** The write would make the owner hold more active recipes than the service keeps. */
+  /** The write would make the owner hold more active recipes or recipe bytes than the service keeps. */
   "recipe_limit",
   "internal_error",
 ]);
