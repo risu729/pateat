@@ -376,7 +376,7 @@ describe("recipe sync", () => {
     expect(cache()).toMatchObject({ deviceId: OTHER_DEVICE });
   });
 
-  it("can overflow while current service heads fit, until later shrinking revisions arrive", async () => {
+  it("keeps retrying an overflowing page even when smaller current heads fit on later pages", async () => {
     const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).byteLength;
     const small = recipe("old-000", "/login");
     const large = parseLoginRecipe({
@@ -414,17 +414,21 @@ describe("recipe sync", () => {
     expect(bytes({ ...stored, recipes: [...old, ...added] })).toBeGreaterThan(
       MAX_RECIPE_CACHE_BYTES,
     );
-    const { sync, cache } = setup({
-      stored,
-      pages: [
-        page(added.map(active), 2, false),
-        page(shrunk.map(active), 3),
-        // A revoke-only overflow walk also cannot apply these shrinking active heads.
-        page(added.map(active), 2, false),
-      ],
-    });
+    const { sync, cache, transport } = setup({ stored });
+    // These shrinking heads are already available later in the feed, but the unchanged
+    // persisted cursor keeps retrying the additions. A revoke-only walk cannot apply
+    // shrinking active heads either, so it also retries the same overflowing page.
+    transport.recipeChanges.mockImplementation(async (_origin, _credential, cursor) =>
+      cursor === 1 ? page(added.map(active), 2, false) : page(shrunk.map(active), 3),
+    );
     expect(await sync.sync()).toBe("cache-full");
     expect(cache()).toEqual(stored);
+    expect(await sync.sync()).toBe("cache-full");
+    expect(cache()).toEqual(stored);
+    expect(
+      transport.recipeChanges.mock.calls.filter(([, , cursor]) => cursor === 1).length,
+    ).toBeGreaterThanOrEqual(2);
+    expect(transport.recipeChanges).toHaveBeenLastCalledWith(SERVICE, CREDENTIAL, 1);
   });
 
   it("stops before the cache outgrows its share of local storage", async () => {
