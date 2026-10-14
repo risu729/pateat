@@ -780,20 +780,20 @@ before any read or write can access sensitive settings. Preserve
 single-writer revision checks, corruption handling and fail-closed policy;
 storage helpers do not provide compare-and-swap by themselves.
 
-Parse untrusted destinations with `URL.parse()` and explicitly handle its `null`
-result with the caller's existing failure value. Relative inputs still require the
-same explicit base; admission code retains its scheme, credential, exact-origin and
-hostname checks in the same order. Keep `try` blocks around operations that can fail
-for reasons beyond URL parsing, including the login runtime's domain matching. Pass
-the normalized hostname to tldts and explicitly include private suffix rules where
-appropriate. PSL information is not permission to fill or sign, and does not replace
-HTTPS, origin, ancestor or Permissions Policy checks. OTPAuth covers standard OTP mechanics; test Bitwarden
-Steam compatibility separately and do not advertise HOTP merely because parsing
-supports it. Base64, base64url and hex use the standard `Uint8Array` methods;
+Parse untrusted destinations with `URL.parse()` and explicitly handle its `null` result
+with the caller's existing failure value. Relative inputs still require the same
+explicit base; admission code retains its scheme, credential, exact-origin and hostname
+checks in the same order. Keep `try` blocks around operations that can fail for reasons
+beyond URL parsing, including the login runtime's domain matching. Pass the normalized
+hostname to tldts and explicitly include private suffix rules where appropriate. PSL
+information is not permission to fill or sign, and does not replace HTTPS, origin,
+ancestor or Permissions Policy checks. OTPAuth covers standard OTP mechanics; test
+Bitwarden Steam compatibility separately and do not advertise HOTP merely because
+parsing supports it. Base64, base64url and hex use the standard `Uint8Array` methods;
 strict decoding (`lastChunkHandling: "strict"`) still needs the input checked for
 whitespace and, when unpadded, padded first. Evaluate `@noble/hashes` for actual
-protocol gaps; CBOR is read with the approved `cbor2`, only from data the Bitwarden
-SDK has already verified. Do not write crypto/CBOR primitives ourselves, assume all
+protocol gaps; CBOR is read with the approved `cbor2`, only from data the Bitwarden SDK
+has already verified. Do not write crypto/CBOR primitives ourselves, assume all
 primitives in a package are audited, or substitute a different KDF for Bitwarden
 Argon2id.
 
