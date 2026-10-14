@@ -101,9 +101,7 @@ export async function findLiveSiteCandidates(input: {
     const incomplete = new Map<string, Set<string>>();
     const note = (itemId: string, reason: string) => {
       if (!eligible(itemId)) return;
-      const reasons = incomplete.get(itemId) ?? new Set<string>();
-      reasons.add(reason);
-      incomplete.set(itemId, reasons);
+      incomplete.getOrInsertComputed(itemId, () => new Set<string>()).add(reason);
     };
     // Non-web schemes and malformed URIs can never match a page, as in the pinned clients.
     for (const entry of result.data.unavailableUris)

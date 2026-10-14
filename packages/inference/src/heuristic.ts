@@ -53,11 +53,7 @@ export function heuristicPlan(
   if (!observation.complete) return local({ status: "failed", error: "incomplete-observation" });
   const identifier = slots.find((slot) => slot.kind === "identifier");
   const secret = slots.find((slot) => slot.kind === "secret");
-  const forms = new Map<string, ObservedCandidate[]>();
-  for (const candidate of observation.candidates) {
-    const key = candidate.group ?? "";
-    forms.set(key, [...(forms.get(key) ?? []), candidate]);
-  }
+  const forms = Map.groupBy(observation.candidates, (candidate) => candidate.group ?? "");
   const passwordsIn = (form: ObservedCandidate[]) =>
     form.filter((candidate) => candidate.role === "password");
   // Two password fields in one form are a sign-up or a password change.

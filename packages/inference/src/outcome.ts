@@ -148,11 +148,9 @@ export async function raceAbort<T>(work: PromiseLike<T>, signal: AbortSignal): P
   // Observe a late rejection of abandoned work so it never becomes unhandled.
   Promise.resolve(work).catch(() => {});
   signal.throwIfAborted();
-  let abort = () => {};
-  const aborted = new Promise<never>((_resolve, reject) => {
-    abort = () => reject(signal.reason);
-    signal.addEventListener("abort", abort, { once: true });
-  });
+  const { promise: aborted, reject } = Promise.withResolvers<never>();
+  const abort = () => reject(signal.reason);
+  signal.addEventListener("abort", abort, { once: true });
   try {
     return await Promise.race([work, aborted]);
   } finally {
