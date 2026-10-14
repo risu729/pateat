@@ -139,11 +139,12 @@ export function installPasskeyRelay(send: Send, alive: () => boolean = () => tru
   const leave = () => {
     for (const id of [...heartbeats.keys()]) cancel(id);
   };
-  window.addEventListener("message", listener);
-  window.addEventListener("pagehide", leave);
+  const controller = new AbortController();
+  const { signal } = controller;
+  window.addEventListener("message", listener, { signal });
+  window.addEventListener("pagehide", leave, { signal });
   return () => {
-    window.removeEventListener("message", listener);
-    window.removeEventListener("pagehide", leave);
+    controller.abort();
     for (const id of [...heartbeats.keys()]) settle(id);
   };
 }
