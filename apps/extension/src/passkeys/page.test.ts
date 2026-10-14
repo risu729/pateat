@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { installPasskeyPage } from "./page";
+import { installPasskeyPage, snapshotGetOptions } from "./page";
 import {
   PAGE_CHANNEL,
   PAGE_CREATE_MAX_WAIT_MS,
@@ -92,6 +92,25 @@ describe("MAIN-world passkey wrapper", () => {
     expect(page.nativeGet.mock.calls[0]).toEqual([options]);
     expect(page.nativeGet.mock.calls[0]![0]).toBe(options);
     expect(page.nativeGet.mock.contexts[0]).toBe(page.container);
+  });
+
+  it("relays Immediate UI's uiMode as immediate mediation and delegates the caller's call", async () => {
+    const page = fakePage(answer({ kind: "delegate" }));
+    const options = { publicKey, uiMode: "immediate" };
+    await expect(page.container.get(options)).resolves.toBe("native");
+    expect(page.posted[0]).toMatchObject({
+      type: "get",
+      request: { mediation: "immediate" },
+    });
+    expect(page.nativeGet.mock.calls[0]![0]).toBe(options);
+  });
+
+  it("relays only a string uiMode, and only immediate replaces the mediation", async () => {
+    expect(snapshotGetOptions({ publicKey, uiMode: 1 })).toBeUndefined();
+    expect(
+      snapshotGetOptions({ publicKey, uiMode: "immediate", mediation: "optional" }),
+    ).toMatchObject({ mediation: "immediate" });
+    expect(snapshotGetOptions({ publicKey, uiMode: "other" })).not.toHaveProperty("mediation");
   });
 
   it("delegates promptly when no relay acknowledges", async () => {

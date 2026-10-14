@@ -429,6 +429,7 @@ describe("passkey runtime reports", () => {
   it.each([
     ["conditional", "conditional"],
     ["silent", "silent"],
+    ["immediate", "immediate"],
     ["made-up", "other"],
   ])("reports a %s request delegated while the tab's login runs", async (mediation, reported) => {
     // Another provider, such as the Bitwarden extension, may show its prompt then.

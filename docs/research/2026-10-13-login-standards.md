@@ -205,6 +205,15 @@ the server confirmed and an action the person allowed stay separate states.
   ADR 0029), and `passkey.request` logs no `mediation` for it, so the check
   [ADR 0034](../adr/0034-answer-page-passkey-requests.md) plans on that field for
   `immediate` requests would not see one. Read from the code; not tried on a site.
+  Follow-up on 2026-10-14: the owner chose to keep delegating these requests, and the
+  page now relays them as `immediate` mediation (ADR 0007). The official Bitwarden
+  extension (`bitwarden/clients` main
+  [`90b2fa3`](https://github.com/bitwarden/clients/commit/90b2fa3017a0c5587377cbabf5c788b07043e333))
+  does not read `uiMode` either: its page script sends every request with `publicKey`
+  and without `mediation: "conditional"` to its own window, so with it installed an
+  immediate request opens that window instead of failing at once, and `password: true`
+  is ignored. No Bitwarden issue, pull request or forum topic about Immediate UI was
+  found on 2026-10-14.
 - **Usable only after they settle.** Agentic Federated Login, `<login>`, WebMCP and
   Email Verification are in origin trials or drafts, which the
   [platform-feature rules](../development.md#platform-features) keep out of the

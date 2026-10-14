@@ -38,6 +38,10 @@ is handed on (see [Registration after a sign-in](#registration-after-a-sign-in);
 implemented, and confirmed on Wise in the owner's Chrome on 2026-10-13).
 Amended on 2026-10-13: the owner chose the `DER` helper of `@noble/curves` for the
 signature wrapper (see [Alternatives](#alternatives)).
+Amended on 2026-10-14: Chrome 149's Immediate UI asks with `uiMode: "immediate"` instead
+of `mediation: "immediate"`. The owner chose at 06:44 UTC to keep delegating these
+requests for now and to consider answering them later: the page relays such a request
+as `immediate` mediation, which delegates and is logged as `immediate` (implemented).
 
 Amended on 2026-10-12 under the owner's passkey-first policy of 13:58 UTC
 ([ADR 0034](0034-answer-page-passkey-requests.md)), after a log from the Grok Bot's
@@ -190,7 +194,8 @@ passkeys in the vault, which is passkey registration and stays later work.
 Pateat claims a request only when all of these hold; otherwise it delegates:
 
 - `publicKey` is the only credential type requested and mediation is absent,
-  `optional` or `required`. Silent and immediate mediation delegate. Conditional
+  `optional` or `required`. Silent and immediate mediation delegate, and so does a
+  request with `uiMode: "immediate"`. Conditional
   mediation is admitted only for the login runtime to decide, which answers it through
   a login of the document and hands it on otherwise
   ([ADR 0034](0034-answer-page-passkey-requests.md)).

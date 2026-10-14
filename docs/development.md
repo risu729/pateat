@@ -447,7 +447,8 @@ holds:
   (`login-wait`, `account-lookup`, `passkey-lookup`, `signed-before-lookup`, `chooser`
   or `signing`);
 - `mediation`: the request's mediation when it names one (`optional`, `conditional`,
-  `required`, `silent`, `immediate` or `other`), whatever the outcome;
+  `required`, `silent`, `immediate` or `other`), whatever the outcome; a request with
+  `uiMode: "immediate"` (Chrome's Immediate UI) is logged as `immediate`;
 - `answerFailed`: why the login's item could not answer a conditional request the login
   gave it (such as `login-item-no-credential`); the login then falls back to the
   password;
