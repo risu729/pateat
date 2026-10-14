@@ -198,11 +198,7 @@ export function senderOrigin(sender: Sender, extensionId: string): string | unde
     typeof sender.url !== "string"
   )
     return undefined;
-  try {
-    return new URL(sender.url).origin === sender.origin ? sender.origin : undefined;
-  } catch {
-    return undefined;
-  }
+  return URL.parse(sender.url)?.origin === sender.origin ? sender.origin : undefined;
 }
 
 /** Settles with `pending`, or rejects with the signal's reason once it aborts. */

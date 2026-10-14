@@ -13,11 +13,7 @@ const textLimit = 480;
 
 /** The link's parsed `href`, or nothing for a link whose `href` does not parse. */
 export function linkUrl(link: HTMLAnchorElement): URL | undefined {
-  try {
-    return new URL(link.href);
-  } catch {
-    return undefined;
-  }
+  return URL.parse(link.href) ?? undefined;
 }
 
 /**
