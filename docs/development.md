@@ -307,6 +307,24 @@ local Windows disk, point `TEMP` and `TMP` at a faster drive: on GitHub's `windo
 runners in 2026-10, profiles in the default temp directory on the system drive hit
 5-25 s I/O stalls that timed out random tests.
 
+### Cloud sessions
+
+Notes for agents working in a cloud container, observed on 2026-10-12 and 2026-10-13:
+
+- If `mise install` stops because a tool's declared skills cannot be fetched
+  (`declared skill(s) ... are not installed`), set `MISE_SKILLS_FETCH=false` for every
+  mise command.
+- Do not run `playwright install`. When the container's Chromium is another build than
+  the one `@playwright/test` pins, point `PLAYWRIGHT_BROWSERS_PATH` at a directory that
+  links the container's browser under the pinned build's directory names
+  (`chromium-<build>` and `chromium_headless_shell-<build>`, each with an
+  `INSTALLATION_COMPLETE` marker); otherwise browser tests fail with "Executable doesn't
+  exist". A pass on that other Chromium is no evidence for tab focus or visibility
+  behavior; only CI's pinned build is.
+- `hk check --from-ref origin/main` checks committed changes only, so commit before
+  running it.
+- A PR that conflicts with main gets no CI runs at all; merge main into it to start CI.
+
 ### Installed Chrome synthetic login probe
 
 This procedure prepares a manual acceptance run; its availability is not evidence
