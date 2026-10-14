@@ -21,6 +21,9 @@ binding after its first `authenticated` login, and another item's saved binding 
 recipe is reused by name
 ([ADR 0027](0027-per-account-login-routes.md#implementation-choices)).
 
+Amended on 2026-10-14: the implemented cache-overflow behavior below applies
+revocations without advancing past skipped active changes.
+
 Date: 2026-10-10
 
 ## Context
@@ -191,3 +194,24 @@ with a 401 keeps using its cached recipes but receives no further changes, revoc
 included, until it is disconnected and paired again; disconnecting clears the cache. A
 device whose cache is full keeps using the recipes it has in the same way until recipes
 are removed on the service.
+
+## Amendment: Revocations while the cache is full (2026-10-14)
+
+The owner approved this change on 2026-10-14 at 07:24 UTC in
+[issue #544](https://github.com/risu729/pateat/issues/544). This replaces the final
+cache-full consequence above: a full cache keeps its remaining recipes, but a
+bounded revoke-only walk still applies removals, including those after the page
+that does not fit. These writes keep the old persisted cursor, so active changes
+remain pending and their order is preserved. A later active change in the walk
+does not restore a revoked recipe; it stays missing until normal sync can apply
+that change's full page.
+
+Normal sync and the revoke-only walk share the 50-page limit, including the
+blocked page. Revocations outside that walk wait for a later sync; this is not
+an unlimited revocation scan. After walking, sync retries the blocked page once
+from the persisted cursor, with one additional request. Removals free room for
+active changes only when the whole blocked page fits, at which point normal
+sync advances the cursor. If it still does not fit, sync reports `cache-full`.
+Each page's removals are saved before requesting another page, so a later
+transport failure leaves those revocations applied. An overflow containing only
+active changes writes nothing unless the retry fits.
