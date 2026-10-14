@@ -10,6 +10,7 @@
       "ES2024.Collection",
       "ESNext.Collection",
       "ESNext.Iterator",
+      "ES2025.Intl",
       "ESNext.TypedArrays",
       "ESNext.Temporal",
       "DOM"
