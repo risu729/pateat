@@ -44,7 +44,11 @@ export const recipeRoutes = new Hono<ApiEnv>()
     const { after, limit } = c.req.valid("query");
     const scope = c.get("scope");
     // Devices read this often, so expired request log rows go even without new calls.
-    await purgeExpiredLog(drizzle(c.env.DB), Date.now());
+    try {
+      await purgeExpiredLog(drizzle(c.env.DB), Date.now());
+    } catch {
+      console.error("Inference log purge failed");
+    }
     const rows = await selectHeads(c.env.DB, scope.ownerId, gt(recipeHeads.sequence, after))
       .orderBy(asc(recipeHeads.sequence))
       .limit(limit + 1);

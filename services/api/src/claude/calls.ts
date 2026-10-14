@@ -228,8 +228,12 @@ export async function callClaude<T>(
         costMicroUsd: micro,
         createdAt: finished,
       }),
-      purgeExpiredLog(db, finished),
     ]);
+    try {
+      await purgeExpiredLog(db, finished);
+    } catch {
+      console.error("Inference log purge failed");
+    }
     return { status: "called", outcome };
   } finally {
     await db
