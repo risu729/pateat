@@ -311,7 +311,11 @@ async function execute(command: HostCommand) {
     return owned.session.decryptCipher({ connectionId: command.connectionId, cipher });
   let snapshot = owned.fields.get(itemId);
   if (!snapshot) {
-    if (owned.fields.size >= 128) return fail("resource-limit");
+    if (owned.fields.size >= 128) {
+      const [oldestItemId, oldestSnapshot] = owned.fields.entries().next().value!;
+      owned.fields.delete(oldestItemId);
+      oldestSnapshot.dispose();
+    }
     const decrypted = await owned.session.decryptCipher({
       connectionId: command.connectionId,
       cipher,
@@ -325,6 +329,10 @@ async function execute(command: HostCommand) {
     });
     if (!created.ok) return created;
     snapshot = created.data;
+    owned.fields.set(itemId, snapshot);
+  } else {
+    // Map insertion order tracks recency for both field listing and resolution.
+    owned.fields.delete(itemId);
     owned.fields.set(itemId, snapshot);
   }
   if (op.kind === "list") return { ok: true as const, data: snapshot.list() };
