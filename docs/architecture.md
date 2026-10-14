@@ -1097,6 +1097,17 @@ pages allow inline script (the MV3 policy, and the owner web UI's `script-src 's
 the choice is applied from the page's module, so a page whose stored choice differs from
 the browser's scheme may paint one frame in the browser's scheme first.
 
+Deleting a Bitwarden connection in settings asks in a modal Base UI `AlertDialog`. It
+names the connection and explains removal of its local vault cache, unlock key and sync
+sign-in. Focus starts on **Keep connection**; Keep and Escape close without deleting,
+report "Connection kept." and return focus to that row's **More** button. Backdrop
+clicks leave the question open, and the page behind it is blocked until it closes.
+**Delete connection** runs the existing local deletion operation and reports its result
+in the settings status line. The owner approved this change on 2026-10-14 at 08:40 UTC
+([adopted platform features](research/2026-10-14-platform-feature-candidates.md)). The
+`/manage` recipe revoke and diagnostics **Clear logs** confirmations remain inline;
+whether they follow is a separate owner decision.
+
 ## Diagnostics
 
 `diagnostics.html`, linked from the settings page, shows per-device versions and state

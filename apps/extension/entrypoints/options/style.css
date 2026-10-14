@@ -109,6 +109,11 @@ body {
   font-size: 1rem;
 }
 
+/* Keep page stacking contexts beneath portaled menus and the delete dialog. */
+#root {
+  isolation: isolate;
+}
+
 @layer base {
   :root {
     font-family: var(--font-sans);
