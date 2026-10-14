@@ -1155,6 +1155,16 @@ describe("unhandled errors", () => {
       outcome: "policy-changed",
       cause: "settings-synced",
     });
+    log.login({
+      type: "attempt",
+      ...page,
+      route: "password",
+      state: "authenticated",
+      stepIndex: 2,
+      stepCount: 2,
+      outcome: "authenticated",
+      unconfirmed: true,
+    });
     // A recipe with several password variants names its first variant's refusal (ADR 0027).
     log.login({
       type: "refused",
@@ -1372,6 +1382,21 @@ describe("unhandled errors", () => {
           handler: 0,
           outcome: "policy-changed",
           cause: "settings-synced",
+        },
+      ],
+      [
+        "login.attempt",
+        "info",
+        {
+          origin: recipeOrigin,
+          recipe: expect.any(String),
+          recipeRevision: 1,
+          route: "password",
+          state: "authenticated",
+          step: 2,
+          steps: 2,
+          outcome: "authenticated",
+          unconfirmed: true,
         },
       ],
       [

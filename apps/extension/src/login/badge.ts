@@ -86,7 +86,7 @@ export type PageStatus = {
    * `logged-out` once its first step showed again, with outcome `rejected` when the site
    * rejected it (ADR 0021 D).
    */
-  login?: { state: string; outcome?: string; cause?: string };
+  login?: { state: string; outcome?: string; cause?: string; unconfirmed?: true };
   /** A refusal that shows a failure badge, until a login of the tab moves on. */
   refused?: { reason: string; detail?: string };
   /**
@@ -143,7 +143,9 @@ export function badgeResult(
   if (report.type !== "attempt" || report.repeat) return undefined;
   const until = now + NOTICE_MS;
   if (report.state === "authenticated")
-    return { kind: "succeeded", reason: "authenticated", until };
+    return report.unconfirmed
+      ? { kind: "unsettled", reason: "unconfirmed", until }
+      : { kind: "succeeded", reason: "authenticated", until };
   const outcome = report.outcome ?? "";
   if (report.state === "blocked") {
     if (FAILED.has(outcome))
@@ -324,6 +326,7 @@ export function createLoginBadge(deps: {
           state: report.state,
           ...(report.outcome ? { outcome: report.outcome } : {}),
           ...(report.cause ? { cause: report.cause } : {}),
+          ...(report.unconfirmed ? { unconfirmed: true as const } : {}),
         },
       };
     else if (report.type === "generation" && report.outcome !== "skipped") {
@@ -422,7 +425,7 @@ export function createLoginBadge(deps: {
     /** Reads a log report for how a login ended (ADR 0038). */
     observe(report: LoginReport): void {
       if (report.type === "attempt" && !report.repeat) {
-        const key = `${report.state} ${report.outcome ?? ""} ${report.settled ?? ""}`;
+        const key = `${report.state} ${report.outcome ?? ""} ${report.settled ?? ""} ${report.unconfirmed ?? ""}`;
         if (lastAttempt.get(report.tabId) === key) return;
         lastAttempt.set(report.tabId, key);
       }
@@ -563,6 +566,7 @@ const storedSchema = v.object({
             state: v.string(),
             outcome: v.exactOptional(v.string()),
             cause: v.exactOptional(v.string()),
+            unconfirmed: v.exactOptional(v.literal(true)),
           }),
         ),
         refused: v.exactOptional(

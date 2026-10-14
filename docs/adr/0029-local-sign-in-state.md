@@ -42,6 +42,11 @@ the owner's github.com report): the decision is unchanged, but such a form shown
 with its password input and no other sign (no S3, S4, S5 or E sign) stops being watched
 once it is confirmed unknown; the tab asks for an account at once (implemented).
 
+Amended on 2026-10-14 (07:24 UTC, owner's decision in
+[issue #546](https://github.com/risu729/pateat/issues/546)): an undecided page still
+ends the login, but only a confirmed completion counts as success (implemented); see the
+amendment below. This also amends ADR 0021, ADR 0038 and ADR 0007.
+
 Date: 2026-10-12
 
 ## Context
@@ -462,3 +467,35 @@ row above treats as before.
 - Compare with the page the person was on before the login: rejected, because a login
   that started on the top page cannot tell success from a failure that returns there.
 - Reopen the login URL to see whether it redirects: rejected by the owner.
+
+## Amendment: unconfirmed completion (2026-10-14)
+
+The owner chose on 2026-10-14 at 07:24 UTC: "the login still ends as today, but it is
+not counted as a success"
+([issue #546](https://github.com/risu729/pateat/issues/546)). This replaces the success
+consequences of the earlier no-S-no-E decision; the accepted text above is retained
+as history.
+
+The current outcome table replaces the no-S-no-E row with:
+
+| Page | Result | Confirmed |
+| --- | --- | --- |
+| No S, no E; judge `signed-in` | `authenticated`, adding its marker | Yes |
+| No S, no E; `unclear` with `judged-signed-in` | `authenticated`, after the existing re-reading and omission guards | Yes |
+| No S, no E; `unclear` with no reason, `already-judged`, `judgement-limit`, `daily-limit` or `monthly-limit` | `authenticated`, with `unconfirmed: true`, after the same guards | No |
+| No S, no E; `rejected`, `challenge`, other `unclear`, or `retry` | The existing rejection, challenge, unknown or retry outcome | No completion |
+
+The other rows and the move and missing-password stop rules are unchanged. A move
+still completes only on `signed-in` or `judged-signed-in`, both confirmed.
+
+The first Consequences paragraph now applies as follows: every completion still stops
+automation, releases the site to other tabs and treats the sign-in page showing again
+as a logout. Only confirmed completion saves the pending account choice
+([ADR 0021](0021-account-choice-outside-settings.md)). An unconfirmed completion drops
+that choice, shows the yellow unsettled badge and says in the popup that the sign-in
+could not be confirmed ([ADR 0038](0038-login-status-badge.md)); it does not record
+"Pateat signed in here" for registration refusal
+([ADR 0007](0007-existing-passkey-assertions.md)). The warn-level `recipe.judge` entry
+stays, and `login.attempt` carries `unconfirmed`. The attempt and popup status retain
+that flag across a worker restart. Synthetic tests verify these distinctions; no new
+real-account verification is claimed.

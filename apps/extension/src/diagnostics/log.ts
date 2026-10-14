@@ -140,6 +140,7 @@ export const LOG_EVENTS = {
       cause: "code",
       reason: "code",
       settled: "flag",
+      unconfirmed: "flag",
       routeChange: "code",
       stop: "code",
       url: "url",

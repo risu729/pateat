@@ -157,8 +157,13 @@ describe("judgedCompletionResult", () => {
   } as const;
 
   it.each([
-    [{ verdict: "signed-in" }, "authenticated"],
-    [{ completes: true }, "authenticated"],
+    [{ verdict: "signed-in" }, "authenticated", true],
+    [{ completes: true }, "authenticated", false],
+    [{ completes: true, reason: "already-judged" }, "authenticated", false],
+    [{ completes: true, reason: "judgement-limit" }, "authenticated", false],
+    [{ completes: true, reason: "daily-limit" }, "authenticated", false],
+    [{ completes: true, reason: "monthly-limit" }, "authenticated", false],
+    [{ completes: true, reason: "judged-signed-in" }, "authenticated", true],
     [{ verdict: "rejected" }, "credential-rejected"],
     [{ verdict: "challenge" }, "challenge"],
     [{ reason: "judged-challenge" }, "challenge"],
@@ -169,11 +174,17 @@ describe("judgedCompletionResult", () => {
     [{}, "unknown"],
     [{ route: "passkey" }, "challenge"],
     [{ route: "passkey", verdict: "rejected" }, "challenge"],
-    [{ route: "passkey", verdict: "signed-in" }, "authenticated"],
+    [{ route: "passkey", verdict: "signed-in" }, "authenticated", true],
     [{ stopAt: 0 }, "challenge"],
     [{ stopAt: 0, verdict: "rejected" }, "credential-rejected"],
-    [{ stopAt: 0, verdict: "signed-in" }, "authenticated"],
-  ] as const)("selects ADR 0029's outcome: %j → %s", (change, expected) => {
-    expect(judgedCompletionResult({ ...result, ...change })).toBe(expected);
-  });
+    [{ stopAt: 0, verdict: "signed-in" }, "authenticated", true],
+  ] as const)(
+    "selects ADR 0029's outcome: %j → %s (confirmed=%s)",
+    (change, expected, confirmed = false) => {
+      expect(judgedCompletionResult({ ...result, ...change })).toEqual({
+        result: expected,
+        confirmed,
+      });
+    },
+  );
 });

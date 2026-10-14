@@ -95,8 +95,16 @@ export function judgedCompletionResult({
   stopHeld: boolean;
   route: LoginRoute;
   stopAt?: number | undefined;
-}): "authenticated" | "credential-rejected" | "challenge" | "unknown" {
-  if (verdict === "signed-in" || completes) return "authenticated";
+}): {
+  result: "authenticated" | "credential-rejected" | "challenge" | "unknown";
+  confirmed: boolean;
+} {
+  if (verdict === "signed-in" || completes)
+    return {
+      result: "authenticated",
+      confirmed:
+        verdict === "signed-in" || (verdict === "unclear" && reason === "judged-signed-in"),
+    };
   const result =
     verdict === "rejected"
       ? "credential-rejected"
@@ -108,7 +116,9 @@ export function judgedCompletionResult({
         : "unknown";
   // Unproven passkey pages always challenge; a missing-password stop challenges an
   // unknown page too (ADR 0027, ADR 0036), as elsewhere in the runtime.
-  return route === "passkey" || (stopAt !== undefined && result === "unknown")
-    ? "challenge"
-    : result;
+  return {
+    result:
+      route === "passkey" || (stopAt !== undefined && result === "unknown") ? "challenge" : result,
+    confirmed: false,
+  };
 }

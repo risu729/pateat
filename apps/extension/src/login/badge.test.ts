@@ -116,6 +116,14 @@ describe("badgeResult", () => {
     });
   });
 
+  it("shows an unconfirmed completion as unsettled for four seconds", () => {
+    expect(badgeResult(attempt({ state: "authenticated", unconfirmed: true }), now)).toEqual({
+      kind: "unsettled",
+      reason: "unconfirmed",
+      until: now + NOTICE_MS,
+    });
+  });
+
   it.each([
     "credential-rejected",
     "structural-mismatch",
@@ -1470,5 +1478,20 @@ describe("page status", () => {
     await h.flush();
     expect(h.view()).toMatchObject(FAILED);
     expect(h.badge.status(tabId)).toEqual(kept);
+  });
+});
+
+it("retains unconfirmed popup details across a worker restart after the notice expires", async () => {
+  const h = harness();
+  h.badge.observe(attempt({ state: "authenticated", outcome: "authenticated", unconfirmed: true }));
+  await h.flush();
+  expect(h.view()).toMatchObject(UNSETTLED);
+  await vi.advanceTimersByTimeAsync(NOTICE_MS);
+  expect(h.view().text).toBe("");
+  const restarted = harness({ stored: await h.storage.getValue() });
+  await restarted.badge.restore();
+  expect(restarted.badge.status(tabId)).toEqual({
+    origin,
+    login: { state: "authenticated", outcome: "authenticated", unconfirmed: true },
   });
 });

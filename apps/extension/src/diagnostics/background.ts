@@ -564,6 +564,7 @@ export function createDiagnosticsLog(options: {
             cause: report.cause,
             reason: report.reason,
             settled: report.settled,
+            unconfirmed: report.unconfirmed,
             routeChange: report.routeChange,
             stop: report.stop,
           },
