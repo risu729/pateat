@@ -1202,7 +1202,7 @@ describe("unhandled errors", () => {
       reason: "incomplete-observation",
       detail: "unlocated-button",
     });
-    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(21));
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(22));
     const entries = (await log.logger.entries()).filter((entry) => entry.event !== "log.debug");
     expect(entries.map((entry) => [entry.event, entry.level, entry.fields])).toEqual([
       // An unchanged sync is a debug entry; one that changed a recipe is info.
