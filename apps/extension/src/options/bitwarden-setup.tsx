@@ -657,7 +657,9 @@ export function BitwardenSetup({
                 <AlertDialog.Close
                   ref={keepConnectionButton}
                   render={<Button variant="outline" />}
-                  onClick={() => setMessage("Connection kept.")}
+                  onClick={() => {
+                    if (deleteDialog.isOpen) setMessage("Connection kept.");
+                  }}
                 >
                   Keep connection
                 </AlertDialog.Close>
@@ -665,7 +667,8 @@ export function BitwardenSetup({
                   render={<Button variant="danger" />}
                   disabled={busy || !!challenge || !payload}
                   onClick={() => {
-                    if (!payload) return;
+                    // Close retains these buttons during its exit animation.
+                    if (!deleteDialog.isOpen || !payload) return;
                     start(async (epoch) => {
                       await receive(await client.deleteConnection(payload.connectionId), epoch);
                     });

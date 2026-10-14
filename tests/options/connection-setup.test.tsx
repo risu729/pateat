@@ -724,6 +724,65 @@ test("the delete dialog traps focus, ignores its backdrop and keeps its payload 
   expect(client.deleteConnection).not.toHaveBeenCalled();
 });
 
+test.each(["keep", "escape", "delete"] as const)(
+  "the closing dialog cannot activate its retained buttons after %s",
+  async (action) => {
+    const client = mockClient();
+    const saved = {
+      connectionId: "closing",
+      label: "Closing vault",
+      email: "saved@example.test",
+      environment: { kind: "cloud" as const, region: "us" as const },
+      state: "configured" as const,
+      autoUnlock: "unknown" as const,
+      providerSession: "none" as const,
+    };
+    client.list.mockResolvedValue({ ...status(), connections: [saved] });
+    await mount(client);
+    await page.getByRole("button", { name: "More for Closing vault", exact: true }).click();
+    await page
+      .getByRole("menuitem", { name: "Closing vault: Delete connection", exact: true })
+      .click();
+    const dialog = page.getByRole("alertdialog", { name: "Delete Closing vault?", exact: true });
+    const popup = dialog.element();
+    const keep = dialog.getByRole("button", { name: "Keep connection", exact: true });
+    const remove = dialog.getByRole("button", { name: "Delete connection", exact: true });
+    const keepButton = keep.element();
+    const deleteButton = remove.element();
+    await expect.element(keep).toHaveFocus();
+    await vi.waitFor(() => expect(getComputedStyle(popup).opacity).toBe("1"));
+    // The buttons remain rendered during an actual CSS exit; use pointer clicks on them.
+    popup.style.transitionDuration = "5s";
+    try {
+      if (action === "delete") {
+        client.list.mockResolvedValue(status());
+        await remove.click();
+        await expect.element(page.getByText(/^Connection deleted from this device/)).toBeVisible();
+        // A fast result has already cleared busy, so that guard cannot mask this regression.
+        await vi.waitFor(() => expect(deleteButton).not.toBeDisabled());
+      } else if (action === "keep") await keep.click();
+      else await userEvent.keyboard("{Escape}");
+      await vi.waitFor(() => expect(popup).toHaveAttribute("data-ending-style"));
+      expect(popup.isConnected).toBe(true);
+      await page.elementLocator(deleteButton).click();
+      expect(client.deleteConnection).toHaveBeenCalledTimes(action === "delete" ? 1 : 0);
+      if (action === "delete") {
+        await page.elementLocator(keepButton).click();
+        await expect.element(page.getByText(/^Connection deleted from this device/)).toBeVisible();
+        await expect
+          .element(page.getByText("Connection kept.", { exact: true }))
+          .not.toBeInTheDocument();
+      } else {
+        await expect.element(page.getByText("Connection kept.", { exact: true })).toBeVisible();
+        await expect.element(page.getByText("Closing vault", { exact: true })).toBeVisible();
+      }
+    } finally {
+      for (const animation of popup.getAnimations()) animation.finish();
+    }
+    await vi.waitFor(() => expect(popup.isConnected).toBe(false));
+  },
+);
+
 test("the delete dialog fits a phone viewport with a long connection name", async () => {
   await page.viewport(320, 640);
   try {
