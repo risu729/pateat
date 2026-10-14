@@ -499,10 +499,9 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
       if (!active || disposed) throw new Error();
       if (contexts.length) await deps.closeDocument();
       if (!active || disposed) throw new Error();
-      const wait = new Promise<void>((resolve, reject) => {
-        hello = resolve;
-        rejectHello = () => reject(new Error());
-      });
+      const { promise: wait, resolve, reject } = Promise.withResolvers<void>();
+      hello = resolve;
+      rejectHello = () => reject(new Error());
       // Prevent an unhandled rejected handshake if native document creation fails.
       void wait.catch(() => {});
       await deps.createDocument();
@@ -607,9 +606,9 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
     // session alone.
     let waiting = before !== undefined;
     if (lane) {
-      const turn = Promise.all([before, new Promise<void>((done) => (ended = done))]).then(
-        () => undefined,
-      );
+      const { promise, resolve } = Promise.withResolvers<void>();
+      ended = resolve;
+      const turn = Promise.all([before, promise]).then(() => undefined);
       turns.set(lane, turn);
       void turn.then(() => turns.get(lane) === turn && turns.delete(lane));
     }

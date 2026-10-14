@@ -82,10 +82,7 @@ export function createBitwardenTransport(
     if (signal?.aborted) return failure("cancelled");
     const controller = new AbortController();
     let stopCode: BitwardenErrorCode | undefined;
-    let rejectStopped: (reason: undefined) => void = () => {};
-    const stopped = new Promise<never>((_resolve, reject) => {
-      rejectStopped = reject;
-    });
+    const { promise: stopped, reject: rejectStopped } = Promise.withResolvers<never>();
     function stop(code: "cancelled" | "timeout") {
       if (stopCode) return;
       stopCode = code;

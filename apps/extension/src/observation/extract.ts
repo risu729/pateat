@@ -716,12 +716,10 @@ const keyScanLimit = 2000;
  */
 function inKey(element: Element, area: Element, seen: Map<Element, boolean>): boolean {
   for (let parent = element.parentElement; parent; parent = parent.parentElement) {
-    let key = seen.get(parent);
-    if (key === undefined) {
+    const key = seen.getOrInsertComputed(parent, () => {
       const text = renderedText(parent, keyScanLimit);
-      key = text !== undefined && keyLike(text);
-      seen.set(parent, key);
-    }
+      return text !== undefined && keyLike(text);
+    });
     if (key) return true;
     if (parent === area) break;
   }
@@ -1202,7 +1200,7 @@ export function extractLoginObservation(
   // every form the observation describes is fully described.
   const flawed = new Map<HTMLFormElement | null, Set<LoginGap>>();
   const flaw = (form: HTMLFormElement | null, gap: LoginGap) =>
-    flawed.set(form, (flawed.get(form) ?? new Set()).add(gap));
+    flawed.getOrInsertComputed(form, () => new Set<LoginGap>()).add(gap);
   const gaps = new Set<LoginGap>();
 
   // A shadow-root field anywhere may be the real login; other shadow controls such as
@@ -1348,7 +1346,6 @@ function observe(
       { form, draft: { element: _element, label, placeholder, description, ...rest }, target },
       at,
     ) => {
-      if (form && !groups.has(form)) groups.set(form, `f${groups.size + 1}`);
       const shownLabel = label && hide(label);
       const shownDescription = description && hide(description);
       const shownPlaceholder = placeholder && hide(placeholder);
@@ -1362,7 +1359,7 @@ function observe(
           ? { description: shownDescription }
           : {}),
         target,
-        ...(form ? { group: groups.get(form)! } : {}),
+        ...(form ? { group: groups.getOrInsertComputed(form, () => `f${groups.size + 1}`) } : {}),
       } satisfies ObservedCandidate;
     },
   );

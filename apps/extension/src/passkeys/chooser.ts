@@ -154,8 +154,9 @@ export function createPasskeyChooser(browser: ChooserBrowser): PasskeyChooser & 
       });
       if (!view.success) return { kind: "unavailable" };
       const token = newId();
-      let resolveOpened!: (windowId: number | undefined) => void;
-      const opened = new Promise<number | undefined>((resolve) => (resolveOpened = resolve));
+      const { promise: opened, resolve: resolveOpened } = Promise.withResolvers<
+        number | undefined
+      >();
       const answer = new Promise<PasskeyChoice>((resolve) => {
         const entry: Open = {
           token,

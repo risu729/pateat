@@ -4,7 +4,15 @@
     "target": "ES2023",
     "module": "ESNext",
     "moduleResolution": "Bundler",
-    "lib": ["ES2023", "ESNext.TypedArrays", "ESNext.Temporal", "DOM"],
+    "lib": [
+      "ES2023",
+      "ES2024.Promise",
+      "ES2024.Collection",
+      "ESNext.Collection",
+      "ESNext.TypedArrays",
+      "ESNext.Temporal",
+      "DOM"
+    ],
     "jsx": "react-jsx",
     "strict": true,
     "noUncheckedIndexedAccess": true,

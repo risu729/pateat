@@ -47,9 +47,13 @@ export async function findSiteAccounts(input: {
   >();
   const add = (connectionId: string, itemId: string, via: "uri" | "passkey") => {
     const key = JSON.stringify([connectionId, itemId]);
-    const entry = accounts.get(key) ?? { connectionId, itemId, uri: false, passkey: false };
+    const entry = accounts.getOrInsertComputed(key, () => ({
+      connectionId,
+      itemId,
+      uri: false,
+      passkey: false,
+    }));
     entry[via] = true;
-    accounts.set(key, entry);
   };
   let complete = true;
 

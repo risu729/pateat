@@ -197,10 +197,7 @@ export function createVaultAutoSync(deps: {
         // The last check and the hold run with no await between them, so no page can
         // start in between.
         if (!admissible()) return undefined;
-        let release!: () => void;
-        const current = new Promise<void>((resolve) => {
-          release = resolve;
-        });
+        const { promise: current, resolve: release } = Promise.withResolvers<void>();
         applying = current;
         applies += 1;
         return () => {

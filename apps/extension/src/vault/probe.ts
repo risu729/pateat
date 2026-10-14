@@ -70,10 +70,10 @@ export function createVaultProbe(host: CryptoHost) {
     checkpoint: async (stage) => {
       if (stage !== armed) return;
       reached = true;
-      await new Promise<void>((resolve) => {
-        release = resolve;
-        timer = setTimeout(unpause, 30_000);
-      });
+      const { promise, resolve } = Promise.withResolvers<void>();
+      release = resolve;
+      timer = setTimeout(unpause, 30_000);
+      await promise;
     },
   });
   let handle: LocalVaultHandle | undefined;
