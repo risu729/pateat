@@ -28,8 +28,10 @@ package. The Drizzle schema in `services/api/src/db/schema.ts` owns the D1 schem
 `mise run //services/api:generate:migrations` writes SQL to `services/api/migrations/`
 without contacting a database, and the check graph fails if committed migrations drift.
 
-`mise.toml` owns exact tool versions and installation. The repository-wide tasks live in
-the root `tasks.toml`, which the root `mise.toml` loads with `[task_config] includes`
+`mise.toml` owns exact tool versions and installation. Tool lockfiles use format
+version 3 and `lockfile_mode = "generate"`, rebuilding them from current requests
+while reusing unchanged artifacts. The repository-wide tasks live in the root
+`tasks.toml`, which the root `mise.toml` loads with `[task_config] includes`
 (owner decision, 2026-10-12); each project's tasks stay in its own `mise.toml`. Use
 native workspace mise tasks, not package.json scripts or wrapper scripts that duplicate
 the task graph. aube installs dependencies; pinned supported Node executes tools that
