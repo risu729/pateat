@@ -82,6 +82,31 @@ describe("isolated passkey relay", () => {
     });
   });
 
+  it.each(["get", "create"])(
+    "delegates a %s request when the runtime is unavailable synchronously",
+    async (type) => {
+      vi.useFakeTimers();
+      const { scope, posted } = fakeWindow();
+      const send = vi.fn(() => {
+        throw new Error("extension context invalidated");
+      });
+      const cleanup = installPasskeyRelay(send);
+      // runtime-unavailable stays inside the relay; the page only sees delegation.
+      expect(() =>
+        scope.postMessage({ channel: PAGE_CHANNEL, type, id, request: {} }),
+      ).not.toThrow();
+      expect(send).toHaveBeenCalledOnce();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(posted.slice(1)).toEqual([
+        { channel: PAGE_CHANNEL, type: "ack", id },
+        { channel: PAGE_CHANNEL, type: "result", id, result: { kind: "delegate" } },
+      ]);
+      await vi.advanceTimersByTimeAsync(RELAY_HEARTBEAT_MS * 2);
+      expect(posted).toHaveLength(3);
+      cleanup();
+    },
+  );
+
   it("drops the reason of delegations the relay decides itself", async () => {
     const { scope, posted } = fakeWindow();
     vi.stubGlobal("document", { featurePolicy: { allowsFeature: () => false } });
