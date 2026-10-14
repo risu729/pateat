@@ -144,7 +144,20 @@ describe("crypto Worker decrypted field cache", () => {
       await fillCache();
       if (kind === "list") {
         const listed = await command({ kind, session, itemId: itemId(1).toUpperCase() });
-        expect(listed).toMatchObject({ ok: true, data: [{ ref: { itemId: itemId(1) } }] });
+        expect(listed).toMatchObject({
+          ok: true,
+          data: expect.arrayContaining([
+            expect.objectContaining({
+              ref: {
+                connectionId,
+                userId,
+                snapshotId,
+                itemId: itemId(1),
+                fieldId: "login.password",
+              },
+            }),
+          ]),
+        });
       } else expect(await resolve(1)).toEqual(resolved(1));
       expect(mocks.decrypt).toHaveBeenCalledTimes(128);
 
