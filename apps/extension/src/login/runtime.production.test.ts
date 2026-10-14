@@ -11809,6 +11809,8 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         storage: {
           read: async () => undefined,
           write: async () => undefined,
+          readRecovery: async () => undefined,
+          writeRecovery: async () => undefined,
           clear: async () => undefined,
         },
         schedule: { read: async () => undefined, write: async () => undefined },

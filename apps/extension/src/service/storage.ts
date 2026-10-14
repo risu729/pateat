@@ -12,7 +12,17 @@ export function createBrowserServiceStorage(): ServiceStorage {
 
 /** Synced recipes are login policy; content scripts never read them directly. */
 export function createBrowserRecipeCacheStorage(): RecipeCacheStorage {
-  return trustedRecord("pateat.sync-recipes.v1");
+  const cache = trustedRecord("pateat.sync-recipes.v1");
+  const recovery = trustedRecord("pateat.sync-recipes-recovery.v1");
+  return {
+    read: cache.read,
+    write: cache.write,
+    readRecovery: recovery.read,
+    writeRecovery: recovery.write,
+    async clear() {
+      await Promise.all([cache.clear(), recovery.clear()]);
+    },
+  };
 }
 
 /** When the next background recipe sync is due, kept across service worker restarts. */
