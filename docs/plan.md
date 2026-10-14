@@ -769,8 +769,13 @@ created before this phase, except where the owner asks for them: the findings of
 [external review](research/2026-10-13-external-review.md) became issues
 [#541](https://github.com/risu729/pateat/issues/541) to
 [#547](https://github.com/risu729/pateat/issues/547) so that they can be handled
-separately (owner, 2026-10-14 07:24 UTC). The list below names items the owner mentioned
-and gates still open on 2026-10-11.
+separately (owner, 2026-10-14 07:24 UTC), and the adopted
+[platform features](research/2026-10-14-platform-feature-candidates.md) became issues
+[#553](https://github.com/risu729/pateat/issues/553) and
+[#555](https://github.com/risu729/pateat/issues/555) to
+[#563](https://github.com/risu729/pateat/issues/563), one per feature, each of which can
+be started from the issue alone (owner, 2026-10-14 08:40 UTC). The list below names
+items the owner mentioned and gates still open on 2026-10-11.
 
 - From the [external review](research/2026-10-13-external-review.md): decrypted item
   copies in the crypto Worker that hold only the fields a request needs instead of the
@@ -955,6 +960,12 @@ and gates still open on 2026-10-11.
 - An external static review of main `4961de6` (owner, 2026-10-13 21:57 UTC): the
   [note](research/2026-10-13-external-review.md) records each of its seven findings,
   checked against the code, and the issues that handle them.
+- Which newer JavaScript, CSS, React, library and Chrome features Pateat uses (owner,
+  2026-10-13 21:36 UTC): the
+  [note](research/2026-10-14-platform-feature-candidates.md) records each candidate of
+  an external list, adopted, not adopted or experimental, under the
+  [platform feature rules](development.md#platform-features), and the issues for the
+  adopted ones.
 - Earlier research kept as dated notes:
   [identity provider screens](research/2026-10-11-identity-provider-screens.md) behind
   [ADR 0026](adr/0026-sign-in-through-identity-providers.md);
