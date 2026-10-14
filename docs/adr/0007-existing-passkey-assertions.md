@@ -42,6 +42,11 @@ Amended on 2026-10-14: Chrome 149's Immediate UI asks with `uiMode: "immediate"`
 of `mediation: "immediate"`. The owner chose at 06:44 UTC to keep delegating these
 requests for now and to consider answering them later: the page relays such a request
 as `immediate` mediation, which delegates and is logged as `immediate` (implemented).
+Amended on 2026-10-14: finding and signing with a stored passkey also ignore
+Bitwarden's master password re-prompt (`reprompt: 1`), as filling does
+([vault adapter](../architecture.md#vault-adapter)). Settings for UP/UV and for
+re-prompt are planned for [phase 3](../plan.md#phase-3-public-release) (owner,
+2026-10-13 21:57 UTC); until then both stay as they are.
 
 Amended on 2026-10-12 under the owner's passkey-first policy of 13:58 UTC
 ([ADR 0034](0034-answer-page-passkey-requests.md)), after a log from the Grok Bot's
