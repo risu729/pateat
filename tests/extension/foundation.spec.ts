@@ -89,6 +89,38 @@ async function startFixture(): Promise<{ server: Server; url: string }> {
   return { server, url: `http://127.0.0.1:${address.port}/fixture` };
 }
 
+test("built options and popup preserve light, dark and browser-setting colors", async () => {
+  await withExtension(extensionDirectory, async (context, _worker, id) => {
+    const page = await context.newPage();
+    for (const scheme of ["light", "dark"] as const) {
+      // oxlint-disable-next-line no-await-in-loop
+      await page.emulateMedia({ colorScheme: scheme });
+      for (const entrypoint of ["options.html", "popup.html"]) {
+        // oxlint-disable-next-line no-await-in-loop
+        await page.goto(`chrome-extension://${id}/${entrypoint}`);
+        for (const theme of ["system", "light", "dark"] as const) {
+          // The page's startup module applies the stored choice before rendering.
+          // oxlint-disable-next-line no-await-in-loop
+          await page.evaluate((choice) => localStorage.setItem("pateat.theme", choice), theme);
+          // oxlint-disable-next-line no-await-in-loop
+          await page.reload();
+          const dark = theme === "dark" || (theme === "system" && scheme === "dark");
+          // oxlint-disable-next-line no-await-in-loop
+          await expect(page.locator("html")).toHaveCSS(
+            "background-color",
+            dark ? "rgb(14, 19, 22)" : "rgb(241, 245, 249)",
+          );
+          // oxlint-disable-next-line no-await-in-loop
+          await expect(page.locator("html")).toHaveCSS(
+            "color",
+            dark ? "rgb(228, 235, 240)" : "rgb(30, 41, 59)",
+          );
+        }
+      }
+    }
+  });
+});
+
 test("production package permits local storage, the crypto host and the HTTPS login and passkey scripts", async () => {
   const manifest = JSON.parse(await readFile(resolve(extensionDirectory, "manifest.json"), "utf8"));
   expect(manifest.manifest_version).toBe(3);

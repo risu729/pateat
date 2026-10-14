@@ -301,10 +301,11 @@ than in this repository.
     [Pateat design system](https://claude.ai/artifact/WRXAnVi9RDw9cVWccy2fxJ) the owner
     approved (2026-10-12 20:53 UTC). Both stylesheets
     (`apps/extension/entrypoints/options/style.css`, shared by every extension page, and
-    `services/api/web/styles.css`) define its tokens as CSS custom properties and
-    Tailwind colors (`bg-surface`, `text-ink-muted`, `border-border-strong`), the
-    Worker's script-free pages copy them, and the pages use no other colors. Page titles
-    are 28px.
+    `services/api/web/styles.css`) define its tokens once as `light-dark()` color pairs
+    in CSS custom properties and Tailwind colors (`bg-surface`, `text-ink-muted`,
+    `border-border-strong`), the Worker's script-free pages copy them, and
+    `tests/options/design-tokens.test.tsx` compares all three copies and their resolved
+    palettes. The pages use no other colors. Page titles are 28px.
   - Done: light and dark themes with a Theme select (Browser setting, Light, Dark) in
     the extension's settings page and the `/manage` footer; Browser setting, the
     default, follows the browser's `prefers-color-scheme` (owner, 2026-10-12 20:54 UTC).

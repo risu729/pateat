@@ -1,79 +1,41 @@
 // The stylesheet of the service's script-free pages (sign-in results, errors and the
 // Claude settings page), inlined because their Content-Security-Policy loads nothing.
-// The tokens repeat services/api/web/styles.css, which tests/options/design-tokens.test.tsx
-// checks; the pages have no Theme select, so they follow the browser's
-// prefers-color-scheme. The data-theme="dark" block never applies here and is kept so the
-// copy stays identical. The status note is neutral because it shows errors as well as
-// "Saved".
+// The light-dark() tokens repeat services/api/web/styles.css, which
+// tests/options/design-tokens.test.tsx checks. These pages have no Theme select, so
+// color-scheme: light dark follows the browser. The explicit scheme overrides keep
+// the copies identical. The status note is neutral because it shows errors as well
+// as "Saved".
 
 export const PAGE_CSS = `
 :root {
+  color-scheme: light dark;
+  --bg: light-dark(#f1f5f9, #0e1316);
+  --surface: light-dark(#ffffff, #161d21);
+  --surface-sunken: light-dark(#f8fafc, #11171a);
+  --border: light-dark(#d6e0e8, #2a353c);
+  --border-strong: light-dark(#7a8899, #5c6b76);
+  --ink: light-dark(#1e293b, #e4ebf0);
+  --ink-muted: light-dark(#4f5d6f, #9fb0bc);
+  --accent: light-dark(#115e59, #5cc7ad);
+  --accent-hover: light-dark(#134e4a, #7fd8c2);
+  --on-accent: light-dark(#ffffff, #04201a);
+  --accent-tint: light-dark(#e6f6f2, #123029);
+  --accent-ink: light-dark(#115e59, #7fd8c2);
+  --focus: light-dark(#0f766e, #7fd8c2);
+  --danger: light-dark(#b42318, #ff8a7a);
+  --danger-tint: light-dark(#fdecea, #3a1814);
+  --warning: light-dark(#8a5a00, #f2c14e);
+  --warning-tint: light-dark(#fff6dc, #33280d);
+  --shadow-panel-color: light-dark(rgb(15 23 42 / 5%), rgb(0 0 0 / 40%));
+  --shadow-menu-color: light-dark(rgb(15 23 42 / 15%), rgb(0 0 0 / 50%));
+  --shadow-panel: 0 1px 2px var(--shadow-panel-color);
+  --shadow-menu: 0 8px 24px var(--shadow-menu-color);
+}
+:root[data-theme="light"] {
   color-scheme: light;
-  --bg: #f1f5f9;
-  --surface: #ffffff;
-  --surface-sunken: #f8fafc;
-  --border: #d6e0e8;
-  --border-strong: #7a8899;
-  --ink: #1e293b;
-  --ink-muted: #4f5d6f;
-  --accent: #115e59;
-  --accent-hover: #134e4a;
-  --on-accent: #ffffff;
-  --accent-tint: #e6f6f2;
-  --accent-ink: #115e59;
-  --focus: #0f766e;
-  --danger: #b42318;
-  --danger-tint: #fdecea;
-  --warning: #8a5a00;
-  --warning-tint: #fff6dc;
-  --shadow-panel: 0 1px 2px rgb(15 23 42 / 5%);
-  --shadow-menu: 0 8px 24px rgb(15 23 42 / 15%);
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #0e1316;
-  --surface: #161d21;
-  --surface-sunken: #11171a;
-  --border: #2a353c;
-  --border-strong: #5c6b76;
-  --ink: #e4ebf0;
-  --ink-muted: #9fb0bc;
-  --accent: #5cc7ad;
-  --accent-hover: #7fd8c2;
-  --on-accent: #04201a;
-  --accent-tint: #123029;
-  --accent-ink: #7fd8c2;
-  --focus: #7fd8c2;
-  --danger: #ff8a7a;
-  --danger-tint: #3a1814;
-  --warning: #f2c14e;
-  --warning-tint: #33280d;
-  --shadow-panel: 0 1px 2px rgb(0 0 0 / 40%);
-  --shadow-menu: 0 8px 24px rgb(0 0 0 / 50%);
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    color-scheme: dark;
-    --bg: #0e1316;
-    --surface: #161d21;
-    --surface-sunken: #11171a;
-    --border: #2a353c;
-    --border-strong: #5c6b76;
-    --ink: #e4ebf0;
-    --ink-muted: #9fb0bc;
-    --accent: #5cc7ad;
-    --accent-hover: #7fd8c2;
-    --on-accent: #04201a;
-    --accent-tint: #123029;
-    --accent-ink: #7fd8c2;
-    --focus: #7fd8c2;
-    --danger: #ff8a7a;
-    --danger-tint: #3a1814;
-    --warning: #f2c14e;
-    --warning-tint: #33280d;
-    --shadow-panel: 0 1px 2px rgb(0 0 0 / 40%);
-    --shadow-menu: 0 8px 24px rgb(0 0 0 / 50%);
-  }
 }
 body {
   margin: 0;
