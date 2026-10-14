@@ -771,7 +771,6 @@ and gates still open on 2026-10-11.
   and which are revoked separately from their bodies, if
   [#544](https://github.com/risu729/pateat/issues/544) and the recipe limits are not
   enough.
-
 - Signing in through an identity provider
   ([ADR 0026](adr/0026-sign-in-through-identity-providers.md), ADR 0027 delivery 5).
 - [ADR 0027](adr/0027-per-account-login-routes.md) delivery 4's deferred part: a `totp`
