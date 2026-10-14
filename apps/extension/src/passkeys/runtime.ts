@@ -532,7 +532,7 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       step = "login-wait";
       operation.parked = true;
       const decision = await abortable(
-        Promise.resolve().then(() =>
+        Promise.try(() =>
           options.conditional!({ tabId: context.tabId, origin, documentId, signal }),
         ),
         signal,
@@ -616,9 +616,9 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       }
       const { request } = command;
       // Read as the request comes in, for the report only; the answer never waits for it.
-      const loginAtEntry = Promise.resolve()
-        .then(() => options.loginAccount?.(sender.tab!.id!, origin))
-        .catch(() => undefined);
+      const loginAtEntry = Promise.try(() => options.loginAccount?.(sender.tab!.id!, origin)).catch(
+        () => undefined,
+      );
       if (
         !(typeof request === "object" && request !== null && "mediation" in request) ||
         request.mediation !== "conditional"

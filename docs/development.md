@@ -749,6 +749,12 @@ import. Collection predicates and maps consumed by a spread use Iterator Helpers
 of copying the collection into an array. Callbacks that can change the collection keep
 a snapshot; array results stay arrays. The narrower projects importing this code add
 `ESNext.Iterator`, the Iterator Helpers lib in the pinned TypeScript.
+The passkey relay, conditional login decision, login-account report lookup and
+diagnostics install-type lookup use `Promise.try()` to turn synchronous throws and
+promise rejections into the same failure path. These callbacks start immediately;
+the login runtime's `quietly` helper keeps its deferred invocation so session snapshots
+retain their existing timing. Projects importing these wrappers add `ES2025.Promise`,
+the corresponding lib in the pinned TypeScript.
 
 ### Integration conditions (pending candidates remain conditional)
 

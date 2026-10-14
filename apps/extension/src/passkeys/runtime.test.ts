@@ -1464,12 +1464,42 @@ describe("a page's own conditional request through a login (ADR 0034)", () => {
     );
   });
 
-  it("delegates when the login's decision throws, naming the wait", async () => {
+  it("ends when the login decision cancels the page immediately", async () => {
+    const backing = source();
+    const { hold } = holds();
+    const operationId = crypto.randomUUID();
+    let cancelled: Promise<unknown> | undefined;
+    const runtime = createPasskeyRuntime(backing, {
+      extensionId,
+      hold,
+      conditional: (): Promise<ConditionalDecision> => {
+        cancelled = runtime.handle({ version: 1, type: "passkey.cancel", operationId }, sender());
+        return new Promise(() => {});
+      },
+    });
+    await expect(runtime.handle(conditionalGet(operationId), sender())).resolves.toEqual({
+      kind: "cancelled",
+    });
+    await expect(cancelled).resolves.toEqual({ ok: true });
+    expect(hold).not.toHaveBeenCalled();
+    expect(backing.candidates).not.toHaveBeenCalled();
+    expect(backing.sign).not.toHaveBeenCalled();
+  });
+
+  it.each<[string, () => Promise<ConditionalDecision>]>([
+    [
+      "throws synchronously",
+      () => {
+        throw new Error("storage unavailable");
+      },
+    ],
+    ["rejects", async () => Promise.reject(new Error("storage unavailable"))],
+  ])("delegates when the login's decision %s, naming the wait", async (_name, conditional) => {
     const report = vi.fn();
     const runtime = createPasskeyRuntime(source(), {
       extensionId,
       report,
-      conditional: async () => Promise.reject(new Error("storage unavailable")),
+      conditional,
     });
     expect(await runtime.handle(conditionalGet(), sender())).toEqual({
       kind: "delegate",
