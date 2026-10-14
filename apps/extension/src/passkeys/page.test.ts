@@ -105,12 +105,15 @@ describe("MAIN-world passkey wrapper", () => {
     expect(page.nativeGet.mock.calls[0]![0]).toBe(options);
   });
 
-  it("relays only a string uiMode, and only immediate replaces the mediation", async () => {
+  it("relays uiMode immediate over any mediation and leaves other uiMode values to the browser", async () => {
     expect(snapshotGetOptions({ publicKey, uiMode: 1 })).toBeUndefined();
     expect(
       snapshotGetOptions({ publicKey, uiMode: "immediate", mediation: "optional" }),
     ).toMatchObject({ mediation: "immediate" });
-    expect(snapshotGetOptions({ publicKey, uiMode: "other" })).not.toHaveProperty("mediation");
+    expect(
+      snapshotGetOptions({ publicKey, uiMode: "immediate", mediation: "conditional" }),
+    ).toMatchObject({ mediation: "immediate" });
+    expect(snapshotGetOptions({ publicKey, uiMode: "other" })).toBeUndefined();
   });
 
   it("delegates promptly when no relay acknowledges", async () => {

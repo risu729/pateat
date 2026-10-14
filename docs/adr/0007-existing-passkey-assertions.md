@@ -195,7 +195,8 @@ Pateat claims a request only when all of these hold; otherwise it delegates:
 
 - `publicKey` is the only credential type requested and mediation is absent,
   `optional` or `required`. Silent and immediate mediation delegate, and so does a
-  request with `uiMode: "immediate"`. Conditional
+  request with `uiMode: "immediate"`; a request with any other `uiMode` is left to the
+  browser. Conditional
   mediation is admitted only for the login runtime to decide, which answers it through
   a login of the document and hands it on otherwise
   ([ADR 0034](0034-answer-page-passkey-requests.md)).

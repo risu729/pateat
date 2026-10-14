@@ -199,10 +199,10 @@ the server confirmed and an action the person allowed stay separate states.
   `uiMode: "immediate"` and no `mediation`. The wrapper reads only `mediation`
   (`snapshotGetOptions` in `apps/extension/src/passkeys/page.ts`), so a passkey-only
   request with `uiMode: "immediate"` is admitted as a modal request. A request that also
-  asks for `password` is still delegated (`OTHER_CREDENTIAL_TYPES`). Such a request
-  also counts for the login as a passkey request outside conditional mediation
-  (`options.requested` in `apps/extension/src/passkeys/runtime.ts`, sign `s5` of
-  ADR 0029), and `passkey.request` logs no `mediation` for it, so the check
+  asks for `password` is still delegated (`OTHER_CREDENTIAL_TYPES`). Such a request also
+  counts for the login as a passkey request outside conditional mediation
+  (`options.requested` in `apps/extension/src/passkeys/runtime.ts`, sign `s5` of ADR
+  0029), and `passkey.request` logs no `mediation` for it, so the check
   [ADR 0034](../adr/0034-answer-page-passkey-requests.md) plans on that field for
   `immediate` requests would not see one. Read from the code; not tried on a site.
   Follow-up on 2026-10-14: the owner chose to keep delegating these requests, and the
@@ -212,8 +212,8 @@ the server confirmed and an action the person allowed stay separate states.
   does not read `uiMode` either: its page script sends every request with `publicKey`
   and without `mediation: "conditional"` to its own window, so with it installed an
   immediate request opens that window instead of failing at once, and `password: true`
-  is ignored. No Bitwarden issue, pull request or forum topic about Immediate UI was
-  found on 2026-10-14.
+  is ignored (read from the code, not tried on a site). No Bitwarden issue, pull request
+  or forum topic about Immediate UI was found on 2026-10-14.
 - **Usable only after they settle.** Agentic Federated Login, `<login>`, WebMCP and
   Email Verification are in origin trials or drafts, which the
   [platform-feature rules](../development.md#platform-features) keep out of the

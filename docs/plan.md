@@ -782,8 +782,8 @@ still open on 2026-10-11.
   [ADR 0007](adr/0007-existing-passkey-assertions.md) does today. With a stored
   passkey, Pateat would answer as it answers a modal request; answering `password: true`
   would hand the page a `PasswordCredential`, which needs a design of its own. The
-  official Bitwarden extension does not handle `uiMode` either: it opens its window
-  for such a request ([login standards](research/2026-10-13-login-standards.md)).
+  [login standards](research/2026-10-13-login-standards.md) note records how the
+  official Bitwarden extension treats these requests.
 - Bitwarden writes (with their own permission), so that the official Bitwarden
   extension can be uninstalled; vaults other than Bitwarden.
 - Low priority (owner, 2026-10-11 18:29 UTC): pages that add another account while one
