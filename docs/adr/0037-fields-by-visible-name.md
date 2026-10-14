@@ -4,7 +4,8 @@ Status: accepted by the owner on 2026-10-13 at 04:50 UTC (decision card
 「入力欄に毎回変わる ID しかないとき、レシピは画面の表示名で欄を探しますか？」, answer
 「表示名で探す」). Adds a locator to the list the
 [architecture](../architecture.md#declarative-recipes-and-ai) keeps; no earlier ADR
-lists them.
+lists them. Corrected on 2026-10-14 by the
+[wording changes amendment](#amendment-wording-changes) (item 5 of the decision).
 
 Date: 2026-10-13
 
@@ -88,3 +89,14 @@ observation offered for each, so the generation prompt does not change.
 - **Locate by input type.** `type="password"` or `type="email"` alone names one field
   on many login pages, but not a text field, which most identifiers use, nor a form with
   two inputs of one type, and a newsletter field beside the form takes it over.
+
+## Amendment: wording changes
+
+Added on 2026-10-14 at the owner's request (08:44 UTC); a correction of a fact, not a
+new decision. Item 5 of the decision says that when the site changes a field's wording
+the recipe is generated again as it is today. It is not: the step no longer finds its
+field, the login ends as a structural mismatch, and the saved recipe stays until it is
+revoked. Only a revoked recipe is generated again
+([architecture](../architecture.md#declarative-recipes-and-ai)); repairing a recipe
+whose elements no longer match is planned early in
+[phase 3](../plan.md#phase-3-public-release).
