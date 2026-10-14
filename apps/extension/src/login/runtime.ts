@@ -1824,12 +1824,10 @@ export function createLoginRuntime(
   let remembered = 0;
   // Toolbar and session storage failures only lose the badge or a pick; never a login.
   const quietly = (work: () => Promise<unknown>) =>
-    Promise.resolve()
-      .then(work)
-      .then(
-        () => undefined,
-        () => undefined,
-      );
+    Promise.try(work).then(
+      () => undefined,
+      () => undefined,
+    );
   // Picks and waiting choices outlive a worker restart, as the tab's badge does. Every
   // change to them happens after this load.
   const sessionLoaded = quietly(async () => {
@@ -7869,9 +7867,9 @@ export function createLoginRuntime(
       holdsSite(previous, Date.now())
     )
       note(document, live.url, "not-started", "stopped-login");
-    clearChoice(document.tabId);
-    // A hold's tooltip no longer applies once the tab logs in.
-    badge.note(document.tabId, undefined);
+    // The choice, pick and logout markers form one session update. Snapshot only once
+    // they all name the started login, rather than relying on a deferred save callback.
+    let sessionChanged = false;
     const pick = picked.get(document.tabId);
     if (
       !previous &&
@@ -7883,7 +7881,7 @@ export function createLoginRuntime(
           switched && pick.attemptId === recorded?.id)
     ) {
       pick.attemptId = metadata.id;
-      void quietly(saveSession);
+      sessionChanged = true;
     }
     // A login started after a logout ends the tab's asking for this origin; filling the
     // page only does not, and the document is not filled again.
@@ -7893,12 +7891,17 @@ export function createLoginRuntime(
         if (logoutFills.size <= 256) break;
         logoutFills.delete(old);
       }
-      void quietly(saveSession);
+      sessionChanged = true;
     } else if (!previous) {
       const loggedOut = logouts.delete(logoutKey);
-      rejectedAsks.delete(logoutKey);
-      if (stoppedAsks.delete(logoutKey) || loggedOut) void quietly(saveSession);
+      const rejected = rejectedAsks.delete(logoutKey);
+      if (stoppedAsks.delete(logoutKey) || loggedOut || rejected) sessionChanged = true;
     }
+    // clearChoice saves the completed update before notifying a badge that may reenter.
+    if (!pending.has(document.tabId) && sessionChanged) void quietly(saveSession);
+    clearChoice(document.tabId);
+    // A hold's tooltip no longer applies once the tab logs in.
+    badge.note(document.tabId, undefined);
     await save(run);
     await publish(live, metadata);
     void drive(run);
