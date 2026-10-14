@@ -1873,9 +1873,11 @@ diagnostics remain necessary.
 
 ### Service limits
 
-Status: implemented. The owner asked on 2026-10-11 for common-sense per-owner limits
-sized for their own use; Claude chose these amounts. Revisit them, and add a byte
-quota, before the service is offered to other people.
+Status: implemented, except the recipe byte cap below, which the owner chose on
+2026-10-14 (07:56 UTC) and [#550](https://github.com/risu729/pateat/issues/550) builds.
+The owner asked on 2026-10-11 for common-sense per-owner limits sized for their own use;
+Claude chose the other amounts. Revisit them before the service is offered to other
+people.
 
 - Requests. The `OWNER_LIMITER` rate-limit binding allows 120 requests a minute per
   owner on `/v1`, counting all of the owner's devices together, and 120 a minute per
@@ -1894,7 +1896,25 @@ quota, before the service is offered to other people.
   older ones in the same D1 batch, and a revocation keeps only the tombstone. Nothing
   reads older revisions. At the 128 KiB body limit this bounds an owner's active recipes
   to about 1.2 GiB; generated recipes are a few KiB each. Tombstones are not counted:
-  each is two small rows and one change-feed entry, left for the later byte quota.
+  each is two small rows and one change-feed entry.
+- Recipe bytes on a device. A device caches the owner's active recipes as one
+  `storage.local` value of at most 2 MiB (`MAX_RECIPE_CACHE_BYTES`); a sync page that
+  would exceed it is not applied. Serialized, a typical generated recipe (email, Next,
+  password, two markers, a TOTP handler) is about 1.1 KiB and an account-list recipe
+  with both branches about 2.3 KiB (measured on hand-made examples on 2026-10-14, not on
+  the owner's recipes), so 2 MiB holds about 1,800 of the first or 880 of the second;
+  1,000 recipes fit only while they average 2 KiB or less. The service has no byte limit
+  on the recipes it writes itself: the 128 KiB body limit applies only to the recipe
+  `PUT` route, which the extension does not call.
+- Recipe bytes on the service (planned,
+  [#550](https://github.com/risu729/pateat/issues/550)). The owner chose on 2026-10-14
+  (07:56 UTC) a cap of 1.5 MiB on the UTF-8 bytes of an owner's active recipe documents,
+  so that they fit a device's 2 MiB with room to spare. It applies to creating a recipe
+  and to any update that grows one (continuation pages, judge handlers and markers);
+  tombstones are not counted. Over the cap, a write answers 409 `recipe_limit` and
+  generation answers `unavailable` with `recipe-limit`, the reason the extension already
+  handles, and generation refuses before a model call when less than 32 KiB of room is
+  left. The cap and `MAX_RECIPE_CACHE_BYTES` are defined together in the contracts.
 - Unchanged. Settings are one document of at most 120 KiB per owner. The inference
   request log is kept 90 days and bounded by the $5 daily spend limit. Devices are not
   counted: each pairing needs an interactive Access login.

@@ -23,7 +23,7 @@ export const RECIPE_SYNC_RATE_LIMIT_MS = 15 * 60 * 1000;
 export const MAX_RECIPE_PAGES_PER_SYNC = 50;
 /**
  * The serialized cache stays well inside the 10 MB `storage.local` quota it shares with
- * the vault cache, settings and login attempts.
+ * settings, login attempts and other extension state; the vault cache is in IndexedDB.
  */
 export const MAX_RECIPE_CACHE_BYTES = 2 * 1024 * 1024;
 
