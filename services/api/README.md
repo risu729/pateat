@@ -121,13 +121,19 @@ so a losing writer changes nothing. Each head write takes the owner's next seque
 number; clients sync by passing the last `cursor` back as `after`. A tombstone keeps
 its revision, and only an explicit later write can republish the recipe.
 
-[Per-owner limits](../../docs/architecture.md#service-limits) live in `src/limits.ts`.
-The `OWNER_LIMITER` binding allows 120 requests a minute per owner on `/v1` and per
-Access identity on `/manage/api`, checked before any body is read; over it, 429
-`rate_limited` with `Retry-After: 60`. An owner holds at most 1,000 active recipes: a
-write that would add one more answers 409 `recipe_limit`, checked in the claim
-statement itself. The same batch deletes revisions older than the newest 10, and every
-earlier revision when the write revokes the recipe.
+[Per-owner limits](../../docs/architecture.md#service-limits) live in `src/limits.ts`
+and the shared recipe byte constants in `@pateat/contracts`. The `OWNER_LIMITER` binding
+allows 120 requests a minute per owner on `/v1` and per Access identity on
+`/manage/api`, checked before any body is read; over it, 429 `rate_limited` with
+`Retry-After: 60`. An owner holds at most 1,000 active recipes: a write that would add
+one more answers 409 `recipe_limit`. Active head documents also share a 1.5 MiB UTF-8
+byte cap, checked in the claim statement itself on creation, republishing or a growing
+update. Equal and shrinking updates and revocations always pass; tombstones and
+historical revisions do not count. The shared device cache limit is 2 MiB, leaving
+margin for its envelope. A page of new recipes can still overflow a device temporarily
+while older large revisions await later shrinking updates. The same batch deletes
+revisions older than the newest 10, and every earlier revision when the write revokes
+the recipe.
 
 ## Claude credentials
 
@@ -189,9 +195,11 @@ the path ending before it), or `{ check: "plan", reason }` with the plan check's
   recipe back, a `base` whose recipe is revoked answers `recipe-revoked` while the
   revoked recipe's start page is generated again as the revision after its tombstone, a
   `base` whose recipe was not generated for this origin and its start path answers
-  `recipe-conflict`, a first page that would exceed the active recipe limit answers
-  `recipe-limit` (before the model call, or after it if the last place was taken
-  meanwhile), and a `base` that is not a generated recipe ID is 400. The model maps the
+  `recipe-conflict`. A first page needs room under the active recipe count limit;
+  every generated page, including continuations and entry pages, needs at least 32 KiB
+  of byte room before the model call. A refused write after the call also answers
+  `recipe-limit`. Judge handler and marker writes refused for bytes answer the same
+  reason, and a `base` that is not a generated recipe ID is 400. The model maps the
   slots, the plan is checked with `validatePagePlan`, and the steps are stored with a
   conditional write. Up to 20 slots are accepted; a slot with a `fieldName` (and
   `fieldPosition` for a duplicate name) is a custom-field offer, and each offer names a

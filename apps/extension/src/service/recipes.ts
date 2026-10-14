@@ -1,6 +1,7 @@
 import {
   deviceIdSchema,
   loginRecipesForOrigin,
+  MAX_RECIPE_CACHE_BYTES,
   recipeStartSteps,
   selectLoginRecipe,
   serviceOriginSchema,
@@ -27,7 +28,7 @@ export const MAX_RECIPE_PAGES_PER_SYNC = 50;
  * The serialized cache stays well inside the 10 MB `storage.local` quota it shares with
  * settings, login attempts and other extension state; the vault cache is in IndexedDB.
  */
-export const MAX_RECIPE_CACHE_BYTES = 2 * 1024 * 1024;
+export { MAX_RECIPE_CACHE_BYTES } from "@pateat/contracts";
 
 // The last-known-good copy of the owner's active recipes (ADR 0013). The cursor and
 // recipes are written together, so a failed write leaves the previous consistent copy.
