@@ -10,7 +10,7 @@ import {
   type SiteDefault,
   type VaultCatalog,
 } from "@pateat/contracts";
-import { useForm, useStore } from "@tanstack/react-form";
+import { useForm, useSelector } from "@tanstack/react-form";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { Ban, CircleCheck, Clock, Info, TriangleAlert, type LucideIcon } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -372,7 +372,7 @@ export function SitePolicy({
     originInput.current?.focus();
   }
 
-  const enteredOrigin = useStore(siteForm.store, (state) => state.values.origin.trim());
+  const enteredOrigin = useSelector(siteForm.store, (state) => state.values.origin.trim());
   const accountOrigin = v.is(originSchema, enteredOrigin) ? enteredOrigin : undefined;
   // Each search queries every live vault, so wait until typing pauses.
   const [queriedOrigin, setQueriedOrigin] = useState<string>();
@@ -422,7 +422,7 @@ export function SitePolicy({
       : undefined;
   const accountOptions = siteAccountOptions(catalog, found, showAllAccounts, draft);
   const matchedCount = accountOptions.filter((entry) => entry.uri || entry.passkey).length;
-  const selectedAccount = useStore(siteForm.store, (state) => state.values.account);
+  const selectedAccount = useSelector(siteForm.store, (state) => state.values.account);
   const shownAccount = accountOptions.some((entry) => entry.value === selectedAccount)
     ? selectedAccount
     : (accountOptions[0]?.value ?? "");
