@@ -61,22 +61,49 @@ const page = (
   page: { version: 1, changes, cursor, complete },
 });
 
-/** A valid cache with less than one recipe's worth of room left. */
+/** A valid cache with less than one incoming recipe's worth of room left. */
 function crowdedCache() {
   const held = recipe("cached-one", "/login");
-  const other = recipe("cached-two", "/login");
+  const other = { ...held, id: "cached-two" };
+  // Long, valid paths and locators fill the real byte limit with fewer recipes.
+  // This keeps schema validation, storage cloning and assertions inexpensive under
+  // CI coverage, while all tests still exercise the actual 2 MiB boundary.
+  const filler = parseLoginRecipe({
+    ...held,
+    id: "fill-00000",
+    steps: [
+      ...held.steps.slice(0, 2),
+      ...Array.from({ length: 29 }, () => ({
+        kind: "assert",
+        path: `/${"p".repeat(299)}`,
+        target: target("p".repeat(120)),
+        present: true,
+      })),
+      held.steps.at(-1),
+    ],
+  });
   const empty = { version: 1, origin: SERVICE, deviceId: DEVICE, cursor: 7, recipes: [] };
   const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).byteLength;
-  const count = Math.floor((MAX_RECIPE_CACHE_BYTES - bytes(empty) + 1) / (bytes(held) + 1));
+  const smallBytes = bytes(held) + 1;
+  const fillerBytes = bytes(filler) + 1;
+  const available = MAX_RECIPE_CACHE_BYTES - bytes(empty) - 2 * smallBytes + 1;
+  const fillerCount = Math.floor(available / fillerBytes);
+  const smallCount = Math.floor((available - fillerCount * fillerBytes) / smallBytes);
   const recipes = [
     held,
     other,
-    ...Array.from({ length: count - 2 }, (_, index) =>
-      recipe(`site-${String(index).padStart(5, "0")}`, "/login"),
-    ),
+    ...Array.from({ length: fillerCount }, (_, index) => ({
+      ...filler,
+      id: `fill-${String(index).padStart(5, "0")}`,
+    })),
+    ...Array.from({ length: smallCount }, (_, index) => ({
+      ...held,
+      id: `site-${String(index).padStart(5, "0")}`,
+    })),
   ];
   return { ...empty, recipes };
 }
+
 const incoming = () => [
   active(recipe("incoming-a", "/login")),
   active(recipe("incoming-b", "/login")),
@@ -544,12 +571,23 @@ describe("recipe sync", () => {
   });
 
   it("shares the page limit with normal pages read before an overflow", async () => {
-    const stored = crowdedCache();
+    const full = crowdedCache();
+    const stored = { ...full, recipes: full.recipes.slice(0, 2) };
     const { sync, transport, cache } = setup({
       stored,
       pages: [
+        // Fill the cache in the last two normal pages instead of rewriting 2 MiB
+        // on every empty page. Both active pages obey the 100-change service limit.
         ...Array.from({ length: MAX_RECIPE_PAGES_PER_SYNC - 1 }, (_, index) =>
-          page([], 8 + index, false),
+          page(
+            index === MAX_RECIPE_PAGES_PER_SYNC - 3
+              ? full.recipes.slice(2, 102).map(active)
+              : index === MAX_RECIPE_PAGES_PER_SYNC - 2
+                ? full.recipes.slice(102).map(active)
+                : [],
+            8 + index,
+            false,
+          ),
         ),
         page(
           [...incoming(), active(recipe("incoming-c", "/login")), revoked("cached-one", 2)],
@@ -562,7 +600,7 @@ describe("recipe sync", () => {
     expect(await sync.sync()).toBe("cache-full");
     expect(transport.recipeChanges).toHaveBeenCalledTimes(MAX_RECIPE_PAGES_PER_SYNC + 1);
     expect(transport.recipeChanges).toHaveBeenLastCalledWith(SERVICE, CREDENTIAL, 56);
-    expect(cache()).toEqual({ ...stored, cursor: 56, recipes: stored.recipes.slice(1) });
+    expect(cache()).toEqual({ ...full, cursor: 56, recipes: full.recipes.slice(1) });
   });
 
   it.each(["unreachable", "rate-limited", "unexpected-response"] as const)(
