@@ -43,8 +43,8 @@ const worker = {
 let session: HostSessionRef;
 
 async function command(operation: HostCommand["operation"]) {
-  const result = new Promise<unknown>((resolve) => {
-    worker.postMessage.mockImplementationOnce((message) => resolve(message.result));
+  const result = new Promise<unknown>((receiveResult) => {
+    worker.postMessage.mockImplementationOnce((message) => receiveResult(message.result));
   });
   worker.onmessage?.({
     data: {
