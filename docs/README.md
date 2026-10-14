@@ -45,6 +45,15 @@ pages, with synthetic slot hints, may be committed as evaluation data
 
 ## Decision records
 
+A new ADR starts with `Status:` and `Date:` lines. `Status:` says who accepted it, the
+date and UTC time, the owner's words quoted, whether it is implemented and which ADRs
+it amends or replaces. The body has Context, Decision, Consequences and Alternatives
+sections. Mark anything an agent added beyond the owner's answer as not confirmed by
+the owner. After acceptance, change an ADR only through a dated amendment section,
+keep the accepted text, and note the amendment in its `Status:`; an ADR that amends
+another also updates the other's `Status:`. Number a new ADR after the highest one
+(0011 stays unused) and add it to the list below in the same PR.
+
 - [0001: Local login execution and vault adapters](adr/0001-local-login-boundary.md)
 - [0002: Maintained tools and independent feature implementation](adr/0002-toolchain.md)
 - [0003: Minimal Cloudflare service and provider-neutral inference](adr/0003-service-and-ai.md)
