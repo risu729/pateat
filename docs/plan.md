@@ -725,6 +725,15 @@ Once the fixes have settled:
   `runSteps`. `runtime.production.test.ts` is split along its eight top-level `describe`
   blocks once its 38 shared helpers have their own module
   ([external review](research/2026-10-13-external-review.md)).
+- Before Pateat is public: settings for the two protections Pateat does not honour
+  today (owner, 2026-10-13 21:57 UTC). Passkey user presence and user verification:
+  Pateat sets UP and UV on every assertion it claims without a gesture or a check
+  ([ADR 0007](adr/0007-existing-passkey-assertions.md#presence-and-verification)); a
+  setting over the existing `PasskeyPolicy`, which ADR 0007 plans per site. Bitwarden's
+  master password re-prompt: Pateat fills items marked with it and signs with their
+  passkeys without asking for the master password
+  ([vault adapter](architecture.md#vault-adapter)); a setting to honour it. Until then
+  both stay as they are, and the README says so.
 - Anyone can use Pateat. The service is not opened to other people. Continuous delivery
   publishes each extension release on GitHub Releases and meets the
   [Corresponding Source](sdk-source.md) requirements. The owner has a Chrome Web Store
@@ -2671,9 +2680,9 @@ support for every site or vault format. Keep observed limitations explicit.
   [ADR 0005](adr/0005-bitwarden-local-crypto.md); do not implement cryptographic
   primitives ourselves or treat library adoption as compatibility proof.
 - [ADR 0007](adr/0007-existing-passkey-assertions.md) records the owner's choice
-  to set UP and UV on every claimed assertion without a gesture. A per-site
-  setting over the existing policy shape is later work. Nonzero-counter
-  synchronization is deferred.
+  to set UP and UV on every claimed assertion without a gesture; making it a setting
+  is planned for [phase 3](#phase-3-public-release). Nonzero-counter synchronization
+  is deferred.
 - Per [ADR 0013](adr/0013-service-held-recipes-and-settings.md), decide how to choose
   among several URI-matched items. How synced field exclusions move to
   device-independent references, and where custom-field review happens, are decided in
