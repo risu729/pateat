@@ -83,6 +83,15 @@ vault connections from the start. Scope item and field IDs by connection.
 Adapters are developer-written and bundled with extension releases; no remotely
 loaded executable plugins or speculative second provider implementation.
 
+Bitwarden's master password re-prompt is not honoured. The adapter reads a cipher's
+`reprompt` (`0` or `1`) but carries it no further: an item with `reprompt: 1` is filled
+and its passkeys sign without the master password prompt the official clients show.
+Bitwarden describes re-prompt as "an interface-only guardrail" and "not an encryption
+mechanism"
+([Master Password Re-prompt](https://bitwarden.com/help/master-password-re-prompt/),
+checked 2026-10-14), so the vault data does not enforce it. A setting to honour it
+is planned for [phase 3](plan.md#phase-3-public-release) (owner, 2026-10-13 21:57 UTC).
+
 Expose authentication, unlock, sync, eligible references, field resolution, OTP
 generation and signing capabilities. Reserve create/update capabilities for
 later writing. Distinguish unsupported, supported-but-denied and available:
