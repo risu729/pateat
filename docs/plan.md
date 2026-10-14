@@ -716,6 +716,15 @@ Once the fixes have settled:
   Clef has been tried, compare it with Jev on the same pages (owner, 2026-10-13 15:11
   UTC). Include Chrome's built-in Prompt API (`LanguageModel`, an on-device model) in
   that comparison (owner, 2026-10-13 21:36 UTC).
+- Split `apps/extension/src/login/runtime.ts` (9,998 lines; `createLoginRuntime` spans
+  lines 1573-9998) after [#545](https://github.com/risu729/pateat/issues/545) moves the
+  undecided-page completion rule out, keeping the existing state transitions: the types
+  and reports (lines 1-1572), then storing and resuming attempts (`save`, `keep`,
+  `forget`, `change`), `remember` and the account choice, sign-in entry pages, page
+  passkey requests, the stop before a password, recipe generation, and last `admit` and
+  `runSteps`. `runtime.production.test.ts` is split along its eight top-level `describe`
+  blocks once its 38 shared helpers have their own module
+  ([external review](research/2026-10-13-external-review.md)).
 - Anyone can use Pateat. The service is not opened to other people. Continuous delivery
   publishes each extension release on GitHub Releases and meets the
   [Corresponding Source](sdk-source.md) requirements. The owner has a Chrome Web Store
@@ -747,8 +756,21 @@ At the start of this phase, every task still open in this plan and in the ADRs b
 GitHub issue: later work, deferred and not-handled items, open checks and proposals, not
 only the items listed below. Each is then built when it is needed. Issues get their own
 priority and area labels, and GitHub's default labels may be removed. No issues are
-created before this phase. The list below names items the owner mentioned and gates
-still open on 2026-10-11.
+created before this phase, except where the owner asks for them: the findings of the
+[external review](research/2026-10-13-external-review.md) became issues
+[#541](https://github.com/risu729/pateat/issues/541) to
+[#547](https://github.com/risu729/pateat/issues/547) so that they can be handled
+separately (owner, 2026-10-14 07:24 UTC). The list below names items the owner mentioned
+and gates still open on 2026-10-11.
+
+- From the [external review](research/2026-10-13-external-review.md): decrypted item
+  copies in the crypto Worker that hold only the fields a request needs instead of the
+  whole item; a scheduled purge of the inference log, reconsidered once
+  [ADR 0035](adr/0035-page-kinds-per-site.md) changes which rows the purge keeps (a
+  trigger is a deployment change the owner approves); and syncing which recipes exist
+  and which are revoked separately from their bodies, if
+  [#544](https://github.com/risu729/pateat/issues/544) and the recipe limits are not
+  enough.
 
 - Signing in through an identity provider
   ([ADR 0026](adr/0026-sign-in-through-identity-providers.md), ADR 0027 delivery 5).
@@ -922,6 +944,9 @@ still open on 2026-10-11.
   write-up, checked against primary sources, on Immediate UI, FedCM and Agentic
   Federated Login, `<login>`, WebMCP, Email Verification, Login Status, WebOTP,
   delegated authorization for agents and CXF/CXP.
+- An external static review of main `4961de6` (owner, 2026-10-13 21:57 UTC): the
+  [note](research/2026-10-13-external-review.md) records each of its seven findings,
+  checked against the code, and the issues that handle them.
 - Earlier research kept as dated notes:
   [identity provider screens](research/2026-10-11-identity-provider-screens.md) behind
   [ADR 0026](adr/0026-sign-in-through-identity-providers.md);
