@@ -14,9 +14,9 @@ beforeEach(() => {
   path = location.pathname + location.search;
 });
 afterEach(() => {
+  for (const base of document.querySelectorAll("base")) base.remove();
   history.replaceState(null, "", path);
   document.body.innerHTML = "";
-  for (const base of document.querySelectorAll("base")) base.remove();
 });
 const first = <T extends Element>(selector: string) => document.querySelector<T>(selector)!;
 
