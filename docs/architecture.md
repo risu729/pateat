@@ -1149,6 +1149,14 @@ read out to screen readers, then the Version and Settings and storage panels, th
 Bitwarden connections and Pateat service panels, and Logs. Values are shown as the
 summary has them, in a monospace face.
 
+Computed ages use `Intl.DurationFormat("en", { style: "short" })`, with the selected
+unit's display set to `always` so zero remains visible. They floor to minutes below
+one hour (`0 min`, `59 min`), hours below 48 hours (`1 hr`, `47 hr`), then days
+(`2 days`); future times count as `0 min`. Recipe sync overdue labels floor to hours
+even beyond 48 hours, including `0 hr` during the first overdue hour. The locale stays
+English until phase 3 localisation passes the UI locale. Fixed phrases such as
+"in the last 24 h" remain unchanged.
+
 The worker fetches `/health` only for a paired service with site access, and
 `/v1/device` only then and while the service has not rejected the credential, with a 5 s
 timeout; that route reads the database and imports the signing key, but signs nothing
