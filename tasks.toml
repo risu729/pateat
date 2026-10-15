@@ -1,8 +1,8 @@
 #:schema https://mise.jdx.dev/schema/mise-task.json
 
 [install]
-description = "Install the frozen workspace dependencies."
-run = "aube install --frozen-lockfile"
+description = "Repair the frozen workspace dependency installation."
+run = "mise deps --force aube_workspace"
 
 [check]
 description = "Run all static, runtime and browser checks through hk."

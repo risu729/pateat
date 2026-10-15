@@ -43,3 +43,18 @@ _.path = ["node_modules/.bin"]
 [task_config]
 # Repository-wide tasks; each project keeps its own in its mise.toml.
 includes = ["tasks.toml"]
+
+# The builtin aube provider requires aube-lock.yaml; Bun owns our lockfile (ADR 0032).
+[deps.aube_workspace]
+auto = true
+sources = [
+  "package.json",
+  "bun.lock",
+  "aube-workspace.yaml",
+  "bunfig.toml",
+  "apps/*/package.json",
+  "packages/*/package.json",
+  "services/*/package.json",
+]
+outputs = ["node_modules"]
+run = "aube {% if env.CI | default(value='') == 'true' %}ci{% else %}install --frozen-lockfile{% endif %}"
