@@ -7,6 +7,7 @@ import {
   type SettingsClient,
 } from "../../apps/extension/src/options/client";
 import type { ChoiceClient } from "../../apps/extension/src/login/choice-wire";
+import { PAGE_SECTION_STORAGE_KEY } from "../../apps/extension/src/page-section";
 import { popupOrigin, SiteApp, type PopupHost } from "../../apps/extension/src/popup/site-app";
 import {
   createDefaultSettings,
@@ -115,7 +116,10 @@ async function mount(
   return host;
 }
 
-afterEach(() => cleanup());
+afterEach(async () => {
+  await cleanup();
+  localStorage.removeItem(PAGE_SECTION_STORAGE_KEY);
+});
 
 test("only HTTPS pages with a valid hostname are a site the popup edits", () => {
   expect(popupOrigin("https://bank.example/login?next=1")).toBe("https://bank.example");
@@ -1000,6 +1004,32 @@ test("the page section shows a recipe on the page and a login that signed in", a
   const section = document.querySelector("#popup-page-status")!;
   const accounts = page.getByRole("group", { name: "Default account" }).element();
   expect(section.compareDocumentPosition(accounts) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+});
+
+test("the settings page's choice hides the page section and stops asking for it", async () => {
+  localStorage.setItem(PAGE_SECTION_STORAGE_KEY, "hidden");
+  const { client } = store();
+  const choices = onPage({ recipe: "page", login: { state: "authenticated" } });
+  await mount(client, "https://bank.example/login", choices);
+  await expect.element(page.getByRole("group", { name: "Default account" })).toBeVisible();
+  expect(page.getByRole("heading", { name: "This page" }).query()).toBeNull();
+  expect(document.querySelector("#popup-open-diagnostics")).toBeNull();
+  expect(choices.status).not.toHaveBeenCalled();
+
+  // An open popup follows the choice made on the settings page.
+  localStorage.setItem(PAGE_SECTION_STORAGE_KEY, "shown");
+  window.dispatchEvent(new StorageEvent("storage", { key: PAGE_SECTION_STORAGE_KEY }));
+  await expect.poll(() => lineText("login")).toBe("Logged in.");
+  expect(choices.status).toHaveBeenCalledWith(7);
+
+  localStorage.setItem(PAGE_SECTION_STORAGE_KEY, "hidden");
+  window.dispatchEvent(new StorageEvent("storage", { key: PAGE_SECTION_STORAGE_KEY }));
+  await expect.poll(() => document.querySelector("#popup-page-status")).toBeNull();
+  await expect.element(page.getByRole("group", { name: "Default account" })).toBeVisible();
+  // The status is asked every second while shown; hidden, it is not asked again.
+  const asked = choices.status.mock.calls.length;
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+  expect(choices.status).toHaveBeenCalledTimes(asked);
 });
 
 test("the page section says why a page without a recipe was not sent to the AI", async () => {

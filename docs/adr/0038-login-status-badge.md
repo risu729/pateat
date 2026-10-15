@@ -86,6 +86,10 @@ is running, signed in, or why it did not start or did not succeed. Outcomes get 
 plain sentence; others show their log name. It ends with a link to the diagnostics
 page, and shows no value, recipe content or URL query.
 
+Note (2026-10-15, Claude's default, pending the owner's confirmation): the setting is a
+checkbox on the settings page that hides the section on one device; the section shows by
+default ([architecture](../architecture.md#settings-eligibility-and-operation-grants)).
+
 The section sits under the popup's header and asks the worker with `login.status.get`
 every second while the popup is open. The worker answers from three sources:
 

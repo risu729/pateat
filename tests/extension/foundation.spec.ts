@@ -357,6 +357,62 @@ test("the toolbar popup edits the active tab's site through the settings store",
   });
 });
 
+test("the settings page hides the popup's page section on this device", async () => {
+  await withExtension(extensionDirectory, async (context, _worker, id) => {
+    await context.route("https://bank.example/**", (route) =>
+      route.fulfill({ contentType: "text/html", body: "<title>Bank</title><p>Bank</p>" }),
+    );
+    const options = await context.newPage();
+    await options.goto(`chrome-extension://${id}/options.html`);
+    // A popup reads the active tab of its window, so it opens as an inactive tab.
+    const bank = await options.evaluate(
+      (url) =>
+        (globalThis as unknown as { chrome: TestChrome }).chrome.tabs.create({ url, active: true }),
+      "https://bank.example/login",
+    );
+    await expect
+      .poll(() =>
+        options.evaluate(
+          async (tabId) =>
+            (await (globalThis as unknown as { chrome: TestChrome }).chrome.tabs.get(tabId)).url,
+          bank.id,
+        ),
+      )
+      .toBe("https://bank.example/login");
+    const openPopup = async () => {
+      const opened = context.waitForEvent("page", (page) => page.url().endsWith("/popup.html"));
+      await options.evaluate(
+        (url) =>
+          (globalThis as unknown as { chrome: TestChrome }).chrome.tabs.create({
+            url,
+            active: false,
+          }),
+        `chrome-extension://${id}/popup.html`,
+      );
+      return opened;
+    };
+    const popup = await openPopup();
+    const heading = popup.getByRole("heading", { name: "This page" });
+    await expect(heading).toBeVisible();
+
+    const shown = options.getByRole("checkbox", { name: 'Show "This page" in the popup' });
+    await expect(shown).toBeChecked();
+    await shown.uncheck();
+    // The open popup follows, and a popup opened later keeps the choice.
+    await expect(heading).toHaveCount(0);
+    await expect(popup.locator("#popup-origin")).toHaveText("bank.example");
+    await popup.close();
+    const later = await openPopup();
+    await expect(later.locator("#popup-accounts-note")).toContainText("No vault item matches");
+    // The first popup showed the section by now; this one asks for no status at all.
+    await later.waitForTimeout(1500);
+    await expect(later.getByRole("heading", { name: "This page" })).toHaveCount(0);
+
+    await shown.check();
+    await expect(later.getByRole("heading", { name: "This page" })).toBeVisible();
+  });
+});
+
 test("installed production offers manual setup with an empty real catalog and rejects extra request fields", async () => {
   await withExtension(extensionDirectory, async (context, _worker, id) => {
     // Chrome derives the committed ID from the manifest key (ADR 0020).
