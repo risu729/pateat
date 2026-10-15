@@ -243,7 +243,8 @@ The `Pack` job (read-only token) checks out the revision, installs the locked to
 dependencies, runs `mise run check:sdk-source` and `mise run //apps/extension:zip`
 (WXT's production build and ZIP), then `.github/scripts/extension-release.mjs pack`.
 Every WXT build, including the Worker bundle, records the third-party packages it
-bundles in `apps/extension/.output/chrome-mv3.packages.json`
+bundles in `apps/extension/.output/<output directory>.packages.json` (for the production
+build, `chrome-mv3.packages.json`)
 (`apps/extension/bundled-packages.ts`, a Vite plugin that does not change the output):
 the installed package of each module in each chunk, and each package whose license
 banner (`/*! name vX.Y.Z | ...`) a stylesheet keeps, which is how Tailwind's own CSS
@@ -254,7 +255,7 @@ access). It writes to `work/extension-release/`:
 
 - `pateat-<version>-chrome.zip`: the built extension.
 - `pateat-<version>-source.tar.gz`: `git archive` of the revision under
-  `pateat-<version>/`, plus `corresponding-source/` with a `README.md`, the Bitwarden
+  `pateat-<version>/`, plus `third-party-source/` with a `README.md`, the Bitwarden
   SDK source at the commit the installed package's `VERSION` names (downloaded from
   `github.com/bitwarden/sdk-internal/archive/<commit>.tar.gz`), and under `npm/` the
   registry tarball of every recorded package with an `index.json`. Each recorded package
@@ -285,7 +286,7 @@ revision. Raise the version in `apps/extension/package.json` before the next rel
 Before publishing a draft, the owner:
 
 1. Downloads its files and runs `sha256sum --check SHA256SUMS`.
-2. Unpacks the source archive and checks that `corresponding-source/` holds the SDK
+2. Unpacks the source archive and checks that `third-party-source/` holds the SDK
    archive and the package tarballs its `README.md` lists, then loads the ZIP with Load
    unpacked in Chrome and checks that `legal.html` links the same SDK commit.
 3. Settles the [open questions](sdk-source.md#release-archives) on what the source must

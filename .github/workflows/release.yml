@@ -1,5 +1,5 @@
 name: Extension release
-# Builds the production extension ZIP and its Corresponding Source and opens a draft GitHub
+# Builds the production extension ZIP and the source provided with it and opens a draft GitHub
 # Release. The owner reviews and publishes the draft by hand; nothing here publishes it,
 # uploads to the Chrome Web Store or uses a signing key (docs/delivery.md#extension-releases).
 
@@ -55,7 +55,7 @@ jobs:
         run: mise run check:sdk-source
       - name: Build and zip the production extension
         run: mise run //apps/extension:zip
-      - name: Pack the extension with its Corresponding Source
+      - name: Pack the extension with its source
         id: pack
         run: mise exec -- node .github/scripts/extension-release.mjs pack
       - name: Summarize the packed release
