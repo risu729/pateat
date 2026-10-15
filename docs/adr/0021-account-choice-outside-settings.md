@@ -454,8 +454,9 @@ fill gaps the decision left open; they are implementation choices, not owner dec
   `Pateat: 3 accounts match this site, but none can be used:` followed by
   `this site is excluded in settings`, `they are excluded in settings`,
   `they wait for a custom-field review in settings`, or both of the last two; and for no
-  match, `Pateat: no account for this site.` Unevaluated items add
-  `N items' URI rules could not be checked.` The not-checked titles end
+  match, `Pateat: no account for this site.` Items a login could use whose URI rules
+  or passkeys could not be read add `N more items could not be checked.`, as the
+  popup's list notes only those. The not-checked titles end
   `so this site's accounts were not counted.` A held login's tooltip replaces the
   count's title, not its number.
 - A locked vault (its record holds no key), an unreadable record or an open vault on
@@ -467,6 +468,9 @@ fill gaps the decision left open; they are implementation choices, not owner dec
   does not start a count.
 - A count stopped for a login or an admission is not retried on its own; the page's next
   announcement counts again.
+- A count that finishes after the settings or a vault changed is cached under the key
+  it was made for, and the tabs show what applies now instead. An announcement whose
+  origin is no longer the tab's does not count.
 - In the probe build, the bundled demo connections are counted by their static
   `allowedOrigins`.
 

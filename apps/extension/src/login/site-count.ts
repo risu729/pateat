@@ -33,7 +33,7 @@ export type SiteCount = {
   usable: number;
   /** Items whose URI rule matches the origin or that hold a passkey for its RP IDs. */
   matching: number;
-  /** Items whose URI rules could not be evaluated, left out of both numbers. */
+  /** Usable items whose URI rules or passkeys could not be read, left out of both numbers. */
   unevaluated: number;
   /** Set when items match but none is usable. */
   excluded?: ExcludedReason;
@@ -206,7 +206,12 @@ export async function countSite(
     const catalog = { connections: [entry] };
     for (const [itemId, how] of items) {
       if (!how.uri && !how.passkey) {
-        unevaluated += 1;
+        // Only an item a login could use is noted, as the popup's list does.
+        if (
+          !quarantined.includes(itemId) &&
+          passkeyEligible(settings, catalog, source.connectionId, itemId)
+        )
+          unevaluated += 1;
         continue;
       }
       matching += 1;
@@ -375,7 +380,18 @@ export function createSiteCounter(deps: {
         remember(origin, { key: scope.key, count: state.count });
         save();
       }
-      showAll(origin, state);
+      // Settings saved or a vault locked meanwhile: the tabs show what applies now.
+      let now: CountScope;
+      try {
+        now = await deps.scope();
+      } catch {
+        now = { unchecked: "unreadable" };
+      }
+      if ("key" in now && now.key === scope.key) showAll(origin, state);
+      else
+        await Promise.all(
+          [...tabs].filter(([, shown]) => shown === origin).map(([tabId]) => apply(tabId, origin)),
+        );
     } finally {
       release();
     }
@@ -417,6 +433,8 @@ export function createSiteCounter(deps: {
       if (!origin) return;
       await apply(tabId, origin);
       if (announced.has(tabId) || tabs.get(tabId) !== origin) return;
+      // Another load may have armed one while the cached count was read.
+      stopTimer(tabId);
       timers.set(
         tabId,
         setTimeout(() => {

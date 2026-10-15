@@ -25,7 +25,12 @@ import { createSignIns, SIGN_INS_KEY } from "../src/passkeys/sign-ins";
 import { createSignedTabs, SIGNED_TABS_KEY } from "../src/passkeys/signed-tabs";
 import { sessionValue } from "../src/storage";
 import { createLoginBadge, LOGIN_BADGE_KEY, setActionBadge } from "../src/login/badge";
-import { createCountScope, createSiteCounter, SITE_COUNT_KEY } from "../src/login/site-count";
+import {
+  countedOrigin,
+  createCountScope,
+  createSiteCounter,
+  SITE_COUNT_KEY,
+} from "../src/login/site-count";
 import {
   createVaultPasskeyFinder,
   createVaultPasskeySource,
@@ -259,7 +264,16 @@ export default defineBackground(() => {
     },
     signedIn: (tabId, origin) => noteSignIn(tabId, origin),
     badge: loginBadge,
-    announced: (tabId, url) => void siteCounter.announced(tabId, url),
+    // A late answer to the tab's previous page does not take the tab over from its new one.
+    announced: (tabId, url) =>
+      void browser.tabs
+        .get(tabId)
+        .then((tab) =>
+          countedOrigin(tab.url) === countedOrigin(url)
+            ? siteCounter.announced(tabId, url)
+            : undefined,
+        )
+        .catch(() => undefined),
   });
   const setupProbe = syntheticSetup?.handler(connections);
   const siteAccounts = createSiteAccountsHandler({

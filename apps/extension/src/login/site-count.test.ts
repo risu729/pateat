@@ -197,6 +197,13 @@ describe("countSite", () => {
     });
   });
 
+  it("notes only unevaluated items a login could use", async () => {
+    const source = live({ items: [{ id: "a" }, { id: "b" }, { id: "c" }], unknown: ["b", "c"] });
+    expect(
+      await countSite(origin, scope([source], settings({ excludedItemIds: ["c"] })), run),
+    ).toEqual({ kind: "count", count: { usable: 0, matching: 0, unevaluated: 1 } });
+  });
+
   it("matches bundled demo connections by their static origins", async () => {
     const fixed: VaultCatalog["connections"][number] = {
       id: connectionId,
@@ -463,6 +470,19 @@ describe("createSiteCounter", () => {
     await h.counter.announced(1, `${origin}/`);
     await h.counter.idle();
     expect(h.shown.get(1)).toEqual(one);
+  });
+
+  it("shows what applies now when settings change during a count", async () => {
+    const h = harness();
+    h.step.mockImplementation(async (job) => {
+      h.setSettings(settings({ excludedItemIds: ["a"] }, {}, 2));
+      return { value: await job() };
+    });
+    await h.counter.announced(1, `${origin}/`);
+    await h.counter.idle();
+    // The count of the previous settings is cached under their key but not shown.
+    expect(h.shown.get(1)).toBeUndefined();
+    expect(h.stored()).toEqual({ origins: [[origin, JSON.stringify([1]), one.count]] });
   });
 
   it("does not show a count for a tab that moved on to another site", async () => {
