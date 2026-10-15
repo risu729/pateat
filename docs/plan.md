@@ -725,9 +725,10 @@ Once the fixes have settled:
   `runSteps`. `runtime.production.test.ts` is split along its eight top-level `describe`
   blocks once its 38 shared helpers have their own module
   ([external review](research/2026-10-13-external-review.md)).
-- Before Pateat is public: settings for the two protections Pateat does not honour
-  by default (owner, 2026-10-13 21:57 UTC). Implemented 2026-10-15, pending the owner's
-  approval of [ADR 0007](adr/0007-existing-passkey-assertions.md#presence-and-verification)'s
+- Before Pateat is public: settings for the two protections Pateat does not honour by
+  default (owner, 2026-10-13 21:57 UTC). Implemented 2026-10-15, pending the owner's
+  approval of
+  [ADR 0007](adr/0007-existing-passkey-assertions.md#presence-and-verification)'s
   amendment: one `protections` setting in the synced settings document, for every site,
   edited under Protections on the extension's settings page. It supplies the
   `PasskeyPolicy` (presence `always` or `activation`, verification `always` or `never`)

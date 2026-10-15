@@ -1765,11 +1765,11 @@ requires separate compatibility tests.
 
 The bridge, admission rules, assertion format and unattended presence and verification
 policy are in [ADR 0007](adr/0007-existing-passkey-assertions.md); the `protections`
-setting of the synced settings document chooses that policy for every site. Like the official
-Bitwarden client, passkey requests search every live login item by RP ID rather than by
-saved URI; a site default only chooses among several matches. Every build registers the
-bridge on top-level `https://*/*` documents: `passkey-main.js` in the MAIN world and
-`passkey-isolated.js` in the isolated world, both at document start, under the
+setting of the synced settings document chooses that policy for every site. Like the
+official Bitwarden client, passkey requests search every live login item by RP ID rather
+than by saved URI; a site default only chooses among several matches. Every build
+registers the bridge on top-level `https://*/*` documents: `passkey-main.js` in the MAIN
+world and `passkey-isolated.js` in the isolated world, both at document start, under the
 install-time HTTPS access of [ADR 0009](adr/0009-install-time-https-site-access.md). The
 background answers them from the vault-backed passkey source, which applies the item
 selection. The crypto Worker signs with the stored vault passkey, keeping the private

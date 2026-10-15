@@ -47,9 +47,10 @@ Bitwarden's master password re-prompt (`reprompt: 1`), as filling does
 ([vault adapter](../architecture.md#vault-adapter)). Settings for UP/UV and for
 re-prompt are planned for [phase 3](../plan.md#phase-3-public-release) (owner,
 2026-10-13 21:57 UTC); until then both stay as they are.
+
 Amended on 2026-10-15 (Proposed, implemented pending the owner's approval): the synced
-settings document holds a `protections` setting for every site, edited on the extension's
-settings page. It supplies the `PasskeyPolicy` (see
+settings document holds a `protections` setting for every site, edited on the
+extension's settings page. It supplies the `PasskeyPolicy` (see
 [Presence and verification](#presence-and-verification)) and can honour re-prompt (see
 [Master password re-prompt](#master-password-re-prompt)). Its defaults keep the
 behaviour above. One setting for every site rather than one per site, and the defaults,
@@ -344,9 +345,9 @@ Pateat does not ask for the master password itself; a prompt window is later wor
 - A per-site protections setting (proposed 2026-10-15): finer, but each site would need
   its own choice before the setting protects it. One setting covers every site now; the
   same `PasskeyPolicy` can take a per-site value later.
-- Honouring re-prompt by leaving such passkeys out of the matches: the request would sign
-  with another item's passkey when one is left, choosing an account the person did not
-  pick. Handing the request on keeps the choice with the person.
+- Honouring re-prompt by leaving such passkeys out of the matches: the request would
+  sign with another item's passkey when one is left, choosing an account the person did
+  not pick. Handing the request on keeps the choice with the person.
 - Drive or depend on the official Bitwarden extension: inherits its prompts and
   focus requirements and is not an independent adapter.
 - Use an SDK authenticator: the pinned WASM exposes none.
