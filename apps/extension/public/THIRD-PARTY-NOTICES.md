@@ -3,8 +3,8 @@
 ## Official Bitwarden OSS SDK
 
 The local cryptographic host and synthetic probe bundle the unmodified GPL edition of
-`@bitwarden/sdk-internal@0.2.0-main.1100`, source revision
-`3b2c8fc365c1e450cdcee23c9283353305f6128e`, by the Bitwarden SDK contributors.
+`@bitwarden/sdk-internal@0.2.0-main.1105`, source revision
+`7d5b1010297d6f2352b55c3d2ff27352e37433cd`, by the Bitwarden SDK contributors.
 Public synthetic vectors copied from upstream revision
 `7de8f13a14b56068167160f88d55231f916cf16a` retain their source attribution in
 `packages/bitwarden/src/__fixtures__/crypto.ts`.
@@ -14,9 +14,9 @@ not provide support for this internal package or endorse this integration.
 No Bitwarden trademark rights are granted.
 
 - [GPLv3 license text](LICENSE-GPL-3.0.txt)
-- [Upstream license selection](https://github.com/bitwarden/sdk-internal/blob/3b2c8fc365c1e450cdcee23c9283353305f6128e/LICENSE)
-- [Matching source archive](https://github.com/bitwarden/sdk-internal/archive/3b2c8fc365c1e450cdcee23c9283353305f6128e.tar.gz)
-- [Upstream build instructions](https://github.com/bitwarden/sdk-internal/blob/3b2c8fc365c1e450cdcee23c9283353305f6128e/crates/bitwarden-wasm-internal/README.md)
+- [Upstream license selection](https://github.com/bitwarden/sdk-internal/blob/7d5b1010297d6f2352b55c3d2ff27352e37433cd/LICENSE)
+- [Matching source archive](https://github.com/bitwarden/sdk-internal/archive/7d5b1010297d6f2352b55c3d2ff27352e37433cd.tar.gz)
+- [Upstream build instructions](https://github.com/bitwarden/sdk-internal/blob/7d5b1010297d6f2352b55c3d2ff27352e37433cd/crates/bitwarden-wasm-internal/README.md)
 
 The compiled npm tarball does not replace the corresponding Rust source,
 interfaces and build scripts. Distribution must provide equivalent access to
