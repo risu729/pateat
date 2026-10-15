@@ -1,5 +1,16 @@
 # Implementation plan
 
+Status on 2026-10-14 (main `a3fb01c`): every kind of login page in the [phase
+1](#phase-1-usable) table has signed in on its real site, and every phase 1 change is
+merged. Phase 1 still waits only on installed-Chrome rechecks: Wise's choice after a
+logout, GitHub's popup pick of an item with a passkey, エポスNet's PIN page, and the
+toolbar badge's braille frames and amber count on Windows. No code in phases 2 and 3 has
+started: [ADR 0035](adr/0035-page-kinds-per-site.md) delivery 1 and the [site count
+badge](adr/0021-account-choice-outside-settings.md#site-count-badge) are decided but not
+implemented, and the [external review](research/2026-10-13-external-review.md) and
+[platform feature](research/2026-10-14-platform-feature-candidates.md) issues each have
+an open PR held for the owner to merge. Checked against the code on 2026-10-15.
+
 Status on 2026-10-11 (main `b00b5b7`): M0 completed in
 [PR #1](https://github.com/risu729/pateat/pull/1). The production extension connects a
 real Bitwarden account, admits HTTPS sites
@@ -331,8 +342,8 @@ than in this repository.
     entries without a connection row (the demo vaults, a connection this device no
     longer has) are listed under the rows, and the demo preview lists its vaults in a
     Demo vaults panel.
-  - Approved: `lucide-react` for icons in the polish (owner, 2026-10-12 20:53 UTC); the
-    first PR that uses it adds it.
+  - Done: `lucide-react` for icons in the polish (owner, 2026-10-12 20:53 UTC), used by
+    the extension's pages and `/manage`.
   - Done: the settings page marks Bitwarden (its section in the menu and each connection
     row) with the `lucide-react` `Shield` icon (owner, 2026-10-13 15:02 UTC). The owner
     asked for Bitwarden's own logo, but Bitwarden's
