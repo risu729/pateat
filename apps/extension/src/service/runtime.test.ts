@@ -389,6 +389,17 @@ describe("first settings sync since pairing (ADR 0023)", () => {
     expect(await runtime.settingsSyncPending()).toBe(true);
   });
 
+  it("waits while a new pairing's credential is not saved yet", async () => {
+    const storage = memoryStorage();
+    storage.write = vi.fn(async () => {
+      throw new Error("Synthetic storage failure");
+    });
+    const { runtime } = setup({ storage });
+    await runtime.handle(pair);
+    expect(storage.write).toHaveBeenCalled();
+    expect(await runtime.settingsSyncPending()).toBe(true);
+  });
+
   it("ignores another device's settings sync", async () => {
     const { runtime } = setup({ storage: memoryStorage(connected) });
     await runtime.recordSync("7a2e4d2f-6e1c-4b63-8e66-4e8b9f1f3c52", { settingsSynced: true });

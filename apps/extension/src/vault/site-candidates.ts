@@ -82,6 +82,11 @@ export async function findLiveSiteCandidates(input: {
       });
       continue;
     }
+    // A ready vault whose account is unknown cannot be checked against its synced policy.
+    if (use === "vault-unavailable") {
+      unavailableConnections.push({ connectionId: connection.id, reason: use });
+      continue;
+    }
     let result: VaultResult<UriCandidates> | undefined;
     try {
       // Sequential: each connection shares the bounded native host.

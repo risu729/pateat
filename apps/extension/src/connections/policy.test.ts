@@ -221,8 +221,8 @@ async function harness(
         excludedFieldIds,
       }),
     blocked: async () => reviewBlockedItems(structuredClone(snapshot), await shown(next)),
-    record: () => snapshot.settings.customFieldReviews.find((entry) => entry.itemId === itemId),
-    itemPolicy: () => snapshot.settings.itemPolicies.find((entry) => entry.itemId === itemId),
+    record: () => snapshot.settings.customFieldReviews.find((listed) => listed.itemId === itemId),
+    itemPolicy: () => snapshot.settings.itemPolicies.find((listed) => listed.itemId === itemId),
   };
 }
 
@@ -452,7 +452,7 @@ describe("explicit custom-field review", () => {
       itemId: h.itemId,
       ...(await evidenceOf(h.next)),
     });
-    expect(h.read().settings.itemPolicies.find((entry) => entry.itemId === "unaffected")).toEqual(
+    expect(h.read().settings.itemPolicies.find((listed) => listed.itemId === "unaffected")).toEqual(
       expect.objectContaining({ excludedFields: ["login.password"] }),
     );
     expect(await h.policy.quarantined!(connectionId, snapshot)).toEqual([]);
@@ -473,7 +473,7 @@ describe("explicit custom-field review", () => {
     await h.adopt();
     const without = h.read();
     without.settings.itemPolicies = without.settings.itemPolicies.filter(
-      (entry) => entry.itemId !== h.itemId,
+      (listed) => listed.itemId !== h.itemId,
     );
     h.setSnapshot(without);
     await h.review([`custom.${h.next.accepted.snapshotId}.1`]);

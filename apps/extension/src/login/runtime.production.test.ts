@@ -424,8 +424,10 @@ function harness(
     allowedOrigins?: string[];
     uris?: LiveUriMatcher;
     quarantined?: boolean;
-    /** Adds a second, not enabled connection of the same provider account. */
+    /** Adds a second connection of the same provider account, which shares its policy. */
     duplicateAccount?: boolean;
+    /** The device is paired and waits for its first settings sync (ADR 0023). */
+    settingsSyncPending?: boolean;
     /** Adds a login username field to the item. */
     username?: boolean;
     /**
@@ -497,6 +499,7 @@ function harness(
       ok: true,
       snapshot: structuredClone(snapshot),
       catalog: {
+        ...(live.settingsSyncPending ? { settingsSyncPending: true as const } : {}),
         connections: [
           {
             id: connectionId,
@@ -922,7 +925,15 @@ describe("production login document admission", () => {
       "plain HTTP even with a saved HTTP default",
       "http://login.example/signin",
       {
-        siteDefaults: [{ origin: "http://login.example", provider: "bitwarden", server: "cloud-us", userId, itemId }],
+        siteDefaults: [
+          {
+            origin: "http://login.example",
+            provider: "bitwarden",
+            server: "cloud-us",
+            userId,
+            itemId,
+          },
+        ],
       },
     ],
     [
@@ -3737,9 +3748,13 @@ describe("production login document admission", () => {
       }, 10_000);
     });
     it("refuses the only URI match when its account is connected more than once", async () => {
-      // The automatic choice names the provider account as a saved default would, so it
-      // stays ambiguous even though the other connection is not enabled.
-      const uris = vi.fn<LiveUriMatcher>(async () => ({ ok: true, data: uriMatch() }));
+      // Both connections of the account follow its one synced policy (ADR 0023), so both
+      // are searched; the automatic choice names the provider account as a saved default
+      // would, so it stays ambiguous.
+      const uris = vi.fn<LiveUriMatcher>(async (connection) => ({
+        ok: true,
+        data: uriMatch({ connectionId: connection }),
+      }));
       const h = harness(unsaved, { allowedOrigins: [], uris, duplicateAccount: true });
       expect(await h.hello()).toEqual({ ok: false, reason: "account-ambiguous" });
       expect(h.fields).not.toHaveBeenCalled();
@@ -3888,7 +3903,9 @@ describe("production login document admission", () => {
       const second = "https://second.example";
       const h = harness(
         {
-          siteDefaults: [{ origin: second, provider: "bitwarden", server: "cloud-us", userId, itemId }],
+          siteDefaults: [
+            { origin: second, provider: "bitwarden", server: "cloud-us", userId, itemId },
+          ],
           bindings: [],
         },
         { allowedOrigins: [second], uris: async () => ({ ok: true, data: uriMatch() }), report },
@@ -3924,7 +3941,9 @@ describe("production login document admission", () => {
       const { completion: _unlearned, ...generated } = recipe;
       const h = harness(
         {
-          siteDefaults: [{ origin: second, provider: "bitwarden", server: "cloud-us", userId, itemId }],
+          siteDefaults: [
+            { origin: second, provider: "bitwarden", server: "cloud-us", userId, itemId },
+          ],
           bindings: [],
         },
         { allowedOrigins: [second], uris: async () => ({ ok: true, data: uriMatch() }) },
@@ -4034,7 +4053,11 @@ describe("production login document admission", () => {
     });
     it("refuses a provider-account default whose account is not connected here", async () => {
       const h = harness(
-        { siteDefaults: [{ origin, provider: "bitwarden", server: "cloud-us", userId: "other-account", itemId }] },
+        {
+          siteDefaults: [
+            { origin, provider: "bitwarden", server: "cloud-us", userId: "other-account", itemId },
+          ],
+        },
         { allowedOrigins: [origin] },
       );
       expect(await h.hello()).toEqual({ ok: false, reason: "connection-missing" });
@@ -4247,7 +4270,17 @@ describe("production login document admission", () => {
         ["no live URI matching is available", unsaved, { allowedOrigins: [] }, "default-not-set"],
         [
           "the saved default's account is not connected here",
-          { siteDefaults: [{ origin, provider: "bitwarden", server: "cloud-us", userId: "other-account", itemId }] },
+          {
+            siteDefaults: [
+              {
+                origin,
+                provider: "bitwarden",
+                server: "cloud-us",
+                userId: "other-account",
+                itemId,
+              },
+            ],
+          },
           { allowedOrigins: [origin] },
           "connection-missing",
         ],
@@ -4670,7 +4703,9 @@ describe("production login document admission", () => {
       });
       it("ends the choice once a default is saved for the site", async () => {
         const h = await refused();
-        h.settings.settings.siteDefaults = [{ origin, provider: "bitwarden", server: "cloud-us", userId, itemId }];
+        h.settings.settings.siteDefaults = [
+          { origin, provider: "bitwarden", server: "cloud-us", userId, itemId },
+        ];
         expect(await ask(h)).toEqual({ ok: false, reason: "no-choice" });
         expect(await pick(h)).toEqual({ ok: false, reason: "no-choice" });
         expect(fake.state.badges[1]).toEqual({ text: "", title: "Pateat" });
@@ -4717,7 +4752,9 @@ describe("production login document admission", () => {
         const second = "https://second.example";
         const h = harness(
           {
-            siteDefaults: [{ origin: second, provider: "bitwarden", server: "cloud-us", userId, itemId }],
+            siteDefaults: [
+              { origin: second, provider: "bitwarden", server: "cloud-us", userId, itemId },
+            ],
             bindings: [{ ...savedBinding, recipeId: "second-signin", origin: second }],
           },
           {
@@ -5164,6 +5201,35 @@ describe("production login document admission", () => {
   });
   describe("with a saved account choice and a synced binding", () => {
     const executes = () => fake.state.messages.filter((entry) => entry.type === "login.execute");
+    it("uses no vault item before the first settings sync since pairing", async () => {
+      const h = harness({}, { settingsSyncPending: true });
+      expect(await h.hello()).toEqual({ ok: false, reason: "vault-unavailable" });
+      expect(h.fields).not.toHaveBeenCalled();
+      expect(executes()).toEqual([]);
+    });
+    it("refuses an item whose custom fields changed since their review", async () => {
+      const h = harness({
+        bindings: [branchBinding],
+        ...excludingLive(["login.totp", { custom: "Branch", position: 1, count: 1 }]),
+        customFieldReviews: [
+          { ...liveReview(), evidence: `bitwarden-v1:sha256:${"b".repeat(64)}` },
+        ],
+      });
+      h.recipes.recipe.mockResolvedValue(branchRecipe);
+      expect(await h.hello()).toEqual({ ok: false, reason: "review-required" });
+      expect(h.fields).not.toHaveBeenCalled();
+      expect(executes()).toEqual([]);
+    });
+    it("refuses an account whose user ID has synced policy on another server", async () => {
+      const h = harness({
+        accountPolicies: [
+          liveAccountPolicy(),
+          liveAccountPolicy({ server: "https://vault.example.test", enabled: false }),
+        ],
+      });
+      expect(await h.hello()).toEqual({ ok: false, reason: "account-ambiguous" });
+      expect(h.fields).not.toHaveBeenCalled();
+    });
     it("fills a custom field through the synced binding's field name", async () => {
       const h = harness({ bindings: [branchBinding] });
       h.recipes.recipe.mockResolvedValue(branchRecipe);
@@ -7495,7 +7561,9 @@ describe("production login document admission", () => {
 
         describe("with a login of the site", () => {
           const saved = {
-            siteDefaults: [{ origin, provider: "bitwarden" as const, server: "cloud-us", userId, itemId }],
+            siteDefaults: [
+              { origin, provider: "bitwarden" as const, server: "cloud-us", userId, itemId },
+            ],
             bindings: [savedBinding],
           };
           const signin = `${origin}/signin`;
@@ -10290,10 +10358,11 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
 
     it("names a password the account may not fill apart from an empty one", async () => {
       const report = vi.fn<(report: LoginReport) => void>();
-      const h = harness(
-        excludingLive(["login.password"]),
-        { passkeys: withPasskey, report, username: true },
-      );
+      const h = harness(excludingLive(["login.password"]), {
+        passkeys: withPasskey,
+        report,
+        username: true,
+      });
       // An email-first page: the route binds only the username, so no binding is refused,
       // and the item's password decides whether the route can finish.
       h.recipes.recipe.mockResolvedValue(
@@ -13200,8 +13269,13 @@ describe("password route variants (ADR 0027)", () => {
       { name: "Contract", kind: "text" as const },
     ],
   };
-  const branchField: ExcludedField = { custom: "Branch", position: 1, count: 1 };
-  const contractField: ExcludedField = { custom: "Contract", position: 1, count: 1 };
+  const branchField = `custom.${snapshotId}.0`;
+  const contractField = `custom.${snapshotId}.1`;
+  /** How the synced settings name each live custom field (ADR 0023). */
+  const referenceOf = (fieldId: string): ExcludedField =>
+    fieldId === branchField
+      ? { custom: "Branch", position: 1, count: 1 }
+      : { custom: "Contract", position: 1, count: 1 };
   const bound = (slots: SavedLoginBinding["slots"]): SavedLoginBinding => ({
     ...savedBinding,
     recipeId: varied.id,
@@ -13216,7 +13290,8 @@ describe("password route variants (ADR 0027)", () => {
     { slot: "contract", field: { custom: "Contract" } },
     { slot: "password", field: "password" },
   ]);
-  const excluding = (field: ExcludedField): Partial<LocalSettings> => excludingLive([field]);
+  const excluding = (fieldId: string): Partial<LocalSettings> =>
+    excludingLive([referenceOf(fieldId)]);
   const status = () =>
     fake.state.storage["pateat.login-attempts.v4"] as Record<string, unknown>[] | undefined;
   /** The targets each executed fill wrote. */
@@ -13464,7 +13539,7 @@ describe("password route variants (ADR 0027)", () => {
       // revision stays the same, so only the plan decides.
       fake.state.onExecute = async (message) => {
         if ((message["operation"] as { step: LoginStep }).step.kind !== "fill") return;
-        Object.assign(h.settings.settings, excludingLive([fieldId]));
+        Object.assign(h.settings.settings, excludingLive([referenceOf(fieldId)]));
       };
       expect(await h.hello()).toEqual({ ok: true });
       await vi.waitFor(() => expect(status()).toMatchObject([{ state }]));
@@ -19794,7 +19869,13 @@ describe("the start page's own passkey request (ADR 0034)", () => {
         h.login.settingsChanged(source);
         await flush();
         await stillWaits(request, 5_000);
-        h.settings.settings.siteDefaults.push({ origin, provider: "bitwarden", server: "cloud-us", userId, itemId });
+        h.settings.settings.siteDefaults.push({
+          origin,
+          provider: "bitwarden",
+          server: "cloud-us",
+          userId,
+          itemId,
+        });
         h.login.settingsChanged(source);
         await flush();
         await handedOnSoon(request);
@@ -19813,7 +19894,13 @@ describe("the start page's own passkey request (ADR 0034)", () => {
       h.login.siteDefaultSaved();
       await flush();
       await stillWaits(request, 5_000);
-      h.settings.settings.siteDefaults.push({ origin, provider: "bitwarden", server: "cloud-us", userId, itemId });
+      h.settings.settings.siteDefaults.push({
+        origin,
+        provider: "bitwarden",
+        server: "cloud-us",
+        userId,
+        itemId,
+      });
       h.login.siteDefaultSaved();
       await flush();
       await handedOnSoon(request);
@@ -19851,7 +19938,13 @@ describe("the start page's own passkey request (ADR 0034)", () => {
       const { h } = choosing({ passkeyItems });
       await offered(h);
       // Saved without the runtime being told, as when the save raced the refusal.
-      h.settings.settings.siteDefaults.push({ origin, provider: "bitwarden", server: "cloud-us", userId, itemId });
+      h.settings.settings.siteDefaults.push({
+        origin,
+        provider: "bitwarden",
+        server: "cloud-us",
+        userId,
+        itemId,
+      });
       const request = ask(h);
       await flush();
       await handedOnSoon(request);

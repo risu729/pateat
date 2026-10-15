@@ -96,17 +96,15 @@ describe("vault catalog", () => {
     return (await captured.catalog!(snapshot)) as VaultCatalog;
   }
 
-  it.each([
+  it.each<[string, () => Promise<boolean>, Partial<VaultCatalog>]>([
     ["waits for its first settings sync", async () => true, { settingsSyncPending: true }],
     [
       "cannot tell whether it waits",
       async () => Promise.reject(new Error("unreadable")),
-      {
-        settingsSyncPending: true,
-      },
+      { settingsSyncPending: true },
     ],
     ["has synced settings", async () => false, {}],
-  ] as const)("says so while the device %s", async (_label, settingsSyncPending, expected) => {
+  ])("says so while the device %s", async (_label, settingsSyncPending, expected) => {
     expect(await catalogOf({ registry: registry([]), settingsSyncPending })).toEqual({
       ...expected,
       connections: [],

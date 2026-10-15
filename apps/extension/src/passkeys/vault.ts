@@ -91,7 +91,8 @@ export async function findVaultPasskeys(input: {
     if (only && connection.id !== only.connectionId) continue;
     const use = connectionUse(settings, catalog, connection.id);
     if (use === "disabled") continue;
-    if (use === "account-ambiguous") {
+    // Its synced exclusions may be meant for this account, or its account is unknown.
+    if (use === "account-ambiguous" || use === "vault-unavailable") {
       complete = false;
       continue;
     }

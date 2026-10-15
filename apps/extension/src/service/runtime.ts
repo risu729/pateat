@@ -232,6 +232,8 @@ export function createServiceRuntime(options: {
      * device that was never paired is unaffected.
      */
     async settingsSyncPending(): Promise<boolean> {
+      // A new pairing whose credential write failed has not synced either.
+      if (unsaved) return true;
       try {
         const record = await load();
         return record !== undefined && !record.settingsSynced;
