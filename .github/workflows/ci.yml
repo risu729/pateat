@@ -28,8 +28,8 @@ jobs:
     permissions:
       pull-requests: read # List the changed files of the pull request.
     outputs:
-      # Only a pull request that changes nothing but documentation skips the browser tests;
-      # main pushes and manual runs always run them.
+      # Only a pull request that changes nothing but documentation or the docs website skips
+      # the browser tests; main pushes and manual runs always run them.
       browser: ${{ github.event_name != 'pull_request' || steps.filter.outputs.browser == 'true' }}
     steps:
       # No checkout: on a pull_request event the action lists the changed files through the API.
@@ -43,6 +43,7 @@ jobs:
             browser:
               - '**'
               - '!docs/**'
+              - '!apps/docs/**'
               - '!AGENTS.md'
               - '!README.md'
   verify:

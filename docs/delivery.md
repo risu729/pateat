@@ -18,29 +18,30 @@ into Playwright's `shard`, and the six shards together run every test once. The 
 splits by test (`fullyParallel`) because splitting by file left `login.spec.ts` alone in
 a shard of about three minutes; each job still runs one worker. The `Verify` job runs
 the rest of the graph (lint, typecheck, unit and component tests with
-[coverage](development.md#test-coverage), build checks) with
-`PATEAT_SKIP_E2E=1` (any non-empty value), which turns `//tests/extension:test` into a
-no-op there; without that variable, as in a local `mise run check`, the suite runs
-whole. With four shards the first sharded runs took 4 to 7 minutes (mean 4m41s over 37
-runs on 2026-10-11 and 12), where each shard still repeated the rest of the graph;
-`Verify` and the shards run side by side now. With six shards and `Verify` split out, 16
-PR runs on 2026-10-12 between 06:11 and 07:24 UTC (JST 15:11 to 16:24) took 4m06s on
-average (3m19s to 5m28s) and 11 successful main runs 4m44s (3m28s to 8m00s); the slowest
-ones overlapped other runs. Every run is 9 jobs (`Changes`, `Verify`, six `Browser`
-shards, `CI Check`), or 3 for a documentation-only PR (`Changes`, `Verify`, `CI Check`);
-a main push adds a tenth, `Deploy tested server`, which a pull request skips. The owner
-decided on 2026-10-12 that CI runs no Windows job at all: the tests drive Playwright's
-Chromium, not the owner's Chrome, no extension code branches on the platform, and no
-Pateat defect was ever found only on Windows (the Windows failures seen were a local
-missing SideBySide assembly, system-drive I/O stalls and a 30 s timeout of unknown
-cause). Installed-Chrome behaviour on Windows is covered by the real-Chrome checks, not
-by CI. `CI Check` requires `Changes` and `Verify` to succeed and `Browser` to be
-`success`, or `skipped` exactly when `Changes` reported a documentation-only PR; it runs
-even when an upstream job failed. A `Changes` job (no checkout, on `ubuntu-slim`)
-decides whether a PR needs the browser tests: a PR whose changed files are all under
-`docs/` or are `AGENTS.md` or `README.md` skips the `Browser` job, runs only `Verify`
-(which still checks the documentation) and passes `CI Check` with the shards skipped;
-any other change, every main push and every manual run runs them. The owner chose
+[coverage](development.md#test-coverage), build checks) with `PATEAT_SKIP_E2E=1` (any
+non-empty value), which turns `//tests/extension:test` into a no-op there; without that
+variable, as in a local `mise run check`, the suite runs whole. With four shards the
+first sharded runs took 4 to 7 minutes (mean 4m41s over 37 runs on 2026-10-11 and 12),
+where each shard still repeated the rest of the graph; `Verify` and the shards run side
+by side now. With six shards and `Verify` split out, 16 PR runs on 2026-10-12 between
+06:11 and 07:24 UTC (JST 15:11 to 16:24) took 4m06s on average (3m19s to 5m28s) and 11
+successful main runs 4m44s (3m28s to 8m00s); the slowest ones overlapped other runs.
+Every run is 9 jobs (`Changes`, `Verify`, six `Browser` shards, `CI Check`), or 3 for a
+documentation-only PR (`Changes`, `Verify`, `CI Check`); a main push adds a tenth,
+`Deploy tested server`, which a pull request skips. The owner decided on 2026-10-12 that
+CI runs no Windows job at all: the tests drive Playwright's Chromium, not the owner's
+Chrome, no extension code branches on the platform, and no Pateat defect was ever found
+only on Windows (the Windows failures seen were a local missing SideBySide assembly,
+system-drive I/O stalls and a 30 s timeout of unknown cause). Installed-Chrome behaviour
+on Windows is covered by the real-Chrome checks, not by CI. `CI Check` requires
+`Changes` and `Verify` to succeed and `Browser` to be `success`, or `skipped` exactly
+when `Changes` reported a documentation-only PR; it runs even when an upstream job
+failed. A `Changes` job (no checkout, on `ubuntu-slim`) decides whether a PR needs the
+browser tests: a PR whose changed files are all under `docs/` or `apps/docs/` (the
+[docs website](development.md#docs-website)) or are `AGENTS.md` or `README.md` skips the
+`Browser` job, runs only `Verify` (which still checks the documentation and builds the
+docs website) and passes `CI Check` with the shards skipped; any other change, every
+main push and every manual run runs them. The owner chose
 [dorny/paths-filter](https://github.com/dorny/paths-filter) (pinned at v4.0.3) on
 2026-10-12 because on a `pull_request` event it reads the changed files through the API,
 so the job needs no checkout and only `pull-requests: read`; workflow-level `paths`
