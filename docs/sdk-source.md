@@ -66,3 +66,36 @@ for as long as the chosen GPL distribution method requires. A mutable homepage,
 a compiled npm tarball, or a notice promising future source does not satisfy
 this gate. Public extension publishing remains outside the initial delivery
 scope; local build checks do not establish public distribution compliance.
+
+### Release archives
+
+The [extension release workflow](delivery.md#extension-releases) packs each release's
+source beside its ZIP on the same draft GitHub Release:
+
+- Exact Pateat revision: `pateat-<version>-source.tar.gz` is `git archive` of the
+  revision the ZIP was built from, in the same job from a clean checkout. It holds the
+  build and install tasks (`mise.toml`, `tasks.toml`, each project's `mise.toml`), the
+  tool and dependency lockfiles (`mise.lock`, `bun.lock`), configuration, interfaces,
+  `LICENSING.md`, `LICENSE-GPL-3.0.txt` and the notice templates. It also holds the
+  service code, which the gate allows but does not require.
+- SDK source: `corresponding-source/bitwarden-sdk-internal-<commit>.tar.gz`, upstream's
+  archive at the commit the installed package's `VERSION` names, copied into the release
+  rather than linked, so its availability does not depend on upstream.
+- Dependency source: `corresponding-source/npm/` holds the registry tarball of every
+  package the extension's workspaces need at run time, each matching its `bun.lock`
+  integrity, including the compiled `@bitwarden/sdk-internal` package that is bundled.
+- Digests: `release.json` and `SHA256SUMS` record every file with its SHA-256, and
+  `release.json` the workflow run that packed it.
+
+Still for a person to check or decide before publishing (Claude's reading, pending the
+owner's confirmation):
+
+- The download links and contents of each draft, as the gate requires; the workflow
+  checks digests and integrity hashes, not that the files open and build.
+- Whether a registry tarball counts as source for a package that publishes only built
+  JavaScript (for example `react-dom`); its repository at the matching tag would be the
+  preferred form for modification.
+- The SDK's own Rust dependencies: the SDK archive has their `Cargo.lock`, but the
+  crates are not vendored. Vendoring them would need a Rust toolchain, which `mise.toml`
+  does not pin.
+- How long the published release must stay, under the chosen GPL distribution method.

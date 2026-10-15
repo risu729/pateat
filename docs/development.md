@@ -214,6 +214,7 @@ Focused tasks are available for diagnosis:
 | `mise run //packages/inference:bench --paid [--corpus real\|japanese\|web\|judge] [--from n --count n] [--model id] [--effort level] [--speed fast]` | Run the paid Claude benchmark on the synthetic corpus, the Formasaurus real-page corpus, the Japanese pages, the English pages or the sign-in judge's pages, whole or one batch, with the service's model or another one to compare, in fast mode where the model offers it; needs `ANTHROPIC_API_KEY` (in cloud sessions, `PATEAT_ANTHROPIC_API_KEY`) and owner approval for each run |
 | `mise run //packages/inference:bench --provider heuristic [--corpus real\|japanese\|web] [--from n --count n]` | Score the free model-free comparator on the same cases, whole or one batch |
 | `mise run test:tools` | Test artifact/provenance helpers |
+| `mise run //apps/extension:zip` | Build the production extension and pack `pateat-<version>-chrome.zip` ([extension releases](delivery.md#extension-releases)) |
 | `mise run coverage:summary` | Merge the coverage that test runs with `PATEAT_COVERAGE=1` wrote and print one row per project ([test coverage](#test-coverage)) |
 | `mise run //services/api:generate:migrations` | Generate D1 migration SQL from the Drizzle schema |
 | `mise run generate:oidc-key [kid]` | Print a new ES256 key set for the `OIDC_SIGNING_KEYS` Worker secret ([ADR 0015](adr/0015-per-owner-claude-credentials.md)) |

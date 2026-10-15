@@ -31,6 +31,8 @@ function bitwardenSdkVersion(): string {
 
 export default defineConfig({
   modules: ["@wxt-dev/module-react"],
+  // The release asset name; the Corresponding Source is packed from git, not by WXT.
+  zip: { artifactTemplate: "pateat-{{version}}-chrome.zip" },
   vite: () => ({
     plugins: [tailwindcss()],
     build: { cssTarget: "chrome145" },
