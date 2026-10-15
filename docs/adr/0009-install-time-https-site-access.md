@@ -13,8 +13,8 @@ recipe generation. Amended by [ADR 0017](0017-login-forms-in-frames.md): the log
 script runs in every HTTPS frame, and a frame is admitted only when the tab's page is
 admitted too. Amended on 2026-10-13 by ADR 0021's
 [site count badge](0021-account-choice-outside-settings.md#site-count-badge)
-(implemented on 2026-10-15): a tab's origin is matched against the open vault locally for the count
-even without a recipe.
+(implemented on 2026-10-15): a tab's origin is matched against the open vault locally
+for the count even without a recipe.
 
 Date: 2026-10-10
 
