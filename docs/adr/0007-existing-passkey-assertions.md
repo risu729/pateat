@@ -297,20 +297,22 @@ and tells the relying party that verification occurred when it did not. Pateat
 documents it as an owner-chosen deviation, not as verification.
 
 The flags come from a `PasskeyPolicy` with two settings: presence `always` or
-`activation`, and verification `always` or `never`. The initial policy is
-`always` for both. Under `activation`, requests without transient user
-activation delegate; under `never`, UV stays clear and requests requiring UV
-delegate. Admission records the UV decision so signing cannot diverge from it. The
-`protections` setting of the synced settings document supplies the policy for every
-site without changing admission or assertion code (proposed 2026-10-15, implemented
-pending the owner's approval): `passkeyPresence` (`always` or `activation`) and
-`passkeyVerification` (`always` or `never`). Its defaults are the initial policy. The
-background reads the saved settings for each request before admission; a request whose
-page cancels it meanwhile is cancelled, and a policy that cannot be read is replaced by
-the ceremony policy (`activation` and `never`), so a failure never asserts more than the
-owner chose. On the settings page, Protections has a checkbox for each, unticked by
-default: "Answer passkey requests only after a click or key press on the page" and "Do
-not tell sites you were verified". A per-site policy
+`activation`, and verification `always` or `never`. The initial policy is `always` for
+both. Under `activation`, requests without transient user activation delegate; under
+`never`, UV stays clear and requests requiring UV delegate. Admission records the UV
+decision so signing cannot diverge from it. The `protections` setting of the synced
+settings document supplies the policy for every site without changing admission or
+assertion code (proposed 2026-10-15, implemented pending the owner's approval):
+`passkeyPresence` (`always` or `activation`) and `passkeyVerification` (`always` or
+`never`). Its defaults are the initial policy. The background reads the saved settings
+for each request before admission; a request whose page cancels it meanwhile is
+cancelled, and a policy that cannot be read is replaced by the ceremony policy
+(`activation` and `never`), so a failure never asserts more than the owner chose. A
+request that waited for a login (a conditional one) or for the chooser is admitted again
+under the policy saved then before it signs, and a choice in the chooser counts as the
+gesture, so a change made meanwhile is followed. On the settings page, Protections has a
+checkbox for each, unticked by default: "Answer passkey requests only after a click or
+key press on the page" and "Do not tell sites you were verified". A per-site policy
 stays possible later through the same `PasskeyPolicy`.
 
 ### Master password re-prompt
@@ -328,9 +330,10 @@ Claude's default, pending the owner's confirmation). The vault catalog carries
   chooser. Pateat never signs with another passkey in its place, and the chooser does
   not open, so the browser or Bitwarden's own extension asks. A request whose allow list
   names only other passkeys signs as before.
-- The chosen passkey is looked up again before signing, and the vault source refuses to
-  sign for such an item under the saved settings, so a change made while a person
-  decides is followed.
+- The chosen passkey is looked up again before signing: the request is handed on if a
+  passkey it accepts now asks for re-prompt, and the vault source refuses to sign for
+  such an item under the saved settings, so a change made while a person decides is
+  followed.
 - [Registration after a sign-in](#registration-after-a-sign-in) does not count such a
   passkey, since Pateat cannot have signed in with it.
 

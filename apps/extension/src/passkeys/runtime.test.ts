@@ -12,6 +12,7 @@ import type { PasskeyCandidates } from "./select";
 import { CHOOSER_MAX_WAIT_MS, CHOOSER_MIN_WAIT_MS } from "./wire";
 import { fromBase64Url } from "./encoding";
 import { snapshotGetOptions } from "./page";
+import type { PasskeyPolicy } from "./policy";
 import type { SignedTabs } from "./signed-tabs";
 
 const extensionId = "synthetic-extension";
@@ -349,6 +350,82 @@ describe("passkey runtime protections setting", () => {
     expect(report).toHaveBeenCalledWith(
       expect.objectContaining({ outcome: "cancelled", cause: "page-cancelled" }),
     );
+  });
+
+  it("cancels a request whose policy is read while the settings change", async () => {
+    let release!: () => void;
+    const read = new Promise<void>((resolve) => (release = resolve));
+    const report = vi.fn();
+    const backing = source();
+    const runtime = createPasskeyRuntime(backing, {
+      extensionId,
+      report,
+      policy: async () => {
+        await read;
+        return { presence: "always", verification: "always" } as const;
+      },
+    });
+    const pending = runtime.handle(get(), sender());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    runtime.settingsChanged();
+    release();
+    expect(await pending).toEqual({ kind: "cancelled" });
+    expect(backing.candidates).not.toHaveBeenCalled();
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: "cancelled", cause: "settings-changed" }),
+    );
+  });
+
+  it("signs a passkey chosen in the window under protections changed meanwhile", async () => {
+    let policy: PasskeyPolicy = { presence: "always", verification: "always" };
+    const other = { ...candidate, credentialId: "BAUG" };
+    const backing = source({
+      candidates: vi.fn(async () => ({ candidates: [candidate, other], complete: true })),
+    });
+    const choose = vi.fn(async (): Promise<PasskeyChoice> => {
+      policy = { presence: "activation", verification: "never" };
+      return { kind: "chosen", index: 0, makeDefault: false };
+    });
+    const runtime = createPasskeyRuntime(backing, {
+      extensionId,
+      chooser: { choose },
+      policy: () => policy,
+    });
+    // The person's choice is the gesture; UV is left clear.
+    const result = await runtime.handle(get(undefined, false), sender());
+    if (!("kind" in result) || result.kind !== "assertion")
+      throw new Error("Expected an assertion");
+    expect(fromBase64Url(result.assertion.authenticatorData)?.[32]).toBe(0x19);
+    // A request that requires UV is handed on after the choice.
+    policy = { presence: "always", verification: "always" };
+    expect(
+      await runtime.handle(
+        { ...get(), request: { ...request, userVerification: "required" } },
+        sender(),
+      ),
+    ).toEqual({ kind: "delegate", reason: "user-verification-required" });
+    expect(backing.sign).toHaveBeenCalledTimes(1);
+  });
+
+  it("hands on a chosen passkey when a re-prompt passkey it accepts appears meanwhile", async () => {
+    const other = { ...candidate, credentialId: "BAUG" };
+    let withheld = false;
+    const backing = source({
+      candidates: vi.fn(async () => ({
+        candidates: [candidate, withheld ? { ...other, reprompt: true } : other],
+        complete: true,
+      })),
+    });
+    const choose = vi.fn(async (): Promise<PasskeyChoice> => {
+      withheld = true;
+      return { kind: "chosen", index: 0, makeDefault: false };
+    });
+    const runtime = createPasskeyRuntime(backing, { extensionId, chooser: { choose } });
+    expect(await runtime.handle(get(), sender())).toEqual({
+      kind: "delegate",
+      reason: "master-password-reprompt",
+    });
+    expect(backing.sign).not.toHaveBeenCalled();
   });
 
   it("hands on a request any re-prompt passkey accepts, never signing another in its place", async () => {
@@ -1501,6 +1578,49 @@ describe("a page's own conditional request through a login (ADR 0034)", () => {
         mediation: "conditional",
       }),
     );
+  });
+
+  it("admits a waiting request again under protections changed while it waited", async () => {
+    let policy: PasskeyPolicy = { presence: "always", verification: "always" };
+    const report = vi.fn();
+    const backing = source();
+    const { conditional, waiting } = decisions();
+    const runtime = createPasskeyRuntime(backing, {
+      extensionId,
+      report,
+      conditional,
+      policy: () => policy,
+    });
+    const required = {
+      ...conditionalGet(),
+      request: { ...request, mediation: "conditional", userVerification: "required" },
+    };
+    const pending = runtime.handle(required, sender());
+    await vi.waitFor(() => expect(waiting).toHaveLength(1));
+    policy = { presence: "always", verification: "never" };
+    runtime.settingsChanged();
+    const signed = vi.fn();
+    waiting[0]!.decide({ kind: "answer", item: loginItem, answered: signed });
+    // Under the new policy the request requires UV Pateat no longer asserts.
+    await vi.waitFor(() => expect(waiting).toHaveLength(2));
+    expect(signed.mock.calls).toEqual([[false]]);
+    expect(backing.sign).not.toHaveBeenCalled();
+    waiting[1]!.decide({ kind: "withhold" });
+    expect(await pending).toEqual({ kind: "withheld" });
+    expect(report).toHaveBeenLastCalledWith(
+      expect.objectContaining({ answerFailed: "user-verification-required" }),
+    );
+
+    // A request that only prefers UV signs, with UV left clear.
+    policy = { presence: "always", verification: "always" };
+    const preferred = runtime.handle(conditionalGet(), sender());
+    await vi.waitFor(() => expect(waiting).toHaveLength(3));
+    policy = { presence: "always", verification: "never" };
+    waiting[2]!.decide({ kind: "answer", item: loginItem, answered: vi.fn() });
+    const result = await preferred;
+    if (!("kind" in result) || result.kind !== "assertion")
+      throw new Error("Expected an assertion");
+    expect(fromBase64Url(result.assertion.authenticatorData)?.[32]).toBe(0x19);
   });
 
   it("tells the login of a failed signing, and of a timeout once it answers", async () => {
