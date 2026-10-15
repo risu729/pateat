@@ -401,18 +401,26 @@ from the recipe cache, its own record of the top page, the badge's spin for a re
 in flight, and the last login and model request the badge keeps from the log reports,
 with the badge's lifetime: a top page of another origin or the tab's closing drops them,
 and `chrome.storage.session` keeps them across a worker restart. Item selection, field
-exclusions and custom-field review stay on the extension's settings page once synced
-([ADR 0023](adr/0023-synced-vault-policy.md)). The service keeps one settings document
+exclusions and custom-field review are synced and stay on the extension's settings page
+([ADR 0023](adr/0023-synced-vault-policy.md)); the popup does not report items waiting
+for review or repair bindings yet. The service keeps one settings document
 per owner; [ADR 0024](adr/0024-settings-profiles.md) assigns its parts either to a
 settings profile that each device will choose later or to the owner. Chrome use access
 to these pages is not assumed. Keep settings and execution operations independent of
 their UI.
 
-Each connection supports all items except exclusions or selected
-folders/collections/items only. Use existing Bitwarden metadata; independent
-Pateat tags are deferred. Item and field exclusions win over inclusions. Excluded
-fields are neither inference candidates nor fill sources. These are Pateat use
-restrictions, not reduced Bitwarden server permissions or decryption access.
+Each provider account (provider, server and user ID, synced in `accountPolicies`) is
+either used or not, and supports all items except exclusions or selected
+folders/collections/items only; `itemPolicies` keep per-item selection, exclusion and
+excluded fields, built-in fields by ID and custom fields by name, position and count
+([ADR 0023](adr/0023-synced-vault-policy.md)). A connection added on a device keeps its
+add-form choice in local `connections` until its account is known; a synced account
+policy wins over it. Use existing Bitwarden metadata; independent Pateat tags are
+deferred. Item and field exclusions win over inclusions. Excluded fields are neither
+inference candidates nor fill sources. An item whose custom fields changed since their
+last review (`customFieldReviews`) waits for review before Pateat uses it, and until a
+device's first settings sync no vault item is used. These are Pateat use restrictions,
+not reduced Bitwarden server permissions or decryption access.
 
 Provider URL matching plus eligibility makes a site automatically in scope,
 without first-visit approval. Site exclusions use host matching with an explicit
@@ -2003,10 +2011,10 @@ field exclusions and custom-field review, which need the device's vault catalog
 
 - Pages. A React app under `/manage`, built with the same approved stack as the
   extension's pages ([ADR 0004](adr/0004-library-composition.md)) and served by the
-  Worker as static assets. Its header shows the logo and two tabs, Sites and Devices,
-  and its footer the version, links to the source and the GPL text at the built commit
-  and to the third-party notices, and the Theme select. Each page is its own path, a
-  full page load that the Worker serves only for these paths:
+  Worker as static assets. Its header shows the logo and the Sites, Vaults and Devices
+  tabs, and its footer the version, links to the source and the GPL text at the built
+  commit and to the third-party notices, and the Theme select. Each page is its own
+  path, a full page load that the Worker serves only for these paths:
   - Devices (`/manage`): the current list and revocation, moved into the app.
   - Sites (`/manage/sites`): one list of every origin the service holds a recipe, a
     `siteDefaults` entry or a `bindings` entry for, each with badges for its recipe
@@ -2032,9 +2040,12 @@ field exclusions and custom-field review, which need the device's vault catalog
   The UI does not pick vault items or fields, because the item list exists only on
   devices. Choices are saved by login or by AI generation, and bindings come from AI
   generation. Creating or editing recipe JSON is not offered; development keeps using
-  `PUT /v1/recipes/:recipeId`. Item selection and field exclusions are not shown yet;
-  once synced ([ADR 0023](adr/0023-synced-vault-policy.md)) the web UI first only lists
-  them, and they are edited on the extension's settings page.
+  `PUT /v1/recipes/:recipeId`. Item selection and field exclusions
+  ([ADR 0023](adr/0023-synced-vault-policy.md)) are only listed, on Vaults
+  (`/manage/vaults`, a third header tab added on 2026-10-15): each provider account
+  with its server, whether it is used, its selection, its item entries and how many
+  items have reviewed custom fields. They are edited on the extension's settings
+  page.
 
   Claude credentials are entered on `/manage/claude`, a temporary script-free page
   ([ADR 0015](adr/0015-per-owner-claude-credentials.md)). The web UI will replace it,

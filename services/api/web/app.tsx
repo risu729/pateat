@@ -6,6 +6,7 @@ import { DevicesPage } from "./devices";
 import { SitePage } from "./site";
 import { siteOrigin, SitesPage } from "./sites";
 import { ThemeSelect } from "./theme-select";
+import { VaultsPage } from "./vaults";
 
 const revision = PATEAT_BUILD_REVISION;
 const isCommit = /^[0-9a-f]{40}$/.test(revision);
@@ -20,6 +21,7 @@ const licenseUrl = `https://github.com/risu729/pateat/blob/${sourceRef}/LICENSE-
  */
 const PAGES = [
   { path: "/manage/sites", title: "Sites", Page: SitesPage },
+  { path: "/manage/vaults", title: "Vaults", Page: VaultsPage },
   { path: "/manage", title: "Devices", Page: DevicesPage },
 ] as const;
 
