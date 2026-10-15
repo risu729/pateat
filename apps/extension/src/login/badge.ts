@@ -113,8 +113,8 @@ const RESULT_TEXT = { failed: "!", succeeded: "✓", unsettled: "!" } as const;
 function resultTitle(result: BadgeResult): string {
   if (result.kind === "succeeded") return "Pateat: logged in.";
   if (result.kind === "unsettled")
-    return `Pateat: the login's result is not known (${result.reason}). Open Pateat for details.`;
-  return `Pateat: the login did not succeed (${result.reason}). Open Pateat for details.`;
+    return `Pateat: the result of the login is not known (${result.reason}). Click for details.`;
+  return `Pateat: the login did not succeed (${result.reason}). Click for details.`;
 }
 
 /**

@@ -246,7 +246,7 @@ test("shows when recipes last synced and when the service rejects the device", a
 
   await render(<ServiceConnection client={mockClient(connected)} pollMs={60_000} />);
   await expect
-    .element(page.getByText("Recipes and settings have not finished syncing yet", { exact: true }))
+    .element(page.getByText("Recipes and settings not synced yet", { exact: true }))
     .toBeVisible();
   await cleanup();
 
@@ -266,7 +266,7 @@ test("shows the first sync finishing without a reload", async () => {
   const client = mockClient(connected);
   await render(<ServiceConnection client={client} pollMs={20} />);
   await expect
-    .element(page.getByText("Recipes and settings have not finished syncing yet", { exact: true }))
+    .element(page.getByText("Recipes and settings not synced yet", { exact: true }))
     .toBeVisible();
   client.get.mockResolvedValue(ok({ ...connected, syncedAt: Date.UTC(2026, 9, 10, 6, 0) }));
   await expect.element(page.getByText(/^Recipes and settings synced /)).toBeVisible();

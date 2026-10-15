@@ -52,7 +52,11 @@ describe("pageStatusLines", () => {
     // A site whose recipe starts elsewhere may still send this page.
     expect(lines({ recipe: "other-paths", page: { generationSkip: "not-connected" } })).toEqual([
       ["recipe", "idle", "This site has a recipe, but none starts on this page."],
-      ["generation-skip", "idle", "Not sent to the AI: Pateat is not connected to its service."],
+      [
+        "generation-skip",
+        "idle",
+        "Not sent to the AI: Pateat cannot use the sync service on this device.",
+      ],
     ]);
     // A page with a recipe says nothing about skips.
     expect(lines({ recipe: "page", page: { generationSkip: "sent" } })).toEqual([
@@ -97,7 +101,7 @@ describe("pageStatusLines", () => {
       expect(lines({ page: { generationSkip: "not-connected" }, generation }).at(-1)).toEqual([
         "generation-skip",
         "idle",
-        "Not sent to the AI: Pateat is not connected to its service.",
+        "Not sent to the AI: Pateat cannot use the sync service on this device.",
       ]);
   });
 
@@ -235,10 +239,11 @@ describe("pageStatusLines", () => {
     expect(lines({ login: { state: "blocked", outcome: "credential-rejected" } }).slice(1)).toEqual(
       [["login", "err", "The login did not succeed: the site did not accept the password."]],
     );
+    // An unsettled outcome is not called a failure, as the icon's title does not.
     expect(lines({ login: { state: "blocked", outcome: "left-origin" } })[1]).toEqual([
       "login",
       "warn",
-      "The login did not succeed: the tab moved to another site during the login.",
+      "The result of the login is not known: the tab moved to another site during the login.",
     ]);
     expect(lines({ login: { state: "blocked", outcome: "new-outcome" } })[1]?.[2]).toBe(
       "The login did not succeed: new-outcome.",
@@ -276,7 +281,7 @@ describe("pageStatusLines", () => {
       lines({ recipe: "page", page: { state: "denied", reason: "origin-busy" } })[1]?.[2],
     ).toBe("No login started: another tab's login to this site is running or did not succeed.");
     expect(lines({ recipe: "page", page: { state: "denied", reason: "logged-out" } })[1]?.[2]).toBe(
-      "No login started: you logged out of this site; choose an account to log in again.",
+      "No login started: Pateat waits for you to choose an account.",
     );
     // A page without a recipe is ordinary browsing.
     expect(lines({ page: { state: "denied", reason: "recipe-not-found" } })).toEqual([
@@ -307,7 +312,7 @@ describe("pageStatusLines", () => {
     expect(lines({ recipe: "page", login: { state: "logged-out" } })[1]).toEqual([
       "login",
       "idle",
-      "Logged out of this site in this tab.",
+      "You were logged out of this site in this tab.",
     ]);
     expect(lines({ recipe: "page", login: { state: "logged-out", outcome: "rejected" } })).toEqual([
       ["recipe", "idle", "This site has a recipe for this page."],

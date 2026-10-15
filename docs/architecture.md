@@ -1097,6 +1097,34 @@ pages allow inline script (the MV3 policy, and the owner web UI's `script-src 's
 the choice is applied from the page's module, so a page whose stored choice differs from
 the browser's scheme may paint one frame in the browser's scheme first.
 
+## UI text
+
+Proposed (agent, 2026-10-15; not yet confirmed by the owner, who reviews it on the UI
+text review's pull request): the English text of the extension's popup, toolbar icon
+title, settings page and passkey chooser follows these rules. The diagnostics page, the
+messages of the settings store in `packages/contracts` and the service's pages are not
+covered yet.
+
+- A line that is a sentence ends with a period: notices, status lines, notes, errors
+  and the icon's title. Labels, headings, buttons, menu items, options, badges and short
+  state lines such as "Local vault ready" or "Automatic unlock off" do not.
+- What Pateat does on a site is "log in" and "login"; "sign in" names only Bitwarden's
+  and the sync service's sign-ins and a site's own sign-in page, form or link.
+- Pateat is the subject, not "the extension"; Bitwarden is named, not "the provider".
+  Failures say "could not", not "unable to", and what to do next.
+- A line says only what is known. A logout that another tab or the site may have
+  caused says "You were logged out", and the reason for an account choice after
+  another tab's logout or rejected login covers both unless the popup knows which one
+  it was (`choiceReason` in `apps/extension/src/login/choice-wire.ts`). The icon's
+  title repeats that line but never knows which one it was, so it keeps the sentence
+  that covers both. A login whose result is unknown is not called a failure.
+- A switch is turned on or off ("Turn off automatic unlock", "The vault connection is
+  turned off"); "excluded" is kept for sites and vault items.
+- The settings page's unsaved changes are "unsaved changes", not a draft; a message that
+  asks for **Reload saved settings** says that reloading drops them.
+- Codes the log names, such as `credential-rejected`, show only in parentheses after a
+  plain sentence or where no sentence exists yet.
+
 ## Diagnostics
 
 `diagnostics.html`, linked from the settings page, shows per-device versions and state
@@ -1768,10 +1796,10 @@ for that origin.
 When several signable passkeys match and none is the site default, the background opens
 the chooser window `passkey-picker.html`
 ([ADR 0021](adr/0021-account-choice-outside-settings.md)) with `chrome.windows.create`.
-It shows only item names, passkey user names and connection labels: under "Sign in to"
+It shows only item names, passkey user names and connection labels: under "Log in to"
 the site's host, each passkey as its user name over its item and connection, with the
-site default marked **Default**, and "Pateat signed in here from this tab before" when
-the tab's earlier sign-in opened it. The background
+site default marked **Default**, and "Pateat answered a passkey request from this site
+in this tab before." when the tab's earlier passkey answer opened it. The background
 answers its messages only from that page, for the request token in its URL and from the
 window it opened, and keeps the worker alive while the window waits. Choosing signs with
 that passkey; a ticked checkbox then saves it as the origin's site default. When the

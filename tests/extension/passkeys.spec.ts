@@ -356,7 +356,7 @@ async function requestWithChooser(context: BrowserContext, page: Page, spec: Spe
   });
   await page.getByRole("button", { name: "Sign in with a passkey" }).click();
   const chooser = await opened;
-  await expect(chooser.getByRole("heading", { name: /^Sign in to /u })).toBeVisible();
+  await expect(chooser.getByRole("heading", { name: /^Log in to /u })).toBeVisible();
   return {
     chooser,
     settle: () =>
@@ -452,7 +452,9 @@ test("after Pateat signed in a tab, the next username-less request there asks ag
       const again = challengeHex();
       const asked = await requestWithChooser(context, page, { challenge: again });
       await expect(
-        asked.chooser.getByText("Pateat signed in here from this tab before"),
+        asked.chooser.getByText(
+          "Pateat answered a passkey request from this site in this tab before.",
+        ),
       ).toBeVisible();
       const list = asked.chooser.getByRole("list", { name: "Matching passkeys" });
       await expect(list.getByRole("button")).toHaveText([

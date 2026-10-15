@@ -134,6 +134,7 @@ import {
 } from "./dummy";
 import { findLiveSiteCandidates, type LiveUriMatcher } from "../vault/site-candidates";
 import {
+  choiceReason,
   choiceRequestSchema,
   logoutReasonSchema,
   pickRequestSchema,
@@ -1553,20 +1554,11 @@ function choiceBadge(
   candidates: readonly unknown[],
   logout: LogoutReason | undefined,
 ): { count: number; title: string } {
+  // The popup's reason line, so the title and the popup say the same.
+  const reason = choiceReason(logout, candidates.length);
   return {
     count: candidates.length,
-    title: logout
-      ? {
-          "this-tab":
-            "Pateat: you logged out of this site in this tab. Click to choose an account.",
-          rejected:
-            "Pateat: the site did not accept the last login in this tab. Click to choose an account.",
-          "stopped-login":
-            "Pateat: the last login on this site stopped in this tab. Click to choose an account.",
-          "other-tab":
-            "Pateat: you logged out of this site in another tab. Click to choose an account.",
-        }[logout]
-      : `Pateat: ${candidates.length} accounts match this page. Click to choose one.`,
+    title: `Pateat: ${reason.charAt(0).toLowerCase()}${reason.slice(1)} Click to choose ${logout ? "an account" : "one"}.`,
   };
 }
 
@@ -2088,7 +2080,7 @@ export function createLoginRuntime(
   function showHeld(tabId: number): void {
     badge.note(
       tabId,
-      "Pateat: another tab's login to this site is running or did not succeed. Close that tab, or wait 5 minutes and reload this page, to log in here.",
+      "Pateat: another tab's login to this site is running or did not succeed. Close that tab, or wait up to 5 minutes and reload this page, to log in here.",
     );
   }
   /** The attempt a tab runs, else the one it last recorded. */

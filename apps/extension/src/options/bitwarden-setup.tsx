@@ -42,33 +42,31 @@ type Challenge = Extract<SetupReply, { kind: "mfa-required" | "new-device-verifi
 type Connection = StatusReply["connections"][number];
 function errorMessage(code: string, check?: string): string {
   if (code === "account-mismatch")
-    return `The provider's sign-in and vault data did not agree${check ? ` (check: ${check})` : ""}. Setup is incomplete; report this check name.`;
+    return `Bitwarden's sign-in and vault data did not agree${check ? ` (check: ${check})` : ""}. Setup is incomplete; report this check name.`;
   const messages: Record<string, string> = {
     "provider-permission-required":
-      "Provider access was not granted. Use the connection button to grant access.",
+      "Pateat does not have access to the Bitwarden server. Connect or sync again, and allow access when Chrome asks.",
     "setup-reauthentication-required":
       "Sign in again to sync. The saved local vault can still unlock independently.",
     "auto-unlock-disabled":
-      "Automatic unlock is off for this connection, and Sync needs it. Sign in again and check Enable automatic unlock on this device to restore it.",
+      "Automatic unlock is off for this connection, and Sync needs it. To turn it back on, sign in again with Enable automatic unlock on this device checked.",
     "crypto-locked": "The vault is locked. Refresh to check recovery options.",
     "resource-limit":
       "The operation reached a resource limit. Refresh to check the current vault status before trying again.",
     "cache-quota-exceeded":
-      "The vault exceeds the local cache limit. Refresh to check the current vault status.",
+      "The vault is larger than Pateat's local copy can hold. Refresh to check the current vault status.",
     "storage-uncertain":
-      "The cache update could not be confirmed. Refresh and reload saved settings before using this vault.",
+      "Pateat could not confirm that the local vault copy was updated. Refresh and reload saved settings before using this vault.",
     "setup-expired": "This verification session expired. Start sign-in again.",
     "unsupported-crypto": "This account uses an unsupported vault format. Setup is incomplete.",
-    "invalid-response": "The provider response could not be accepted. Setup is incomplete.",
+    "invalid-response": "Bitwarden's answer could not be accepted. Setup is incomplete.",
     "authentication-rejected":
-      "The provider rejected this sign-in. Review the account and password before starting again.",
-    "authentication-expired": "The provider session expired. Sign in again to sync.",
+      "Bitwarden did not accept this sign-in. Check the email and master password, then try again.",
+    "authentication-expired": "The Bitwarden sign-in expired. Sign in again to sync.",
     "revision-conflict":
-      "Saved settings changed. Reload saved settings and review the current field list before trying again.",
+      "The saved settings changed. Reload saved settings and review the current fields, then try again.",
   };
-  return (
-    messages[code] ?? `Connection operation unavailable (${code}). Refresh before trying again.`
-  );
+  return messages[code] ?? `The connection could not do this (${code}). Refresh, then try again.`;
 }
 type Line = { tone: Tone; icon: typeof Info; text: string };
 
@@ -83,7 +81,7 @@ function statusLines(connection: Connection): Line[] {
       lines.push({
         tone: "warn",
         icon: TriangleAlert,
-        text: "Some items need their field settings reviewed before use",
+        text: "Some items need their field settings reviewed before use.",
       });
       break;
     case "configured":
@@ -264,7 +262,7 @@ export function BitwardenSetup({
       })
       .catch(() => {
         if (epoch === generation.current)
-          setMessage("Unable to read connection status. Refresh to retry.");
+          setMessage("Pateat could not read the connection status. Refresh to try again.");
       })
       .finally(() => {
         if (epoch === generation.current) {
@@ -296,11 +294,13 @@ export function BitwardenSetup({
       setChallenge(result);
       if (result.kind === "mfa-required") {
         setProvider(result.providers[0] ?? 0);
-        setMessage("Enter a manual two-step verification code. No code is sent automatically.");
+        setMessage(
+          "Enter a two-step verification code. Pateat does not ask Bitwarden to send one.",
+        );
       } else
         setMessage(
           result.invalidOtp
-            ? "The new-device code was rejected. Enter a new code manually."
+            ? "Bitwarden did not accept the new-device code. Enter a new one."
             : "Enter the new-device verification code from your email.",
         );
       // Adding a connection already saved its policy entry, so the settings draft reloads.
@@ -311,14 +311,16 @@ export function BitwardenSetup({
     if (result.kind === "ready") {
       setMessage(
         result.policyReviewItemIds.length
-          ? `Vault accepted. ${result.policyReviewItemIds.length} item(s) need their field settings reviewed before use.`
-          : "Vault verified and local cache accepted. Check automatic-unlock status below.",
+          ? `Vault accepted. ${result.policyReviewItemIds.length === 1 ? "1 item needs its" : `${result.policyReviewItemIds.length} items need their`} field settings reviewed before use.`
+          : "Vault verified and copied to this device. Check the automatic unlock line below.",
       );
       setExisting(undefined);
       catalogChanged.current();
       await readConnections(epoch);
     } else if (result.kind === "interaction-required")
-      setMessage(`Setup is incomplete: ${result.reason}. This interaction is not supported here.`);
+      setMessage(
+        `Setup is incomplete: Bitwarden asks for a step Pateat does not support (${result.reason}).`,
+      );
     else if (result.kind === "cancelled") setMessage("Setup cancelled.");
     else if (result.kind === "status") setConnections(result.connections);
     else if (result.kind === "forgotten") {
@@ -328,7 +330,7 @@ export function BitwardenSetup({
       await readConnections(epoch);
     } else if (result.kind === "deleted") {
       setMessage(
-        "Connection deleted from this device, with its local vault cache, unlock key and sync sign-in. This does not sign out other sessions. Saved settings that referred to it now show it as unavailable.",
+        "Connection deleted from this device, with its local vault copy, unlock key and sync sign-in. This does not sign out other sessions. Saved settings that referred to it now show it as unavailable.",
       );
       const deleted = result.connectionId;
       setExisting((previous) => (previous?.connectionId === deleted ? undefined : previous));
@@ -336,7 +338,7 @@ export function BitwardenSetup({
       await readConnections(epoch);
     } else if (result.kind === "disabled") {
       setMessage(
-        "Automatic unlock disabled. Sign in again with Enable automatic unlock to restore it.",
+        "Automatic unlock is off. To turn it back on, sign in again with Enable automatic unlock on this device checked.",
       );
       catalogChanged.current();
       await readConnections(epoch);
@@ -354,7 +356,7 @@ export function BitwardenSetup({
         if (epoch !== generation.current) return;
         setChallenge(undefined);
         setMessage(
-          "The operation could not be confirmed. Refresh and reload saved settings. Your previous draft is preserved.",
+          "Pateat could not confirm the result. Refresh, then reload saved settings. Your unsaved settings changes are kept.",
         );
         catalogChanged.current();
       })
@@ -378,7 +380,7 @@ export function BitwardenSetup({
       !password
     ) {
       setMessage(
-        "Enter a connection name, valid email and master password. Self-hosted addresses must be ordinary HTTPS roots without a path, credentials, query or fragment.",
+        "Enter a name, a valid email and the master password. A self-hosted server address is an HTTPS address such as https://vault.example.com, with no path, credentials, query or fragment.",
       );
       return;
     }
@@ -398,12 +400,12 @@ export function BitwardenSetup({
           enabled,
         };
     clearSecrets();
-    setMessage("Requesting provider access and connecting…");
+    setMessage("Asking Chrome for access to the Bitwarden server, then connecting…");
     start(async (epoch) => {
       const granted = await client.requestProviderPermission(profile.data.environment);
       if (epoch !== generation.current) return;
       if (!granted) {
-        setMessage("Provider access was not granted. No sign-in request was sent.");
+        setMessage("Chrome did not grant access to the Bitwarden server, so nothing was sent.");
         return;
       }
       await receive(await client.begin(input), epoch);
@@ -420,7 +422,7 @@ export function BitwardenSetup({
       await receive(await client.continue(input), epoch);
     });
   }
-  function cancel(stopped = "Setup stopped. Refresh to confirm the latest state.") {
+  function cancel(stopped = "Setup stopped. Refresh to see the current state.") {
     ++generation.current;
     operation.current = false;
     client.close();
@@ -438,7 +440,7 @@ export function BitwardenSetup({
       const granted = await client.requestProviderPermission(connection.environment);
       if (epoch !== generation.current) return;
       if (!granted) {
-        setMessage("Provider access was not granted. No sync request was sent.");
+        setMessage("Chrome did not grant access to the Bitwarden server, so nothing was synced.");
         return;
       }
       await receive(await client.sync(connection.connectionId), epoch);
@@ -451,7 +453,7 @@ export function BitwardenSetup({
     setAddOpen(true);
     focusPassword.current = true;
     setMessage(
-      "Enter the master password to sign in again. Automatic unlock stays unchanged unless explicitly enabled.",
+      "Enter the master password to sign in again. Automatic unlock stays as it is unless you check Enable automatic unlock on this device.",
     );
   }
   // The sign-in form may only now be open; focus its password once it is shown.
@@ -485,7 +487,7 @@ export function BitwardenSetup({
             <Button
               type="button"
               variant="outline"
-              onClick={() => cancel("Stopped. Refresh to confirm the latest state.")}
+              onClick={() => cancel("Stopped. Refresh to see the current state.")}
             >
               Cancel
             </Button>
@@ -622,7 +624,7 @@ export function BitwardenSetup({
                             )}
                             <Menu.Item
                               className={menuItemClass}
-                              aria-label={`${connection.label}: Disable automatic unlock`}
+                              aria-label={`${connection.label}: Turn off automatic unlock`}
                               disabled={connection.autoUnlock === "disabled"}
                               onClick={() =>
                                 start(async (epoch) => {
@@ -634,7 +636,7 @@ export function BitwardenSetup({
                               }
                             >
                               <Pause aria-hidden size={16} strokeWidth={2} />
-                              Disable automatic unlock
+                              Turn off automatic unlock
                             </Menu.Item>
                             <Menu.Item
                               className={menuItemClass}
@@ -658,7 +660,7 @@ export function BitwardenSetup({
                               onClick={() => {
                                 setConfirmingDelete(connection.connectionId);
                                 setMessage(
-                                  `Delete ${connection.label}? This removes the connection, its local vault cache, unlock key and sync sign-in from this device. It does not sign out other sessions, and saved settings that refer to it will show it as unavailable. Choose Confirm delete to continue.`,
+                                  `Delete ${connection.label}? This removes the connection, its local vault copy, unlock key and sync sign-in from this device. It does not sign out other sessions, and saved settings that refer to it will show it as unavailable. Choose Confirm delete to continue.`,
                                 );
                               }}
                             >
@@ -703,7 +705,7 @@ export function BitwardenSetup({
                       {
                         tone: "warn" as const,
                         icon: TriangleAlert,
-                        text: "Reload saved settings to review the current field list. Your unsaved policy draft is preserved until you choose Reload.",
+                        text: "Reload saved settings to review the current fields. Your unsaved settings changes are kept until you reload.",
                       },
                     ]
                   : []),
@@ -791,7 +793,7 @@ export function BitwardenSetup({
                   {
                     tone: "idle",
                     icon: Info,
-                    text: "Enter an email code you already received. Sending an email verification code is not available here.",
+                    text: "Enter an email code you already received. Pateat cannot ask Bitwarden to send one.",
                   },
                 ]}
               />
@@ -921,7 +923,7 @@ export function BitwardenSetup({
                   checked={enabled}
                   onChange={(event) => setEnabled(event.target.checked)}
                 />
-                Use this connection
+                Use this vault
               </label>
             )}
             <StatusLines
@@ -936,7 +938,7 @@ export function BitwardenSetup({
                   ? {
                       tone: "idle",
                       icon: Globe,
-                      text: `Chrome asks for access to ${listHosts(origins.data)}`,
+                      text: `Chrome asks for access to ${listHosts(origins.data)}.`,
                     }
                   : {
                       tone: "warn",

@@ -278,7 +278,7 @@ export function VaultRows({
           main={
             <>
               <RowTitle>Unavailable connection</RowTitle>
-              <RowSub>{id}. Its saved settings are preserved.</RowSub>
+              <RowSub>{id}. Its saved settings are kept.</RowSub>
             </>
           }
         />
