@@ -30,6 +30,7 @@ const schema = v.variant("action", [
       "builtin-changed",
       "reencrypted",
       "passkey",
+      "reprompt-passkey",
       "uri",
     ]),
     challenge: v.optional(v.picklist(["none", "mfa", "new-device", "rejected"]), "none"),

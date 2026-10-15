@@ -198,6 +198,26 @@ test("the site default is chosen from the items that match the tab's origin, the
   expect(current().snapshot).toMatchObject({ revision: 2, settings: createDefaultSettings() });
 });
 
+test("an account whose re-prompt the settings honour says Pateat does not use it", async () => {
+  const settings = createDefaultSettings();
+  settings.protections.masterPasswordReprompt = "honour";
+  const initial = saved(0, settings);
+  initial.catalog.connections[1]!.items[0]!.reprompt = true;
+  const { client } = store(initial);
+  await mount(client, "https://bank.example/login");
+  await expect
+    .element(
+      page.getByRole("radio", {
+        name: "Demo team account, Demo work vault. Asks for the master password, so Pateat does not use it",
+      }),
+    )
+    .toBeVisible();
+  // The other accounts read as before.
+  await expect
+    .element(page.getByRole("radio", { name: "Demo primary account, Demo personal vault" }))
+    .toBeVisible();
+});
+
 test("setting and removing the default keeps the listed accounts", async () => {
   const { client } = store();
   // A second search would never answer, so a list that searches again would disappear.

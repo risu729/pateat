@@ -1,4 +1,5 @@
 import {
+  DEFAULT_PROTECTIONS,
   localSettingsSchema,
   MAX_SETTINGS_DOCUMENT_BYTES,
   normalizeHostname,
@@ -17,6 +18,7 @@ const EMPTY_SETTINGS: LocalSettings = {
   excludedSites: [],
   siteDefaults: [],
   bindings: [],
+  protections: { ...DEFAULT_PROTECTIONS },
 };
 
 /**

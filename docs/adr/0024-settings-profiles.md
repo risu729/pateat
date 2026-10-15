@@ -34,6 +34,7 @@ are assigned now so that profiles can be added without moving data again:
 | `itemPolicies` (ADR 0023)                                  | profile           |
 | `customFieldReviews` (ADR 0023)                            | profile           |
 | `pagePermissionDefaults`, `sitePagePermissions` (ADR 0035) | profile           |
+| `protections` (ADR 0007, proposed 2026-10-15)              | profile           |
 | `bindings`                                                 | owner (shared)    |
 | Recipes, Claude credentials, spending and generation state | owner (unchanged) |
 

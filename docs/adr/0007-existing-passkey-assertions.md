@@ -47,6 +47,13 @@ Bitwarden's master password re-prompt (`reprompt: 1`), as filling does
 ([vault adapter](../architecture.md#vault-adapter)). Settings for UP/UV and for
 re-prompt are planned for [phase 3](../plan.md#phase-3-public-release) (owner,
 2026-10-13 21:57 UTC); until then both stay as they are.
+Amended on 2026-10-15 (Proposed, implemented pending the owner's approval): the synced
+settings document holds a `protections` setting for every site, edited on the extension's
+settings page. It supplies the `PasskeyPolicy` (see
+[Presence and verification](#presence-and-verification)) and can honour re-prompt (see
+[Master password re-prompt](#master-password-re-prompt)). Its defaults keep the
+behaviour above. One setting for every site rather than one per site, and the defaults,
+are Claude's default, pending the owner's confirmation.
 
 Amended on 2026-10-12 under the owner's passkey-first policy of 13:58 UTC
 ([ADR 0034](0034-answer-page-passkey-requests.md)), after a log from the Grok Bot's
@@ -292,16 +299,54 @@ The flags come from a `PasskeyPolicy` with two settings: presence `always` or
 `activation`, and verification `always` or `never`. The initial policy is
 `always` for both. Under `activation`, requests without transient user
 activation delegate; under `never`, UV stays clear and requests requiring UV
-delegate. Admission records the UV decision so signing cannot diverge from it. A
-later per-site setting supplies the policy without changing admission or
-assertion code; until then every claimed request uses the initial policy.
+delegate. Admission records the UV decision so signing cannot diverge from it. The
+`protections` setting of the synced settings document supplies the policy for every
+site without changing admission or assertion code (proposed 2026-10-15, implemented
+pending the owner's approval): `passkeyPresence` (`always` or `activation`) and
+`passkeyVerification` (`always` or `never`). Its defaults are the initial policy. The
+background reads the saved settings for each request before admission; a request whose
+page cancels it meanwhile is cancelled, and a policy that cannot be read is replaced by
+the ceremony policy (`activation` and `never`), so a failure never asserts more than the
+owner chose. On the settings page, Protections has a checkbox for each, unticked by
+default: "Answer passkey requests only after a click or key press on the page" and "Do
+not tell sites you were verified". A per-site policy
+stays possible later through the same `PasskeyPolicy`.
+
+### Master password re-prompt
+
+Bitwarden marks an item with `reprompt: 1` when its official clients should ask for the
+master password before using it. Pateat ignores it by default (the 2026-10-14 amendment
+above). The `protections` setting's `masterPasswordReprompt` is `ignore` or `honour`
+(proposed 2026-10-15, implemented pending the owner's approval; the default `ignore` is
+Claude's default, pending the owner's confirmation). The vault catalog carries
+`reprompt: true` for such an item. Under `honour`:
+
+- A request any of whose accepted passkeys belongs to such an item is handed on as
+  `master-password-reprompt` (`login-item-master-password-reprompt` for a login's own
+  item), after the allow list narrows the matches and before the site default or the
+  chooser. Pateat never signs with another passkey in its place, and the chooser does
+  not open, so the browser or Bitwarden's own extension asks. A request whose allow list
+  names only other passkeys signs as before.
+- The chosen passkey is looked up again before signing, and the vault source refuses to
+  sign for such an item under the saved settings, so a change made while a person
+  decides is followed.
+- [Registration after a sign-in](#registration-after-a-sign-in) does not count such a
+  passkey, since Pateat cannot have signed in with it.
+
+Pateat does not ask for the master password itself; a prompt window is later work.
 
 ## Alternatives
 
 - UP only with user activation and UV always clear: follows the ceremony, but
   page-load, executor-triggered and UV-required requests fall back to the
-  browser and cannot complete unattended. Kept as a policy for the later
-  per-site setting.
+  browser and cannot complete unattended. Kept as a policy the `protections` setting
+  can choose.
+- A per-site protections setting (proposed 2026-10-15): finer, but each site would need
+  its own choice before the setting protects it. One setting covers every site now; the
+  same `PasskeyPolicy` can take a per-site value later.
+- Honouring re-prompt by leaving such passkeys out of the matches: the request would sign
+  with another item's passkey when one is left, choosing an account the person did not
+  pick. Handing the request on keeps the choice with the person.
 - Drive or depend on the official Bitwarden extension: inherits its prompts and
   focus requirements and is not an independent adapter.
 - Use an SDK authenticator: the pinned WASM exposes none.

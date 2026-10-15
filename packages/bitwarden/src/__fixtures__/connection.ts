@@ -20,6 +20,8 @@ export type CustomAccountVariant =
   | "reencrypted"
   /** The login also stores the synthetic FIDO2 credential for `synthetic.example.test`. */
   | "passkey"
+  /** As `passkey`, with Bitwarden's master password re-prompt set on the item. */
+  | "reprompt-passkey"
   /** The login also stores the URI `https://synthetic.example.test/login` (default match). */
   | "uri";
 export function rawCustomAccount(
@@ -42,7 +44,7 @@ export function rawCustomAccount(
   const login =
     variant === "builtin-changed" || variant === "reencrypted"
       ? { ...cipher.login, password: legacyUsername }
-      : variant === "passkey"
+      : variant === "passkey" || variant === "reprompt-passkey"
         ? { ...cipher.login, fido2Credentials: [fidoCredential] }
         : variant === "uri"
           ? {
@@ -67,6 +69,7 @@ export function rawCustomAccount(
       ciphers: [
         {
           ...cipher,
+          ...(variant === "reprompt-passkey" ? { reprompt: 1 } : {}),
           login,
           fields,
           data: JSON.stringify({

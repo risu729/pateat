@@ -1,3 +1,4 @@
+import { DEFAULT_PROTECTIONS } from "@pateat/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { DEVICE_TIMEOUT_MS, createServiceTransport } from "./transport";
 
@@ -360,7 +361,13 @@ describe("recipe changes", () => {
 });
 
 describe("settings", () => {
-  const document = { connections: [], excludedSites: [], siteDefaults: [], bindings: [] };
+  const document = {
+    connections: [],
+    excludedSites: [],
+    siteDefaults: [],
+    bindings: [],
+    protections: { ...DEFAULT_PROTECTIONS },
+  };
   const state = { version: 1, revision: 4, settings: document };
 
   it("reads and conditionally writes the settings document", async () => {

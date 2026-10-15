@@ -1,6 +1,6 @@
 import * as v from "valibot";
 import { createPasskeyAssertion } from "./assertion";
-import { INITIAL_PASSKEY_POLICY, type PasskeyPolicy } from "./policy";
+import { CEREMONY_PASSKEY_POLICY, INITIAL_PASSKEY_POLICY, type PasskeyPolicy } from "./policy";
 import { admitGetRequest, describeInvalidRequest } from "./request";
 import {
   matchingPasskeys,
@@ -225,8 +225,11 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
   options: {
     extensionId: string;
     timeoutMs?: () => number;
-    /** Per-origin presence and verification policy; the initial policy when absent. */
-    policy?: (origin: string) => PasskeyPolicy;
+    /**
+     * Per-origin presence and verification policy, read for each request before admission;
+     * the initial policy when absent.
+     */
+    policy?: (origin: string) => PasskeyPolicy | Promise<PasskeyPolicy>;
     /** Receives a value-free report of each finished request. */
     report?: (report: PasskeyRequestReport) => void;
     /** Asks the user when several passkeys match and no site default is among them. */
@@ -317,14 +320,40 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       documentOperations >= MAX_DOCUMENT_OPERATIONS
     )
       return { kind: "delegate", reason: "busy" };
+    const controller = new AbortController();
+    const operation: Operation = {
+      documentId,
+      controller,
+      asked: false,
+      choosing: false,
+      parked: false,
+    };
+    // Registered before the policy is read, so a cancel sent meanwhile reaches it.
+    operations.set(message.operationId, operation);
+    let policy: PasskeyPolicy;
+    try {
+      // A policy that cannot be read follows the ceremony, so it never asserts more than chosen.
+      policy =
+        (await abortable(
+          Promise.resolve()
+            .then(() => options.policy?.(origin))
+            .catch(() => CEREMONY_PASSKEY_POLICY),
+          controller.signal,
+        )) ?? INITIAL_PASSKEY_POLICY;
+    } catch {
+      operations.delete(message.operationId);
+      if (operation.cancelledBy) detail.cause = operation.cancelledBy;
+      return { kind: "cancelled" };
+    }
     const admission = admitGetRequest({
       origin,
       request: message.request,
       userActivation: message.userActivation,
-      policy: options.policy?.(origin) ?? INITIAL_PASSKEY_POLICY,
+      policy,
       conditional: options.conditional !== undefined,
     });
     if (admission.kind === "delegate") {
+      operations.delete(message.operationId);
       if (admission.reason === "invalid-request") {
         const invalid = describeInvalidRequest(message.request);
         if (invalid) {
@@ -337,15 +366,6 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
     detail.rpId = admission.request.rpId;
     detail.allowCredentials = admission.request.allowCredentialIds.length;
     const conditional = admission.request.conditional === true;
-    const controller = new AbortController();
-    const operation: Operation = {
-      documentId,
-      controller,
-      asked: false,
-      choosing: false,
-      parked: false,
-    };
-    operations.set(message.operationId, operation);
     const received = Date.now();
     const expire = () =>
       controller.abort(new DOMException("Passkey bridge timed out", "TimeoutError"));
@@ -386,6 +406,13 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       detail.siteDefaultAccepted = accepted.filter((entry) => entry.preferred === true).length;
       if (candidates.siteDefault) detail.siteDefaultItem = candidates.siteDefault;
       detail.complete = candidates.complete;
+      // A passkey of an item that asks for the master password again is never used, and no
+      // other passkey is chosen in its place: the browser, or Bitwarden's own extension, asks.
+      if (accepted.some((entry) => entry.reprompt === true))
+        return {
+          kind: "delegate",
+          reason: login ? "login-item-master-password-reprompt" : "master-password-reprompt",
+        };
       const selection = selectPasskey(admission.request, candidates);
       step = "signed-before-lookup";
       // ADR 0021 D: a username-less request in a tab Pateat already signed in from may follow
@@ -424,7 +451,10 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
           );
           const same = current
             ? matchingPasskeys(admission.request, current.candidates).filter(
-                (entry) => entry.credentialId === credentialId && entry.counter === 0,
+                (entry) =>
+                  entry.credentialId === credentialId &&
+                  entry.counter === 0 &&
+                  entry.reprompt !== true,
               )
             : [];
           if (same.length !== 1)

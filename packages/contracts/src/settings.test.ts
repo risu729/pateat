@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import * as v from "valibot";
 import {
   createDefaultSettings,
+  DEFAULT_PROTECTIONS,
   DUMMY_VAULT_CATALOG,
   getItemEligibility,
   isSiteExcluded,
@@ -9,6 +10,7 @@ import {
   parseLocalSettings,
   parseSettingsResponse,
   parseSiteUrl,
+  repromptWithheld,
   resolveSiteAccount,
   siteDefaultConnection,
   vaultCatalogSchema,
@@ -286,6 +288,68 @@ describe("scoped metadata eligibility and next-login defaults", () => {
       ok: false,
       reason: "site-excluded",
     });
+  });
+});
+
+describe("protections", () => {
+  it("default to unattended passkey UP and UV and an ignored re-prompt", () => {
+    expect(DEFAULT_PROTECTIONS).toEqual({
+      passkeyPresence: "always",
+      passkeyVerification: "always",
+      masterPasswordReprompt: "ignore",
+    });
+    expect(createDefaultSettings().protections).toEqual(DEFAULT_PROTECTIONS);
+  });
+
+  it("are required and take only the known values", () => {
+    const { protections: _, ...without } = createDefaultSettings();
+    expect(() => parseLocalSettings(without)).toThrow();
+    for (const change of [
+      { passkeyPresence: "never" },
+      { passkeyVerification: "required" },
+      { masterPasswordReprompt: "honor" },
+      { extra: true },
+    ])
+      expect(() =>
+        parseLocalSettings({
+          ...createDefaultSettings(),
+          protections: { ...DEFAULT_PROTECTIONS, ...change },
+        }),
+      ).toThrow();
+  });
+
+  it("withhold a re-prompt item from a default only while re-prompt is honoured", () => {
+    const settings = withDefault();
+    const catalog = structuredClone(DUMMY_VAULT_CATALOG);
+    const item = catalog.connections[0]!.items[0]!;
+    item.reprompt = true;
+    expect(repromptWithheld(settings, item)).toBe(false);
+    expect(resolveSiteAccount(settings, catalog, "https://bank.example")).toMatchObject({
+      ok: true,
+      itemId: "primary",
+    });
+    settings.protections.masterPasswordReprompt = "honour";
+    expect(repromptWithheld(settings, item)).toBe(true);
+    expect(repromptWithheld(settings, catalog.connections[0]!.items[1]!)).toBe(false);
+    expect(resolveSiteAccount(settings, catalog, "https://bank.example")).toEqual({
+      ok: false,
+      reason: "master-password-reprompt",
+    });
+    // An item without the flag is used as before.
+    delete item.reprompt;
+    expect(resolveSiteAccount(settings, catalog, "https://bank.example")).toMatchObject({
+      ok: true,
+    });
+  });
+
+  it("carry the catalog's re-prompt flag only as `true`", () => {
+    const catalog = structuredClone(DUMMY_VAULT_CATALOG);
+    catalog.connections[0]!.items[0]!.reprompt = true;
+    expect(v.is(vaultCatalogSchema, catalog)).toBe(true);
+    for (const reprompt of [false, 1, "true"]) {
+      (catalog.connections[0]!.items[0] as Record<string, unknown>)["reprompt"] = reprompt;
+      expect(v.is(vaultCatalogSchema, catalog)).toBe(false);
+    }
   });
 });
 

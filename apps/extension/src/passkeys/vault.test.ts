@@ -181,6 +181,24 @@ describe("vault passkey candidates", () => {
     });
   });
 
+  it("marks a re-prompt item's passkey only while the settings honour re-prompt", async () => {
+    const find = finder({ ok: true, data: matches([first, second]) });
+    const withFlag = () => {
+      const value = saved();
+      value.catalog.connections[0]!.items[0]!.reprompt = true;
+      return value;
+    };
+    const ignored = await findVaultPasskeys({ saved: withFlag(), origin, rpId, find });
+    expect(ignored!.candidates.map((entry) => entry.reprompt)).toEqual([undefined, undefined]);
+    const honoured = withFlag();
+    honoured.snapshot.settings.protections.masterPasswordReprompt = "honour";
+    const found = await findVaultPasskeys({ saved: honoured, origin, rpId, find });
+    expect(found!.candidates.map((entry) => [entry.itemId, entry.reprompt])).toEqual([
+      [first, true],
+      [second, undefined],
+    ]);
+  });
+
   it("uses one match without a site default and the default among several", async () => {
     const one = await findVaultPasskeys({
       saved: saved(),
@@ -667,6 +685,17 @@ describe("vault passkey source", () => {
     );
     // The runtime's per-request signal never reaches the vault manager.
     expect(manager.signPasskey.mock.calls[0]).toHaveLength(2);
+  });
+
+  it("refuses to sign for an item whose re-prompt the settings honour", async () => {
+    const honoured = saved();
+    honoured.catalog.connections[0]!.items[0]!.reprompt = true;
+    honoured.snapshot.settings.protections.masterPasswordReprompt = "honour";
+    // The same revision, so only the re-prompt check can refuse it.
+    const { source, manager } = runtime([saved(), honoured]);
+    const [candidate] = (await source.candidates(origin, rpId, signal))!.candidates;
+    await expect(source.sign(candidate!, data, hash, signal)).rejects.toThrow("passkey-stale");
+    expect(manager.signPasskey).not.toHaveBeenCalled();
   });
 
   it("searches only a login's item when asked to", async () => {

@@ -140,6 +140,25 @@ export const connectionSettingsSchema = v.strictObject({
   ),
 });
 
+/**
+ * Two protections Pateat may honour, set once for every site and device (ADR 0007, vault
+ * adapter). `passkeyPresence` and `passkeyVerification` are the `PasskeyPolicy` of every
+ * claimed passkey request; `masterPasswordReprompt` decides whether a Bitwarden item marked
+ * with master password re-prompt is used automatically (`ignore`) or never (`honour`).
+ */
+export const protectionSettingsSchema = v.strictObject({
+  passkeyPresence: v.picklist(["always", "activation"]),
+  passkeyVerification: v.picklist(["always", "never"]),
+  masterPasswordReprompt: v.picklist(["ignore", "honour"]),
+});
+export type ProtectionSettings = v.InferOutput<typeof protectionSettingsSchema>;
+/** The owner's earlier choices: unattended UP and UV, and re-prompt not honoured (ADR 0007). */
+export const DEFAULT_PROTECTIONS: ProtectionSettings = Object.freeze({
+  passkeyPresence: "always",
+  passkeyVerification: "always",
+  masterPasswordReprompt: "ignore",
+});
+
 export const localSettingsSchema = v.pipe(
   v.strictObject({
     connections: v.pipe(
@@ -187,6 +206,7 @@ export const localSettingsSchema = v.pipe(
         "Duplicate account bindings",
       ),
     ),
+    protections: protectionSettingsSchema,
   }),
 );
 
@@ -245,6 +265,12 @@ export const vaultCatalogSchema = v.strictObject({
           label: identifier,
           allowedOrigins: v.array(originSchema),
           groupIds: identifiers,
+          /**
+           * Set when the provider asks for the master password again before the item is
+           * used, as Bitwarden's re-prompt does; `masterPasswordReprompt` decides whether
+           * Pateat honours it.
+           */
+          reprompt: v.optional(v.literal(true)),
           fields: v.array(
             v.strictObject({
               id: identifier,
@@ -375,6 +401,7 @@ export function createDefaultSettings(catalog: VaultCatalog = DUMMY_VAULT_CATALO
     excludedSites: [],
     siteDefaults: [],
     bindings: [],
+    protections: { ...DEFAULT_PROTECTIONS },
   };
 }
 
@@ -419,6 +446,18 @@ export function getItemEligibility(
   return { eligible: true, item, fieldIds };
 }
 
+/**
+ * Whether an item is kept from automatic use: its provider asks for the master password
+ * again before using it (Bitwarden re-prompt) and the settings honour that. Pateat then
+ * neither fills it nor signs with its passkeys; it never asks for the master password.
+ */
+export function repromptWithheld(
+  settings: LocalSettings,
+  item: Pick<VaultItemMetadata, "reprompt">,
+): boolean {
+  return settings.protections.masterPasswordReprompt === "honour" && item.reprompt === true;
+}
+
 export function isSiteExcluded(settings: LocalSettings, value: string): boolean {
   const url = parseSiteUrl(value);
   const hostname = url && normalizeHostname(url.hostname);
@@ -442,6 +481,7 @@ export type SiteAccountResolution =
         | "item-origin-mismatch"
         | "account-ambiguous"
         | "vault-unavailable"
+        | "master-password-reprompt"
         | EligibilityReason;
     };
 
@@ -486,6 +526,8 @@ export function resolveSiteAccount(
   const { connectionId } = connection;
   const eligibility = getItemEligibility(settings, catalog, connectionId, selected.itemId);
   if (!eligibility.eligible) return { ok: false, reason: eligibility.reason };
+  if (repromptWithheld(settings, eligibility.item))
+    return { ok: false, reason: "master-password-reprompt" };
   if (!eligibility.item.allowedOrigins.includes(url.origin))
     return { ok: false, reason: "item-origin-mismatch" };
   return {

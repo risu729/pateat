@@ -110,7 +110,7 @@ export function createPasskeyCreateHandler<TCandidate extends PasskeyCandidate>(
       const found = matchingPasskeys(
         { rpId, allowCredentialIds: excluded },
         candidates.candidates,
-      ).some((candidate) => candidate.counter === 0);
+      ).some((candidate) => candidate.counter === 0 && candidate.reprompt !== true);
       return { found, complete: candidates.complete };
     } finally {
       clearTimeout(timer);

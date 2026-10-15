@@ -1,6 +1,7 @@
 import {
   getItemEligibility,
   isSiteExcluded,
+  repromptWithheld,
   siteDefaultConnection,
   type SettingsResponse,
   type SettingsSnapshot,
@@ -143,6 +144,7 @@ export async function findVaultPasskeys(input: {
         discoverable: entry.discoverable,
         counter: entry.counter,
         preferred: preferred?.connectionId === connection.id && preferred.itemId === entry.itemId,
+        ...(item && repromptWithheld(settings, item) ? { reprompt: true } : {}),
         display: {
           item: item?.label ?? "Unnamed item",
           ...(entry.userName ? { userName: entry.userName } : {}),
@@ -240,7 +242,8 @@ export function createVaultPasskeyFinder(
 
 /**
  * Vault-backed passkey source. Signing happens in the crypto Worker and only while the settings
- * revision, snapshot and item eligibility that produced the candidate still hold.
+ * revision, snapshot and item eligibility that produced the candidate still hold, and never for
+ * an item whose master password re-prompt the settings honour.
  */
 export function createVaultPasskeySource(
   connections: Pick<ConnectionRuntime, "settings" | "registry" | "vaultFor">,
@@ -260,6 +263,9 @@ export function createVaultPasskeySource(
       saved.snapshot.revision === candidate.settingsRevision &&
       connection?.snapshotId === candidate.snapshotId &&
       !connection.quarantinedItemIds?.includes(candidate.itemId) &&
+      !connection.items.some(
+        (item) => item.id === candidate.itemId && repromptWithheld(saved.snapshot.settings, item),
+      ) &&
       passkeyEligible(
         saved.snapshot.settings,
         saved.catalog,

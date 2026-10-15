@@ -672,3 +672,44 @@ test("malformed save responses are rejected at the runtime boundary and keep the
     send.mock.calls.filter(([request]) => (request as { type: string }).type === "settings.save"),
   ).toHaveLength(1);
 });
+
+test("the protections are off by default and each change is saved in the synced document", async () => {
+  const client = mockClient();
+  await mount(client);
+  const presence = control("protection-passkey-presence");
+  const verification = control("protection-passkey-verification");
+  const reprompt = control("protection-master-password-reprompt");
+  // The defaults keep the owner's earlier choices, and each row says what that means.
+  await Promise.all(
+    [presence, verification, reprompt].map((box) => expect.element(box).not.toBeChecked()),
+  );
+  await expect
+    .element(control("protection-passkey-verification-effect"))
+    .toHaveTextContent(
+      "Pateat tells the site you were verified (UV), although it checks nothing itself.",
+    );
+
+  await reprompt.click();
+  await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 1");
+  expect(client.saveSettings.mock.calls[0]?.[0].settings.protections).toEqual({
+    passkeyPresence: "always",
+    passkeyVerification: "always",
+    masterPasswordReprompt: "honour",
+  });
+  await expect
+    .element(control("protection-master-password-reprompt-effect"))
+    .toMatchTextContent("never filled");
+
+  await presence.click();
+  await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 2");
+  await verification.click();
+  await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 3");
+  expect(client.saveSettings.mock.calls[2]?.[0].settings.protections).toEqual({
+    passkeyPresence: "activation",
+    passkeyVerification: "never",
+    masterPasswordReprompt: "honour",
+  });
+  await expect
+    .element(control("protection-passkey-verification-effect"))
+    .toMatchTextContent("a request that requires it goes to the browser");
+});

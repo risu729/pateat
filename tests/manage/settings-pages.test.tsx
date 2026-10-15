@@ -2,10 +2,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, test, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { cleanup, render } from "vitest-browser-react";
-import type {
-  LocalSettings,
-  ManageRecipes,
-  SyncSettingsState,
+import {
+  DEFAULT_PROTECTIONS,
+  type LocalSettings,
+  type ManageRecipes,
+  type SyncSettingsState,
 } from "../../packages/contracts/src/index";
 import { ManageApiError, type ManageClient } from "../../services/api/web/api";
 import { ManageApp } from "../../services/api/web/app";
@@ -16,7 +17,14 @@ const USER = "00000000-0000-4000-8000-000000000001";
 const BANK_PAGE = "/manage/sites/https/bank.example";
 
 function settingsOf(parts: Partial<LocalSettings> = {}): LocalSettings {
-  return { connections: [], excludedSites: [], siteDefaults: [], bindings: [], ...parts };
+  return {
+    connections: [],
+    excludedSites: [],
+    siteDefaults: [],
+    bindings: [],
+    protections: { ...DEFAULT_PROTECTIONS },
+    ...parts,
+  };
 }
 
 const binding = {

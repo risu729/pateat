@@ -105,6 +105,7 @@ export function createConnectionRuntime(
           label: item.label,
           allowedOrigins: [],
           groupIds: item.groupIds,
+          ...(item.reprompt ? { reprompt: item.reprompt } : {}),
           fields: item.fields.map(({ id, label, name, kind, linkedFieldId, empty }) => ({
             id,
             label,

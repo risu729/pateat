@@ -1,4 +1,5 @@
 import {
+  DEFAULT_PROTECTIONS,
   localSettingsSchema,
   type ConnectionSettings,
   type LocalSettings,
@@ -6,12 +7,13 @@ import {
 } from "@pateat/contracts";
 import { useForm, useStore } from "@tanstack/react-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bug, Globe, Info, Link, Shield, Vault, type LucideIcon } from "lucide-react";
+import { Bug, Globe, Info, Link, Shield, ShieldCheck, Vault, type LucideIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Logo } from "../logo";
 import { Button } from "./button";
 import { SETTINGS_QUERY_KEY, type SettingsClient } from "./client";
 import { VaultAccess, VaultRows } from "./connections";
+import { Protections } from "./protections";
 import { SitePolicy } from "./site-policy";
 import { BitwardenSetup } from "./bitwarden-setup";
 import type { ConnectionClient } from "./connection-client";
@@ -26,6 +28,7 @@ const emptySettings: LocalSettings = {
   excludedSites: [],
   siteDefaults: [],
   bindings: [],
+  protections: { ...DEFAULT_PROTECTIONS },
 };
 
 export function SettingsApp({
@@ -180,6 +183,7 @@ export function SettingsApp({
     form.setFieldValue("connections", next.connections);
     form.setFieldValue("excludedSites", next.excludedSites);
     form.setFieldValue("siteDefaults", next.siteDefaults);
+    form.setFieldValue("protections", next.protections);
     edits.current += 1;
     setDirty(true);
     dirtyRef.current = true;
@@ -293,6 +297,7 @@ export function SettingsApp({
       ? { id: "bitwarden", label: "Bitwarden", icon: Shield }
       : { id: "demo-vaults", label: "Demo vaults", icon: Vault },
     { id: "sites", label: "Sites", icon: Globe },
+    { id: "protections", label: "Protections", icon: ShieldCheck },
     ...(serviceClient ? [{ id: "sync", label: "Sync service", icon: Link }] : []),
   ];
   return (
@@ -421,6 +426,7 @@ export function SettingsApp({
                 <ul id="site-list" className="hidden" />
               </Panel>
             )}
+            <Protections draft={draft} edit={edit} />
           </fieldset>
           {serviceClient && <ServiceConnection client={serviceClient} />}
           <footer className="flex flex-wrap gap-4 text-[0.8125rem] leading-5 text-ink-muted">

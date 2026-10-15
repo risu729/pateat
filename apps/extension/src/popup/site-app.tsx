@@ -167,11 +167,17 @@ function accountCards(
 ): AccountCard[] {
   const cards = options.map((option) => {
     const username = usernameOf(option, accounts);
+    const sub = username
+      ? `${option.itemName} in ${option.connectionLabel}`
+      : option.connectionLabel;
     return {
       option,
       value: option.value,
       title: username || option.itemName,
-      sub: username ? `${option.itemName} in ${option.connectionLabel}` : option.connectionLabel,
+      // The protections setting honours this item's re-prompt, so a login with it stops.
+      sub: option.reprompt
+        ? `${sub}. Asks for the master password, so Pateat does not use it`
+        : sub,
       isDefault: option.value === currentValue,
     };
   });

@@ -3,6 +3,7 @@ import {
   isSiteExcluded,
   normalizeHostname,
   parseSiteUrl,
+  repromptWithheld,
   resolveSiteAccount,
   siteDefaultConnection,
   type LocalSettings,
@@ -52,6 +53,8 @@ function unavailableReason(reason: string): string {
     "item-excluded": "This account is excluded.",
     "item-not-selected": "This account is outside the selected groups and items.",
     "fields-excluded": "All fields in this account are excluded.",
+    "master-password-reprompt":
+      "This account asks for the master password again (Bitwarden re-prompt), so Pateat does not use it.",
   };
   return descriptions[reason] ?? "This account is unavailable.";
 }
@@ -65,6 +68,8 @@ type SiteAccountOption = {
   itemName: string;
   uri: boolean;
   passkey: boolean;
+  /** The item asks for the master password again and the settings honour that. */
+  reprompt: boolean;
   value: string;
   /** The item name, then the login username when it matched, then an ID prefix if still ambiguous. */
   label: string;
@@ -115,6 +120,7 @@ export function siteAccountOptions(
               itemName: item.label,
               uri: match?.uri ?? false,
               passkey: match?.passkey ?? false,
+              reprompt: repromptWithheld(draft, item),
               value: JSON.stringify([connection.id, item.id]),
               label: match?.username ? `${item.label} · ${match.username}` : item.label,
             },
@@ -693,7 +699,8 @@ export function SitePolicy({
                         <optgroup key={connection.id} label={connection.label}>
                           {options.map((option) => (
                             <option key={option.itemId} value={option.value}>
-                              {option.label} ({matchedBy(option)})
+                              {option.label} ({matchedBy(option)}
+                              {option.reprompt ? "; asks for the master password, not used" : ""})
                             </option>
                           ))}
                         </optgroup>

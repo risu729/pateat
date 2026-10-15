@@ -1,6 +1,5 @@
 import * as v from "valibot";
 import { toBase64Url } from "./encoding";
-import { INITIAL_PASSKEY_POLICY, type PasskeyPolicy } from "./policy";
 import type { PasskeySource } from "./runtime";
 import type { PasskeyCandidate } from "./select";
 import { importAssertionKey, signAssertion } from "./signature";
@@ -32,8 +31,6 @@ export const probeControlSchema = v.variant("type", [
     timeoutMs: v.optional(v.pipe(delayMs, v.minValue(1))),
     /** How many localhost passkeys to offer; more than one opens the chooser window. */
     count: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(3))),
-    presence: v.optional(v.picklist(["always", "activation"])),
-    verification: v.optional(v.picklist(["always", "never"])),
   }),
   v.strictObject({ version: v.literal(1), type: v.literal("passkey.probe.status") }),
 ]);
@@ -54,14 +51,12 @@ export function createProbePasskeySource<TOther extends PasskeyCandidate>(
   /** Counts localhost defaults instead of saving them; other origins go to `rememberOther`. */
   remember(origin: string, candidate: PasskeyCandidate): Promise<void>;
   timeoutMs: () => number;
-  policy: () => PasskeyPolicy;
 } {
   let enabled = true;
   let counter = 0;
   let discoverable = true;
   let signDelayMs = 0;
   let timeoutMs = 10_000;
-  let policy = INITIAL_PASSKEY_POLICY;
   let count = 1;
   let signatures = 0;
   let remembered: string[] = [];
@@ -152,7 +147,6 @@ export function createProbePasskeySource<TOther extends PasskeyCandidate>(
   return {
     source,
     timeoutMs: () => timeoutMs,
-    policy: () => policy,
     async remember(origin, candidate) {
       if (others.has(candidate)) await rememberOther?.(origin, candidate as TOther);
       else remembered.push(candidate.credentialId);
@@ -169,10 +163,6 @@ export function createProbePasskeySource<TOther extends PasskeyCandidate>(
       timeoutMs = parsed.output.timeoutMs ?? 10_000;
       count = parsed.output.count ?? 1;
       remembered = [];
-      policy = Object.freeze({
-        presence: parsed.output.presence ?? INITIAL_PASSKEY_POLICY.presence,
-        verification: parsed.output.verification ?? INITIAL_PASSKEY_POLICY.verification,
-      });
       return { ok: true, signatures, remembered };
     },
   };

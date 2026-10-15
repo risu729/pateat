@@ -1,3 +1,4 @@
+import { DEFAULT_PROTECTIONS } from "@pateat/contracts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SettingsResponse } from "@pateat/contracts";
 import type { LoginFieldSource } from "./vault";
@@ -121,6 +122,7 @@ function settingsFor({
           excludedSites: [],
           siteDefaults: [{ origin, provider: "bitwarden", userId, itemId }],
           bindings: [],
+          protections: { ...DEFAULT_PROTECTIONS },
         },
       },
       catalog: {

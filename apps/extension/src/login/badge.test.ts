@@ -201,18 +201,21 @@ describe("badgeResult for refusals", () => {
     fields: { detail?: string; repeat?: true; unrelated?: true } = {},
   ): LoginReport => ({ type: "refused", tabId, origin, reason, ...fields });
 
-  it.each(["no-route", "field-unavailable", "storage-unavailable", "attempt-limit"])(
-    "keeps a failure for a %s refusal, naming its detail",
-    (reason) => {
-      expect(badgeResult(refusal(reason), 1000)).toEqual({ kind: "failed", reason });
-      expect(badgeResult(refusal(reason, { detail: "password-empty:no-passkey" }), 1000)).toEqual({
-        kind: "failed",
-        reason: `${reason}: password-empty:no-passkey`,
-      });
-      expect(badgeResult(refusal(reason, { repeat: true }), 1000)).toBeUndefined();
-      expect(badgeResult(refusal(reason, { unrelated: true }), 1000)).toBeUndefined();
-    },
-  );
+  it.each([
+    "no-route",
+    "field-unavailable",
+    "storage-unavailable",
+    "attempt-limit",
+    "master-password-reprompt",
+  ])("keeps a failure for a %s refusal, naming its detail", (reason) => {
+    expect(badgeResult(refusal(reason), 1000)).toEqual({ kind: "failed", reason });
+    expect(badgeResult(refusal(reason, { detail: "password-empty:no-passkey" }), 1000)).toEqual({
+      kind: "failed",
+      reason: `${reason}: password-empty:no-passkey`,
+    });
+    expect(badgeResult(refusal(reason, { repeat: true }), 1000)).toBeUndefined();
+    expect(badgeResult(refusal(reason, { unrelated: true }), 1000)).toBeUndefined();
+  });
 
   it.each(["no-recipe", "logged-in", "account-ambiguous", "origin-busy", "tab-busy", "logged-out"])(
     "shows nothing for a %s refusal",

@@ -347,6 +347,11 @@ describe("owner web UI settings", () => {
     excludedSites: [{ hostname: "intranet.example", includeSubdomains: true }],
     siteDefaults: [],
     bindings: [],
+    protections: {
+      passkeyPresence: "always",
+      passkeyVerification: "always",
+      masterPasswordReprompt: "ignore",
+    },
   };
   const putSettings = (by: Owner, body: unknown, origin: string | null = ORIGIN) =>
     request("/manage/api/settings", {

@@ -19,6 +19,8 @@ export const localVaultMetadataSchema = v.strictObject({
         label,
         type: v.picklist([1, 2, 3, 4]),
         groupIds: v.pipe(v.array(uuid), v.maxLength(1000)),
+        /** The item asks for the master password again before use (`reprompt: 1`). */
+        reprompt: v.optional(v.literal(true)),
         fields: v.pipe(
           v.array(
             v.strictObject({

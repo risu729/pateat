@@ -10,6 +10,7 @@ import {
 } from "./runtime";
 import type { PasskeyCandidates } from "./select";
 import { CHOOSER_MAX_WAIT_MS, CHOOSER_MIN_WAIT_MS } from "./wire";
+import { fromBase64Url } from "./encoding";
 import { snapshotGetOptions } from "./page";
 import type { SignedTabs } from "./signed-tabs";
 
@@ -285,6 +286,131 @@ describe("passkey runtime policy", () => {
     });
     expect(policy).toHaveBeenCalledWith(origin);
     expect(backing.candidates).not.toHaveBeenCalled();
+    expect(backing.sign).not.toHaveBeenCalled();
+  });
+});
+
+describe("passkey runtime protections setting", () => {
+  it("waits for a policy read from the settings and leaves UV clear under `never`", async () => {
+    const policy = vi.fn(async () => ({ presence: "always", verification: "never" }) as const);
+    const backing = source();
+    const runtime = createPasskeyRuntime(backing, { extensionId, policy });
+    const result = await runtime.handle(get(undefined, false), sender());
+    expect(result).toMatchObject({ kind: "assertion" });
+    if (!("kind" in result) || result.kind !== "assertion")
+      throw new Error("Expected an assertion");
+    // UP, BE and BS without UV.
+    expect(fromBase64Url(result.assertion.authenticatorData)?.[32]).toBe(0x19);
+    expect(
+      await runtime.handle(
+        { ...get(), request: { ...request, userVerification: "required" } },
+        sender(),
+      ),
+    ).toEqual({ kind: "delegate", reason: "user-verification-required" });
+  });
+
+  it("follows the ceremony when the policy cannot be read", async () => {
+    const backing = source();
+    const runtime = createPasskeyRuntime(backing, {
+      extensionId,
+      policy: async () => {
+        throw new Error("settings-unavailable");
+      },
+    });
+    expect(await runtime.handle(get(undefined, false), sender())).toEqual({
+      kind: "delegate",
+      reason: "no-user-activation",
+    });
+    expect(backing.candidates).not.toHaveBeenCalled();
+  });
+
+  it("cancels a request whose page cancels it while the policy is read", async () => {
+    let release!: () => void;
+    const read = new Promise<void>((resolve) => (release = resolve));
+    const report = vi.fn();
+    const backing = source();
+    const runtime = createPasskeyRuntime(backing, {
+      extensionId,
+      report,
+      policy: async () => {
+        await read;
+        return { presence: "always", verification: "always" } as const;
+      },
+    });
+    const operationId = crypto.randomUUID();
+    const pending = runtime.handle(get(operationId), sender());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(
+      await runtime.handle({ version: 1, type: "passkey.cancel", operationId }, sender()),
+    ).toEqual({ ok: true });
+    release();
+    expect(await pending).toEqual({ kind: "cancelled" });
+    expect(backing.candidates).not.toHaveBeenCalled();
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: "cancelled", cause: "page-cancelled" }),
+    );
+  });
+
+  it("hands on a request any re-prompt passkey accepts, never signing another in its place", async () => {
+    const withheld = { ...candidate, credentialId: "BAUG", reprompt: true };
+    const choose = vi.fn(async (): Promise<PasskeyChoice> => ({ kind: "closed" }));
+    const report = vi.fn();
+    const backing = source({
+      candidates: vi.fn(async () => ({ candidates: [candidate, withheld], complete: true })),
+    });
+    const runtime = createPasskeyRuntime(backing, {
+      extensionId,
+      chooser: { choose },
+      report,
+    });
+    expect(await runtime.handle(get(), sender())).toEqual({
+      kind: "delegate",
+      reason: "master-password-reprompt",
+    });
+    // Alone, or as the site default, it is handed on too.
+    vi.mocked(backing.candidates)
+      .mockResolvedValueOnce({ candidates: [withheld], complete: true })
+      .mockResolvedValueOnce({ candidates: [{ ...withheld, preferred: true }], complete: true });
+    expect(await runtime.handle(get(), sender())).toEqual({
+      kind: "delegate",
+      reason: "master-password-reprompt",
+    });
+    expect(await runtime.handle(get(), sender())).toEqual({
+      kind: "delegate",
+      reason: "master-password-reprompt",
+    });
+    // A request whose allow list names only the other passkey still signs with it.
+    expect(
+      await runtime.handle(
+        {
+          ...get(),
+          request: { ...request, allowCredentials: [{ type: "public-key", id: "AQID" }] },
+        },
+        sender(),
+      ),
+    ).toMatchObject({ kind: "assertion", assertion: { credentialId: "AQID" } });
+    expect(backing.sign).toHaveBeenCalledTimes(1);
+    expect(choose).not.toHaveBeenCalled();
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: "delegate", reason: "master-password-reprompt" }),
+    );
+  });
+
+  it("hands on a login's request when its item asks for the master password", async () => {
+    const backing = source({
+      candidates: vi.fn(async () => ({
+        candidates: [{ ...candidate, reprompt: true }],
+        complete: true,
+      })),
+    });
+    const runtime = createPasskeyRuntime(backing, {
+      extensionId,
+      loginAccount: () => ({ connectionId: "personal", itemId: "login-item" }),
+    });
+    expect(await runtime.handle(get(), sender())).toEqual({
+      kind: "delegate",
+      reason: "login-item-master-password-reprompt",
+    });
     expect(backing.sign).not.toHaveBeenCalled();
   });
 });
