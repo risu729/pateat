@@ -658,7 +658,7 @@ export function BitwardenSetup({
                               onClick={() => {
                                 setConfirmingDelete(connection.connectionId);
                                 setMessage(
-                                  `Delete ${connection.label}? This removes the connection, its local vault cache, unlock key and sync sign-in from this device. It does not sign out other sessions, and saved settings that refer to it will show it as unavailable. Choose Confirm delete to continue.`,
+                                  `Delete ${connection.label}? This removes the connection, its local vault cache, unlock key and sync sign-in from this device. It does not sign out other sessions, and the synced settings of its account stay for other devices and a later connection. Choose Confirm delete to continue.`,
                                 );
                               }}
                             >
@@ -710,7 +710,18 @@ export function BitwardenSetup({
               ]}
             />
             {connection.items
-              .filter((item) => quarantined.includes(item.id))
+              .filter((item) => connection.staleItemIds?.includes(item.id))
+              .map((item) => (
+                <p key={item.id} className="m-0 text-sm">
+                  {item.label} was reviewed on another device against a newer copy of this vault.
+                  Sync this vault; if it is still older afterwards, review it here.
+                </p>
+              ))}
+            {connection.items
+              .filter(
+                (item) =>
+                  quarantined.includes(item.id) && !connection.staleItemIds?.includes(item.id),
+              )
               .map((item) => (
                 <FieldReview
                   key={`${connection.snapshotId}:${acceptedSettings.snapshot.revision}:${item.id}`}

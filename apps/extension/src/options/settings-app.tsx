@@ -1,12 +1,16 @@
-import {
-  localSettingsSchema,
-  type ConnectionSettings,
-  type LocalSettings,
-  type SettingsResponse,
-} from "@pateat/contracts";
+import { localSettingsSchema, type LocalSettings, type SettingsResponse } from "@pateat/contracts";
 import { useForm, useStore } from "@tanstack/react-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bug, Globe, Info, Link, Shield, Vault, type LucideIcon } from "lucide-react";
+import {
+  Bug,
+  Globe,
+  Info,
+  Link,
+  Shield,
+  TriangleAlert,
+  Vault,
+  type LucideIcon,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Logo } from "../logo";
 import { Button } from "./button";
@@ -23,6 +27,9 @@ import { Panel, StatusLines } from "./ui";
 type AcceptedSettings = Extract<SettingsResponse, { ok: true }>;
 const emptySettings: LocalSettings = {
   connections: [],
+  accountPolicies: [],
+  itemPolicies: [],
+  customFieldReviews: [],
   excludedSites: [],
   siteDefaults: [],
   bindings: [],
@@ -178,6 +185,8 @@ export function SettingsApp({
     const next = structuredClone(form.state.values);
     update(next);
     form.setFieldValue("connections", next.connections);
+    form.setFieldValue("accountPolicies", next.accountPolicies);
+    form.setFieldValue("itemPolicies", next.itemPolicies);
     form.setFieldValue("excludedSites", next.excludedSites);
     form.setFieldValue("siteDefaults", next.siteDefaults);
     edits.current += 1;
@@ -270,11 +279,6 @@ export function SettingsApp({
     }
     void reload();
   }
-  const changeConnection = (id: string, update: (value: ConnectionSettings) => void) =>
-    edit((value) => {
-      const connection = value.connections.find((entry) => entry.connectionId === id);
-      if (connection) update(connection);
-    });
   const exclusionsWin = (
     <StatusLines
       muted
@@ -343,6 +347,17 @@ export function SettingsApp({
               ]}
             />
           )}
+          {accepted?.catalog.settingsSyncPending && (
+            <StatusLines
+              lines={[
+                {
+                  tone: "warn",
+                  icon: TriangleAlert,
+                  text: "Pateat uses no vault item until this device completes its first settings sync with the sync service.",
+                },
+              ]}
+            />
+          )}
           {connectionClient && (
             <BitwardenSetup
               client={connectionClient}
@@ -350,16 +365,16 @@ export function SettingsApp({
               acceptedSettings={accepted}
               reviewBlocked={dirty || busy || saveBlocked}
               renderAccess={(id) => {
-                const connection = draft.connections.find((entry) => entry.connectionId === id);
                 const metadata = accepted?.catalog.connections.find((entry) => entry.id === id);
                 return (
-                  connection &&
+                  accepted &&
                   metadata && (
                     <VaultAccess
-                      connection={connection}
+                      draft={draft}
+                      catalog={accepted.catalog}
                       metadata={metadata}
-                      disabled={busy || !accepted}
-                      edit={(update) => changeConnection(id, update)}
+                      disabled={busy}
+                      edit={edit}
                     />
                   )
                 );
@@ -373,12 +388,12 @@ export function SettingsApp({
                     >
                       <legend className="visually-hidden">Other saved vault settings</legend>
                       <VaultRows
-                        ids={draft.connections
-                          .map((entry) => entry.connectionId)
+                        ids={accepted.catalog.connections
+                          .map((entry) => entry.id)
                           .filter((id) => !listed.includes(id))}
                         draft={draft}
                         catalog={accepted.catalog}
-                        change={changeConnection}
+                        edit={edit}
                       />
                     </fieldset>
                   )}
@@ -397,10 +412,10 @@ export function SettingsApp({
               <Panel id="demo-vaults" headingId="connections-heading" title="Demo vaults">
                 {accepted ? (
                   <VaultRows
-                    ids={draft.connections.map((entry) => entry.connectionId)}
+                    ids={accepted.catalog.connections.map((entry) => entry.id)}
                     draft={draft}
                     catalog={accepted.catalog}
-                    change={changeConnection}
+                    edit={edit}
                   />
                 ) : (
                   <ul id="connections" className="hidden" />

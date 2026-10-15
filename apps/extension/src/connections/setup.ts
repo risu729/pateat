@@ -9,6 +9,7 @@ import type { LocalVaultHandle } from "../vault/manager";
 import type { VaultEntry } from "../vault/record";
 import type { VaultApplyHold, VaultSyncEntry, VaultSyncOutcome } from "./auto-sync";
 import { setupBeginSchema, setupContinuationSchema } from "./wire";
+import { profileServer } from "./policy";
 import type {
   BitwardenConnectionConfiguration,
   ConnectionSetupDependencies,
@@ -259,6 +260,7 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
         id: profile.connectionId,
         label: flow.configuration.label,
         provider: "bitwarden",
+        server: profileServer(profile),
         userId: metadata.data.userId,
         groups: metadata.data.groups,
         items: metadata.data.items.map((item) => ({
