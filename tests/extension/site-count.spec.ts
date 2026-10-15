@@ -28,9 +28,20 @@ async function connect(options: Page) {
   return { connectionId: accepted.connectionId, itemId: item.id };
 }
 
+type BadgeChrome = {
+  tabs: { query: (query: { url: string }) => Promise<{ id?: number }[]> };
+  action: {
+    getBadgeText: (details: { tabId: number }) => Promise<string>;
+    getBadgeBackgroundColor: (details: { tabId: number }) => Promise<number[]>;
+    getBadgeTextColor: (details: { tabId: number }) => Promise<number[]>;
+    getTitle: (details: { tabId: number }) => Promise<string>;
+  };
+};
+
 /** The toolbar badge of the tab showing `url`, as Chrome draws it. */
 function badge(background: Worker, url: string) {
   return background.evaluate(async (pattern) => {
+    const { chrome } = globalThis as unknown as { chrome: BadgeChrome };
     const [tab] = await chrome.tabs.query({ url: pattern });
     if (tab?.id === undefined) return undefined;
     const tabId = tab.id;
