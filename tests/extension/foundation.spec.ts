@@ -403,7 +403,9 @@ test("the settings page hides the popup's page section on this device", async ()
     await expect(popup.locator("#popup-origin")).toHaveText("bank.example");
     await popup.close();
     const later = await openPopup();
-    await expect(later.locator("#popup-origin")).toHaveText("bank.example");
+    await expect(later.locator("#popup-accounts-note")).toContainText("No vault item matches");
+    // The first popup showed the section by now; this one asks for no status at all.
+    await later.waitForTimeout(1500);
     await expect(later.getByRole("heading", { name: "This page" })).toHaveCount(0);
 
     await shown.check();

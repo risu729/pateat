@@ -79,15 +79,16 @@ One state shows per tab, the first that applies:
 
 ### Popup
 
-The popup gets a section for the current page, shown by default. A checkbox on the
-settings page hides it on one device (added 2026-10-15 as Claude's default, pending the
-owner's confirmation;
-[architecture](../architecture.md#settings-eligibility-and-operation-grants)). It says
-whether the site has a recipe, and if not whether the AI was asked, is making one, or
-could not, and why; and whether this page's login started, is running, signed in, or
-why it did not start or did not succeed. Outcomes get a plain sentence; others show
-their log name. It ends with a link to the diagnostics page, and shows no value, recipe
-content or URL query.
+The popup gets a section for the current page, always shown for now; a setting to hide
+it comes later. It says whether the site has a recipe, and if not whether the AI was
+asked, is making one, or could not, and why; and whether this page's login started,
+is running, signed in, or why it did not start or did not succeed. Outcomes get a
+plain sentence; others show their log name. It ends with a link to the diagnostics
+page, and shows no value, recipe content or URL query.
+
+Note (2026-10-15, Claude's default, pending the owner's confirmation): the setting is a
+checkbox on the settings page that hides the section on one device; the section shows by
+default ([architecture](../architecture.md#settings-eligibility-and-operation-grants)).
 
 The section sits under the popup's header and asks the worker with `login.status.get`
 every second while the popup is open. The worker answers from three sources:

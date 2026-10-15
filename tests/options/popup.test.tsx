@@ -1026,6 +1026,10 @@ test("the settings page's choice hides the page section and stops asking for it"
   window.dispatchEvent(new StorageEvent("storage", { key: PAGE_SECTION_STORAGE_KEY }));
   await expect.poll(() => document.querySelector("#popup-page-status")).toBeNull();
   await expect.element(page.getByRole("group", { name: "Default account" })).toBeVisible();
+  // The status is asked every second while shown; hidden, it is not asked again.
+  const asked = choices.status.mock.calls.length;
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+  expect(choices.status).toHaveBeenCalledTimes(asked);
 });
 
 test("the page section says why a page without a recipe was not sent to the AI", async () => {

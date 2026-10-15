@@ -1091,8 +1091,7 @@ differ.
 
 Each page has light and dark themes. The extension's pages and the owner web UI have a
 Theme select (Browser setting, Light, Dark): at the foot of the extension settings
-page's section list, above the popup's "This page" checkbox, and in the owner web UI's
-footer (owner, 2026-10-12 20:54 UTC); the
+page's section list and in the owner web UI's footer (owner, 2026-10-12 20:54 UTC); the
 Worker's script-free pages always follow the browser. Browser setting, the default,
 follows the browser's `prefers-color-scheme`. The choice is presentation only: it is
 kept in the program's own `localStorage` under `pateat.theme`, not in `chrome.storage`,

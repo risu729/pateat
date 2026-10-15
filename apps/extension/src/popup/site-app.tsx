@@ -322,7 +322,9 @@ export function SiteApp({
   // settings page has not hidden the section on this device.
   const [pageSectionShown] = usePageSectionShown();
   const pageStatus = useQuery({
-    queryKey: ["popup", "page-status", tabId],
+    // Keyed by the choice, so a status read before the section was hidden is dropped and
+    // never shows when it is shown again.
+    queryKey: ["popup", "page-status", tabId, pageSectionShown],
     queryFn: () => choices.status(tabId!),
     enabled: pageSectionShown && tabId !== undefined && origin !== undefined,
     refetchInterval: 1000,
