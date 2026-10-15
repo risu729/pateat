@@ -736,7 +736,14 @@ Once the fixes have settled:
   both stay as they are, and the README says so.
 - Anyone can use Pateat. The service is not opened to other people. Continuous delivery
   publishes each extension release on GitHub Releases and meets the
-  [Corresponding Source](sdk-source.md) requirements. The owner has a Chrome Web Store
+  [Corresponding Source](sdk-source.md) requirements. Done so far: a manual workflow
+  packs the production ZIP and its Corresponding Source and opens a draft release that
+  the owner publishes by hand ([extension releases](delivery.md#extension-releases));
+  starting it by hand only, and never publishing from the workflow, are Claude's
+  defaults pending the owner's confirmation. Open: a first draft made on main and
+  checked by the owner, loading its ZIP in the owner's Chrome, the
+  [human checks](sdk-source.md#release-archives) on the source archive, and releasing
+  without a manual start. The owner has a Chrome Web Store
   developer account and will also publish there if the store's policies allow it
   (2026-10-11). The owner accepted on 2026-10-11 (18:36 UTC) that a store item gets a
   store-assigned extension ID, so devices pair again, and that the store requires a
