@@ -65,15 +65,18 @@ its owner for their own use. The extension sends the service:
   IDs with the item's and the connection's names and the names of custom fields.
 - **Login page descriptions**, when a site has no recipe yet or a login needs the next
   page described: the site's address without its query string, and the page's title,
-  headings, the labels, names and placeholders of its form fields, texts near its code
-  field and buttons, and the text of its buttons, its links and the accounts it lists.
-  Field values, hidden fields, the page's HTML and screenshots are never sent. Email
-  addresses, masked text and long numbers in the page are replaced with placeholders
-  before sending, and so are your usernames for that site; other names shown on the
-  page, such as a display name, cannot be detected and are sent as shown. After a login,
-  the page shown is described the same way, together with its header text and any open
-  dialog, with every number replaced, so that the service can judge whether the login
-  worked.
+  headings, the labels, names and placeholders of its form fields, and the text of its
+  buttons, its links and the accounts it lists. Field values, hidden fields, the page's
+  HTML and screenshots are never sent. Email addresses, masked text and long numbers in
+  the page are replaced with placeholders before sending, and so are your usernames for
+  that site where they appear in the page's text. A username stays visible when it is
+  shorter than three characters, when only the part of an email address before the `@`
+  is shown, when it is part of the site's address, when the vault holding it could not
+  be read, or on a page that only offers a link to the sign-in page. Other names shown
+  on the page, such as a display name, cannot be detected and are sent as shown. After a
+  login, the page shown is described the same way, together with its header text, any
+  open dialog and the texts near a code field or the buttons, with every number
+  replaced, so that the service can judge whether the login worked.
 - **What the login needs from your vault**, alongside a page description: the names of
   the custom fields that could fill the page and, for the username and for text custom
   fields, their shape: the length, which kinds of characters occur (such as digits or
@@ -110,10 +113,12 @@ signature. The site receives these as it would from you, under its own privacy p
 
 - **On your device**: delete a vault connection on the settings page, or remove the
   extension from Chrome.
-- **On the service**: disconnecting or revoking a device stops it from syncing, but the
-  service keeps your settings, recipes (a revoked recipe leaves a record that it was
-  revoked) and the device's record. There is no page to delete them yet; the service's
-  owner can delete them from its database.
+- **On the service**: its pages let you remove excluded sites, default accounts and
+  field choices, and revoke recipes, though a revoked recipe leaves a record that it was
+  revoked. Disconnecting or revoking a device stops it from syncing but keeps its
+  record. Requests sent to Claude stay until their 90 days run out. There is no page yet
+  to delete device records or the request log; the service's owner can delete them from
+  its database.
 - **At Bitwarden and Anthropic**: under their own policies.
 
 ## Chrome Web Store Limited Use

@@ -28,10 +28,11 @@ HTTPS page:
   page's passkey requests (`navigator.credentials.get` and `create`); the other relays a
   request to Pateat's service worker. A request that Pateat does not answer goes on to
   Chrome unchanged, so Chrome, your phone or another passkey provider can still answer
-  it. Three requests are exceptions: one that Pateat refused fails as if you had
-  cancelled it; a passkey suggestion that a page asks for after Pateat signed it in
-  waits until the page cancels it; and a request to create a passkey that lists one of
-  your vault's passkeys, right after Pateat signed the tab in, is declined.
+  it. Three requests are exceptions: one where Pateat's account chooser timed out
+  without a choice fails as Chrome's own timed-out prompt does; a passkey suggestion
+  that a page asks for after Pateat signed it in waits until the page cancels it; and a
+  request to create a passkey that lists one of your vault's passkeys, right after
+  Pateat signed the tab in, is declined.
 
 Loading on a page does not mean acting on it. Pateat logs in only on a site that you
 have not excluded, that matches an item in your vault or that you chose an item for,
