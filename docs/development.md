@@ -121,6 +121,19 @@ mise 2026.10.7 and uv 0.13.0).
 release tag. hk provides the single complete check entrypoint,
 delegating work to mise. Avoid recursion between hk check and mise checks.
 
+The automatic custom `aube_workspace` mise deps rule prepares the existing frozen aube
+installation before tasks and `mise exec` when an input changes or `node_modules` is
+missing (tooling decision, 2026-10-15). Its inputs include `bun.lock`, every declared
+workspace manifest, `aube-workspace.yaml` and `bunfig.toml`, so a dependency or
+install-policy change cannot reuse stale preparation. The built-in aube provider
+requires `aube-lock.yaml`, which this repository does not use.
+`mise deps --explain aube_workspace` explains freshness; `mise run install` forces a
+repair. CI seeds the same rule explicitly with `mise deps --force aube_workspace`; when
+`CI=true`, the rule runs the existing clean `aube ci` instead of the local frozen
+install. Later tasks reuse that preparation. Deployment retains its existing artifact
+flow. This extends the existing installation policy without changing its package manager
+or lockfile format.
+
 Install the pinned tools and frozen dependencies, then use the complete check
 entrypoint:
 
