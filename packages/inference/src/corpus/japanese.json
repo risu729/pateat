@@ -1,14 +1,15 @@
 {
   "source": {
-    "observed": "2026-10-11",
-    "method": "Public login pages loaded with Playwright in Chrome, one empty browser context per page (no profile, cookies or account), locale ja-JP, and observed with the probe bundled from main e48b4e7"
+    "method": "Public login pages loaded with Playwright in Chrome or Chromium, one empty browser context per page (no profile, cookies or account), locale ja-JP and observed with the extension's extractor; each case records the date and the commit of the observation"
   },
   "cases": [
     {
       "id": "ja-smbc-direct",
       "source": {
         "dataset": "japanese",
-        "url": "https://direct.smbc.co.jp/aib/aibgsjsw5001.jsp"
+        "url": "https://direct.smbc.co.jp/aib/aibgsjsw5001.jsp",
+        "observed": "2026-10-11",
+        "commit": "e48b4e7"
       },
       "slots": "bank",
       "observation": {
@@ -286,7 +287,9 @@
       "id": "ja-mizuho-direct",
       "source": {
         "dataset": "japanese",
-        "url": "https://web.ib.mizuhobank.co.jp/servlet/LOGBNK0000000B.do"
+        "url": "https://web.ib.mizuhobank.co.jp/servlet/LOGBNK0000000B.do",
+        "observed": "2026-10-11",
+        "commit": "e48b4e7"
       },
       "slots": "login",
       "observation": {
@@ -417,7 +420,9 @@
       "id": "ja-netbk",
       "source": {
         "dataset": "japanese",
-        "url": "https://www.netbk.co.jp/contents/pages/wpl010101/i010101CT/DI01010210"
+        "url": "https://www.netbk.co.jp/contents/pages/wpl010101/i010101CT/DI01010210",
+        "observed": "2026-10-11",
+        "commit": "e48b4e7"
       },
       "slots": "login",
       "observation": {
@@ -537,7 +542,9 @@
       "id": "ja-paypay-bank",
       "source": {
         "dataset": "japanese",
-        "url": "https://login.paypay-bank.co.jp/wctx/LoginAction.do"
+        "url": "https://login.paypay-bank.co.jp/wctx/LoginAction.do",
+        "observed": "2026-10-11",
+        "commit": "e48b4e7"
       },
       "slots": "bank",
       "observation": {
@@ -656,7 +663,11 @@
       },
       "expected": {
         "kind": "plan",
-        "fields": { "custom-1": "c1", "custom-2": "c2", "password": "c3" },
+        "fields": {
+          "custom-1": "c1",
+          "custom-2": "c2",
+          "password": "c3"
+        },
         "action": "c5",
         "purpose": "submit"
       }
@@ -665,7 +676,9 @@
       "id": "ja-rakuten-sec",
       "source": {
         "dataset": "japanese",
-        "url": "https://www.rakuten-sec.co.jp/ITS/V_ACT_Login.html"
+        "url": "https://www.rakuten-sec.co.jp/ITS/V_ACT_Login.html",
+        "observed": "2026-10-11",
+        "commit": "e48b4e7"
       },
       "slots": "login",
       "observation": {
@@ -765,7 +778,9 @@
       "id": "ja-myjcb",
       "source": {
         "dataset": "japanese",
-        "url": "https://my.jcb.co.jp/Login"
+        "url": "https://my.jcb.co.jp/Login",
+        "observed": "2026-10-11",
+        "commit": "e48b4e7"
       },
       "slots": "login",
       "observation": {
