@@ -27,6 +27,7 @@ import { SETTINGS_QUERY_KEY, type SettingsClient } from "../options/client";
 import { siteAccountOptions } from "../options/site-policy";
 import { Logo } from "../logo";
 import { choiceReason, type ChoiceClient } from "../login/choice-wire";
+import { usePageSectionShown } from "../page-section";
 import { PageStatusSection } from "./page-status";
 
 /**
@@ -317,11 +318,13 @@ export function SiteApp({
     staleTime: 0,
     gcTime: 0,
   });
-  // What Pateat did on the page (ADR 0038), read again while the popup is open.
+  // What Pateat did on the page (ADR 0038), read again while the popup is open and the
+  // settings page has not hidden the section on this device.
+  const [pageSectionShown] = usePageSectionShown();
   const pageStatus = useQuery({
     queryKey: ["popup", "page-status", tabId],
     queryFn: () => choices.status(tabId!),
-    enabled: tabId !== undefined && origin !== undefined,
+    enabled: pageSectionShown && tabId !== undefined && origin !== undefined,
     refetchInterval: 1000,
     staleTime: 0,
     gcTime: 0,
@@ -626,7 +629,9 @@ export function SiteApp({
     );
 
     const status =
-      pageStatus.data?.ok && pageStatus.data.origin === origin ? pageStatus.data : undefined;
+      pageSectionShown && pageStatus.data?.ok && pageStatus.data.origin === origin
+        ? pageStatus.data
+        : undefined;
     body = (
       <>
         {status && (

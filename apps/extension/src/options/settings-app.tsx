@@ -17,6 +17,7 @@ import { BitwardenSetup } from "./bitwarden-setup";
 import type { ConnectionClient } from "./connection-client";
 import type { ServiceClient } from "./service-client";
 import { ServiceConnection } from "./service-connection";
+import { PageSectionToggle } from "./page-section-toggle";
 import { ThemeSelect } from "./theme-select";
 import { Panel, StatusLines } from "./ui";
 
@@ -442,7 +443,10 @@ type NavSection = { id: string; label: string; icon: LucideIcon };
 const navLinkClass =
   "flex min-h-10 items-center gap-2.5 rounded-lg px-3 text-sm font-medium text-ink no-underline hover:bg-surface aria-[current]:bg-surface aria-[current]:font-[650] aria-[current]:text-accent-ink aria-[current]:shadow-[inset_0_0_0_1px_var(--border)]";
 
-/** The page's sections, the diagnostics page and the theme; the section in view is marked. */
+/**
+ * The page's sections, the diagnostics page and this device's display choices; the section
+ * in view is marked.
+ */
 function SectionNav({ sections }: { sections: NavSection[] }) {
   const [current, setCurrent] = useState(sections[0]?.id);
   const ids = sections.map((section) => section.id).join(" ");
@@ -495,8 +499,9 @@ function SectionNav({ sections }: { sections: NavSection[] }) {
           </a>
         </li>
       </ul>
-      <div className="px-3">
+      <div className="flex flex-col gap-4 px-3">
         <ThemeSelect />
+        <PageSectionToggle />
       </div>
     </nav>
   );

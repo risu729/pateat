@@ -400,13 +400,19 @@ and others show their log name; a link opens the diagnostics page. The worker an
 from the recipe cache, its own record of the top page, the badge's spin for a request
 in flight, and the last login and model request the badge keeps from the log reports,
 with the badge's lifetime: a top page of another origin or the tab's closing drops them,
-and `chrome.storage.session` keeps them across a worker restart. Item selection, field
-exclusions and custom-field review stay on the extension's settings page once synced
-([ADR 0023](adr/0023-synced-vault-policy.md)). The service keeps one settings document
-per owner; [ADR 0024](adr/0024-settings-profiles.md) assigns its parts either to a
-settings profile that each device will choose later or to the owner. Chrome use access
-to these pages is not assumed. Keep settings and execution operations independent of
-their UI.
+and `chrome.storage.session` keeps them across a worker restart. The section shows by
+default; the settings page's **Show "This page" in the popup** checkbox, under the Theme
+select, hides it on this device (Claude's default, pending the owner's confirmation).
+Like the theme, the choice is presentation only, kept in the extension's `localStorage`
+under `pateat.popup-page-section` (`apps/extension/src/page-section.ts`); an open popup
+follows a change, and while the section is hidden the popup does not ask for the status,
+so the detailed log opens from the settings page's Diagnostics link instead. Item
+selection, field exclusions and custom-field review stay on the extension's settings
+page once synced ([ADR 0023](adr/0023-synced-vault-policy.md)). The service keeps one
+settings document per owner; [ADR 0024](adr/0024-settings-profiles.md) assigns its
+parts either to a settings profile that each device will choose later or to the owner.
+Chrome use access to these pages is not assumed. Keep settings and execution operations
+independent of their UI.
 
 Each connection supports all items except exclusions or selected
 folders/collections/items only. Use existing Bitwarden metadata; independent
@@ -1085,7 +1091,8 @@ differ.
 
 Each page has light and dark themes. The extension's pages and the owner web UI have a
 Theme select (Browser setting, Light, Dark): at the foot of the extension settings
-page's section list and in the owner web UI's footer (owner, 2026-10-12 20:54 UTC); the
+page's section list, above the popup's "This page" checkbox, and in the owner web UI's
+footer (owner, 2026-10-12 20:54 UTC); the
 Worker's script-free pages always follow the browser. Browser setting, the default,
 follows the browser's `prefers-color-scheme`. The choice is presentation only: it is
 kept in the program's own `localStorage` under `pateat.theme`, not in `chrome.storage`,

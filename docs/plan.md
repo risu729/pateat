@@ -399,8 +399,11 @@ than in this repository.
   - Done: the popup's "This page" section from ADR 0038 says whether the site has a
     recipe for the page, what the AI last answered for the tab or why the page was not
     sent, and whether the tab's last login is running, signed in, or why it did not
-    start or succeed, with a link to the diagnostics page. It is always shown; a setting
-    to hide it comes later.
+    start or succeed, with a link to the diagnostics page. It shows by default.
+  - Done in code (Claude's default, pending the owner's confirmation; not yet checked in
+    installed Chrome): the settings page's **Show "This page" in the popup** checkbox,
+    under the Theme select, hides the section on this device. It is kept in the
+    extension's `localStorage` like the theme, and an open popup follows a change.
   - Confirmed in installed Chrome on main f5df675 (reloaded 2026-10-13 22:26 UTC): on
     Netflix, whose only item has neither a password nor a passkey, the badge showed a
     red `!` titled `no-route: password-empty:no-passkey` and the "This page" lines; on
