@@ -1,18 +1,26 @@
 import { QueryClientProvider } from "@tanstack/react-query";
-import { afterEach, expect, test, vi } from "vitest";
-import { page, userEvent } from "vitest/browser";
+import { afterEach, describe, expect, test, vi } from "vitest";
+import { locators, page, userEvent } from "vitest/browser";
 import { cleanup, render } from "vitest-browser-react";
 import {
   createMetadataQueryClient,
   type SettingsClient,
 } from "../../apps/extension/src/options/client";
 import type { ChoiceClient } from "../../apps/extension/src/login/choice-wire";
-import { popupOrigin, SiteApp, type PopupHost } from "../../apps/extension/src/popup/site-app";
+import {
+  popupOrigin,
+  SiteApp,
+  siteSwitch,
+  type PopupHost,
+} from "../../apps/extension/src/popup/site-app";
 import {
   createDefaultSettings,
   DUMMY_VAULT_CATALOG,
+  parseLocalSettings,
+  siteAccess,
   type LocalSettings,
   type SettingsResponse,
+  type SiteRule,
 } from "../../packages/contracts/src/index";
 
 function saved(revision: number, settings: LocalSettings = createDefaultSettings()) {
@@ -114,6 +122,9 @@ async function mount(
   );
   return host;
 }
+
+// The settings page suite declares this locator's type; it finds one element by its ID.
+locators.extend({ getById: (id: string) => `css=#${CSS.escape(id)}` });
 
 afterEach(() => cleanup());
 
@@ -338,6 +349,230 @@ test("an exact rule that includes subdomains is changed only in settings", async
   await expect
     .element(page.getByRole("link", { name: "Change in settings for bank.example" }))
     .toBeVisible();
+});
+
+describe("the switch with the allowlist on", () => {
+  const exact = (hostname: string): SiteRule => ({ hostname, includeSubdomains: false });
+  const wide = (hostname: string): SiteRule => ({ hostname, includeSubdomains: true });
+  function allowlisted(allowedSites: SiteRule[], excludedSites: SiteRule[] = []) {
+    const settings = createDefaultSettings();
+    settings.allowedSites = allowedSites;
+    settings.excludedSites = excludedSites;
+    return saved(3, settings);
+  }
+
+  test("a site allowed by its own rule loses that rule when turned off, and gets it back", async () => {
+    const { client, current } = store(allowlisted([exact("bank.example"), exact("mail.example")]));
+    await mount(client, "https://bank.example/");
+    const toggle = page.getByRole("switch", { name: "Pateat on this site" });
+    await expect.element(toggle).toBeChecked();
+    await expect.element(toggle).toBeEnabled();
+    await expect.element(page.getById("popup-site-not-allowed")).not.toBeInTheDocument();
+    await userEvent.click(toggle);
+    await expect.element(page.getByText("bank.example is no longer allowed")).toBeVisible();
+    await expect.element(toggle).not.toBeChecked();
+    expect(current().snapshot.settings.allowedSites).toEqual([exact("mail.example")]);
+    expect(current().snapshot.settings.excludedSites).toEqual([]);
+    await expect
+      .element(page.getById("popup-site-not-allowed"))
+      .toHaveTextContent("Pateat runs only on allowed sites, and this site is not one of them");
+    await expect.element(page.getByText("No logins or passkey answers on this site")).toBeVisible();
+    await userEvent.click(toggle);
+    await expect.element(page.getByText("bank.example is now allowed")).toBeVisible();
+    await expect.element(toggle).toBeChecked();
+    expect(current().snapshot.settings.allowedSites).toEqual([
+      exact("mail.example"),
+      exact("bank.example"),
+    ]);
+    expect(current().snapshot.settings.excludedSites).toEqual([]);
+    await expect.element(page.getByRole("group", { name: "Default account" })).toBeVisible();
+  });
+
+  test("a site the allowlist leaves out says so, is not searched, and can be allowed", async () => {
+    const { client, current } = store(allowlisted([]));
+    await mount(client, "https://bank.example/");
+    const toggle = page.getByRole("switch", { name: "Pateat on this site" });
+    await expect.element(toggle).not.toBeChecked();
+    await expect.element(toggle).toBeEnabled();
+    await expect.element(page.getById("popup-site-not-allowed")).toBeVisible();
+    await expect
+      .element(page.getByRole("group", { name: "Default account" }))
+      .not.toBeInTheDocument();
+    expect(client.findSiteAccounts).not.toHaveBeenCalled();
+    await userEvent.click(toggle);
+    await expect.element(page.getByText("bank.example is now allowed")).toBeVisible();
+    await expect.element(toggle).toBeChecked();
+    expect(current().snapshot.settings.allowedSites).toEqual([exact("bank.example")]);
+    await expect.element(page.getById("popup-site-not-allowed")).not.toBeInTheDocument();
+    await expect.element(page.getByRole("group", { name: "Default account" })).toBeVisible();
+  });
+
+  test("a site a shared allow rule covers is excluded when turned off", async () => {
+    const { client, current } = store(allowlisted([wide("bank.example")]));
+    await mount(client, "https://login.bank.example/");
+    const toggle = page.getByRole("switch", { name: "Pateat on this site" });
+    await expect.element(toggle).toBeChecked();
+    await userEvent.click(toggle);
+    await expect.element(page.getByText("login.bank.example is now excluded")).toBeVisible();
+    await expect.element(toggle).not.toBeChecked();
+    expect(current().snapshot.settings.allowedSites).toEqual([wide("bank.example")]);
+    expect(current().snapshot.settings.excludedSites).toEqual([exact("login.bank.example")]);
+    // Excluded, not left out by the allowlist.
+    await expect.element(page.getById("popup-site-not-allowed")).not.toBeInTheDocument();
+    await userEvent.click(toggle);
+    await expect.element(page.getByText("login.bank.example is no longer excluded")).toBeVisible();
+    expect(current().snapshot.settings.allowedSites).toEqual([wide("bank.example")]);
+    expect(current().snapshot.settings.excludedSites).toEqual([]);
+  });
+
+  test("a site with its own allow rule and a shared one is excluded when turned off", async () => {
+    const { client, current } = store(
+      allowlisted([wide("bank.example"), exact("login.bank.example")]),
+    );
+    await mount(client, "https://login.bank.example/");
+    await userEvent.click(page.getByRole("switch", { name: "Pateat on this site" }));
+    await expect.element(page.getByText("login.bank.example is now excluded")).toBeVisible();
+    expect(current().snapshot.settings.allowedSites).toEqual([
+      wide("bank.example"),
+      exact("login.bank.example"),
+    ]);
+    expect(current().snapshot.settings.excludedSites).toEqual([exact("login.bank.example")]);
+  });
+
+  test("a site excluded by its own rule and left out by the allowlist is both allowed and no longer excluded", async () => {
+    const { client, current } = store(
+      allowlisted([exact("mail.example")], [exact("bank.example")]),
+    );
+    await mount(client, "https://bank.example/");
+    const toggle = page.getByRole("switch", { name: "Pateat on this site" });
+    await expect.element(toggle).not.toBeChecked();
+    await expect.element(toggle).toBeEnabled();
+    await expect.element(page.getById("popup-site-not-allowed")).toBeVisible();
+    await userEvent.click(toggle);
+    await expect.element(page.getByText("bank.example is now allowed")).toBeVisible();
+    await expect.element(toggle).toBeChecked();
+    expect(current().snapshot.settings.excludedSites).toEqual([]);
+    expect(current().snapshot.settings.allowedSites).toEqual([
+      exact("mail.example"),
+      exact("bank.example"),
+    ]);
+  });
+
+  test("a site excluded by its own rule that the allowlist covers is only no longer excluded", async () => {
+    const { client, current } = store(allowlisted([wide("example")], [exact("bank.example")]));
+    await mount(client, "https://bank.example/");
+    const toggle = page.getByRole("switch", { name: "Pateat on this site" });
+    await expect.element(toggle).not.toBeChecked();
+    await expect.element(page.getById("popup-site-not-allowed")).not.toBeInTheDocument();
+    await userEvent.click(toggle);
+    await expect.element(page.getByText("bank.example is no longer excluded")).toBeVisible();
+    expect(current().snapshot.settings.excludedSites).toEqual([]);
+    expect(current().snapshot.settings.allowedSites).toEqual([wide("example")]);
+  });
+
+  test("a shared exclusion is shown instead of the allowlist notice", async () => {
+    const { client } = store(allowlisted([], [wide("bank.example")]));
+    await mount(client, "https://login.bank.example/");
+    const toggle = page.getByRole("switch", { name: "Pateat on this site" });
+    await expect.element(toggle).toBeDisabled();
+    await expect.element(page.getById("popup-site-shared")).toBeVisible();
+    await expect.element(page.getById("popup-site-not-allowed")).not.toBeInTheDocument();
+  });
+
+  test("an allowlist turned on elsewhere while the popup is open is shown", async () => {
+    const { client, replace } = store();
+    const host = await mount(client, "https://bank.example/");
+    const toggle = page.getByRole("switch", { name: "Pateat on this site" });
+    await expect.element(toggle).toBeChecked();
+    replace(allowlisted([]));
+    host.settingsChanged();
+    await expect.element(toggle).not.toBeChecked();
+    await expect.element(page.getById("popup-site-not-allowed")).toBeVisible();
+  });
+});
+
+test("the switch reflects and changes only the hostname's access, for every rule mix", () => {
+  const hosts = ["login.bank.example", "bank.example", "other.example"];
+  const ruleHosts = ["login.bank.example", "bank.example"];
+  let lists: SiteRule[][] = [[]];
+  for (const hostname of ruleHosts)
+    lists = lists.flatMap((list) => [
+      list,
+      [...list, { hostname, includeSubdomains: false }],
+      [...list, { hostname, includeSubdomains: true }],
+    ]);
+  const access = (settings: LocalSettings, hostname: string) =>
+    siteAccess(settings, `https://${hostname}/`);
+  let toggled = 0;
+  for (const excludedSites of lists)
+    for (const allowedSites of [undefined, ...lists])
+      for (const hostname of hosts) {
+        const settings = createDefaultSettings();
+        settings.excludedSites = structuredClone(excludedSites);
+        if (allowedSites) settings.allowedSites = structuredClone(allowedSites);
+        const label = JSON.stringify({ excludedSites, allowedSites, hostname });
+        const site = siteSwitch(settings, hostname);
+        expect(site.on, label).toBe(access(settings, hostname) === "allowed");
+        const covering = excludedSites.filter(
+          (rule) =>
+            rule.hostname === hostname ||
+            (rule.includeSubdomains && hostname.endsWith(`.${rule.hostname}`)),
+        );
+        const own = (rule: SiteRule) => rule.hostname === hostname && !rule.includeSubdomains;
+        expect(site.editable, label).toBe(covering.every(own));
+        expect(site.shared, label).toEqual(covering.filter((rule) => !own(rule)));
+        expect(site.notAllowed, label).toBe(
+          allowedSites !== undefined &&
+            !allowedSites.some(
+              (rule) =>
+                rule.hostname === hostname ||
+                (rule.includeSubdomains && hostname.endsWith(`.${rule.hostname}`)),
+            ),
+        );
+        if (!site.editable) continue;
+        const next = structuredClone(settings);
+        site.set(next, !site.on);
+        // The change is valid settings, flips this hostname and leaves every other alone.
+        expect(() => parseLocalSettings(next), label).not.toThrow();
+        expect(access(next, hostname) === "allowed", label).toBe(!site.on);
+        for (const other of hosts.filter((entry) => entry !== hostname))
+          expect(access(next, other), `${label} ${other}`).toBe(access(settings, other));
+        // Only the hostname's own exact rules are added or removed.
+        const changed = (before: SiteRule[] = [], after: SiteRule[] = []) => [
+          ...before.filter((rule) => !after.some((entry) => same(entry, rule))),
+          ...after.filter((rule) => !before.some((entry) => same(entry, rule))),
+        ];
+        for (const rule of [
+          ...changed(settings.excludedSites, next.excludedSites),
+          ...changed(settings.allowedSites, next.allowedSites),
+        ])
+          expect(own(rule), label).toBe(true);
+        expect(next.allowedSites === undefined, label).toBe(allowedSites === undefined);
+        // Turning it back restores the hostname's access.
+        const back = siteSwitch(next, hostname);
+        expect(back.on, label).toBe(!site.on);
+        expect(back.editable, label).toBe(true);
+        const restored = structuredClone(next);
+        back.set(restored, site.on);
+        expect(access(restored, hostname) === "allowed", label).toBe(site.on);
+        // The notice names what the change did.
+        const message = site.done(!site.on);
+        if (!site.on)
+          expect(message, label).toBe(
+            site.notAllowed ? `${hostname} is now allowed` : `${hostname} is no longer excluded`,
+          );
+        else
+          expect(message, label).toBe(
+            access(next, hostname) === "not-allowed"
+              ? `${hostname} is no longer allowed`
+              : `${hostname} is now excluded`,
+          );
+        toggled += 1;
+      }
+  expect(toggled).toBeGreaterThan(100);
+  function same(left: SiteRule, right: SiteRule) {
+    return left.hostname === right.hostname && left.includeSubdomains === right.includeSubdomains;
+  }
 });
 
 test("a switch change that is not saved returns to the saved state", async () => {

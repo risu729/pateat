@@ -7,6 +7,8 @@ import { createConnectionClient } from "../../src/options/connection-client";
 import { createServiceClient } from "../../src/options/service-client";
 import { sendMessage } from "../../src/messaging/protocol";
 import { followThemePreference } from "../../src/theme";
+import { trustedRecord } from "../../src/storage";
+import { parseVaultTimeout, VAULT_TIMEOUT_KEY, type VaultTimeout } from "../../src/vault/timeout";
 // oxlint-disable-next-line import/no-unassigned-import -- Bundle the options page stylesheet.
 import "./style.css";
 
@@ -15,6 +17,8 @@ followThemePreference();
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Missing options root");
+// A device setting the worker watches; it is never synced, so it needs no message.
+const vaultTimeoutRecord = trustedRecord<VaultTimeout>(VAULT_TIMEOUT_KEY);
 const connectionClient = createConnectionClient({
   connect: (name) => browser.runtime.connect({ name }),
   requestPermission: (origins) => browser.permissions.request({ origins }),
@@ -32,6 +36,10 @@ createRoot(root).render(
         requestSiteAccess: (origin) =>
           browser.permissions.request({ origins: [`https://${new URL(origin).hostname}/*`] }),
       })}
+      vaultTimeoutClient={{
+        read: async () => parseVaultTimeout(await vaultTimeoutRecord.read()),
+        write: (value) => vaultTimeoutRecord.write(value),
+      }}
     />
   </QueryClientProvider>,
 );

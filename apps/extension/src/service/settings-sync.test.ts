@@ -1017,3 +1017,220 @@ describe("display names from this device's catalog", () => {
     ).toBe(refreshed.siteDefaults[0]);
   });
 });
+
+describe("allowlist sync", () => {
+  const wide = (hostname: string) => ({ hostname, includeSubdomains: true });
+  const synced = (allowedSites?: LocalSettings["excludedSites"]) =>
+    syncedSettings(
+      settingsOf({
+        excludedSites: [site("intranet.example")],
+        ...(allowedSites ? { allowedSites } : {}),
+      }),
+    );
+  const merge = (
+    base: LocalSettings["excludedSites"] | undefined,
+    local: LocalSettings["excludedSites"] | undefined,
+    service: LocalSettings["excludedSites"] | undefined,
+  ) =>
+    mergeSyncedSettings(
+      { service: synced(base), local: synced(base) },
+      synced(local),
+      synced(service),
+    );
+
+  it("keeps the allowlist out of the synced part while it is off", () => {
+    expect(synced()).not.toHaveProperty("allowedSites");
+    expect(synced([])).toEqual({ ...synced(), allowedSites: [] });
+    expect(merge(undefined, undefined, undefined)).not.toHaveProperty("allowedSites");
+  });
+
+  it("turns the allowlist on when either side turned it on", () => {
+    expect(merge(undefined, [site("bank.example")], undefined).allowedSites).toEqual([
+      site("bank.example"),
+    ]);
+    expect(merge(undefined, undefined, [site("bank.example")]).allowedSites).toEqual([
+      site("bank.example"),
+    ]);
+    // An empty allowlist is on: it allows nothing.
+    expect(merge(undefined, [], undefined).allowedSites).toEqual([]);
+    expect(merge(undefined, undefined, []).allowedSites).toEqual([]);
+    // Both turned it on: entries from both sides are kept.
+    expect(merge(undefined, [site("bank.example")], [site("shop.example")]).allowedSites).toEqual([
+      site("shop.example"),
+      site("bank.example"),
+    ]);
+  });
+
+  it("turns the allowlist off when either side turned it off, dropping the other's edits", () => {
+    const base = [site("bank.example")];
+    const local = merge(base, undefined, [site("bank.example"), site("shop.example")]);
+    expect(local).not.toHaveProperty("allowedSites");
+    const service = merge(base, [site("bank.example"), site("shop.example")], undefined);
+    expect(service).not.toHaveProperty("allowedSites");
+    expect(merge(base, undefined, undefined)).not.toHaveProperty("allowedSites");
+    // Exclusions are merged as before.
+    expect(service.excludedSites).toEqual([site("intranet.example")]);
+  });
+
+  it("lets the service's on or off win over a local change since the base", () => {
+    // The service turned it on again after this device's base saw it off, while this
+    // device had it on in its local copy: the local copy does not differ from that base.
+    expect(
+      mergeSyncedSettings(
+        { service: synced(), local: synced([site("bank.example")]) },
+        synced(),
+        synced([site("shop.example")]),
+      ).allowedSites,
+    ).toEqual([site("shop.example")]);
+    // The service turned it off, and the local side turned it on from a base where it
+    // was off locally but on on the service.
+    expect(
+      mergeSyncedSettings(
+        { service: synced([site("bank.example")]), local: synced() },
+        synced([site("bank.example")]),
+        synced(),
+      ),
+    ).not.toHaveProperty("allowedSites");
+  });
+
+  it("merges allow rules per hostname, letting the service win for one hostname", () => {
+    const base = [site("bank.example"), site("mail.example"), site("shop.example")];
+    const local = [
+      wide("bank.example"),
+      // mail.example removed locally.
+      site("shop.example"),
+      site("local.example"),
+    ];
+    const service = [
+      site("bank.example"),
+      site("mail.example"),
+      // shop.example removed on the service; a new one added.
+      site("remote.example"),
+    ];
+    expect(merge(base, local, service).allowedSites).toEqual([
+      wide("bank.example"),
+      site("remote.example"),
+      site("local.example"),
+    ]);
+    // Both changed bank.example: the service's copy stands.
+    expect(
+      merge(base, [wide("bank.example")], [{ ...wide("bank.example") }, site("x.example")])
+        .allowedSites,
+    ).toEqual([wide("bank.example"), site("x.example")]);
+    expect(
+      merge([site("bank.example")], [wide("bank.example")], [site("bank.example")]).allowedSites,
+    ).toEqual([wide("bank.example")]);
+    expect(merge([site("bank.example")], [wide("bank.example")], []).allowedSites).toEqual([]);
+  });
+
+  it("keeps the service's allowlist when this device did not change it", () => {
+    const base = [site("bank.example")];
+    expect(merge(base, base, [site("shop.example")]).allowedSites).toEqual([site("shop.example")]);
+    expect(merge(base, base, base).allowedSites).toEqual(base);
+    expect(merge(base, base, undefined)).not.toHaveProperty("allowedSites");
+  });
+
+  it("keeps an allowlist from either side on a new pairing", async () => {
+    const local = settingsOf({ allowedSites: [site("bank.example")] });
+    const {
+      sync,
+      service,
+      local: after,
+    } = setup({
+      local,
+      service: state(3, settingsOf({ excludedSites: [site("intranet.example")] })),
+    });
+    expect(await sync.run(CONNECTION, never)).toBe("synced");
+    expect(service().settings?.allowedSites).toEqual([site("bank.example")]);
+    expect(after()?.settings.allowedSites).toEqual([site("bank.example")]);
+    const remote = setup({
+      local: settingsOf(),
+      service: state(3, settingsOf({ allowedSites: [] })),
+    });
+    expect(await remote.sync.run(CONNECTION, never)).toBe("synced");
+    expect(remote.local()?.settings.allowedSites).toEqual([]);
+    expect(remote.transport.saveSettings).not.toHaveBeenCalled();
+  });
+
+  it("uploads an allowlist turned on here, then stays settled", async () => {
+    const agreed = settingsOf({ excludedSites: [site("intranet.example")] });
+    const {
+      sync,
+      service,
+      base,
+      transport,
+      local: after,
+    } = setup({
+      local: { ...agreed, connections: [localConnection], allowedSites: [] },
+      service: state(4, agreed),
+      base: baseOf(4, agreed),
+    });
+    expect(await sync.run(CONNECTION, never)).toBe("synced");
+    expect(service()).toEqual(state(5, { ...agreed, allowedSites: [] }));
+    expect(base()).toMatchObject({ revision: 5, settings: { allowedSites: [] } });
+    expect(after()?.revision).toBe(7);
+    expect(await sync.run(CONNECTION, never)).toBe("synced");
+    expect(transport.saveSettings).toHaveBeenCalledOnce();
+    expect(after()?.revision).toBe(7);
+  });
+
+  it("removes a local allowlist the service turned off, with entries added here", async () => {
+    const agreed = settingsOf({
+      excludedSites: [site("intranet.example")],
+      allowedSites: [site("bank.example")],
+    });
+    const {
+      sync,
+      service,
+      transport,
+      local: after,
+      applied,
+    } = setup({
+      local: {
+        ...agreed,
+        connections: [localConnection],
+        allowedSites: [site("bank.example"), site("shop.example")],
+      },
+      service: state(5, settingsOf({ excludedSites: [site("intranet.example")] })),
+      base: baseOf(4, agreed),
+    });
+    expect(await sync.run(CONNECTION, never)).toBe("synced");
+    expect(transport.saveSettings).not.toHaveBeenCalled();
+    expect(service().settings).not.toHaveProperty("allowedSites");
+    expect(after()?.settings).toEqual({
+      ...settingsOf({ excludedSites: [site("intranet.example")] }),
+      connections: [localConnection],
+    });
+    expect(after()?.settings).not.toHaveProperty("allowedSites");
+    expect(applied).toHaveBeenCalledOnce();
+  });
+
+  it("removes the allowlist from the service when this device turned it off", async () => {
+    const agreed = settingsOf({ allowedSites: [site("bank.example")] });
+    const {
+      sync,
+      service,
+      local: after,
+    } = setup({
+      local: settingsOf(),
+      service: state(5, settingsOf({ allowedSites: [site("bank.example"), site("x.example")] })),
+      base: baseOf(4, agreed),
+    });
+    expect(await sync.run(CONNECTION, never)).toBe("synced");
+    expect(service().revision).toBe(6);
+    expect(service().settings).not.toHaveProperty("allowedSites");
+    expect(after()?.settings).not.toHaveProperty("allowedSites");
+  });
+
+  it("treats an empty allowlist and an absent one as different at the same revision", async () => {
+    // The base claims revision 4 with the allowlist off, but the service holds it on at
+    // revision 4: the base is not used, so nothing is removed.
+    const { sync, local: after } = setup({
+      local: settingsOf({ allowedSites: [site("bank.example")] }),
+      service: state(4, settingsOf({ allowedSites: [] })),
+      base: baseOf(4, settingsOf(), DEVICE, settingsOf({ allowedSites: [site("bank.example")] })),
+    });
+    expect(await sync.run(CONNECTION, never)).toBe("synced");
+    expect(after()?.settings.allowedSites).toEqual([site("bank.example")]);
+  });
+});

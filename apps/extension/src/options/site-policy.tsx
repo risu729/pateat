@@ -4,6 +4,7 @@ import {
   normalizeHostname,
   parseSiteUrl,
   resolveSiteAccount,
+  siteAccess,
   siteDefaultConnection,
   type LocalSettings,
   type SiteAccountsResponse,
@@ -42,6 +43,7 @@ function unavailableReason(reason: string): string {
   const descriptions: Record<string, string> = {
     "invalid-url": "The destination is invalid.",
     "site-excluded": "This site is excluded.",
+    "site-not-allowed": "This site is not on the allowed sites, so this default is unused.",
     "default-not-set": "No default account is configured.",
     "item-origin-mismatch": "This account does not match the exact origin.",
     "connection-missing": "The vault connection is unavailable.",
@@ -385,6 +387,7 @@ export function SitePolicy({
   const scope = JSON.stringify([
     draft.connections,
     draft.excludedSites,
+    draft.allowedSites ?? null,
     catalog.connections.map((entry) => entry.snapshotId ?? null),
   ]);
   const accounts = useQuery({
@@ -433,7 +436,9 @@ export function SitePolicy({
   else if (accounts.isError || (accounts.data && !accounts.data.ok))
     accountNote =
       accounts.data && !accounts.data.ok && accounts.data.reason === "site-excluded"
-        ? "This site is excluded."
+        ? siteAccess(draft, accountOrigin) === "not-allowed"
+          ? "This site is not on the allowed sites."
+          : "This site is excluded."
         : "The matching accounts could not be listed.";
   else if (!matchedCount)
     accountNote =
@@ -618,8 +623,9 @@ export function SitePolicy({
       order: `0 ${rule.hostname}`,
       row: () => ruleRow(rule),
     })),
+    // A default on a site the allowlist leaves out is listed, and says it is unused.
     ...draft.siteDefaults
-      .filter((entry) => !isSiteExcluded(draft, entry.origin))
+      .filter((entry) => !ruleFor(draft.excludedSites, entry.origin))
       .map((entry) => ({
         hostname: hostOf(entry.origin),
         order: `1 ${entry.origin}`,

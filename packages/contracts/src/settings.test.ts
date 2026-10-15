@@ -10,8 +10,11 @@ import {
   parseSettingsResponse,
   parseSiteUrl,
   resolveSiteAccount,
+  siteAccess,
   siteDefaultConnection,
+  siteRuleCovers,
   vaultCatalogSchema,
+  type SiteRule,
 } from "./settings";
 import { createSettingsStore, type SettingsStorage } from "./settings-store";
 
@@ -92,6 +95,204 @@ describe("host policy and URL validation", () => {
     settings.excludedSites = [{ hostname: "xn--bcher-kva.example", includeSubdomains: true }];
     expect(isSiteExcluded(settings, "https://bücher.example")).toBe(true);
     expect(isSiteExcluded(settings, "https://auth.bücher.example")).toBe(true);
+  });
+});
+
+describe("site allowlist", () => {
+  // Hostnames around one rule hostname: itself, a subdomain, a deeper subdomain, a
+  // sibling, its parent, a look-alike suffix and a look-alike prefix.
+  const hosts = [
+    "bank.example",
+    "auth.bank.example",
+    "a.auth.bank.example",
+    "other.example",
+    "example",
+    "notbank.example",
+    "bank.example.evil.test",
+  ];
+  const ruleHosts = ["bank.example", "auth.bank.example", "example"];
+  const rules: SiteRule[] = ruleHosts.flatMap((hostname) => [
+    { hostname, includeSubdomains: false },
+    { hostname, includeSubdomains: true },
+  ]);
+  // Every rule list of at most one rule per hostname, so the schema accepts each one.
+  function ruleLists(): SiteRule[][] {
+    let lists: SiteRule[][] = [[]];
+    for (const hostname of ruleHosts)
+      lists = lists.flatMap((list) => [
+        list,
+        [...list, { hostname, includeSubdomains: false }],
+        [...list, { hostname, includeSubdomains: true }],
+      ]);
+    return lists;
+  }
+  function covers(rule: SiteRule, hostname: string) {
+    if (hostname === rule.hostname) return true;
+    if (!rule.includeSubdomains) return false;
+    const labels = hostname.split(".");
+    const ruleLabels = rule.hostname.split(".");
+    return (
+      labels.length > ruleLabels.length &&
+      labels.slice(labels.length - ruleLabels.length).join(".") === rule.hostname
+    );
+  }
+
+  it("covers a hostname by an exact rule, or a subdomain only with includeSubdomains", () => {
+    for (const rule of rules)
+      for (const hostname of hosts)
+        expect(siteRuleCovers(rule, hostname), `${JSON.stringify(rule)} ${hostname}`).toBe(
+          covers(rule, hostname),
+        );
+  });
+
+  it("allows a site only when no exclusion covers it and the allowlist is off or covers it", () => {
+    const lists = ruleLists();
+    let checked = 0;
+    for (const excludedSites of lists)
+      for (const allowedSites of [undefined, ...lists]) {
+        const settings = { ...createDefaultSettings(), excludedSites, allowedSites };
+        expect(parseLocalSettings(settings)).toEqual(settings);
+        for (const hostname of hosts) {
+          const url = `https://${hostname}/login`;
+          const excluded = excludedSites.some((rule) => covers(rule, hostname));
+          const listed =
+            allowedSites === undefined || allowedSites.some((r) => covers(r, hostname));
+          const expected = excluded ? "excluded" : listed ? "allowed" : "not-allowed";
+          const label = JSON.stringify({ excludedSites, allowedSites, hostname });
+          expect(siteAccess(settings, url), label).toBe(expected);
+          expect(isSiteExcluded(settings, url), label).toBe(expected !== "allowed");
+          checked += 1;
+        }
+      }
+    // 27 exclusion lists × 28 allowlists × 7 hostnames.
+    expect(checked).toBe(27 * 28 * 7);
+  });
+
+  it("lets an exclusion win over an allow rule for the same hostname", () => {
+    for (const excludeSubdomains of [false, true])
+      for (const allowSubdomains of [false, true]) {
+        const settings = {
+          ...createDefaultSettings(),
+          excludedSites: [{ hostname: "bank.example", includeSubdomains: excludeSubdomains }],
+          allowedSites: [{ hostname: "bank.example", includeSubdomains: allowSubdomains }],
+        };
+        expect(siteAccess(settings, "https://bank.example")).toBe("excluded");
+        expect(siteAccess(settings, "https://auth.bank.example")).toBe(
+          excludeSubdomains ? "excluded" : allowSubdomains ? "allowed" : "not-allowed",
+        );
+      }
+  });
+
+  it("treats an empty allowlist as allowing nothing and an absent one as off", () => {
+    const off = createDefaultSettings();
+    expect(off.allowedSites).toBeUndefined();
+    expect(siteAccess(off, "https://bank.example")).toBe("allowed");
+    const empty = { ...createDefaultSettings(), allowedSites: [] };
+    for (const hostname of hosts)
+      expect(siteAccess(empty, `https://${hostname}`)).toBe("not-allowed");
+  });
+
+  it("reports invalid destinations whatever the rules say", () => {
+    for (const allowedSites of [
+      undefined,
+      [],
+      [{ hostname: "bank.example", includeSubdomains: true }],
+    ])
+      for (const url of ["bank.example", "javascript:alert(1)", "https://user@bank.example", ""]) {
+        const settings = { ...createDefaultSettings(), allowedSites };
+        expect(siteAccess(settings, url), url).toBe("invalid");
+        expect(isSiteExcluded(settings, url), url).toBe(true);
+      }
+  });
+
+  it("matches allow rules by canonical hostname independently of scheme, port and path", () => {
+    const settings = {
+      ...createDefaultSettings(),
+      allowedSites: [{ hostname: "xn--bcher-kva.example", includeSubdomains: false }],
+    };
+    for (const url of [
+      "https://bücher.example/login",
+      "http://BÜCHER.EXAMPLE:8080/?next=x",
+      "https://xn--bcher-kva.example./",
+    ])
+      expect(siteAccess(settings, url), url).toBe("allowed");
+    expect(siteAccess(settings, "https://auth.bücher.example")).toBe("not-allowed");
+    expect(siteAccess(settings, "https://other.example/?site=bücher.example")).toBe("not-allowed");
+  });
+
+  it("resolves no account on a site the allowlist leaves out, and excluded still wins", () => {
+    const settings = withDefault();
+    expect(resolveSiteAccount(settings, DUMMY_VAULT_CATALOG, "https://bank.example").ok).toBe(true);
+    settings.allowedSites = [];
+    expect(resolveSiteAccount(settings, DUMMY_VAULT_CATALOG, "https://bank.example")).toEqual({
+      ok: false,
+      reason: "site-not-allowed",
+    });
+    settings.allowedSites = [{ hostname: "other.example", includeSubdomains: true }];
+    expect(resolveSiteAccount(settings, DUMMY_VAULT_CATALOG, "https://bank.example")).toEqual({
+      ok: false,
+      reason: "site-not-allowed",
+    });
+    settings.allowedSites = [{ hostname: "example", includeSubdomains: true }];
+    expect(resolveSiteAccount(settings, DUMMY_VAULT_CATALOG, "https://bank.example").ok).toBe(true);
+    settings.excludedSites = [{ hostname: "bank.example", includeSubdomains: false }];
+    expect(resolveSiteAccount(settings, DUMMY_VAULT_CATALOG, "https://bank.example")).toEqual({
+      ok: false,
+      reason: "site-excluded",
+    });
+    settings.allowedSites = [];
+    expect(resolveSiteAccount(settings, DUMMY_VAULT_CATALOG, "https://bank.example")).toEqual({
+      ok: false,
+      reason: "site-excluded",
+    });
+    expect(resolveSiteAccount(settings, DUMMY_VAULT_CATALOG, "bank.example")).toEqual({
+      ok: false,
+      reason: "invalid-url",
+    });
+  });
+
+  it("accepts canonical allow rules and rejects duplicates, non-canonical hosts and extras", () => {
+    const settings = createDefaultSettings();
+    for (const allowedSites of [
+      [],
+      [{ hostname: "bank.example", includeSubdomains: true }],
+      [
+        { hostname: "bank.example", includeSubdomains: false },
+        { hostname: "auth.bank.example", includeSubdomains: true },
+        { hostname: "127.0.0.1", includeSubdomains: false },
+        { hostname: "xn--bcher-kva.example", includeSubdomains: false },
+      ],
+    ])
+      expect(parseLocalSettings({ ...settings, allowedSites })).toEqual({
+        ...settings,
+        allowedSites,
+      });
+    for (const allowedSites of [
+      null,
+      {},
+      [{ hostname: "bank.example" }],
+      [{ hostname: "bank.example", includeSubdomains: "yes" }],
+      [{ hostname: "bank.example", includeSubdomains: false, password: "synthetic" }],
+      [
+        { hostname: "bank.example", includeSubdomains: false },
+        { hostname: "bank.example", includeSubdomains: true },
+      ],
+      [{ hostname: "BANK.EXAMPLE", includeSubdomains: false }],
+      [{ hostname: "bank.example.", includeSubdomains: false }],
+      [{ hostname: "bücher.example", includeSubdomains: false }],
+      [{ hostname: "bank.example:443", includeSubdomains: false }],
+      [{ hostname: "https://bank.example", includeSubdomains: false }],
+      [{ hostname: "*.bank.example", includeSubdomains: false }],
+      [{ hostname: "", includeSubdomains: false }],
+      Array.from({ length: 1001 }, (_, index) => ({
+        hostname: `site${index}.example`,
+        includeSubdomains: false,
+      })),
+    ])
+      expect(
+        () => parseLocalSettings({ ...settings, allowedSites }),
+        JSON.stringify(allowedSites).slice(0, 80),
+      ).toThrow();
   });
 });
 

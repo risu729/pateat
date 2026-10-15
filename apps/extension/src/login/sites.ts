@@ -1,13 +1,22 @@
-import { isSiteExcluded, type SettingsSnapshot } from "@pateat/contracts";
+import { isSiteExcluded, siteAccess, type SettingsSnapshot } from "@pateat/contracts";
 import { browser } from "wxt/browser";
 
 /** Why a document is not admitted; logged for a login-related page (ADR 0019). */
-export type SiteRefusal = "not-https" | "site-excluded" | "no-site-access" | "settings-unavailable";
+export type SiteRefusal =
+  | "not-https"
+  | "site-excluded"
+  /** The allowlist is on and leaves the site out. */
+  | "site-not-allowed"
+  | "no-site-access"
+  | "settings-unavailable";
 
 export interface LoginSites {
   /** Exact HTTPS origins with a saved default, no exclusion and host access still granted. */
   origins(): Promise<string[]>;
-  /** HTTPS documents on a non-excluded site with host access still granted, else why not. */
+  /**
+   * HTTPS documents on a site that is not excluded and, while the allowlist is on, is
+   * allowed, with host access still granted; else why not.
+   */
   admission(url: URL): Promise<"admitted" | SiteRefusal>;
 }
 
@@ -50,7 +59,9 @@ export function createLoginSites(settings: { read(): Promise<SettingsSnapshot> }
       } catch {
         return "settings-unavailable";
       }
-      if (isSiteExcluded(current, url.origin)) return "site-excluded";
+      const access = siteAccess(current, url.origin);
+      if (access !== "allowed")
+        return access === "not-allowed" ? "site-not-allowed" : "site-excluded";
       const granted = await browser.permissions
         .contains({ origins: [`https://${url.hostname}/*`] })
         .catch(() => false);

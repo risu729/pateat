@@ -278,6 +278,45 @@ describe("diagnostics status", () => {
     );
   });
 
+  it("counts the allowed sites, and says when the allowlist is off", async () => {
+    const browser = { name: "Chrome", version: "156", installType: "normal" };
+    const off = await collectDiagnostics(dependencies());
+    expect(off.settings).toEqual({ excludedSites: 1, siteDefaults: 0, bindings: 0 });
+    expect(formatReport(off, browser)).toContain(
+      "Settings: excluded sites 1 · allowlist off · site defaults 0 · bindings 0\n",
+    );
+    const settings = (allowedSites: { hostname: string; includeSubdomains: boolean }[]) =>
+      dependencies({
+        settings: async () =>
+          ({
+            connections: [],
+            excludedSites: [],
+            allowedSites,
+            siteDefaults: [],
+            bindings: [],
+          }) as never,
+      });
+    const empty = await collectDiagnostics(settings([]));
+    expect(empty.settings).toEqual({
+      excludedSites: 0,
+      allowedSites: 0,
+      siteDefaults: 0,
+      bindings: 0,
+    });
+    expect(formatReport(empty, browser)).toContain("· allowed sites 0 ·");
+    const two = await collectDiagnostics(
+      settings([
+        { hostname: "bank.example", includeSubdomains: false },
+        { hostname: "mail.example", includeSubdomains: true },
+      ]),
+    );
+    expect(two.settings?.allowedSites).toBe(2);
+    expect(v.is(diagnosticsStatusSchema, two)).toBe(true);
+    expect(formatReport(two, browser)).toContain("· allowed sites 2 ·");
+    // The hostnames themselves are never copied.
+    expect(formatReport(two, browser)).not.toContain("bank.example");
+  });
+
   it("explains an expired sync token that the next Sync tries to renew", async () => {
     const collect = (autoUnlock: "enabled" | "disabled") =>
       collectDiagnostics(
