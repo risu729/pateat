@@ -317,6 +317,7 @@ const recipe = parseLoginRecipe({
   id: "synthetic-signin",
   revision: 1,
   origin,
+  pageKind: "sign-in",
   slots: ["password"],
   steps: [
     { kind: "fill", path: "/signin", fields: [{ slot: "password", target: target("password") }] },
@@ -5315,6 +5316,7 @@ describe("production login document admission", () => {
       id: "gen-synthetic",
       revision: 1,
       origin,
+      pageKind: "sign-in",
       slots: ["username", "password"],
       steps: [
         {
@@ -10354,6 +10356,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
           id: "synthetic-email-first",
           revision: 1,
           origin,
+          pageKind: "sign-in",
           slots: ["username"],
           steps: [
             {
@@ -11768,6 +11771,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         id: "synthetic-code",
         revision: 1,
         origin,
+        pageKind: "sign-in",
         slots: ["totp"],
         steps: [
           {
@@ -15357,6 +15361,7 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
     id: "gen-synthetic-continued",
     revision: 1,
     origin,
+    pageKind: "sign-in",
     slots: ["username"],
     steps: [
       { kind: "fill", path: "/signin", fields: [{ slot: "username", target: target("email") }] },
@@ -15562,6 +15567,7 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
         tabId: 1,
         origin,
         outcome: "recipe",
+        pageKind: "sign-in",
         recipeId: emailFirst.id,
         baseRevision: 1,
         takenOver: true,
@@ -15689,6 +15695,7 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
         tabId: 1,
         origin,
         outcome: "recipe",
+        pageKind: "sign-in",
         recipeId: emailFirst.id,
         baseRevision: 1,
         takenOver: true,
@@ -17103,6 +17110,7 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
           id: listed.id,
           revision: 2,
           origin,
+          pageKind: "sign-in",
           slots: ["password"],
           steps: [
             {
@@ -18021,6 +18029,7 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
           id: listed.id,
           revision,
           origin,
+          pageKind: "sign-in",
           slots,
           steps,
           maxSubmissions,
@@ -20354,6 +20363,7 @@ describe("an item without a password, up to its password (ADR 0036)", () => {
     id: "synthetic-email-first",
     revision: 1,
     origin,
+    pageKind: "sign-in",
     slots: ["username", "password"],
     steps: [
       { kind: "fill", path: "/signin", fields: [{ slot: "username", target: target("email") }] },
@@ -21198,6 +21208,7 @@ describe("an item without a password, up to its password (ADR 0036)", () => {
         id: "synthetic-in-place",
         revision: 2,
         origin,
+        pageKind: "sign-in",
         slots: ["username", "password"],
         steps: [
           {
@@ -21353,6 +21364,7 @@ describe("an item without a password, up to its password (ADR 0036)", () => {
         id: "synthetic-identifier-first",
         revision: 1,
         origin,
+        pageKind: "sign-in",
         slots: ["username"],
         steps: [
           {

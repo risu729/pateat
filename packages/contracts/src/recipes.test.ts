@@ -29,6 +29,7 @@ function recipe(id: string, firstPath: string, revision = 1, at = origin): Login
     id,
     revision,
     origin: at,
+    pageKind: "sign-in",
     slots: ["username", "password"],
     steps: [
       { kind: "fill", path: firstPath, fields: [{ slot: "username", target: target("user") }] },
@@ -108,12 +109,8 @@ describe("recipe selection", () => {
     const confirm = kind(recipe("bank-confirm", "/transfer"), "confirm");
     const unclear = kind(recipe("bank-unclear", "/reverify"), "unclear");
     const signin = kind(recipe("bank-signin", "/login"), "sign-in");
-    const stored = [confirm, unclear, signin, recipe("bank-admin", "/admin")];
-    // A recipe stored before page kinds still starts.
-    expect(loginRecipesForOrigin(stored, origin).map(({ id }) => id)).toEqual([
-      "bank-signin",
-      "bank-admin",
-    ]);
+    const stored = [confirm, unclear, signin];
+    expect(loginRecipesForOrigin(stored, origin).map(({ id }) => id)).toEqual(["bank-signin"]);
     expect(selectLoginRecipe(stored, origin, "/transfer")).toEqual({
       ok: false,
       reason: "recipe-not-found",

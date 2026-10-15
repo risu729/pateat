@@ -387,6 +387,12 @@ empty database, so seed referencing rows before trying such a migration. A new
 `devices` column the hosted smoke checks must set goes into `seedOwner()` in
 `smoke/hosted.ts` as well.
 
+A migration that only changes data, such as
+`migrations/0016_discard_recipes_without_page_kinds.sql`, starts from
+`mise run //services/api:generate:migrations -- --custom --name <name>`.
+`test/migrations.test.ts` seeds rows as an earlier build wrote them and runs the
+migration's statements again.
+
 `cloudflare.config.ts` is the production configuration and `worker-runtime.ts` holds
 the compatibility settings it shares with Vitest. The credential-free build and
 prebuilt dry run validate the exact `.cloudflare/output/v0/` artifact, and the local

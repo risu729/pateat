@@ -57,6 +57,7 @@ function recipe(): LoginRecipe {
     id: "bank-login",
     revision: 1,
     origin: "https://bank.example",
+    pageKind: "sign-in",
     slots: ["branch", "account", "password"],
     steps: [
       {
@@ -1368,6 +1369,7 @@ describe("password route variants (ADR 0027)", () => {
     id: "bank-variants",
     revision: 1,
     origin: "https://bank.example",
+    pageKind: "sign-in",
     slots: ["branch", "account", "password"],
     steps: [fill(["branch", "account", "password"]), submit()],
     alternatives: [variant(["contract", "password"])],
@@ -2327,6 +2329,7 @@ describe("the stop before a missing password (ADR 0036)", () => {
       id: "synthetic-email-first",
       revision: 1,
       origin: "https://login.example",
+      pageKind: "sign-in",
       slots: ["username", "password"],
       steps: [
         fill(["username"], "/signin"),

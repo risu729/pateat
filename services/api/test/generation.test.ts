@@ -791,6 +791,7 @@ describe("recipe generation", () => {
       id: recipeId,
       revision: 1,
       origin: "https://other.example.test",
+      pageKind: "sign-in",
       slots: ["email"],
       steps: [
         {
@@ -1344,6 +1345,7 @@ describe("custom-field slots (ADR 0027)", () => {
       id: recipeId,
       revision: 1,
       origin: ORIGIN,
+      pageKind: "sign-in",
       slots: ["email", "branch-number"],
       steps: [
         {
@@ -2930,6 +2932,7 @@ describe("password route variants (ADR 0027)", () => {
           id: recipeId,
           revision: 1,
           origin: ORIGIN,
+          pageKind: "sign-in",
           slots: ["email"],
           steps: [fill("/login", "email"), click("/login", "sign-in", "submit")],
           alternatives: [

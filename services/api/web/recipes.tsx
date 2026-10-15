@@ -90,9 +90,7 @@ function recipeFacts(recipe: StoredLoginRecipe): {
           ? "Sign-in"
           : recipe.pageKind === "confirm"
             ? "Verification while signed in; devices never log in here"
-            : recipe.pageKind === "unclear"
-              ? "Unclear, handled as a verification; devices never log in here"
-              : "Not classified (generated before page kinds); runs as a sign-in",
+            : "Unclear, handled as a verification; devices never log in here",
       ],
       ["Slots", recipeSlots(recipe).join(", ")],
       [

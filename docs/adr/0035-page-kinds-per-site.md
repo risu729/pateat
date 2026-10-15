@@ -8,7 +8,9 @@ evaluation, and the answers to the proposal's seven questions). The proposal was
 reviewed against the code by subagents before each round. Delivery 1 partly
 implemented on 2026-10-15: `pageKind` and `irreversible` in generation, `pageKind` on
 recipes, and `confirm` and `unclear` recipes neither run nor count as logouts, tested
-with synthetic pages only; the rest of delivery 1 is not implemented. Amends
+with synthetic pages only. Recipes stored before page kinds are deleted, not kept
+running, and are generated again on a later visit (owner, 2026-10-15 04:43 UTC). The
+rest of delivery 1 is not implemented. Amends
 [ADR 0012](0012-inference-request-log.md) (retention of evaluation rows) and
 [ADR 0024](0024-settings-profiles.md) (two more profile parts).
 

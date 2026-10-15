@@ -16,6 +16,7 @@ function recipe(id: string, revision: number): LoginRecipe {
     id,
     revision,
     origin: "https://bank.example",
+    pageKind: "sign-in",
     slots: ["username", "password"],
     steps: [
       {
@@ -393,11 +394,10 @@ test("says what kind of page a recipe starts on (ADR 0035)", async () => {
     ["sign-in", "Page kindSign-in"],
     ["confirm", "Page kindVerification while signed in; devices never log in here"],
     ["unclear", "Page kindUnclear, handled as a verification; devices never log in here"],
-    [undefined, "Page kindNot classified (generated before page kinds); runs as a sign-in"],
   ] as const;
   const entries = kinds.map(([pageKind], index) => {
     const entry = active(`kind-${index}`);
-    if (pageKind) entry.change.recipe.pageKind = pageKind;
+    entry.change.recipe.pageKind = pageKind;
     return entry;
   });
   await mount(mockClient({ version: 1, recipes: entries }));

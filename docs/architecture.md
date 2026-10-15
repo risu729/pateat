@@ -1300,19 +1300,23 @@ whose answer names the link to press. A request with slots, a continuation or a
 judgement whose stored recipe is an entry recipe answers `recipe-conflict` without a
 model call, as an entry request does when a login or chooser recipe starts on its path.
 
-A login recipe generated since [ADR 0035](adr/0035-page-kinds-per-site.md) carries the
-`pageKind` its first page was generated as: `sign-in`, `confirm` (a verification asked
-while signed in, before an action) or `unclear`. A continuation keeps the first page's
-kind and a chooser branch is `sign-in`. Only a `sign-in` recipe, or one stored before
-page kinds, which has none, starts or resumes a login: the extension's recipe cache
+Every login recipe and chooser branch carries the `pageKind` its first page was
+generated as ([ADR 0035](adr/0035-page-kinds-per-site.md)): `sign-in`, `confirm` (a
+verification asked while signed in, before an action) or `unclear`. A continuation keeps
+the first page's kind and a chooser branch is `sign-in`. D1 migration
+`0016_discard_recipes_without_page_kinds` deletes the recipes stored before page kinds,
+with their generation attempts and page judgements, so a later visit generates them
+again (owner, 2026-10-15 04:43 UTC;
+[compatibility before release](development.md#compatibility-before-release)). Only a
+`sign-in` recipe starts or resumes a login: the extension's recipe cache
 leaves a `confirm` or `unclear` recipe out of the recipes a page starts on, so its page
 is never logged in to, never counts as a logout (ADR 0021 D) and is never filled after
 one. Its path still counts as having a recipe, so the page is not sent for generation
 again; a sign-in input there logs `login.refused` `not-started` with detail
 `confirm-unsupported`, since filling `confirm` pages is ADR 0035's delivery 3. The owner
 web UI shows each recipe's kind. Not implemented yet from delivery 1: handing on a
-passkey re-verification, the `signedIn` hint, the evaluation logs and their retention,
-and generating existing recipes again.
+passkey re-verification, the `signedIn` hint, and the evaluation logs and their
+retention.
 
 The extension sends such a page and presses its entry as
 [ADR 0031](adr/0031-sign-in-entry-pages.md#decision) describes. The worker offers a

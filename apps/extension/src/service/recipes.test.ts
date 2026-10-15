@@ -31,6 +31,7 @@ function recipe(id: string, firstPath: string, revision = 1, origin = SITE): Log
     id,
     revision,
     origin,
+    pageKind: "sign-in",
     slots: ["username", "password"],
     steps: [
       { kind: "fill", path: firstPath, fields: [{ slot: "username", target: target("user") }] },

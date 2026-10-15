@@ -280,10 +280,9 @@ export const loginRecipeSchema = v.pipe(
     /**
      * The start page's kind (ADR 0035). Generation stores it on every recipe it makes; a
      * continuation keeps the first page's, and a chooser branch is `sign-in`. Only a
-     * `sign-in` recipe starts a login, counts as a logout or is filled after one. A recipe
-     * stored before page kinds has none and runs as before until it is generated again.
+     * `sign-in` recipe starts a login, counts as a logout or is filled after one.
      */
-    pageKind: v.optional(pageKindSchema),
+    pageKind: pageKindSchema,
     /** The slots of the password route's first variant (variant 0). */
     slots: recipeSlotList,
     /** The password route's first variant (variant 0): its steps. */
@@ -770,12 +769,12 @@ export type StoredLoginRecipe = v.InferOutput<typeof storedLoginRecipeSchema>;
 export const isLoginRouteRecipe = (recipe: StoredLoginRecipe): recipe is LoginRecipe =>
   "steps" in recipe;
 /**
- * Whether a route recipe may start a login (ADR 0035): one generated as `sign-in`, or one
- * stored before page kinds. A `confirm` or `unclear` recipe is never run, never taken as
- * a logout and never filled after one.
+ * Whether a route recipe may start a login (ADR 0035): only one generated as `sign-in`. A
+ * `confirm` or `unclear` recipe is never run, never taken as a logout and never filled
+ * after one.
  */
 export const runsLogin = (recipe: Pick<LoginRecipe, "pageKind">): boolean =>
-  recipe.pageKind === undefined || recipe.pageKind === "sign-in";
+  recipe.pageKind === "sign-in";
 /**
  * The path a stored recipe starts on: its entry's (ADR 0031), its chooser's (ADR 0028)
  * or its first step's. The service keeps one generated recipe per origin and start path

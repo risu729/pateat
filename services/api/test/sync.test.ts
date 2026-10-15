@@ -71,6 +71,7 @@ function recipe(id: string, revision: number): LoginRecipe {
     id,
     revision,
     origin: "https://bank.example",
+    pageKind: "sign-in",
     slots: ["username", "password"],
     steps: [
       {

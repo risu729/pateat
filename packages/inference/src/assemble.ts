@@ -139,7 +139,7 @@ export function appendPageSteps(
     /** The start page's passkey sign-in button, the `passkey` route (ADR 0027). */
     passkey?: LoginTarget;
     /** The first page's kind (ADR 0035); a continuation keeps the recipe's own. */
-    pageKind?: PageKind;
+    pageKind: PageKind;
   },
 ): { ok: true; recipe: LoginRecipe } | { ok: false; reason: AssemblyRejection } {
   const alternatives = page.alternatives ?? [];
@@ -183,7 +183,7 @@ export function appendPageSteps(
         }
       : {}),
     ...(page.passkey ? { passkey: { path: steps[0]!.path, target: page.passkey } } : {}),
-    ...(!base && page.pageKind ? { pageKind: page.pageKind } : {}),
+    pageKind: base?.pageKind ?? page.pageKind,
     maxSubmissions: Math.max(1, ...variants.map(effects)),
   });
   return recipe.success
