@@ -424,8 +424,8 @@ than in this repository.
   - Done on 2026-10-15, tested with synthetic pages only: generation answers `pageKind`
     and `irreversible`, the service stores `pageKind` on recipes and logs both, and a
     `confirm` or `unclear` recipe never starts a login, counts as a logout or is sent
-    again. Recipes stored before page kinds are deleted on deploy and generated again on
-    a later visit (owner, 2026-10-15 04:43 UTC).
+    again. Route recipes and chooser branches stored before page kinds are deleted on
+    deploy and generated again on a later visit (owner, 2026-10-15 04:43 UTC).
   - Next: hand on a passkey re-verification, the `signedIn` hint, and the evaluation
     logs and their retention.
 - The toolbar badge counts the matching items on every HTTPS site: teal with the usable

@@ -1304,10 +1304,14 @@ Every login recipe and chooser branch carries the `pageKind` its first page was
 generated as ([ADR 0035](adr/0035-page-kinds-per-site.md)): `sign-in`, `confirm` (a
 verification asked while signed in, before an action) or `unclear`. A continuation keeps
 the first page's kind and a chooser branch is `sign-in`. D1 migration
-`0016_discard_recipes_without_page_kinds` deletes the recipes stored before page kinds,
-with their generation attempts and page judgements, so a later visit generates them
-again (owner, 2026-10-15 04:43 UTC;
-[compatibility before release](development.md#compatibility-before-release)). Only a
+`0016_discard_recipes_without_page_kinds` deletes each route recipe, and each chooser
+with a branch, stored without a page kind, with their generation attempts and page
+judgements, so a later visit generates them again (owner, 2026-10-15 04:43 UTC;
+[compatibility before release](development.md#compatibility-before-release)). An updated
+extension's cached copies of them no longer parse, so it drops its cache and syncs again
+from the start. Deleting heads can lower the owner's highest sync sequence, so a device
+whose cache held none of them, only entry recipes or a chooser without a branch, can
+miss later changes until its cache is cleared, for example by pairing again. Only a
 `sign-in` recipe starts or resumes a login: the extension's recipe cache
 leaves a `confirm` or `unclear` recipe out of the recipes a page starts on, so its page
 is never logged in to, never counts as a logout (ADR 0021 D) and is never filled after

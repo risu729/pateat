@@ -183,7 +183,7 @@ export function appendPageSteps(
         }
       : {}),
     ...(page.passkey ? { passkey: { path: steps[0]!.path, target: page.passkey } } : {}),
-    pageKind: base?.pageKind ?? page.pageKind,
+    pageKind: base ? base.pageKind : page.pageKind,
     maxSubmissions: Math.max(1, ...variants.map(effects)),
   });
   return recipe.success

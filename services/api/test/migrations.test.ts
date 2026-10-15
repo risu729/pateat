@@ -74,12 +74,16 @@ describe("0016 discard recipes without page kinds (ADR 0035)", () => {
       env.DB.prepare(
         "INSERT INTO page_judgements (owner_id, recipe_id, branch, revision, origin, path, prompt_version, judged_at, verdict) VALUES (?, ?, '', 1, 'https://bank.example', '/home', 'v', ?, 'signed-in')",
       ).bind(at, id, Date.now());
-    const chooser = (branch?: object) => ({
+    const chooser = (branches: { afterAccount?: object; afterOther?: object } = {}) => ({
       version: 1,
       id: "c",
       revision: 1,
       origin: "https://bank.example",
-      chooser: { path: "/accounts", ...(branch ? { afterAccount: branch } : {}) },
+      chooser: {
+        path: "/accounts",
+        ...(branches.afterOther ? { other: { by: "text", value: "Use another" } } : {}),
+        ...branches,
+      },
     });
     const entry = {
       version: 1,
@@ -91,17 +95,27 @@ describe("0016 discard recipes without page kinds (ADR 0035)", () => {
     await env.DB.batch([
       ...recipe(ownerId, "old-route", [route(), route()]),
       ...recipe(ownerId, "old-revoked", [route(), null]),
-      ...recipe(ownerId, "old-branch", [chooser(route())]),
+      ...recipe(ownerId, "old-branch", [chooser({ afterAccount: route() })]),
+      ...recipe(ownerId, "old-other-branch", [
+        chooser({ afterAccount: route("sign-in"), afterOther: route() }),
+      ]),
       ...recipe(other, "other-old-route", [route()]),
       ...recipe(ownerId, "new-route", [route("confirm")]),
-      ...recipe(ownerId, "new-branch", [chooser(route("sign-in"))]),
+      ...recipe(ownerId, "new-branch", [
+        chooser({ afterAccount: route("sign-in"), afterOther: route("sign-in") }),
+      ]),
+      ...recipe(other, "other-new-route", [route("sign-in")]),
       ...recipe(ownerId, "bare-chooser", [chooser()]),
       ...recipe(ownerId, "entry", [entry]),
       ...recipe(ownerId, "new-revoked", [route("sign-in"), null]),
       attempt(ownerId, "old-route"),
       attempt(ownerId, "new-route"),
+      attempt(other, "other-old-route"),
+      attempt(other, "other-new-route"),
       judgement(ownerId, "old-branch"),
+      judgement(ownerId, "old-other-branch"),
       judgement(ownerId, "new-branch"),
+      judgement(other, "other-new-route"),
     ]);
 
     await env.DB.batch(migration("0016_").queries.map((query) => env.DB.prepare(query)));
@@ -114,10 +128,17 @@ describe("0016 discard recipes without page kinds (ADR 0035)", () => {
           .bind(ownerId, other)
           .all<{ recipe_id: string }>()
       ).results.map((row) => row.recipe_id);
-    const kept = ["bare-chooser", "entry", "new-branch", "new-revoked", "new-route"];
+    const kept = [
+      "bare-chooser",
+      "entry",
+      "new-branch",
+      "new-revoked",
+      "new-route",
+      "other-new-route",
+    ];
     expect(await ids("recipe_heads")).toEqual(kept);
     expect(await ids("recipe_revisions")).toEqual(kept);
-    expect(await ids("generation_attempts")).toEqual(["new-route"]);
-    expect(await ids("page_judgements")).toEqual(["new-branch"]);
+    expect(await ids("generation_attempts")).toEqual(["new-route", "other-new-route"]);
+    expect(await ids("page_judgements")).toEqual(["new-branch", "other-new-route"]);
   });
 });

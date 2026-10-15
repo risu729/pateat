@@ -821,9 +821,7 @@ function outcomeFields(answer: GenerationOutcome | EntryGenerationOutcome) {
   if (answer.outcome === "recipe")
     return {
       outcome: answer.outcome,
-      ...("pageKind" in answer.recipe && answer.recipe.pageKind
-        ? { pageKind: answer.recipe.pageKind }
-        : {}),
+      ...("pageKind" in answer.recipe ? { pageKind: answer.recipe.pageKind } : {}),
     };
   if (!("check" in answer)) return { outcome: answer.outcome, reason: answer.reason };
   const { outcome, reason, check, detail, path } = answer;
