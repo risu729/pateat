@@ -681,5 +681,6 @@ export function createSteps(shared: RuntimeState) {
       if (run.metadata.state !== "ready") return;
     }
   }
+  /* eslint-enable no-await-in-loop */
   return { reconcileBounded, drive };
 }
