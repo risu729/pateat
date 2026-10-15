@@ -427,8 +427,9 @@ than in this repository.
     again.
   - Next: hand on a passkey re-verification, the `signedIn` hint, the evaluation logs
     and their retention, and code to generate existing recipes again. Recipes stored
-    before page kinds run as `sign-in` until then; running that regeneration is a paid
-    call and needs the owner's approval.
+    before page kinds run as `sign-in` until then (Claude's interim choice, not
+    confirmed by the owner); running that regeneration is a paid call and needs the
+    owner's approval.
 - The toolbar badge counts the matching items on every HTTPS site: teal with the usable
   count, light gray when every match is excluded, amber while a login waits for a choice
   (owner, 2026-10-13 14:42 UTC;

@@ -303,7 +303,9 @@ test("a page generated as confirm is neither logged in to nor sent again (ADR 00
           attempts: [],
         });
 
-        // A later visit neither logs in nor asks the model again.
+        // A later visit does not log in, and the model is not asked again. Within the
+        // retry window the page would not be sent anyway; the runtime unit test proves that
+        // a confirm page is never offered for generation.
         const again = fixture.createRun();
         await page.goto(`${site}/sign-in?runId=${again}`);
         await page.waitForTimeout(2_000);

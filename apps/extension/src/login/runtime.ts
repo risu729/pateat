@@ -6898,6 +6898,14 @@ export function createLoginRuntime(
         ...(document.frameId === 0 ? {} : { frame: true as const }),
       });
     };
+    /**
+     * Whether this page's path is where a recipe generated as `confirm` or `unclear` starts
+     * (ADR 0035): its sign-in input is logged as `confirm-unsupported`, whatever else holds
+     * the page.
+     */
+    const confirmPage = async () =>
+      !(probeMode && document.origin === origin) &&
+      (await confirmPaths(document.origin))?.includes(live.path) === true;
     // The page after a sign-in entry press is checked before anything else runs on it, and
     // one that blocked the entry is neither sent for generation nor logged in to (ADR 0031).
     const refusedKey = documentKey(document);
@@ -7253,9 +7261,10 @@ export function createLoginRuntime(
         recorded.document.documentId === document.documentId;
       if (start?.path !== live.path && !rejectedHere) {
         const starts = await startsFor(document.origin);
+        const confirm = await confirmPage();
         if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
         // Not a recipe's first step on its path, so not taken as a logout (ADR 0021 D).
-        notStarted("logged-in");
+        notStarted(confirm ? "confirm-unsupported" : "logged-in");
         return { ok: false, reason: "logged-in", starts };
       }
       // It shows again after a finished login: a logout. Only this tab's record for this
@@ -7312,8 +7321,9 @@ export function createLoginRuntime(
       // 2026-10-12); until then the page watches for it.
       if (start?.path !== live.path) {
         const starts = await startsFor(document.origin);
+        const confirm = await confirmPage();
         if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
-        notStarted("stopped-login");
+        notStarted(confirm ? "confirm-unsupported" : "stopped-login");
         return { ok: false, reason: "login-stopped", starts };
       }
       const released = recorded;
@@ -7540,16 +7550,13 @@ export function createLoginRuntime(
         );
       // A page generated as `confirm` or `unclear` is never logged in to, and filling one is
       // not built yet (ADR 0035): it only watches, and its sign-in input is logged.
-      const confirmPage =
-        !recipe &&
-        !(probeMode && document.origin === origin) &&
-        (await confirmPaths(document.origin))?.includes(live.path) === true;
+      const confirm = !recipe && (await confirmPage());
       if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
       // No recipe of the origin and no login in the tab: ordinary browsing (ADR 0019).
-      if (!recipe && !starts.length && !offer && !confirmPage)
+      if (!recipe && !starts.length && !offer && !confirm)
         return refuse("recipe-not-found", undefined, true);
       // Only an origin with a recipe: elsewhere every sign-in page would be logged.
-      if (confirmPage) notStarted("confirm-unsupported");
+      if (confirm) notStarted("confirm-unsupported");
       else if (starts.length) notStarted(recipe ? "first-step-missing" : "no-recipe-on-path");
       live.state = "watching";
       delete live.reason;

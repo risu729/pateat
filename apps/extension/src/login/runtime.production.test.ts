@@ -5035,6 +5035,32 @@ describe("production login document admission", () => {
           });
           expect(steps()).toHaveLength(before);
         });
+        it("logs a confirm page after a finished login as confirm-unsupported (ADR 0035)", async () => {
+          const report = vi.fn<(report: LoginReport) => void>();
+          const h = harness({}, { report });
+          const refusals = () =>
+            report.mock.calls.map(([entry]) => entry).filter((entry) => entry.type === "refused");
+          expect(await h.hello()).toEqual({ ok: true });
+          await vi.waitFor(() => expect(attempts()).toMatchObject([{ state: "authenticated" }]));
+          // A password asked again before an action, on a path whose recipe is `confirm`.
+          h.recipes.confirms.mockResolvedValue(["/transfer"]);
+          fake.state.pageUrl = "https://login.example/transfer";
+          expect(await shownHello(h, { documentId: "transfer" })).toEqual({
+            ok: false,
+            reason: "logged-in",
+            starts: [signinStart],
+          });
+          expect(refusals()).toEqual([
+            {
+              type: "refused",
+              tabId: 1,
+              origin,
+              reason: "not-started",
+              detail: "confirm-unsupported",
+            },
+          ]);
+          expect(attempts()).toMatchObject([{ state: "authenticated" }]);
+        });
         it("logs a sign-in form that is not taken as a logout, and which tab logged out", async () => {
           const report = vi.fn<(report: LoginReport) => void>();
           const h = harness(
