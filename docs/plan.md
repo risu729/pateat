@@ -689,10 +689,10 @@ Once the fixes have settled:
   line the popup and the icon's title show when another tab of the site logged out or
   the site did not accept that tab's login: both say "You logged out of this site in
   another tab" (`choiceReason` in `apps/extension/src/login/choice-wire.ts`, the
-  `other-tab` title in `apps/extension/src/login/runtime.ts`), which reads wrong after a
-  rejection. The review comes before the Japanese text below, so that the English text
-  is settled before it is translated (owner, 2026-10-13 15:17 UTC). Not started without
-  the owner's confirmation (owner, 2026-10-13 15:10 UTC).
+  `other-tab` title in `apps/extension/src/login/runtime/model.ts`), which reads wrong
+  after a rejection. The review comes before the Japanese text below, so that the
+  English text is settled before it is translated (owner, 2026-10-13 15:17 UTC). Not
+  started without the owner's confirmation (owner, 2026-10-13 15:10 UTC).
 - Next, before the rest of the work below that makes Pateat public: Japanese alongside
   English for Pateat itself (owner, 2026-10-12 13:59 UTC): the README, the docs and the
   extension's UI text. The service's pages, such as `/manage`, come later. The owner
@@ -716,14 +716,18 @@ Once the fixes have settled:
   Clef has been tried, compare it with Jev on the same pages (owner, 2026-10-13 15:11
   UTC). Include Chrome's built-in Prompt API (`LanguageModel`, an on-device model) in
   that comparison (owner, 2026-10-13 21:36 UTC).
-- Split `apps/extension/src/login/runtime.ts` (9,998 lines; `createLoginRuntime` spans
-  lines 1573-9998) after [#545](https://github.com/risu729/pateat/issues/545) moves the
-  undecided-page completion rule out, keeping the existing state transitions: the types
-  and reports (lines 1-1572), then storing and resuming attempts (`save`, `keep`,
-  `forget`, `change`), `remember` and the account choice, sign-in entry pages, page
-  passkey requests, the stop before a password, recipe generation, and last `admit` and
-  `runSteps`. `runtime.production.test.ts` is split along its eight top-level `describe`
-  blocks once its 38 shared helpers have their own module
+- Done (2026-10-15), after [#545](https://github.com/risu729/pateat/issues/545) moved
+  the undecided-page completion rule out
+  ([#570](https://github.com/risu729/pateat/pull/570)):
+  `apps/extension/src/login/runtime.ts` (9,998 lines, nearly all one
+  `createLoginRuntime` closure) was split without changing its behavior or state
+  transitions into the types and reports and one part per subject under
+  `apps/extension/src/login/runtime/`: storing and resuming attempts, the account choice
+  and `remember`, admission (`admit`), the login plan, the sign-in check, continuation,
+  `runSteps`, recipe generation, sign-in entry pages, site moves, page passkey requests
+  and the stop before a password ([development](development.md#workspace-and-tasks)).
+  `runtime.production.test.ts` was split along its eight top-level `describe` blocks,
+  with its fake browser and shared helpers in `runtime/__fixtures__/`
   ([external review](research/2026-10-13-external-review.md)).
 - Before Pateat is public: settings for the two protections Pateat does not honour
   today (owner, 2026-10-13 21:57 UTC). Passkey user presence and user verification:

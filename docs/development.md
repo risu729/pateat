@@ -28,14 +28,33 @@ package. The Drizzle schema in `services/api/src/db/schema.ts` owns the D1 schem
 `mise run //services/api:generate:migrations` writes SQL to `services/api/migrations/`
 without contacting a database, and the check graph fails if committed migrations drift.
 
+The login runtime is `createLoginRuntime` in `apps/extension/src/login/runtime.ts`,
+assembled from parts in `apps/extension/src/login/runtime/`. `state.ts` holds what the
+parts share: the options, what the runtime keeps in memory about documents, attempts and
+tabs, and `RuntimeVariables`, the values more than one part reassigns. Every other part
+is a factory that receives that state, keeps the stable values it uses, and reaches the
+shared variables and the other parts' functions as `runtime.<name>` through
+`RuntimeContext` (`context.ts`). `createLoginRuntime` adds every part to the state, in a
+fixed order, before any of their functions runs, and keeps the message handler, the tab
+listeners and the runtime's public functions. The parts are the attempt store, the
+account choice, admission, the login plan, the sign-in check, continuation, steps,
+recipe generation, sign-in entry pages, site moves, page passkey requests and the stop
+before a password; `model.ts`, `recipes.ts` and `reports.ts` hold the module-level
+types, constants and pure helpers. A new function goes in the part whose subject it
+serves, and a part returns only what other parts use. The production runtime tests sit
+next to the parts, one file per subject, and share `__fixtures__/browser.ts`, the fake
+browser each file creates in `vi.hoisted`, and `__fixtures__/harness.ts`.
+
 The ordinary judged-page completion rule of
 [ADR 0029](adr/0029-local-sign-in-state.md#implementation-notes) lives in
 `apps/extension/src/login/completion-policy.ts`: pure functions select an undecided
 candidate, settle it from the fresh reading and disabled-field omission, and choose the
-judged outcome. `runtime.ts` retains the asynchronous page re-read, current-run checks,
-handler takeover and reporting. Its `judgeMove` and `judgeStop` keep their distinct
-completion rules. The policy's table tests pin the existing behavior; extracting it
-does not change what an undecided answer means.
+judged outcome. The runtime's sign-in check (`runtime/sign-in-check.ts`) retains the
+asynchronous page re-read, current-run checks, handler takeover and reporting. The
+judgement of a move to another origin (`judgeMove` in `runtime/site-moves.ts`) and of
+the stop before a password (`judgeStop` in `runtime/password-stop.ts`) keep their
+distinct completion rules. The policy's table tests pin the existing behavior;
+extracting it does not change what an undecided answer means.
 
 `mise.toml` owns exact tool versions and installation. Tool lockfiles use format
 version 3 and `lockfile_mode = "generate"`, rebuilding them from current requests
