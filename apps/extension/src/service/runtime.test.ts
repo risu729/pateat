@@ -348,6 +348,64 @@ describe("background sync access", () => {
   });
 });
 
+describe("first settings sync since pairing (ADR 0023)", () => {
+  const connected = {
+    version: 1,
+    kind: "connected",
+    origin: ORIGIN,
+    label: "Work laptop",
+    deviceId: ISSUED.deviceId,
+    credential: CREDENTIAL,
+  };
+
+  it("leaves a device that was never paired unaffected", async () => {
+    expect(await setup().runtime.settingsSyncPending()).toBe(false);
+  });
+
+  it("waits from pairing until a settings sync is recorded, and keeps that through later outcomes", async () => {
+    const { storage, runtime } = setup();
+    await runtime.handle(pair);
+    expect(await runtime.settingsSyncPending()).toBe(true);
+    expect(await runtime.connection()).not.toHaveProperty("settingsSynced");
+    await runtime.recordSync(ISSUED.deviceId, { settingsSynced: true });
+    expect(await runtime.settingsSyncPending()).toBe(false);
+    expect(await runtime.connection()).toMatchObject({ settingsSynced: true });
+    for (const outcome of [{ cacheFull: true }, { syncedAt: 9_000 }, { rejected: true }] as const)
+      // oxlint-disable-next-line no-await-in-loop -- outcomes are recorded in order
+      await runtime.recordSync(ISSUED.deviceId, outcome);
+    expect(stored(storage)).toMatchObject({ settingsSynced: true });
+    expect(await runtime.settingsSyncPending()).toBe(false);
+    // The settings page is not told; the record only gates vault use.
+    const state = await runtime.handle({ version: 1, type: "service.get" });
+    expect(state.ok && state.state).not.toHaveProperty("settingsSynced");
+  });
+
+  it("waits again after pairing anew", async () => {
+    const { runtime } = setup({ storage: memoryStorage({ ...connected, settingsSynced: true }) });
+    expect(await runtime.settingsSyncPending()).toBe(false);
+    await runtime.handle({ version: 1, type: "service.disconnect" });
+    expect(await runtime.settingsSyncPending()).toBe(false);
+    await runtime.handle(pair);
+    expect(await runtime.settingsSyncPending()).toBe(true);
+  });
+
+  it("ignores another device's settings sync", async () => {
+    const { runtime } = setup({ storage: memoryStorage(connected) });
+    await runtime.recordSync("7a2e4d2f-6e1c-4b63-8e66-4e8b9f1f3c52", { settingsSynced: true });
+    expect(await runtime.settingsSyncPending()).toBe(true);
+  });
+
+  it("counts a record that cannot be read as waiting", async () => {
+    const corrupt = setup({ storage: memoryStorage({ ...connected, settingsSynced: "yes" }) });
+    expect(await corrupt.runtime.settingsSyncPending()).toBe(true);
+    const storage = memoryStorage({ ...connected, settingsSynced: true });
+    storage.read = vi.fn(async () => {
+      throw new Error("Synthetic storage failure");
+    });
+    expect(await setup({ storage }).runtime.settingsSyncPending()).toBe(true);
+  });
+});
+
 function connectedRecord() {
   return {
     version: 1,

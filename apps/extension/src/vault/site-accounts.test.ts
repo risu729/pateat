@@ -10,6 +10,7 @@ import type { UriCandidates } from "../crypto/wire";
 import type { LoginFieldSource } from "../login/vault";
 import type { PasskeyFinder } from "../passkeys/vault";
 import { vaultFailure } from "./record";
+import { excludeField, excludeItem, setAccountPolicy } from "./__fixtures__/policy";
 import { createSiteAccountsHandler, findSiteAccounts, rpIdsFor } from "./site-accounts";
 import type { LiveUriMatcher } from "./site-candidates";
 
@@ -25,7 +26,10 @@ const item = (id: string) => ({
   label: "Same name",
   allowedOrigins: [],
   groupIds: [],
-  fields: [{ id: "login.password", label: "Password", name: null, kind: "hidden" as const }],
+  fields: [
+    { id: "login.username", label: "Username", name: null, kind: "text" as const },
+    { id: "login.password", label: "Password", name: null, kind: "hidden" as const },
+  ],
 });
 
 function saved(state: "ready" | "unavailable" = "ready"): Extract<SettingsResponse, { ok: true }> {
@@ -36,6 +40,7 @@ function saved(state: "ready" | "unavailable" = "ready"): Extract<SettingsRespon
         id: "live",
         label: "Live",
         provider: "bitwarden",
+        server: "cloud-us",
         userId,
         ...(state === "ready" ? { snapshotId } : {}),
         state,
@@ -50,10 +55,9 @@ function saved(state: "ready" | "unavailable" = "ready"): Extract<SettingsRespon
 /** The settings page's draft: real connections start disabled until the owner enables one. */
 function draft(value = saved()): LocalSettings {
   const settings = structuredClone(value.snapshot.settings);
-  const live = settings.connections.find((entry) => entry.connectionId === "live")!;
-  live.enabled = true;
-  live.excludedItemIds.push(excludedItem);
-  return settings;
+  const live = value.catalog.connections.find((entry) => entry.id === "live")!;
+  setAccountPolicy(settings, live);
+  return excludeItem(settings, live, excludedItem);
 }
 
 const uris = (overrides: Partial<UriCandidates> = {}): UriCandidates => ({
@@ -162,10 +166,13 @@ describe("findSiteAccounts", () => {
   });
 
   it("does not read a username the draft excludes", async () => {
-    const settings = draft();
-    settings.connections
-      .find((entry) => entry.connectionId === "live")!
-      .excludedFields.push({ itemId: uriItem, fieldId: "login.username" });
+    const value = saved();
+    const settings = excludeField(
+      draft(value),
+      value.catalog.connections.find((entry) => entry.id === "live")!,
+      uriItem,
+      "login.username",
+    );
     const readField = vi.fn<LoginFieldSource>(async () => "alice@example.test");
     const result = await findSiteAccounts({
       saved: saved(),
