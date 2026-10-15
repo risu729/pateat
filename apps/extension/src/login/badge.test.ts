@@ -11,7 +11,7 @@ import {
   setActionBadge,
   type BadgeDetails,
 } from "./badge";
-import type { LoginReport } from "./runtime";
+import type { LoginReport } from "./runtime/reports";
 
 const action = vi.hoisted(() => ({
   setBadgeText: vi.fn(async (_details: unknown) => undefined),

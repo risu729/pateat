@@ -4,7 +4,7 @@ import * as v from "valibot";
 import type { VaultSyncOutcome } from "../connections/auto-sync";
 import type { RefreshReport } from "../connections/sessions";
 import type { SetupReply } from "../connections/types";
-import type { LoginReport } from "../login/runtime";
+import type { LoginReport } from "../login/runtime/reports";
 import type { PasskeyCreateReport } from "../passkeys/create";
 import type { PasskeyRequestReport } from "../passkeys/runtime";
 import type { RecipeSyncChanges, RecipeSyncOutcome } from "../service/recipes";

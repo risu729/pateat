@@ -23,7 +23,7 @@ import type {
   GenerationHold,
   GenerationOutcome,
   LoginGeneration,
-} from "../login/runtime";
+} from "../login/runtime/recipes";
 import type { ServiceConnection } from "./runtime";
 import type { InferenceResult, ServiceTransport } from "./transport";
 

@@ -6,7 +6,7 @@ import {
   type LoginRecipe,
   type VaultCatalog,
 } from "@pateat/contracts";
-import type { LoginRecipeStart } from "./runtime";
+import type { LoginRecipeStart } from "./runtime/recipes";
 
 export const DEFAULT_PROBE_ORIGIN = "http://127.0.0.1:3847";
 /** Bundled synthetic adapter. This is not a Bitwarden connection or a production grant. */

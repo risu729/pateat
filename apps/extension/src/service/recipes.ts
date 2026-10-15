@@ -10,7 +10,7 @@ import {
   type LoginRecipe,
 } from "@pateat/contracts";
 import * as v from "valibot";
-import type { LoginRecipes } from "../login/runtime";
+import type { LoginRecipes } from "../login/runtime/recipes";
 import type { RecipeSyncRecord, ServiceConnection } from "./runtime";
 import type { SettingsSyncOutcome } from "./settings-sync";
 import type { ServiceTransport, TransportFailure } from "./transport";
