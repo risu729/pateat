@@ -710,7 +710,15 @@ Once the fixes have settled:
   docs.
 - A mode without the service. Where recipes, settings and AI calls come from without the
   service, which [ADR 0013](adr/0013-service-held-recipes-and-settings.md) makes their
-  source of truth, needs a design the owner approves before implementation.
+  source of truth. Claude's design is
+  [ADR 0039](adr/0039-running-without-the-service.md), proposed and implemented on
+  2026-10-15 before the owner's approval, as the owner asked that day for complex
+  designs: with no device paired, logins use recipes kept on the device, which the
+  settings page imports from and exports to a recipe file; Pateat generates no recipes
+  then; the first sync after a pairing uploads them once. Open: the owner's answers to
+  the ADR's questions; the import and a login in installed Chrome without a service
+  (only Playwright Chromium in CI so far); a binding editor for custom slots on a device
+  that never had a service.
 - The finite-choice role with Clef, which the owner chose to implement here. On
   2026-10-11 the owner asked for a larger corpus of real pages before planning it. After
   Clef has been tried, compare it with Jev on the same pages (owner, 2026-10-13 15:11
@@ -1598,23 +1606,25 @@ paired device's credential, applies active and revoked changes, and writes the c
 and recipes together, so a failed page or write leaves the previous consistent copy. It
 reads at most 50 pages per sync and refuses a page that moves the cursor backwards or
 does not advance it. The cache belongs to one paired device: a new pairing starts from
-an empty cache, nothing is served while no device is paired or the pairing cannot be
-read, and disconnecting or forgetting an unreadable pairing clears it. Sync runs right
-after pairing completes, also when another device's sync is still running, and in the
-background when the worker starts, a lookup arrives or the settings page is open and the
-last attempt is more than five minutes old. The attempt time is stored, so a worker
-restart does not sync again sooner, and a 429 postpones background syncs, but not the
-one after pairing, for 15 minutes. A lookup does not wait for the network or for pairing
-and disconnect requests. The serialized cache is limited to 2 MiB of the extension's 10
-MB `storage.local` quota, which it shares with settings, login attempts and other
-extension state (the vault cache is in IndexedDB); a page that would exceed it is not
-applied, and the settings page says the recipes no longer fit. How many recipes that
-holds, and the planned service cap that keeps an owner within it, are under [service
-limits](architecture.md#service-limits). A 401 marks the device as rejected: syncing
-stops, login keeps using the cached recipes, and the settings page says to pair again.
-Lookup uses `selectLoginRecipe` for a new attempt and the recipe ID for a resumed one;
-two recipes starting on one page find no recipe. Unit tests use synthetic pages and
-in-memory storage; sync against the deployed service has no recorded check yet.
+an empty cache, the cache is not served while no device is paired (the recipes kept on
+the device are, [ADR 0039](adr/0039-running-without-the-service.md)), and nothing is
+served while the pairing cannot be read, and disconnecting or forgetting an unreadable
+pairing clears it. Sync runs right after pairing completes, also when another device's
+sync is still running, and in the background when the worker starts, a lookup arrives or
+the settings page is open and the last attempt is more than five minutes old. The
+attempt time is stored, so a worker restart does not sync again sooner, and a 429
+postpones background syncs, but not the one after pairing, for 15 minutes. A lookup does
+not wait for the network or for pairing and disconnect requests. The serialized cache is
+limited to 2 MiB of the extension's 10 MB `storage.local` quota, which it shares with
+settings, login attempts and other extension state (the vault cache is in IndexedDB); a
+page that would exceed it is not applied, and the settings page says the recipes no
+longer fit. How many recipes that holds, and the planned service cap that keeps an owner
+within it, are under [service limits](architecture.md#service-limits). A 401 marks the
+device as rejected: syncing stops, login keeps using the cached recipes, and the
+settings page says to pair again. Lookup uses `selectLoginRecipe` for a new attempt and
+the recipe ID for a resumed one; two recipes starting on one page find no recipe. Unit
+tests use synthetic pages and in-memory storage; sync against the deployed service has
+no recorded check yet.
 
 The fifth slice syncs the device-independent settings in the same run, after recipes:
 site exclusions, site defaults that name a provider account and item, and account
@@ -2500,7 +2510,8 @@ sync and server-side AI. Per [ADR 0013](adr/0013-service-held-recipes-and-settin
 the service is the source of truth for settings, recipes and account bindings, which are
 edited on its web UI; the extension keeps a last-known-good cache and only the pages
 that handle local secrets. Running without the service is planned for
-[phase 3](#phase-3-public-release). On 2026-10-11 the
+[phase 3](#phase-3-public-release); the proposed
+[ADR 0039](adr/0039-running-without-the-service.md) is implemented. On 2026-10-11 the
 owner added account choice outside the settings page to initial delivery
 ([ADR 0021](adr/0021-account-choice-outside-settings.md)): a toolbar popup for the
 current site's default and exclusion, choosing among several password matches there

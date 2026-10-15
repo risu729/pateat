@@ -70,6 +70,7 @@ function createAreas() {
     settings: vi.fn(async (request: unknown) => ({ area: "settings", request })),
     siteAccounts: vi.fn(async (request: unknown) => ({ area: "site-accounts", request })),
     service: vi.fn(async (request: unknown) => ({ area: "service", request })),
+    recipes: vi.fn(async (request: unknown) => ({ area: "recipes", request })),
     diagnostics: vi.fn(async (request: unknown) => ({ area: "diagnostics", request })),
     chooser: vi.fn((request: unknown) => Promise.resolve({ area: "chooser", request })),
     login: vi.fn(async (request: unknown, sender: unknown) => ({ area: "login", request, sender })),
@@ -150,6 +151,18 @@ describe("background messages", () => {
       await worker.send(options, "service", { version: 1, type: "settings.get" }),
     ).toBeUndefined();
     expect(worker.areas.service).toHaveBeenCalledTimes(1);
+  });
+
+  it("answers recipe requests (ADR 0039) from the settings page only", async () => {
+    const get = { version: 1, type: "recipes.get" };
+    expect(await worker.send(options, "recipes", get)).toEqual({ area: "recipes", request: get });
+    for (const sender of [popup, diagnosticsPage, chooserPage, content, otherExtension])
+      // oxlint-disable-next-line no-await-in-loop
+      expect(await worker.send(sender, "recipes", get)).toBeUndefined();
+    expect(
+      await worker.send(options, "recipes", { version: 1, type: "service.get" }),
+    ).toBeUndefined();
+    expect(worker.areas.recipes).toHaveBeenCalledTimes(1);
   });
 
   it("answers valid diagnostics requests from the diagnostics page only", async () => {

@@ -6,6 +6,7 @@ import {
   SYNC_PAGE_LIMIT,
   syncDeviceStateSchema,
   syncRecipeChangesSchema,
+  syncRecipeWriteResultSchema,
   syncSettingsStateSchema,
   type DevicePairResult,
   type EntryGenerationRequest,
@@ -16,6 +17,7 @@ import {
   type RecipeGenerationResult,
   type SyncDeviceState,
   type SyncRecipeChanges,
+  type SyncRecipeWrite,
   type SyncSettingsState,
   type SyncSettingsWrite,
 } from "@pateat/contracts";
@@ -54,6 +56,18 @@ export type RecipeChangesResult =
   | { kind: "rejected" }
   | { kind: "failed"; error: TransportFailure };
 
+/** A conditional `PUT /v1/recipes/:recipeId`, which uploads a recipe kept on the device. */
+export type RecipeWriteResult =
+  | { kind: "written" }
+  /** The service already holds the recipe at another revision, or has revoked it. */
+  | { kind: "conflict" }
+  /** The owner already has as many active recipes as the service keeps. */
+  | { kind: "limit" }
+  /** The service refused the recipe itself (`400`). */
+  | { kind: "refused" }
+  | { kind: "rejected" }
+  | { kind: "failed"; error: TransportFailure };
+
 export type SettingsResult =
   | { kind: "state"; state: SyncSettingsState }
   /** The write named a stale revision; `current` is the service's state now. */
@@ -79,6 +93,13 @@ export interface ServiceTransport {
   device(origin: string, credential: string): Promise<DeviceStateResult>;
   /** One page of recipe changes after `after`, as returned by `GET /v1/recipes`. */
   recipeChanges(origin: string, credential: string, after: number): Promise<RecipeChangesResult>;
+  /** A conditional `PUT /v1/recipes/:recipeId` with the paired device's credential. */
+  writeRecipe(
+    origin: string,
+    credential: string,
+    recipeId: string,
+    write: SyncRecipeWrite,
+  ): Promise<RecipeWriteResult>;
   /** The owner's synced settings document, as returned by `GET /v1/settings`. */
   settings(origin: string, credential: string): Promise<SettingsResult>;
   /** A conditional `PUT /v1/settings`; a stale revision answers with a conflict. */
@@ -333,6 +354,34 @@ export function createServiceTransport(
           ? { kind: "page", page: parsed.output }
           : { kind: "failed", error: "unexpected-response" };
       }
+      if (rejected(response)) return { kind: "rejected" };
+      if (response.status === 429) return { kind: "failed", error: "rate-limited" };
+      return { kind: "failed", error: "unexpected-response" };
+    },
+    async writeRecipe(origin, credential, recipeId, write) {
+      const response = await call(
+        origin,
+        `/v1/recipes/${encodeURIComponent(recipeId)}`,
+        {
+          method: "PUT",
+          headers: { Authorization: `Bearer ${credential}`, "Content-Type": "application/json" },
+          body: JSON.stringify(write),
+        },
+        // A conflict answers with the service's current copy of the recipe.
+        { limit: MAX_INFERENCE_BYTES },
+      );
+      if ("failed" in response) return { kind: "failed", error: response.failed };
+      if (response.status === 200)
+        return v.is(syncRecipeWriteResultSchema, response.body)
+          ? { kind: "written" }
+          : { kind: "failed", error: "unexpected-response" };
+      if (response.status === 409) {
+        const code = errorCode(response.body);
+        if (code === "recipe_conflict") return { kind: "conflict" };
+        if (code === "recipe_limit") return { kind: "limit" };
+        return { kind: "failed", error: "unexpected-response" };
+      }
+      if (response.status === 400) return { kind: "refused" };
       if (rejected(response)) return { kind: "rejected" };
       if (response.status === 429) return { kind: "failed", error: "rate-limited" };
       return { kind: "failed", error: "unexpected-response" };

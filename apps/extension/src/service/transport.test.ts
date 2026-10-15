@@ -1,3 +1,4 @@
+import { parseLoginRecipe } from "@pateat/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { DEVICE_TIMEOUT_MS, createServiceTransport } from "./transport";
 
@@ -523,5 +524,60 @@ describe("recipe generation", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("recipe upload (ADR 0039)", () => {
+  const target = (value: string) => ({ by: "id" as const, value });
+  const recipe = parseLoginRecipe({
+    version: 1,
+    id: "kept-recipe",
+    revision: 1,
+    origin: "https://bank.example",
+    slots: ["password"],
+    steps: [
+      { kind: "fill", path: "/", fields: [{ slot: "password", target: target("pass") }] },
+      { kind: "click", path: "/", target: target("login"), purpose: "submit" },
+    ],
+    maxSubmissions: 1,
+  });
+  const write = { version: 1 as const, expectedRevision: 0, state: "active" as const, recipe };
+  const upload = (fetch: typeof globalThis.fetch) =>
+    createServiceTransport({ fetch }).writeRecipe(ORIGIN, CREDENTIAL, recipe.id, write);
+
+  it("puts the recipe with the device credential and reads the written change", async () => {
+    const fetch = respond(200, {
+      version: 1,
+      change: { recipeId: recipe.id, revision: 1, state: "active", recipe },
+    });
+    expect(await upload(fetch)).toEqual({ kind: "written" });
+    const [url, init] = fetch.mock.calls[0]!;
+    expect(url).toBe(`${ORIGIN}/v1/recipes/kept-recipe`);
+    expect(init).toMatchObject({ method: "PUT", credentials: "omit", redirect: "error" });
+    expect(init!.headers).toEqual({
+      Authorization: `Bearer ${CREDENTIAL}`,
+      "Content-Type": "application/json",
+    });
+    expect(JSON.parse(init!.body as string)).toEqual(write);
+  });
+
+  it.each([
+    [respond(409, { error: "recipe_conflict", current: null }), { kind: "conflict" }],
+    [respond(409, { error: "recipe_limit" }), { kind: "limit" }],
+    [respond(409, { error: "other" }), { kind: "failed", error: "unexpected-response" }],
+    [respond(400, { error: "bad_request" }), { kind: "refused" }],
+    [respond(401, { error: "device_revoked" }), { kind: "rejected" }],
+    [respond(429, { error: "rate_limited" }), { kind: "failed", error: "rate-limited" }],
+    [respond(500, { error: "internal" }), { kind: "failed", error: "unexpected-response" }],
+    [respond(200, { version: 1 }), { kind: "failed", error: "unexpected-response" }],
+  ])("reads each answer (%#)", async (fetch, expected) => {
+    expect(await upload(fetch)).toEqual(expected);
+  });
+
+  it("reports an unreachable service", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => {
+      throw new TypeError("offline");
+    });
+    expect(await upload(fetch)).toEqual({ kind: "failed", error: "unreachable" });
   });
 });
