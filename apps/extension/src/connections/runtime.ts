@@ -256,14 +256,18 @@ export function createConnectionRuntime(
       let result: Promise<SetupReply>;
       switch (request.type) {
         case "connection.begin":
-          // A sign-in starts the time again first, so a check while it runs cannot lock the
-          // vault it unlocks.
-          result = Promise.resolve(options.vaultTimeout?.used()).then(() =>
-            caller.begin(request.input),
-          );
+          // A vault whose time already passed locks first; then the sign-in starts the time
+          // again, so a check while it runs cannot lock the vault it unlocks.
+          result = (options.vaultTimeout?.check() ?? Promise.resolve())
+            .catch(() => undefined)
+            .then(() => options.vaultTimeout?.used())
+            .then(() => caller.begin(request.input));
           break;
         case "connection.continue":
-          result = caller.continue(request.input);
+          // A second step can take a while; it starts the time again too.
+          result = Promise.resolve(options.vaultTimeout?.used()).then(() =>
+            caller.continue(request.input),
+          );
           break;
         case "connection.cancel":
           result = caller.cancel(request.flowId);

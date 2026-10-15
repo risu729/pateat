@@ -90,6 +90,12 @@ export function createVaultTimeout(options: {
         await options.schedule(at + 60_000).catch(() => undefined);
         throw error;
       }
+      // A sign-in that finished during the lock counts as use; it may have written its
+      // own use before this write.
+      if (await options.unlocked()) {
+        await restart(timeout);
+        return;
+      }
       // Locked vaults need no wake-up; signing in again counts as use and plans one.
       await options.activity.setValue({ lastUsedAt: at, locked: true });
       await options.schedule(undefined);

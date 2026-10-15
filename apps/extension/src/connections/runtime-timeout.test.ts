@@ -13,6 +13,7 @@ const fakes = vi.hoisted(() => ({
   calls: {} as {
     disable: Call;
     begin: Call;
+    continue: Call;
     sync: Call;
     resolveField: Call;
     signPasskey: Call;
@@ -60,6 +61,7 @@ vi.mock("./setup", () => ({
       createCaller: () => ({
         disable: (...args: unknown[]) => fakes.calls.disable(...args),
         begin: (...args: unknown[]) => fakes.calls.begin(...args),
+        continue: (...args: unknown[]) => fakes.calls.continue(...args),
         sync: (...args: unknown[]) => fakes.calls.sync(...args),
         dispose: () => fakes.calls.dispose(),
       }),
@@ -138,6 +140,11 @@ const begin = () => ({
     autoUnlock: "enable",
   },
 });
+const continuation = () => ({
+  requestId: crypto.randomUUID(),
+  type: "connection.continue",
+  input: { flowId: crypto.randomUUID(), newDeviceOtp: "000000" },
+});
 const sync = () => ({
   requestId: crypto.randomUUID(),
   type: "connection.sync",
@@ -155,6 +162,10 @@ beforeEach(() => {
   fakes.calls = {
     disable: vi.fn<(...args: unknown[]) => Promise<unknown>>(async () => ({ ok: true, data: {} })),
     begin: vi.fn<(...args: unknown[]) => Promise<unknown>>(async () => ({ ok: true, data: {} })),
+    continue: vi.fn<(...args: unknown[]) => Promise<unknown>>(async () => ({
+      ok: true,
+      data: {},
+    })),
     sync: vi.fn<(...args: unknown[]) => Promise<unknown>>(async () => ({ ok: true, data: {} })),
     resolveField: vi.fn<(...args: unknown[]) => Promise<unknown>>(async () => ({
       ok: true,
@@ -312,6 +323,51 @@ describe("vault use for the vault timeout", () => {
     page.send(second);
     expect(await page.reply(second.requestId)).toMatchObject({ ok: false });
     expect(order).toEqual(["used", "begin", "used", "used", "begin"]);
+  });
+
+  it("locks a vault whose time passed before a sign-in starts the time again", async () => {
+    const order: string[] = [];
+    const control = timeout({
+      check: async () => {
+        order.push("check");
+        throw new Error("lock-failed");
+      },
+      used: async () => {
+        order.push("used");
+      },
+    });
+    fakes.calls.begin.mockImplementation(async () => {
+      order.push("begin");
+      return { ok: false, error: { code: "invalid-credentials" } };
+    });
+    const { runtime: connections } = runtime(control);
+    const page = settingsPort();
+    expect(connections.attach(page.port as never)).toBe(true);
+    const request = begin();
+    page.send(request);
+    // A failed check does not stop the sign-in, which may be what unlocks the vault.
+    expect(await page.reply(request.requestId)).toMatchObject({ ok: false });
+    expect(order).toEqual(["check", "used", "begin"]);
+  });
+
+  it("starts the time again before a second sign-in step, and after it succeeds", async () => {
+    const order: string[] = [];
+    const control = timeout({
+      used: async () => {
+        order.push("used");
+      },
+    });
+    fakes.calls.continue.mockImplementation(async () => {
+      order.push("continue");
+      return { ok: true, data: {} };
+    });
+    const { runtime: connections } = runtime(control);
+    const page = settingsPort();
+    expect(connections.attach(page.port as never)).toBe(true);
+    const request = continuation();
+    page.send(request);
+    expect(await page.reply(request.requestId)).toMatchObject({ ok: true });
+    expect(order).toEqual(["used", "continue", "used"]);
   });
 
   it("syncs only after a passing check, and answers unavailable when the check rejects", async () => {

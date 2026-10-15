@@ -85,8 +85,9 @@ out; unlocking a locked Bitwarden vault needs only the master password, offline.
   login, passkey answer and settings read builds the vault catalog first) and before
   each vault sync, automatic or from the settings page. A check that cannot tell whether
   the time passed, or a lock that fails, keeps logins, passkey answers and syncs from
-  using the vault, and the lock is tried again a minute later. A sign-in starts the time
-  again before it begins, so a check during it cannot lock the vault it unlocks. After a
+  using the vault, and the lock is tried again a minute later. A sign-in first locks a
+  vault whose time passed, then starts the time again before it begins and before its
+  second step, so a check during it cannot lock the vault it unlocks. After a
   lock, a vault that unlocks automatically again was signed in to, so the time counts
   from then even when that sign-in could not report itself. Until the next check, a key
   the timeout would remove stays on the disk, also while the browser is closed.

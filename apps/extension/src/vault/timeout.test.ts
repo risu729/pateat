@@ -242,6 +242,7 @@ describe("vault timeout after a lock", () => {
     const locked = t.activity();
     t.schedule.mockClear();
     t.activityWrite.mockClear();
+    t.unlockedRead.mockClear();
     for (const minutes of [1, 10, 1000]) {
       t.advance(minutes * MINUTE);
       // oxlint-disable-next-line no-await-in-loop -- one check per step
@@ -252,6 +253,18 @@ describe("vault timeout after a lock", () => {
     expect(t.activityWrite).not.toHaveBeenCalled();
     expect(t.schedule).not.toHaveBeenCalled();
     expect(t.activity()).toEqual(locked);
+  });
+
+  it("counts a sign-in that finished during the lock as use", async () => {
+    const t = setup({ timeout: 5, activity: { lastUsedAt: START } });
+    t.lock.mockImplementation(async () => {
+      t.setUnlocked(true);
+    });
+    t.advance(5 * MINUTE);
+    await t.control.check();
+    expect(t.lock).toHaveBeenCalledOnce();
+    expect(t.activity()).toEqual({ lastUsedAt: t.now() });
+    expect(t.schedule).toHaveBeenLastCalledWith(t.now() + 5 * MINUTE);
   });
 
   it("restarts the clock once a sign-in unlocked a vault again", async () => {
