@@ -1218,8 +1218,8 @@ export function refillsLoginSlot(
  * `previous` has no completion and no alternatives and ends in an advance; `next` has no
  * alternatives. The page kind (ADR 0035), the `passkey` route and the rejection are
  * unchanged, the handlers extend the old ones in order, the account switch is unchanged or
- * newly added, and signed-in markers may be new. A running login at its final advance takes over only such a revision, so
- * the steps it ran keep their meaning.
+ * newly added, and signed-in markers may be new. A running login at its final advance
+ * takes over only such a revision, so the steps it ran keep their meaning.
  */
 export function continuesRecipe(previous: LoginRecipe, next: LoginRecipe): boolean {
   const last = previous.steps.at(-1);
