@@ -170,9 +170,7 @@ test("an unknown save outcome is never retried and requires a successful explici
   expect(client.saveSettings).toHaveBeenCalledTimes(1);
   client.getSettings.mockRejectedValueOnce(new Error("Synthetic read unavailable"));
   await control("reload-settings").click();
-  await expect
-    .poll(() => control("settings-status").element().textContent)
-    .toMatch(/could not/i);
+  await expect.poll(() => control("settings-status").element().textContent).toMatch(/could not/i);
   await expect.element(control("site-list")).toMatchTextContent("draft.example");
   await addSite("third.example");
   expect(client.saveSettings).toHaveBeenCalledTimes(1);
