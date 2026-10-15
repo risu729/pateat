@@ -1,6 +1,8 @@
 # Agent instructions
 
-- Use English for repository files, comments, commit messages, issues, and PRs.
+- Use English consistently for repository documentation, code comments, commit
+  messages, and pull request titles and descriptions. Use English for issue text
+  and other repository prose too.
 - Read [docs/README.md](docs/README.md) and the relevant design before editing.
 - Keep current behavior, proposed work, and dated evidence distinct. Update the
   owning document in the same PR; record material decisions in an ADR.

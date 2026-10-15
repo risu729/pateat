@@ -37,8 +37,10 @@ handler takeover and reporting. Its `judgeMove` and `judgeStop` keep their disti
 completion rules. The policy's table tests pin the existing behavior; extracting it
 does not change what an undecided answer means.
 
-`mise.toml` owns exact tool versions and installation. The repository-wide tasks live in
-the root `tasks.toml`, which the root `mise.toml` loads with `[task_config] includes`
+`mise.toml` owns exact tool versions and installation. Tool lockfiles use format
+version 3 and `lockfile_mode = "generate"`, rebuilding them from current requests
+while reusing unchanged artifacts. The repository-wide tasks live in the root
+`tasks.toml`, which the root `mise.toml` loads with `[task_config] includes`
 (owner decision, 2026-10-12); each project's tasks stay in its own `mise.toml`. Use
 native workspace mise tasks, not package.json scripts or wrapper scripts that duplicate
 the task graph. aube installs dependencies; pinned supported Node executes tools that
@@ -315,6 +317,24 @@ is incorrect") before the downloaded Chromium launched; a clean `windows-2025` r
 local Windows disk, point `TEMP` and `TMP` at a faster drive: on GitHub's `windows-2025`
 runners in 2026-10, profiles in the default temp directory on the system drive hit
 5-25 s I/O stalls that timed out random tests.
+
+### Cloud sessions
+
+Notes for agents working in a cloud container, observed on 2026-10-12 and 2026-10-13:
+
+- If `mise install` stops because a tool's declared skills cannot be fetched
+  (`declared skill(s) ... are not installed`), set `MISE_SKILLS_FETCH=false` for every
+  mise command.
+- Do not run `playwright install`. When the container's Chromium is another build than
+  the one `@playwright/test` pins, point `PLAYWRIGHT_BROWSERS_PATH` at a directory that
+  links the container's browser under the pinned build's directory names
+  (`chromium-<build>` and `chromium_headless_shell-<build>`, each with an
+  `INSTALLATION_COMPLETE` marker); otherwise browser tests fail with "Executable doesn't
+  exist". A pass on that other Chromium is no evidence for tab focus or visibility
+  behavior; only CI's pinned build is.
+- `hk check --from-ref origin/main` checks committed changes only, so commit before
+  running it.
+- A PR that conflicts with main gets no CI runs at all; merge main into it to start CI.
 
 ### Installed Chrome synthetic login probe
 

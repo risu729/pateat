@@ -369,6 +369,17 @@ and a fake token endpoint; they never reach Anthropic. Generation tests also ans
 the Messages API locally with synthetic plans and judgements. The concurrency cases
 interleave requests in one local runtime; they do not demonstrate hosted D1 behavior.
 
+Adding a NOT NULL column makes Drizzle rebuild the table (create `__new_<table>`, copy,
+drop, rename). D1 enforces foreign keys and no pragma turns that off, so the rebuild
+fails with `SQLITE_CONSTRAINT_FOREIGNKEY` for a table that other rows reference, such
+as `devices`; a table nothing references rebuilds fine. Declare such a column with
+`.notNull().default(0)`, so that Drizzle emits
+`ALTER TABLE ... ADD ... DEFAULT 0 NOT NULL`, then append an `UPDATE` by hand for the
+real values, as `migrations/0007_device_last_used.sql` does. The tests start from an
+empty database, so seed referencing rows before trying such a migration. A new
+`devices` column the hosted smoke checks must set goes into `seedOwner()` in
+`smoke/hosted.ts` as well.
+
 `cloudflare.config.ts` is the production configuration and `worker-runtime.ts` holds
 the compatibility settings it shares with Vitest. The credential-free build and
 prebuilt dry run validate the exact `.cloudflare/output/v0/` artifact, and the local
