@@ -15,6 +15,7 @@ The workspace uses one lockfile, `bun.lock`, which aube installs from
 
 ```text
 apps/extension/       WXT entrypoints and extension shell
+apps/docs/            VitePress docs website with the user-facing pages
 services/api/         Cloudflare Worker sync API and D1 schema
 packages/contracts/  Shared Valibot schemas and inferred types
 packages/bitwarden/  Provider-specific endpoint and transport boundary
@@ -70,22 +71,23 @@ a mise release that breaks the repository fails CI. The shared Renovate preset r
 ([risu729/renovate-config#2696](https://github.com/risu729/renovate-config/pull/2696)).
 
 The repository is a mise monorepo (owner decision, 2026-10-11). The root `mise.toml`
-sets `monorepo_root = true` and lists `apps/extension`, `services/api`, `packages/*` and
-`tests/*` as config roots. Each of those directories has its own `mise.toml` with the
-tasks for its code, run from that directory, and the tools and environment come from the
-root. A task's full name is its path and name, such as `//services/api:build`; inside
-that directory `mise run :build` also works. Each project has a `test` task (the
-extension's `test` runs its `test:<area>` tasks) and each except `packages/contracts`
-has a `typecheck` task, so `mise run '//...:typecheck'` type-checks everything. mise
-reads the workspace graph, so `mise run --affected '//...:test'` tests the workspace
-packages with changes since `HEAD~1` (including uncommitted and untracked files) and the
-packages that depend on them. A change outside a workspace package, such as `docs/`,
-`scripts/`, `tests/*`, the root `mise.toml` or `tasks.toml`, selects every package, and
-the `tests/*` suites are not workspace packages, so `--affected` never selects them.
-Repository-wide tasks (`install`, `check`, `fix`, `check:runtime`, `check:docs`,
-`check:sdk-source`, `test:tools`, `coverage:summary`, `browser:install`, the probe
-servers, `render:icons` and `generate:oidc-key`) stay in the root `tasks.toml`. Run them
-by their plain names from the root, or as `//:check:runtime` from inside a project.
+sets `monorepo_root = true` and lists `apps/extension`, `apps/docs`, `services/api`,
+`packages/*` and `tests/*` as config roots. Each of those directories has its own
+`mise.toml` with the tasks for its code, run from that directory, and the tools and
+environment come from the root. A task's full name is its path and name, such as
+`//services/api:build`; inside that directory `mise run :build` also works. Each project
+has a `test` task (the extension's `test` runs its `test:<area>` tasks) and each except
+`packages/contracts` has a `typecheck` task, so `mise run '//...:typecheck'` type-checks
+everything. mise reads the workspace graph, so `mise run --affected '//...:test'` tests
+the workspace packages with changes since `HEAD~1` (including uncommitted and untracked
+files) and the packages that depend on them. A change outside a workspace package, such
+as `docs/`, `scripts/`, `tests/*`, the root `mise.toml` or `tasks.toml`, selects every
+package, and the `tests/*` suites are not workspace packages, so `--affected` never
+selects them. Repository-wide tasks (`install`, `check`, `fix`, `check:runtime`,
+`check:docs`, `check:sdk-source`, `test:tools`, `coverage:summary`, `browser:install`,
+the probe servers, `render:icons` and `generate:oidc-key`) stay in the root
+`tasks.toml`. Run them by their plain names from the root, or as `//:check:runtime` from
+inside a project.
 
 `check:runtime` is one dependency graph rather than a list of separate `mise run` calls:
 it depends on `//...:typecheck`, `//...:test`, `//services/api:check:*` and
@@ -206,6 +208,10 @@ Focused tasks are available for diagnosis:
 | `mise run //apps/extension:test:dom` | Extract observations, resolve element locators, collect diagnostics and run the vault, provider-session and diagnostics stores on native IndexedDB in Chromium |
 | `mise run //tests/options:typecheck` | Check component-test and browser-provider types |
 | `mise run check:docs` | Check local documentation links |
+| `mise run //apps/docs:dev` | Serve the docs website with live reload ([docs website](#docs-website)) |
+| `mise run //apps/docs:build` | Render the docs website into `apps/docs/.vitepress/dist/` |
+| `mise run //apps/docs:test` | Build the docs website and check every local link and fragment in the built pages |
+| `mise run //apps/docs:preview` | Build and serve the built docs website |
 | `mise run check:sdk-source` | Validate installed SDK metadata against its pin and render [exact source notices](sdk-source.md#pinned-upstream-source) without writing files |
 
 On Linux, `mise run browser:install --with-deps` also installs the browser's system
@@ -249,6 +255,35 @@ containers' logs (`vaultwarden.log` in the Playwright test's output folder, prin
 the self-check). A run killed before `stop()` leaves its project behind:
 `docker compose ls --filter name=pateat-vaultwarden` lists them and
 `docker compose -p <project> down -v` removes one.
+
+### Docs website
+
+`apps/docs` is the user-facing docs website, built with VitePress 2, which the owner
+chose on 2026-10-11 before its stable release
+([decisions still requiring evidence](plan.md#decisions-still-requiring-evidence)).
+`vitepress` is pinned exactly to `2.0.0-alpha.20`, the npm `next` tag on 2026-10-15. Its
+English pages are in `apps/docs/src`: an introduction, installation, setup, permissions
+and a draft privacy policy with the Chrome Web Store Limited Use statement. The site
+serves the extension's own `apps/extension/icons/icon.svg` through a small Vite plugin
+in `.vitepress/config.ts` instead of keeping a copy, and `.vitepress/theme/brand.css`
+sets VitePress's default theme to the icon's green, darkened where text needs 4.5:1
+contrast. The pages link to this `docs/` directory, which the site does not include, by
+absolute GitHub URLs.
+
+VitePress fails the build on a dead link between pages. `//apps/docs:test` builds the
+site and then checks, with `apps/docs/check-links.mjs`, that every local link, asset
+and fragment in the built HTML resolves; it is one of the `//...:test` tasks, so
+`check:runtime` and CI's `Verify` job build the site on every run. A pull request that
+changes only `docs/` or `apps/docs/` skips the browser shards
+([CI](delivery.md#current-foundation-workflows)).
+
+Claude's defaults, pending the owner's confirmation (2026-10-15): the site lives in
+`apps/docs` as a workspace package, and its tasks run VitePress with the mise-pinned
+Node like the other projects, where biwa runs it with Bun. The site is not deployed yet:
+there is no Worker, Cloudflare or Access change, and biwa's assets-only Worker and
+per-PR previews come with the deployment. `apps/docs/package.json` has no `license`
+field, like `services/api`, because [LICENSING.md](../LICENSING.md) does not cover the
+site.
 
 ### Test coverage
 
