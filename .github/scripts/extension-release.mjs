@@ -157,13 +157,16 @@ export async function pack({ fetcher = fetch, env = process.env } = {}) {
   const sdk = { package: "@bitwarden/sdk-internal", version: sdkVersion, revision: sdkRevision };
   const manifestPath = `${outputPath}/chrome-mv3/manifest.json`;
   const zipPath = `${outputPath}/${zipName}`;
-  assert(
-    (await stat(zipPath)).mtimeMs >= (await stat(manifestPath)).mtimeMs,
-    `${zipPath} is older than the build; run mise run //apps/extension:zip`,
-  );
+  const packagesPath = `${outputPath}/chrome-mv3.packages.json`;
+  const built = (await stat(manifestPath)).mtimeMs;
+  for (const file of [zipPath, packagesPath])
+    assert(
+      (await stat(file)).mtimeMs >= built,
+      `${file} is older than the build; run mise run //apps/extension:zip`,
+    );
   const packages = lockedPackages(
     parseBunLock(await readFile("bun.lock", "utf8")),
-    JSON.parse(await readFile(`${outputPath}/chrome-mv3.packages.json`, "utf8")),
+    JSON.parse(await readFile(packagesPath, "utf8")),
   );
   assert(
     packages.some(({ name, version: pinned }) => name === sdk.package && pinned === sdk.version),
@@ -203,11 +206,11 @@ export async function pack({ fetcher = fetch, env = process.env } = {}) {
     "archive",
     "--format=tar.gz",
     `--output=${releasePath}/${sourceName}`,
-    `--prefix=${root}corresponding-source/npm/`,
+    `--prefix=${root}third-party-source/npm/`,
     ...[...index.map(({ file }) => file), "index.json"].map(
       (file) => `--add-file=${stagingPath}/npm/${file}`,
     ),
-    `--prefix=${root}corresponding-source/`,
+    `--prefix=${root}third-party-source/`,
     `--add-file=${stagingPath}/${sdkName}`,
     `--add-file=${stagingPath}/README.md`,
     `--prefix=${root}`,

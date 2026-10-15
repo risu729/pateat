@@ -78,10 +78,10 @@ source beside its ZIP on the same draft GitHub Release:
   tool and dependency lockfiles (`mise.lock`, `bun.lock`), configuration, interfaces,
   `LICENSING.md`, `LICENSE-GPL-3.0.txt` and the notice templates. It also holds the
   service code, which the gate allows but does not require.
-- SDK source: `corresponding-source/bitwarden-sdk-internal-<commit>.tar.gz`, upstream's
+- SDK source: `third-party-source/bitwarden-sdk-internal-<commit>.tar.gz`, upstream's
   archive at the commit the installed package's `VERSION` names, copied into the release
   rather than linked, so its availability does not depend on upstream.
-- Dependency source: `corresponding-source/npm/` holds the registry tarball of every
+- Dependency source: `third-party-source/npm/` holds the registry tarball of every
   third-party package the production build recorded as bundled (from its module graph
   and the license banners its stylesheets keep), each matching its `bun.lock`
   integrity, including the compiled `@bitwarden/sdk-internal` package and WXT's own
@@ -103,4 +103,7 @@ owner's confirmation):
 - The SDK's own Rust dependencies: the SDK archive has their `Cargo.lock`, but the
   crates are not vendored. Vendoring them would need a Rust toolchain, which `mise.toml`
   does not pin.
+- Code the bundler adds itself (the Rolldown runtime, Vite's preload helper and
+  WXT's virtual entry modules) is not recorded as a package; Claude treats it like the
+  unmodified build tools that the gate lets the archive leave out.
 - How long the published release must stay, under the chosen GPL distribution method.
