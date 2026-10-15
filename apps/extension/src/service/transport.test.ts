@@ -564,8 +564,11 @@ describe("recipe upload (ADR 0039)", () => {
   it.each([
     [respond(409, { error: "recipe_conflict", current: null }), { kind: "conflict" }],
     [respond(409, { error: "recipe_limit" }), { kind: "limit" }],
-    [respond(409, { error: "other" }), { kind: "failed", error: "unexpected-response" }],
+    [respond(409, { error: "other" }), { kind: "refused" }],
     [respond(400, { error: "bad_request" }), { kind: "refused" }],
+    [respond(405, { error: "method_not_allowed" }), { kind: "refused" }],
+    [respond(413, { error: "payload_too_large" }), { kind: "refused" }],
+    [respond(401, { error: "other" }), { kind: "failed", error: "unexpected-response" }],
     [respond(401, { error: "device_revoked" }), { kind: "rejected" }],
     [respond(429, { error: "rate_limited" }), { kind: "failed", error: "rate-limited" }],
     [respond(500, { error: "internal" }), { kind: "failed", error: "unexpected-response" }],

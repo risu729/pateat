@@ -127,7 +127,11 @@ async function prepare(browser: VaultBrowser) {
     "Imported 1 new recipe and 0 newer revisions.",
   );
   await expect(options.locator("#recipe-list")).toContainText(`${recipeId} · revision 3`);
-  expect(await stored(browser.background, localKey)).toEqual({ version: 1, recipes: [recipe] });
+  // The stored copy is the parsed recipe, with the schema's defaults filled in.
+  expect(await stored(browser.background, localKey)).toMatchObject({
+    version: 1,
+    recipes: [recipe],
+  });
   return { options, revision: saved.snapshot.revision };
 }
 

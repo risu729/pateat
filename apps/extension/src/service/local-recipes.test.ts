@@ -204,6 +204,10 @@ describe("recipes kept without a service", () => {
       connection: CONNECTION,
       synced: [recipe("s", 4)],
     });
+    const rejected = setup({ connection: { ...CONNECTION, rejected: true }, synced: [] });
+    expect(await rejected.send({ type: "recipes.get" })).toMatchObject({
+      state: { source: "service", rejected: true },
+    });
     expect(await paired.send({ type: "recipes.export" })).toMatchObject({
       ok: true,
       state: {
@@ -321,7 +325,7 @@ describe("uploading kept recipes after pairing", () => {
     expect(stored()?.recipes).toEqual([recipe("a"), recipe("b")]);
   });
 
-  it("stops when the device is disconnected meanwhile", async () => {
+  it("stops and forgets nothing when the device is disconnected meanwhile", async () => {
     let stale = false;
     const { local, transport, stored } = setup({
       stored: { version: 1, recipes: [recipe("a"), recipe("b")] },
@@ -332,7 +336,19 @@ describe("uploading kept recipes after pairing", () => {
     });
     expect(await local.upload(CONNECTION, () => stale)).toBe("done");
     expect(transport.writeRecipe).toHaveBeenCalledTimes(1);
-    expect(stored()?.recipes).toEqual([recipe("b")]);
+    expect(stored()?.recipes).toEqual([recipe("a"), recipe("b")]);
+  });
+
+  it("keeps a recipe imported under an uploaded ID while the upload ran", async () => {
+    const { local, transport, stored, send } = setup({
+      stored: { version: 1, recipes: [recipe("a"), recipe("b")] },
+    });
+    transport.writeRecipe.mockImplementationOnce(async () => {
+      await send({ type: "recipes.import", file: file(recipe("a", 2)) });
+      return { kind: "written" };
+    });
+    await local.upload(CONNECTION, () => false);
+    expect(stored()?.recipes).toEqual([recipe("a", 2)]);
   });
 
   it("does nothing without kept recipes or with an unreadable copy", async () => {

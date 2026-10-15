@@ -63,7 +63,10 @@ export type RecipeWriteResult =
   | { kind: "conflict" }
   /** The owner already has as many active recipes as the service keeps. */
   | { kind: "limit" }
-  /** The service refused the recipe itself (`400`). */
+  /**
+   * The service refused this recipe for good, such as a malformed (`400`), oversized
+   * (`413`) or reserved ID (`405`) write; another recipe may still be accepted.
+   */
   | { kind: "refused" }
   | { kind: "rejected" }
   | { kind: "failed"; error: TransportFailure };
@@ -379,11 +382,12 @@ export function createServiceTransport(
         const code = errorCode(response.body);
         if (code === "recipe_conflict") return { kind: "conflict" };
         if (code === "recipe_limit") return { kind: "limit" };
-        return { kind: "failed", error: "unexpected-response" };
       }
-      if (response.status === 400) return { kind: "refused" };
       if (rejected(response)) return { kind: "rejected" };
       if (response.status === 429) return { kind: "failed", error: "rate-limited" };
+      // Any other client error is about this recipe, so the upload goes on with the next.
+      if (response.status >= 400 && response.status < 500 && response.status !== 401)
+        return { kind: "refused" };
       return { kind: "failed", error: "unexpected-response" };
     },
     async settings(origin, credential) {

@@ -73,6 +73,8 @@ export const localRecipeStateSchema = v.strictObject({
   waiting: v.number(),
   /** The recipes kept here cannot be read; clearing them is the way out. */
   unreadable: v.optional(v.literal(true)),
+  /** The paired service no longer accepts this device, so nothing syncs or uploads. */
+  rejected: v.optional(v.literal(true)),
 });
 export type LocalRecipeState = v.InferOutput<typeof localRecipeStateSchema>;
 
@@ -196,6 +198,7 @@ export function createLocalRecipes(options: {
         recipes: synced.map(summary),
         waiting: kept?.length ?? 0,
         ...unreadable,
+        ...(connection.rejected ? { rejected: true as const } : {}),
       };
     }
     return kept
@@ -300,15 +303,16 @@ export function createLocalRecipes(options: {
     /**
      * Uploads the recipes kept here to the newly paired service, each as a new recipe at
      * revision 1, and forgets each one the service now holds: written, or already held
-     * under its ID, whose service copy wins. A recipe the service refused stays here; a
-     * full service or a failed request stops the upload until the next sync.
+     * under its ID, whose service copy wins. A recipe the service refuses stays here; a
+     * full service or a request that failed stops the upload until the next sync, and a
+     * device disconnected meanwhile forgets nothing.
      */
     async upload(
       connection: ServiceConnection,
       stale: () => boolean,
     ): Promise<"done" | "rejected"> {
       const kept = await load().catch(() => []);
-      const settled = new Set<string>();
+      const settled = new Map<string, StoredLoginRecipe>();
       let outcome: "done" | "rejected" = "done";
       for (const recipe of kept) {
         if (stale()) break;
@@ -324,16 +328,24 @@ export function createLocalRecipes(options: {
             recipe: withRevision(recipe, 1),
           },
         );
-        if (result.kind === "written" || result.kind === "conflict") settled.add(recipe.id);
+        if (result.kind === "written" || result.kind === "conflict") settled.set(recipe.id, recipe);
         else if (result.kind === "rejected") {
           outcome = "rejected";
           break;
         } else if (result.kind !== "refused") break;
       }
-      if (settled.size > 0)
-        await enqueue(async () =>
-          save((await load()).filter((recipe) => !settled.has(recipe.id))),
-        ).catch(() => undefined);
+      // A device disconnected meanwhile keeps its recipes; it may import over them again.
+      if (settled.size > 0 && !stale())
+        await enqueue(async () => {
+          if (stale()) return;
+          const held = await load();
+          // Only the copies that were uploaded; one imported since under the ID stays.
+          const left = held.filter((recipe) => {
+            const uploaded = settled.get(recipe.id);
+            return !uploaded || !sameRecipe(uploaded, recipe);
+          });
+          if (left.length !== held.length) await save(left);
+        }).catch(() => undefined);
       return outcome;
     },
   };

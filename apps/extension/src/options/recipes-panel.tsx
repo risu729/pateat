@@ -63,6 +63,8 @@ export function RecipesPanel({
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const acting = useRef(false);
+  // Counts actions, so a poll that an action overtook does not bring back older state.
+  const actions = useRef(0);
   const mounted = useRef(true);
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -76,6 +78,7 @@ export function RecipesPanel({
   async function act(run: () => Promise<void>) {
     if (acting.current) return;
     acting.current = true;
+    actions.current += 1;
     setBusy(true);
     try {
       await run();
@@ -91,8 +94,10 @@ export function RecipesPanel({
     mounted.current = true;
     const load = () => {
       if (acting.current) return;
+      const before = actions.current;
       void client.get().then(
-        (response) => receive(response),
+        (response) =>
+          !acting.current && actions.current === before ? receive(response) : undefined,
         () => undefined,
       );
     };
@@ -149,7 +154,7 @@ export function RecipesPanel({
     lines.push({
       tone: "idle",
       icon: Info,
-      text: "No sync service is paired, so logins use the recipes saved on this device. Pateat creates no recipes without a service: import a recipe file to add them.",
+      text: "No sync service is paired, so logins use the recipes saved on this device. Pateat creates no recipes without a service: import a recipe file to add them. Pairing a service later uploads these recipes to it.",
     });
   if (paired)
     lines.push({
@@ -161,7 +166,11 @@ export function RecipesPanel({
     lines.push({
       tone: "warn",
       icon: CloudUpload,
-      text: `${plural(state.waiting, "recipe")} saved on this device before pairing ${state.waiting === 1 ? "is" : "are"} not on the service yet. The next sync uploads ${state.waiting === 1 ? "it" : "them"}.`,
+      text: `${plural(state.waiting, "recipe")} saved on this device before pairing ${state.waiting === 1 ? "is" : "are"} not on the service yet. ${
+        state.rejected
+          ? "The service no longer accepts this device: pair again under Sync service to upload them."
+          : `${state.waiting === 1 ? "It is" : "They are"} uploaded once the service accepts ${state.waiting === 1 ? "it" : "them"}.`
+      }`,
     });
   if (unreadable)
     lines.push({

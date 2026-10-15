@@ -716,9 +716,10 @@ Once the fixes have settled:
   designs: with no device paired, logins use recipes kept on the device, which the
   settings page imports from and exports to a recipe file; Pateat generates no recipes
   then; the first sync after a pairing uploads them once. Open: the owner's answers to
-  the ADR's questions; the import and a login in installed Chrome without a service
-  (only Playwright Chromium in CI so far); a binding editor for custom slots on a device
-  that never had a service.
+  the design questions on its PR; the import and a login in installed Chrome without a
+  service (the packaged-extension test runs in CI's Playwright Chromium only); a binding
+  editor for custom slots on a device that never had a service; the kept recipes and
+  their uploads on the diagnostics page and in the local log.
 - The finite-choice role with Clef, which the owner chose to implement here. On
   2026-10-11 the owner asked for a larger corpus of real pages before planning it. After
   Clef has been tried, compare it with Jev on the same pages (owner, 2026-10-13 15:11

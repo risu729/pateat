@@ -58,8 +58,10 @@ Each recipe must pass the same schema as a synced recipe, and a file whose recip
 not all pass, or that repeats an ID, imports nothing. An imported recipe whose ID is
 already kept replaces it only at a higher revision, so a login that resumes on a
 revision never finds other content under it; the same revision with other content, or an
-older one, is skipped and counted. The kept recipes share the synced cache's 2 MiB
-limit; an import that would pass it imports nothing. Recipes kept on the device can be
+older one, is skipped and counted. The kept recipes have a 2 MiB limit of their
+own, the same as the synced cache's; an import that would pass it imports nothing. While
+recipes wait for an upload after pairing, both may be held, up to 4 MiB of the
+extension's 10 MB `storage.local` quota. Recipes kept on the device can be
 removed one by one. A recipe file holds recipes only: never bindings, item or account
 IDs or field values. Imported recipes are untrusted input like shared recipes
 ([ADR 0013](0013-service-held-recipes-and-settings.md#fill-restrictions)): the fill
@@ -96,11 +98,16 @@ recipes, with `PUT /v1/recipes/:recipeId` and the device's credential, as a new 
 at revision 1 (`expectedRevision: 0`; a chooser's branches take the same revision). A
 recipe the service accepted, or already holds under that ID (`recipe_conflict`, also a
 revoked one), is removed from the device; the service's copy wins. A recipe the service
-refuses (`400`) stays and is tried again on later syncs. The service's recipe limit, an
-unreachable service or another failure stops the upload, and the rest waits for the next
-full sync; a `401` marks the device rejected. While recipes wait, the **Recipes**
-section says how many, and offers to discard them. Importing and removing recipes on the
-device waits until it is disconnected again; export still works.
+refuses with another client error (such as `400`, `405` for the reserved ID `generate`
+or `413` for a recipe over the service's 128 KiB body limit) stays and is tried again on
+later syncs, and the upload goes on with the next one. The service's recipe limit, a
+`429`, an unreachable service or a server error stops the upload, and the rest waits for
+the next full sync; a `401` marks the device rejected. A device disconnected while the
+upload runs forgets none of its recipes, and a recipe imported under an uploaded ID
+meanwhile stays. While recipes wait, the **Recipes** section says how many, says to pair
+again when the service rejects the device, and offers to discard them. Without a
+pairing, the section says that pairing later uploads the recipes. Importing and removing
+recipes on the device waits until it is disconnected again; export still works.
 
 Disconnecting clears the synced cache as before, so a device that leaves its service has
 no recipes until the user imports a file, such as one exported before disconnecting.

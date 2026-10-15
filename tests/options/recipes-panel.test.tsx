@@ -96,7 +96,7 @@ test("removes a kept recipe and exports the recipes in use", async () => {
   const download = vi.fn();
   await render(<RecipesPanel client={client} download={download} pollMs={60_000} />);
   await page.getByRole("button", { name: "Export recipes" }).click();
-  expect(download).toHaveBeenCalledExactlyOnceWith(exported);
+  await expect.poll(() => download.mock.calls).toEqual([[exported]]);
   await expect.element(page.getByText("Exported 0 recipes.", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Remove recipe bank-signin" }).click();
   expect(client.remove).toHaveBeenCalledExactlyOnceWith("bank-signin");
@@ -119,7 +119,11 @@ test("while paired, shows the synced recipes read-only and the recipes waiting t
     .element(page.getByText("Logins use the recipes synced from the service.", { exact: true }))
     .toBeVisible();
   await expect
-    .element(page.getByText(/2 recipes saved on this device before pairing are not on the service/))
+    .element(
+      page.getByText(
+        /2 recipes saved on this device before pairing are not on the service yet\. They are uploaded once/,
+      ),
+    )
     .toBeVisible();
   await expect
     .element(page.getByText("synced · revision 3 · chooser page", { exact: true }))
@@ -140,6 +144,39 @@ test("offers to remove recipes that cannot be read", async () => {
     .toBeVisible();
   await page.getByRole("button", { name: "Remove all saved recipes" }).click();
   expect(client.clear).toHaveBeenCalledOnce();
+  await expect
+    .element(page.getByText("No recipes are saved on this device.", { exact: true }))
+    .toBeVisible();
+});
+
+test("says to pair again when the service no longer accepts the device", async () => {
+  const client = mockClient({ source: "service", recipes: [], waiting: 1, rejected: true });
+  await render(<RecipesPanel client={client} pollMs={60_000} />);
+  await expect
+    .element(
+      page.getByText(
+        /1 recipe saved on this device before pairing is not on the service yet\. The service no longer accepts this device/,
+      ),
+    )
+    .toBeVisible();
+});
+
+test("ignores a poll that an action overtook", async () => {
+  const client = mockClient(deviceState(["bank-signin"]));
+  const polls: ((response: LocalRecipeResponse) => void)[] = [];
+  client.remove.mockResolvedValue(ok(deviceState()));
+  await render(<RecipesPanel client={client} pollMs={50} />);
+  await expect.element(page.getByText(SITE, { exact: true })).toBeVisible();
+  client.get.mockImplementation(() => new Promise((resolve) => polls.push(resolve)));
+  await expect.poll(() => polls.length).toBeGreaterThan(0);
+  // Only the polls sent before the removal answer, with the state before it.
+  const before = [...polls];
+  await page.getByRole("button", { name: "Remove recipe bank-signin" }).click();
+  await expect
+    .element(page.getByText("No recipes are saved on this device.", { exact: true }))
+    .toBeVisible();
+  for (const answer of before) answer(ok(deviceState(["bank-signin"])));
+  await new Promise((resolve) => setTimeout(resolve, 20));
   await expect
     .element(page.getByText("No recipes are saved on this device.", { exact: true }))
     .toBeVisible();
