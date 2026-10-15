@@ -60,6 +60,7 @@ import {
   type LoginHandler,
   type LoginItemFacts,
   type LoginObservation,
+  type PageKind,
   type LoginOperation,
   isLoginRouteRecipe,
   chooserClickBranch,
@@ -757,6 +758,12 @@ export interface LoginRecipes {
   ): Promise<LoginChooserRecipe | undefined>;
   /** The origin's entry recipes (ADR 0031): a start path and the link pressed there. */
   entries(origin: string): Promise<LoginEntryRecipe[]>;
+  /**
+   * The start paths of the origin's recipes generated as `confirm` or `unclear` (ADR
+   * 0035), which `recipe` and `starts` leave out: such a page is never logged in to,
+   * never counts as a logout and is not sent for generation again.
+   */
+  confirms?(origin: string): Promise<string[]>;
 }
 export const noLoginRecipes: LoginRecipes = {
   recipe: async () => undefined,
@@ -806,9 +813,16 @@ export type EntryGenerationOutcome =
   | { outcome: "recipe"; recipe: LoginEntryRecipe }
   | Exclude<GenerationOutcome, { outcome: "recipe" }>;
 
-/** An outcome's fields for the local log: never the recipe itself or `retry`. */
+/**
+ * An outcome's fields for the local log: never the recipe itself or `retry`, but a route
+ * recipe's page kind (ADR 0035).
+ */
 function outcomeFields(answer: GenerationOutcome | EntryGenerationOutcome) {
-  if (answer.outcome === "recipe") return { outcome: answer.outcome };
+  if (answer.outcome === "recipe")
+    return {
+      outcome: answer.outcome,
+      ...("pageKind" in answer.recipe ? { pageKind: answer.recipe.pageKind } : {}),
+    };
   if (!("check" in answer)) return { outcome: answer.outcome, reason: answer.reason };
   const { outcome, reason, check, detail, path } = answer;
   return {
@@ -1344,6 +1358,11 @@ export type LoginReport = (
        * site's sign-in entry (ADR 0031).
        */
       page?: "accounts" | "entry";
+      /**
+       * A returned route recipe's page kind (ADR 0035): the page's own for a first page, the
+       * first page's for a continuation.
+       */
+      pageKind?: PageKind;
     }
   | {
       /**
@@ -2241,13 +2260,16 @@ export function createLoginRuntime(
     // The popup shows its page section only on HTTPS pages.
     if (page?.protocol !== "https:") return { ok: false, reason: "no-page" };
     const { origin: pageOrigin, pathname: path } = page;
-    const [starts, entries] = await Promise.all([
+    const [starts, entries, confirms] = await Promise.all([
       recipes.starts(pageOrigin).catch(() => []),
       recipes.entries(pageOrigin).catch(() => []),
+      confirmPaths(pageOrigin).then((paths) => paths ?? []),
     ]);
     const paths = [
       ...starts.map((start) => start.path),
       ...entries.map((entry) => entry.entry.path),
+      // A page generated as `confirm` has a recipe too, which never runs (ADR 0035).
+      ...confirms,
     ];
     const status = badge.status(tabId);
     const known = status?.origin === pageOrigin ? status : undefined;
@@ -5795,6 +5817,17 @@ export function createLoginRuntime(
     return [...unique.values()].slice(0, 32);
   }
   /**
+   * The start paths of the origin's recipes generated as `confirm` or `unclear` (ADR 0035),
+   * or `undefined` when the cache could not tell.
+   */
+  async function confirmPaths(documentOrigin: string): Promise<string[] | undefined> {
+    try {
+      return (await recipes.confirms?.(documentOrigin)) ?? [];
+    } catch {
+      return undefined;
+    }
+  }
+  /**
    * Whether this document may be sent for generation once it shows a sign-in input: a
    * top-level page on whose path no cached recipe of its origin starts (several starting
    * there count too), and whose path was not sent within the retry window (ADR 0016). An
@@ -5809,6 +5842,9 @@ export function createLoginRuntime(
     const entries = await recipes.entries(live.document.origin).catch(() => undefined);
     if (entries === undefined || entries.some((entry) => entry.entry.path === live.path))
       return undefined;
+    // A page generated as `confirm` or `unclear` already has its recipe (ADR 0035).
+    const confirms = await confirmPaths(live.document.origin);
+    if (confirms === undefined || confirms.includes(live.path)) return undefined;
     return generation.available(live.document.origin, live.path).catch(() => undefined);
   }
   /**
@@ -6860,6 +6896,14 @@ export function createLoginRuntime(
         ...(document.frameId === 0 ? {} : { frame: true as const }),
       });
     };
+    /**
+     * Whether this page's path is where a recipe generated as `confirm` or `unclear` starts
+     * (ADR 0035): its sign-in input is logged as `confirm-unsupported`, whatever else holds
+     * the page.
+     */
+    const confirmPage = async () =>
+      !(probeMode && document.origin === origin) &&
+      (await confirmPaths(document.origin))?.includes(live.path) === true;
     // The page after a sign-in entry press is checked before anything else runs on it, and
     // one that blocked the entry is neither sent for generation nor logged in to (ADR 0031).
     const refusedKey = documentKey(document);
@@ -7215,9 +7259,10 @@ export function createLoginRuntime(
         recorded.document.documentId === document.documentId;
       if (start?.path !== live.path && !rejectedHere) {
         const starts = await startsFor(document.origin);
+        const confirm = await confirmPage();
         if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
         // Not a recipe's first step on its path, so not taken as a logout (ADR 0021 D).
-        notStarted("logged-in");
+        notStarted(confirm ? "confirm-unsupported" : "logged-in");
         return { ok: false, reason: "logged-in", starts };
       }
       // It shows again after a finished login: a logout. Only this tab's record for this
@@ -7274,8 +7319,9 @@ export function createLoginRuntime(
       // 2026-10-12); until then the page watches for it.
       if (start?.path !== live.path) {
         const starts = await startsFor(document.origin);
+        const confirm = await confirmPage();
         if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
-        notStarted("stopped-login");
+        notStarted(confirm ? "confirm-unsupported" : "stopped-login");
         return { ok: false, reason: "login-stopped", starts };
       }
       const released = recorded;
@@ -7500,10 +7546,16 @@ export function createLoginRuntime(
             ? "after-sign-in"
             : unoffered.why,
         );
+      // A page generated as `confirm` or `unclear` is never logged in to, and filling one is
+      // not built yet (ADR 0035): it only watches, and its sign-in input is logged.
+      const confirm = !recipe && (await confirmPage());
+      if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
       // No recipe of the origin and no login in the tab: ordinary browsing (ADR 0019).
-      if (!recipe && !starts.length && !offer) return refuse("recipe-not-found", undefined, true);
+      if (!recipe && !starts.length && !offer && !confirm)
+        return refuse("recipe-not-found", undefined, true);
       // Only an origin with a recipe: elsewhere every sign-in page would be logged.
-      if (starts.length) notStarted(recipe ? "first-step-missing" : "no-recipe-on-path");
+      if (confirm) notStarted("confirm-unsupported");
+      else if (starts.length) notStarted(recipe ? "first-step-missing" : "no-recipe-on-path");
       live.state = "watching";
       delete live.reason;
       await publish(live);

@@ -406,6 +406,7 @@ export function createDiagnosticsLog(options: {
             baseRevision: report.baseRevision,
             takenOver: report.takenOver,
             page: report.page,
+            pageKind: report.pageKind,
           },
           // A login page without a matching vault item is common and not a problem, nor is
           // a page that is no list of accounts or any page without the service; a request

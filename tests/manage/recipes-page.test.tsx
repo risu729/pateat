@@ -16,6 +16,7 @@ function recipe(id: string, revision: number): LoginRecipe {
     id,
     revision,
     origin: "https://bank.example",
+    pageKind: "sign-in",
     slots: ["username", "password"],
     steps: [
       {
@@ -386,6 +387,23 @@ test("says when a generated recipe has no signed-in marker yet", async () => {
     .toMatchTextContent(
       "Signed-in markersNot learned yet; set from the page after the first sign-in",
     );
+});
+
+test("says what kind of page a recipe starts on (ADR 0035)", async () => {
+  const kinds = [
+    ["sign-in", "Page kindSign-in"],
+    ["confirm", "Page kindVerification while signed in; devices never log in here"],
+    ["unclear", "Page kindUnclear, handled as a verification; devices never log in here"],
+  ] as const;
+  const entries = kinds.map(([pageKind], index) => {
+    const entry = active(`kind-${index}`);
+    entry.change.recipe.pageKind = pageKind;
+    return entry;
+  });
+  await mount(mockClient({ version: 1, recipes: entries }));
+  for (const [index, [, text]] of kinds.entries())
+    // oxlint-disable-next-line no-await-in-loop -- one recipe at a time
+    await expect.element(recipeItem(`kind-${index}`)).toMatchTextContent(text);
 });
 
 test("says when there are no recipes", async () => {

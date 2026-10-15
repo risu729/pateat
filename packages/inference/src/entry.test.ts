@@ -85,6 +85,8 @@ describe("entry generation (ADR 0031)", () => {
       JSON.stringify({
         result: {
           decision: "plan",
+          pageKind: "sign-in",
+          irreversible: "no",
           fields: [{ slot: "username", candidate: "c2" }],
           action: { candidate: "Search", purpose: "submit" },
         },

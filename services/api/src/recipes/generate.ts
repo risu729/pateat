@@ -357,8 +357,12 @@ export async function generateRecipe(
           ...(value.other ? { other: value.other.candidate } : {}),
           ...(value.continue ? { continue: value.continue.candidate } : {}),
         };
-      const { fields, action, accountSwitch, alternatives, passkeyButton } = value;
+      const { pageKind, irreversible, fields, action, accountSwitch, alternatives, passkeyButton } =
+        value;
       return {
+        // The answered kind and the evaluation answer, which no recipe keeps (ADR 0035).
+        pageKind,
+        irreversible,
         fields,
         action,
         ...(accountSwitch ? { accountSwitch } : {}),
@@ -470,6 +474,9 @@ export async function generateRecipe(
     ...(alternatives.length ? { alternatives: alternatives.map((entry) => entry.steps) } : {}),
     ...(value.switchTarget ? { accountSwitch: value.switchTarget } : {}),
     ...(passkey ? { passkey } : {}),
+    // The first page's kind (ADR 0035): a continuation keeps the recipe's own, and every
+    // page of a chooser branch follows a list of accounts, a sign-in page.
+    pageKind: chooser ? "sign-in" : value.pageKind,
   });
   // A page that fills one of the recipe's slots again, as its identifier form shown again
   // where it posted, is refused before anything is stored (ADR 0018).

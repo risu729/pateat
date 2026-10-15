@@ -28,6 +28,7 @@ const recipe = {
   id: recipeId,
   revision: 1,
   origin: site,
+  pageKind: "sign-in",
   slots: ["branch", "account", "password"],
   steps: [
     {

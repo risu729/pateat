@@ -2,7 +2,9 @@ import {
   isEntryObservation,
   loginObservationSchema,
   loginStepSchema,
+  pageKindSchema,
   semanticSlotsSchema,
+  type PageKind,
 } from "@pateat/contracts";
 import { toJsonSchema } from "@valibot/to-json-schema";
 import type { LanguageModel } from "ai";
@@ -48,6 +50,10 @@ const planAction = v.strictObject({
   purpose: v.picklist(["advance", "submit"]),
 });
 
+/** Whether submitting a page also performs an action that cannot be undone (ADR 0035). */
+export const irreversibleSchema = v.picklist(["yes", "no", "unclear"]);
+export type Irreversible = v.InferOutput<typeof irreversibleSchema>;
+
 /** The only structure the generation role may return. Candidate IDs are resolved locally. */
 export const generatedPlanSchema = v.strictObject({
   result: v.variant("decision", [
@@ -62,6 +68,22 @@ export const generatedPlanSchema = v.strictObject({
     }),
     v.strictObject({
       decision: v.literal("plan"),
+      // The page's kind (ADR 0035), stored on the recipe; only `sign-in` ever runs.
+      pageKind: described(
+        pageKindSchema,
+        "sign-in: a login or a page that continues one, such as a second factor, a value " +
+          "asked during sign-in, or signing in again after a session expired. confirm: a " +
+          "user already signed in is asked to verify before an action, such as a secret " +
+          "question, the password asked again or a transaction password. unclear: you " +
+          "cannot tell.",
+      ),
+      // For evaluation only (ADR 0035): kept in the request log, never on the recipe.
+      irreversible: described(
+        irreversibleSchema,
+        "Whether submitting this page also performs an action that cannot be undone, such " +
+          "as a transfer, an order, deleting the account or changing its email, password " +
+          "or two-step verification.",
+      ),
       fields: planFields,
       action: planAction,
       accountSwitch: v.optional(
@@ -190,6 +212,15 @@ export const entryGenerationPromptVersion = promptVersionOf(
   outputSchemaJson,
 );
 
+/**
+ * A validated page plan with the page's kind and whether its submission cannot be undone,
+ * as the model answered them (ADR 0035).
+ */
+export type GeneratedPage = ValidatedGeneratedPage & {
+  pageKind: PageKind;
+  irreversible: Irreversible;
+};
+
 export type GenerationRequest = {
   observation: unknown;
   slots: unknown;
@@ -255,7 +286,7 @@ export function createRecipeGenerator(config: GenerationConfig) {
 
   return async function generate(
     request: GenerationRequest,
-  ): Promise<InferenceOutcome<ValidatedGeneratedPage | ValidatedAccountList>> {
+  ): Promise<InferenceOutcome<GeneratedPage | ValidatedAccountList>> {
     const observation = v.safeParse(loginObservationSchema, request.observation);
     const slots = v.safeParse(semanticSlotsSchema, request.slots);
     const repair =
@@ -279,7 +310,7 @@ export function createRecipeGenerator(config: GenerationConfig) {
         : generationInstructions,
       prompt,
       abortSignal: request.abortSignal,
-      interpret: (output): Interpreted<ValidatedGeneratedPage | ValidatedAccountList> => {
+      interpret: (output): Interpreted<GeneratedPage | ValidatedAccountList> => {
         const draft = output.result;
         if (draft.decision === "abstain") return { status: "abstained", reason: draft.reason };
         // A sign-in entry answers only a request without slots (ADR 0031).
@@ -307,23 +338,31 @@ export function createRecipeGenerator(config: GenerationConfig) {
                 },
               };
         }
+        const { pageKind, irreversible } = draft;
+        const redacted = () => ({
+          result: {
+            pageKind,
+            irreversible,
+            ...redactGeneratedPage(observation.output, slots.output, draft),
+          },
+        });
         // A page that lists accounts has no form to plan (ADR 0028).
         if (observation.output.accounts)
           return {
             status: "failed",
             error: "invalid-output",
             detail: "unexpected-plan",
-            output: { result: redactGeneratedPage(observation.output, slots.output, draft) },
+            output: redacted(),
           };
         // An invalid alternative refuses the whole plan (fail closed).
         const validated = validateGeneratedPage(observation.output, slots.output, draft);
         return validated.ok
-          ? { status: "ok", value: validated.plan }
+          ? { status: "ok", value: { ...validated.plan, pageKind, irreversible } }
           : {
               status: "failed",
               error: "invalid-output",
               detail: validated.reason,
-              output: { result: redactGeneratedPage(observation.output, slots.output, draft) },
+              output: redacted(),
             };
       },
     });

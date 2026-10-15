@@ -57,6 +57,7 @@ function recipe(): LoginRecipe {
     id: "bank-login",
     revision: 1,
     origin: "https://bank.example",
+    pageKind: "sign-in",
     slots: ["branch", "account", "password"],
     steps: [
       {
@@ -962,6 +963,7 @@ describe("second-factor page handlers (ADR 0027)", () => {
         },
       ],
       ["a changed rejection", { rejection: { by: "id", value: "error" } }],
+      ["a changed page kind", { pageKind: "confirm" }],
       [
         "a passkey route",
         { passkey: { path: "/identity", target: { by: "text", value: "Use a passkey" } } },
@@ -1367,6 +1369,7 @@ describe("password route variants (ADR 0027)", () => {
     id: "bank-variants",
     revision: 1,
     origin: "https://bank.example",
+    pageKind: "sign-in",
     slots: ["branch", "account", "password"],
     steps: [fill(["branch", "account", "password"]), submit()],
     alternatives: [variant(["contract", "password"])],
@@ -2261,6 +2264,8 @@ describe("chooser recipes (ADR 0028)", () => {
     const stored = v.parse(loginChooserRecipeSchema, chooser());
     // Without a branch yet, the login clicks and continues on the next page.
     expect(chooserRoute(stored, "entry")).toEqual({
+      // A list of accounts is a sign-in page (ADR 0035).
+      pageKind: "sign-in",
       version: 1,
       id: stored.id,
       revision: stored.revision,
@@ -2324,6 +2329,7 @@ describe("the stop before a missing password (ADR 0036)", () => {
       id: "synthetic-email-first",
       revision: 1,
       origin: "https://login.example",
+      pageKind: "sign-in",
       slots: ["username", "password"],
       steps: [
         fill(["username"], "/signin"),

@@ -28,6 +28,7 @@ const recipe = {
   id: "gen-1",
   revision: 2,
   origin: "https://shop.example.test",
+  pageKind: "sign-in",
   slots: ["email"],
   steps: [
     {

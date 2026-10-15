@@ -300,6 +300,8 @@ export const LOG_EVENTS = {
       takenOver: "flag",
       // `accounts` for a list of accounts (ADR 0028), `entry` for a sign-in entry (ADR 0031).
       page: "code",
+      // A returned route recipe's page kind (ADR 0035).
+      pageKind: "code",
       url: "url",
     },
   },

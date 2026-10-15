@@ -214,7 +214,14 @@ the path ending before it), or `{ check: "plan", reason }` with the plan check's
   locator names a passkey or security key, not named like a registration and not used by
   any set or the account switch is stored as the recipe's `passkey` route, any other is
   dropped without failing the call, and a continuation's is ignored. The request log
-  records the kept button.
+  records the kept button. Every plan also answers the page's kind (`pageKind`:
+  `sign-in`, `confirm` or `unclear`) and, for evaluation, whether submitting the page
+  cannot be undone (`irreversible`: `yes`, `no` or `unclear`)
+  ([ADR 0035](../../docs/adr/0035-page-kinds-per-site.md)). A first page's kind is
+  stored on the recipe as `pageKind`, a continuation keeps the recipe's own, and every
+  page of a chooser branch is stored as `sign-in`; `irreversible` is never stored on a
+  recipe. The request log records both answers with the plan, also for a plan the checks
+  refused.
 - `POST /v1/recipes/generate` also takes `{ version: 1, observation }` without `slots`:
   an entry request ([ADR 0031](../../docs/adr/0031-sign-in-entry-pages.md)) for a page
   without a login form, whose observation has no fill candidate and no `accounts`, and
@@ -379,6 +386,12 @@ real values, as `migrations/0007_device_last_used.sql` does. The tests start fro
 empty database, so seed referencing rows before trying such a migration. A new
 `devices` column the hosted smoke checks must set goes into `seedOwner()` in
 `smoke/hosted.ts` as well.
+
+A migration that only changes data, such as
+`migrations/0016_discard_recipes_without_page_kinds.sql`, starts from
+`mise run //services/api:generate:migrations -- --custom --name <name>`.
+`test/migrations.test.ts` seeds rows as an earlier build wrote them and runs the
+migration's statements again.
 
 `cloudflare.config.ts` is the production configuration and `worker-runtime.ts` holds
 the compatibility settings it shares with Vitest. The credential-free build and

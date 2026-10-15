@@ -31,6 +31,7 @@ function recipe(id: string, firstPath: string, revision = 1, origin = SITE): Log
     id,
     revision,
     origin,
+    pageKind: "sign-in",
     slots: ["username", "password"],
     steps: [
       { kind: "fill", path: firstPath, fields: [{ slot: "username", target: target("user") }] },
@@ -705,6 +706,20 @@ describe("cached recipe lookup", () => {
       stored: { ...stored, recipes: [signin, recipe("bank-alt", "/login")] },
     });
     expect(await sync.recipes.recipe(SITE, "/login")).toBeUndefined();
+  });
+
+  it("caches a confirm or unclear recipe (ADR 0035) but never starts or resumes it", async () => {
+    const confirm = { ...recipe("bank-confirm", "/transfer"), pageKind: "confirm" as const };
+    const unclear = { ...recipe("bank-unclear", "/reverify"), pageKind: "unclear" as const };
+    const kept = { ...signin, pageKind: "sign-in" as const };
+    const { sync } = setup({ stored: { ...stored, recipes: [kept, confirm, unclear] } });
+    expect(await sync.recipes.recipe(SITE, "/login")).toEqual(kept);
+    expect(await sync.recipes.recipe(SITE, "/transfer")).toBeUndefined();
+    expect(await sync.recipes.recipe(SITE, "/transfer", "bank-confirm")).toBeUndefined();
+    expect(await sync.recipes.recipe(SITE, "/reverify", "bank-unclear")).toBeUndefined();
+    expect(await sync.recipes.starts(SITE)).toEqual([{ path: "/login", steps: [kept.steps[0]] }]);
+    expect(await sync.recipes.confirms?.(SITE)).toEqual(["/transfer", "/reverify"]);
+    expect(await sync.recipes.confirms?.("https://unknown.example")).toEqual([]);
   });
 
   it("caches an entry recipe (ADR 0031) but never starts, resumes or lists it", async () => {
