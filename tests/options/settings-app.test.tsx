@@ -172,7 +172,7 @@ test("an unknown save outcome is never retried and requires a successful explici
   await control("reload-settings").click();
   await expect
     .poll(() => control("settings-status").element().textContent)
-    .toMatch(/unable|failed|unavailable/i);
+    .toMatch(/could not/i);
   await expect.element(control("site-list")).toMatchTextContent("draft.example");
   await addSite("third.example");
   expect(client.saveSettings).toHaveBeenCalledTimes(1);
@@ -480,7 +480,7 @@ test("a default kept under a rule is listed once and can be removed", async () =
   expect(
     control("site-list")
       .element()
-      .textContent?.match(/Default for https:\/\/bank\.example kept/g),
+      .textContent?.match(/default for https:\/\/bank\.example is kept/g),
   ).toHaveLength(1);
   await remove.click();
   await expect.element(control("settings-status")).toMatchTextContent("saved (revision 2).");

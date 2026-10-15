@@ -168,7 +168,7 @@ test("the site default is chosen from the items that match the tab's origin, the
     .element(page.getByRole("radio", { name: "Demo team account, Demo work vault, default" }))
     .toBeChecked();
   await expect
-    .element(page.getByText("Demo team account is now the default for this site"))
+    .element(page.getByText("Demo team account is now the default for this site."))
     .toBeVisible();
   expect(page.getByText("No default account.", { exact: false }).query()).toBeNull();
   expect(client.saveSettings).toHaveBeenLastCalledWith(
@@ -190,7 +190,7 @@ test("the site default is chosen from the items that match the tab's origin, the
 
   await userEvent.click(page.getByRole("button", { name: "Remove default" }));
   await expect
-    .element(page.getByText("The default account for this site was removed"))
+    .element(page.getByText("The default account for this site was removed."))
     .toBeVisible();
   await expect
     .element(page.getByRole("button", { name: "Remove default" }))
@@ -219,7 +219,7 @@ test("setting and removing the default keeps the listed accounts", async () => {
   await userEvent.click(page.getByText("Demo team account in Demo work vault"));
   await userEvent.click(page.getByRole("button", { name: "Use as default" }));
   await expect
-    .element(page.getByText("primary@bank.example is now the default for this site"))
+    .element(page.getByText("primary@bank.example is now the default for this site."))
     .toBeVisible();
   await expect.element(accounts).toHaveLength(3);
   // The new default stays a row of the list, named by its username, not a card with the
@@ -234,7 +234,7 @@ test("setting and removing the default keeps the listed accounts", async () => {
   expect(document.querySelector("#popup-default")).toBeNull();
   await userEvent.click(page.getByRole("button", { name: "Remove default" }));
   await expect
-    .element(page.getByText("The default account for this site was removed"))
+    .element(page.getByText("The default account for this site was removed."))
     .toBeVisible();
   await expect.element(accounts).toHaveLength(3);
   expect(page.getByText("Finding the vault items", { exact: false }).query()).toBeNull();
@@ -276,7 +276,7 @@ test("the switch excludes the site by its exact hostname, and turns it back on",
   await expect.element(toggle).toBeChecked();
   await expect.element(toggle).toBeEnabled();
   await userEvent.click(toggle);
-  await expect.element(page.getByText("login.bank.example is now excluded")).toBeVisible();
+  await expect.element(page.getByText("login.bank.example is now excluded.")).toBeVisible();
   await expect.element(toggle).not.toBeChecked();
   // Saving does not disable the switch, so it keeps keyboard focus.
   expect(document.activeElement).toBe(toggle.element());
@@ -293,7 +293,7 @@ test("the switch excludes the site by its exact hostname, and turns it back on",
   await expect.element(toggle).toBeEnabled();
   await expect.element(toggle).not.toHaveAttribute("aria-describedby");
   await userEvent.click(toggle);
-  await expect.element(page.getByText("login.bank.example is no longer excluded")).toBeVisible();
+  await expect.element(page.getByText("login.bank.example is no longer excluded.")).toBeVisible();
   await expect.element(toggle).toBeChecked();
   expect(current().snapshot.settings.excludedSites).toEqual([]);
   await expect.element(page.getByRole("group", { name: "Default account" })).toBeVisible();
@@ -353,7 +353,7 @@ test("a switch change that is not saved returns to the saved state", async () =>
   const toggle = page.getByRole("switch", { name: "Pateat on this site" });
   await expect.element(toggle).toBeEnabled();
   await userEvent.click(toggle);
-  await expect.element(page.getByText("The change could not be saved")).toBeVisible();
+  await expect.element(page.getByText("The change could not be saved.")).toBeVisible();
   await expect.element(toggle).toBeChecked();
   expect(current().snapshot.settings.excludedSites).toEqual([]);
   // A save lost in transit may still have been saved.
@@ -413,7 +413,7 @@ test("the saved default is selected and marked, and an incomplete search is flag
   // The result is announced in the popup's live region.
   await expect
     .element(page.getByRole("status"))
-    .toHaveTextContent("Demo team account is now the default for this site");
+    .toHaveTextContent("Demo team account is now the default for this site.");
   await expect.element(use).toBeDisabled();
 });
 
@@ -508,7 +508,7 @@ test("a search for the site's matches that does not finish ends with the saved d
   await expect
     .element(
       page.getByText(
-        "Finding the vault items that match this site took too long. Wait a moment, then reopen this popup",
+        "Finding the vault items that match this site took too long. Wait a moment, then reopen this popup.",
       ),
     )
     .toBeVisible();
@@ -566,7 +566,7 @@ test("a change saved elsewhere first is reloaded instead of overwritten", async 
   await expect.element(toggle).toBeChecked();
   expect(state.current().snapshot).toMatchObject({ revision: 7, settings: elsewhere });
   await userEvent.click(toggle);
-  await expect.element(page.getByText("bank.example is now excluded")).toBeVisible();
+  await expect.element(page.getByText("bank.example is now excluded.")).toBeVisible();
   await expect.element(toggle).not.toBeChecked();
   expect(state.current().snapshot.settings.excludedSites).toEqual([
     { hostname: "mail.example", includeSubdomains: false },
@@ -732,7 +732,7 @@ test("a site another tab's login holds says so until that tab lets it go", async
   await expect
     .element(
       page.getByText(
-        /so Pateat did not log in here\. Close that tab or wait up to 5 minutes, then choose again\.$/,
+        /so Pateat did not log in here\. Close that tab, or wait up to 5 minutes, then choose again\.$/,
       ),
     )
     .toBeVisible();
@@ -870,13 +870,13 @@ test("while a choice waits, the saved default can still be removed, and one miss
   await expect
     .element(
       page.getByText(
-        "The saved default, Demo secondary account (Demo personal vault), is not one of these accounts",
+        "The saved default, Demo secondary account (Demo personal vault), is not one of these accounts.",
       ),
     )
     .toBeVisible();
   await userEvent.click(page.getByRole("button", { name: "Remove default" }));
   await expect
-    .element(page.getByText("The default account for this site was removed"))
+    .element(page.getByText("The default account for this site was removed."))
     .toBeVisible();
   expect(current().snapshot.settings.siteDefaults).toEqual([]);
   // The choice stays for a pick.

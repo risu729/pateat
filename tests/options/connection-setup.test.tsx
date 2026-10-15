@@ -141,7 +141,7 @@ test.each(["http://vault.example", "https://vault.example/path", "https://user@v
     await page.getByLabelText("Server address", { exact: true }).fill(address);
     await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
     await expect
-      .element(page.getByText(/Self-hosted addresses must be ordinary HTTPS roots/))
+      .element(page.getByText(/A self-hosted server address is an HTTPS address such as/))
       .toBeVisible();
     expect(client.requestProviderPermission).not.toHaveBeenCalled();
     expect(client.begin).not.toHaveBeenCalled();
@@ -843,7 +843,7 @@ test("each connection's row holds its vault access, which waits for saved settin
   await expect.element(use).not.toBeChecked();
   expect(document.getElementById("bitwarden-connections")?.contains(use.element())).toBe(true);
   await expect.element(page.getByText("Unavailable connection", { exact: true })).toBeVisible();
-  await expect.element(page.getByText("gone. Its saved settings are preserved.")).toBeVisible();
+  await expect.element(page.getByText("gone. Its saved settings are kept.")).toBeVisible();
   // There is no separate vault access section.
   await expect.element(page.getByRole("heading", { name: "Vault access" })).not.toBeInTheDocument();
 
