@@ -298,8 +298,21 @@ export const LOG_EVENTS = {
       recipe: "recipe",
       baseRevision: "count",
       takenOver: "flag",
-      // `accounts` for a list of accounts (ADR 0028), `entry` for a sign-in entry (ADR 0031).
+      // `accounts` for a list of accounts (ADR 0028), `entry` for a sign-in entry (ADR 0031),
+      // `repair` for a stale recipe's start page (proposed ADR 0039).
       page: "code",
+      url: "url",
+    },
+  },
+  // A generated recipe's start page that missed its first step (proposed ADR 0039).
+  "recipe.repair": {
+    level: "info",
+    fields: {
+      origin: "origin",
+      recipe: "recipe",
+      recipeRevision: "count",
+      outcome: "code",
+      reason: "code",
       url: "url",
     },
   },

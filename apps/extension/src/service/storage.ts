@@ -1,6 +1,7 @@
 import type { VaultSyncRecord } from "../connections/auto-sync";
 import type { ServiceStorage } from "./runtime";
 import type { GeneratedSlotStorage, GenerationAttemptStorage } from "./generation";
+import type { RepairStorage } from "../login/repair";
 import type { RecipeCacheStorage, RecipeScheduleStorage } from "./recipes";
 import type { SettingsBaseStorage, SettingsHoldStorage } from "./settings-sync";
 import { trustedRecord } from "../storage";
@@ -43,4 +44,9 @@ export function createBrowserGenerationAttemptStorage(): GenerationAttemptStorag
 /** Which vault field each custom slot of a recipe generated here names (ADR 0027). */
 export function createBrowserGeneratedSlotStorage(): GeneratedSlotStorage {
   return trustedRecord("pateat.generated-slots.v1");
+}
+
+/** Which generated recipes' start pages missed their first step (proposed ADR 0039). */
+export function createBrowserRecipeRepairStorage(): RepairStorage {
+  return trustedRecord("pateat.recipe-repairs.v1");
 }

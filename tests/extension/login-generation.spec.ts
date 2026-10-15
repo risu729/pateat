@@ -62,16 +62,21 @@ function syntheticClaude({ abstainOnPassword = false }: { abstainOnPassword?: bo
       if (!found) throw new Error(`No candidate for ${by} ${value}`);
       return found.id;
     };
-    // The `script-link` fixture's login link has no id, so only its text names it.
-    const login = () =>
+    const hasId = (value: string) =>
       prompt.observation.candidates.some(
-        ({ target }) => target.by === "id" && target.value === "login",
-      )
+        ({ target }) => target.by === "id" && target.value === value,
+      );
+    // The `script-link` fixture's login link has no id, so only its text names it; the
+    // `redesign` fixture's button is `continue`.
+    const login = () =>
+      hasId("login")
         ? byTarget("login")
-        : byTarget("Log in", "text");
-    const passwordPage = prompt.observation.candidates.some(
-      ({ target }) => target.by === "id" && target.value === "password",
-    );
+        : hasId("continue")
+          ? byTarget("continue")
+          : byTarget("Log in", "text");
+    // The `redesign` fixture names its password input `passcode`.
+    const passwordField = hasId("password") ? "password" : hasId("passcode") ? "passcode" : "";
+    const passwordPage = passwordField !== "";
     const signedIn = prompt.observation.candidates.some(
       ({ target }) => target.by === "id" && target.value === "sign-out",
     );
@@ -93,7 +98,7 @@ function syntheticClaude({ abstainOnPassword = false }: { abstainOnPassword?: bo
             : passwordPage
               ? {
                   decision: "plan",
-                  fields: [{ slot: "password", candidate: byTarget("password") }],
+                  fields: [{ slot: "password", candidate: byTarget(passwordField) }],
                   action: { candidate: login(), purpose: "submit" },
                 }
               : {
@@ -545,3 +550,102 @@ for (const { name, loginPage } of [
       await fixture.close();
     }
   });
+
+test("a generated recipe whose login page changed is repaired after two loads, not on a maintenance page (proposed ADR 0039)", async () => {
+  // Each page that misses its first step reports after the ten-second step wait.
+  test.setTimeout(180_000);
+  const fixture = await startLoginFixture(0, { password });
+  const claude = syntheticClaude();
+  const service = await startSyncService({ claude: claude.answer });
+  try {
+    await withVaultProfile(
+      async (open, externalRequests) => {
+        const browser = await open();
+        await serveSite(browser.context, fixture);
+        const options = await connect(browser, service);
+        const misses = () =>
+          browser.background.evaluate(async () => {
+            const key = "pateat.recipe-repairs.v1";
+            const stored = await (
+              globalThis as unknown as {
+                chrome: {
+                  storage: { local: { get(key: string): Promise<Record<string, unknown>> } };
+                };
+              }
+            ).chrome.storage.local.get(key);
+            const record = stored[key] as
+              | { recipes: { revision: number; documents: string[] }[] }
+              | undefined;
+            return record?.recipes.map(({ revision, documents }) => ({
+              revision,
+              misses: documents.length,
+            }));
+          });
+
+        // The recipe is generated on the first visit and learns its completion.
+        let page = await browser.context.newPage();
+        await page.goto(`${site}/sign-in?runId=${fixture.createRun()}`);
+        await expect(page.locator("#signed-in")).toBeVisible();
+        await expect.poll(() => claude.prompts.length).toBe(2);
+        await expect
+          .poll(() => send(options, { version: 1, type: "login.probe.status" }))
+          .toMatchObject({ attempts: [{ state: "authenticated", outcome: "authenticated" }] });
+        await page.close();
+
+        // A maintenance page answered 503 on the login page's URL counts for nothing.
+        const maintenance = async () => {
+          const shown = await browser.context.newPage();
+          await shown.goto(`${site}/sign-in?maintenance`);
+          await shown.waitForTimeout(12_000);
+          await shown.close();
+        };
+        await maintenance();
+        await maintenance();
+        expect(await misses()).toBeUndefined();
+        expect(claude.prompts).toHaveLength(2);
+
+        // The redesigned page misses on one load, which is only noted; the second load
+        // sends the start page to be generated again, and the repaired recipe logs in.
+        page = await browser.context.newPage();
+        await page.goto(`${site}/sign-in?redesign`);
+        await expect.poll(misses, { timeout: 20_000 }).toEqual([{ revision: 2, misses: 1 }]);
+        await page.close();
+        expect(claude.prompts).toHaveLength(2);
+        const runId = fixture.createRun();
+        page = await browser.context.newPage();
+        await page.goto(`${site}/sign-in?redesign&runId=${runId}`);
+        await expect(page.locator("#signed-in")).toBeVisible({ timeout: 30_000 });
+        expect(fixture.evidence(runId)).toMatchObject({ posts: 1, allMatched: true });
+        await expect
+          .poll(() => claude.prompts.map((prompt) => [prompt.task, prompt.observation.path]))
+          .toEqual([
+            ["generate", "/sign-in"],
+            ["judge-sign-in", "/account"],
+            ["generate", "/sign-in"],
+            ["judge-sign-in", "/account"],
+          ]);
+        expect(JSON.stringify(claude.prompts)).not.toContain(password);
+        // The repaired revision replaced the stale one, which stays in the recipe's history.
+        const recipes = (await (await service.request("/v1/recipes")).json()) as {
+          changes: { recipe?: { revision: number; steps: unknown[] } }[];
+        };
+        expect(recipes.changes.map((change) => change.recipe)).toMatchObject([
+          {
+            revision: 4,
+            steps: [
+              { kind: "fill", fields: [{ target: { by: "id", value: "passcode" } }] },
+              { kind: "click", target: { by: "id", value: "continue" } },
+            ],
+          },
+        ]);
+        // The repaired recipe's login started, so the misses start over.
+        await expect.poll(misses).toEqual([{ revision: 2, misses: 0 }]);
+        expect([...new Set(externalRequests)].sort()).toEqual(["https://127.0.0.1", site]);
+      },
+      { args: ["--ignore-certificate-errors"] },
+    );
+  } finally {
+    await service.close();
+    await fixture.close();
+  }
+});

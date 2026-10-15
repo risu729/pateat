@@ -420,6 +420,21 @@ export function createDiagnosticsLog(options: {
                   : "info",
           },
         );
+      else if (report.type === "repair")
+        void logger.log(
+          "recipe.repair",
+          {
+            origin: report.origin,
+            url: report.url,
+            recipe: report.recipeId,
+            recipeRevision: report.recipeRevision,
+            outcome: report.outcome,
+            reason: report.reason,
+          },
+          // A first miss is ordinary until it repeats; a miss that does not count is logged
+          // for evaluation at debug level (proposed ADR 0039).
+          { source, level: report.outcome === "skipped" ? "debug" : "info" },
+        );
       else if (report.type === "judge")
         void logger.log(
           "recipe.judge",

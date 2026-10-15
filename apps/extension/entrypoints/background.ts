@@ -3,6 +3,7 @@ import { browser } from "wxt/browser";
 import { defineBackground } from "wxt/utils/define-background";
 import { createProbeCatalog } from "../src/login/dummy";
 import { createLoginRuntime } from "../src/login/runtime";
+import { createRecipeRepairs } from "../src/login/repair";
 import { createLoginSites } from "../src/login/sites";
 import {
   combineFieldSources,
@@ -40,6 +41,7 @@ import { createSettingsSync } from "../src/service/settings-sync";
 import {
   createBrowserGeneratedSlotStorage,
   createBrowserGenerationAttemptStorage,
+  createBrowserRecipeRepairStorage,
   createBrowserRecipeCacheStorage,
   createBrowserRecipeScheduleStorage,
   createBrowserServiceStorage,
@@ -220,6 +222,8 @@ export default defineBackground(() => {
       sync: () => recipeSync.sync(),
       refresh: () => recipeSync.sync({ settings: false }),
     }),
+    // Proposed ADR 0039: a generated recipe whose start page no longer matches is repaired.
+    repairs: createRecipeRepairs(createBrowserRecipeRepairStorage()),
     // ADR 0027: a passkey handler runs only for an item Pateat can sign with.
     passkeys: (account) => itemPasskeyFacts(vaultPasskeys, account),
     // ADR 0034: a popup choice keeps the page's request only when an item holds a passkey.

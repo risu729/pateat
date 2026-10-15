@@ -54,7 +54,12 @@ import { drizzle } from "drizzle-orm/d1";
 import * as v from "valibot";
 import type { DeviceScope } from "../auth";
 import { callClaude, MAX_OUTPUT_TOKENS, ROLE_LIMITS, type ClaudeCall } from "../claude/calls";
-import { generationAttempts, pageJudgements, type PageJudgementVerdict } from "../db/schema";
+import {
+  generationAttempts,
+  pageJudgements,
+  recipeRepairs,
+  type PageJudgementVerdict,
+} from "../db/schema";
 import { hasRecipeRoom, readHead, writeRecipe } from "../recipe-store";
 
 // The recipe generation routes of ADR 0018: one page per call, appended to one recipe
@@ -218,6 +223,64 @@ function attemptWindow(
   };
 }
 
+/**
+ * The repair limit of proposed ADR 0039: a recipe's start page is generated again to repair
+ * it at most once a UTC day, whatever came of the call. `recheck` reads the stored head
+ * again under the owner's lock.
+ */
+function repairWindow(
+  ownerId: string,
+  key: { recipeId: string; revision: number },
+  recheck: () => Promise<GenerationUnavailableReason | undefined>,
+) {
+  const { recipeId, revision } = key;
+  return {
+    gate: async (db: AttemptDb, now: number) => {
+      const stale = await recheck();
+      if (stale) return stale;
+      const [recent] = await db
+        .select()
+        .from(recipeRepairs)
+        .where(
+          and(
+            eq(recipeRepairs.ownerId, ownerId),
+            eq(recipeRepairs.recipeId, recipeId),
+            gte(recipeRepairs.repairedAt, utcDayStart(now)),
+          ),
+        )
+        .limit(1);
+      return recent ? "repair-limit" : undefined;
+    },
+    reserved: (db: AttemptDb, now: number) => [
+      db
+        .insert(recipeRepairs)
+        .values({ ownerId, recipeId, revision, repairedAt: now })
+        .onConflictDoUpdate({
+          target: [recipeRepairs.ownerId, recipeRepairs.recipeId],
+          set: { revision, repairedAt: now },
+        }),
+    ],
+  };
+}
+
+/**
+ * The parts of a route recipe its start page makes, which a repair replaces (proposed ADR
+ * 0039): the steps up to the page's one effect step, its other variants, its passkey
+ * button and its account switch.
+ */
+const startPageOf = (recipe: LoginRecipe) => {
+  const end = recipe.steps.findIndex((step) => {
+    const effect = loginStepEffect(step);
+    return effect === "advance" || effect === "submit";
+  });
+  return JSON.stringify([
+    recipe.steps.slice(0, end < 0 ? undefined : end + 1),
+    recipe.alternatives ?? null,
+    recipe.passkey ?? null,
+    recipe.accountSwitch ?? null,
+  ]);
+};
+
 /** Whether two route recipes are the same apart from their revision, absent ones included. */
 const sameRoute = (left: LoginRecipe | undefined, right: LoginRecipe | undefined) =>
   left === right ||
@@ -238,11 +301,13 @@ export async function generateRecipe(
   scope: DeviceScope,
   request: RecipeGenerationRequest,
 ): Promise<RecipeGenerationResult | undefined> {
-  const { observation, slots, base, branch } = request;
+  const { observation, slots, base, branch, repair } = request;
   const { origin, path } = observation;
   // A first page starts its own recipe; a later page continues the one in `base`.
   const recipeId = base?.recipeId ?? (await generatedRecipeId(origin, path));
   if (!/^gen-[0-9a-f]{32}$/u.test(recipeId)) return undefined;
+  // A repair names the recipe that starts on this page (proposed ADR 0039).
+  if (repair && repair.recipeId !== recipeId) return undefined;
   if (!observation.complete) return failed("incomplete-observation");
   // A list of accounts is only ever a recipe's first page.
   const list = observation.accounts !== undefined;
@@ -269,8 +334,21 @@ export async function generateRecipe(
         base: LoginRecipe | undefined;
         chooser?: LoginChooserRecipe;
         revoked?: number;
+        stale?: LoginRecipe;
       }
   > => {
+    // A repair replaces the active route recipe it names, at the revision it names
+    // (proposed ADR 0039). A newer revision answers as is: another device repaired the
+    // recipe, or it changed, so the device tries that one first.
+    if (repair) {
+      if (head?.state === "revoked") return { answer: unavailable("recipe-revoked") };
+      const current = answerable(head);
+      if (!current || !(await generatedHere(current.recipe)) || !isLoginRouteRecipe(current.recipe))
+        return { answer: unavailable("recipe-conflict") };
+      if (current.revision !== repair.revision)
+        return { answer: { version: 1, status: "recipe", change: current } };
+      return { base: undefined, stale: current.recipe };
+    }
     // A revoked recipe is generated again from its first page, as the revision after its
     // tombstone (owner, 2026-10-12); a later page never continues it.
     if (head?.state === "revoked") {
@@ -314,15 +392,32 @@ export async function generateRecipe(
     base?: LoginRecipe | undefined;
     chooser?: LoginChooserRecipe | undefined;
     revoked?: number | undefined;
-  }) => decision.chooser?.revision ?? decision.base?.revision ?? decision.revoked ?? 0;
+    stale?: LoginRecipe | undefined;
+  }) =>
+    decision.chooser?.revision ??
+    decision.base?.revision ??
+    decision.revoked ??
+    decision.stale?.revision ??
+    0;
   const before = await decide(await readHead(env.DB, scope.ownerId, recipeId));
   if ("answer" in before) return before.answer;
   const baseRecipe = before.base;
   const chooser = before.chooser;
+  const stale = before.stale;
   // The attempt key and the write follow the revision the new one replaces.
   const baseRevision = revisionOf(before);
   const attemptBranch = branch ?? "";
   let raced: RecipeGenerationResult | undefined;
+  // Another device may have stored this recipe while this request waited for the lock.
+  const recheck = async () => {
+    const latest = await decide(await readHead(env.DB, scope.ownerId, recipeId));
+    if ("answer" in latest) {
+      raced = latest.answer;
+      return "recipe-conflict" as const;
+    }
+    // A recipe generated and revoked meanwhile would make this call's write fail.
+    return revisionOf(latest) !== baseRevision ? ("recipe-conflict" as const) : undefined;
+  };
 
   const call = await callClaude(env, scope.ownerId, {
     role: "generate",
@@ -334,21 +429,16 @@ export async function generateRecipe(
       instructions: list ? accountListGenerationInstructions : generationInstructions,
       slots,
       observation,
+      ...(repair ? { repair: { revision: repair.revision } } : {}),
     },
-    ...attemptWindow(
-      scope.ownerId,
-      { recipeId, branch: attemptBranch, origin, path, baseRevision },
-      async () => {
-        // Another device may have stored this recipe while this request waited for the lock.
-        const latest = await decide(await readHead(env.DB, scope.ownerId, recipeId));
-        if ("answer" in latest) {
-          raced = latest.answer;
-          return "recipe-conflict";
-        }
-        // A recipe generated and revoked meanwhile would make this call's write fail.
-        return revisionOf(latest) !== baseRevision ? "recipe-conflict" : undefined;
-      },
-    ),
+    // A repair is limited to once a UTC day per recipe instead of the page's retry window.
+    ...(repair
+      ? repairWindow(scope.ownerId, { recipeId, revision: baseRevision }, recheck)
+      : attemptWindow(
+          scope.ownerId,
+          { recipeId, branch: attemptBranch, origin, path, baseRevision },
+          recheck,
+        )),
     invoke: (model) => createRecipeGenerator({ model, ...roleConfig })({ observation, slots }),
     logValue: (value) => {
       if ("accountList" in value)
@@ -470,6 +560,8 @@ export async function generateRecipe(
     ...(alternatives.length ? { alternatives: alternatives.map((entry) => entry.steps) } : {}),
     ...(value.switchTarget ? { accountSwitch: value.switchTarget } : {}),
     ...(passkey ? { passkey } : {}),
+    // A stale start page in the other language is not repaired (proposed ADR 0039).
+    ...(!later && observation.language !== "mixed" ? { language: observation.language } : {}),
   });
   // A page that fills one of the recipe's slots again, as its identifier form shown again
   // where it posted, is refused before anything is stored (ADR 0018).
@@ -477,8 +569,17 @@ export async function generateRecipe(
     return assembled.reason === "invalid-recipe" || assembled.reason === "slot-refilled"
       ? failed("recipe-invalid")
       : unavailable("recipe-conflict");
-  // A recipe generated again follows its tombstone's revision.
+  // A recipe generated again follows its tombstone's revision, and a repaired one the
+  // revision it replaces.
   const next = { ...assembled.recipe, revision: baseRevision + 1 };
+  // A repair whose page gives the stale revision's own start page again found the elements
+  // after all, as on a page that was only slow: the revision stays, with what it learned.
+  if (stale && startPageOf(stale) === startPageOf(next)) {
+    const current = answerable(await readHead(env.DB, scope.ownerId, recipeId));
+    return current
+      ? { version: 1, status: "recipe", change: current }
+      : unavailable("recipe-conflict");
+  }
   if (!chooser || !branch) return save(next, customSlots);
   const written = stored(chooser, branch, next);
   if (!written) return failed("recipe-invalid");

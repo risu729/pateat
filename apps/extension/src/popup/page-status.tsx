@@ -97,7 +97,9 @@ function recipeLines(status: Status): StatusLine[] {
         ? "the site's list of accounts"
         : generation?.page === "continuation"
           ? "the rest of the site's sign-in"
-          : "the site's sign-in page";
+          : generation?.page === "repair"
+            ? "the site's changed sign-in page"
+            : "the site's sign-in page";
   const lines: StatusLine[] = [];
   if (status.recipe === "page")
     lines.push({ id: "recipe", tone: "idle", text: "This site has a recipe for this page." });

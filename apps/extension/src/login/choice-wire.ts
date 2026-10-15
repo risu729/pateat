@@ -126,7 +126,7 @@ export const statusResponseSchema = v.variant("ok", [
       v.strictObject({
         outcome: code,
         reason: v.optional(code),
-        page: v.optional(v.picklist(["accounts", "entry", "continuation"])),
+        page: v.optional(v.picklist(["accounts", "entry", "continuation", "repair"])),
       }),
     ),
   }),

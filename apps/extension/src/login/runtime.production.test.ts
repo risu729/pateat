@@ -19,6 +19,7 @@ import { vaultFailure } from "../vault/record";
 import type { LiveUriMatcher } from "../vault/site-candidates";
 import { createVaultAutoSync, createVaultSyncRecords } from "../connections/auto-sync";
 import { createLoginGeneration } from "../service/generation";
+import { createRecipeRepairs, type RecipeRepairs } from "./repair";
 import { createRecipeSync } from "../service/recipes";
 import { createSettingsSync } from "../service/settings-sync";
 import type { ServiceTransport } from "../service/transport";
@@ -371,6 +372,8 @@ function harness(
     otherUsername?: boolean | "empty";
     /** Recipe generation for pages without a recipe. */
     generation?: LoginGeneration;
+    /** The misses of generated recipes' start pages (proposed ADR 0039). */
+    repairs?: RecipeRepairs;
     /** The item's passkey facts, read when a login starts (ADR 0027). */
     passkeys?: (account: unknown) => Promise<{ passkey: boolean; discoverable: boolean }>;
     /** The items holding a discoverable passkey for an origin (ADR 0034). */
@@ -537,6 +540,7 @@ function harness(
     recipes,
     ...(live.uris ? { uris: live.uris } : {}),
     ...(live.generation ? { generation: live.generation } : {}),
+    ...(live.repairs ? { repairs: live.repairs } : {}),
     ...(live.passkeys ? { passkeys: live.passkeys } : {}),
     ...(live.passkeyItems ? { passkeyItems: live.passkeyItems } : {}),
     ...(live.vault ? { vault: live.vault } : {}),
@@ -5387,6 +5391,221 @@ describe("production login document admission", () => {
         { type: "generation", tabId: 1, origin, outcome: "sent" },
         { type: "generation", tabId: 1, origin, outcome: "abstained", reason: "ambiguous" },
       ]);
+    });
+
+    describe("a generated recipe whose start page no longer matches (proposed ADR 0039)", () => {
+      // The stored recipe names `user` and `password`; the redesigned page has neither.
+      const stale = { ...generated, language: "en" as const };
+      const missing = [target("user"), target("password")];
+      const repairedRecipe = parseLoginRecipe({
+        ...generated,
+        revision: 2,
+        steps: [
+          {
+            kind: "fill",
+            path: "/signin",
+            fields: [
+              { slot: "username", target: target("login-id") },
+              { slot: "password", target: target("passcode") },
+            ],
+          },
+          { kind: "click", path: "/signin", target: target("go"), purpose: "submit" },
+        ],
+      });
+      const missHello = (
+        h: { login: { handle(message: unknown, sender: unknown): Promise<unknown> } },
+        documentId: string,
+        miss: Record<string, unknown> = { missing, language: "en", status: 200 },
+      ) =>
+        h.login.handle(
+          {
+            version: 1,
+            type: "login.document.ready",
+            token: "synthetic-token",
+            shown: { path: "/signin", miss },
+          },
+          sender({ documentId }),
+        );
+      function setup(answer?: () => Promise<GenerationOutcome>) {
+        fake.state.extracted = { login: loginPage };
+        const service = generation(answer ? { generate: answer } : {});
+        const report = vi.fn<(report: LoginReport) => void>();
+        const repairs = createRecipeRepairs({
+          read: async () => fake.state.storage["repairs"],
+          write: async (value) => {
+            fake.state.storage["repairs"] = value;
+          },
+        });
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris,
+          username: true,
+          custom: [],
+          generation: service,
+          repairs,
+          report,
+        });
+        h.recipes.recipe.mockResolvedValue(stale);
+        h.recipes.starts.mockResolvedValue(startsOf([stale.steps[0]!]));
+        const repairLog = () =>
+          report.mock.calls
+            .map(([entry]) => entry)
+            .filter((entry) => entry.type === "repair" || entry.type === "generation");
+        return { service, h, repairLog };
+      }
+
+      it("sends the start page for repair after it missed on two page loads", async () => {
+        const { service, h, repairLog } = setup(async () => {
+          h.recipes.recipe.mockResolvedValue(repairedRecipe);
+          h.recipes.starts.mockResolvedValue(startsOf([repairedRecipe.steps[0]!]));
+          return { outcome: "recipe", recipe: repairedRecipe };
+        });
+        expect(await missHello(h, "load-1")).toMatchObject({ reason: "form-not-ready" });
+        await vi.waitFor(() =>
+          expect(repairLog()).toEqual([
+            {
+              type: "repair",
+              tabId: 1,
+              origin,
+              recipeId: stale.id,
+              recipeRevision: 1,
+              outcome: "noted",
+            },
+          ]),
+        );
+        expect(service.generate).not.toHaveBeenCalled();
+        // The next load misses as well: the page is sent as the recipe's repair.
+        expect(await missHello(h, "load-2")).toMatchObject({ reason: "form-not-ready" });
+        await vi.waitFor(() =>
+          expect(fake.state.messages.map((entry) => entry.type)).toContain("login.reconnect"),
+        );
+        expect(service.generate).toHaveBeenCalledWith(
+          expect.objectContaining({
+            observation: loginPage.observation,
+            repair: { recipeId: stale.id, revision: 1 },
+          }),
+          expect.any(Function),
+        );
+        expect(repairLog().slice(1)).toEqual([
+          {
+            type: "repair",
+            tabId: 1,
+            origin,
+            recipeId: stale.id,
+            recipeRevision: 1,
+            outcome: "due",
+          },
+          {
+            type: "generation",
+            tabId: 1,
+            origin,
+            outcome: "sent",
+            page: "repair",
+            recipeId: stale.id,
+            baseRevision: 1,
+          },
+          {
+            type: "generation",
+            tabId: 1,
+            origin,
+            outcome: "recipe",
+            page: "repair",
+            recipeId: stale.id,
+            baseRevision: 1,
+          },
+        ]);
+        // The page announces again and runs the repaired recipe at once.
+        expect(await h.hello({ documentId: "load-2" })).toEqual({ ok: true });
+        await vi.waitFor(() =>
+          expect(
+            fake.state.messages.filter((entry) => entry.type === "login.execute"),
+          ).toHaveLength(2),
+        );
+      });
+
+      it("does not count a page in the other language, an error status or a slow page", async () => {
+        const recipeWithLabels = parseLoginRecipe({
+          ...stale,
+          steps: [
+            {
+              kind: "fill",
+              path: "/signin",
+              fields: [
+                { slot: "username", target: { by: "label", value: "Email address" } },
+                { slot: "password", target: { by: "label", value: "Password" } },
+              ],
+            },
+            {
+              kind: "click",
+              path: "/signin",
+              target: { by: "text", value: "Sign in" },
+              purpose: "submit",
+            },
+          ],
+        });
+        const { service, h, repairLog } = setup();
+        h.recipes.recipe.mockResolvedValue(recipeWithLabels);
+        h.recipes.starts.mockResolvedValue(startsOf([recipeWithLabels.steps[0]!]));
+        const labels = [
+          { by: "label", value: "Email address" },
+          { by: "label", value: "Password" },
+        ];
+        // The same page in Japanese: the labels no longer match, but the recipe is right.
+        for (const documentId of ["ja-1", "ja-2"])
+          // oxlint-disable-next-line no-await-in-loop -- one page load after another
+          await missHello(h, documentId, { missing: labels, language: "ja", status: 200 });
+        // A maintenance page answered 503 on the login page's URL.
+        for (const documentId of ["down-1", "down-2"])
+          // oxlint-disable-next-line no-await-in-loop -- one page load after another
+          await missHello(h, documentId, { missing: labels, language: "en", status: 503 });
+        // Elements found once but not usable yet, as on a slow page.
+        for (const documentId of ["slow-1", "slow-2"])
+          // oxlint-disable-next-line no-await-in-loop -- one page load after another
+          await missHello(h, documentId, { missing: [], language: "en", status: 200 });
+        await vi.waitFor(() => expect(repairLog()).toHaveLength(6));
+        expect(repairLog().map((entry) => "reason" in entry && entry.reason)).toEqual([
+          "language",
+          "language",
+          "status",
+          "status",
+          "unusable",
+          "unusable",
+        ]);
+        expect(service.generate).not.toHaveBeenCalled();
+      });
+
+      it("starts the count over when a login starts, and holds a tried recipe for the day", async () => {
+        const { service, h, repairLog } = setup(async () => ({
+          outcome: "abstained",
+          reason: "no-login-form",
+        }));
+        await missHello(h, "load-1");
+        await vi.waitFor(() => expect(repairLog()).toHaveLength(1));
+        // The first step showed on the next load: the recipe matched after all.
+        fake.state.pageUrl = "https://login.example/signin";
+        expect(await h.hello({ documentId: "load-2" })).toEqual({ ok: true });
+        await vi.waitFor(() =>
+          expect(fake.state.storage["repairs"]).toMatchObject({
+            recipes: [{ recipeId: stale.id, documents: [] }],
+          }),
+        );
+        for (const tabId of [1]) for (const listener of fake.state.removed) listener(tabId);
+        await missHello(h, "load-3");
+        await missHello(h, "load-4");
+        await vi.waitFor(() => expect(service.generate).toHaveBeenCalledTimes(1));
+        // The model abstained, as on a maintenance page that kept an input: the recipe stays,
+        // and no other repair is sent the same UTC day.
+        await vi.waitFor(() =>
+          expect(fake.state.storage["repairs"]).toMatchObject({
+            recipes: [{ recipeId: stale.id, tried: expect.any(Number) }],
+          }),
+        );
+        await missHello(h, "load-5");
+        await vi.waitFor(() =>
+          expect(repairLog().at(-1)).toMatchObject({ outcome: "skipped", reason: "held" }),
+        );
+        expect(service.generate).toHaveBeenCalledTimes(1);
+      });
     });
 
     it("spins the tab's icon from the page's send until its answer", async () => {

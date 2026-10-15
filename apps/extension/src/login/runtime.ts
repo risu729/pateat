@@ -119,6 +119,7 @@ import {
   START_TRY_WINDOW_MS,
   type ExecutionDetail,
   type LoginReadiness,
+  type StartMiss,
   type TargetRequirement,
   type TargetState,
   type LoginSecretKind,
@@ -146,6 +147,7 @@ import {
 import { customFieldOffers, type CustomFieldOffer } from "./generation-slots";
 import { emailUsername, namesUsername, type EntryMiss, type OtherMiss } from "../page/account-list";
 import { signedInPath } from "../observation/extract";
+import { classifyStartMiss, type RecipeRepairs } from "./repair";
 import { pathShowsUsername, withoutUsernames } from "../observation/usernames";
 import {
   decideSignInState,
@@ -1341,9 +1343,25 @@ export type LoginReport = (
       takenOver?: boolean;
       /**
        * `accounts` for a page that lists accounts (ADR 0028), `entry` for a page sent as a
-       * site's sign-in entry (ADR 0031).
+       * site's sign-in entry (ADR 0031), `repair` for a stale recipe's start page sent to be
+       * generated again (proposed ADR 0039), with the recipe and the revision it replaces.
        */
-      page?: "accounts" | "entry";
+      page?: "accounts" | "entry" | "repair";
+    }
+  | {
+      /**
+       * A generated recipe's start page showed a sign-in input for the step wait without a
+       * ready first step (proposed ADR 0039): whether the miss counted toward a repair
+       * (`noted`, `due` when the page is sent), or why not (`skipped`, with the
+       * `StartMissVerdict` or `RepairNote` as `reason`).
+       */
+      type: "repair";
+      tabId: number;
+      origin: string;
+      recipeId: string;
+      recipeRevision: number;
+      outcome: "noted" | "due" | "skipped";
+      reason?: string;
     }
   | {
       /**
@@ -1581,6 +1599,11 @@ export function createLoginRuntime(
     /** Recipe generation for pages without a recipe; needs `uris` for the vault match. */
     generation?: LoginGeneration;
     /**
+     * The misses of generated recipes' start pages, for their repair through `generation`
+     * (proposed ADR 0039); without it no recipe is repaired.
+     */
+    repairs?: RecipeRepairs;
+    /**
      * The account item's passkey facts, read once when a login starts (ADR 0027). Without
      * it the item counts as holding no passkey, so a `passkey` handler is never run.
      */
@@ -1623,7 +1646,7 @@ export function createLoginRuntime(
     };
   },
 ) {
-  const { fields, sites, recipes = noLoginRecipes, uris, generation } = options;
+  const { fields, sites, recipes = noLoginRecipes, uris, generation, repairs } = options;
   const badge =
     options.badge ?? createLoginBadge({ setBadge: setActionBadge, storage: memoryBadgeStorage() });
   /** Spins the tab's badge from a model request's `sent` until `stop`, once the request returns. */
@@ -6216,7 +6239,7 @@ export function createLoginRuntime(
   function skipGeneration(
     live: LiveDocument,
     reason: string,
-    page?: "entry",
+    page?: "entry" | "repair",
     /** A code that tells more, such as why a vault could not tell (ADR 0019). */
     detail?: string,
   ): void {
@@ -6242,9 +6265,22 @@ export function createLoginRuntime(
     scope: GenerationScope,
     /** For a list of accounts (ADR 0028): the shown texts to hide as `[account]`. */
     list?: { names: string[] },
+    /**
+     * For a stale recipe's start page (proposed ADR 0039): the revision it replaces, and
+     * what to call with the answer once one came.
+     */
+    repair?: { recipeId: string; revision: number; done(outcome: GenerationOutcome): void },
   ): Promise<void> {
     if (!generation) return;
-    const page = list ? ({ page: "accounts" } as const) : {};
+    const page = list
+      ? ({ page: "accounts" } as const)
+      : repair
+        ? ({
+            page: "repair",
+            recipeId: repair.recipeId,
+            baseRevision: repair.revision,
+          } as const)
+        : {};
     const key = frameKey(live.document);
     let sent = false;
     try {
@@ -6289,7 +6325,7 @@ export function createLoginRuntime(
           detail = accepted.detail;
         }
         if (unsent === "cancelled" || read >= EXTRACT_READS) {
-          skipGeneration(live, unsent, undefined, detail);
+          skipGeneration(live, unsent, repair && "repair", detail);
           return;
         }
         // eslint-disable-next-line no-await-in-loop
@@ -6302,7 +6338,7 @@ export function createLoginRuntime(
       const hidden = hideUsernames(observation, usernames);
       if (documents.get(key) !== live) return;
       if ("reason" in hidden) {
-        skipGeneration(live, hidden.reason);
+        skipGeneration(live, hidden.reason, repair && "repair");
         return;
       }
       const custom = await customSlots(live.document.origin, scope);
@@ -6319,6 +6355,7 @@ export function createLoginRuntime(
               ),
               ...custom,
             ],
+            ...(repair ? { repair: { recipeId: repair.recipeId, revision: repair.revision } } : {}),
           },
           spin.sent(() =>
             report(live.document, {
@@ -6340,6 +6377,7 @@ export function createLoginRuntime(
         ...outcomeFields(result),
         ...page,
       });
+      repair?.done(result);
       if (result.outcome !== "recipe") return;
       // Every tab's page still tracked on this origin and path that holds no login announces
       // again and starts the recipe: this document, and one refused for want of a recipe
@@ -6380,9 +6418,77 @@ export function createLoginRuntime(
       // (ADR 0019).
       if (!sent && documents.get(key) === live)
         if (error instanceof DocumentGone)
-          skipGeneration(live, "unreachable", undefined, error.reason);
-        else skipGeneration(live, "exception");
+          skipGeneration(live, "unreachable", repair && "repair", error.reason);
+        else skipGeneration(live, "exception", repair && "repair");
     }
+  }
+  /**
+   * Counts a generated recipe's start page that showed a sign-in input for the step wait
+   * without a ready first step, and sends it to be generated again once the recipe counts
+   * as stale (proposed ADR 0039): only the tab's own page on the recipe's start path, with
+   * a vault item that matches it as for a first page. The answer replaces the revision,
+   * and the page announces again and starts the repaired recipe, as after a first page.
+   */
+  async function repairStale(
+    live: LiveDocument,
+    recipe: LoginRecipe,
+    miss: StartMiss | undefined,
+  ): Promise<void> {
+    if (!repairs || !generation || live.document.frameId !== 0 || live.topUrl) return;
+    if (!recipe.id.startsWith("gen-") || recipe.steps[0]?.path !== live.path) return;
+    const key = frameKey(live.document);
+    const log = (outcome: "noted" | "due" | "skipped", reason?: string) =>
+      report(live.document, {
+        type: "repair",
+        tabId: live.document.tabId,
+        origin: live.document.origin,
+        recipeId: recipe.id,
+        recipeRevision: recipe.revision,
+        outcome,
+        ...(reason ? { reason } : {}),
+      });
+    const verdict = classifyStartMiss(recipe, miss);
+    if (verdict !== "stale") {
+      log("skipped", verdict);
+      return;
+    }
+    const counted = await repairs.miss({
+      recipeId: recipe.id,
+      revision: recipe.revision,
+      path: live.path,
+      documentId: live.document.documentId,
+    });
+    if (documents.get(key) !== live) return;
+    if (counted !== "due") {
+      if (counted === "noted") log("noted");
+      else log("skipped", counted);
+      return;
+    }
+    let missed: GenerationMiss = "vault-unavailable";
+    const scope = await generationSlotsFor(live, (reason) => {
+      missed = reason;
+    }).catch(() => undefined);
+    if (documents.get(key) !== live) return;
+    if (!scope) {
+      log("skipped", missed);
+      return;
+    }
+    log("due");
+    live.state = "generating";
+    delete live.reason;
+    await publish(live);
+    await generateFor(live, scope, undefined, {
+      recipeId: recipe.id,
+      revision: recipe.revision,
+      // A request that reached the model, or the service's daily limit, spends the day.
+      done: (outcome) => {
+        const spent =
+          outcome.outcome === "unavailable"
+            ? outcome.reason === "repair-limit"
+            : outcome.outcome !== "skipped" && !("retry" in outcome && outcome.retry);
+        if (spent) void repairs.tried(recipe.id);
+      },
+    });
   }
   /**
    * After a refusal because no vault item matches, a vault check may bring the item from
@@ -6557,13 +6663,15 @@ export function createLoginRuntime(
     entry?: true;
   };
   type Announced = { path: string } | undefined;
+  /** A sign-in input shown without a ready first step, and what the first steps missed. */
+  type ShownHello = { path: string; miss?: StartMiss | undefined };
   type Unoffered = { path: string; why: (typeof unofferedReasons)[number] } | undefined;
   async function ready(
     sender: Sender,
     token: string,
     start?: { path: string },
     signIn?: { path: string; identifier?: true | undefined },
-    shown?: { path: string },
+    shown?: ShownHello,
     list?: ListOffer,
     entryHello?: Announced,
     unoffered?: Unoffered,
@@ -6613,7 +6721,7 @@ export function createLoginRuntime(
     sequence: number,
     start?: { path: string },
     signIn?: { path: string; identifier?: true | undefined },
-    shown?: { path: string },
+    shown?: ShownHello,
     list?: ListOffer,
     entryHello?: Announced,
     unoffered?: Unoffered,
@@ -6661,7 +6769,7 @@ export function createLoginRuntime(
     sequence: number,
     start?: { path: string },
     signIn?: { path: string; identifier?: true | undefined },
-    shown?: { path: string },
+    shown?: ShownHello,
     list?: ListOffer,
     entryHello?: Announced,
     unoffered?: Unoffered,
@@ -7504,6 +7612,15 @@ export function createLoginRuntime(
       if (!recipe && !starts.length && !offer) return refuse("recipe-not-found", undefined, true);
       // Only an origin with a recipe: elsewhere every sign-in page would be logged.
       if (starts.length) notStarted(recipe ? "first-step-missing" : "no-recipe-on-path");
+      // A generated recipe's own start page that misses its first step may be stale
+      // (proposed ADR 0039).
+      if (
+        recipe &&
+        !chooser &&
+        !(probeMode && live.document.origin === origin) &&
+        shown?.path === live.path
+      )
+        void repairStale(live, recipe, shown.miss).catch(() => undefined);
       live.state = "watching";
       delete live.reason;
       await publish(live);
@@ -7774,6 +7891,8 @@ export function createLoginRuntime(
     } else {
       // A new login's plan carries the facts it chose its route with.
       if (!("facts" in plan)) return refuse("no-route");
+      // Its first step matched, so the recipe's start page misses start over (ADR 0039).
+      if (!chooser) void repairs?.started(recipe.id);
       metadata = transitionLoginAttempt(
         createAttemptMetadata({
           id: newId(),

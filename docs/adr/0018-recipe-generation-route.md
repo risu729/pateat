@@ -110,7 +110,10 @@ The route follows from these and from ADRs 0013 to 0016:
   enforced again on the service. The owner replaced
   the first limit of 50 calls a day with the daily amount on 2026-10-11.
 
-Failed recipes are not repaired by this route; repair is a later design.
+Failed recipes are not repaired by this route; repair is a later design. Proposed
+[ADR 0039](0039-repair-stale-recipes.md) (implemented, pending the owner's approval)
+repairs a generated recipe's start page through it with `repair`, outside the ADR 0016
+retry window and at most once per recipe a UTC day.
 
 Implementation choices that follow from these decisions, made on 2026-10-11 without a
 new owner decision:

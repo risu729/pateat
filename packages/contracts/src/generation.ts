@@ -107,6 +107,11 @@ export const generationUnavailableReasonSchema = v.picklist([
   "recipe-conflict",
   /** A new recipe would exceed the owner's active recipe limit. */
   "recipe-limit",
+  /**
+   * The recipe was already repaired, or a repair of it was tried, this UTC day (proposed
+   * ADR 0039).
+   */
+  "repair-limit",
 ]);
 export const generationFailureSchema = v.picklist([
   "incomplete-observation",
@@ -147,7 +152,9 @@ export const generationOutputRejectionSchema = v.variant("check", [
 /**
  * `POST /v1/recipes/generate`: one page; `base` continues a recipe after an advance. With
  * `branch`, `base` is a chooser recipe (ADR 0028) and the page is the next one of that
- * branch: its first page, after the click on the list, or a later one.
+ * branch: its first page, after the click on the list, or a later one. With `repair`, the
+ * page is the start page of that recipe revision, whose first step's elements no longer
+ * match it, sent again as a first page to replace the revision (proposed ADR 0039).
  */
 export const recipeGenerationRequestSchema = v.pipe(
   v.strictObject({
@@ -156,8 +163,14 @@ export const recipeGenerationRequestSchema = v.pipe(
     slots: semanticSlotsSchema,
     base: v.optional(v.strictObject({ recipeId: syncRecipeIdSchema, revision: writtenRevision })),
     branch: v.optional(chooserBranchSchema),
+    repair: v.optional(v.strictObject({ recipeId: syncRecipeIdSchema, revision: writtenRevision })),
   }),
   v.check((request) => !request.branch || request.base !== undefined, "A branch needs a base"),
+  v.check(
+    (request) =>
+      !request.repair || (request.base === undefined && request.observation.accounts === undefined),
+    "A repair is a form's first page",
+  ),
 );
 
 /**

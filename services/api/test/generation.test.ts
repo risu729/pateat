@@ -1118,6 +1118,179 @@ describe("recipe generation", () => {
   });
 });
 
+describe("recipe repair (proposed ADR 0039)", () => {
+  // The start page after a redesign: the same form with other element IDs.
+  const redesigned = observation("/login", [
+    element("user-email", "email", "Email"),
+    element("continue", "button", "Continue"),
+  ]);
+  async function repair(device: Device, page: LoginObservation, target: unknown) {
+    const response = await post(device, "/v1/recipes/generate", {
+      version: 1,
+      observation: page,
+      slots,
+      repair: target,
+    });
+    return {
+      status: response.status,
+      body: (await response.json()) as RecipeGenerationResult | { error: string },
+    };
+  }
+  /** A two-page recipe that has learned its completion, at revision 3. */
+  async function learnedRecipe(device: Device) {
+    const change = await twoPageRecipe(device);
+    replies.push({ text: JSON.stringify({ result: { decision: "signed-in", marker: "logout" } }) });
+    const judged = await complete(device, change.recipeId, change.revision);
+    const body = judged.body as RecipeCompletionResult;
+    if (body.status !== "signed-in" || !body.change)
+      throw new Error("Expected a learned completion");
+    return body.change;
+  }
+
+  it("replaces the stale revision with the start page generated again, once a UTC day", async () => {
+    const device = await owner();
+    const learned = await learnedRecipe(device);
+    expect(learned.revision).toBe(3);
+    replies.push({ text: plan([["email", "user-email"]], "continue", "advance") });
+    const repaired = await repair(device, redesigned, { recipeId: learned.recipeId, revision: 3 });
+    expect(repaired).toMatchObject({
+      status: 200,
+      body: { status: "recipe", change: { recipeId: learned.recipeId, revision: 4 } },
+    });
+    const body = repaired.body as RecipeGenerationResult;
+    if (body.status !== "recipe") return;
+    // Only what the new start page gives: later pages and markers are learned again.
+    const recipe = route(body.change.recipe);
+    expect(recipe.slots).toEqual(["email"]);
+    expect(recipe.steps.map((step) => step.path)).toEqual(["/login", "/login"]);
+    expect(recipe.completion).toBeUndefined();
+    // The stale revision stays in the history; nothing is revoked.
+    expect(
+      await rows(
+        "SELECT revision, state FROM recipe_revisions WHERE owner_id = ? AND recipe_id = ? ORDER BY revision",
+        device.ownerId,
+        learned.recipeId,
+      ),
+    ).toEqual([1, 2, 3, 4].map((revision) => ({ revision, state: "active" })));
+    // The call is logged as a first page's, naming the revision it repaired.
+    const [logged] = await rows(
+      "SELECT request FROM inference_log WHERE owner_id = ? ORDER BY created_at DESC LIMIT 1",
+      device.ownerId,
+    );
+    expect(JSON.parse(String(logged!.request))).toMatchObject({
+      observation: redesigned,
+      repair: { revision: 3 },
+    });
+    // The new start page is continued as any first page is.
+    replies.push({ text: plan([["password", "password"]], "sign-in", "submit") });
+    expect(
+      await generate(device, passwordPage, { recipeId: learned.recipeId, revision: 4 }),
+    ).toMatchObject({ status: "recipe", change: { revision: 5 } });
+    // A second repair the same UTC day is refused before any call.
+    const calls = sent.length;
+    expect(
+      (await repair(device, redesigned, { recipeId: learned.recipeId, revision: 5 })).body,
+    ).toEqual({ version: 1, status: "unavailable", reason: "repair-limit" });
+    expect(sent).toHaveLength(calls);
+    // The next UTC day allows one again.
+    await env.DB.prepare("UPDATE recipe_repairs SET repaired_at = ? WHERE owner_id = ?")
+      .bind(Date.now() - DAY_MS, device.ownerId)
+      .run();
+    const again = observation("/login", [
+      element("login-email", "email", "Email"),
+      element("go", "button", "Continue"),
+    ]);
+    replies.push({ text: plan([["email", "login-email"]], "go", "advance") });
+    expect(
+      (await repair(device, again, { recipeId: learned.recipeId, revision: 5 })).body,
+    ).toMatchObject({ status: "recipe", change: { revision: 6 } });
+  });
+
+  it("keeps the stale revision when the model abstains, which still spends the day", async () => {
+    const device = await owner();
+    const learned = await learnedRecipe(device);
+    // A maintenance page that kept an input: the model finds no login form.
+    replies.push({
+      text: JSON.stringify({ result: { decision: "abstain", reason: "no-login-form" } }),
+    });
+    expect(
+      (await repair(device, redesigned, { recipeId: learned.recipeId, revision: 3 })).body,
+    ).toEqual({ version: 1, status: "abstained", reason: "no-login-form" });
+    const feed = await exports.default.fetch("https://pateat.invalid/v1/recipes", {
+      headers: { Authorization: `Bearer ${device.token}` },
+    });
+    expect(await feed.json()).toMatchObject({ changes: [{ revision: 3 }] });
+    expect(
+      (await repair(device, redesigned, { recipeId: learned.recipeId, revision: 3 })).body,
+    ).toMatchObject({ reason: "repair-limit" });
+  });
+
+  it("keeps the revision and what it learned when the page gives the same start page", async () => {
+    const device = await owner();
+    const learned = await learnedRecipe(device);
+    // The elements were there after all, as on a page that was only slow.
+    replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    expect(
+      (await repair(device, emailPage, { recipeId: learned.recipeId, revision: 3 })).body,
+    ).toEqual({ version: 1, status: "recipe", change: learned });
+    expect(sent).toHaveLength(4);
+  });
+
+  it("answers a newer, revoked, missing or other recipe without a call", async () => {
+    const device = await owner();
+    const learned = await learnedRecipe(device);
+    const calls = sent.length;
+    // Another device repaired it, or it learned more: that revision answers.
+    expect(
+      (await repair(device, redesigned, { recipeId: learned.recipeId, revision: 2 })).body,
+    ).toEqual({ version: 1, status: "recipe", change: learned });
+    // A repair names the recipe that starts on its page.
+    const elsewhere = await generatedRecipeId(ORIGIN, "/elsewhere");
+    expect((await repair(device, redesigned, { recipeId: elsewhere, revision: 1 })).status).toBe(
+      400,
+    );
+    const fresh = observation("/fresh", redesigned.candidates);
+    expect(
+      (
+        await repair(device, fresh, {
+          recipeId: await generatedRecipeId(ORIGIN, "/fresh"),
+          revision: 1,
+        })
+      ).body,
+    ).toMatchObject({ reason: "recipe-conflict" });
+    await writeRecipe(
+      env.DB,
+      device.ownerId,
+      learned.recipeId,
+      { version: 1, expectedRevision: 3, state: "revoked" },
+      null,
+    );
+    expect(
+      (await repair(device, redesigned, { recipeId: learned.recipeId, revision: 3 })).body,
+    ).toMatchObject({ reason: "recipe-revoked" });
+    expect(sent).toHaveLength(calls);
+    expect(await rows("SELECT * FROM recipe_repairs WHERE owner_id = ?", device.ownerId)).toEqual(
+      [],
+    );
+  });
+
+  it("needs no room for another active recipe", async () => {
+    const device = await owner();
+    const learned = await learnedRecipe(device);
+    await env.DB.prepare(
+      `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ?)
+       INSERT INTO recipe_heads (owner_id, recipe_id, revision, state, sequence, write_id, updated_at)
+       SELECT ?, 'seeded-' || i, 1, 'active', 1000000 + i, 'seed-' || i, ? FROM n`,
+    )
+      .bind(MAX_ACTIVE_RECIPES - 1, device.ownerId, Date.now())
+      .run();
+    replies.push({ text: plan([["email", "user-email"]], "continue", "advance") });
+    expect(
+      (await repair(device, redesigned, { recipeId: learned.recipeId, revision: 3 })).body,
+    ).toMatchObject({ status: "recipe", change: { revision: 4 } });
+  });
+});
+
 describe("custom-field slots (ADR 0027)", () => {
   const branch: SemanticSlot = {
     id: "custom-1",

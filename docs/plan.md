@@ -683,7 +683,14 @@ Once the fixes have settled:
   the design must cover (owner, 2026-10-13 19:14 UTC): the same page in another
   language, where a text or label locator no longer matches though the recipe is still
   right, and a maintenance page that replaces the login page on the same URL without a
-  redirect, which must not be taken as a changed login page.
+  redirect, which must not be taken as a changed login page. Delivery 1 is implemented
+  as Claude's proposed design, pending the owner's approval
+  ([ADR 0039](adr/0039-repair-stale-recipes.md)): a generated recipe's start page that
+  misses on two loads in a row is generated again, at most once per recipe a UTC day
+  within the daily spend; a load answered with an error status, a slow page and a page
+  in the recipe's other language are not counted; the repaired revision replaces the
+  stale one, which stays in the history. Next, once the owner approves: delivery 2,
+  repairing a later step that ends `elements-timeout`, and a check on real sites.
 - First among the text work, a review of the wording of Pateat's UI text: the popup, the
   toolbar icon's title, the options page and the in-page prompts. It includes the reason
   line the popup and the icon's title show when another tab of the site logged out or
