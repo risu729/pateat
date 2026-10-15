@@ -26,6 +26,7 @@ depends = [":prepare"]
 # Like :build, it rewrites .wxt and the production output.
 wait_for = [
   ":build",
+  ":build:probe",
   ":typecheck",
   ":test:connections",
   ":test:crypto",

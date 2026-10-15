@@ -1,12 +1,20 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import {
+  bundledPackagesPlugin,
+  owningPackage,
+  resetBundledPackages,
+  writeBundledPackages,
+} from "../../apps/extension/bundled-packages.ts";
+import {
+  lockedPackages,
   parseBunLock,
   releaseNotes,
   releaseTag,
-  runtimePackages,
   tarballName,
   tarballUrl,
   verifyIntegrity,
@@ -54,77 +62,75 @@ test("bun.lock's trailing commas parse", () => {
   });
 });
 
-test("runtime packages follow Bun's layout and skip what the extension never installs", () => {
+test("bundled packages map to their bun.lock entries", () => {
   const lock = {
-    workspaces: {
-      "apps/extension": {
-        name: "@pateat/extension",
-        dependencies: { "@pateat/contracts": "workspace:*", react: "19.0.0", lib: "1.0.0" },
-        devDependencies: { wxt: "0.21.4" },
-      },
-      "packages/contracts": { name: "@pateat/contracts", dependencies: { valibot: "1.5.0" } },
-      "services/api": { name: "@pateat/api", dependencies: { hono: "4.0.0" } },
-    },
     packages: {
       "@pateat/contracts": ["@pateat/contracts@workspace:packages/contracts"],
       react: ["react@19.0.0", "", {}, integrity("react")],
-      "react-dom": ["react-dom@19.0.0", "", { peerDependencies: { react: "*" } }, integrity("rd")],
-      lib: [
-        "lib@1.0.0",
-        "",
-        {
-          dependencies: { "@scope/dep": "^2" },
-          peerDependencies: { "react-dom": "*", typescript: ">=5" },
-          optionalPeers: ["typescript"],
-          optionalDependencies: { "lib-linux-x64": "1.0.0", missing: "1.0.0" },
-        },
-        integrity("lib"),
-      ],
-      // Hoisted 1.x is someone else's; lib gets its own nested 2.x.
       "@scope/dep": ["@scope/dep@1.0.0", "", {}, integrity("dep1")],
-      "lib/@scope/dep": [
-        "@scope/dep@2.0.0",
-        "https://registry.example/",
-        { dependencies: { leaf: "1" } },
-        integrity("dep2"),
-      ],
-      leaf: ["leaf@1.0.0", "", {}, integrity("leaf")],
-      "lib-linux-x64": ["lib-linux-x64@1.0.0", "", { os: "linux", cpu: "x64" }, integrity("x")],
-      valibot: ["valibot@1.5.0", "", {}, integrity("valibot")],
-      typescript: ["typescript@7.0.2", "", {}, integrity("ts")],
-      wxt: ["wxt@0.21.4", "", {}, integrity("wxt")],
-      hono: ["hono@4.0.0", "", {}, integrity("hono")],
+      "lib/@scope/dep": ["@scope/dep@2.0.0", "https://registry.example/", {}, integrity("dep2")],
+      legacy: ["legacy@1.0.0", "", {}, "sha1-abc"],
     },
   };
-  const packages = runtimePackages(lock, ["apps/extension"]);
+  const packages = lockedPackages(lock, [
+    { name: "react", version: "19.0.0" },
+    { name: "@scope/dep", version: "2.0.0" },
+  ]);
   assert.deepEqual(
-    packages.map(({ name, version }) => `${name}@${version}`),
-    [
-      "@scope/dep@2.0.0",
-      "leaf@1.0.0",
-      "lib@1.0.0",
-      "react@19.0.0",
-      "react-dom@19.0.0",
-      "valibot@1.5.0",
-    ],
+    packages.map(({ name, version, registry }) => `${name}@${version} ${registry}`),
+    ["@scope/dep@2.0.0 https://registry.example/", "react@19.0.0 "],
   );
-  assert.equal(packages[0].registry, "https://registry.example/");
-  // A required dependency that bun.lock cannot resolve stops the release.
-  lock.packages.lib[2].dependencies.absent = "1";
-  assert.throws(() => runtimePackages(lock, ["apps/extension"]), /does not resolve absent/u);
-  delete lock.packages.lib[2].dependencies.absent;
-  lock.packages.leaf[3] = "sha1-abc";
-  assert.throws(() => runtimePackages(lock, ["apps/extension"]), /sha512/u);
+  assert.equal(packages[1].integrity, integrity("react"));
+  // A bundled package bun.lock does not pin, or pins without sha512, stops the release.
+  assert.throws(() => lockedPackages(lock, [{ name: "react", version: "18.0.0" }]), /18\.0\.0/u);
+  assert.throws(() => lockedPackages(lock, [{ name: "legacy", version: "1.0.0" }]), /sha512/u);
+  assert.throws(() => lockedPackages(lock, []), /no bundled packages/u);
 });
 
-test("the extension's packages resolve from the committed bun.lock", async () => {
-  const packages = runtimePackages(parseBunLock(await readFile("bun.lock", "utf8")));
-  const names = new Set(packages.map(({ name }) => name));
-  for (const name of ["@bitwarden/sdk-internal", "react", "react-dom", "valibot"])
-    assert(names.has(name), `${name} is bundled`);
-  // Build tools and the compiler are not part of the extension.
-  for (const name of ["wxt", "vite", "typescript", "@types/react"])
-    assert(!names.has(name), `${name} is not bundled`);
+test("the build records bundled packages from modules and CSS license banners", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "pateat-bundled-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const installed = join(root, "node_modules/.store/lib@1.0.0/node_modules/@scope/lib");
+  await mkdir(join(installed, "dist/esm"), { recursive: true });
+  await writeFile(
+    join(installed, "package.json"),
+    JSON.stringify({ name: "@scope/lib", version: "1.0.0" }),
+  );
+  // A nested package.json without a name, as some packages ship for module type.
+  await writeFile(join(installed, "dist/esm/package.json"), JSON.stringify({ type: "module" }));
+  await writeFile(join(installed, "dist/esm/index.js"), "");
+  assert.deepEqual(owningPackage(join(installed, "dist/esm/index.js")), {
+    name: "@scope/lib",
+    version: "1.0.0",
+  });
+  // Repository code, such as a linked workspace package, is not a third-party package.
+  assert.equal(owningPackage(join(root, "packages/contracts/src/index.ts")), undefined);
+
+  resetBundledPackages();
+  const plugin = bundledPackagesPlugin();
+  plugin.generateBundle.call(
+    {},
+    {},
+    {
+      "a.js": {
+        type: "chunk",
+        fileName: "a.js",
+        moduleIds: ["\0virtual", `${join(installed, "dist/esm/index.js")}?url`, "/repo/src/a.ts"],
+      },
+      "a.css": {
+        type: "asset",
+        fileName: "a.css",
+        source: "/*! tailwindcss v4.3.3 | MIT License | https://tailwindcss.com */\n.a{}",
+      },
+    },
+  );
+  const outDir = join(root, "chrome-mv3");
+  writeBundledPackages(outDir);
+  assert.deepEqual(JSON.parse(await readFile(`${outDir}.packages.json`, "utf8")), [
+    { name: "@scope/lib", version: "1.0.0" },
+    { name: "tailwindcss", version: "4.3.3" },
+  ]);
+  resetBundledPackages();
 });
 
 test("tarball URLs and names", () => {

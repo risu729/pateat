@@ -10,9 +10,10 @@ on:
         description: Build and pack only, without a draft release (any branch).
         type: boolean
         default: false
-# One release at a time; a second run waits instead of racing for the same tag.
+# One run per branch and mode at a time, so that two drafts never race for the same tag;
+# a dry run never waits for a release.
 concurrency:
-  group: extension-release
+  group: extension-release-${{ github.ref }}-${{ inputs.dry-run }}
   cancel-in-progress: false
 permissions: {}
 defaults:
@@ -46,6 +47,8 @@ jobs:
         with:
           version: 2026.10.11
           install_args: --locked
+          # Release tools come from the lockfile's downloads, not a cache another run wrote.
+          cache: false
       - name: Install frozen dependencies
         run: aube ci
       - name: Check the pinned SDK source metadata
@@ -115,13 +118,20 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # gh finds draft releases by their tag name too.
-          if gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" > /dev/null 2>&1; then
-            echo "::error::A release for ${TAG} exists; raise the version in apps/extension/package.json."
+          # Only a definite "not found" lets the release go ahead; any other error (rate
+          # limit, outage) stops it, since gh would attach the draft to an existing tag.
+          # Drafts have no tag yet, so list them by tag name.
+          releases="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/releases" \
+            --jq '.[] | select(.tag_name == env.TAG) | .html_url')"
+          if [[ -n "${releases}" ]]; then
+            echo "::error::A release for ${TAG} exists (${releases}); raise the version in apps/extension/package.json."
             exit 1
           fi
-          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" > /dev/null 2>&1; then
+          if output="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" 2>&1)"; then
             echo "::error::Tag ${TAG} exists; raise the version in apps/extension/package.json."
+            exit 1
+          elif [[ "${output}" != *"HTTP 404"* ]]; then
+            echo "::error::Could not check for tag ${TAG}: ${output}"
             exit 1
           fi
       - name: Create the draft release
