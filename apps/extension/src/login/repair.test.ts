@@ -119,10 +119,37 @@ describe("which start page misses count toward a repair", () => {
       miss([label("パスワード")], { language: "en" }),
       "language",
     ],
+    // A recipe that records no language is read by the words of its missing locators.
     [
-      "a recipe with no recorded language",
+      "Japanese labels of a recipe with no recorded language, on the English page",
       { steps: byLabel.steps },
       miss([label("パスワード")], { language: "en" }),
+      "language",
+    ],
+    [
+      "Japanese labels of a recipe with no recorded language, on the Japanese page",
+      { steps: byLabel.steps },
+      miss([label("パスワード")], { language: "ja" }),
+      "stale",
+    ],
+    [
+      "English text of a recipe with no recorded language, on the Japanese page",
+      { steps: [{ kind: "click", path: "/login", target: text("Sign in"), purpose: "submit" }] },
+      miss([text("Sign in")], { language: "ja" }),
+      "language",
+    ],
+    [
+      "labels in both scripts of a recipe with no recorded language",
+      recipe({
+        kind: "fill",
+        path: "/login",
+        effect: "prepare",
+        fields: [
+          { slot: "username", target: label("Email") },
+          { slot: "password", target: label("パスワード") },
+        ],
+      }),
+      miss([label("Email"), label("パスワード")], { language: "en" }),
       "stale",
     ],
   ];
@@ -159,6 +186,9 @@ describe("misses in a row", () => {
     // The same document reporting again is not another load.
     expect(await repairs.miss(entry("d1"))).toBe("repeat");
     expect(await repairs.miss(entry("d2"))).toBe("due");
+    // A sent repair starts the count over.
+    expect(await repairs.miss(entry("d3"))).toBe("noted");
+    expect(await repairs.miss(entry("d4"))).toBe("due");
   });
 
   it("starts over on another revision or path, or once a login started", async () => {

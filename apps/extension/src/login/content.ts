@@ -423,7 +423,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
    * recipe's identifier-first start page does (proposed ADR 0039).
    */
   function asksSignIn(): boolean {
-    return showsSignIn() || (watchedHere().length > 0 && identifierInput(document) !== undefined);
+    return showsSignIn() || (watchedHere().length > 0 && identifierInput(document) === "sole");
   }
   /**
    * What the first steps watched on this path miss (proposed ADR 0039): the targets that

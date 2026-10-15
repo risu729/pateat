@@ -116,7 +116,9 @@ export async function startLoginFixture(
       }, 1200);
       return;
     }
-    response.writeHead(200, {
+    // The `/sign-in?maintenance` page answers 503 (proposed ADR 0039).
+    const maintenance = path === "/sign-in" && fixtureUrl.searchParams.has("maintenance");
+    response.writeHead(maintenance ? 503 : 200, {
       "content-type": "text/html; charset=utf-8",
       "cache-control": "no-store",
     });
@@ -685,8 +687,7 @@ export async function startLoginFixture(
             : redesign
               ? '<button id="continue" type="button">Log in</button>'
               : '<button id="login" type="button">Log in</button>';
-      if (fixtureUrl.searchParams.has("maintenance")) {
-        response.statusCode = 503;
+      if (maintenance) {
         response.end(
           html(
             '<h1>Synthetic maintenance</h1><p>Back soon.</p><label>Admin key<input id="admin-key" type="password"></label>',

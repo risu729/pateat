@@ -5574,6 +5574,33 @@ describe("production login document admission", () => {
         expect(service.generate).not.toHaveBeenCalled();
       });
 
+      it("counts no page where a completion marker the recipe learned shows", async () => {
+        const { service, h, repairLog } = setup();
+        const signedIn = {
+          ...stale,
+          revision: 2,
+          completion: [{ target: target("sign-out") }],
+        };
+        h.recipes.recipe.mockResolvedValue(signedIn);
+        // A signed-in page on the start path, as a profile form with an email input.
+        fake.state.observed = ["unique"];
+        await missHello(h, "load-1");
+        await missHello(h, "load-2");
+        await vi.waitFor(() => expect(repairLog()).toHaveLength(2));
+        expect(repairLog().map((entry) => "reason" in entry && entry.reason)).toEqual([
+          "signed-in",
+          "signed-in",
+        ]);
+        expect(
+          fake.state.messages.filter((entry) => entry.type === "login.observe").at(-1),
+        ).toMatchObject({ targets: [target("sign-out")] });
+        // Without the marker, the miss counts.
+        fake.state.observed = ["missing"];
+        await missHello(h, "load-3");
+        await vi.waitFor(() => expect(repairLog().at(-1)).toMatchObject({ outcome: "noted" }));
+        expect(service.generate).not.toHaveBeenCalled();
+      });
+
       it("starts the count over when a login starts, and holds a tried recipe for the day", async () => {
         const { service, h, repairLog } = setup(async () => ({
           outcome: "abstained",
@@ -5600,7 +5627,10 @@ describe("production login document admission", () => {
             recipes: [{ recipeId: stale.id, tried: expect.any(Number) }],
           }),
         );
+        // The sent repair started the count over; two more loads find it held.
         await missHello(h, "load-5");
+        await vi.waitFor(() => expect(repairLog().at(-1)).toMatchObject({ outcome: "noted" }));
+        await missHello(h, "load-6");
         await vi.waitFor(() =>
           expect(repairLog().at(-1)).toMatchObject({ outcome: "skipped", reason: "held" }),
         );

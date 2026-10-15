@@ -18,6 +18,19 @@ export type StartMissVerdict = "stale" | "status" | "unusable" | "language" | "n
 
 /** Whether a locator depends on the page's wording: a button's text or a field's name. */
 const worded = (target: { by: string }) => target.by === "text" || target.by === "label";
+const japanese = /[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/u;
+const latin = /\p{Script=Latin}/u;
+/**
+ * The language worded locators were written in, for a recipe that records none: Japanese
+ * when every value holds Japanese script, English when every value holds Latin letters
+ * and no Japanese script; otherwise unknown.
+ */
+function wordedLanguage(values: readonly string[]): "ja" | "en" | undefined {
+  if (!values.length) return undefined;
+  if (values.every((value) => japanese.test(value))) return "ja";
+  if (values.every((value) => latin.test(value) && !japanese.test(value))) return "en";
+  return undefined;
+}
 
 /**
  * Whether a recipe's start page, which showed a sign-in input for the step wait without
@@ -37,12 +50,18 @@ export function classifyStartMiss(
       )
     : [];
   if (!missing.length) return "unusable";
-  // Same page in another language: the recipe is still right where its words show.
+  // Same page in another language: the recipe is still right where its words show. A
+  // recipe that records no language is read by the words of its missing locators.
+  const written =
+    recipe.language ??
+    (missing.every(worded)
+      ? wordedLanguage(missing.map((target) => ("value" in target ? String(target.value) : "")))
+      : undefined);
   if (
     missing.every(worded) &&
-    recipe.language !== undefined &&
+    written !== undefined &&
     (miss.language === "ja" || miss.language === "en") &&
-    miss.language !== recipe.language
+    miss.language !== written
   )
     return "language";
   return "stale";
@@ -159,6 +178,9 @@ export function createRecipeRepairs(
             : record.tried !== undefined && utcDay(record.tried) === utcDay(now())
               ? "held"
               : "due";
+        // A sent repair starts the count over, so a repair the service did not take is
+        // asked for again only after as many loads again.
+        if (result === "due") record.documents = [];
         return { records: [...without(records, recipeId), record], result };
       }).catch(() => "unavailable" as const);
     },

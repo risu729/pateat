@@ -6452,6 +6452,18 @@ export function createLoginRuntime(
       log("skipped", verdict);
       return;
     }
+    // A page that shows the account is signed in is no stale start page, though it may hold
+    // an email input, as a profile form: the tab's next page after a submitted password
+    // form, or one where a completion marker the recipe learned shows.
+    if (afterSignIn.get(live.document.tabId) === live.document.documentId) {
+      log("skipped", "after-sign-in");
+      return;
+    }
+    if (await markerShown(live, recipe)) {
+      if (documents.get(key) === live) log("skipped", "signed-in");
+      return;
+    }
+    if (documents.get(key) !== live) return;
     const counted = await repairs.miss({
       recipeId: recipe.id,
       revision: recipe.revision,
@@ -6480,15 +6492,43 @@ export function createLoginRuntime(
     await generateFor(live, scope, undefined, {
       recipeId: recipe.id,
       revision: recipe.revision,
-      // A request that reached the model, or the service's daily limit, spends the day.
+      // Any answer of the service spends the day but one that another request was in
+      // flight (`busy`); a page not sent or a request that failed to arrive does not.
       done: (outcome) => {
         const spent =
           outcome.outcome === "unavailable"
-            ? outcome.reason === "repair-limit"
+            ? outcome.reason !== "busy"
             : outcome.outcome !== "skipped" && !("retry" in outcome && outcome.retry);
         if (spent) void repairs.tried(recipe.id);
       },
     });
+  }
+  /**
+   * Whether one of the recipe's learned completion markers shows on the page, visible or
+   * hidden; a page that cannot be asked counts as showing one, so nothing is sent.
+   */
+  async function markerShown(live: LiveDocument, recipe: LoginRecipe): Promise<boolean> {
+    const proof = markerProof(recipe, live.document.origin);
+    if (!proof.targets.length) return false;
+    try {
+      const parsed = v.safeParse(
+        observationSchema,
+        await send(live, {
+          type: "login.observe",
+          path: live.path,
+          targets: proof.targets,
+          links: proof.links,
+        }),
+      );
+      return (
+        !parsed.success ||
+        parsed.output.targets.some(
+          (state, index) => proof.links[index] && (state === "unique" || state === "ambiguous"),
+        )
+      );
+    } catch {
+      return true;
+    }
   }
   /**
    * After a refusal because no vault item matches, a vault check may bring the item from

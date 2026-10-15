@@ -49,6 +49,8 @@ const failedBeforeModel = new Set<string>([
 
 /** The recipe revision a page continues after its final `advance` step (ADR 0018). */
 type GenerationBase = NonNullable<RecipeGenerationRequest["base"]>;
+/** The recipe revision a stale start page repairs (proposed ADR 0039). */
+type GenerationRepair = NonNullable<RecipeGenerationRequest["repair"]>;
 /**
  * Each origin and path claimed for generation: `sending` while its request is in flight,
  * `sent` once an answer showed the request reached the model (ADR 0016). A page that
@@ -71,6 +73,16 @@ const attemptsSchema = v.strictObject({
         ),
         /** For a chooser's page (ADR 0028): the branch it continues. */
         branch: v.optional(chooserBranchSchema),
+        /**
+         * For a stale recipe's start page (proposed ADR 0039): the revision it repairs, so
+         * the claim of the page's first generation does not hold its repair.
+         */
+        repair: v.optional(
+          v.strictObject({
+            recipeId: syncRecipeIdSchema,
+            revision: v.pipe(v.number(), v.integer(), v.minValue(1)),
+          }),
+        ),
         at: v.pipe(v.number(), v.integer(), v.minValue(0)),
       }),
     ),
@@ -307,13 +319,21 @@ export function createLoginGeneration(options: {
     return next.catch(() => false);
   }
   const same =
-    (origin: string, path: string, base?: GenerationBase, branch?: ChooserBranch) =>
+    (
+      origin: string,
+      path: string,
+      base?: GenerationBase,
+      branch?: ChooserBranch,
+      repair?: GenerationRepair,
+    ) =>
     (entry: GenerationAttempts["attempts"][number]) =>
       entry.origin === origin &&
       entry.path === path &&
       entry.base?.recipeId === base?.recipeId &&
       entry.base?.revision === base?.revision &&
-      entry.branch === branch;
+      entry.branch === branch &&
+      entry.repair?.recipeId === repair?.recipeId &&
+      entry.repair?.revision === repair?.revision;
 
   async function connected() {
     const connection = await service.connection().catch(() => undefined);
@@ -333,6 +353,7 @@ export function createLoginGeneration(options: {
     page: { origin: string; path: string },
     base: GenerationBase | undefined,
     branch: ChooserBranch | undefined,
+    repair: GenerationRepair | undefined,
     sent: (() => void) | undefined,
     call: (connection: ServiceConnection) => Promise<InferenceResult<Result>>,
   ): Promise<
@@ -346,7 +367,7 @@ export function createLoginGeneration(options: {
     let held: GenerationHold | undefined;
     const claimedAt = now();
     const stored = await remember((attempts) => {
-      held = attempts.find(same(origin, path, base, branch))?.state;
+      held = attempts.find(same(origin, path, base, branch, repair))?.state;
       return held
         ? attempts
         : [
@@ -356,6 +377,7 @@ export function createLoginGeneration(options: {
               path,
               ...(base ? { base } : {}),
               ...(branch ? { branch } : {}),
+              ...(repair ? { repair } : {}),
               state: "sending",
               at: claimedAt,
             },
@@ -376,7 +398,7 @@ export function createLoginGeneration(options: {
       const at = now();
       return remember((attempts) =>
         attempts.flatMap((entry) =>
-          !same(origin, path, base, branch)(entry) ||
+          !same(origin, path, base, branch, repair)(entry) ||
           entry.state !== "sending" ||
           entry.at !== claimedAt
             ? [entry]
@@ -414,8 +436,8 @@ export function createLoginGeneration(options: {
       const slots = slotsForPage(input.observation, input.slots);
       if (!slots.length) return { outcome: "skipped", reason: "no-slots" };
       const request = { ...input, slots };
-      const { base, branch } = request;
-      const claim = await claimed(request.observation, base, branch, sent, (connection) =>
+      const { base, branch, repair } = request;
+      const claim = await claimed(request.observation, base, branch, repair, sent, (connection) =>
         transport.generateRecipe(connection.origin, connection.credential, request),
       );
       if ("outcome" in claim) return claim;
@@ -453,8 +475,13 @@ export function createLoginGeneration(options: {
       return { outcome: "recipe", recipe: change.recipe };
     },
     async generateEntry(request: EntryGenerationRequest, sent): Promise<EntryGenerationOutcome> {
-      const claim = await claimed(request.observation, undefined, undefined, sent, (connection) =>
-        transport.generateEntry(connection.origin, connection.credential, request),
+      const claim = await claimed(
+        request.observation,
+        undefined,
+        undefined,
+        undefined,
+        sent,
+        (connection) => transport.generateEntry(connection.origin, connection.credential, request),
       );
       if ("outcome" in claim) return claim;
       const { answer } = claim;
