@@ -42,6 +42,7 @@ const binding = (overrides: Partial<SavedLoginBinding> = {}): SavedLoginBinding 
   recipeId: "bank-signin",
   origin,
   provider: "bitwarden",
+  server: "cloud-us",
   userId: "00000000-0000-4000-8000-000000000001",
   itemId: "00000000-0000-4000-8000-000000000002",
   itemName: "Example Bank",
@@ -146,12 +147,21 @@ describe("recipe selection", () => {
 
 describe("synced account bindings", () => {
   it("finds the binding for one recipe and item only", () => {
-    const account = { provider: "bitwarden", userId: binding().userId, itemId: binding().itemId };
+    const account = {
+      provider: "bitwarden",
+      server: "cloud-us",
+      userId: binding().userId,
+      itemId: binding().itemId,
+    };
     const bindings = [binding(), binding({ itemId: "00000000-0000-4000-8000-000000000003" })];
     expect(findLoginBinding(bindings, { id: "bank-signin", origin }, account)).toBe(bindings[0]);
     expect(findLoginBinding(bindings, { id: "bank-admin", origin }, account)).toBeUndefined();
     expect(
       findLoginBinding(bindings, { id: "bank-signin", origin }, { ...account, userId: "other" }),
+    ).toBeUndefined();
+    // The same user ID on another server is another account (ADR 0023).
+    expect(
+      findLoginBinding(bindings, { id: "bank-signin", origin }, { ...account, server: "cloud-eu" }),
     ).toBeUndefined();
   });
 
@@ -275,6 +285,28 @@ describe("synced account bindings", () => {
     ).toBe(false);
   });
 
+  it("names the account's server: a cloud region or an exact HTTPS origin (ADR 0023)", () => {
+    for (const server of [
+      "cloud-us",
+      "cloud-eu",
+      "https://vault.example",
+      "https://vault.example:8443",
+    ])
+      expect(v.is(savedLoginBindingSchema, binding({ server })), server).toBe(true);
+    for (const server of [
+      "",
+      "cloud-jp",
+      "http://vault.example",
+      "https://vault.example/",
+      "https://VAULT.example",
+      "https://user@vault.example",
+      "vault.example",
+    ])
+      expect(v.is(savedLoginBindingSchema, binding({ server })), server).toBe(false);
+    const { server: _server, ...serverless } = binding();
+    expect(v.is(savedLoginBindingSchema, serverless)).toBe(false);
+  });
+
   it("keeps an optional display-only account name", () => {
     expect(v.is(savedLoginBindingSchema, binding({ accountName: "Personal vault" }))).toBe(true);
     // Bindings made by AI generation on the service have none.
@@ -292,6 +324,7 @@ describe("synced account bindings", () => {
     expect(v.is(localSettingsSchema, { ...settings, bindings: [empty] })).toBe(false);
     const account = {
       provider: "bitwarden",
+      server: "cloud-us",
       userId: empty.userId,
       itemId: empty.itemId,
       itemName: "",
@@ -317,6 +350,7 @@ describe("synced account bindings", () => {
 describe("automatic account choice", () => {
   const account = {
     provider: "bitwarden",
+    server: "cloud-us",
     userId: binding().userId,
     itemId: binding().itemId,
     itemName: "Example Bank",
@@ -358,6 +392,7 @@ describe("automatic account choice", () => {
       {
         origin,
         provider: "bitwarden",
+        server: "cloud-us",
         userId: account.userId,
         itemId: account.itemId,
         itemName: chosen.itemName,
@@ -371,6 +406,7 @@ describe("automatic account choice", () => {
     const other = { ...chosen, itemId: "00000000-0000-4000-8000-000000000003" };
     expect(saveLoginChoice(saved, other)).toBe(saved);
     expect(saveLoginChoice(saved, { ...chosen, userId: "other-account" })).toBe(saved);
+    expect(saveLoginChoice(saved, { ...chosen, server: "https://vault.example" })).toBe(saved);
 
     // An account picked to become the default replaces another saved default for the
     // origin only; other sites' defaults and existing bindings stay.
@@ -378,12 +414,24 @@ describe("automatic account choice", () => {
       ...saved,
       siteDefaults: [
         ...saved.siteDefaults,
-        { origin: "https://other.example", provider: "bitwarden", userId: "u", itemId: "i" },
+        {
+          origin: "https://other.example",
+          provider: "bitwarden",
+          server: "cloud-us",
+          userId: "u",
+          itemId: "i",
+        },
       ],
     };
     const replaced = saveLoginChoice(elsewhere, other, { replace: true });
     expect(replaced.siteDefaults).toEqual([
-      { origin: "https://other.example", provider: "bitwarden", userId: "u", itemId: "i" },
+      {
+        origin: "https://other.example",
+        provider: "bitwarden",
+        server: "cloud-us",
+        userId: "u",
+        itemId: "i",
+      },
       expect.objectContaining({ origin, itemId: other.itemId, itemName: other.itemName }),
     ]);
     expect(replaced.bindings).toEqual([chosen, other]);
@@ -402,6 +450,7 @@ describe("automatic account choice", () => {
           {
             origin,
             provider: "bitwarden",
+            server: "cloud-us",
             userId: account.userId,
             itemId: account.itemId,
             ...(itemName ? { itemName } : {}),
@@ -434,6 +483,7 @@ describe("automatic account choice", () => {
       {
         origin,
         provider: "bitwarden",
+        server: "cloud-us",
         userId: account.userId,
         itemId: account.itemId,
         itemName: chosen.itemName,
@@ -480,6 +530,7 @@ describe("automatic account choice", () => {
       siteDefaults: Array.from({ length: 1000 }, (_, index) => ({
         origin: `https://site${index}.example`,
         provider: "bitwarden",
+        server: "cloud-us",
         userId: account.userId,
         itemId: "item",
       })),
@@ -519,6 +570,7 @@ describe("automatic account choice", () => {
       {
         origin,
         provider: "bitwarden",
+        server: "cloud-us",
         userId: account.userId,
         itemId: account.itemId,
         itemName: "Example Bank",
@@ -539,6 +591,7 @@ describe("bindings built from templates (ADR 0027)", () => {
   const bank = { id: "bank-signin", origin };
   const account = {
     provider: "bitwarden",
+    server: "cloud-us",
     userId: binding().userId,
     itemId: binding().itemId,
     itemName: "Example Bank",

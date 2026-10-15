@@ -475,6 +475,13 @@ export function parseInstant(value: string): bigint | undefined {
   if (!match) return undefined;
   const milliseconds = Date.parse(`${match[1]}${match[3]}`);
   if (Number.isNaN(milliseconds)) return undefined;
+  // Date.parse rolls a day past the month's end over (February 30 is March 2).
+  const [year, month, day] = match[1].slice(0, 10).split("-").map(Number) as [
+    number,
+    number,
+    number,
+  ];
+  if (new Date(Date.UTC(year, month - 1, day)).getUTCDate() !== day) return undefined;
   return BigInt(milliseconds) * 1_000_000n + BigInt((match[2] ?? "0").padEnd(9, "0"));
 }
 
@@ -879,7 +886,7 @@ export type SiteDefaultConnection =
 /**
  * The local connection a saved site default names: the one catalog connection of that
  * provider account. An account connected twice is ambiguous, and so is one whose user ID
- * is connected here on another server (ADR 0023). With no match while a connection of
+ * is connected here only on another server (ADR 0023). With no match while a connection of
  * that provider cannot name its account (locked or unavailable), the vault is unavailable
  * rather than the account missing.
  */
