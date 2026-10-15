@@ -15,8 +15,9 @@ import type { createPasswordStop } from "./password-stop";
 /**
  * The login runtime: its shared state and the functions of all its parts, which reach each
  * other through it. `createLoginRuntime` creates each part with the shared state and adds the
- * part's functions to it before any of them runs; a part reads it as this interface.
- * Typing the parts' parameter as this interface would make the interface depend on itself.
+ * part's functions to it before any of them runs; a part reads it as this interface. So a
+ * part calls another part's functions only from inside its own functions, never while it is
+ * being created. Typing the parts' parameter as this interface would make the interface depend on itself.
  */
 export interface RuntimeContext
   extends
