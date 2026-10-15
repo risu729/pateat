@@ -25,7 +25,8 @@ features:
   - title: Your vault stays on your device
     details:
       Pateat syncs your Bitwarden vault and decrypts it in the extension with the
-      official Bitwarden SDK. Passwords, TOTP secrets and passkey keys never leave it.
+      official Bitwarden SDK. TOTP secrets and passkey private keys never leave it, and a
+      password leaves it only into the login page of a site it is for.
   - title: Logins described, not recorded
     details:
       Each site gets a recipe of fixed steps, such as fill and click, which an AI writes

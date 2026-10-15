@@ -28,13 +28,17 @@ HTTPS page:
   page's passkey requests (`navigator.credentials.get` and `create`); the other relays a
   request to Pateat's service worker. A request that Pateat does not answer goes on to
   Chrome unchanged, so Chrome, your phone or another passkey provider can still answer
-  it.
+  it. Three requests are exceptions: one that Pateat refused fails as if you had
+  cancelled it; a passkey suggestion that a page asks for after Pateat signed it in
+  waits until the page cancels it; and a request to create a passkey that lists one of
+  your vault's passkeys, right after Pateat signed the tab in, is declined.
 
 Loading on a page does not mean acting on it. Pateat logs in only on a site that you
-have not excluded, that matches an item in your vault, and that still has site access in
-Chrome. It fills only the fields its recipe names for that exact origin, in that tab,
-frame and page. A page without a recipe can be described to your Pateat service so that
-one is written; what that description holds is in the [privacy policy](./privacy.md).
+have not excluded, that matches an item in your vault or that you chose an item for,
+that has a recipe for the page, and that still has site access in Chrome. It fills only
+the fields its recipe names for that exact origin, in that tab, frame and page. A page
+without a recipe can be described to your Pateat service so that one is written; what
+that description holds is in the [privacy policy](./privacy.md).
 
 The same access lets Pateat reach your Bitwarden server and your Pateat service. Even
 so, Pateat calls only the fixed Bitwarden endpoints it needs, on the server you chose.
