@@ -9,8 +9,9 @@ import {
 import { AxeBuilder } from "@axe-core/playwright";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PATEAT_EXTENSION_ID, type SettingsResponse } from "../../packages/contracts/src/index";
 import { ACTION_ICON_PATHS } from "../../apps/extension/src/connections/action-icon";
@@ -163,6 +164,54 @@ test("production package permits local storage, the crypto host and the HTTPS lo
           ? ["http://localhost/*"]
           : ["http://127.0.0.1/*"],
     );
+});
+
+test("production and probe notices identify the bundled SDK's exact corresponding source", async () => {
+  const lock = await readFile(resolve(repository, "bun.lock"), "utf8");
+  const version = /"@bitwarden\/sdk-internal": \["@bitwarden\/sdk-internal@([^"]+)"/u.exec(
+    lock,
+  )?.[1];
+  expect(version).toBeTruthy();
+  const installed = dirname(
+    createRequire(resolve(repository, "packages/bitwarden/package.json")).resolve(
+      "@bitwarden/sdk-internal/package.json",
+    ),
+  );
+  const installedPackage = JSON.parse(await readFile(resolve(installed, "package.json"), "utf8"));
+  expect(installedPackage.version).toBe(version);
+  const revision = (await readFile(resolve(installed, "VERSION"), "utf8")).trim();
+  expect(revision).toMatch(/^[0-9a-f]{40}$/u);
+  await Promise.all(
+    [extensionDirectory, probeDirectory].map(async (directory) => {
+      const [legal, notices, license] = await Promise.all([
+        readFile(resolve(directory, "legal.html"), "utf8"),
+        readFile(resolve(directory, "THIRD-PARTY-NOTICES.md"), "utf8"),
+        readFile(resolve(directory, "LICENSE-GPL-3.0.txt"), "utf8"),
+      ]);
+      expect(license).toContain("GNU GENERAL PUBLIC LICENSE");
+      expect(legal).toContain(`@bitwarden/sdk-internal ${version}`);
+      expect(notices).toContain(`@bitwarden/sdk-internal@${version}`);
+      for (const record of [legal, notices]) {
+        expect(record).toContain(revision);
+        expect(record).not.toContain("__PATEAT_BITWARDEN_SDK_");
+        expect(record).toContain(
+          `https://github.com/bitwarden/sdk-internal/archive/${revision}.tar.gz`,
+        );
+        expect(record).toContain(
+          `https://github.com/bitwarden/sdk-internal/blob/${revision}/crates/bitwarden-wasm-internal/README.md`,
+        );
+        // Every SDK source link must identify the installed revision, including license links.
+        const sourceLinks = [
+          ...record.matchAll(
+            /https:\/\/github\.com\/bitwarden\/sdk-internal\/(?:blob|archive)\/([^/"\s)]+)/gu,
+          ),
+        ];
+        expect(sourceLinks.length).toBeGreaterThanOrEqual(2);
+        for (const [, source] of sourceLinks)
+          expect(source?.replace(/\.tar\.gz$/u, "")).toBe(revision);
+      }
+    }),
+  );
 });
 
 test("probe options support keyboard policy validation and pass accessibility checks", async () => {

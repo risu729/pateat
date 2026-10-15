@@ -678,7 +678,13 @@ describe("strict cipher isolation and disposal", () => {
     });
   });
 
-  it("withholds decrypted attachment keys from cipher views", async () => {
+  it.each<{ name: string; metadata: Pick<sdk.AttachmentView, "url" | "size" | "sizeName"> }>([
+    { name: "omitted optional metadata", metadata: {} },
+    {
+      name: "present optional metadata",
+      metadata: { url: "https://synthetic.example.test/a.txt", size: "1", sizeName: "1 B" },
+    },
+  ])("withholds decrypted attachment keys with $name", async ({ metadata }) => {
     const created = await createLocalCryptoSession(
       v1Input(),
       viewOverrideSdk((view) => ({
@@ -686,9 +692,7 @@ describe("strict cipher isolation and disposal", () => {
         attachments: [
           {
             id: "synthetic-attachment",
-            url: undefined,
-            size: undefined,
-            sizeName: undefined,
+            ...metadata,
             fileName: "a.txt",
             key: "synthetic-key" as sdk.SymmetricKey,
           },
@@ -703,7 +707,12 @@ describe("strict cipher isolation and disposal", () => {
       ok: true,
       data: { attachments: [{ id: "synthetic-attachment", fileName: "a.txt" }] },
     });
-    if (view.ok) expect(view.data.attachments?.[0]).not.toHaveProperty("key");
+    if (view.ok) {
+      expect(view.data.attachments).toEqual([
+        { id: "synthetic-attachment", fileName: "a.txt", ...metadata },
+      ]);
+      expect(view.data.attachments?.[0]).not.toHaveProperty("key");
+    }
   });
 
   it("refuses an empty passkey private key from the SDK", async () => {
