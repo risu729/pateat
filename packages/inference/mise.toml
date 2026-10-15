@@ -33,3 +33,17 @@ run = [
   "bun ../../scripts/formasaurus/import.ts --source {{ usage.source }} {% if usage.chromium %}--chromium {{ usage.chromium }}{% endif %}",
   "oxfmt src/corpus/formasaurus.json",
 ]
+
+[tasks."corpus:japanese"]
+description = "Observe public Japanese login pages live: refresh the Japanese corpus, or report listed pages to label."
+usage = '''
+flag "--refresh" help="Observe every corpus page again and move each label to the new observation."
+flag "--report <file>" help="Write the observations of the listed pages to this local file (an absolute path)."
+flag "--chromium <path>" help="Chromium or Chrome executable, when Playwright's own is not installed."
+flag "--headed" help="Show the browser window."
+arg "[url]..." var=#true help="Public login pages to observe for labelling."
+'''
+run = [
+  "bun ../../scripts/japanese/observe.ts {% if usage.refresh %}--refresh{% endif %} {% if usage.report %}--report {{ usage.report | quote }}{% endif %} {% if usage.chromium %}--chromium {{ usage.chromium | quote }}{% endif %} {% if usage.headed %}--headed{% endif %} {% for url in usage.url %}{{ url | quote }} {% endfor %}",
+  "oxfmt src/corpus/japanese.json",
+]
