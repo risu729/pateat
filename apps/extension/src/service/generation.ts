@@ -49,7 +49,7 @@ const failedBeforeModel = new Set<string>([
 
 /** The recipe revision a page continues after its final `advance` step (ADR 0018). */
 type GenerationBase = NonNullable<RecipeGenerationRequest["base"]>;
-/** The recipe revision a stale start page repairs (proposed ADR 0039). */
+/** The recipe revision a stale start page repairs (proposed ADR 0041). */
 type GenerationRepair = NonNullable<RecipeGenerationRequest["repair"]>;
 /**
  * Each origin and path claimed for generation: `sending` while its request is in flight,
@@ -74,7 +74,7 @@ const attemptsSchema = v.strictObject({
         /** For a chooser's page (ADR 0028): the branch it continues. */
         branch: v.optional(chooserBranchSchema),
         /**
-         * For a stale recipe's start page (proposed ADR 0039): the revision it repairs, so
+         * For a stale recipe's start page (proposed ADR 0041): the revision it repairs, so
          * the claim of the page's first generation does not hold its repair.
          */
         repair: v.optional(

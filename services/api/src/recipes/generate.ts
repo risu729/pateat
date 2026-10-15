@@ -224,7 +224,7 @@ function attemptWindow(
 }
 
 /**
- * The repair limit of proposed ADR 0039: a recipe's start page is generated again to repair
+ * The repair limit of proposed ADR 0041: a recipe's start page is generated again to repair
  * it at most once a UTC day, whatever came of the call. `recheck` reads the stored head
  * again under the owner's lock.
  */
@@ -265,7 +265,7 @@ function repairWindow(
 
 /**
  * The parts of a route recipe its start page makes, which a repair replaces (proposed ADR
- * 0039): the steps up to the page's one effect step, its other variants, its passkey
+ * 0041): the steps up to the page's one effect step, its other variants, its passkey
  * button and its account switch.
  */
 const startPageOf = (recipe: LoginRecipe) => {
@@ -306,7 +306,7 @@ export async function generateRecipe(
   // A first page starts its own recipe; a later page continues the one in `base`.
   const recipeId = base?.recipeId ?? (await generatedRecipeId(origin, path));
   if (!/^gen-[0-9a-f]{32}$/u.test(recipeId)) return undefined;
-  // A repair names the recipe that starts on this page (proposed ADR 0039).
+  // A repair names the recipe that starts on this page (proposed ADR 0041).
   if (repair && repair.recipeId !== recipeId) return undefined;
   if (!observation.complete) return failed("incomplete-observation");
   // A list of accounts is only ever a recipe's first page.
@@ -338,7 +338,7 @@ export async function generateRecipe(
       }
   > => {
     // A repair replaces the active route recipe it names, at the revision it names
-    // (proposed ADR 0039). A newer revision answers as is: another device repaired the
+    // (proposed ADR 0041). A newer revision answers as is: another device repaired the
     // recipe, or it changed, so the device tries that one first.
     if (repair) {
       if (head?.state === "revoked") return { answer: unavailable("recipe-revoked") };
@@ -560,7 +560,7 @@ export async function generateRecipe(
     ...(alternatives.length ? { alternatives: alternatives.map((entry) => entry.steps) } : {}),
     ...(value.switchTarget ? { accountSwitch: value.switchTarget } : {}),
     ...(passkey ? { passkey } : {}),
-    // A stale start page in the other language is not repaired (proposed ADR 0039).
+    // A stale start page in the other language is not repaired (proposed ADR 0041).
     ...(!later && observation.language !== "mixed" ? { language: observation.language } : {}),
   });
   // A page that fills one of the recipe's slots again, as its identifier form shown again

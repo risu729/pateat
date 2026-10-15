@@ -273,7 +273,7 @@ export const loginRecipeSchema = v.pipe(
      * The language of the start page the recipe was generated from, as its description
      * read it (`ja` or `en`; none for a page of mixed language). A start page whose text
      * or label locators no longer match is not taken as a stale recipe when the page now
-     * reads in the other language (proposed ADR 0039).
+     * reads in the other language (proposed ADR 0041).
      */
     language: v.optional(v.picklist(["ja", "en"])),
     /** The slots of the password route's first variant (variant 0). */

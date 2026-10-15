@@ -299,12 +299,12 @@ export const LOG_EVENTS = {
       baseRevision: "count",
       takenOver: "flag",
       // `accounts` for a list of accounts (ADR 0028), `entry` for a sign-in entry (ADR 0031),
-      // `repair` for a stale recipe's start page (proposed ADR 0039).
+      // `repair` for a stale recipe's start page (proposed ADR 0041).
       page: "code",
       url: "url",
     },
   },
-  // A generated recipe's start page that missed its first step (proposed ADR 0039).
+  // A generated recipe's start page that missed its first step (proposed ADR 0041).
   "recipe.repair": {
     level: "info",
     fields: {

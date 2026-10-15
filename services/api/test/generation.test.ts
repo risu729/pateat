@@ -1118,7 +1118,7 @@ describe("recipe generation", () => {
   });
 });
 
-describe("recipe repair (proposed ADR 0039)", () => {
+describe("recipe repair (proposed ADR 0041)", () => {
   // The start page after a redesign: the same form with other element IDs.
   const redesigned = observation("/login", [
     element("user-email", "email", "Email"),

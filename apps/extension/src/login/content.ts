@@ -123,7 +123,7 @@ function targetState(
 }
 /**
  * The HTTP status of this document's own load, when the browser reports one (proposed ADR
- * 0039); a status the page cannot see, as for a cached or cross-origin redirected load,
+ * 0041); a status the page cannot see, as for a cached or cross-origin redirected load,
  * reads as 0 and is left out.
  */
 function navigationStatus(): number | undefined {
@@ -420,13 +420,13 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   /**
    * Whether the page asks for a sign-in: a password, username or one-time-code input, or,
    * where a first step is watched on this path, an identifier alone (ADR 0016), as a
-   * recipe's identifier-first start page does (proposed ADR 0039).
+   * recipe's identifier-first start page does (proposed ADR 0041).
    */
   function asksSignIn(): boolean {
     return showsSignIn() || (watchedHere().length > 0 && identifierInput(document) === "sole");
   }
   /**
-   * What the first steps watched on this path miss (proposed ADR 0039): the targets that
+   * What the first steps watched on this path miss (proposed ADR 0041): the targets that
    * match no element or several, the page's language as its description reads it, and the
    * HTTP status of this document's load, which a maintenance page served on the login
    * page's URL usually answers with (503). Undefined where no first step is watched.
@@ -458,7 +458,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   /**
    * Reports a sign-in input that still shows without a ready first step after the step
    * wait, once per path: for the log, and with what the first steps missed, for a stale
-   * recipe's repair (proposed ADR 0039). A page that renders its form in parts starts its
+   * recipe's repair (proposed ADR 0041). A page that renders its form in parts starts its
    * login before then and is not reported. The reply changes nothing here: the page keeps
    * watching until the background reconnects it, as after a repaired recipe.
    */

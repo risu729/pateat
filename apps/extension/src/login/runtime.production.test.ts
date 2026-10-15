@@ -372,7 +372,7 @@ function harness(
     otherUsername?: boolean | "empty";
     /** Recipe generation for pages without a recipe. */
     generation?: LoginGeneration;
-    /** The misses of generated recipes' start pages (proposed ADR 0039). */
+    /** The misses of generated recipes' start pages (proposed ADR 0041). */
     repairs?: RecipeRepairs;
     /** The item's passkey facts, read when a login starts (ADR 0027). */
     passkeys?: (account: unknown) => Promise<{ passkey: boolean; discoverable: boolean }>;
@@ -5393,7 +5393,7 @@ describe("production login document admission", () => {
       ]);
     });
 
-    describe("a generated recipe whose start page no longer matches (proposed ADR 0039)", () => {
+    describe("a generated recipe whose start page no longer matches (proposed ADR 0041)", () => {
       // The stored recipe names `user` and `password`; the redesigned page has neither.
       const stale = { ...generated, language: "en" as const };
       const missing = [target("user"), target("password")];

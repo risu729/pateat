@@ -116,7 +116,7 @@ export async function startLoginFixture(
       }, 1200);
       return;
     }
-    // The `/sign-in?maintenance` page answers 503 (proposed ADR 0039).
+    // The `/sign-in?maintenance` page answers 503 (proposed ADR 0041).
     const maintenance = path === "/sign-in" && fixtureUrl.searchParams.has("maintenance");
     response.writeHead(maintenance ? 503 : 200, {
       "content-type": "text/html; charset=utf-8",
@@ -673,7 +673,7 @@ export async function startLoginFixture(
       // sign-out button, as ポイントインカム's header.
       // `?redesign` gives the form other element IDs, as a site's new login page does, and
       // `?maintenance` answers 503 with a page whose only input is no login field (proposed
-      // ADR 0039).
+      // ADR 0041).
       const variant = fixtureUrl.searchParams.get("button");
       const account =
         fixtureUrl.searchParams.get("marker") === "link" ? "/account?marker=link" : "/account";

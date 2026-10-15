@@ -109,7 +109,7 @@ export const generationUnavailableReasonSchema = v.picklist([
   "recipe-limit",
   /**
    * The recipe was already repaired, or a repair of it was tried, this UTC day (proposed
-   * ADR 0039).
+   * ADR 0041).
    */
   "repair-limit",
 ]);
@@ -154,7 +154,7 @@ export const generationOutputRejectionSchema = v.variant("check", [
  * `branch`, `base` is a chooser recipe (ADR 0028) and the page is the next one of that
  * branch: its first page, after the click on the list, or a later one. With `repair`, the
  * page is the start page of that recipe revision, whose first step's elements no longer
- * match it, sent again as a first page to replace the revision (proposed ADR 0039).
+ * match it, sent again as a first page to replace the revision (proposed ADR 0041).
  */
 export const recipeGenerationRequestSchema = v.pipe(
   v.strictObject({

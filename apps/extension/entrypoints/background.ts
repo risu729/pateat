@@ -222,7 +222,7 @@ export default defineBackground(() => {
       sync: () => recipeSync.sync(),
       refresh: () => recipeSync.sync({ settings: false }),
     }),
-    // Proposed ADR 0039: a generated recipe whose start page no longer matches is repaired.
+    // Proposed ADR 0041: a generated recipe whose start page no longer matches is repaired.
     repairs: createRecipeRepairs(createBrowserRecipeRepairStorage()),
     // ADR 0027: a passkey handler runs only for an item Pateat can sign with.
     passkeys: (account) => itemPasskeyFacts(vaultPasskeys, account),

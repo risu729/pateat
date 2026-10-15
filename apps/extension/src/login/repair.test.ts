@@ -8,7 +8,7 @@ import {
 } from "./repair";
 import type { StartMiss } from "./wire";
 
-// Synthetic recipes and pages only (proposed ADR 0039).
+// Synthetic recipes and pages only (proposed ADR 0041).
 
 const id = (value: string) => ({ by: "id" as const, value });
 const label = (value: string) => ({ by: "label" as const, value });

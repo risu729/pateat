@@ -67,7 +67,7 @@ describe("recipe generation contracts", () => {
       expect(v.is(recipeGenerationRequestSchema, invalid)).toBe(false);
   });
 
-  it("accepts a repair of a recipe's start page, never with a base or a list (ADR 0039)", () => {
+  it("accepts a repair of a recipe's start page, never with a base or a list (ADR 0041)", () => {
     const repair = { recipeId: "gen-1", revision: 3 };
     expect(v.is(recipeGenerationRequestSchema, { version: 1, observation, slots, repair })).toBe(
       true,

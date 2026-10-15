@@ -46,7 +46,7 @@ export function createBrowserGeneratedSlotStorage(): GeneratedSlotStorage {
   return trustedRecord("pateat.generated-slots.v1");
 }
 
-/** Which generated recipes' start pages missed their first step (proposed ADR 0039). */
+/** Which generated recipes' start pages missed their first step (proposed ADR 0041). */
 export function createBrowserRecipeRepairStorage(): RepairStorage {
   return trustedRecord("pateat.recipe-repairs.v1");
 }

@@ -218,7 +218,7 @@ the path ending before it), or `{ check: "plan", reason }` with the plan check's
   `en`; none for a page of mixed language).
 - `POST /v1/recipes/generate` also takes `repair: { recipeId, revision }` with a first
   page (no `base` and no `accounts`) to repair a generated recipe whose start page no
-  longer matches (proposed [ADR 0039](../../docs/adr/0039-repair-stale-recipes.md)). The
+  longer matches (proposed [ADR 0041](../../docs/adr/0041-repair-stale-recipes.md)). The
   recipe ID must be the page's own generated recipe (400 otherwise). A revision other
   than the named one is returned as `recipe` without a model call, a revoked recipe
   answers `recipe-revoked`, and a recipe that is not a generated login route recipe

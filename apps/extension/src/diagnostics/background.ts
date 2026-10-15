@@ -432,7 +432,7 @@ export function createDiagnosticsLog(options: {
             reason: report.reason,
           },
           // A first miss is ordinary until it repeats; a miss that does not count is logged
-          // for evaluation at debug level (proposed ADR 0039).
+          // for evaluation at debug level (proposed ADR 0041).
           { source, level: report.outcome === "skipped" ? "debug" : "info" },
         );
       else if (report.type === "judge")

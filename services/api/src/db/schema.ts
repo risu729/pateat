@@ -237,7 +237,7 @@ export const generationAttempts = sqliteTable(
 );
 
 /**
- * The last repair call per generated recipe (proposed ADR 0039): a recipe whose start page
+ * The last repair call per generated recipe (proposed ADR 0041): a recipe whose start page
  * no longer matches is generated again at most once a UTC day, whatever came of the call.
  */
 export const recipeRepairs = sqliteTable(

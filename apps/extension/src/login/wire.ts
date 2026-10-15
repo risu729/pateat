@@ -92,7 +92,7 @@ export const HELD_CLICK_WAIT_MS = 120_000;
  */
 export const unofferedReasons = ["no-list", "after-sign-in", "sign-in-shown"] as const;
 /**
- * What the first steps watched on a path missed after the step wait (proposed ADR 0039):
+ * What the first steps watched on a path missed after the step wait (proposed ADR 0041):
  * the targets that match no element or several, not those that match one element that is
  * not usable yet; the page's language as its description reads it; and the HTTP status of
  * the document's own load when the browser reports one.
@@ -119,7 +119,7 @@ export const helloSchema = v.strictObject({
    * Such an input shows on this path but no first step is ready; sent once per path, for
    * the log of a login that did not start. On a path where a first step is watched, the
    * page may instead ask for an identifier alone (ADR 0016), and `miss` says what the
-   * first steps there missed, for a stale recipe's repair (proposed ADR 0039).
+   * first steps there missed, for a stale recipe's repair (proposed ADR 0041).
    */
   shown: v.optional(v.strictObject({ path, miss: v.optional(startMissSchema) })),
   /**

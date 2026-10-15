@@ -100,6 +100,6 @@ revoked. Only a revoked recipe is generated again
 ([architecture](../architecture.md#declarative-recipes-and-ai)); repairing a recipe
 whose elements no longer match is planned early in
 [phase 3](../plan.md#phase-3-public-release). Proposed
-[ADR 0039](0039-repair-stale-recipes.md) (implemented, pending the owner's approval)
+[ADR 0041](0041-repair-stale-recipes.md) (implemented, pending the owner's approval)
 repairs a generated recipe whose start page misses on two loads; a reworded field in
 the recipe's own language counts, and the same page in the other language does not.

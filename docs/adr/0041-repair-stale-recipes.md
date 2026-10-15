@@ -1,4 +1,4 @@
-# ADR 0039: Repair a generated recipe whose start page no longer matches
+# ADR 0041: Repair a generated recipe whose start page no longer matches
 
 Status: Proposed — Claude's design, pending the owner's approval; delivery 1 is
 implemented behind no switch, so that the owner can try it before deciding. The owner

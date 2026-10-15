@@ -685,7 +685,7 @@ Once the fixes have settled:
   right, and a maintenance page that replaces the login page on the same URL without a
   redirect, which must not be taken as a changed login page. Delivery 1 is implemented
   as Claude's proposed design, pending the owner's approval
-  ([ADR 0039](adr/0039-repair-stale-recipes.md)): a generated recipe's start page that
+  ([ADR 0041](adr/0041-repair-stale-recipes.md)): a generated recipe's start page that
   misses on two loads in a row is generated again, at most once per recipe a UTC day
   within the daily spend; a load answered with an error status, a slow page and a page
   in the recipe's other language are not counted; the repaired revision replaces the

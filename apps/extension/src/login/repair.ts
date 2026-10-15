@@ -2,7 +2,7 @@ import { sameLoginTarget, syncRecipeIdSchema, type LoginRecipe } from "@pateat/c
 import * as v from "valibot";
 import { loginReadiness, type StartMiss } from "./wire";
 
-// Repairing a generated recipe whose start page no longer matches it (proposed ADR 0039,
+// Repairing a generated recipe whose start page no longer matches it (proposed ADR 0041,
 // Claude's design pending the owner's approval): which misses count, and how many page
 // loads in a row it takes before the start page is sent to be generated again.
 
@@ -64,7 +64,7 @@ export function classifyStartMiss(
   return "stale";
 }
 
-/** How many separate page loads of the start page must miss in a row (proposed ADR 0039). */
+/** How many separate page loads of the start page must miss in a row (proposed ADR 0041). */
 export const REPAIR_MISSES = 2;
 /** Recipes whose misses are remembered at once; the least recently missed go first. */
 export const MAX_REPAIR_ENTRIES = 200;

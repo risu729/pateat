@@ -959,7 +959,7 @@ describe("continuing a recipe after its final advance (ADR 0018)", () => {
   );
 });
 
-describe("repairing a stale recipe's start page (proposed ADR 0039)", () => {
+describe("repairing a stale recipe's start page (proposed ADR 0041)", () => {
   const repair: RecipeGenerationRequest = {
     ...request,
     repair: { recipeId: recipeChange.recipeId, revision: 2 },

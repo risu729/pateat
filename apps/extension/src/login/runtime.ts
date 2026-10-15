@@ -1344,14 +1344,14 @@ export type LoginReport = (
       /**
        * `accounts` for a page that lists accounts (ADR 0028), `entry` for a page sent as a
        * site's sign-in entry (ADR 0031), `repair` for a stale recipe's start page sent to be
-       * generated again (proposed ADR 0039), with the recipe and the revision it replaces.
+       * generated again (proposed ADR 0041), with the recipe and the revision it replaces.
        */
       page?: "accounts" | "entry" | "repair";
     }
   | {
       /**
        * A generated recipe's start page showed a sign-in input for the step wait without a
-       * ready first step (proposed ADR 0039): whether the miss counted toward a repair
+       * ready first step (proposed ADR 0041): whether the miss counted toward a repair
        * (`noted`, `due` when the page is sent), or why not (`skipped`, with the
        * `StartMissVerdict` or `RepairNote` as `reason`).
        */
@@ -1600,7 +1600,7 @@ export function createLoginRuntime(
     generation?: LoginGeneration;
     /**
      * The misses of generated recipes' start pages, for their repair through `generation`
-     * (proposed ADR 0039); without it no recipe is repaired.
+     * (proposed ADR 0041); without it no recipe is repaired.
      */
     repairs?: RecipeRepairs;
     /**
@@ -6266,7 +6266,7 @@ export function createLoginRuntime(
     /** For a list of accounts (ADR 0028): the shown texts to hide as `[account]`. */
     list?: { names: string[] },
     /**
-     * For a stale recipe's start page (proposed ADR 0039): the revision it replaces, and
+     * For a stale recipe's start page (proposed ADR 0041): the revision it replaces, and
      * what to call with the answer once one came.
      */
     repair?: { recipeId: string; revision: number; done(outcome: GenerationOutcome): void },
@@ -6425,7 +6425,7 @@ export function createLoginRuntime(
   /**
    * Counts a generated recipe's start page that showed a sign-in input for the step wait
    * without a ready first step, and sends it to be generated again once the recipe counts
-   * as stale (proposed ADR 0039): only the tab's own page on the recipe's start path, with
+   * as stale (proposed ADR 0041): only the tab's own page on the recipe's start path, with
    * a vault item that matches it as for a first page. The answer replaces the revision,
    * and the page announces again and starts the repaired recipe, as after a first page.
    */
@@ -7656,7 +7656,7 @@ export function createLoginRuntime(
       // Only an origin with a recipe: elsewhere every sign-in page would be logged.
       if (starts.length) notStarted(recipe ? "first-step-missing" : "no-recipe-on-path");
       // A generated recipe's own start page that misses its first step may be stale
-      // (proposed ADR 0039).
+      // (proposed ADR 0041).
       if (
         recipe &&
         !chooser &&
@@ -7934,7 +7934,7 @@ export function createLoginRuntime(
     } else {
       // A new login's plan carries the facts it chose its route with.
       if (!("facts" in plan)) return refuse("no-route");
-      // Its first step matched, so the recipe's start page misses start over (ADR 0039).
+      // Its first step matched, so the recipe's start page misses start over (ADR 0041).
       if (!chooser) void repairs?.started(recipe.id);
       metadata = transitionLoginAttempt(
         createAttemptMetadata({

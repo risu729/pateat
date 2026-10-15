@@ -137,7 +137,7 @@ export function appendPageSteps(
     accountSwitch?: LoginTarget;
     /** The start page's passkey sign-in button, the `passkey` route (ADR 0027). */
     passkey?: LoginTarget;
-    /** The start page's language (proposed ADR 0039); a later page keeps the base's. */
+    /** The start page's language (proposed ADR 0041); a later page keeps the base's. */
     language?: "ja" | "en";
   },
 ): { ok: true; recipe: LoginRecipe } | { ok: false; reason: AssemblyRejection } {

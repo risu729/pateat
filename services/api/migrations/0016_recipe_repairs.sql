@@ -1,4 +1,4 @@
--- Proposed ADR 0039: a generated recipe whose start page no longer matches is repaired at
+-- Proposed ADR 0041: a generated recipe whose start page no longer matches is repaired at
 -- most once a UTC day; each recipe keeps its last repair call.
 CREATE TABLE `recipe_repairs` (
 	`owner_id` text NOT NULL,

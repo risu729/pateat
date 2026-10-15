@@ -551,7 +551,7 @@ for (const { name, loginPage } of [
     }
   });
 
-test("a generated recipe whose login page changed is repaired after two loads, not on a maintenance page (proposed ADR 0039)", async () => {
+test("a generated recipe whose login page changed is repaired after two loads, not on a maintenance page (proposed ADR 0041)", async () => {
   // Each page that misses its first step reports after the ten-second step wait.
   test.setTimeout(180_000);
   const fixture = await startLoginFixture(0, { password });
