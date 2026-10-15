@@ -835,6 +835,8 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
             } catch {
               return error("storage-failed");
             }
+            // Best effort: a choice left behind only waits for a connection that is gone.
+            await deps.policy.forget?.(connectionId).catch(() => undefined);
             return { ok: true, kind: "deleted", connectionId };
           } finally {
             // A begin or sync that read the registry while this ran saw the stale entry;

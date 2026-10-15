@@ -342,6 +342,7 @@ export function SiteApp({
           saved.snapshot.settings.customFieldReviews,
           saved.snapshot.settings.excludedSites,
         ]),
+      saved?.catalog.settingsSyncPending ?? false,
       saved?.catalog.connections.map((entry) => [
         entry.snapshotId ?? null,
         entry.state ?? null,

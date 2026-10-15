@@ -5,9 +5,9 @@ Status: accepted by the owner on 2026-10-11 (12:02 and 12:15 UTC). Amends
 settings that use device-local IDs, and keeps their editing in the extension) and
 [ADR 0021](0021-account-choice-outside-settings.md) (the popup may also repair one
 binding). Implemented on 2026-10-15, except the toolbar popup's part (reporting items
-that wait for review, and binding review), which follows in its own PR. Amended on
-2026-10-15 by the [implementation notes](#implementation-notes-2026-10-15), proposed by
-Claude and implemented pending the owner's approval.
+that wait for review, and binding review), which follows in its own PR. The
+[implementation notes](#implementation-notes-2026-10-15) of 2026-10-15 are proposed
+amendments by Claude, implemented but not yet approved by the owner.
 
 Date: 2026-10-11
 
@@ -219,11 +219,12 @@ details the decision above leaves open; none is confirmed by the owner yet.
 - `connections[]` keeps `{ connectionId, enabled }` only until the connection's account
   is known: the add form's "Use this vault" choice is applied at the first accepted
   vault sync, which creates an enabled account policy unless one is already synced, and
-  the entry is then removed. The `dummy` provider of the preview and probe builds uses
-  the same `accountPolicies`, `itemPolicies` and `customFieldReviews` lists as other
-  providers instead of `connections[].enabled`; its entries are never uploaded and stay
-  on the device when a sync replaces the synced part. Its catalog connections name the
-  server `cloud-us`.
+  the entry is then removed. Until then a connection added as unused is skipped, not
+  reported unavailable, and Delete connection removes the entry. The `dummy` provider of
+  the preview and probe builds uses the same `accountPolicies`, `itemPolicies` and
+  `customFieldReviews` lists as other providers instead of `connections[].enabled`; its
+  entries are never uploaded and stay on the device when a sync replaces the synced
+  part. Its catalog connections name the server `cloud-us`.
 - A custom-field exclusion is always written with `position` and `count`, also when
   `count` is 1; a reference without them is accepted and resolves when exactly one field
   has that name.
@@ -244,6 +245,8 @@ details the decision above leaves open; none is confirmed by the owner yet.
   matched the replaced snapshot's evidence and the crypto host found the item's
   decrypted custom fields equal
   ([ADR 0025](0025-automatic-vault-sync.md#protected-items-after-a-sync)).
+- The settings sync merges an item's policy and its review record as one entry, so the
+  side that wins takes both: a review is never paired with exclusions it did not choose.
 - A settings-page save cannot change review records. It keeps the stored custom-field
   exclusions of an item that waits for review or a vault sync, and records the current
   evidence when an item gains its first custom-field exclusion. Item policies that

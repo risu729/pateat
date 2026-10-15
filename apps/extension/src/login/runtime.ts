@@ -2843,7 +2843,7 @@ export function createLoginRuntime(
       delete live.uriMatch;
       const scope = await findLiveSiteCandidates({
         settings: snapshot.snapshot.settings,
-        catalog: { connections: [connection] },
+        catalog: { ...catalog, connections: [connection] },
         url: live.url,
         match: uris,
       });
@@ -2900,7 +2900,7 @@ export function createLoginRuntime(
     delete live.topMatch;
     const scope = await findLiveSiteCandidates({
       settings: snapshot.snapshot.settings,
-      catalog: { connections: [connection] },
+      catalog: { ...snapshot.catalog, connections: [connection] },
       url: live.topUrl,
       match: uris,
     });

@@ -89,6 +89,11 @@ export async function findVaultPasskeys(input: {
   let answered = !only;
   for (const connection of catalog.connections) {
     if (only && connection.id !== only.connectionId) continue;
+    // A paired device waits for its first settings sync before searching any vault.
+    if (catalog.settingsSyncPending) {
+      complete = false;
+      continue;
+    }
     const use = connectionUse(settings, catalog, connection.id);
     if (use === "disabled") continue;
     // Its synced exclusions may be meant for this account, or its account is unknown.

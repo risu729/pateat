@@ -67,7 +67,8 @@ function reviewedSettings(
       const policy = itemPolicyFor(settings, account, item.id);
       if (
         policy?.excludedFields.some(isCustom) &&
-        !customFieldReviewFor(stored, account, item.id) &&
+        // The record built so far: an account connected twice is recorded once.
+        !customFieldReviewFor(settings, account, item.id) &&
         item.evidence !== undefined &&
         item.revisionDate !== undefined
       )

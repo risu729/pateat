@@ -171,6 +171,23 @@ function mergeEntries<T>(
   return merged;
 }
 
+/**
+ * An item's policy and its custom-field review merged as one entry: a review changes
+ * both, and taking one from each side could pair a review with custom-field exclusions it
+ * did not choose, making a field the reviewer excluded usable (ADR 0023).
+ */
+type ItemEntry = { key: string; policy?: ItemPolicy; review?: CustomFieldReview };
+
+function itemEntries(policies: ItemPolicy[], reviews: CustomFieldReview[]): ItemEntry[] {
+  const entries = new Map<string, ItemEntry>();
+  for (const policy of policies) entries.set(itemKey(policy), { key: itemKey(policy), policy });
+  for (const review of reviews) {
+    const key = itemKey(review);
+    entries.set(key, { key, ...entries.get(key), review });
+  }
+  return [...entries.values()];
+}
+
 export function mergeSyncedSettings(
   base: SyncBase,
   local: SyncedSettings,
@@ -180,6 +197,15 @@ export function mergeSyncedSettings(
     service: base.service[name],
     local: base.local[name],
   });
+  const items = mergeEntries(
+    {
+      service: itemEntries(base.service.itemPolicies, base.service.customFieldReviews),
+      local: itemEntries(base.local.itemPolicies, base.local.customFieldReviews),
+    },
+    itemEntries(local.itemPolicies, local.customFieldReviews),
+    itemEntries(service.itemPolicies, service.customFieldReviews),
+    (entry) => entry.key,
+  );
   return {
     accountPolicies: mergeEntries(
       part("accountPolicies"),
@@ -187,18 +213,8 @@ export function mergeSyncedSettings(
       service.accountPolicies,
       accountKey,
     ),
-    itemPolicies: mergeEntries(
-      part("itemPolicies"),
-      local.itemPolicies,
-      service.itemPolicies,
-      itemKey,
-    ),
-    customFieldReviews: mergeEntries(
-      part("customFieldReviews"),
-      local.customFieldReviews,
-      service.customFieldReviews,
-      itemKey,
-    ),
+    itemPolicies: items.flatMap((entry) => (entry.policy ? [entry.policy] : [])),
+    customFieldReviews: items.flatMap((entry) => (entry.review ? [entry.review] : [])),
     excludedSites: mergeEntries(
       part("excludedSites"),
       local.excludedSites,

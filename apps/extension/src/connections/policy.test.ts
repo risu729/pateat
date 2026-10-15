@@ -697,6 +697,15 @@ describe("policy choice of a new connection", () => {
     expect(h.read().settings.accountPolicies).toEqual([]);
   });
 
+  it("drops the pending choice of a deleted connection", async () => {
+    const h = await harness("unchanged", { policy: false });
+    await h.policy.register(connectionId, false);
+    await h.policy.forget!("other-connection");
+    expect(h.read().settings.connections).toEqual([{ connectionId, enabled: false }]);
+    await h.policy.forget!(connectionId);
+    expect(h.read().settings.connections).toEqual([]);
+  });
+
   it("an adoption without a pending choice creates no policy", async () => {
     const h = await harness("unchanged", { policy: false });
     await h.adopt();

@@ -984,19 +984,55 @@ describe("vault policy (ADR 0023)", () => {
     const agreed = syncedSettings(
       settingsOf({
         accountPolicies: [accountPolicy()],
-        itemPolicies: [itemPolicy("item-1", { selected: true })],
-        customFieldReviews: [review("item-1")],
+        itemPolicies: [
+          itemPolicy("item-1", { selected: true }),
+          itemPolicy("item-2", { selected: true }),
+        ],
+        customFieldReviews: [review("item-1"), review("item-2")],
       }),
     );
     const merged = mergeSyncedSettings(
       { service: agreed, local: agreed },
-      { ...agreed, itemPolicies: [] },
-      { ...agreed, customFieldReviews: [] },
+      { ...agreed, itemPolicies: [itemPolicy("item-2", { selected: true })] },
+      { ...agreed, customFieldReviews: [review("item-1")] },
     );
     expect(merged).toMatchObject({
       accountPolicies: [accountPolicy()],
-      itemPolicies: [],
-      customFieldReviews: [],
+      itemPolicies: [itemPolicy("item-2", { selected: true })],
+      customFieldReviews: [review("item-1")],
+    });
+  });
+
+  it("takes an item's policy and review from one side, so a review keeps its exclusions", () => {
+    const pin = { custom: "PIN", position: 1, count: 1 };
+    const secret = { custom: "Secret", position: 1, count: 1 };
+    const agreed = syncedSettings(
+      settingsOf({
+        accountPolicies: [accountPolicy()],
+        itemPolicies: [itemPolicy("item-1", { excludedFields: [pin] })],
+        customFieldReviews: [review("item-1")],
+      }),
+    );
+    // Reviewed here: the new field Secret is excluded too.
+    const local = {
+      ...agreed,
+      itemPolicies: [itemPolicy("item-1", { excludedFields: [pin, secret] })],
+      customFieldReviews: [review("item-1", "b")],
+    };
+    // Meanwhile another device excluded a built-in field of the same item.
+    const service = {
+      ...agreed,
+      itemPolicies: [itemPolicy("item-1", { excludedFields: ["login.totp", pin] })],
+    };
+    const merged = mergeSyncedSettings({ service: agreed, local: agreed }, local, service);
+    // The service's copy wins for the whole item: the old review stays with its exclusions,
+    // so the item waits for review again instead of using Secret.
+    expect(merged.itemPolicies).toEqual(service.itemPolicies);
+    expect(merged.customFieldReviews).toEqual(agreed.customFieldReviews);
+    // A change on one side only still applies to both lists of the item.
+    expect(mergeSyncedSettings({ service: agreed, local: agreed }, local, agreed)).toMatchObject({
+      itemPolicies: local.itemPolicies,
+      customFieldReviews: local.customFieldReviews,
     });
   });
 

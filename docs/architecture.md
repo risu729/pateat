@@ -330,29 +330,30 @@ typed Boolean result. Metadata lists never include field values or OTP seeds.
 The trusted host must assign a fresh snapshot UUID whenever captured item state
 changes; caller-supplied identifiers do not prove freshness or authorization.
 
-Snapshot-bound references alone do not preserve persistent exclusions. Persist
-the accepted policy-to-snapshot binding. On replacement, rebind custom-field
-exclusions only when the captured encrypted custom-field sequence is exactly
-unchanged, including encrypted values and linked source identifiers. Equal names
-and types cannot establish identity when names repeat. For a sealed item, require
-the whole captured encrypted blob to match. A changed or ambiguous sequence with
-an existing custom exclusion blocks that item's secret release until explicit
-review; unrelated items and stable built-in exclusions retain their policies.
-Bitwarden re-encrypts the whole item on every save, so when a sync replaces a
-snapshot that is still open, the crypto host also compares the decrypted custom
-fields (name, value, type and linked source, in order) of each protected item;
-equal fields rebind as an unchanged sequence would. Each Worker
+Snapshot-bound references alone do not preserve persistent exclusions, so synced
+exclusions name custom fields by name, position and count, and a synced
+`customFieldReviews` record keeps the item's custom-field evidence (a SHA-256 of its
+encrypted custom-field material, or of the whole sealed blob) and revision date at its
+last review ([ADR 0023](adr/0023-synced-vault-policy.md)). An item with a custom
+exclusion or a record whose current evidence differs waits for review before any secret
+release; when its revision date is older than the record's, it waits for its vault to
+sync instead. Equal names and types cannot establish identity when names repeat, so a
+changed or ambiguous sequence always needs review; unrelated items and built-in
+exclusions keep their policies. Bitwarden re-encrypts the whole item on every save, so
+when a sync replaces a snapshot that is still open, the crypto host also compares the
+decrypted custom fields (name, value, type and linked source, in order) of each
+protected item; equal fields move the record to the new evidence. Each Worker
 returns HMAC-SHA-256 digests under a key the offscreen document creates and keeps,
 so no value leaves the crypto host and a digest cannot be tested offline against
 guesses of a short value; it is no defense against a compromised background
 ([ADR 0025](adr/0025-automatic-vault-sync.md#protected-items-after-a-sync)).
 
-Review must identify the current snapshot and settings revision. Start every
-current custom field excluded, and require a deliberate save of that item's
-reviewed choices. Reloading metadata or saving unrelated settings must not clear
-the old exclusions or count as review. Retain an item's snapshot binding after
-review even when every field is allowed; an empty exclusion list must not let
-an interrupted review authorize a newer, unreviewed field sequence.
+Review must identify the current snapshot. Start every current custom field excluded,
+and require a deliberate save of that item's reviewed choices, which records the new
+evidence. Reloading metadata or saving unrelated settings must not clear the old
+exclusions or count as review. Keep the record after review even when every field is
+allowed; an empty exclusion list must not let an interrupted review authorize a newer,
+unreviewed field sequence.
 Cache and settings use separate stores:
 an interrupted update can leave mismatched records, which must deny release
 until reconciled. Do not claim an atomic transaction across both stores.

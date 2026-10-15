@@ -173,6 +173,10 @@ async function connect(
     expectedRevision: saved.snapshot.revision,
     settings: saved.snapshot.settings,
   });
+  // A paired device uses no vault item until its first settings sync (ADR 0023).
+  await expect
+    .poll(async () => (await settingsRequest(options)).catalog.settingsSyncPending)
+    .toBeUndefined();
   return options;
 }
 

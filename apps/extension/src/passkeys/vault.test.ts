@@ -281,6 +281,16 @@ describe("vault passkey candidates", () => {
       await findVaultPasskeys({ saved: saved({ state: "locked" }), origin, rpId, find: locked }),
     ).toEqual({ candidates: [], complete: false, siteDefault: "unset" });
     expect(locked).not.toHaveBeenCalled();
+    // A paired device waits for its first settings sync before searching any vault.
+    const pending = saved();
+    pending.catalog.settingsSyncPending = true;
+    const waiting = finder({ ok: true, data: matches([first]) });
+    expect(await findVaultPasskeys({ saved: pending, origin, rpId, find: waiting })).toEqual({
+      candidates: [],
+      complete: false,
+      siteDefault: "unset",
+    });
+    expect(waiting).not.toHaveBeenCalled();
   });
 
   it("searches every enabled connection and binds the default to its connection", async () => {

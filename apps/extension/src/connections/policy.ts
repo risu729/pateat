@@ -217,6 +217,17 @@ export function createConnectionPolicy(options: {
         return snapshot;
       });
     },
+    async forget(connectionId) {
+      const current = await options.settings.read();
+      if (!current.settings.connections.some((entry) => entry.connectionId === connectionId))
+        return;
+      await options.settings.update(undefined, (snapshot) => {
+        snapshot.settings.connections = snapshot.settings.connections.filter(
+          (entry) => entry.connectionId !== connectionId,
+        );
+        return snapshot;
+      });
+    },
     async adopt(input) {
       const captured = structuredClone(input);
       const accepted = captured.next.accepted;

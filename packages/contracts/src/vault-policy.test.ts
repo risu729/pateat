@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import * as v from "valibot";
 import {
   accountPolicySchema,
+  connectionUse,
   createDefaultSettings,
   customFieldReviewSchema,
   customFieldReviewState,
@@ -733,6 +734,30 @@ describe("item eligibility under synced policy", () => {
   });
 });
 
+describe("connection use before its account is known", () => {
+  const unknown: VaultCatalog = {
+    connections: [{ ...catalog().connections[0]!, userId: undefined, snapshotId: undefined }],
+  };
+  it("follows the add form's choice while it waits", () => {
+    const base = settings();
+    expect(connectionUse(base, unknown, "vault")).toBe("vault-unavailable");
+    expect(
+      connectionUse(
+        { ...base, connections: [{ connectionId: "vault", enabled: true }] },
+        unknown,
+        "vault",
+      ),
+    ).toBe("vault-unavailable");
+    expect(
+      connectionUse(
+        { ...base, connections: [{ connectionId: "vault", enabled: false }] },
+        unknown,
+        "vault",
+      ),
+    ).toBe("disabled");
+  });
+});
+
 describe("site defaults by provider account", () => {
   const twoServers = (): VaultCatalog => {
     const live = catalog();
@@ -954,6 +979,18 @@ describe("settings page saves and custom-field review (ADR 0023)", () => {
     // The evidence changed, so the item waits for review and keeps its stored references.
     expect(memory.value!.settings.customFieldReviews).toEqual([review()]);
     expect(memory.value!.settings.itemPolicies[0]!.excludedFields).toEqual([pin, branch]);
+  });
+
+  it("records the first exclusion once for an account connected twice", async () => {
+    const one = catalog();
+    const twice = { connections: [...one.connections, { ...one.connections[0]!, id: "again" }] };
+    const memory = stored(settings());
+    expect(
+      await storeFor(memory, twice).handle(
+        save(3, settings({ itemPolicies: [itemPolicy({ excludedFields: [pin] })] })),
+      ),
+    ).toMatchObject({ ok: true });
+    expect(memory.value!.settings.customFieldReviews).toEqual([review()]);
   });
 
   it("records nothing for built-in exclusions or an item without evidence", async () => {

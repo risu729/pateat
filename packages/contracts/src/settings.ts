@@ -631,17 +631,22 @@ export function connectionAccount(
  * synced policy (an account with no policy is not used, nor is a connection that is not
  * in the catalog), also while it is locked if its account is known, or why its account
  * cannot be told: `vault-unavailable` or `account-ambiguous`, which callers report rather
- * than skip.
+ * than skip. A connection whose account is not known yet follows its add form's choice
+ * while that waits in `connections`: one added as unused is `disabled`.
  */
 export function connectionUse(
-  settings: PolicyLists,
+  settings: PolicyLists & Partial<Pick<LocalSettings, "connections">>,
   catalog: VaultCatalog,
   connectionId: string,
 ): "enabled" | "disabled" | "vault-unavailable" | "account-ambiguous" {
   const connection = catalog.connections.find((entry) => entry.id === connectionId);
   if (!connection) return "disabled";
   const userId = connection.userId ?? connection.lockedUserId;
-  if (userId === undefined) return "vault-unavailable";
+  if (userId === undefined)
+    return settings.connections?.find((entry) => entry.connectionId === connectionId)?.enabled ===
+      false
+      ? "disabled"
+      : "vault-unavailable";
   const resolved = accountPolicy(settings, {
     provider: connection.provider,
     server: connection.server,
