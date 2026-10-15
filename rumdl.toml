@@ -1,8 +1,12 @@
 [global]
-exclude = ["node_modules", "**/.wxt", "**/.output", "**/.cloudflare"]
+exclude = ["node_modules", "**/.wxt", "**/.output", "**/.cloudflare", "**/.vitepress/cache", "**/.vitepress/dist"]
 
 [MD013]
 line_length = 88
 code_blocks = false
 tables = false
 reflow = true
+
+[per-file-ignores]
+# The home page's hero shows the title, so the page has no level 1 heading.
+"apps/docs/src/index.md" = ["MD041"]

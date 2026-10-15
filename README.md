@@ -47,6 +47,8 @@ re-prompt without asking for the master password
 ([vault adapter](docs/architecture.md#vault-adapter)). Both are planned to become
 settings before Pateat is public ([plan](docs/plan.md#phase-3-public-release)).
 
+The user-facing pages (installation, setup, permissions and a draft privacy policy) are
+the docs website in [apps/docs/src](apps/docs/src/index.md), which is not deployed yet.
 Start with the [documentation index](docs/README.md), then the
 [architecture](docs/architecture.md) and [implementation plan](docs/plan.md).
 See [AGENTS.md](AGENTS.md) for repository working instructions.
