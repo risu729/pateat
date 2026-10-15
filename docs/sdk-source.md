@@ -82,19 +82,24 @@ source beside its ZIP on the same draft GitHub Release:
   archive at the commit the installed package's `VERSION` names, copied into the release
   rather than linked, so its availability does not depend on upstream.
 - Dependency source: `corresponding-source/npm/` holds the registry tarball of every
-  package the extension's workspaces need at run time, each matching its `bun.lock`
-  integrity, including the compiled `@bitwarden/sdk-internal` package that is bundled.
+  third-party package the production build recorded as bundled (from its module graph
+  and the license banners its stylesheets keep), each matching its `bun.lock`
+  integrity, including the compiled `@bitwarden/sdk-internal` package and WXT's own
+  run-time modules.
 - Digests: `release.json` and `SHA256SUMS` record every file with its SHA-256, and
   `release.json` the workflow run that packed it.
 
-Still for a person to check or decide before publishing (Claude's reading, pending the
+Whether this meets the gate is not settled, so the release text calls the archive the
+extension's source rather than its Corresponding Source. Still for a person to check or
+decide before publishing (Claude's reading, pending the
 owner's confirmation):
 
 - The download links and contents of each draft, as the gate requires; the workflow
   checks digests and integrity hashes, not that the files open and build.
 - Whether a registry tarball counts as source for a package that publishes only built
   JavaScript (for example `react-dom`); its repository at the matching tag would be the
-  preferred form for modification.
+  preferred form for modification. The gate above already rules out a compiled npm
+  tarball as the SDK's source, which is why the SDK's upstream archive is included.
 - The SDK's own Rust dependencies: the SDK archive has their `Cargo.lock`, but the
   crates are not vendored. Vendoring them would need a Rust toolchain, which `mise.toml`
   does not pin.
