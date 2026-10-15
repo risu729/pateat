@@ -17,12 +17,21 @@ function htmlFiles(directory) {
 
 /** Maps a site path to its built file, as cleanUrls serves it. @param {string} pathname */
 function resolve(pathname) {
-  const file = path.join(dist, decodeURIComponent(pathname));
-  if (!file.startsWith(dist)) return undefined;
+  const file = path.join(dist, decode(pathname));
+  if (file !== dist && !file.startsWith(dist + path.sep)) return undefined;
   for (const candidate of [file, `${file}.html`, path.join(file, "index.html")]) {
     if (existsSync(candidate) && statSync(candidate).isFile()) return candidate;
   }
   return undefined;
+}
+
+/** Decodes a URL part; a malformed escape stays as written, so the lookup fails. @param {string} value */
+function decode(value) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }
 
 const ids = new Map();
@@ -36,6 +45,7 @@ function idsOf(file) {
 }
 
 const pages = htmlFiles(dist);
+if (!pages.length) throw new Error(`No built pages in ${dist}.`);
 const failures = [];
 let count = 0;
 for (const page of pages) {
@@ -55,7 +65,7 @@ for (const page of pages) {
       failures.push(`${name}: missing target: ${reference}`);
       continue;
     }
-    const fragment = decodeURIComponent(url.hash.slice(1));
+    const fragment = decode(url.hash.slice(1));
     if (fragment && target.endsWith(".html") && !idsOf(target).has(fragment)) {
       failures.push(`${name}: missing fragment: ${reference}`);
     }

@@ -1,9 +1,9 @@
 # Setup
 
 Setting up Pateat takes two steps on its settings page: connect your Bitwarden vault,
-then pair the extension with a Pateat service. Open the settings page from the toolbar
-popup's **Open settings**, or from **Details** then **Extension options** on Pateat's
-card in `chrome://extensions`.
+then pair the extension with a Pateat service. Open the settings page from the settings
+(gear) button in the toolbar popup, or from **Details** then **Extension options** on
+Pateat's card in `chrome://extensions`.
 
 ## Connect Bitwarden
 
@@ -31,13 +31,16 @@ verification codes are not saved. What stays on this device is:
 The unlock key is kept in the extension's own storage in Chrome, not in your operating
 system's key store. Anyone who can read your Chrome profile's files can use it to
 decrypt the vault copy. If you do not want that, choose **Disable automatic unlock** in
-the connection's menu; you then sign in again to use the vault after Chrome restarts.
+the connection's menu. Pateat needs the unlock key to use and sync the vault, so that
+connection stops working at once, until you sign in again with
+**Enable automatic unlock on this device** checked.
 
 Each connection is a row with its main action, **Sync**, or **Sign in again** when the
 vault needs a sign-in first. Its menu also holds **Forget sync sign-in** and
-**Delete connection**, which removes the connection, its vault copy, unlock key and sync
-sign-in from this device. Neither signs out your other Bitwarden sessions. You can add
-more than one connection, such as a personal and a work vault.
+**Delete connection**, which, after you press **Confirm delete**, removes the
+connection, its vault copy, unlock key and sync sign-in from this device. Neither signs
+out your other Bitwarden sessions. You can add more than one connection, such as a
+personal and a work vault.
 
 ### Choose what Pateat may use
 
@@ -80,9 +83,9 @@ settings, site defaults and recipes, and asks Claude to write a recipe for a log
 that has none. It never receives vault values or keys.
 
 Today each service is run by its owner for themselves: the service at `pateat.takuk.me`
-belongs to Pateat's developer and is not open to other people. Running your own service
-also needs your own build of the extension, with your own extension key, because the
-service accepts pairing only from the extension IDs it lists. The
+belongs to Pateat's developer and is not open to other people. A service accepts
+pairing only from the extension IDs its operator lists, so running your own means
+listing Pateat's ID, or the ID of your own build if you sign it with your own key. The
 [development guide](https://github.com/risu729/pateat/blob/main/docs/development.md#extension-id)
 describes both. A mode without the service is planned.
 

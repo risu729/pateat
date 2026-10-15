@@ -228,9 +228,10 @@ Claude's defaults, pending the owner's confirmation (2026-10-15): the site lives
 `apps/docs` as a workspace package, and its tasks run VitePress with the mise-pinned
 Node like the other projects, where biwa runs it with Bun. The site is not deployed yet:
 there is no Worker, Cloudflare or Access change, and biwa's assets-only Worker and
-per-PR previews come with the deployment. `apps/docs/package.json` has no `license`
-field, like `services/api`, because [LICENSING.md](../LICENSING.md) does not cover the
-site.
+per-PR previews come with the deployment. The installation page assumes a release is a
+ZIP file on GitHub Releases, loaded with **Load unpacked**. `apps/docs/package.json` has
+no `license` field, like `services/api`, until the owner decides whether
+[LICENSING.md](../LICENSING.md)'s installation material covers the site.
 
 ### Test coverage
 

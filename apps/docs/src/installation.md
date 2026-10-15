@@ -1,10 +1,10 @@
 # Installation
 
 ::: warning Not released yet
-No Pateat release has been published. Each release will be a ZIP file on
+No Pateat release has been published, and how releases are packaged is not decided yet.
+The steps below assume a ZIP file on
 [GitHub Releases](https://github.com/risu729/pateat/releases), loaded into Chrome as an
-unpacked extension as described below. Until then,
-[build it from source](#build-from-source).
+unpacked extension. Until then, [build it from source](#build-from-source).
 :::
 
 ## Requirements
@@ -37,7 +37,8 @@ same ID and the same data in Chrome.
 
 ## Update to a new release
 
-1. Extract the new release's ZIP file over the same folder, replacing its files.
+1. Delete the contents of the folder you loaded, and extract the new release's ZIP file
+   into the same folder.
 2. On `chrome://extensions`, press the reload button on Pateat's card.
 
 Do not press **Remove**: removing the extension deletes everything it stored in Chrome,
