@@ -41,6 +41,8 @@ const plan = (
   JSON.stringify({
     result: {
       decision: "plan",
+      pageKind: "sign-in",
+      irreversible: "no",
       fields: fields.map(([slot, candidate]) => ({ slot, candidate })),
       action: { candidate: action, purpose },
       ...(accountSwitch === undefined ? {} : { accountSwitch }),
@@ -95,6 +97,40 @@ describe("recipe generation role", () => {
       },
       { kind: "click", path: "/login", target: { by: "id", value: "sign-in" }, purpose: "submit" },
     ]);
+  });
+
+  it("returns the page's kind and whether its submission can be undone (ADR 0035)", async () => {
+    const answered = (pageKind: string, irreversible: string) =>
+      JSON.stringify({
+        result: {
+          ...JSON.parse(plan([["password", "password"]])).result,
+          pageKind,
+          irreversible,
+        },
+      });
+    for (const [pageKind, irreversible] of [
+      ["sign-in", "no"],
+      ["confirm", "yes"],
+      ["unclear", "unclear"],
+    ] as const) {
+      // oxlint-disable-next-line no-await-in-loop -- one fake model per answer
+      const outcome = await generatorReturning(answered(pageKind, irreversible)).generate(request);
+      expect(outcome).toMatchObject({ status: "ok", value: { pageKind, irreversible } });
+    }
+    // Both are required, and only the listed codes pass the response format.
+    const { pageKind: _kind, ...withoutKind } = JSON.parse(plan([["password", "password"]])).result;
+    for (const text of [
+      JSON.stringify({ result: withoutKind }),
+      answered("sign-up", "no"),
+      answered("sign-in", "maybe"),
+    ])
+      // oxlint-disable-next-line no-await-in-loop -- one fake model per answer
+      expect(await generatorReturning(text).generate(request)).toMatchObject({
+        status: "failed",
+        error: "invalid-output",
+      });
+    expect(planDescription("pageKind")).toMatch(/^sign-in: .* confirm: .* unclear: /u);
+    expect(planDescription("irreversible")).toMatch(/cannot be undone/u);
   });
 
   it("returns the account switch a plan names as its locator", async () => {
@@ -245,6 +281,8 @@ describe("recipe generation role", () => {
           JSON.stringify({
             result: {
               decision: "plan",
+              pageKind: "sign-in",
+              irreversible: "no",
               fields: [
                 { slot: "custom-1", candidate: "branch", name: "branch-number" },
                 { slot: "custom-2", candidate: "account", name: "account-number" },
@@ -325,6 +363,8 @@ describe("recipe generation role", () => {
       JSON.stringify({
         result: {
           decision: "plan",
+          pageKind: "sign-in",
+          irreversible: "no",
           fields: [
             { slot: "email", candidate: "email" },
             { slot: "password", candidate: "password" },
@@ -348,6 +388,8 @@ describe("recipe generation role", () => {
       JSON.stringify({
         result: {
           decision: "plan",
+          pageKind: "sign-in",
+          irreversible: "no",
           fields: [
             { slot: "username", candidate: "c1" },
             { slot: "password", candidate: "c2" },

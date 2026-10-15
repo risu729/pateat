@@ -30,7 +30,14 @@ type Prompt = { task: string; observation: { path: string; candidates: Candidate
  * input fill the account and press "Next", then mark "Sign out" as the signed-in evidence.
  * The page descriptions it receives are recorded.
  */
-function syntheticClaude({ abstainOnPassword = false }: { abstainOnPassword?: boolean } = {}) {
+function syntheticClaude({
+  abstainOnPassword = false,
+  pageKind = "sign-in",
+}: {
+  abstainOnPassword?: boolean;
+  /** The kind every planned page is answered as (ADR 0035). */
+  pageKind?: "sign-in" | "confirm" | "unclear";
+} = {}) {
   const prompts: Prompt[] = [];
   function answer(path: string, payload: string): unknown {
     if (path === "/v1/oauth/token")
@@ -93,11 +100,15 @@ function syntheticClaude({ abstainOnPassword = false }: { abstainOnPassword?: bo
             : passwordPage
               ? {
                   decision: "plan",
+                  pageKind,
+                  irreversible: "no",
                   fields: [{ slot: "password", candidate: byTarget("password") }],
                   action: { candidate: login(), purpose: "submit" },
                 }
               : {
                   decision: "plan",
+                  pageKind,
+                  irreversible: "no",
                   fields: [{ slot: "username", candidate: byTarget("account") }],
                   action: { candidate: byTarget("next"), purpose: "advance" },
                 };
@@ -255,6 +266,60 @@ for (const [button, marker] of [
       await fixture.close();
     }
   });
+
+test("a page generated as confirm is neither logged in to nor sent again (ADR 0035)", async () => {
+  const fixture = await startLoginFixture(0, { password });
+  const claude = syntheticClaude({ pageKind: "confirm" });
+  const service = await startSyncService({ claude: claude.answer });
+  try {
+    await withVaultProfile(
+      async (open) => {
+        const browser = await open();
+        await serveSite(browser.context, fixture);
+        const options = await connect(browser, service);
+
+        const runId = fixture.createRun();
+        const page = await browser.context.newPage();
+        await page.goto(`${site}/sign-in?runId=${runId}`);
+        // The service stores the recipe with the answered kind.
+        await expect
+          .poll(async () => {
+            const feed = (await (await service.request("/v1/recipes")).json()) as {
+              changes: { recipe?: { pageKind?: string } }[];
+            };
+            return feed.changes.map((change) => change.recipe?.pageKind);
+          })
+          .toEqual(["confirm"]);
+        // The page announces again once the recipe is cached, and nothing starts there.
+        await expect
+          .poll(() => send(options, { version: 1, type: "login.probe.status" }), {
+            timeout: 5_000,
+          })
+          .toMatchObject({ attempts: [] });
+        await page.waitForTimeout(2_000);
+        expect(fixture.evidence(runId)).toMatchObject({ posts: 0 });
+        await expect(page.locator("#password")).toHaveValue("");
+        expect(await send(options, { version: 1, type: "login.probe.status" })).toMatchObject({
+          attempts: [],
+        });
+
+        // A later visit neither logs in nor asks the model again.
+        const again = fixture.createRun();
+        await page.goto(`${site}/sign-in?runId=${again}`);
+        await page.waitForTimeout(2_000);
+        expect(fixture.evidence(again)).toMatchObject({ posts: 0 });
+        await expect(page.locator("#password")).toHaveValue("");
+        expect(claude.prompts.map((prompt) => [prompt.task, prompt.observation.path])).toEqual([
+          ["generate", "/sign-in"],
+        ]);
+      },
+      { args: ["--ignore-certificate-errors"] },
+    );
+  } finally {
+    await service.close();
+    await fixture.close();
+  }
+});
 
 for (const { name, start, query, passwordPath } of [
   // Next hides the account form and shows the password form on the same path.

@@ -4,6 +4,7 @@ import { parseLoginRecipe, type LoginRecipe, type StoredLoginRecipe } from "./lo
 import {
   customFieldReference,
   defaultLoginBinding,
+  confirmRecipePaths,
   findLoginBinding,
   loginDisplayNames,
   loginRecipesForOrigin,
@@ -99,6 +100,34 @@ describe("recipe selection", () => {
     expect(
       selectLoginRecipe([...recipes, recipe("bank-signin", "/login", 2)], origin, "/login"),
     ).toEqual({ ok: false, reason: "recipe-ambiguous" });
+  });
+
+  it("never lists or starts a confirm or unclear recipe (ADR 0035)", () => {
+    const kind = (entry: LoginRecipe, pageKind: LoginRecipe["pageKind"]) =>
+      parseLoginRecipe({ ...entry, pageKind });
+    const confirm = kind(recipe("bank-confirm", "/transfer"), "confirm");
+    const unclear = kind(recipe("bank-unclear", "/reverify"), "unclear");
+    const signin = kind(recipe("bank-signin", "/login"), "sign-in");
+    const stored = [confirm, unclear, signin, recipe("bank-admin", "/admin")];
+    // A recipe stored before page kinds still starts.
+    expect(loginRecipesForOrigin(stored, origin).map(({ id }) => id)).toEqual([
+      "bank-signin",
+      "bank-admin",
+    ]);
+    expect(selectLoginRecipe(stored, origin, "/transfer")).toEqual({
+      ok: false,
+      reason: "recipe-not-found",
+    });
+    expect(selectLoginRecipe(stored, origin, "/reverify")).toEqual({
+      ok: false,
+      reason: "recipe-not-found",
+    });
+    expect(selectLoginRecipe(stored, origin, "/login")).toMatchObject({
+      ok: true,
+      recipe: { id: "bank-signin" },
+    });
+    expect(confirmRecipePaths(stored, origin)).toEqual(["/transfer", "/reverify"]);
+    expect(confirmRecipePaths(stored, "https://other.example")).toEqual([]);
   });
 
   it("never lists or starts an entry recipe (ADR 0031)", () => {

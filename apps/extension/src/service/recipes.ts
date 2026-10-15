@@ -1,5 +1,6 @@
 import {
   deviceIdSchema,
+  confirmRecipePaths,
   loginRecipesForOrigin,
   recipeStartSteps,
   selectLoginRecipe,
@@ -392,6 +393,13 @@ export function createRecipeSync(options: {
             : [],
         ),
       ];
+    },
+    async confirms(origin: string) {
+      const connection = await service.connection().catch(() => undefined);
+      if (!connection) return [];
+      const cache = await load(connection);
+      if (!cache) return [];
+      return confirmRecipePaths(cache.recipes, origin);
     },
     async entries(origin: string) {
       const connection = await service.connection().catch(() => undefined);

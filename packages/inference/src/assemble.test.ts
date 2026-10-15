@@ -69,6 +69,35 @@ describe("generated recipe assembly", () => {
     expect(next.recipe.rejection).toEqual(target("error"));
   });
 
+  it("stores the first page's kind, which a continuation keeps (ADR 0035)", () => {
+    const first = appendPageSteps(undefined, {
+      id: "gen-1",
+      origin,
+      steps: page("/login", "username", "advance"),
+      pageKind: "unclear",
+    });
+    if (!first.ok) throw new Error(first.reason);
+    expect(first.recipe.pageKind).toBe("unclear");
+    const next = appendPageSteps(first.recipe, {
+      id: "gen-1",
+      origin,
+      steps: page("/pw", "pw", "submit"),
+      pageKind: "sign-in",
+    });
+    if (!next.ok) throw new Error(next.reason);
+    expect(next.recipe.pageKind).toBe("unclear");
+    expect(continuesRecipe(first.recipe, next.recipe)).toBe(true);
+    // A recipe stored before page kinds stays without one.
+    const old = appendPageSteps(built(page("/login", "username", "advance")), {
+      id: "gen-1",
+      origin,
+      steps: page("/pw", "pw", "submit"),
+      pageKind: "confirm",
+    });
+    if (!old.ok) throw new Error(old.reason);
+    expect(old.recipe.pageKind).toBeUndefined();
+  });
+
   it("keeps the first account switch that no step clicks", () => {
     const other = { by: "text", value: "Use another account" } as const;
     const first = appendPageSteps(undefined, {

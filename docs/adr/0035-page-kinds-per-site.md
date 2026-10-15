@@ -5,7 +5,10 @@ let profiles hold permissions", "per site"), then 21:11 to 21:30 UTC in the desi
 thread (`sign-in` can be limited to filling, login-time values belong to `sign-in`,
 re-verification is not split by kind for now, Pateat never presses on it, logs for
 evaluation, and the answers to the proposal's seven questions). The proposal was
-reviewed against the code by subagents before each round. Not implemented. Amends
+reviewed against the code by subagents before each round. Delivery 1 partly
+implemented on 2026-10-15: `pageKind` and `irreversible` in generation, `pageKind` on
+recipes, and `confirm` and `unclear` recipes neither run nor count as logouts, tested
+with synthetic pages only; the rest of delivery 1 is not implemented. Amends
 [ADR 0012](0012-inference-request-log.md) (retention of evaluation rows) and
 [ADR 0024](0024-settings-profiles.md) (two more profile parts).
 

@@ -214,7 +214,14 @@ the path ending before it), or `{ check: "plan", reason }` with the plan check's
   locator names a passkey or security key, not named like a registration and not used by
   any set or the account switch is stored as the recipe's `passkey` route, any other is
   dropped without failing the call, and a continuation's is ignored. The request log
-  records the kept button.
+  records the kept button. Every plan also answers the page's kind (`pageKind`:
+  `sign-in`, `confirm` or `unclear`) and, for evaluation, whether submitting the page
+  cannot be undone (`irreversible`: `yes`, `no` or `unclear`)
+  ([ADR 0035](../../docs/adr/0035-page-kinds-per-site.md)). A first page's kind is
+  stored on the recipe as `pageKind`, a continuation keeps the recipe's own, and every
+  page of a chooser branch is stored as `sign-in`; `irreversible` is never stored on a
+  recipe. The request log records both answers with the plan, also for a plan the checks
+  refused.
 - `POST /v1/recipes/generate` also takes `{ version: 1, observation }` without `slots`:
   an entry request ([ADR 0031](../../docs/adr/0031-sign-in-entry-pages.md)) for a page
   without a login form, whose observation has no fill candidate and no `accounts`, and

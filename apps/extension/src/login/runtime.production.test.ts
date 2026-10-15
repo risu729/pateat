@@ -530,6 +530,7 @@ function harness(
     entries: vi.fn(async (at: string): Promise<LoginEntryRecipe[]> =>
       (live.entries ?? []).filter((entry) => entry.origin === at),
     ),
+    confirms: vi.fn(async (_at: string): Promise<string[]> => []),
   };
   const login = createLoginRuntime(store, {
     fields,
@@ -1011,6 +1012,51 @@ describe("production login document admission", () => {
       detail: "no-recipe-on-path",
     });
     expect(h.fields).not.toHaveBeenCalled();
+  });
+  it("never logs in on, or sends again, a page generated as confirm (ADR 0035)", async () => {
+    const report = vi.fn<(report: LoginReport) => void>();
+    const available = vi.fn<LoginGeneration["available"]>(async () => true);
+    const generate = vi.fn<LoginGeneration["generate"]>();
+    const h = harness(
+      {},
+      {
+        report,
+        uris: async () => ({ ok: true, data: uriMatch() }),
+        generation: {
+          available,
+          generate,
+          generateEntry: vi.fn<LoginGeneration["generateEntry"]>(),
+          judge: vi.fn<LoginGeneration["judge"]>(),
+          slotFields: vi.fn<LoginGeneration["slotFields"]>(async () => undefined),
+        },
+      },
+    );
+    // The cache leaves the recipe out of `recipe` and `starts`, and names its path here.
+    h.recipes.recipe.mockResolvedValue(undefined);
+    h.recipes.starts.mockResolvedValue([]);
+    h.recipes.confirms.mockResolvedValue(["/signin"]);
+    const watching = { ok: false, reason: "recipe-not-found", starts: [] };
+    expect(await h.signIn()).toEqual(watching);
+    expect(await shownHello(h)).toEqual(watching);
+    expect(available).not.toHaveBeenCalled();
+    expect(generate).not.toHaveBeenCalled();
+    expect(h.fields).not.toHaveBeenCalled();
+    // The shown sign-in input is logged once, with why nothing starts.
+    expect(
+      report.mock.calls.map(([entry]) => entry).filter((entry) => entry.type === "refused"),
+    ).toEqual([
+      {
+        type: "refused",
+        tabId: 1,
+        origin,
+        reason: "not-started",
+        detail: "confirm-unsupported",
+      },
+    ]);
+    // Another path of the origin is still offered for generation.
+    h.recipes.confirms.mockResolvedValue(["/reverify"]);
+    expect(await h.signIn()).toMatchObject({ reason: "generating" });
+    expect(available).toHaveBeenCalledWith(origin, "/signin");
   });
   it("does not log a sign-in input on an origin without a recipe", async () => {
     const report = vi.fn<(report: LoginReport) => void>();

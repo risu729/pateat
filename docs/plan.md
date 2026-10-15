@@ -421,6 +421,14 @@ than in this repository.
   page's kind, recipes generated as `confirm` neither run nor count as logouts, a
   passkey re-verification after Pateat's login in the tab is handed on, and the logs for
   judging whether `confirm` can be split are kept.
+  - Done on 2026-10-15, tested with synthetic pages only: generation answers `pageKind`
+    and `irreversible`, the service stores `pageKind` on recipes and logs both, and a
+    `confirm` or `unclear` recipe never starts a login, counts as a logout or is sent
+    again.
+  - Next: hand on a passkey re-verification, the `signedIn` hint, the evaluation logs
+    and their retention, and code to generate existing recipes again. Recipes stored
+    before page kinds run as `sign-in` until then; running that regeneration is a paid
+    call and needs the owner's approval.
 - The toolbar badge counts the matching items on every HTTPS site: teal with the usable
   count, light gray when every match is excluded, amber while a login waits for a choice
   (owner, 2026-10-13 14:42 UTC;

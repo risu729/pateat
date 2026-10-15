@@ -80,6 +80,8 @@ const plan = (fields: [string, string][], action: string, purpose: "advance" | "
   JSON.stringify({
     result: {
       decision: "plan",
+      pageKind: "sign-in",
+      irreversible: "no",
       fields: fields.map(([slot, candidate]) => ({ slot, candidate })),
       action: { candidate: action, purpose },
     },
@@ -327,6 +329,38 @@ describe("recipe generation", () => {
     );
   });
 
+  it("stores the answered page kind, which a continuation keeps (ADR 0035)", async () => {
+    const device = await owner();
+    const answered = (text: string, pageKind: string, irreversible: string) =>
+      JSON.stringify({ result: { ...JSON.parse(text).result, pageKind, irreversible } });
+    replies.push({
+      text: answered(plan([["email", "email"]], "next", "advance"), "confirm", "yes"),
+    });
+    const first = await generate(device, emailPage);
+    if (first.status !== "recipe") throw new Error(first.status);
+    expect(route(first.change.recipe).pageKind).toBe("confirm");
+    // `irreversible` is for evaluation only: never on the recipe.
+    expect(JSON.stringify(first.change.recipe)).not.toContain("irreversible");
+    replies.push({
+      text: answered(plan([["password", "password"]], "sign-in", "submit"), "sign-in", "no"),
+    });
+    const second = await generate(device, passwordPage, {
+      recipeId: first.change.recipeId,
+      revision: first.change.revision,
+    });
+    if (second.status !== "recipe") throw new Error(second.status);
+    expect(route(second.change.recipe).pageKind).toBe("confirm");
+    // The request log keeps each page's own answer.
+    const log = await rows(
+      "SELECT result FROM inference_log WHERE owner_id = ? ORDER BY created_at",
+      device.ownerId,
+    );
+    expect(log.map((row) => JSON.parse(String(row.result)))).toMatchObject([
+      { pageKind: "confirm", irreversible: "yes" },
+      { pageKind: "sign-in", irreversible: "no" },
+    ]);
+  });
+
   it("answers unavailable without a call when credentials are missing", async () => {
     const device = await owner({ claude: false });
     expect(await generate(device, emailPage)).toEqual({
@@ -451,6 +485,8 @@ describe("recipe generation", () => {
     const refused = JSON.stringify({
       result: {
         decision: "plan",
+        pageKind: "sign-in",
+        irreversible: "no",
         fields: [
           { slot: "email", candidate: "email" },
           { slot: "password", candidate: "password" },
@@ -471,6 +507,8 @@ describe("recipe generation", () => {
       text: JSON.stringify({
         result: {
           decision: "plan",
+          pageKind: "sign-in",
+          irreversible: "no",
           fields: [{ slot: "email", candidate: "email" }],
           action: { candidate: "sign-in", purpose: "Sign in now" },
         },
@@ -508,6 +546,9 @@ describe("recipe generation", () => {
           // The action's text is not a candidate of the page, so it is not kept.
           output: {
             result: {
+              // The answered kind is kept for evaluation (ADR 0035).
+              pageKind: "sign-in",
+              irreversible: "no",
               fields: [
                 { slot: "email", candidate: "email" },
                 { slot: "password", candidate: "password" },
@@ -1026,6 +1067,8 @@ describe("recipe generation", () => {
       text: JSON.stringify({
         result: {
           decision: "plan",
+          pageKind: "sign-in",
+          irreversible: "no",
           fields: [{ slot: "password", candidate: "password" }],
           action: { candidate: "sign-in", purpose: "submit" },
           accountSwitch: "switch",
@@ -1148,7 +1191,13 @@ describe("custom-field slots (ADR 0027)", () => {
     purpose: "advance" | "submit",
   ) =>
     JSON.stringify({
-      result: { decision: "plan", fields, action: { candidate: action, purpose } },
+      result: {
+        decision: "plan",
+        pageKind: "sign-in",
+        irreversible: "no",
+        fields,
+        action: { candidate: action, purpose },
+      },
     });
   async function generateCustom(device: Device, page: LoginObservation, base?: unknown) {
     const response = await post(device, "/v1/recipes/generate", {
@@ -1223,6 +1272,8 @@ describe("custom-field slots (ADR 0027)", () => {
       text: JSON.stringify({
         result: {
           decision: "plan",
+          pageKind: "sign-in",
+          irreversible: "no",
           fields: [{ slot: "custom-2", candidate: "pin", name: "pin-code" }],
           action: { candidate: "sign-in", purpose: "submit" },
           alternatives: [
@@ -2692,6 +2743,8 @@ describe("password route variants (ADR 0027)", () => {
     JSON.stringify({
       result: {
         decision: "plan",
+        pageKind: "sign-in",
+        irreversible: "no",
         fields: byBranch,
         action: { candidate: "sign-in", purpose: "submit" },
         alternatives: [{ fields: alternative, action: { candidate: "sign-in", purpose } }],
@@ -2736,6 +2789,8 @@ describe("password route variants (ADR 0027)", () => {
       device.ownerId,
     );
     expect(JSON.parse(String(logged!.result))).toEqual({
+      pageKind: "sign-in",
+      irreversible: "no",
       fields: byBranch,
       action: { candidate: "sign-in", purpose: "submit" },
       alternatives: [{ fields: byContract, action: { candidate: "sign-in", purpose: "submit" } }],
@@ -2932,6 +2987,8 @@ describe("the passkey route (ADR 0027)", () => {
     JSON.stringify({
       result: {
         decision: "plan",
+        pageKind: "sign-in",
+        irreversible: "no",
         fields:
           purpose === "submit"
             ? [
@@ -2999,6 +3056,8 @@ describe("the passkey route (ADR 0027)", () => {
       text: JSON.stringify({
         result: {
           decision: "plan",
+          pageKind: "sign-in",
+          irreversible: "no",
           fields: [{ slot: "email", candidate: "email" }],
           action: { candidate: "next", purpose: "advance" },
           passkeyButton: "passkey",
@@ -3052,6 +3111,8 @@ describe("the passkey route (ADR 0027)", () => {
       text: JSON.stringify({
         result: {
           decision: "plan",
+          pageKind: "sign-in",
+          irreversible: "no",
           fields: [{ slot: "password", candidate: "password" }],
           action: { candidate: "sign-in", purpose: "submit" },
           passkeyButton: "passkey",
@@ -3354,8 +3415,14 @@ describe("account lists and chooser branches (ADR 0028)", () => {
   it("generates each branch's pages into the chooser, with attempts kept apart", async () => {
     const device = await owner();
     const { recipeId } = await chooser(device);
-    // The page after a listed profile: the password alone.
-    replies.push({ text: plan([["password", "password"]], "sign-in", "submit") });
+    // The page after a listed profile: the password alone. It follows a list of accounts,
+    // so it is stored as a sign-in page whatever kind the model answered (ADR 0035).
+    replies.push({
+      text: plan([["password", "password"]], "sign-in", "submit").replace(
+        '"pageKind":"sign-in"',
+        '"pageKind":"unclear"',
+      ),
+    });
     const account = await branchGenerate(
       device,
       passwordPage,
@@ -3367,6 +3434,7 @@ describe("account lists and chooser branches (ADR 0028)", () => {
       id: recipeId,
       revision: 2,
       origin: ORIGIN,
+      pageKind: "sign-in",
       slots: ["password"],
       steps: [
         {

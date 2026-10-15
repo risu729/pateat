@@ -1090,6 +1090,8 @@ describe("unhandled errors", () => {
       recipeId: "synthetic-recipe",
       baseRevision: 1,
       takenOver: true,
+      // The returned recipe's page kind (ADR 0035).
+      pageKind: "confirm",
     });
     log.login({
       type: "handler",
@@ -1282,6 +1284,7 @@ describe("unhandled errors", () => {
           recipe: expect.any(String),
           baseRevision: 1,
           takenOver: true,
+          pageKind: "confirm",
         },
       ],
       [
