@@ -476,11 +476,7 @@ export function parseInstant(value: string): bigint | undefined {
   const milliseconds = Date.parse(`${match[1]}${match[3]}`);
   if (Number.isNaN(milliseconds)) return undefined;
   // Date.parse rolls a day past the month's end over (February 30 is March 2).
-  const [year, month, day] = match[1].slice(0, 10).split("-").map(Number) as [
-    number,
-    number,
-    number,
-  ];
+  const [year, month, day] = value.slice(0, 10).split("-").map(Number) as [number, number, number];
   if (new Date(Date.UTC(year, month - 1, day)).getUTCDate() !== day) return undefined;
   return BigInt(milliseconds) * 1_000_000n + BigInt((match[2] ?? "0").padEnd(9, "0"));
 }

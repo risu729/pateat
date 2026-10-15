@@ -1,5 +1,11 @@
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
-import { beginInput, settingsRequest, setupProbe, setupRequest } from "./connection-fixture";
+import {
+  beginInput,
+  settingsRequest,
+  setupProbe,
+  setupRequest,
+  useOnly,
+} from "./connection-fixture";
 import { startLoginFixture } from "./login-server";
 import { startSyncService } from "./sync-service";
 import { withVaultProfile, type VaultBrowser } from "./vault-fixture";
@@ -133,11 +139,7 @@ async function connect(
   if (!accepted.ok || accepted.kind !== "ready") throw new Error("Synthetic setup failed");
   // The probe build's demo vaults cannot answer URI queries; leave only Bitwarden.
   const initial = await settingsRequest(options);
-  const settings = initial.snapshot.settings;
-  settings.connections = settings.connections.map((entry) => ({
-    ...entry,
-    enabled: entry.connectionId === accepted.connectionId,
-  }));
+  const settings = useOnly(initial.snapshot.settings, initial.catalog, accepted.connectionId);
   const saved = await settingsRequest(options, {
     version: 1,
     type: "settings.save",

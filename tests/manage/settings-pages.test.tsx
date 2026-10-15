@@ -16,13 +16,23 @@ const USER = "00000000-0000-4000-8000-000000000001";
 const BANK_PAGE = "/manage/sites/https/bank.example";
 
 function settingsOf(parts: Partial<LocalSettings> = {}): LocalSettings {
-  return { connections: [], excludedSites: [], siteDefaults: [], bindings: [], ...parts };
+  return {
+    connections: [],
+    accountPolicies: [],
+    itemPolicies: [],
+    customFieldReviews: [],
+    excludedSites: [],
+    siteDefaults: [],
+    bindings: [],
+    ...parts,
+  };
 }
 
 const binding = {
   recipeId: "bank-signin",
   origin: "https://bank.example",
   provider: "bitwarden",
+  server: "cloud-us",
   userId: USER,
   itemId: "item-1",
   itemName: "Example Bank",
@@ -36,6 +46,7 @@ const binding = {
 const bankDefault = {
   origin: "https://bank.example",
   provider: "bitwarden",
+  server: "cloud-us",
   userId: USER,
   itemId: "item-1",
   itemName: "Example Bank",
@@ -173,7 +184,13 @@ test("lists each site with its recipes, default account and bindings", async () 
         excludedSites: [{ hostname: "shop.example", includeSubdomains: false }],
         siteDefaults: [
           bankDefault,
-          { origin: "https://shop.example", provider: "bitwarden", userId: USER, itemId: "item-2" },
+          {
+            origin: "https://shop.example",
+            provider: "bitwarden",
+            server: "cloud-us",
+            userId: USER,
+            itemId: "item-2",
+          },
         ],
         bindings: [binding, { ...binding, itemId: "item-3", itemName: "Second account" }],
       }),
@@ -205,7 +222,13 @@ test("removes a site's default account on its page, keeping the rest", async () 
     settings: settingsOf({
       siteDefaults: [
         bankDefault,
-        { origin: "https://shop.example", provider: "bitwarden", userId: USER, itemId: "item-2" },
+        {
+          origin: "https://shop.example",
+          provider: "bitwarden",
+          server: "cloud-us",
+          userId: USER,
+          itemId: "item-2",
+        },
       ],
       bindings: [binding],
     }),
@@ -319,6 +342,29 @@ test("lists a site's account bindings with their fields and removes one", async 
   await expect
     .element(page.getByRole("status"))
     .toHaveTextContent("Binding of Example Bank for bank-signin removed");
+});
+
+test("removes only the binding of the account on the named server", async () => {
+  // The same user and item IDs on another server are another account (ADR 0023).
+  const eu = { ...binding, server: "cloud-eu", itemName: "Example Bank (EU)" };
+  const client = mockClient({
+    version: 1,
+    revision: 3,
+    settings: settingsOf({ bindings: [binding, eu] }),
+  });
+  await mount(client, BANK_PAGE);
+  await page
+    .getByRole("button", {
+      name: "Remove binding of Example Bank for bank-signin on https://bank.example",
+    })
+    .click();
+  await expect
+    .element(page.getByRole("status"))
+    .toHaveTextContent("Binding of Example Bank for bank-signin removed");
+  expect(client.saveSettings).toHaveBeenLastCalledWith(3, settingsOf({ bindings: [eu] }));
+  await expect
+    .element(page.getByRole("region", { name: "Account bindings" }))
+    .toMatchTextContent("Example Bank (EU)");
 });
 
 test("says when a site has no binding or default account", async () => {

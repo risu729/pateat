@@ -66,7 +66,10 @@ export async function findSiteAccounts(input: {
   }
 
   // Bundled demo connections hold static metadata only; only live vaults are queried.
-  const live = { connections: catalog.connections.filter((entry) => entry.provider !== "dummy") };
+  const live = {
+    ...catalog,
+    connections: catalog.connections.filter((entry) => entry.provider !== "dummy"),
+  };
   const uris = await findLiveSiteCandidates({
     settings,
     catalog: live,
