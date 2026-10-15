@@ -694,8 +694,8 @@ Once the fixes have settled:
   is settled before it is translated (owner, 2026-10-13 15:17 UTC). The owner gave the
   go-ahead on 2026-10-15 at 00:44 UTC.
   - Done (2026-10-15): the popup, the icon's title, the settings page and the passkey
-    chooser follow the [UI text](architecture.md#ui-text) rules ([#601](https://github.com/risu729/pateat/pull/601)). The reason
-    line now says "You were logged out of this site in another tab, or the site did not
+    chooser follow the [UI text](architecture.md#ui-text) rules
+    ([#601](https://github.com/risu729/pateat/pull/601)). The reason line now says "You were logged out of this site in another tab, or the site did not
     accept a login there.", and "The site did not accept a login in another tab." when
     the popup knows another tab still asks after a rejection. Pateat shows no prompt inside
     a page; the passkey chooser window is the only prompt outside the popup. The
