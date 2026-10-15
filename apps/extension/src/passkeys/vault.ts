@@ -34,7 +34,7 @@ export type PasskeyFinder = (
  * Passkeys an item's settings allow. An item with no fields at all, such as a passkey-only login,
  * is not refused for lacking fields; an item whose fields the owner excluded still is.
  */
-function passkeyEligible(
+export function passkeyEligible(
   settings: LocalSettings,
   catalog: VaultCatalog,
   connectionId: string,
