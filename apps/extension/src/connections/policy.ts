@@ -218,8 +218,8 @@ export function createConnectionPolicy(options: {
       });
     },
     async forget(connectionId) {
-      const current = await options.settings.read();
-      if (!current.settings.connections.some((entry) => entry.connectionId === connectionId))
+      const { settings } = await options.settings.read();
+      if (!settings.connections.some((entry) => entry.connectionId === connectionId))
         return;
       await options.settings.update(undefined, (snapshot) => {
         snapshot.settings.connections = snapshot.settings.connections.filter(
