@@ -179,7 +179,7 @@ Focused tasks are available for diagnosis:
 | `mise run //apps/extension:test:dom` | Extract observations, resolve element locators, collect diagnostics and run the vault, provider-session and diagnostics stores on native IndexedDB in Chromium |
 | `mise run //tests/options:typecheck` | Check component-test and browser-provider types |
 | `mise run check:docs` | Check local documentation links |
-| `mise run check:sdk-source` | Fail when [the SDK source records](sdk-source.md#pinned-upstream-source) name a different SDK version or source revision from `bun.lock` and the installed package |
+| `mise run check:sdk-source` | Validate installed SDK metadata against its pin and render [exact source notices](sdk-source.md#pinned-upstream-source) without writing files |
 
 On Linux, `mise run browser:install --with-deps` also installs the browser's
 system dependencies. Server type checking and the artifact checks depend on the server

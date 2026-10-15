@@ -1,9 +1,9 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "wxt";
 import tailwindcss from "@tailwindcss/vite";
 import { MANIFEST_KEY } from "./manifest-key";
+import { bitwardenSdkSourceAssets, readBitwardenSdkSource } from "./sdk-source";
 
 /** CI sets PATEAT_REVISION, as for the service; a local build reads its own checkout. */
 function buildRevision(): string {
@@ -18,14 +18,7 @@ function buildRevision(): string {
 
 /** The SDK version the bundled Bitwarden package pins, shown on the diagnostics page. */
 function bitwardenSdkVersion(): string {
-  const manifest: unknown = JSON.parse(
-    readFileSync(new URL("../../packages/bitwarden/package.json", import.meta.url), "utf8"),
-  );
-  const version = (manifest as { dependencies?: Record<string, string> }).dependencies?.[
-    "@bitwarden/sdk-internal"
-  ];
-  if (!version) throw new Error("Missing @bitwarden/sdk-internal dependency");
-  return version;
+  return readBitwardenSdkSource().version;
 }
 
 export default defineConfig({
@@ -70,6 +63,13 @@ export default defineConfig({
         { key: MANIFEST_KEY }),
   }),
   hooks: {
+    "build:publicAssets"(_wxt, files) {
+      for (const record of bitwardenSdkSourceAssets()) {
+        const index = files.findIndex((file) => file.relativeDest === record.relativeDest);
+        if (index < 0) throw new Error(`Missing SDK source notice: ${record.relativeDest}`);
+        files[index] = record;
+      }
+    },
     "entrypoints:found"(wxt, entrypoints) {
       // These scripts are compatibility experiments, never production features.
       if (wxt.config.mode !== "probe") return;

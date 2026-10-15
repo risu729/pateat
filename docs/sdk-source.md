@@ -6,23 +6,23 @@ its GPLv3 option; the commercial package is not selected.
 
 ## Pinned upstream source
 
-The published package is `@bitwarden/sdk-internal@0.2.0-main.1105`.
-Both its npm `gitHead` and packaged `VERSION` identify
-`7d5b1010297d6f2352b55c3d2ff27352e37433cd`.
-The package contains generated JavaScript, WASM and declarations; it is not the
-preferred Rust source for modifying the SDK.
+The exact npm version is pinned in `packages/bitwarden/package.json` and
+`bun.lock`. The installed package's `VERSION` identifies the matching upstream
+source commit. The package contains generated JavaScript, WASM and declarations;
+it is not the preferred Rust source for modifying the SDK.
 
-This page, `apps/extension/public/THIRD-PARTY-NOTICES.md` and
-`apps/extension/public/legal.html` record that version and revision.
-`mise run check:sdk-source`, part of `mise run check`, fails when they differ from
-the version in `bun.lock` or the installed package's `VERSION`, so an SDK update
-must update all three. Recheck the upstream build steps below for the new revision.
+Both production and probe builds render `THIRD-PARTY-NOTICES.md` and `legal.html`
+from the installed SDK's version and `VERSION`, including links to the exact source
+archive, license selection and upstream build instructions. Their tracked files in
+`apps/extension/public/` are templates; use the rendered files in the built extension
+for those links. A stale install or a manifest/lock mismatch fails the build.
 
-- [Matching SDK source tree](https://github.com/bitwarden/sdk-internal/tree/7d5b1010297d6f2352b55c3d2ff27352e37433cd)
-- [Matching source archive](https://github.com/bitwarden/sdk-internal/archive/7d5b1010297d6f2352b55c3d2ff27352e37433cd.tar.gz)
-- [License selection](https://github.com/bitwarden/sdk-internal/blob/7d5b1010297d6f2352b55c3d2ff27352e37433cd/LICENSE)
-  and
-  [GPL text](https://github.com/bitwarden/sdk-internal/blob/7d5b1010297d6f2352b55c3d2ff27352e37433cd/LICENSE_GPL.txt)
+`mise run check:sdk-source`, part of `mise run check`, checks the same metadata and
+renders the same notices without writing files. It prints the resolved npm version
+and source commit. Normal Renovate SDK updates therefore update the notices through
+the build; no separate documentation version or Renovate post-upgrade command needs
+maintenance. This removes duplicated version records, not the requirement to provide
+matching source with a distributed binary.
 
 Pateat integrates the unmodified OSS package through its own local cryptographic
 boundary as of 2026-10-10. No Bitwarden endorsement or trademark grant is implied.
@@ -37,26 +37,20 @@ and the installed-Chrome probe setup. Chrome's developer-mode Load unpacked acti
 load the emitted extension directory; no private signing key is required to run a
 modified unpacked copy.
 
-To rebuild the SDK itself, start from the exact source commit above and follow its
-[WASM README](https://github.com/bitwarden/sdk-internal/blob/7d5b1010297d6f2352b55c3d2ff27352e37433cd/crates/bitwarden-wasm-internal/README.md)
-and
-[build script](https://github.com/bitwarden/sdk-internal/blob/7d5b1010297d6f2352b55c3d2ff27352e37433cd/crates/bitwarden-wasm-internal/build.sh).
-The pinned
-[workflow](https://github.com/bitwarden/sdk-internal/blob/7d5b1010297d6f2352b55c3d2ff27352e37433cd/.github/workflows/build-wasm-internal.yml)
-uses Node 22, Rust 1.98.0 with `rust-src` and the `wasm32-unknown-unknown` target, and
-Binaryen's `wasm-opt` and `wasm2js`. Run `npm ci` in
-`crates/bitwarden-wasm-internal/npm`, then the crate's `build.sh -r` without the
-commercial `-b` option. The script builds SIMD/post-MVP WASM for the browser and
-Node bundles, then a separate MVP build for the `wasm2js` JavaScript fallback; it
-checks that both builds share the same generated JavaScript glue before optimizing
-them. Pateat loads the packaged native WASM in its extension Worker, without the
-JavaScript fallback. Preserve `Cargo.lock`, interfaces, build scripts and required
-dependency source. The OSS path enforces `bitwarden_ensure_non_commercial`.
+To rebuild the SDK itself, use the exact upstream source commit printed by
+`mise run check:sdk-source` (also recorded in the built notices). At that commit,
+follow `crates/bitwarden-wasm-internal/README.md`, its `build.sh`,
+`rust-toolchain.toml` and `.github/workflows/build-wasm-internal.yml` in the
+[SDK repository](https://github.com/bitwarden/sdk-internal). Those files own the
+tool requirements and WASM build recipe; do not substitute the tool versions or
+build instructions from upstream's current branch.
+Select the OSS build without the commercial `-b` option. Preserve `Cargo.lock`,
+interfaces, build scripts and required dependency source.
 
-These are the upstream build instructions. Pateat has not verified a
-byte-identical rebuild of the published SDK WASM; the inspected workflow does
-not pin Binaryen. Do not describe package version/source mapping as a
-reproducible-build result.
+Pateat loads the packaged native WASM in its extension Worker, without the
+JavaScript fallback. Pateat has not verified a byte-identical rebuild of the
+published SDK WASM. Do not describe package version/source mapping or generated
+notices as a reproducible-build result.
 
 ## Binary distribution gate
 

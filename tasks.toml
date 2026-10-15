@@ -26,7 +26,7 @@ depends = [
 run = "node scripts/check-docs.mjs"
 
 ["check:sdk-source"]
-description = "Fail when the SDK source records differ from the locked SDK."
+description = "Validate installed SDK metadata and render exact source notices."
 run = "node scripts/check-sdk-source.mjs"
 
 ["test:tools"]
