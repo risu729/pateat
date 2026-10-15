@@ -74,14 +74,15 @@ classifies it (`classifyStartMiss` in `apps/extension/src/login/repair.ts`):
 4. **Language**: every missing target is a `text` or `label` locator, the recipe was
    written in one language, and the page now reads in the other one (`ja` against `en`).
    The recipe is still right, so it is not counted. The recipe's language is the one it
-   records, or for a recipe generated before it recorded one, Japanese when every
-   missing locator's words hold Japanese script and English when they all hold Latin
-   letters and none. A page of `mixed` language, or locators in both scripts, counts. An
-   `id`, `name` or other attribute locator that misses counts in any language.
-5. **Signed in**: a page where one of the recipe's learned completion markers shows, or
-   the tab's next page after a submitted password form, is not counted: it is a
-   signed-in page on the start path, such as a profile form with an email input, and is
-   never sent.
+   records, or for a recipe generated on a page of `mixed` language, which records none,
+   Japanese when every missing locator's words hold Japanese script; Latin letters say
+   nothing, since Japanese pages also name fields "ID" or "Email". A page of `mixed`
+   language counts. An `id`, `name` or other attribute locator that misses counts in any
+   language.
+5. **Signed in**: a page where one of the recipe's learned completion markers is
+   visible, or the tab's next page after a submitted password form, is not counted: it
+   is a signed-in page on the start path, such as a profile form with an email input,
+   and is never sent.
 6. **Stale**: otherwise.
 
 A stale miss is counted per recipe on this device (`pateat.recipe-repairs.v1`, trusted
@@ -113,9 +114,12 @@ redaction and vault scope, [ADR 0016](0016-recipe-generation-trigger.md)), with
 
 The extension claims a repair under the revision it repairs, apart from the claim of the
 page's first generation, so the ADR 0016 retry window does not hold it locally either.
-Any answer of the service but `busy` (another request in flight) holds the recipe until
-the next UTC day, including a current recipe returned for a newer revision and the
-spend limit, so that a page that keeps missing does not send a request on every load.
+Any answer of the service but `busy` (another request in flight) or a failure marked for
+retry holds the recipe until the next UTC day, including a current recipe returned for a
+newer revision and the spend limit, so that a page that keeps missing does not send a
+request on every load. A request the model role refused before the call is not held
+locally, but the service already took the day, so the next one is answered
+`repair-limit` without a model call and holds it.
 
 ### 4. What happens to the stale revision
 

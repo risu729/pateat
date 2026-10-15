@@ -6492,8 +6492,10 @@ export function createLoginRuntime(
     await generateFor(live, scope, undefined, {
       recipeId: recipe.id,
       revision: recipe.revision,
-      // Any answer of the service spends the day but one that another request was in
-      // flight (`busy`); a page not sent or a request that failed to arrive does not.
+      // Any answer of the service holds the day but one that another request was in
+      // flight (`busy`) or a failure marked `retry`; a page not sent does not. A failure
+      // the service refused before the model still took the day there, so the next
+      // request is answered `repair-limit`, which holds it.
       done: (outcome) => {
         const spent =
           outcome.outcome === "unavailable"
@@ -6504,8 +6506,8 @@ export function createLoginRuntime(
     });
   }
   /**
-   * Whether one of the recipe's learned completion markers shows on the page, visible or
-   * hidden; a page that cannot be asked counts as showing one, so nothing is sent.
+   * Whether one of the recipe's learned completion markers shows visibly on the page; a
+   * page that cannot be asked counts as showing one, so nothing is sent.
    */
   async function markerShown(live: LiveDocument, recipe: LoginRecipe): Promise<boolean> {
     const proof = markerProof(recipe, live.document.origin);
@@ -6517,6 +6519,7 @@ export function createLoginRuntime(
           type: "login.observe",
           path: live.path,
           targets: proof.targets,
+          require: proof.shown,
           links: proof.links,
         }),
       );

@@ -19,17 +19,14 @@ export type StartMissVerdict = "stale" | "status" | "unusable" | "language" | "n
 /** Whether a locator depends on the page's wording: a button's text or a field's name. */
 const worded = (target: { by: string }) => target.by === "text" || target.by === "label";
 const japanese = /[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/u;
-const latin = /\p{Script=Latin}/u;
 /**
- * The language worded locators were written in, for a recipe that records none: Japanese
- * when every value holds Japanese script, English when every value holds Latin letters
- * and no Japanese script; otherwise unknown.
+ * The language worded locators were written in, for a recipe that records none (one
+ * generated on a page of mixed language): Japanese when every value holds Japanese
+ * script. Latin letters say nothing, since Japanese pages also name fields "ID" or
+ * "Email".
  */
-function wordedLanguage(values: readonly string[]): "ja" | "en" | undefined {
-  if (!values.length) return undefined;
-  if (values.every((value) => japanese.test(value))) return "ja";
-  if (values.every((value) => latin.test(value) && !japanese.test(value))) return "en";
-  return undefined;
+function wordedLanguage(values: readonly string[]): "ja" | undefined {
+  return values.length && values.every((value) => japanese.test(value)) ? "ja" : undefined;
 }
 
 /**
@@ -87,7 +84,7 @@ const repairsSchema = v.strictObject({
           v.array(v.pipe(v.string(), v.minLength(1), v.maxLength(120))),
           v.maxLength(REPAIR_MISSES),
         ),
-        /** When a repair of this recipe last reached the service's model or its limit. */
+        /** When the service last answered a repair of this recipe, but `busy`. */
         tried: v.optional(v.pipe(v.number(), v.integer(), v.minValue(0))),
       }),
     ),
@@ -120,7 +117,7 @@ export interface RecipeRepairs {
   }): Promise<RepairNote>;
   /** A login started on the recipe, so its start page matched: the misses start over. */
   started(recipeId: string): Promise<void>;
-  /** A repair of the recipe reached the service's model or its daily limit. */
+  /** The service answered a repair of the recipe, so it is held until the next UTC day. */
   tried(recipeId: string): Promise<void>;
 }
 

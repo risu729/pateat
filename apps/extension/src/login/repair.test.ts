@@ -133,10 +133,11 @@ describe("which start page misses count toward a repair", () => {
       "stale",
     ],
     [
+      // Japanese pages also name fields in Latin letters, so these say nothing.
       "English text of a recipe with no recorded language, on the Japanese page",
       { steps: [{ kind: "click", path: "/login", target: text("Sign in"), purpose: "submit" }] },
       miss([text("Sign in")], { language: "ja" }),
-      "language",
+      "stale",
     ],
     [
       "labels in both scripts of a recipe with no recorded language",
