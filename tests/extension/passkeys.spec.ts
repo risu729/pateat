@@ -452,7 +452,9 @@ test("after Pateat signed in a tab, the next username-less request there asks ag
       const again = challengeHex();
       const asked = await requestWithChooser(context, page, { challenge: again });
       await expect(
-        asked.chooser.getByText("Pateat already logged in to this site from this tab."),
+        asked.chooser.getByText(
+          "Pateat answered a passkey request from this site in this tab before.",
+        ),
       ).toBeVisible();
       const list = asked.chooser.getByRole("list", { name: "Matching passkeys" });
       await expect(list.getByRole("button")).toHaveText([

@@ -353,7 +353,9 @@ test("a switch change that is not saved returns to the saved state", async () =>
   const toggle = page.getByRole("switch", { name: "Pateat on this site" });
   await expect.element(toggle).toBeEnabled();
   await userEvent.click(toggle);
-  await expect.element(page.getByText("The change could not be saved.")).toBeVisible();
+  await expect
+    .element(page.getByText("The change could not be saved. Reopen this popup and try again."))
+    .toBeVisible();
   await expect.element(toggle).toBeChecked();
   expect(current().snapshot.settings.excludedSites).toEqual([]);
   // A save lost in transit may still have been saved.

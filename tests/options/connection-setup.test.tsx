@@ -749,7 +749,7 @@ test("a provider HTTP failure on sync shows an error instead of a lost connectio
     .toBeVisible();
   expect(port.postMessage.mock.calls.map(([message]) => message.type)).toContain("connection.sync");
   expect(port.disconnect).not.toHaveBeenCalled();
-  expect(document.body.textContent).not.toContain("The operation could not be confirmed.");
+  expect(document.body.textContent).not.toContain("Pateat could not confirm the result.");
 });
 
 test("an account mismatch names the failed check", async () => {

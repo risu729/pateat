@@ -52,7 +52,7 @@ test("names the site and lists each passkey by its user name, item and connectio
     .toHaveTextContent("synthetic-user-2Example (work) in Probe");
   await expect.element(list.getByRole("button").nth(2)).toHaveTextContent("Unnamed item");
   await expect
-    .element(page.getByText("Pateat already logged in to this site from this tab."))
+    .element(page.getByText("Pateat answered a passkey request from this site in this tab before."))
     .not.toBeInTheDocument();
   await expect
     .element(

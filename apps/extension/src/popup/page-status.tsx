@@ -62,7 +62,7 @@ const NOT_STARTED: Record<string, string> = {
 const NOT_SENT: Record<string, string> = {
   sending: "another request for this page is already being sent to the AI",
   sent: "the AI was asked about this page within the last 10 minutes, so it is not asked again yet",
-  "not-connected": "this device is not paired with the sync service",
+  "not-connected": "Pateat cannot use the sync service on this device",
   "no-vault-match": "no vault item matches this site",
   "vault-unavailable": "the vault could not be read",
   "connection-disabled": "the vault connection is turned off",
@@ -205,11 +205,10 @@ function attemptLines(status: Status): StatusLine[] {
   const lines: StatusLine[] = [
     QUIET.has(outcome)
       ? { id: "login", tone: "idle", text: `The login stopped: ${why}.` }
-      : {
-          id: "login",
-          tone: UNSETTLED.has(outcome) ? "warn" : "err",
-          text: `The login did not succeed: ${why}.`,
-        },
+      : UNSETTLED.has(outcome)
+        ? // As the icon's title says for these (ADR 0038): not a failure, only unknown.
+          { id: "login", tone: "warn", text: `The result of the login is not known: ${why}.` }
+        : { id: "login", tone: "err", text: `The login did not succeed: ${why}.` },
   ];
   if (RECIPE_FAILURES.has(outcome))
     lines.push({

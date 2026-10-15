@@ -697,8 +697,9 @@ Once the fixes have settled:
     chooser follow the [UI text](architecture.md#ui-text) rules (PR_LINK). The reason
     line now says "You were logged out of this site in another tab, or the site did not
     accept a login there.", and "The site did not accept a login in another tab." when
-    the popup knows another tab still asks after a rejection. The diagnostics page, a
-    developer page, keeps its text.
+    the popup knows another tab still asks after a rejection. Pateat shows no prompt inside
+    a page; the passkey chooser window is the only prompt outside the popup. The
+    diagnostics page, a developer page, and the settings store's messages keep their text.
 - Next, before the rest of the work below that makes Pateat public: Japanese alongside
   English for Pateat itself (owner, 2026-10-12 13:59 UTC): the README, the docs and the
   extension's UI text. The service's pages, such as `/manage`, come later. The owner

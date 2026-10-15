@@ -55,7 +55,7 @@ describe("pageStatusLines", () => {
       [
         "generation-skip",
         "idle",
-        "Not sent to the AI: this device is not paired with the sync service.",
+        "Not sent to the AI: Pateat cannot use the sync service on this device.",
       ],
     ]);
     // A page with a recipe says nothing about skips.
@@ -101,7 +101,7 @@ describe("pageStatusLines", () => {
       expect(lines({ page: { generationSkip: "not-connected" }, generation }).at(-1)).toEqual([
         "generation-skip",
         "idle",
-        "Not sent to the AI: this device is not paired with the sync service.",
+        "Not sent to the AI: Pateat cannot use the sync service on this device.",
       ]);
   });
 
@@ -239,10 +239,11 @@ describe("pageStatusLines", () => {
     expect(lines({ login: { state: "blocked", outcome: "credential-rejected" } }).slice(1)).toEqual(
       [["login", "err", "The login did not succeed: the site did not accept the password."]],
     );
+    // An unsettled outcome is not called a failure, as the icon's title does not.
     expect(lines({ login: { state: "blocked", outcome: "left-origin" } })[1]).toEqual([
       "login",
       "warn",
-      "The login did not succeed: the tab moved to another site during the login.",
+      "The result of the login is not known: the tab moved to another site during the login.",
     ]);
     expect(lines({ login: { state: "blocked", outcome: "new-outcome" } })[1]?.[2]).toBe(
       "The login did not succeed: new-outcome.",

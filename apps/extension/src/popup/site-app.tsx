@@ -392,7 +392,7 @@ export function SiteApp({
           "The settings changed elsewhere, so this change was not saved. The popup now shows them.",
           "error",
         );
-      } else say("The change could not be saved.", "error");
+      } else say("The change could not be saved. Reopen this popup and try again.", "error");
     } catch {
       // The store may still have saved it; reopening shows the saved settings.
       say(
@@ -567,7 +567,10 @@ export function SiteApp({
         text: "Finding the vault items that match this site took too long. Wait a moment, then reopen this popup.",
       };
     else if (!found)
-      accountsNote = { tone: "err", text: "The matching accounts could not be listed." };
+      accountsNote = {
+        tone: "err",
+        text: "The matching accounts could not be listed. Reopen this popup to try again.",
+      };
     else if (!options.length)
       accountsNote = {
         tone: "idle",

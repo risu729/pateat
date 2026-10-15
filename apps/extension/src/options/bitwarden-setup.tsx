@@ -45,7 +45,7 @@ function errorMessage(code: string, check?: string): string {
     return `Bitwarden's sign-in and vault data did not agree${check ? ` (check: ${check})` : ""}. Setup is incomplete; report this check name.`;
   const messages: Record<string, string> = {
     "provider-permission-required":
-      "Chrome did not grant access to the Bitwarden server. Connect or sync again, and allow access when Chrome asks.",
+      "Pateat does not have access to the Bitwarden server. Connect or sync again, and allow access when Chrome asks.",
     "setup-reauthentication-required":
       "Sign in again to sync. The saved local vault can still unlock independently.",
     "auto-unlock-disabled":
@@ -81,7 +81,7 @@ function statusLines(connection: Connection): Line[] {
       lines.push({
         tone: "warn",
         icon: TriangleAlert,
-        text: "Some items need their field settings reviewed before use",
+        text: "Some items need their field settings reviewed before use.",
       });
       break;
     case "configured":
@@ -330,7 +330,7 @@ export function BitwardenSetup({
       await readConnections(epoch);
     } else if (result.kind === "deleted") {
       setMessage(
-        "Connection deleted from this device, with its local vault cache, unlock key and sync sign-in. This does not sign out other sessions. Saved settings that referred to it now show it as unavailable.",
+        "Connection deleted from this device, with its local vault copy, unlock key and sync sign-in. This does not sign out other sessions. Saved settings that referred to it now show it as unavailable.",
       );
       const deleted = result.connectionId;
       setExisting((previous) => (previous?.connectionId === deleted ? undefined : previous));
@@ -660,7 +660,7 @@ export function BitwardenSetup({
                               onClick={() => {
                                 setConfirmingDelete(connection.connectionId);
                                 setMessage(
-                                  `Delete ${connection.label}? This removes the connection, its local vault cache, unlock key and sync sign-in from this device. It does not sign out other sessions, and saved settings that refer to it will show it as unavailable. Choose Confirm delete to continue.`,
+                                  `Delete ${connection.label}? This removes the connection, its local vault copy, unlock key and sync sign-in from this device. It does not sign out other sessions, and saved settings that refer to it will show it as unavailable. Choose Confirm delete to continue.`,
                                 );
                               }}
                             >

@@ -24,6 +24,10 @@ type AcceptedSettings = Extract<SettingsResponse, { ok: true }>;
 // The draft keeps every change a save could not make; reloading replaces it.
 const KEPT = "Your unsaved changes are kept.";
 const RELOAD_DROPS = "reloading drops them.";
+/** What a message adds about unsaved changes, which only an edited draft has. */
+function unsaved(dirty: boolean) {
+  return dirty ? { kept: ` ${KEPT}`, drops: `; ${RELOAD_DROPS}` } : { kept: "", drops: "." };
+}
 const emptySettings: LocalSettings = {
   connections: [],
   excludedSites: [],
@@ -151,13 +155,9 @@ export function SettingsApp({
     if (initialHandled.current || !settings.isFetched) return;
     initialHandled.current = true;
     if (settings.isError || !settings.data)
-      setMessage(
-        `Pateat could not read the saved settings. ${KEPT} Reload saved settings to try again; ${RELOAD_DROPS}`,
-      );
+      setMessage("Pateat could not read the saved settings. Reload saved settings to try again.");
     else if (!settings.data.ok)
-      setMessage(
-        `${settings.data.error.message} ${KEPT} Reload saved settings to try again; ${RELOAD_DROPS}`,
-      );
+      setMessage(`${settings.data.error.message} Reload saved settings to try again.`);
     else if (catalogGeneration.current) {
       setMessage(
         "Your vaults changed while the settings were loading. Reload saved settings to see the current vaults.",
@@ -200,6 +200,7 @@ export function SettingsApp({
     setSaveBlocked(true);
     setMessage("Loading saved settings…");
     const epoch = catalogGeneration.current;
+    const { kept, drops } = unsaved(dirtyRef.current);
     try {
       const result = await queryClient.fetchQuery({
         queryKey: SETTINGS_QUERY_KEY,
@@ -209,20 +210,18 @@ export function SettingsApp({
       });
       if (epoch !== catalogGeneration.current) {
         setMessage(
-          `Your vaults changed while the settings were loading. ${KEPT} Reload saved settings again; ${RELOAD_DROPS}`,
+          `Your vaults changed while the settings were loading.${kept} Reload saved settings again${drops}`,
         );
         return;
       }
       if (!result.ok) {
-        setMessage(
-          `${result.error.message} ${KEPT} Reload saved settings to try again; ${RELOAD_DROPS}`,
-        );
+        setMessage(`${result.error.message}${kept} Reload saved settings to try again${drops}`);
         return;
       }
       accept(result, `Saved settings loaded (revision ${result.snapshot.revision}).`, true);
     } catch {
       setMessage(
-        `Pateat could not read the saved settings. ${KEPT} Reload saved settings to try again; ${RELOAD_DROPS}`,
+        `Pateat could not read the saved settings.${kept} Reload saved settings to try again${drops}`,
       );
     } finally {
       operation.current = undefined;
@@ -266,8 +265,9 @@ export function SettingsApp({
     ++catalogGeneration.current;
     if (dirtyRef.current || operation.current || saveBlockedRef.current) {
       setSaveBlocked(true);
+      const { kept, drops } = unsaved(dirtyRef.current);
       setMessage(
-        `Your vaults changed. ${KEPT} Reload saved settings to see the current vaults before you change anything else; ${RELOAD_DROPS}`,
+        `Your vaults changed.${kept} Reload saved settings to see the current vaults before you change anything else${drops}`,
       );
       return;
     }
