@@ -550,15 +550,17 @@ locking any open vault session), and finally its saved configuration. Like forge
 is local only: no provider revocation is called, so other sessions stay signed in. It
 cancels a running Sync and is refused while a password sign-in for that connection is
 in progress. A failed step leaves the connection listed so deletion can be retried.
-Saved settings, recipes and their field-policy entries are not modified; anything that
-referred to the deleted connection resolves as an unavailable connection. This is how
-a connection left over by a failed first sign-in is removed.
+Saved settings and recipes are not modified: the synced vault policy names the provider
+account, not the connection, so it applies again when the account is connected later.
+This is how a connection left over by a failed first sign-in is removed.
 
-The add form's **Use this connection** choice becomes the **Use this vault** switch
-in the connection's row when the connection is added, before its first sign-in. If
-that sign-in does not finish, **Sign in again** completes the setup and keeps the
-choice. Sign-ins never change the entry; the policy is edited on the settings page.
-Like other saved settings, the entry stays after Delete connection.
+The add form's **Use this connection** choice is kept on this device until the first
+sign-in tells which provider account the connection holds. If that sign-in does not
+finish, **Sign in again** completes the setup and keeps the choice. Then it becomes the
+account's synced policy, the **Use this vault** switch in the connection's row, unless
+the account already has one, which wins
+([ADR 0023](adr/0023-synced-vault-policy.md)). Later sign-ins never change the policy;
+it is edited on the settings page, and it stays after Delete connection.
 
 Connecting retains the local unlock key and encrypted cache. Disabling automatic
 unlock removes the retained key; signing in again does not implicitly re-enable
@@ -569,22 +571,29 @@ Compensation removes only a positively identified first-enrollment candidate,
 never an unknown or newer record. Connection status and policy metadata contain
 no field values. A changed
 catalog preserves unsaved policy edits and requires an explicit reload before
-saving those stale edits. Custom-field review must confirm the current field
-selection before releasing an item whose earlier exclusions cannot be rebound.
+saving those stale edits. An item with custom-field exclusions or an earlier review
+whose encrypted custom fields changed waits for review: the settings page lists it under
+the connection, starting with every current custom field excluded, and saving the
+review records the new evidence for every device. An item whose vault here is older than
+the review waits for this vault to sync instead. Until a device's first settings sync
+after pairing, the settings page warns that no vault item is used yet.
 Automatic website login is not activated by this setup slice.
 
 Each connection's row also holds its vault access policy, from the saved settings
-draft: the **Use this vault** switch, **Items for Pateat** (all except exclusions, or
+draft, once its vault is unlocked and its account known; the policy belongs to the
+provider account (provider, server and user ID) and is synced. It has the **Use this
+vault** switch, **Items for Pateat** (all except exclusions, or
 selected groups and items only) and two disclosures that start collapsed so a large
 vault stays manageable. "Included groups and items", shown only for a selection, and
 "Excluded items and fields" count what they hold (fields of an excluded item are not
 counted); inside, a line such as `1 of 3 groups, 2 of 40 items selected` or `1 item and
 2 fields excluded` sums them up, and each item opens on its own with a summary such as
 `Item excluded` or `1 field excluded`. Open/closed state lasts only while the page is
-open. These controls wait while saved settings load. A saved entry for a connection
-that has no row is listed under the rows: the demo vaults with the same controls, or
-an unavailable connection whose saved settings are kept. Without a Bitwarden setup (the
-demo preview) the vaults are listed in their own Demo vaults panel. Custom-field
+open. These controls wait while saved settings load. A row whose account the saved
+settings also name on another server says Pateat does not use it here. The demo vaults
+are listed under the rows with the same controls; their settings stay on the device.
+Without a Bitwarden setup (the demo preview) the vaults are listed in their own Demo
+vaults panel. Custom-field
 reviews are not folded; they stay expanded under the connection rows because they block
 the item until saved.
 

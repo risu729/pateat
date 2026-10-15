@@ -122,6 +122,8 @@ export interface ConnectionPolicy {
    * the first attempt failed or expired, then keeps that choice.
    */
   register(connectionId: string, enabled: boolean): Promise<void>;
+  /** Drops a deleted connection's add-form choice that no sign-in has applied yet. */
+  forget?(connectionId: string): Promise<void>;
   /** Reconcile after durable cache acceptance; an unmatched binding never authorizes release. */
   adopt(input: {
     previous: VaultEntry | null;

@@ -88,10 +88,17 @@ function setup(
       value = undefined;
     }),
   };
+  // A device that completed its first settings sync, unless a test says otherwise.
   const connection =
     "connection" in options
       ? options.connection
-      : { origin: SERVICE, deviceId: DEVICE, credential: CREDENTIAL, rejected: false };
+      : {
+          origin: SERVICE,
+          deviceId: DEVICE,
+          credential: CREDENTIAL,
+          rejected: false,
+          settingsSynced: true as const,
+        };
   const service = {
     connection: vi.fn<() => Promise<ServiceConnection | undefined>>(async () => connection),
     recordSync: vi.fn(async () => undefined),
@@ -516,7 +523,13 @@ describe("settings in the same sync", () => {
     const { sync, settingsSync, service } = setup({ settings: "synced" });
     expect(await sync.sync()).toBe("synced");
     expect(settingsSync.run).toHaveBeenCalledWith(
-      { origin: SERVICE, deviceId: DEVICE, credential: CREDENTIAL, rejected: false },
+      {
+        origin: SERVICE,
+        deviceId: DEVICE,
+        credential: CREDENTIAL,
+        rejected: false,
+        settingsSynced: true,
+      },
       expect.any(Function),
     );
     expect(service.recordSync).toHaveBeenCalledExactlyOnceWith(DEVICE, { syncedAt: 5_000 });
@@ -564,6 +577,75 @@ describe("settings in the same sync", () => {
     const { sync, settingsSync } = setup({ settings: "synced" });
     await sync.clear();
     expect(settingsSync.clear).toHaveBeenCalledOnce();
+  });
+});
+
+describe("the first settings sync since pairing (ADR 0023)", () => {
+  const unsynced: ServiceConnection = {
+    origin: SERVICE,
+    deviceId: DEVICE,
+    credential: CREDENTIAL,
+    rejected: false,
+  };
+
+  it("records that settings synced, then the complete sync", async () => {
+    const { sync, service } = setup({ connection: unsynced, settings: "synced" });
+    expect(await sync.sync()).toBe("synced");
+    expect(service.recordSync.mock.calls).toEqual([
+      [DEVICE, { settingsSynced: true }],
+      [DEVICE, { syncedAt: 5_000 }],
+    ]);
+  });
+
+  it("records it even when the recipes did not fit, since the settings did sync", async () => {
+    const { sync, service } = setup({
+      connection: unsynced,
+      settings: "synced",
+      pages: [
+        page(
+          Array.from({ length: 4000 }, (_, index) =>
+            active(recipe(`site-${index}`, "/login", 1, `https://site-${index}.example`)),
+          ),
+          1,
+        ),
+      ],
+    });
+    expect(await sync.sync()).toBe("cache-full");
+    expect(service.recordSync).toHaveBeenCalledWith(DEVICE, { settingsSynced: true });
+  });
+
+  it("records it once only", async () => {
+    const { sync, service } = setup({ settings: "synced" });
+    expect(await sync.sync()).toBe("synced");
+    expect(service.recordSync).not.toHaveBeenCalledWith(DEVICE, { settingsSynced: true });
+  });
+
+  it.each<SettingsSyncOutcome>([
+    "too-large",
+    "rejected",
+    "busy",
+    "unreachable",
+    "storage-unavailable",
+  ])("does not record it when settings ended %s", async (outcome) => {
+    const { sync, service } = setup({ connection: unsynced, settings: outcome });
+    await sync.sync();
+    expect(service.recordSync).not.toHaveBeenCalledWith(DEVICE, { settingsSynced: true });
+  });
+
+  it("does not record it for a rejected recipe request or a recipes-only sync", async () => {
+    const rejected = setup({
+      connection: unsynced,
+      settings: "synced",
+      pages: [{ kind: "rejected" }],
+    });
+    expect(await rejected.sync.sync()).toBe("rejected");
+    expect(rejected.settingsSync.run).not.toHaveBeenCalled();
+    expect(rejected.service.recordSync).toHaveBeenCalledExactlyOnceWith(DEVICE, {
+      rejected: true,
+    });
+    const recipesOnly = setup({ connection: unsynced, settings: "synced" });
+    expect(await recipesOnly.sync.sync({ settings: false })).toBe("synced");
+    expect(recipesOnly.service.recordSync).not.toHaveBeenCalled();
   });
 });
 

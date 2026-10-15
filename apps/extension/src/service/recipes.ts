@@ -180,6 +180,9 @@ export function createRecipeSync(options: {
       ? await options.settings.run(connection, () => generation !== started)
       : "synced";
     if (generation !== started) return "not-connected";
+    // The first completed settings sync since pairing lets this device use its vaults.
+    if (settingsOutcome === "synced" && !connection.settingsSynced)
+      await service.recordSync(connection.deviceId, { settingsSynced: true });
     if (settingsOutcome === "rejected") {
       await service.recordSync(connection.deviceId, { rejected: true });
       return "rejected";

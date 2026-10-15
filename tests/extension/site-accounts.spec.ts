@@ -1,6 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
 import type { CustomAccountVariant } from "../../packages/bitwarden/src/__fixtures__/connection";
-import { beginInput, settingsRequest, setupProbe, setupRequest } from "./connection-fixture";
+import {
+  beginInput,
+  settingsRequest,
+  setupProbe,
+  setupRequest,
+  useOnly,
+} from "./connection-fixture";
 import { withVaultProfile } from "./vault-fixture";
 
 const site = "https://synthetic.example.test";
@@ -10,11 +16,7 @@ async function connect(options: Page) {
   const accepted = await setupRequest(options, { type: "connection.begin", input: beginInput() });
   if (!accepted.ok || accepted.kind !== "ready") throw new Error("Synthetic setup failed");
   const current = await settingsRequest(options);
-  const settings = current.snapshot.settings;
-  settings.connections = settings.connections.map((entry) => ({
-    ...entry,
-    enabled: entry.connectionId === accepted.connectionId,
-  }));
+  const settings = useOnly(current.snapshot.settings, current.catalog, accepted.connectionId);
   const saved = await settingsRequest(options, {
     version: 1,
     type: "settings.save",

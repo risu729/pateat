@@ -6,6 +6,7 @@ import {
   type VaultCatalog,
 } from "@pateat/contracts";
 import type { UriCandidates } from "../crypto/wire";
+import { excludeItem, setAccountPolicy } from "./__fixtures__/policy";
 import { vaultFailure } from "./record";
 import { findLiveSiteCandidates, type LiveUriMatcher } from "./site-candidates";
 
@@ -30,6 +31,7 @@ function catalog(state: VaultCatalog["connections"][number]["state"] = "ready"):
         id: "live",
         label: "Live",
         provider: "bitwarden",
+        server: "cloud-us",
         userId,
         snapshotId,
         state,
@@ -43,9 +45,8 @@ function catalog(state: VaultCatalog["connections"][number]["state"] = "ready"):
 function settings(value = catalog()): LocalSettings {
   const created = createDefaultSettings(value);
   // Real connections start disabled; these tests model an explicit owner grant.
-  created.connections[0]!.enabled = true;
-  created.connections[0]!.excludedItemIds.push(excludedId);
-  return created;
+  setAccountPolicy(created, value.connections[0]!);
+  return excludeItem(created, value.connections[0]!, excludedId);
 }
 const candidates = (overrides: Partial<UriCandidates> = {}): UriCandidates => ({
   connectionId: "live",
@@ -82,6 +83,7 @@ describe("live provider URI candidates", () => {
     local.siteDefaults.push({
       origin: "https://auth.example.com",
       provider: "bitwarden",
+      server: "cloud-us",
       userId,
       itemId: loginId,
     });
@@ -115,7 +117,7 @@ describe("live provider URI candidates", () => {
     const match = matcher({ ok: true, data: candidates() });
     const value = catalog();
     const local = settings(value);
-    local.connections[0]!.enabled = false;
+    setAccountPolicy(local, value.connections[0]!, false);
     expect(await findLiveSiteCandidates({ settings: local, catalog: value, url, match })).toEqual({
       ok: true,
       origin: "https://auth.example.com",

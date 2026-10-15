@@ -328,8 +328,8 @@ export function SiteApp({
   });
   const saved = settings.data?.ok ? settings.data : undefined;
   const excluded = Boolean(origin && saved && isSiteExcluded(saved.snapshot.settings, origin));
-  // Only the connections, exclusions and each vault's sync, state and quarantine decide the
-  // matches, so saving a default keeps the listed accounts instead of listing them again.
+  // Only the vault policies, exclusions and each vault's sync, state and quarantine decide
+  // the matches, so saving a default keeps the listed accounts instead of listing them again.
   const accounts = useQuery({
     queryKey: [
       "popup",
@@ -337,9 +337,12 @@ export function SiteApp({
       origin,
       saved &&
         JSON.stringify([
-          saved.snapshot.settings.connections,
+          saved.snapshot.settings.accountPolicies,
+          saved.snapshot.settings.itemPolicies,
+          saved.snapshot.settings.customFieldReviews,
           saved.snapshot.settings.excludedSites,
         ]),
+      saved?.catalog.settingsSyncPending ?? false,
       saved?.catalog.connections.map((entry) => [
         entry.snapshotId ?? null,
         entry.state ?? null,
@@ -580,6 +583,7 @@ export function SiteApp({
       const entry = {
         origin,
         provider: selected.provider,
+        server: selected.server,
         userId: selected.userId,
         itemId: selected.itemId,
         itemName: selected.itemName,

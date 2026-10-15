@@ -65,6 +65,24 @@ const recipeIdSchema = v.pipe(
 );
 const vaultNameSchema = v.pipe(v.string(), v.minLength(1), v.maxLength(200));
 /**
+ * The provider server an account lives on (ADR 0023): a Bitwarden cloud region, or a
+ * self-hosted server's normalized HTTPS origin. A self-hosted server can return any user
+ * ID, so an account is named by provider, server and user ID together.
+ */
+export const vaultServerSchema = v.union([
+  v.picklist(["cloud-us", "cloud-eu"]),
+  v.pipe(
+    v.string(),
+    v.maxLength(2048),
+    v.check((value) => {
+      const url = parseSiteUrl(value);
+      return url?.protocol === "https:" && url.origin === value;
+    }, "Use cloud-us, cloud-eu or an exact HTTPS origin"),
+  ),
+]);
+/** One provider account, the same on every device that connects it (ADR 0023). */
+const accountReference = { provider: identifier, server: vaultServerSchema, userId: identifier };
+/**
  * A vault field named the same way on every device (ADR 0013). Custom fields are named;
  * when several share a name, `position` (1-based) and `count` pin one of them.
  */
@@ -88,8 +106,7 @@ export const vaultFieldReferenceSchema = v.union([
 export const savedLoginBindingSchema = v.strictObject({
   recipeId: recipeIdSchema,
   origin: originSchema,
-  provider: identifier,
-  userId: identifier,
+  ...accountReference,
   itemId: identifier,
   itemName: vaultNameSchema,
   /**
@@ -111,8 +128,7 @@ export const savedLoginBindingSchema = v.strictObject({
 /** The saved account for one origin, named by provider account and item (ADR 0013). */
 export const siteDefaultSchema = v.strictObject({
   origin: originSchema,
-  provider: identifier,
-  userId: identifier,
+  ...accountReference,
   itemId: identifier,
   /** For display only, such as on the service's web UI. */
   itemName: v.optional(vaultNameSchema),
@@ -120,25 +136,105 @@ export const siteDefaultSchema = v.strictObject({
   accountName: v.optional(vaultNameSchema),
 });
 
+/**
+ * A vault connection on this device, before its provider account is known: the add form's
+ * choice whether to use it, applied when the account first syncs (ADR 0023). Never synced.
+ */
 export const connectionSettingsSchema = v.strictObject({
   connectionId: identifier,
   enabled: v.boolean(),
-  selection: v.strictObject({
-    mode: v.picklist(["all", "selected"]),
-    groupIds: identifiers,
-    itemIds: identifiers,
-  }),
-  excludedItemIds: identifiers,
-  excludedFields: v.pipe(
-    v.array(v.strictObject({ itemId: identifier, fieldId: identifier })),
-    v.maxLength(1000),
+});
+
+/**
+ * A built-in field by its provider ID (`login.password`, `card.number`, …), or a custom
+ * field by its vault name with its `position` (from 1) and `count` among the item's custom
+ * fields of that name. Unnamed fields form the group `custom: null` (ADR 0023).
+ */
+export const excludedFieldSchema = v.union([
+  identifier,
+  v.pipe(
+    v.strictObject({
+      custom: v.nullable(vaultNameSchema),
+      position: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(1000))),
+      count: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(1000))),
+    }),
     v.check(
-      (refs) =>
-        new Set(refs.map((ref) => JSON.stringify([ref.itemId, ref.fieldId]))).size === refs.length,
+      (ref) =>
+        (ref.position === undefined) === (ref.count === undefined) &&
+        (ref.position === undefined || ref.position <= ref.count!),
+      "A custom field reference needs a position within its count",
+    ),
+  ),
+]);
+
+/** Whether and which items of one provider account Pateat uses (ADR 0023). */
+export const accountPolicySchema = v.strictObject({
+  ...accountReference,
+  /** The vault connection's label on the device that wrote it; for display only. */
+  accountName: vaultNameSchema,
+  enabled: v.boolean(),
+  selection: v.variant("mode", [
+    v.strictObject({ mode: v.literal("all") }),
+    v.strictObject({
+      mode: v.literal("selected"),
+      groups: v.pipe(
+        v.array(v.strictObject({ id: identifier, name: vaultNameSchema })),
+        v.maxLength(1000),
+        v.check(
+          (groups) => new Set(groups.map((group) => group.id)).size === groups.length,
+          "Duplicate groups",
+        ),
+      ),
+    }),
+  ]),
+});
+
+/** One item's selection and exclusions; items without any are not listed (ADR 0023). */
+export const itemPolicySchema = v.strictObject({
+  ...accountReference,
+  itemId: identifier,
+  /** For display only. */
+  itemName: vaultNameSchema,
+  selected: v.boolean(),
+  excluded: v.boolean(),
+  excludedFields: v.pipe(
+    v.array(excludedFieldSchema),
+    v.maxLength(50),
+    v.check(
+      (refs) => new Set(refs.map((ref) => JSON.stringify(ref))).size === refs.length,
       "Duplicate field references",
     ),
   ),
 });
+
+/** `<provider>-v<n>:sha256:<hex>`, naming the provider's evidence serialization. */
+const evidenceSchema = v.pipe(
+  v.string(),
+  v.maxLength(120),
+  v.regex(/^[a-z][a-z0-9]*-v[1-9][0-9]*:sha256:[0-9a-f]{64}$/),
+);
+/**
+ * A provider timestamp with up to nine fractional digits and an explicit zone, such as
+ * Bitwarden's `2026-10-11T07:10:03.1234567Z`; compared as an instant.
+ */
+const instantSchema = v.pipe(
+  v.string(),
+  v.maxLength(64),
+  v.check((value) => parseInstant(value) !== undefined, "Use an ISO 8601 instant"),
+);
+
+/** The encrypted custom fields one item had when they were last reviewed (ADR 0023). */
+export const customFieldReviewSchema = v.strictObject({
+  ...accountReference,
+  itemId: identifier,
+  evidence: evidenceSchema,
+  revisionDate: instantSchema,
+});
+
+const accountKey = (entry: { provider: string; server: string; userId: string }) =>
+  JSON.stringify([entry.provider, entry.server, entry.userId]);
+const itemKey = (entry: { provider: string; server: string; userId: string; itemId: string }) =>
+  JSON.stringify([entry.provider, entry.server, entry.userId, entry.itemId]);
 
 export const localSettingsSchema = v.pipe(
   v.strictObject({
@@ -149,6 +245,30 @@ export const localSettingsSchema = v.pipe(
         (connections) =>
           new Set(connections.map((entry) => entry.connectionId)).size === connections.length,
         "Duplicate connections",
+      ),
+    ),
+    accountPolicies: v.pipe(
+      v.array(accountPolicySchema),
+      v.maxLength(100),
+      v.check(
+        (entries) => new Set(entries.map(accountKey)).size === entries.length,
+        "Duplicate account policies",
+      ),
+    ),
+    itemPolicies: v.pipe(
+      v.array(itemPolicySchema),
+      v.maxLength(1000),
+      v.check(
+        (entries) => new Set(entries.map(itemKey)).size === entries.length,
+        "Duplicate item policies",
+      ),
+    ),
+    customFieldReviews: v.pipe(
+      v.array(customFieldReviewSchema),
+      v.maxLength(1000),
+      v.check(
+        (entries) => new Set(entries.map(itemKey)).size === entries.length,
+        "Duplicate custom-field reviews",
       ),
     ),
     excludedSites: v.pipe(
@@ -179,6 +299,7 @@ export const localSettingsSchema = v.pipe(
                 entry.recipeId,
                 entry.origin,
                 entry.provider,
+                entry.server,
                 entry.userId,
                 entry.itemId,
               ]),
@@ -194,14 +315,18 @@ export const settingsSnapshotSchema = v.strictObject({
   version: v.literal(1),
   revision,
   settings: localSettingsSchema,
-  fieldPolicies: v.optional(
+  /**
+   * Items a vault sync found still older than their custom-field review record, per
+   * accepted snapshot: their review is offered instead of another vault sync (ADR 0023).
+   * Device-local; never synced.
+   */
+  olderAfterSync: v.optional(
     v.pipe(
       v.array(
         v.strictObject({
           connectionId: identifier,
           snapshotId: v.pipe(v.string(), v.uuid()),
-          quarantinedItemIds: identifiers,
-          protectedItemIds: v.optional(identifiers),
+          itemIds: identifiers,
         }),
       ),
       v.maxLength(100),
@@ -222,15 +347,33 @@ export const settingsRequestSchema = v.variant("type", [
 ]);
 
 export const vaultCatalogSchema = v.strictObject({
+  /**
+   * This device is paired and has not completed a settings sync since: no vault item is
+   * used for logins or passkeys until one has (ADR 0023).
+   */
+  settingsSyncPending: v.optional(v.literal(true)),
   connections: v.array(
     v.strictObject({
       id: identifier,
       label: identifier,
       provider: identifier,
+      /** The provider server, known from the connection's setup even while unavailable. */
+      server: vaultServerSchema,
       /** The provider account ID that synced references name; absent while unavailable. */
       userId: v.optional(identifier),
+      /**
+       * While the connection is locked or unavailable, the account ID of its last accepted
+       * snapshot, if any: it only tells whether the account's synced policy uses it.
+       */
+      lockedUserId: v.optional(identifier),
       snapshotId: v.optional(v.pipe(v.string(), v.uuid())),
+      /** Items blocked until their custom fields are reviewed, or the vault is synced. */
       quarantinedItemIds: v.optional(identifiers),
+      /**
+       * The blocked items whose local copy is older than their review record: the vault
+       * needs a sync before they can be reviewed (ADR 0023).
+       */
+      staleItemIds: v.optional(identifiers),
       state: v.optional(v.picklist(["ready", "locked", "unavailable", "review-required"])),
       groups: v.array(
         v.strictObject({
@@ -245,6 +388,13 @@ export const vaultCatalogSchema = v.strictObject({
           label: identifier,
           allowedOrigins: v.array(originSchema),
           groupIds: identifiers,
+          /**
+           * A hash of the item's encrypted custom fields, which every device computes the
+           * same for one item revision (ADR 0023); absent for providers without one.
+           */
+          evidence: v.optional(evidenceSchema),
+          /** The provider's revision date of the item, with `evidence`. */
+          revisionDate: v.optional(instantSchema),
           fields: v.array(
             v.strictObject({
               id: identifier,
@@ -290,6 +440,13 @@ export const settingsResponseSchema = v.variant("ok", [
 export type LocalSettings = v.InferOutput<typeof localSettingsSchema>;
 export type ConnectionSettings = v.InferOutput<typeof connectionSettingsSchema>;
 export type SiteDefault = v.InferOutput<typeof siteDefaultSchema>;
+export type AccountPolicy = v.InferOutput<typeof accountPolicySchema>;
+export type ItemPolicy = v.InferOutput<typeof itemPolicySchema>;
+export type ExcludedField = v.InferOutput<typeof excludedFieldSchema>;
+export type CustomFieldReview = v.InferOutput<typeof customFieldReviewSchema>;
+export type VaultServer = v.InferOutput<typeof vaultServerSchema>;
+/** One provider account: the key of its account policy (ADR 0023). */
+export type VaultAccount = { provider: string; server: string; userId: string };
 export type SettingsSnapshot = v.InferOutput<typeof settingsSnapshotSchema>;
 export type SettingsRequest = v.InferOutput<typeof settingsRequestSchema>;
 export type SettingsResponse = v.InferOutput<typeof settingsResponseSchema>;
@@ -307,6 +464,29 @@ export function parseLocalSettings(value: unknown): LocalSettings {
   return v.parse(localSettingsSchema, value);
 }
 
+/**
+ * A provider timestamp as nanoseconds since the epoch: an ISO 8601 date and time with up
+ * to nine fractional digits and `Z` or an offset. Undefined for anything else.
+ */
+export function parseInstant(value: string): bigint | undefined {
+  const match = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,9}))?(Z|[+-]\d{2}:\d{2})$/.exec(
+    value,
+  );
+  if (!match) return undefined;
+  const milliseconds = Date.parse(`${match[1]}${match[3]}`);
+  if (Number.isNaN(milliseconds)) return undefined;
+  // Date.parse rolls a day past the month's end over (February 30 is March 2).
+  const [year, month, day] = value.slice(0, 10).split("-").map(Number) as [number, number, number];
+  if (new Date(Date.UTC(year, month - 1, day)).getUTCDate() !== day) return undefined;
+  return BigInt(milliseconds) * 1_000_000n + BigInt((match[2] ?? "0").padEnd(9, "0"));
+}
+
+/** Whether instant `left` is strictly before `right`; false when either does not parse. */
+export function instantBefore(left: string, right: string): boolean {
+  const [a, b] = [parseInstant(left), parseInstant(right)];
+  return a !== undefined && b !== undefined && a < b;
+}
+
 /** Synthetic display metadata only. No field values, credentials or provider sessions. */
 export const DUMMY_VAULT_CATALOG: VaultCatalog = {
   connections: [
@@ -314,6 +494,7 @@ export const DUMMY_VAULT_CATALOG: VaultCatalog = {
       id: "demo-personal",
       label: "Demo personal vault",
       provider: "dummy",
+      server: "cloud-us",
       userId: "demo-personal-account",
       groups: [{ id: "everyday", label: "Everyday", kind: "folder" }],
       items: [
@@ -344,6 +525,7 @@ export const DUMMY_VAULT_CATALOG: VaultCatalog = {
       id: "demo-work",
       label: "Demo work vault",
       provider: "dummy",
+      server: "cloud-us",
       userId: "demo-work-account",
       groups: [{ id: "team", label: "Team", kind: "collection" }],
       items: [
@@ -364,59 +546,312 @@ export const DUMMY_VAULT_CATALOG: VaultCatalog = {
 
 export function createDefaultSettings(catalog: VaultCatalog = DUMMY_VAULT_CATALOG): LocalSettings {
   return {
-    connections: catalog.connections.map((entry) => ({
-      connectionId: entry.id,
-      // Demo metadata is safe to preview. New real connections require an explicit grant.
-      enabled: entry.provider === "dummy",
-      selection: { mode: "all", groupIds: [], itemIds: [] },
-      excludedItemIds: [],
-      excludedFields: [],
-    })),
+    connections: [],
+    // Demo metadata is safe to preview. New real connections require an explicit grant.
+    accountPolicies: catalog.connections.flatMap((entry) =>
+      entry.provider === "dummy" && entry.userId !== undefined
+        ? [
+            {
+              provider: entry.provider,
+              server: entry.server,
+              userId: entry.userId,
+              accountName: entry.label,
+              enabled: true,
+              selection: { mode: "all" as const },
+            },
+          ]
+        : [],
+    ),
+    itemPolicies: [],
+    customFieldReviews: [],
     excludedSites: [],
     siteDefaults: [],
     bindings: [],
   };
 }
 
+const sameAccount = (left: VaultAccount, right: VaultAccount) =>
+  left.provider === right.provider && left.server === right.server && left.userId === right.userId;
+
+export type ConnectionAccount =
+  | { ok: true; account: VaultAccount; policy: AccountPolicy | undefined }
+  | { ok: false; reason: "connection-missing" | "vault-unavailable" | "account-ambiguous" };
+
+type PolicyLists = Pick<LocalSettings, "accountPolicies" | "itemPolicies" | "customFieldReviews">;
+
+/**
+ * One provider account's synced policy (ADR 0023), or `account-ambiguous` when its user
+ * ID has synced entries for another server, so that those entries are never silently
+ * dropped.
+ */
+export function accountPolicy(
+  settings: PolicyLists,
+  account: VaultAccount,
+): { ok: true; policy: AccountPolicy | undefined } | { ok: false; reason: "account-ambiguous" } {
+  if (
+    [...settings.accountPolicies, ...settings.itemPolicies, ...settings.customFieldReviews].some(
+      (entry) =>
+        entry.provider === account.provider &&
+        entry.userId === account.userId &&
+        entry.server !== account.server,
+    )
+  )
+    return { ok: false, reason: "account-ambiguous" };
+  return {
+    ok: true,
+    policy: settings.accountPolicies.find((entry) => sameAccount(entry, account)),
+  };
+}
+
+/**
+ * The provider account a local connection names, and its synced account policy. A
+ * connection that cannot name its account (locked or unavailable) is `vault-unavailable`.
+ * An account connected twice here shares one policy; naming it from a site default or
+ * binding refuses (`siteDefaultConnection`).
+ */
+export function connectionAccount(
+  settings: PolicyLists,
+  catalog: VaultCatalog,
+  connectionId: string,
+): ConnectionAccount {
+  const connection = catalog.connections.find((entry) => entry.id === connectionId);
+  if (!connection) return { ok: false, reason: "connection-missing" };
+  if (connection.userId === undefined) return { ok: false, reason: "vault-unavailable" };
+  const account = {
+    provider: connection.provider,
+    server: connection.server,
+    userId: connection.userId,
+  };
+  const resolved = accountPolicy(settings, account);
+  return resolved.ok ? { ok: true, account, policy: resolved.policy } : resolved;
+}
+
+/**
+ * Whether this device uses a local connection: `enabled` or `disabled` by its account's
+ * synced policy (an account with no policy is not used, nor is a connection that is not
+ * in the catalog), also while it is locked if its account is known, or why its account
+ * cannot be told: `vault-unavailable` or `account-ambiguous`, which callers report rather
+ * than skip. A connection whose account is not known yet follows its add form's choice
+ * while that waits in `connections`: one added as unused is `disabled`.
+ */
+export function connectionUse(
+  settings: PolicyLists & Partial<Pick<LocalSettings, "connections">>,
+  catalog: VaultCatalog,
+  connectionId: string,
+): "enabled" | "disabled" | "vault-unavailable" | "account-ambiguous" {
+  const connection = catalog.connections.find((entry) => entry.id === connectionId);
+  if (!connection) return "disabled";
+  const userId = connection.userId ?? connection.lockedUserId;
+  if (userId === undefined)
+    return settings.connections?.find((entry) => entry.connectionId === connectionId)?.enabled ===
+      false
+      ? "disabled"
+      : "vault-unavailable";
+  const resolved = accountPolicy(settings, {
+    provider: connection.provider,
+    server: connection.server,
+    userId,
+  });
+  if (!resolved.ok) return resolved.reason;
+  return resolved.policy?.enabled ? "enabled" : "disabled";
+}
+
+/** Whether this device uses a local connection: its account's synced policy is enabled. */
+export function connectionEnabled(
+  settings: PolicyLists,
+  catalog: VaultCatalog,
+  connectionId: string,
+): boolean {
+  return connectionUse(settings, catalog, connectionId) === "enabled";
+}
+
+export function itemPolicyFor(
+  settings: Pick<LocalSettings, "itemPolicies">,
+  account: VaultAccount,
+  itemId: string,
+): ItemPolicy | undefined {
+  return settings.itemPolicies.find(
+    (entry) => entry.itemId === itemId && sameAccount(entry, account),
+  );
+}
+
+export function customFieldReviewFor(
+  settings: Pick<LocalSettings, "customFieldReviews">,
+  account: VaultAccount,
+  itemId: string,
+): CustomFieldReview | undefined {
+  return settings.customFieldReviews.find(
+    (entry) => entry.itemId === itemId && sameAccount(entry, account),
+  );
+}
+
+type CatalogField = Pick<VaultItemMetadata["fields"][number], "id" | "name">;
+const customFieldId = /^custom\.[^.]+\.(\d+)$/;
+
+/** Whether a catalog field ID names a custom field, whose ID changes with every vault sync. */
+export const isCustomFieldId = (fieldId: string) => customFieldId.test(fieldId);
+
+/** An item's custom fields of one name (`null`: unnamed), ordered by their vault index. */
+function customGroup(fields: readonly CatalogField[], name: string | null): string[] {
+  return fields
+    .flatMap((field) => {
+      const index = customFieldId.exec(field.id)?.[1];
+      return index !== undefined && field.name === name
+        ? [{ id: field.id, index: Number(index) }]
+        : [];
+    })
+    .sort((left, right) => left.index - right.index)
+    .map((field) => field.id);
+}
+
+/**
+ * The reference that names one field of a live item on every device (ADR 0023): a
+ * built-in field's own ID, or a custom field's name with its position and count among the
+ * item's custom fields of that name. Undefined for a field the item does not have.
+ */
+export function excludedFieldReference(
+  fields: readonly CatalogField[],
+  fieldId: string,
+): ExcludedField | undefined {
+  const field = fields.find((entry) => entry.id === fieldId);
+  if (!field) return undefined;
+  if (!isCustomFieldId(fieldId)) return fieldId;
+  const group = customGroup(fields, field.name);
+  return { custom: field.name, position: group.indexOf(fieldId) + 1, count: group.length };
+}
+
+/**
+ * The live field IDs an item's exclusions name. `unresolved` when a custom reference no
+ * longer names exactly one field: its name is gone, its count changed, or a name without a
+ * position is now ambiguous. A built-in field the item lacks excludes nothing.
+ */
+export function resolveExcludedFields(
+  references: readonly ExcludedField[],
+  fields: readonly CatalogField[],
+): { fieldIds: string[]; unresolved: boolean } {
+  const fieldIds = new Set<string>();
+  let unresolved = false;
+  for (const reference of references) {
+    if (typeof reference === "string") {
+      if (fields.some((field) => field.id === reference)) fieldIds.add(reference);
+      continue;
+    }
+    const group = customGroup(fields, reference.custom);
+    const fieldId =
+      reference.position === undefined
+        ? group.length === 1
+          ? group[0]
+          : undefined
+        : group.length === reference.count
+          ? group[reference.position - 1]
+          : undefined;
+    if (fieldId === undefined) unresolved = true;
+    else fieldIds.add(fieldId);
+  }
+  return { fieldIds: [...fieldIds], unresolved };
+}
+
+/**
+ * Where one item stands on custom-field review (ADR 0023). An item with custom-field
+ * exclusions or a review record is `reviewed`, and usable, only when its current evidence
+ * matches the record and every exclusion resolves. Otherwise it is `vault-stale` when this
+ * device's copy is strictly older than the record, and `review-required` when not. Other
+ * items are `none`.
+ */
+export function customFieldReviewState(
+  settings: Pick<LocalSettings, "itemPolicies" | "customFieldReviews">,
+  account: VaultAccount,
+  item: Pick<VaultItemMetadata, "id" | "fields" | "evidence" | "revisionDate">,
+): "none" | "reviewed" | "review-required" | "vault-stale" {
+  const references = itemPolicyFor(settings, account, item.id)?.excludedFields ?? [];
+  const record = customFieldReviewFor(settings, account, item.id);
+  if (!record && references.every((reference) => typeof reference === "string")) return "none";
+  if (record && item.evidence !== undefined && record.evidence === item.evidence)
+    return resolveExcludedFields(references, item.fields).unresolved
+      ? "review-required"
+      : "reviewed";
+  if (
+    record &&
+    item.revisionDate !== undefined &&
+    instantBefore(item.revisionDate, record.revisionDate)
+  )
+    return "vault-stale";
+  return "review-required";
+}
+
 export type EligibilityReason =
   | "connection-missing"
   | "connection-disabled"
+  | "vault-unavailable"
+  | "account-ambiguous"
   | "item-missing"
   | "item-excluded"
   | "item-not-selected"
+  | "review-required"
   | "fields-excluded";
 export type ItemEligibility =
   | { eligible: true; item: VaultItemMetadata; fieldIds: string[] }
   | { eligible: false; reason: EligibilityReason };
 
+/**
+ * Whether the synced policy lets this device use one item of a local connection, and which
+ * of its fields (ADR 0023). The policy is applied to the live catalog at each check, as
+ * bindings are resolved. A paired device uses no item before its first settings sync.
+ * `fields-excluded` is reported last.
+ */
 export function getItemEligibility(
   settings: LocalSettings,
   catalog: VaultCatalog,
   connectionId: string,
   itemId: string,
 ): ItemEligibility {
-  const connection = settings.connections.find((entry) => entry.connectionId === connectionId);
-  const metadata = catalog.connections.find((entry) => entry.id === connectionId);
-  if (!connection || !metadata) return { eligible: false, reason: "connection-missing" };
-  if (!connection.enabled) return { eligible: false, reason: "connection-disabled" };
-  const item = metadata.items.find((entry) => entry.id === itemId);
+  if (catalog.settingsSyncPending) return { eligible: false, reason: "vault-unavailable" };
+  const resolved = connectionAccount(settings, catalog, connectionId);
+  if (!resolved.ok) return { eligible: false, reason: resolved.reason };
+  const { account, policy } = resolved;
+  if (!policy?.enabled) return { eligible: false, reason: "connection-disabled" };
+  const item = catalog.connections
+    .find((entry) => entry.id === connectionId)
+    ?.items.find((entry) => entry.id === itemId);
   if (!item) return { eligible: false, reason: "item-missing" };
-  if (connection.excludedItemIds.includes(itemId))
-    return { eligible: false, reason: "item-excluded" };
+  const itemPolicy = itemPolicyFor(settings, account, itemId);
+  if (itemPolicy?.excluded) return { eligible: false, reason: "item-excluded" };
+  const { selection } = policy;
   if (
-    connection.selection.mode === "selected" &&
-    !connection.selection.itemIds.includes(itemId) &&
-    !item.groupIds.some((id) => connection.selection.groupIds.includes(id))
+    selection.mode === "selected" &&
+    !itemPolicy?.selected &&
+    !item.groupIds.some((id) => selection.groups.some((group) => group.id === id))
   )
     return { eligible: false, reason: "item-not-selected" };
-  const fieldIds = item.fields
-    .filter(
-      (field) =>
-        !connection.excludedFields.some((ref) => ref.itemId === itemId && ref.fieldId === field.id),
-    )
-    .map((field) => field.id);
+  const review = customFieldReviewState(settings, account, item);
+  if (review === "review-required" || review === "vault-stale")
+    return { eligible: false, reason: "review-required" };
+  const excluded = new Set(
+    resolveExcludedFields(itemPolicy?.excludedFields ?? [], item.fields).fieldIds,
+  );
+  const fieldIds = item.fields.filter((field) => !excluded.has(field.id)).map((field) => field.id);
   if (!fieldIds.length) return { eligible: false, reason: "fields-excluded" };
   return { eligible: true, item, fieldIds };
+}
+
+/**
+ * Whether the item's synced exclusions name one of its live fields. An item whose
+ * connection cannot name its account excludes nothing here; eligibility refuses it.
+ */
+export function isFieldExcluded(
+  settings: LocalSettings,
+  catalog: VaultCatalog,
+  connectionId: string,
+  itemId: string,
+  fieldId: string,
+): boolean {
+  const resolved = connectionAccount(settings, catalog, connectionId);
+  const item = catalog.connections
+    .find((entry) => entry.id === connectionId)
+    ?.items.find((entry) => entry.id === itemId);
+  if (!resolved.ok || !item) return false;
+  const references = itemPolicyFor(settings, resolved.account, itemId)?.excludedFields ?? [];
+  return resolveExcludedFields(references, item.fields).fieldIds.includes(fieldId);
 }
 
 export function isSiteExcluded(settings: LocalSettings, value: string): boolean {
@@ -451,19 +886,22 @@ export type SiteDefaultConnection =
 
 /**
  * The local connection a saved site default names: the one catalog connection of that
- * provider account. An account connected twice is ambiguous. With no match while a
- * connection of that provider cannot name its account (locked or unavailable), the vault
- * is unavailable rather than the account missing.
+ * provider account. An account connected twice is ambiguous, and so is one whose user ID
+ * is connected here only on another server (ADR 0023). With no match while a connection of
+ * that provider cannot name its account (locked or unavailable), the vault is unavailable
+ * rather than the account missing.
  */
 export function siteDefaultConnection(
-  entry: Pick<SiteDefault, "provider" | "userId">,
+  entry: Pick<SiteDefault, "provider" | "server" | "userId">,
   catalog: VaultCatalog,
 ): SiteDefaultConnection {
   const sameProvider = catalog.connections.filter(
     (connection) => connection.provider === entry.provider,
   );
-  const matches = sameProvider.filter((connection) => connection.userId === entry.userId);
-  if (matches.length > 1) return { ok: false, reason: "account-ambiguous" };
+  const sameUser = sameProvider.filter((connection) => connection.userId === entry.userId);
+  const matches = sameUser.filter((connection) => connection.server === entry.server);
+  if (matches.length > 1 || (!matches.length && sameUser.length))
+    return { ok: false, reason: "account-ambiguous" };
   if (matches[0]) return { ok: true, connectionId: matches[0].id };
   return sameProvider.some((connection) => connection.userId === undefined)
     ? { ok: false, reason: "vault-unavailable" }

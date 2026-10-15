@@ -4,6 +4,7 @@ import {
   createSettingsStore,
   parseLoginRecipe,
   recipeStartSteps,
+  type ExcludedField,
   type LocalSettings,
   type SavedLoginBinding,
   type SettingsResponse,
@@ -330,6 +331,7 @@ const savedBinding: SavedLoginBinding = {
   recipeId: recipe.id,
   origin,
   provider: "bitwarden",
+  server: "cloud-us",
   userId,
   itemId,
   itemName: "Synthetic item",
@@ -348,6 +350,68 @@ const uriMatch = (overrides: Partial<UriCandidates> = {}): UriCandidates => ({
   ...overrides,
 });
 
+/** The live connection's synced account policy (ADR 0023): enabled, every item. */
+const liveAccountPolicy = (
+  overrides: Partial<LocalSettings["accountPolicies"][number]> = {},
+): LocalSettings["accountPolicies"][number] => ({
+  provider: "bitwarden",
+  server: "cloud-us",
+  userId,
+  accountName: "Synthetic live vault",
+  enabled: true,
+  selection: { mode: "all" },
+  ...overrides,
+});
+/** One item's synced policy for the live account. */
+const liveItemPolicy = (
+  id: string,
+  overrides: Partial<LocalSettings["itemPolicies"][number]> = {},
+): LocalSettings["itemPolicies"][number] => ({
+  provider: "bitwarden",
+  server: "cloud-us",
+  userId,
+  itemId: id,
+  itemName: id,
+  selected: false,
+  excluded: false,
+  excludedFields: [],
+  ...overrides,
+});
+/** The custom-field evidence every live item carries in the synthetic catalog. */
+const liveEvidence = `bitwarden-v1:sha256:${"a".repeat(64)}`;
+const liveRevisionDate = "2026-10-11T07:10:03.1234567Z";
+/** A review record matching the live item's evidence, which custom exclusions need. */
+const liveReview = (id = itemId): LocalSettings["customFieldReviews"][number] => ({
+  provider: "bitwarden",
+  server: "cloud-us",
+  userId,
+  itemId: id,
+  evidence: liveEvidence,
+  revisionDate: liveRevisionDate,
+});
+/**
+ * Settings that exclude these fields of the live item, with the review record a custom
+ * exclusion is recorded with (ADR 0023).
+ */
+const excludingLive = (
+  excludedFields: ExcludedField[],
+  id = itemId,
+): Pick<LocalSettings, "itemPolicies" | "customFieldReviews"> => ({
+  itemPolicies: [liveItemPolicy(id, { excludedFields })],
+  customFieldReviews: excludedFields.some((field) => typeof field !== "string")
+    ? [liveReview(id)]
+    : [],
+});
+/** The site default naming the live account's item. */
+const liveDefault = (overrides: Partial<LocalSettings["siteDefaults"][number]> = {}) => ({
+  origin,
+  provider: "bitwarden",
+  server: "cloud-us",
+  userId,
+  itemId,
+  ...overrides,
+});
+
 type CustomField = {
   name: string | null;
   kind: "text" | "hidden" | "linked";
@@ -360,8 +424,10 @@ function harness(
     allowedOrigins?: string[];
     uris?: LiveUriMatcher;
     quarantined?: boolean;
-    /** Adds a second, not enabled connection of the same provider account. */
+    /** Adds a second connection of the same provider account, which shares its policy. */
     duplicateAccount?: boolean;
+    /** The device is paired and waits for its first settings sync (ADR 0023). */
+    settingsSyncPending?: boolean;
     /** Adds a login username field to the item. */
     username?: boolean;
     /**
@@ -404,17 +470,12 @@ function harness(
     }));
   const current = { current: snapshotId, userId: userId as string | undefined };
   const settings: LocalSettings = {
-    connections: [
-      {
-        connectionId,
-        enabled: true,
-        selection: { mode: "all", groupIds: [], itemIds: [] },
-        excludedItemIds: [],
-        excludedFields: [],
-      },
-    ],
+    connections: [],
+    accountPolicies: [liveAccountPolicy()],
+    itemPolicies: [],
+    customFieldReviews: [],
     excludedSites: [],
-    siteDefaults: [{ origin, provider: "bitwarden", userId, itemId }],
+    siteDefaults: [liveDefault()],
     bindings: [savedBinding],
     ...overrides,
   };
@@ -438,11 +499,13 @@ function harness(
       ok: true,
       snapshot: structuredClone(snapshot),
       catalog: {
+        ...(live.settingsSyncPending ? { settingsSyncPending: true as const } : {}),
         connections: [
           {
             id: connectionId,
             label: "Synthetic live vault",
             provider: "bitwarden",
+            server: "cloud-us",
             ...(current.userId ? { userId: current.userId } : {}),
             snapshotId: current.current,
             state: "ready",
@@ -454,6 +517,8 @@ function harness(
                 label: "Synthetic item",
                 allowedOrigins: live.allowedOrigins ?? [origin],
                 groupIds: [],
+                evidence: liveEvidence,
+                revisionDate: liveRevisionDate,
                 fields: [
                   ...(live.username
                     ? [
@@ -474,6 +539,8 @@ function harness(
                 label: "Other synthetic item",
                 allowedOrigins: [],
                 groupIds: [],
+                evidence: liveEvidence,
+                revisionDate: liveRevisionDate,
                 fields: [
                   ...(live.otherUsername
                     ? [
@@ -495,6 +562,8 @@ function harness(
                 label: "Extra synthetic item",
                 allowedOrigins: [],
                 groupIds: [],
+                evidence: liveEvidence,
+                revisionDate: liveRevisionDate,
                 fields: [
                   { id: "login.password", label: "Password", name: null, kind: "hidden" as const },
                   ...customFields(extra.custom),
@@ -508,6 +577,7 @@ function harness(
                   id: "duplicate-connection",
                   label: "Same account again",
                   provider: "bitwarden",
+                  server: "cloud-us",
                   userId,
                   snapshotId: current.current,
                   state: "ready" as const,
@@ -855,7 +925,15 @@ describe("production login document admission", () => {
       "plain HTTP even with a saved HTTP default",
       "http://login.example/signin",
       {
-        siteDefaults: [{ origin: "http://login.example", provider: "bitwarden", userId, itemId }],
+        siteDefaults: [
+          {
+            origin: "http://login.example",
+            provider: "bitwarden",
+            server: "cloud-us",
+            userId,
+            itemId,
+          },
+        ],
       },
     ],
     [
@@ -1238,7 +1316,7 @@ describe("production login document admission", () => {
     const report = vi.fn<(report: LoginReport) => void>();
     const h = harness({}, { report });
     fake.state.onAwait = () => {
-      h.settings.settings.connections[0]!.enabled = false;
+      h.settings.settings.accountPolicies = [liveAccountPolicy({ enabled: false })];
     };
     expect(await h.hello()).toEqual({ ok: true });
     await vi.waitFor(() =>
@@ -1638,8 +1716,8 @@ describe("production login document admission", () => {
       const h = harness(
         {
           siteDefaults: [
-            { origin, provider: "bitwarden", userId, itemId },
-            { origin: second, provider: "bitwarden", userId, itemId },
+            { origin, provider: "bitwarden", server: "cloud-us", userId, itemId },
+            { origin: second, provider: "bitwarden", server: "cloud-us", userId, itemId },
           ],
           bindings: [savedBinding, { ...savedBinding, recipeId: secondRecipe.id, origin: second }],
         },
@@ -2186,7 +2264,7 @@ describe("production login document admission", () => {
           holdClicks(origin);
           const h = harness(
             {
-              siteDefaults: [{ origin, provider: "bitwarden", userId, itemId }],
+              siteDefaults: [{ origin, provider: "bitwarden", server: "cloud-us", userId, itemId }],
               bindings: [{ ...savedBinding, slots: [{ slot: "username", field: "username" }] }],
             },
             { allowedOrigins: [origin], username: true },
@@ -3582,6 +3660,7 @@ describe("production login document admission", () => {
         {
           origin,
           provider: "bitwarden",
+          server: "cloud-us",
           userId,
           itemId,
           itemName: "Synthetic item",
@@ -3669,9 +3748,13 @@ describe("production login document admission", () => {
       }, 10_000);
     });
     it("refuses the only URI match when its account is connected more than once", async () => {
-      // The automatic choice names the provider account as a saved default would, so it
-      // stays ambiguous even though the other connection is not enabled.
-      const uris = vi.fn<LiveUriMatcher>(async () => ({ ok: true, data: uriMatch() }));
+      // Both connections of the account follow its one synced policy (ADR 0023), so both
+      // are searched; the automatic choice names the provider account as a saved default
+      // would, so it stays ambiguous.
+      const uris = vi.fn<LiveUriMatcher>(async (connection) => ({
+        ok: true,
+        data: uriMatch({ connectionId: connection }),
+      }));
       const h = harness(unsaved, { allowedOrigins: [], uris, duplicateAccount: true });
       expect(await h.hello()).toEqual({ ok: false, reason: "account-ambiguous" });
       expect(h.fields).not.toHaveBeenCalled();
@@ -3820,7 +3903,9 @@ describe("production login document admission", () => {
       const second = "https://second.example";
       const h = harness(
         {
-          siteDefaults: [{ origin: second, provider: "bitwarden", userId, itemId }],
+          siteDefaults: [
+            { origin: second, provider: "bitwarden", server: "cloud-us", userId, itemId },
+          ],
           bindings: [],
         },
         { allowedOrigins: [second], uris: async () => ({ ok: true, data: uriMatch() }), report },
@@ -3856,7 +3941,9 @@ describe("production login document admission", () => {
       const { completion: _unlearned, ...generated } = recipe;
       const h = harness(
         {
-          siteDefaults: [{ origin: second, provider: "bitwarden", userId, itemId }],
+          siteDefaults: [
+            { origin: second, provider: "bitwarden", server: "cloud-us", userId, itemId },
+          ],
           bindings: [],
         },
         { allowedOrigins: [second], uris: async () => ({ ok: true, data: uriMatch() }) },
@@ -3926,7 +4013,7 @@ describe("production login document admission", () => {
       await vi.waitFor(() => expect(h.store.update).toHaveBeenCalledTimes(1));
       // The saved default, which has no item name, is kept as is, never rewritten.
       expect(h.settings.settings.siteDefaults).toEqual([
-        { origin, provider: "bitwarden", userId, itemId },
+        { origin, provider: "bitwarden", server: "cloud-us", userId, itemId },
       ]);
       expect(h.settings.settings.bindings).toEqual([
         { ...savedBinding, accountName: "Synthetic live vault" },
@@ -3946,6 +4033,7 @@ describe("production login document admission", () => {
         {
           origin,
           provider: "bitwarden",
+          server: "cloud-us",
           userId,
           itemId,
           itemName: "Synthetic item",
@@ -3956,7 +4044,7 @@ describe("production login document admission", () => {
     });
     it("reports a locked vault, not a missing account, for a provider-account default", async () => {
       const h = harness(
-        { siteDefaults: [{ origin, provider: "bitwarden", userId, itemId }] },
+        { siteDefaults: [{ origin, provider: "bitwarden", server: "cloud-us", userId, itemId }] },
         { allowedOrigins: [origin] },
       );
       h.snapshot.userId = undefined;
@@ -3965,7 +4053,11 @@ describe("production login document admission", () => {
     });
     it("refuses a provider-account default whose account is not connected here", async () => {
       const h = harness(
-        { siteDefaults: [{ origin, provider: "bitwarden", userId: "other-account", itemId }] },
+        {
+          siteDefaults: [
+            { origin, provider: "bitwarden", server: "cloud-us", userId: "other-account", itemId },
+          ],
+        },
         { allowedOrigins: [origin] },
       );
       expect(await h.hello()).toEqual({ ok: false, reason: "connection-missing" });
@@ -4178,7 +4270,17 @@ describe("production login document admission", () => {
         ["no live URI matching is available", unsaved, { allowedOrigins: [] }, "default-not-set"],
         [
           "the saved default's account is not connected here",
-          { siteDefaults: [{ origin, provider: "bitwarden", userId: "other-account", itemId }] },
+          {
+            siteDefaults: [
+              {
+                origin,
+                provider: "bitwarden",
+                server: "cloud-us",
+                userId: "other-account",
+                itemId,
+              },
+            ],
+          },
           { allowedOrigins: [origin] },
           "connection-missing",
         ],
@@ -4601,7 +4703,9 @@ describe("production login document admission", () => {
       });
       it("ends the choice once a default is saved for the site", async () => {
         const h = await refused();
-        h.settings.settings.siteDefaults = [{ origin, provider: "bitwarden", userId, itemId }];
+        h.settings.settings.siteDefaults = [
+          { origin, provider: "bitwarden", server: "cloud-us", userId, itemId },
+        ];
         expect(await ask(h)).toEqual({ ok: false, reason: "no-choice" });
         expect(await pick(h)).toEqual({ ok: false, reason: "no-choice" });
         expect(fake.state.badges[1]).toEqual({ text: "", title: "Pateat" });
@@ -4648,7 +4752,9 @@ describe("production login document admission", () => {
         const second = "https://second.example";
         const h = harness(
           {
-            siteDefaults: [{ origin: second, provider: "bitwarden", userId, itemId }],
+            siteDefaults: [
+              { origin: second, provider: "bitwarden", server: "cloud-us", userId, itemId },
+            ],
             bindings: [{ ...savedBinding, recipeId: "second-signin", origin: second }],
           },
           {
@@ -4823,7 +4929,7 @@ describe("production login document admission", () => {
             ]),
           );
           expect(h.settings.settings.siteDefaults).toEqual([
-            { origin, provider: "bitwarden", userId, itemId },
+            { origin, provider: "bitwarden", server: "cloud-us", userId, itemId },
           ]);
           expect(logouts()).toEqual([]);
         });
@@ -5095,6 +5201,35 @@ describe("production login document admission", () => {
   });
   describe("with a saved account choice and a synced binding", () => {
     const executes = () => fake.state.messages.filter((entry) => entry.type === "login.execute");
+    it("uses no vault item before the first settings sync since pairing", async () => {
+      const h = harness({}, { settingsSyncPending: true });
+      expect(await h.hello()).toEqual({ ok: false, reason: "vault-unavailable" });
+      expect(h.fields).not.toHaveBeenCalled();
+      expect(executes()).toEqual([]);
+    });
+    it("refuses an item whose custom fields changed since their review", async () => {
+      const h = harness({
+        bindings: [branchBinding],
+        ...excludingLive(["login.totp", { custom: "Branch", position: 1, count: 1 }]),
+        customFieldReviews: [
+          { ...liveReview(), evidence: `bitwarden-v1:sha256:${"b".repeat(64)}` },
+        ],
+      });
+      h.recipes.recipe.mockResolvedValue(branchRecipe);
+      expect(await h.hello()).toEqual({ ok: false, reason: "review-required" });
+      expect(h.fields).not.toHaveBeenCalled();
+      expect(executes()).toEqual([]);
+    });
+    it("refuses an account whose user ID has synced policy on another server", async () => {
+      const h = harness({
+        accountPolicies: [
+          liveAccountPolicy(),
+          liveAccountPolicy({ server: "https://vault.example.test", enabled: false }),
+        ],
+      });
+      expect(await h.hello()).toEqual({ ok: false, reason: "account-ambiguous" });
+      expect(h.fields).not.toHaveBeenCalled();
+    });
     it("fills a custom field through the synced binding's field name", async () => {
       const h = harness({ bindings: [branchBinding] });
       h.recipes.recipe.mockResolvedValue(branchRecipe);
@@ -5177,17 +5312,7 @@ describe("production login document admission", () => {
       [
         "the bound custom field is excluded",
         {},
-        {
-          connections: [
-            {
-              connectionId,
-              enabled: true,
-              selection: { mode: "all", groupIds: [], itemIds: [] },
-              excludedItemIds: [],
-              excludedFields: [{ itemId, fieldId: `custom.${snapshotId}.0` }],
-            },
-          ],
-        },
+        excludingLive([{ custom: "Branch", position: 1, count: 1 }]),
         "binding-field-excluded",
       ],
     ])(
@@ -5892,17 +6017,7 @@ describe("production login document admission", () => {
       ).toBe(undefined);
       // An empty or excluded username does not count, and an excluded one is never read.
       expect(await sentShape({ [itemId]: "00001234", [otherItemId]: "" })).toEqual(digits(8));
-      const excluded = {
-        connections: [
-          {
-            connectionId,
-            enabled: true,
-            selection: { mode: "all" as const, groupIds: [], itemIds: [] },
-            excludedItemIds: [],
-            excludedFields: [{ itemId: otherItemId, fieldId: "login.username" }],
-          },
-        ],
-      };
+      const excluded = excludingLive(["login.username"], otherItemId);
       expect(
         await sentShape(
           { [itemId]: "00001234", [otherItemId]: "0000123456" },
@@ -6200,18 +6315,7 @@ describe("production login document admission", () => {
       fake.state.extracted = { login: loginPage };
       const service = generation();
       const report = vi.fn<(report: LoginReport) => void>();
-      const disabled = {
-        ...unsaved,
-        connections: [
-          {
-            connectionId,
-            enabled: false,
-            selection: { mode: "all" as const, groupIds: [], itemIds: [] },
-            excludedItemIds: [],
-            excludedFields: [],
-          },
-        ],
-      };
+      const disabled = { ...unsaved, accountPolicies: [liveAccountPolicy({ enabled: false })] };
       const h = harness(disabled, {
         allowedOrigins: [],
         uris: async () => ({ ok: true, data: uriMatch() }),
@@ -7457,7 +7561,9 @@ describe("production login document admission", () => {
 
         describe("with a login of the site", () => {
           const saved = {
-            siteDefaults: [{ origin, provider: "bitwarden" as const, userId, itemId }],
+            siteDefaults: [
+              { origin, provider: "bitwarden" as const, server: "cloud-us", userId, itemId },
+            ],
             bindings: [savedBinding],
           };
           const signin = `${origin}/signin`;
@@ -9635,23 +9741,15 @@ describe("production login document admission", () => {
       });
 
       it("offers a field an item excludes only from the items that allow it", async () => {
-        const settings = (excluded: object) => ({
-          connections: [
-            {
-              connectionId,
-              enabled: true,
-              selection: { mode: "all" as const, groupIds: [], itemIds: [] },
-              excludedItemIds: [],
-              excludedFields: [],
-              ...excluded,
-            },
-          ],
-        });
+        const settings = (excluded: Partial<LocalSettings["itemPolicies"][number]>) =>
+          "excludedFields" in excluded
+            ? excludingLive(excluded.excludedFields!)
+            : { itemPolicies: [liveItemPolicy(otherItemId, excluded)] };
         const values = { [`${itemId} ${field(0)}`]: "1", [`${otherItemId} ${field(0)}`]: "4567" };
         const field0 = await sendPage(
           values,
           twoItems,
-          settings({ excludedFields: [{ itemId, fieldId: field(0) }] }),
+          settings({ excludedFields: [{ custom: "Branch", position: 1, count: 1 }] }),
         );
         // Offers are numbered in the order the items' fields are found.
         expect(field0.custom.map((slot) => [slot.id, slot.fieldName, slot.valueShape])).toEqual([
@@ -9660,7 +9758,7 @@ describe("production login document admission", () => {
         ]);
         expect(field0.reads).toEqual([`${otherItemId} ${field(0)}`]);
         // An excluded item offers no field and is never read.
-        const item = await sendPage(values, twoItems, settings({ excludedItemIds: [otherItemId] }));
+        const item = await sendPage(values, twoItems, settings({ excluded: true }));
         expect(item.custom.map((slot) => [slot.fieldName, slot.valueShape])).toEqual([
           ["Branch", digits(1)],
           ["PIN", undefined],
@@ -10260,20 +10358,11 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
 
     it("names a password the account may not fill apart from an empty one", async () => {
       const report = vi.fn<(report: LoginReport) => void>();
-      const h = harness(
-        {
-          connections: [
-            {
-              connectionId,
-              enabled: true,
-              selection: { mode: "all", groupIds: [], itemIds: [] },
-              excludedItemIds: [],
-              excludedFields: [{ itemId, fieldId: "login.password" }],
-            },
-          ],
-        },
-        { passkeys: withPasskey, report, username: true },
-      );
+      const h = harness(excludingLive(["login.password"]), {
+        passkeys: withPasskey,
+        report,
+        username: true,
+      });
       // An email-first page: the route binds only the username, so no binding is refused,
       // and the item's password decides whether the route can finish.
       h.recipes.recipe.mockResolvedValue(
@@ -10687,6 +10776,9 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         // The settings half of a full sync, wired to the login as the background wires it.
         const settings = (excludedSites: { hostname: string; includeSubdomains: boolean }[]) => ({
           connections: [],
+          accountPolicies: [],
+          itemPolicies: [],
+          customFieldReviews: [],
           excludedSites,
           siteDefaults: [],
           bindings: [],
@@ -11993,8 +12085,8 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       const report = vi.fn<(report: LoginReport) => void>((value) => {
         // The owner excludes the TOTP field once the handler joined the login.
         if (value.type === "handler" && value.outcome === "entered")
-          h.settings.settings.connections[0]!.excludedFields = [
-            { itemId, fieldId: "login.totp-code" },
+          h.settings.settings.itemPolicies = [
+            liveItemPolicy(itemId, { excludedFields: ["login.totp-code"] }),
           ];
       });
       h = harness({}, { passkeys: noPasskey(), report });
@@ -12022,8 +12114,8 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       const original = fake.state.onExecute!;
       fake.state.onExecute = async (message, tabId) => {
         if ((message["operation"] as { step: LoginStep }).step.kind === "click")
-          h.settings.settings.connections[0]!.excludedFields = [
-            { itemId, fieldId: "login.totp-code" },
+          h.settings.settings.itemPolicies = [
+            liveItemPolicy(itemId, { excludedFields: ["login.totp-code"] }),
           ];
         await original(message, tabId);
       };
@@ -12438,7 +12530,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
 
     it.each([
       ["is empty", {}, true],
-      ["is excluded", { excludedFields: [{ itemId, fieldId: "login.password" }] }, false],
+      ["is excluded", excludingLive(["login.password"]), false],
     ])(
       "offers no password when the matching item's password %s",
       async (_label, excluded, empty) => {
@@ -12447,16 +12539,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         const h = harness(
           {
             ...unsaved,
-            connections: [
-              {
-                connectionId,
-                enabled: true,
-                selection: { mode: "all", groupIds: [], itemIds: [] },
-                excludedItemIds: [],
-                excludedFields: [],
-                ...excluded,
-              },
-            ],
+            ...excluded,
           },
           { allowedOrigins: [], uris, username: true, custom: [], generation: service },
         );
@@ -12855,6 +12938,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       h.settings.settings.siteDefaults.push({
         origin: "https://other.example",
         provider: "bitwarden",
+        server: "cloud-us",
         userId,
         itemId: otherItemId,
       });
@@ -12872,7 +12956,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
 
     it("stops a watched login once newer settings no longer allow its account", async () => {
       const { h, service } = await watched(["signed-in"]);
-      h.settings.settings.connections[0]!.enabled = false;
+      h.settings.settings.accountPolicies = [liveAccountPolicy({ enabled: false })];
       h.settings.revision += 1;
       h.login.settingsChanged("saved");
       await open(h, "/home");
@@ -13187,6 +13271,11 @@ describe("password route variants (ADR 0027)", () => {
   };
   const branchField = `custom.${snapshotId}.0`;
   const contractField = `custom.${snapshotId}.1`;
+  /** How the synced settings name each live custom field (ADR 0023). */
+  const referenceOf = (fieldId: string): ExcludedField =>
+    fieldId === branchField
+      ? { custom: "Branch", position: 1, count: 1 }
+      : { custom: "Contract", position: 1, count: 1 };
   const bound = (slots: SavedLoginBinding["slots"]): SavedLoginBinding => ({
     ...savedBinding,
     recipeId: varied.id,
@@ -13201,17 +13290,8 @@ describe("password route variants (ADR 0027)", () => {
     { slot: "contract", field: { custom: "Contract" } },
     { slot: "password", field: "password" },
   ]);
-  const excluding = (fieldId: string): Partial<LocalSettings> => ({
-    connections: [
-      {
-        connectionId,
-        enabled: true,
-        selection: { mode: "all", groupIds: [], itemIds: [] },
-        excludedItemIds: [],
-        excludedFields: [{ itemId, fieldId }],
-      },
-    ],
-  });
+  const excluding = (fieldId: string): Partial<LocalSettings> =>
+    excludingLive([referenceOf(fieldId)]);
   const status = () =>
     fake.state.storage["pateat.login-attempts.v4"] as Record<string, unknown>[] | undefined;
   /** The targets each executed fill wrote. */
@@ -13459,7 +13539,7 @@ describe("password route variants (ADR 0027)", () => {
       // revision stays the same, so only the plan decides.
       fake.state.onExecute = async (message) => {
         if ((message["operation"] as { step: LoginStep }).step.kind !== "fill") return;
-        h.settings.settings.connections[0]!.excludedFields = [{ itemId, fieldId }];
+        Object.assign(h.settings.settings, excludingLive([referenceOf(fieldId)]));
       };
       expect(await h.hello()).toEqual({ ok: true });
       await vi.waitFor(() => expect(status()).toMatchObject([{ state }]));
@@ -13563,15 +13643,7 @@ describe("password route variants (ADR 0027)", () => {
       "an excluded item",
       {
         bindings: [byContract],
-        connections: [
-          {
-            connectionId,
-            enabled: true,
-            selection: { mode: "all", groupIds: [], itemIds: [] },
-            excludedItemIds: [itemId],
-            excludedFields: [],
-          },
-        ],
+        itemPolicies: [liveItemPolicy(itemId, { excluded: true })],
       },
       both,
       "item-excluded",
@@ -14016,6 +14088,7 @@ describe("the start page's passkey route (ADR 0027)", () => {
       {
         origin,
         provider: "bitwarden",
+        server: "cloud-us",
         userId,
         itemId,
         itemName: "Synthetic item",
@@ -14309,7 +14382,7 @@ describe("the start page's passkey route (ADR 0027)", () => {
       [
         "the item's exclusion",
         (h) => {
-          h.settings.settings.connections[0]!.excludedItemIds = [itemId];
+          h.settings.settings.itemPolicies = [liveItemPolicy(itemId, { excluded: true })];
         },
         { cause: "plan" },
       ],
@@ -18485,7 +18558,7 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
         const reports: LoginReport[] = [];
         const h = keyOnList(service, withBranch(1, { afterAccount: passwordBranch() }), {
           settings: {
-            siteDefaults: [{ origin, provider: "bitwarden", userId, itemId }],
+            siteDefaults: [{ origin, provider: "bitwarden", server: "cloud-us", userId, itemId }],
             bindings: [],
           },
           report: reports,
@@ -19796,7 +19869,13 @@ describe("the start page's own passkey request (ADR 0034)", () => {
         h.login.settingsChanged(source);
         await flush();
         await stillWaits(request, 5_000);
-        h.settings.settings.siteDefaults.push({ origin, provider: "bitwarden", userId, itemId });
+        h.settings.settings.siteDefaults.push({
+          origin,
+          provider: "bitwarden",
+          server: "cloud-us",
+          userId,
+          itemId,
+        });
         h.login.settingsChanged(source);
         await flush();
         await handedOnSoon(request);
@@ -19815,7 +19894,13 @@ describe("the start page's own passkey request (ADR 0034)", () => {
       h.login.siteDefaultSaved();
       await flush();
       await stillWaits(request, 5_000);
-      h.settings.settings.siteDefaults.push({ origin, provider: "bitwarden", userId, itemId });
+      h.settings.settings.siteDefaults.push({
+        origin,
+        provider: "bitwarden",
+        server: "cloud-us",
+        userId,
+        itemId,
+      });
       h.login.siteDefaultSaved();
       await flush();
       await handedOnSoon(request);
@@ -19853,7 +19938,13 @@ describe("the start page's own passkey request (ADR 0034)", () => {
       const { h } = choosing({ passkeyItems });
       await offered(h);
       // Saved without the runtime being told, as when the save raced the refusal.
-      h.settings.settings.siteDefaults.push({ origin, provider: "bitwarden", userId, itemId });
+      h.settings.settings.siteDefaults.push({
+        origin,
+        provider: "bitwarden",
+        server: "cloud-us",
+        userId,
+        itemId,
+      });
       const request = ask(h);
       await flush();
       await handedOnSoon(request);
@@ -20571,17 +20662,7 @@ describe("an item without a password, up to its password (ADR 0036)", () => {
   });
 
   it("still refuses an item whose password the account may not fill", async () => {
-    const excluded = {
-      connections: [
-        {
-          connectionId,
-          enabled: true,
-          selection: { mode: "all" as const, groupIds: [], itemIds: [] },
-          excludedItemIds: [],
-          excludedFields: [{ itemId, fieldId: "login.password" }],
-        },
-      ],
-    };
+    const excluded = excludingLive(["login.password"]);
     // A route that fills the password cannot bind it.
     const bound = start({}, { password: true, overrides: excluded });
     expect(await bound.h.hello()).toEqual({ ok: false, reason: "binding-field-excluded" });

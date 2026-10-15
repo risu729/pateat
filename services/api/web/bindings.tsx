@@ -18,6 +18,7 @@ const bindingKey = (binding: SavedLoginBinding) =>
     binding.recipeId,
     binding.origin,
     binding.provider,
+    binding.server,
     binding.userId,
     binding.itemId,
   ]);

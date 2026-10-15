@@ -4,7 +4,10 @@ Status: accepted by the owner on 2026-10-11 (12:02 and 12:15 UTC). Amends
 [ADR 0013](0013-service-held-recipes-and-settings.md) (resolves its open item on
 settings that use device-local IDs, and keeps their editing in the extension) and
 [ADR 0021](0021-account-choice-outside-settings.md) (the popup may also repair one
-binding). Not implemented yet.
+binding). Implemented on 2026-10-15, except the toolbar popup's part (reporting items
+that wait for review, and binding review), which follows in its own PR. The
+[implementation notes](#implementation-notes-2026-10-15) of 2026-10-15 are proposed
+amendments by Claude, implemented but not yet approved by the owner.
 
 Date: 2026-10-11
 
@@ -207,3 +210,51 @@ that it lands later as a small change.
   a hash of their encrypted custom fields, and self-hosted server origins.
 - `bindings` and `siteDefaults` gain `server`; with no stored data to keep before
   release, nothing is migrated.
+
+## Implementation notes (2026-10-15)
+
+Status: proposed by Claude, implemented pending the owner's approval. These fill in
+details the decision above leaves open; none is confirmed by the owner yet.
+
+- `connections[]` keeps `{ connectionId, enabled }` only until the connection's account
+  is known: the add form's "Use this vault" choice is applied at the first accepted
+  vault sync, which creates an enabled account policy unless one is already synced, and
+  the entry is then removed. Until then a connection added as unused is skipped, not
+  reported unavailable, and Delete connection removes the entry. The `dummy` provider of
+  the preview and probe builds uses the same `accountPolicies`, `itemPolicies` and
+  `customFieldReviews` lists as other providers instead of `connections[].enabled`; its
+  entries are never uploaded and stay on the device when a sync replaces the synced
+  part. Its catalog connections name the server `cloud-us`.
+- A custom-field exclusion is always written with `position` and `count`, also when
+  `count` is 1; a reference without them is accepted and resolves when exactly one field
+  has that name.
+- An account connected twice on one device shares one account policy. Naming it from a
+  site default, binding or automatic choice refuses as `account-ambiguous`, as before.
+  A connection whose user ID has synced entries (account or item policies, or reviews)
+  for another server is refused as `account-ambiguous` for every item, and the vault
+  search reports it as unavailable.
+- While a connection is locked, the catalog keeps the account ID of its last accepted
+  snapshot (`lockedUserId`) only to tell whether the account is used, so a disabled,
+  locked vault does not stop logins as unavailable.
+- Item eligibility reports `review-required` for an item that waits for review or for a
+  vault sync, and `vault-unavailable` while the first settings sync is pending.
+- "Still older right after a vault sync" is recorded per connection and accepted
+  snapshot in the device-local `olderAfterSync` list of the settings snapshot; until the
+  next accepted snapshot those items are offered for review instead of another sync.
+- A review record is carried to the new evidence after a vault sync only when the record
+  matched the replaced snapshot's evidence and the crypto host found the item's
+  decrypted custom fields equal
+  ([ADR 0025](0025-automatic-vault-sync.md#protected-items-after-a-sync)).
+- The settings sync merges an item's policy and its review record as one entry, so the
+  side that wins takes both: a review is never paired with exclusions it did not choose.
+- A settings-page save cannot change review records. It keeps the stored custom-field
+  exclusions of an item that waits for review or a vault sync, and records the current
+  evidence when an item gains its first custom-field exclusion. Item policies that
+  select, exclude and name nothing are dropped.
+- The evidence is the SHA-256 of the JSON of `{ data }` (a sealed cipher) or
+  `{ fields }`, with `key` and `organizationId`, every object's keys in code-unit order.
+- "A settings sync has completed since pairing" is a `settingsSynced` flag on the
+  service record, set when a settings sync ends `synced`; a new pairing starts without
+  it. Until then the catalog says `settingsSyncPending`, no item is eligible, and the
+  settings page says why. A record that cannot be read counts as pending.
+- The owner web UI lists the policies on a Vaults page (`/manage/vaults`), per account.

@@ -1,4 +1,5 @@
 import {
+  connectionUse,
   getItemEligibility,
   isSiteExcluded,
   parseSiteUrl,
@@ -59,8 +60,18 @@ export async function findLiveSiteCandidates(input: {
   const incompleteItems: IncompleteSiteItem[] = [];
   const unavailableConnections: { connectionId: string; reason: string }[] = [];
   for (const connection of catalog.connections) {
-    const configured = settings.connections.find((entry) => entry.connectionId === connection.id);
-    if (!configured?.enabled) continue;
+    // A paired device waits for its first settings sync before searching any vault.
+    if (catalog.settingsSyncPending) {
+      unavailableConnections.push({ connectionId: connection.id, reason: "settings-sync-pending" });
+      continue;
+    }
+    const use = connectionUse(settings, catalog, connection.id);
+    if (use === "disabled") continue;
+    // Its synced exclusions may be meant for this account; it is not searched without them.
+    if (use === "account-ambiguous") {
+      unavailableConnections.push({ connectionId: connection.id, reason: use });
+      continue;
+    }
     if (
       !connection.snapshotId ||
       (connection.state !== "ready" && connection.state !== "review-required")
@@ -69,6 +80,11 @@ export async function findLiveSiteCandidates(input: {
         connectionId: connection.id,
         reason: connection.state ?? "snapshot-unavailable",
       });
+      continue;
+    }
+    // A ready vault whose account is unknown cannot be checked against its synced policy.
+    if (use === "vault-unavailable") {
+      unavailableConnections.push({ connectionId: connection.id, reason: use });
       continue;
     }
     let result: VaultResult<UriCandidates> | undefined;

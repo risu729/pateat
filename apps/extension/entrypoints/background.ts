@@ -1,4 +1,5 @@
 import { BITWARDEN_READ_PROTOCOL } from "@pateat/bitwarden";
+import { accountPolicy } from "@pateat/contracts";
 import { browser } from "wxt/browser";
 import { defineBackground } from "wxt/utils/define-background";
 import { createProbeCatalog } from "../src/login/dummy";
@@ -94,6 +95,8 @@ export default defineBackground(() => {
     },
     onSync: diagnosticsLog.vaultSync,
     onRefresh: diagnosticsLog.vaultRefresh,
+    // A paired device uses no vault item until its first settings sync (ADR 0023).
+    settingsSyncPending: () => service.settingsSyncPending(),
   });
   // The manifest default is the locked icon; a running worker switches it.
   const actionIcon = createActionIcon({
@@ -182,11 +185,17 @@ export default defineBackground(() => {
         connections.registry.list(),
         settings.read(),
       ]);
-      return configurations
-        .map((configuration) => configuration.profile.connectionId)
-        .filter(
-          (id) => snapshot.settings.connections.find((entry) => entry.connectionId === id)?.enabled,
-        );
+      // A disabled account is left out of automatic sync (ADR 0023); one whose account is
+      // not known yet waits for its first sync by hand.
+      const enabled = await Promise.all(
+        configurations.map(async (configuration) => {
+          const id = configuration.profile.connectionId;
+          const account = await connections.account(id).catch(() => undefined);
+          const use = account && accountPolicy(snapshot.settings, account);
+          return use?.ok && use.policy?.enabled ? [id] : [];
+        }),
+      );
+      return enabled.flat();
     },
     // A stopped worker would leave a refresh claimed and require password sign-in (ADR 0008).
     run: (connectionId, hold) => keepAlive(connections.service.autoSync(connectionId, hold)),

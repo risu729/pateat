@@ -7,6 +7,10 @@ the custom-field comparison that keeps unchanged protected items usable, both li
 later work at acceptance, are implemented as
 [After no item matches](#after-no-item-matches) and
 [Protected items after a sync](#protected-items-after-a-sync) describe.
+Recording the evidence of items found equal in the synced review record of
+[ADR 0023](0023-synced-vault-policy.md), also later work, is implemented since
+2026-10-15: adopting a sync moves a record to the new evidence when its old evidence
+matched and both sessions found the custom fields equal.
 Amended on 2026-10-12 by [ADR 0034](0034-answer-page-passkey-requests.md): a
 conditional passkey request waiting for a login is not a request being handled; the
 hold covers it only while it reads the vault and signs.
@@ -195,8 +199,6 @@ on the installation.
 
 ## Later work
 
-- Record the evidence of items found equal as reviewed in the synced record of
-  [ADR 0023](0023-synced-vault-policy.md), once that record is implemented.
 - Show items awaiting review on the toolbar icon, and tell the settings page why its
   save met a revision conflict after an automatic sync.
 

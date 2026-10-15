@@ -1,5 +1,7 @@
 import {
+  connectionUse,
   getItemEligibility,
+  isFieldExcluded,
   isSiteExcluded,
   siteAccountsRequestSchema,
   type LocalSettings,
@@ -54,8 +56,7 @@ export async function findSiteAccounts(input: {
   let complete = true;
 
   for (const connection of catalog.connections) {
-    const configured = settings.connections.find((entry) => entry.connectionId === connection.id);
-    if (!configured?.enabled) continue;
+    if (connectionUse(settings, catalog, connection.id) === "disabled") continue;
     for (const item of connection.items)
       if (
         item.allowedOrigins.includes(input.origin) &&
@@ -65,7 +66,10 @@ export async function findSiteAccounts(input: {
   }
 
   // Bundled demo connections hold static metadata only; only live vaults are queried.
-  const live = { connections: catalog.connections.filter((entry) => entry.provider !== "dummy") };
+  const live = {
+    ...catalog,
+    connections: catalog.connections.filter((entry) => entry.provider !== "dummy"),
+  };
   const uris = await findLiveSiteCandidates({
     settings,
     catalog: live,
@@ -107,11 +111,13 @@ export async function findSiteAccounts(input: {
   if (input.readField)
     for (const account of accounts.values()) {
       const connection = live.connections.find((entry) => entry.id === account.connectionId);
-      const excluded = settings.connections
-        .find((entry) => entry.connectionId === account.connectionId)
-        ?.excludedFields.some(
-          (ref) => ref.itemId === account.itemId && ref.fieldId === "login.username",
-        );
+      const excluded = isFieldExcluded(
+        settings,
+        catalog,
+        account.connectionId,
+        account.itemId,
+        "login.username",
+      );
       if (!connection || excluded) continue;
       // eslint-disable-next-line no-await-in-loop
       const username = await input
