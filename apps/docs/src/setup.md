@@ -1,9 +1,9 @@
 # Setup
 
 Setting up Pateat takes two steps on its settings page: connect your Bitwarden vault,
-then pair the extension with a Pateat service. Open the settings page from the settings
-(gear) button in the toolbar popup, or from **Details** then **Extension options** on
-Pateat's card in `chrome://extensions`.
+then pair the extension with a Pateat service. Open the settings page with the toolbar
+popup's **Open settings** button (the sliders icon), or through **Details** then
+**Extension options** on Pateat's card in `chrome://extensions`.
 
 ## Connect Bitwarden
 
@@ -31,8 +31,9 @@ verification codes are not saved. What stays on this device is:
 The unlock key is kept in the extension's own storage in Chrome, not in your operating
 system's key store. Anyone who can read your Chrome profile's files can use it to
 decrypt the vault copy. If you do not want that, choose **Disable automatic unlock** in
-the connection's menu. Pateat needs the unlock key to use and sync the vault, so that
-connection stops working at once, until you sign in again with
+the connection's menu. Pateat needs the unlock key to use and sync the vault, so this
+also forgets the sync sign-in, and the connection stops working at once until you sign
+in again with
 **Enable automatic unlock on this device** checked.
 
 Each connection is a row with its main action, **Sync**, or **Sign in again** when the
