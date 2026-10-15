@@ -1601,22 +1601,19 @@ describe("a page's own conditional request through a login (ADR 0034)", () => {
     runtime.settingsChanged();
     const signed = vi.fn();
     waiting[0]!.decide({ kind: "answer", item: loginItem, answered: signed });
-    // Under the new policy the request requires UV Pateat no longer asserts.
-    await vi.waitFor(() => expect(waiting).toHaveLength(2));
+    // Under the new policy the request requires UV Pateat no longer asserts, so it goes back
+    // to the page rather than waiting for another login.
+    expect(await pending).toEqual({ kind: "delegate", reason: "user-verification-required" });
     expect(signed.mock.calls).toEqual([[false]]);
+    expect(waiting).toHaveLength(1);
     expect(backing.sign).not.toHaveBeenCalled();
-    waiting[1]!.decide({ kind: "withhold" });
-    expect(await pending).toEqual({ kind: "withheld" });
-    expect(report).toHaveBeenLastCalledWith(
-      expect.objectContaining({ answerFailed: "user-verification-required" }),
-    );
 
     // A request that only prefers UV signs, with UV left clear.
     policy = { presence: "always", verification: "always" };
     const preferred = runtime.handle(conditionalGet(), sender());
-    await vi.waitFor(() => expect(waiting).toHaveLength(3));
+    await vi.waitFor(() => expect(waiting).toHaveLength(2));
     policy = { presence: "always", verification: "never" };
-    waiting[2]!.decide({ kind: "answer", item: loginItem, answered: vi.fn() });
+    waiting[1]!.decide({ kind: "answer", item: loginItem, answered: vi.fn() });
     const result = await preferred;
     if (!("kind" in result) || result.kind !== "assertion")
       throw new Error("Expected an assertion");

@@ -310,7 +310,9 @@ cancelled, and a policy that cannot be read is replaced by the ceremony policy
 (`activation` and `never`), so a failure never asserts more than the owner chose. A
 request that waited for a login (a conditional one) or for the chooser is admitted again
 under the policy saved then before it signs, and a choice in the chooser counts as the
-gesture, so a change made meanwhile is followed. On the settings page, Protections has a
+gesture, so a change made meanwhile is followed. A conditional request the new policy no
+longer admits is handed on to the page rather than waiting for another login. On the
+settings page, Protections has a
 checkbox for each, unticked by default: "Answer passkey requests only after a click or
 key press on the page" and "Do not tell sites you were verified". A per-site policy
 stays possible later through the same `PasskeyPolicy`.

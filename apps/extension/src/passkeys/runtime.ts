@@ -599,10 +599,14 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       timer = setTimeout(expire, budget());
       let result: RuntimeResult;
       try {
-        // The protections may have changed while the request waited for the login.
-        result =
-          (await admitAgain(signal, message.userActivation)) ??
-          (await answer(decision.item, signal));
+        // The protections may have changed while the request waited for the login. A request
+        // they no longer admit goes back to the page, since no later login can answer it.
+        const refused = await admitAgain(signal, message.userActivation);
+        if (refused) {
+          answered(false);
+          return refused;
+        }
+        result = await answer(decision.item, signal);
       } catch (error) {
         if (signal.aborted) throw error;
         detail.cause = step;
