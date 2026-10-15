@@ -145,8 +145,11 @@ export function createLocalRecipes(options: {
   /** The paired device's cached recipes, which a paired device exports. */
   synced(): Promise<readonly StoredLoginRecipe[] | undefined>;
   transport: Pick<ServiceTransport, "writeRecipe">;
+  /** The size limit of the kept recipes; tests pass a smaller one. */
+  maxBytes?: number;
 }) {
   const { storage, service, transport } = options;
+  const maxBytes = options.maxBytes ?? MAX_LOCAL_RECIPE_BYTES;
   // One change at a time, so an import cannot race a removal or an upload's cleanup.
   let queue: Promise<unknown> = Promise.resolve();
   function enqueue<T>(task: () => Promise<T>): Promise<T> {
@@ -221,10 +224,7 @@ export function createLocalRecipes(options: {
       kept.set(recipe.id, recipe);
     }
     const next = [...kept.values()];
-    if (
-      encoder.encode(JSON.stringify({ version: 1, recipes: next })).byteLength >
-      MAX_LOCAL_RECIPE_BYTES
-    )
+    if (encoder.encode(JSON.stringify({ version: 1, recipes: next })).byteLength > maxBytes)
       throw new TooLarge();
     if (counts.added + counts.updated > 0) await save(next);
     return counts;

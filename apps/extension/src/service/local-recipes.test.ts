@@ -49,6 +49,7 @@ function setup(
     connection?: ServiceConnection | undefined | "unreadable";
     synced?: StoredLoginRecipe[];
     writes?: RecipeWriteResult[];
+    maxBytes?: number;
   } = {},
 ) {
   let value = options.stored;
@@ -79,6 +80,7 @@ function setup(
     service,
     synced: async () => options.synced,
     transport,
+    ...(options.maxBytes === undefined ? {} : { maxBytes: options.maxBytes }),
   });
   const send = (request: object) => local.handle({ version: 1, ...request });
   return {
@@ -164,15 +166,17 @@ describe("recipes kept without a service", () => {
 
   it("refuses an import that outgrows the recipes' share of local storage", async () => {
     expect(MAX_LOCAL_RECIPE_BYTES).toBe(MAX_RECIPE_CACHE_BYTES);
-    const { send, storage } = setup();
-    const large = Array.from({ length: Math.ceil(MAX_RECIPE_CACHE_BYTES / 200) }, (_, index) =>
-      recipe(`recipe-${index}`),
-    );
-    expect(await send({ type: "recipes.import", file: file(...large) })).toMatchObject({
+    const size = JSON.stringify({ version: 1, recipes: [recipe("a"), recipe("b")] }).length;
+    const { send, storage } = setup({ maxBytes: size - 1 });
+    expect(await send({ type: "recipes.import", file: file(recipe("a")) })).toMatchObject({
+      ok: true,
+    });
+    expect(await send({ type: "recipes.import", file: file(recipe("b")) })).toMatchObject({
       ok: false,
       error: "too-large",
+      state: { recipes: [{ id: "a" }] },
     });
-    expect(storage.write).not.toHaveBeenCalled();
+    expect(storage.write).toHaveBeenCalledOnce();
   });
 
   it("removes one recipe, and forgets the record with the last one", async () => {
