@@ -3,7 +3,7 @@
 // keeps the tab's last login and model request for the popup's page section.
 import * as v from "valibot";
 import { browser } from "wxt/browser";
-import type { LoginReport } from "./runtime";
+import type { LoginReport } from "./runtime/reports";
 
 export const LOGIN_BADGE_KEY = "session:pateat.login-badge.v1";
 

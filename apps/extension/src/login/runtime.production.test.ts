@@ -31,7 +31,8 @@ import {
   type BadgeDetails,
   type LoginBadge,
 } from "./badge";
-import type { GenerationOutcome, LoginGeneration, LoginRecipeStart, LoginReport } from "./runtime";
+import type { GenerationOutcome, LoginGeneration, LoginRecipeStart } from "./runtime/recipes";
+import type { LoginReport } from "./runtime/reports";
 import type { LoginFieldSource } from "./vault";
 import type { ConditionalDecision, PasskeyItem } from "../passkeys/runtime";
 
