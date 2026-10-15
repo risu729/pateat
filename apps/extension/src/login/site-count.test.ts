@@ -202,6 +202,14 @@ describe("countSite", () => {
     expect(
       await countSite(origin, scope([source], settings({ excludedItemIds: ["c"] })), run),
     ).toEqual({ kind: "count", count: { usable: 0, matching: 0, unevaluated: 1 } });
+    const excluded = settings(
+      {},
+      { excludedSites: [{ hostname: "login.example", includeSubdomains: false }] },
+    );
+    expect(await countSite(origin, scope([source], excluded), run)).toEqual({
+      kind: "count",
+      count: { usable: 0, matching: 0, unevaluated: 0 },
+    });
   });
 
   it("matches bundled demo connections by their static origins", async () => {

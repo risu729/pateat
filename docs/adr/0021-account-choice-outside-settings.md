@@ -455,7 +455,7 @@ fill gaps the decision left open; they are implementation choices, not owner dec
   `this site is excluded in settings`, `they are excluded in settings`,
   `they wait for a custom-field review in settings`, or both of the last two; and for no
   match, `Pateat: no account for this site.` Items a login could use whose URI rules
-  or passkeys could not be read add `N more items could not be checked.`, as the
+  or passkeys could not be read add `N items could not be checked.`, as the
   popup's list notes only those. The not-checked titles end
   `so this site's accounts were not counted.` A held login's tooltip replaces the
   count's title, not its number.

@@ -208,6 +208,7 @@ export async function countSite(
       if (!how.uri && !how.passkey) {
         // Only an item a login could use is noted, as the popup's list does.
         if (
+          !siteExcluded &&
           !quarantined.includes(itemId) &&
           passkeyEligible(settings, catalog, source.connectionId, itemId)
         )

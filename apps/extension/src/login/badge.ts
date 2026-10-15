@@ -141,7 +141,7 @@ export function countBadge(state: SiteCountState): Partial<Shown> & { title: str
   if (state.kind === "unchecked") return { title: UNCHECKED_TITLES[state.reason] };
   const { usable, matching, unevaluated, excluded }: SiteCount = state.count;
   const unknown = unevaluated
-    ? ` ${plural(unevaluated, "more item", "more items")} could not be checked.`
+    ? ` ${plural(unevaluated, "item", "items")} could not be checked.`
     : "";
   const text = (count: number) => (count > 99 ? "99+" : String(count));
   if (usable > 0) {

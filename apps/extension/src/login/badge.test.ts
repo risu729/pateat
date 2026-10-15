@@ -1509,7 +1509,7 @@ describe("site count", () => {
     expect(h.view()).toEqual({
       text: "99+",
       ...TEAL,
-      title: "Pateat: 120 accounts for this site. 1 more item could not be checked.",
+      title: "Pateat: 120 accounts for this site. 1 item could not be checked.",
     });
     expect(countBadge(counted(1)).title).toBe("Pateat: 1 account for this site.");
   });
