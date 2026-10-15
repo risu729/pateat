@@ -41,7 +41,7 @@ afterEach(async () => {
 test("names the site and lists each passkey by its user name, item and connection", async () => {
   await render(<ChooserApp client={client(view())} />);
   await expect
-    .element(page.getByRole("heading", { name: "Sign in to login.example.test" }))
+    .element(page.getByRole("heading", { name: "Log in to login.example.test" }))
     .toBeVisible();
   const list = page.getByRole("list", { name: "Matching passkeys" });
   await expect
@@ -52,7 +52,7 @@ test("names the site and lists each passkey by its user name, item and connectio
     .toHaveTextContent("synthetic-user-2Example (work) in Probe");
   await expect.element(list.getByRole("button").nth(2)).toHaveTextContent("Unnamed item");
   await expect
-    .element(page.getByText("Pateat signed in here from this tab before"))
+    .element(page.getByText("Pateat already logged in to this site from this tab."))
     .not.toBeInTheDocument();
   await expect
     .element(

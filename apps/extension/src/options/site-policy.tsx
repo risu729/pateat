@@ -35,20 +35,20 @@ const originSchema = v.pipe(
     const origin = value.trim();
     const url = parseSiteUrl(origin);
     return Boolean(url && url.origin === origin && normalizeHostname(url.hostname));
-  }, "Enter an exact HTTP(S) origin without a path or trailing slash."),
+  }, "Enter an origin such as https://bank.example, without a path or trailing slash."),
 );
 
 function unavailableReason(reason: string): string {
   const descriptions: Record<string, string> = {
     "invalid-url": "The destination is invalid.",
     "site-excluded": "This site is excluded.",
-    "default-not-set": "No default account is configured.",
+    "default-not-set": "No default account is set.",
     "item-origin-mismatch": "This account does not match the exact origin.",
     "connection-missing": "The vault connection is unavailable.",
     "account-ambiguous": "This vault account is connected more than once.",
     "vault-unavailable": "The vault is locked or unavailable.",
-    "connection-disabled": "The vault connection is disabled.",
-    "item-missing": "The account is unavailable.",
+    "connection-disabled": "The vault connection is turned off.",
+    "item-missing": "This account is no longer in its vault.",
     "item-excluded": "This account is excluded.",
     "item-not-selected": "This account is outside the selected groups and items.",
     "fields-excluded": "All fields in this account are excluded.",
@@ -438,7 +438,8 @@ export function SitePolicy({
   else if (!matchedCount)
     accountNote =
       "No vault item matches this origin. Add the site's URI or passkey to the item in your vault, then sync.";
-  else accountNote = `${matchedCount} matching ${matchedCount === 1 ? "item" : "items"}.`;
+  else
+    accountNote = `${matchedCount} ${matchedCount === 1 ? "item matches" : "items match"} this origin.`;
   if (found && !found.complete)
     accountNote += " Some vaults or items could not be checked, so this list may be incomplete.";
 
@@ -468,19 +469,19 @@ export function SitePolicy({
       line = {
         tone: "ok",
         icon: CircleCheck,
-        text: `Matches this origin by ${matchedBy({ uri: match.uri, passkey: match.passkey })}; checked again on each login`,
+        text: `Matches this origin by ${matchedBy({ uri: match.uri, passkey: match.passkey })}. It is checked again at each login.`,
       };
     else if (matches?.complete && !connection?.quarantinedItemIds?.includes(selected.itemId))
       line = {
         tone: "warn",
         icon: TriangleAlert,
-        text: "No URI rule or passkey of this item matches this origin; a URI rule on a longer path is checked on each login",
+        text: "No URI rule or passkey of this item matches this origin. A URI rule on a longer path is checked at each login.",
       };
     else
       line = {
         tone: "idle",
         icon: Info,
-        text: "Whether it matches the page is checked against the vault's URI rules or passkeys on each login",
+        text: "Whether it matches a page is checked against its URI rules or passkeys at each login.",
       };
     const unavailable = !resolved.ok && (!liveItem || resolved.reason !== "item-origin-mismatch");
     const current = connection && item ? JSON.stringify([connection.id, item.id]) : SAVED_ELSEWHERE;
@@ -573,7 +574,7 @@ export function SitePolicy({
                 {
                   tone: "idle",
                   icon: Info,
-                  text: `Default for ${entry.origin} kept, unused while excluded`,
+                  text: `The default for ${entry.origin} is kept but not used while the site is excluded.`,
                 },
               ]}
             />
@@ -754,8 +755,8 @@ export function SitePolicy({
       <StatusLines
         muted
         lines={[
-          { tone: "idle", icon: Ban, text: "Excluding a site covers every scheme and port" },
-          { tone: "idle", icon: Clock, text: "A default account takes effect at the next login" },
+          { tone: "idle", icon: Ban, text: "Excluding a site covers every scheme and port." },
+          { tone: "idle", icon: Clock, text: "A default account takes effect at the next login." },
         ]}
       />
     </Panel>

@@ -94,7 +94,9 @@ test("permission denial clears the password and sends no sign-in request", async
   await fillNew();
   await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
   await expect
-    .element(page.getByText("Provider access was not granted. No sign-in request was sent."))
+    .element(
+      page.getByText("Chrome did not grant access to the Bitwarden server, so nothing was sent."),
+    )
     .toBeVisible();
   await expect.element(page.getByLabelText("Master password", { exact: true })).toHaveValue("");
   expect(client.requestProviderPermission).toHaveBeenCalledWith({ kind: "cloud", region: "us" });
@@ -124,7 +126,7 @@ test("a held sign-in clears UI secrets immediately and never puts them in query 
   await expect
     .element(
       page.getByText(
-        "Vault verified and local cache accepted. Check automatic-unlock status below.",
+        "Vault verified and copied to this device. Check the automatic unlock line below.",
       ),
     )
     .toBeVisible();
@@ -196,7 +198,7 @@ test("new-device verification is a distinct manual continuation and clears its c
   await expect
     .element(
       page.getByText(
-        "Vault verified and local cache accepted. Check automatic-unlock status below.",
+        "Vault verified and copied to this device. Check the automatic unlock line below.",
       ),
     )
     .toBeVisible();
@@ -216,7 +218,7 @@ test("cancel closes the private lifetime and ignores a late successful begin", a
   const changes = changed.mock.calls.length;
   pending.resolve(ready());
   await expect
-    .element(page.getByText("Setup stopped. Refresh to confirm the latest state."))
+    .element(page.getByText("Setup stopped. Refresh to see the current state."))
     .toBeVisible();
   expect(changed).toHaveBeenCalledTimes(changes);
   expect(client.list).toHaveBeenCalledTimes(1);
@@ -266,7 +268,7 @@ test("existing disabled connections remain preserve-only unless enable is explic
   await expect
     .element(
       page.getByText(
-        "Vault verified and local cache accepted. Check automatic-unlock status below.",
+        "Vault verified and copied to this device. Check the automatic unlock line below.",
       ),
     )
     .toBeVisible();
@@ -294,9 +296,7 @@ test("affected custom-field policy quarantine is visible without exposing vault 
   await fillNew();
   await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
   await expect
-    .element(
-      page.getByText("Vault accepted. 1 item(s) need their field settings reviewed before use."),
-    )
+    .element(page.getByText("Vault accepted. 1 item needs its field settings reviewed before use."))
     .toBeVisible();
   // The page reports a count, never the item IDs.
   expect(document.body.textContent).not.toContain("affected-item");
@@ -329,7 +329,7 @@ test.each(["storage-uncertain", "setup-unavailable"] as const)(
         <SettingsApp client={settings} connectionClient={connection} />
       </QueryClientProvider>,
     );
-    await expect.element(page.getByText("Saved settings loaded. Revision 0")).toBeVisible();
+    await expect.element(page.getByText("Saved settings loaded (revision 0).")).toBeVisible();
     // The draft's save is still pending when setup replaces the vault metadata.
     let resolveSave!: (value: SettingsResponse) => void;
     settings.saveSettings.mockReturnValueOnce(
@@ -343,11 +343,11 @@ test.each(["storage-uncertain", "setup-unavailable"] as const)(
     await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
     await vi.waitFor(() => expect(connection.begin).toHaveBeenCalledTimes(1));
     await expect
-      .element(page.getByText(/Vault metadata changed\. Your unsaved draft has been preserved/))
+      .element(page.getByText(/^Your vaults changed\. Your unsaved changes are kept/))
       .toBeVisible();
     resolveSave(saved(1));
     await expect
-      .element(page.getByText(/Vault metadata changed while settings were being saved/))
+      .element(page.getByText(/Your vaults changed while the settings were being saved/))
       .toBeVisible();
     expect(document.getElementById("site-list")?.textContent).toContain("draft.example");
     expect(settings.getSettings).toHaveBeenCalledTimes(1);
@@ -357,7 +357,7 @@ test.each(["storage-uncertain", "setup-unavailable"] as const)(
     expect(settings.saveSettings).toHaveBeenCalledTimes(1);
     settings.getSettings.mockResolvedValue(saved(7));
     await page.getByRole("button", { name: "Reload saved settings", exact: true }).click();
-    await expect.element(page.getByText("Saved settings loaded. Revision 7")).toBeVisible();
+    await expect.element(page.getByText("Saved settings loaded (revision 7).")).toBeVisible();
     expect(document.getElementById("site-list")?.textContent).not.toContain("draft.example");
     await page.getByLabelText("Origin", { exact: true }).fill("reviewed.example");
     await page.getByRole("button", { name: "Exclude site", exact: true }).click();
@@ -391,16 +391,18 @@ test("a challenge while adding a connection reloads a clean draft to the revisio
       <SettingsApp client={settings} connectionClient={connection} />
     </QueryClientProvider>,
   );
-  await expect.element(page.getByText("Saved settings loaded. Revision 0")).toBeVisible();
+  await expect.element(page.getByText("Saved settings loaded (revision 0).")).toBeVisible();
   settings.getSettings.mockResolvedValue(saved(1));
   await fillNew();
   await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
   await expect
     .element(
-      page.getByText("Enter a manual two-step verification code. No code is sent automatically."),
+      page.getByText(
+        "Enter a two-step verification code. Pateat does not ask Bitwarden to send one.",
+      ),
     )
     .toBeVisible();
-  await expect.element(page.getByText("Saved settings loaded. Revision 1")).toBeVisible();
+  await expect.element(page.getByText("Saved settings loaded (revision 1).")).toBeVisible();
   expect(settings.getSettings).toHaveBeenCalledTimes(2);
 });
 
@@ -565,7 +567,7 @@ test("a running sync says so, can be cancelled from the header, and its reply re
   await expect
     .element(
       page.getByText(
-        "Vault verified and local cache accepted. Check automatic-unlock status below.",
+        "Vault verified and copied to this device. Check the automatic unlock line below.",
       ),
     )
     .toBeVisible();
@@ -585,12 +587,12 @@ test("a running sync says so, can be cancelled from the header, and its reply re
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
   expect(client.close).toHaveBeenCalledTimes(1);
   await expect
-    .element(page.getByText("Stopped. Refresh to confirm the latest state.", { exact: true }))
+    .element(page.getByText("Stopped. Refresh to see the current state.", { exact: true }))
     .toBeVisible();
   await expect.element(sync).toBeEnabled();
   late.resolve(ready());
   await expect
-    .element(page.getByText("Stopped. Refresh to confirm the latest state.", { exact: true }))
+    .element(page.getByText("Stopped. Refresh to see the current state.", { exact: true }))
     .toBeVisible();
   expect(client.list).toHaveBeenCalledTimes(2);
 });
@@ -697,11 +699,11 @@ test("sync after automatic unlock was disabled explains how to restore it", asyn
   await expect
     .element(
       page.getByText(
-        /Automatic unlock is off for this connection, and Sync needs it\. Sign in again/,
+        /Automatic unlock is off for this connection, and Sync needs it\. To turn it back on, sign in again/,
       ),
     )
     .toBeVisible();
-  await expect.element(page.getByText(/Connection operation unavailable/)).not.toBeInTheDocument();
+  await expect.element(page.getByText(/The connection could not do this/)).not.toBeInTheDocument();
 });
 
 test("a provider HTTP failure on sync shows an error instead of a lost connection", async () => {
@@ -743,7 +745,7 @@ test("a provider HTTP failure on sync shows an error instead of a lost connectio
   );
   await page.getByRole("button", { name: "Saved vault: Sync", exact: true }).click();
   await expect
-    .element(page.getByText(/Connection operation unavailable \(http-error\)/))
+    .element(page.getByText(/The connection could not do this \(http-error\)/))
     .toBeVisible();
   expect(port.postMessage.mock.calls.map(([message]) => message.type)).toContain("connection.sync");
   expect(port.disconnect).not.toHaveBeenCalled();
@@ -846,7 +848,7 @@ test("each connection's row holds its vault access, which waits for saved settin
   await expect.element(page.getByRole("heading", { name: "Vault access" })).not.toBeInTheDocument();
 
   await use.click();
-  await expect.element(page.getByText("Settings saved locally. Revision 1")).toBeVisible();
+  await expect.element(page.getByText("Settings saved (revision 1).")).toBeVisible();
   expect(settings.saveSettings.mock.calls[0]?.[0].settings.connections[0]).toMatchObject({
     connectionId: "synthetic",
     enabled: true,
@@ -859,7 +861,7 @@ test("each connection's row holds its vault access, which waits for saved settin
     .element(page.getByRole("combobox", { name: "Synthetic vault: Items for Pateat" }))
     .toBeDisabled();
   read.resolve(saved(4));
-  await expect.element(page.getByText("Saved settings loaded. Revision 4")).toBeVisible();
+  await expect.element(page.getByText("Saved settings loaded (revision 4).")).toBeVisible();
   await expect.element(use).toBeEnabled();
   await expect.element(use).not.toBeChecked();
 });

@@ -21,6 +21,9 @@ import { ThemeSelect } from "./theme-select";
 import { Panel, StatusLines } from "./ui";
 
 type AcceptedSettings = Extract<SettingsResponse, { ok: true }>;
+// The draft keeps every change a save could not make; reloading replaces it.
+const KEPT = "Your unsaved changes are kept.";
+const RELOAD_DROPS = "reloading drops them.";
 const emptySettings: LocalSettings = {
   connections: [],
   excludedSites: [],
@@ -96,7 +99,7 @@ export function SettingsApp({
         if (epoch !== catalogGeneration.current) {
           setSaveBlocked(true);
           setMessage(
-            "Vault metadata changed while settings were being saved. Your draft has been preserved. Reload saved settings before saving again. Reloading discards the draft.",
+            `Your vaults changed while the settings were being saved. ${KEPT} Reload saved settings before you change anything else; ${RELOAD_DROPS}`,
           );
           return;
         }
@@ -106,15 +109,15 @@ export function SettingsApp({
           setSaveBlocked(blocked);
           setMessage(
             result.error.code === "revision-conflict"
-              ? "Settings changed in another window. Your unsaved draft has been preserved. Reload saved settings to review the latest version before saving. Reloading discards the draft."
-              : `${result.error.message} Your unsaved draft has been preserved.${blocked ? " Reload saved settings to retry. Reloading discards the draft." : ""}`,
+              ? `The settings changed in another window. ${KEPT} Reload saved settings to see the latest ones before you change anything else; ${RELOAD_DROPS}`
+              : `${result.error.message} ${KEPT}${blocked ? ` Reload saved settings to try again; ${RELOAD_DROPS}` : ""}`,
           );
           return;
         }
         queryClient.setQueryData(SETTINGS_QUERY_KEY, result);
         lastSaveSucceeded.current = true;
         if (submitted === edits.current) {
-          accept(result, `Settings saved locally. Revision ${result.snapshot.revision}`, false);
+          accept(result, `Settings saved (revision ${result.snapshot.revision}).`, false);
           return;
         }
         // Edits made while this save ran stay in the draft and are saved on top of it next.
@@ -124,7 +127,7 @@ export function SettingsApp({
       } catch {
         setSaveBlocked(true);
         setMessage(
-          "Unable to confirm saved settings. Your unsaved draft has been preserved. Reload saved settings before trying again. Reloading discards the draft.",
+          `Pateat could not confirm that the settings were saved. ${KEPT} Reload saved settings before you try again; ${RELOAD_DROPS}`,
         );
       }
     },
@@ -149,15 +152,15 @@ export function SettingsApp({
     initialHandled.current = true;
     if (settings.isError || !settings.data)
       setMessage(
-        "Unable to read saved settings. Your existing draft has been preserved. Reload saved settings to retry. Reloading discards the draft.",
+        `Pateat could not read the saved settings. ${KEPT} Reload saved settings to try again; ${RELOAD_DROPS}`,
       );
     else if (!settings.data.ok)
       setMessage(
-        `${settings.data.error.message} Reload saved settings to retry. Your existing draft has been preserved. Reloading discards the draft.`,
+        `${settings.data.error.message} ${KEPT} Reload saved settings to try again; ${RELOAD_DROPS}`,
       );
     else if (catalogGeneration.current) {
       setMessage(
-        "Vault metadata changed while settings were loading. Reload saved settings to read the current catalog.",
+        "Your vaults changed while the settings were loading. Reload saved settings to see the current vaults.",
       );
     } else {
       const next = structuredClone(settings.data);
@@ -166,7 +169,7 @@ export function SettingsApp({
       form.reset(structuredClone(next.snapshot.settings));
       saveBlockedRef.current = false;
       setSaveBlockedState(false);
-      setMessage(`Saved settings loaded. Revision ${next.snapshot.revision}`);
+      setMessage(`Saved settings loaded (revision ${next.snapshot.revision}).`);
     }
     operation.current = undefined;
     setBusy(false);
@@ -185,7 +188,7 @@ export function SettingsApp({
     dirtyRef.current = true;
     if (saveBlockedRef.current)
       setMessage(
-        "This change is kept in the draft but was not saved. Reload saved settings before editing; reloading discards the draft.",
+        `This change was kept but not saved. Reload saved settings before you change anything else; ${RELOAD_DROPS}`,
       );
     void save();
     return true;
@@ -206,20 +209,20 @@ export function SettingsApp({
       });
       if (epoch !== catalogGeneration.current) {
         setMessage(
-          "Vault metadata changed while settings were loading. Your draft has been preserved. Reload saved settings again. Reloading discards the draft.",
+          `Your vaults changed while the settings were loading. ${KEPT} Reload saved settings again; ${RELOAD_DROPS}`,
         );
         return;
       }
       if (!result.ok) {
         setMessage(
-          `${result.error.message} Reload saved settings to retry. Your existing draft has been preserved. Reloading discards the draft.`,
+          `${result.error.message} ${KEPT} Reload saved settings to try again; ${RELOAD_DROPS}`,
         );
         return;
       }
-      accept(result, `Saved settings loaded. Revision ${result.snapshot.revision}`, true);
+      accept(result, `Saved settings loaded (revision ${result.snapshot.revision}).`, true);
     } catch {
       setMessage(
-        "Unable to read saved settings. Your existing draft has been preserved. Reload saved settings to retry. Reloading discards the draft.",
+        `Pateat could not read the saved settings. ${KEPT} Reload saved settings to try again; ${RELOAD_DROPS}`,
       );
     } finally {
       operation.current = undefined;
@@ -239,13 +242,13 @@ export function SettingsApp({
         submittedEdits.current = edits.current;
         submittedCatalog.current = catalogGeneration.current;
         lastSaveSucceeded.current = false;
-        setMessage("Saving local settings…");
+        setMessage("Saving settings…");
         // Sequential: each save expects the revision the previous one produced.
         // eslint-disable-next-line no-await-in-loop
         await form.handleSubmit();
         if (!form.state.isValid)
           setMessage(
-            "Invalid settings. Your unsaved draft has been preserved. Review this draft; the next change saves it again.",
+            `These settings are not valid, so they were not saved. ${KEPT} Correct them, and the next change saves them again.`,
           );
         // A failure is never retried as is; an edit made meanwhile is a new draft to save.
         if (
@@ -264,7 +267,7 @@ export function SettingsApp({
     if (dirtyRef.current || operation.current || saveBlockedRef.current) {
       setSaveBlocked(true);
       setMessage(
-        "Vault metadata changed. Your unsaved draft has been preserved. Reload saved settings to review the latest catalog before saving. Reloading discards the draft.",
+        `Your vaults changed. ${KEPT} Reload saved settings to see the current vaults before you change anything else; ${RELOAD_DROPS}`,
       );
       return;
     }
@@ -279,11 +282,11 @@ export function SettingsApp({
     <StatusLines
       muted
       lines={[
-        { tone: "idle", icon: Info, text: "Exclusions win over selected groups and items" },
+        { tone: "idle", icon: Info, text: "Exclusions win over selected groups and items." },
         {
           tone: "idle",
           icon: Info,
-          text: "These limits apply to Pateat only and do not change vault permissions",
+          text: "These limits apply to Pateat only and do not change vault permissions.",
         },
       ]}
     />

@@ -213,7 +213,9 @@ test("probe options support keyboard policy validation and pass accessibility ch
     expect(invalid.violations).toEqual([]);
     await page.locator("#site-origin").fill("https://bank.example");
     // The matching accounts are listed again for the corrected origin before it is added.
-    await expect(page.locator("#default-account-note")).toContainText("matching item");
+    await expect(page.locator("#default-account-note")).toContainText(
+      /\d+ items? match(?:es)? this origin/u,
+    );
     await page.locator("#site-origin").press("Enter");
     await expect(page.locator("#site-list")).toContainText("https://bank.example");
     await expect(page.locator("#site-origin")).toBeFocused();
@@ -343,7 +345,7 @@ test("the toolbar popup edits the active tab's site through the settings store",
     await toggle.click();
     await expect(toggle).not.toBeChecked();
     await expect(site.locator("#popup-site-status")).toHaveText(
-      "No logins or passkey answers on this site",
+      "Pateat does not log in or answer passkey requests on this site.",
     );
     expect(await get(site)).toMatchObject({
       ok: true,

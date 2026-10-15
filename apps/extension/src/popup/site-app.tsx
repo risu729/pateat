@@ -388,8 +388,11 @@ export function SiteApp({
         if (choice.isEnabled) void choice.refetch();
       } else if (response.error.code === "revision-conflict") {
         await settings.refetch();
-        say("Changed elsewhere and reloaded. Nothing was changed.", "error");
-      } else say("The change could not be saved", "error");
+        say(
+          "The settings changed elsewhere, so this change was not saved. The popup now shows them.",
+          "error",
+        );
+      } else say("The change could not be saved.", "error");
     } catch {
       // The store may still have saved it; reopening shows the saved settings.
       say(
@@ -422,7 +425,7 @@ export function SiteApp({
         say(
           asDefault
             ? `Logging in with ${selected.name}. It becomes the default once the login succeeds.`
-            : `Logging in with ${selected.name}`,
+            : `Logging in with ${selected.name}.`,
           "success",
         );
         // The login runs in the page from here; the popup has nothing left to show.
@@ -432,7 +435,7 @@ export function SiteApp({
         say("The page changed, so nothing was started. Reload it to choose again.", "error");
       else if (response.reason === "origin-busy")
         say(
-          "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. Close that tab or wait up to 5 minutes, then choose again.",
+          "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. Close that tab, or wait up to 5 minutes, then choose again.",
           "error",
         );
       else if (response.reason === "not-started")
@@ -440,7 +443,7 @@ export function SiteApp({
           `Pateat could not log in with ${selected.name} on this page. Reload the page to choose again.`,
           "error",
         );
-      else say("This page is no longer waiting for a choice", "error");
+      else say("This page no longer waits for an account choice.", "error");
       await choice.refetch();
     } catch {
       say("The login could not be started. Reopen this popup and try again.", "error");
@@ -468,7 +471,7 @@ export function SiteApp({
     body = (
       <p id="popup-error" className="popup-notice popup-notice--error" role="alert">
         <CircleX size={16} strokeWidth={2} aria-hidden="true" />
-        <span>Pateat settings could not be loaded</span>
+        <span>Pateat's settings could not be loaded.</span>
       </p>
     );
   else {
@@ -483,7 +486,7 @@ export function SiteApp({
           setSwitching(on);
           void change(
             (value) => site.set(value, on),
-            on ? `${hostname} is no longer excluded` : `${hostname} is now excluded`,
+            on ? `${hostname} is no longer excluded.` : `${hostname} is now excluded.`,
           );
         }}
       />
@@ -561,14 +564,14 @@ export function SiteApp({
     else if (accounts.error instanceof ListingTimeout)
       accountsNote = {
         tone: "err",
-        text: "Finding the vault items that match this site took too long. Wait a moment, then reopen this popup",
+        text: "Finding the vault items that match this site took too long. Wait a moment, then reopen this popup.",
       };
     else if (!found)
-      accountsNote = { tone: "err", text: "The matching accounts could not be listed" };
+      accountsNote = { tone: "err", text: "The matching accounts could not be listed." };
     else if (!options.length)
       accountsNote = {
         tone: "idle",
-        text: "No vault item matches this site. Add the site's URI or passkey to the item in your vault, then sync",
+        text: "No vault item matches this site. Add the site's URI or passkey to the item in your vault, then sync.",
       };
 
     const setDefault = () => {
@@ -599,14 +602,14 @@ export function SiteApp({
           value.siteDefaults = value.siteDefaults.filter((item) => item.origin !== origin);
           value.siteDefaults.push(entry);
         },
-        `${accountName(selected, found?.accounts)} is now the default for this site`,
+        `${accountName(selected, found?.accounts)} is now the default for this site.`,
       );
     };
 
     const removeDefault = () =>
       void change((value) => {
         value.siteDefaults = value.siteDefaults.filter((item) => item.origin !== origin);
-      }, "The default account for this site was removed");
+      }, "The default account for this site was removed.");
     const removeDefaultButton = current && (
       <Button
         id="popup-remove-default"
@@ -641,7 +644,7 @@ export function SiteApp({
             <div className="popup-section-head">
               <h2 id="popup-choice-heading">Choose an account</h2>
               <p id="popup-choice-reason" className="popup-muted popup-reason">
-                {choiceReason(offered.logout, pickOptions.length)}
+                {choiceReason(offered.logout, pickOptions.length, offered.rejectedElsewhere)}
               </p>
             </div>
             {offered.held && (
@@ -649,7 +652,7 @@ export function SiteApp({
                 <TriangleAlert size={16} strokeWidth={2} aria-hidden="true" />
                 <span>
                   {
-                    "Another tab's login to this site is running or did not succeed. Close that tab or wait up to 5 minutes."
+                    "Another tab's login to this site is running or did not succeed. Close that tab, or wait up to 5 minutes."
                   }
                 </span>
               </p>
@@ -711,13 +714,13 @@ export function SiteApp({
                   )}
                   {missingFromChoice && (
                     <Line tone="warn" id="popup-default">
-                      {`The saved default, ${missingFromChoice.title} (${missingFromChoice.sub}), is not one of these accounts`}
+                      {`The saved default, ${missingFromChoice.title} (${missingFromChoice.sub}), is not one of these accounts.`}
                     </Line>
                   )}
                   {found && !found.complete && (
                     <Line tone="warn" id="popup-accounts-incomplete">
                       Some vaults or items could not be checked, so the site's matches may be
-                      incomplete
+                      incomplete.
                     </Line>
                   )}
                 </ul>
@@ -752,17 +755,17 @@ export function SiteApp({
               )}
               {!current && (
                 <Line tone="idle" id="popup-no-default">
-                  No default account. With exactly one matching item, Pateat uses that item
+                  No default account. With exactly one matching item, Pateat uses that item.
                 </Line>
               )}
               {found && !found.complete && (
                 <Line tone="warn" id="popup-accounts-incomplete">
-                  Some vaults or items could not be checked, so this list may be incomplete
+                  Some vaults or items could not be checked, so this list may be incomplete.
                 </Line>
               )}
               <li className="popup-line popup-line--idle">
                 <Clock size={16} strokeWidth={2} aria-hidden="true" />
-                <span>Takes effect at the next login</span>
+                <span>A default takes effect at the next login.</span>
               </li>
             </ul>
             {(options.length > 0 || current) && (
@@ -785,7 +788,7 @@ export function SiteApp({
           <div className="popup-section">
             {!site.editable && (
               <>
-                <p id="popup-site-shared">Excluded by a rule for other sites too</p>
+                <p id="popup-site-shared">Excluded by a rule that also covers other sites.</p>
                 <ul className="popup-rules">
                   {site.shared.map((rule) => (
                     <li key={`${rule.hostname} ${rule.includeSubdomains}`}>
@@ -808,7 +811,7 @@ export function SiteApp({
             )}
             <p id="popup-site-status" className="popup-muted popup-status">
               <Ban size={16} strokeWidth={2} aria-hidden="true" />
-              No logins or passkey answers on this site
+              Pateat does not log in or answer passkey requests on this site.
             </p>
           </div>
         )}

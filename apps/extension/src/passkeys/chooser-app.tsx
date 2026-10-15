@@ -107,11 +107,11 @@ export function ChooserApp({ client }: { client: ChooserClient }) {
   const canSave = view.entries.some((entry) => !entry.preferred);
   return (
     <main className={MAIN}>
-      <Header>Sign in to {host}</Header>
+      <Header>Log in to {host}</Header>
       {view.again && (
         <p className="m-0 flex items-center gap-1.5 text-[13px]/5 text-ink-muted">
           <Info aria-hidden size={14} strokeWidth={2} className="shrink-0" />
-          Pateat signed in here from this tab before
+          Pateat already logged in to this site from this tab.
         </p>
       )}
       {/* Above the list, so it is seen before a choice is made. */}

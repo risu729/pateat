@@ -140,9 +140,9 @@ test("each change is saved at once and refreshes never replace a pending draft",
   await expect.element(control("site-list")).not.toMatchTextContent("cached.example");
 
   write.resolve(saved(1, "draft.example"));
-  await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 1");
+  await expect.element(control("settings-status")).toMatchTextContent("saved (revision 1).");
   await page.getByLabelText("Demo work vault: Use this vault", { exact: true }).click();
-  await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 2");
+  await expect.element(control("settings-status")).toMatchTextContent("saved (revision 2).");
   expect(client.saveSettings).toHaveBeenCalledTimes(2);
   expect(client.saveSettings.mock.calls[1]?.[0]).toMatchObject({
     expectedRevision: 1,
@@ -187,7 +187,7 @@ test("an unknown save outcome is never retried and requires a successful explici
     snapshot: { version: 1, revision: request.expectedRevision + 1, settings: request.settings },
   }));
   await addSite("next-draft.example");
-  await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 2");
+  await expect.element(control("settings-status")).toMatchTextContent("saved (revision 2).");
   expect(client.saveSettings).toHaveBeenCalledTimes(2);
   expect(client.saveSettings.mock.calls[1]?.[0]).toMatchObject({ expectedRevision: 1 });
 });
@@ -273,7 +273,7 @@ test("edits during a pending save are saved after it, and reloads cannot overlap
   expect(client.saveSettings).toHaveBeenCalledTimes(1);
   expect(client.getSettings).toHaveBeenCalledTimes(1);
   write.resolve(saved(1, "pending.example"));
-  await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 2");
+  await expect.element(control("settings-status")).toMatchTextContent("saved (revision 2).");
   expect(client.saveSettings).toHaveBeenCalledTimes(2);
   expect(client.saveSettings.mock.calls[1]?.[0]).toMatchObject({
     expectedRevision: 1,
@@ -294,7 +294,7 @@ test("edits during a pending save are saved after it, and reloads cannot overlap
   read.resolve(saved(3, "reloaded.example"));
   await expect.element(control("site-list")).toMatchTextContent("reloaded.example");
   await addSite("next-draft.example");
-  await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 4");
+  await expect.element(control("settings-status")).toMatchTextContent("saved (revision 4).");
 });
 
 test("the add form validates locally and keeps focus on the origin after adds and removals", async () => {
@@ -319,7 +319,9 @@ test("the add form validates locally and keeps focus on the origin after adds an
   // Only items matching the entered origin are offered.
   await expect.element(control("default-account")).toBeDisabled();
   await control("site-origin").fill("https://mail.example");
-  await expect.element(control("default-account-note")).toMatchTextContent("1 matching item");
+  await expect
+    .element(control("default-account-note"))
+    .toMatchTextContent("1 item matches this origin.");
   await expect
     .poll(() =>
       [...(control("default-account").element() as HTMLSelectElement).options].map(
@@ -351,7 +353,7 @@ test("the add form validates locally and keeps focus on the origin after adds an
     .toHaveDisplayValue("Demo primary account in Demo personal vault");
   await expect.element(control("site-origin")).toHaveFocus();
   // Each add and removal was saved without moving focus.
-  await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 3");
+  await expect.element(control("settings-status")).toMatchTextContent("saved (revision 3).");
   await expect.element(control("site-origin")).toHaveFocus();
   expect(client.saveSettings).toHaveBeenCalledTimes(3);
   // The saved default keeps the connection's label and the item's name for display.
@@ -402,7 +404,7 @@ test("an origin row changes its default only on Save, and No default removes it"
   expect(client.saveSettings).not.toHaveBeenCalled();
   await expect.element(save).toBeEnabled();
   await save.click();
-  await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 2");
+  await expect.element(control("settings-status")).toMatchTextContent("saved (revision 2).");
   expect(client.saveSettings.mock.calls[0]?.[0].settings.siteDefaults).toEqual([
     {
       origin: "https://bank.example",
@@ -416,7 +418,7 @@ test("an origin row changes its default only on Save, and No default removes it"
   await expect.element(save).toBeDisabled();
   await select.selectOptions("No default");
   await save.click();
-  await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 3");
+  await expect.element(control("settings-status")).toMatchTextContent("saved (revision 3).");
   expect(client.saveSettings.mock.calls[1]?.[0].settings.siteDefaults).toEqual([]);
   await expect.element(select).not.toBeInTheDocument();
   // The row is gone, so focus moves to the add form.
@@ -437,7 +439,7 @@ test("excluding an origin keeps its default unused under the rule until it is al
   await page
     .getByRole("button", { name: "Exclude https://bank.example, all schemes and ports" })
     .click();
-  await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 2");
+  await expect.element(control("settings-status")).toMatchTextContent("saved (revision 2).");
   expect(client.saveSettings.mock.calls[0]?.[0].settings).toMatchObject({
     excludedSites: [{ hostname: "bank.example", includeSubdomains: false }],
     siteDefaults: [{ origin: "https://bank.example" }],
@@ -447,9 +449,11 @@ test("excluding an origin keeps its default unused under the rule until it is al
     .not.toBeInTheDocument();
   await expect
     .element(control("site-list"))
-    .toMatchTextContent("Default for https://bank.example kept, unused while excluded");
+    .toMatchTextContent(
+      "The default for https://bank.example is kept but not used while the site is excluded.",
+    );
   await page.getByRole("button", { name: "Allow bank.example", exact: true }).click();
-  await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 3");
+  await expect.element(control("settings-status")).toMatchTextContent("saved (revision 3).");
   await expect
     .element(page.getByRole("combobox", { name: "Default account for https://bank.example" }))
     .toBeVisible();
@@ -479,7 +483,7 @@ test("a default kept under a rule is listed once and can be removed", async () =
       .textContent?.match(/Default for https:\/\/bank\.example kept/g),
   ).toHaveLength(1);
   await remove.click();
-  await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 2");
+  await expect.element(control("settings-status")).toMatchTextContent("saved (revision 2).");
   expect(client.saveSettings).toHaveBeenCalledTimes(1);
   expect(client.saveSettings.mock.calls[0]?.[0].settings).toMatchObject({
     excludedSites: [
@@ -506,13 +510,15 @@ test("an origin with a trailing dot is excluded by its hostname without the dot"
   await page
     .getByRole("button", { name: "Exclude https://bank.example., all schemes and ports" })
     .click();
-  await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 2");
+  await expect.element(control("settings-status")).toMatchTextContent("saved (revision 2).");
   expect(client.saveSettings.mock.calls[0]?.[0].settings.excludedSites).toEqual([
     { hostname: "bank.example", includeSubdomains: false },
   ]);
   await expect
     .element(control("site-list"))
-    .toMatchTextContent("Default for https://bank.example. kept, unused while excluded");
+    .toMatchTextContent(
+      "The default for https://bank.example. is kept but not used while the site is excluded.",
+    );
   await expect
     .element(page.getByRole("button", { name: "Remove default for https://bank.example." }))
     .toBeVisible();
@@ -526,11 +532,11 @@ test("the add form excludes the entered origin's host, with its subdomains when 
     .toBeVisible();
   await control("site-origin").fill("http://localhost:8080");
   await control("add-site").click();
-  await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 1");
+  await expect.element(control("settings-status")).toMatchTextContent("saved (revision 1).");
   await control("site-origin").fill("bank.example");
   await control("site-subdomains").click();
   await control("add-site").click();
-  await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 2");
+  await expect.element(control("settings-status")).toMatchTextContent("saved (revision 2).");
   expect(client.saveSettings.mock.calls[1]?.[0].settings.excludedSites).toEqual([
     { hostname: "localhost", includeSubdomains: false },
     { hostname: "bank.example", includeSubdomains: true },
@@ -587,7 +593,7 @@ test("a rejected draft is not saved again until the next change", async () => {
   await expect.element(control("settings-status")).toMatchTextContent("Synthetic invalid settings");
   expect(client.saveSettings).toHaveBeenCalledTimes(1);
   await addSite("second.example");
-  await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 1");
+  await expect.element(control("settings-status")).toMatchTextContent("saved (revision 1).");
   expect(client.saveSettings).toHaveBeenCalledTimes(2);
   expect(client.saveSettings.mock.calls[1]?.[0]).toMatchObject({
     expectedRevision: 0,

@@ -9,20 +9,20 @@ export type StatusLine = { id: string; tone: StatusTone; text: string };
 const OUTCOMES: Record<string, string> = {
   "credential-rejected": "the site did not accept the password",
   "retry-limit": "the steps kept failing, and the retry limit was reached",
-  "submission-limit": "the sign-in was already submitted as often as allowed",
-  "unknown-submit": "the result after submitting could not be judged",
+  "submission-limit": "the login was already submitted as often as allowed",
+  "unknown-submit": "Pateat could not tell whether the login worked after it was submitted",
   "structural-mismatch": "the page did not match the recipe",
   timeout: "the page did not respond in time",
   "left-origin": "the tab moved to another site during the login",
-  interrupted: "the page moved before submitting, or the extension restarted",
+  interrupted: "the page moved on before submitting, or Pateat restarted",
   "value-mismatch": "a value did not fit its input, so nothing was filled",
   "fill-rejected": "the page marked a filled input as invalid, so nothing was pressed",
-  "wrong-account": "the page shows another account than the chosen one",
+  "wrong-account": "the page shows a different account from the one chosen",
   "account-switched": "the page showed another account, so the login switched accounts",
   "account-not-listed": "the list of accounts does not show this account",
   challenge: "the site asks for another step, such as a code",
   "challenge-abandoned": "the site's other step was not finished",
-  "watch-abandoned": "no later page showed that the sign-in finished",
+  "watch-abandoned": "no later page showed that the login finished",
   cancelled: "the login was cancelled",
   "policy-changed": "the settings or the vault changed during the login",
 };
@@ -45,7 +45,7 @@ const NOT_STARTED: Record<string, string> = {
   "stopped-login": "the last login on this site stopped in this tab",
   "first-step-missing": "the sign-in form shows, but the recipe's first step was not found",
   "no-recipe-on-path": "no recipe of this site starts on this page",
-  "logged-out": "you logged out of this site; choose an account to log in again",
+  "logged-out": "Pateat waits for you to choose an account",
   "account-ambiguous": "several accounts match; choose one to log in",
   "origin-busy": "another tab's login to this site is running or did not succeed",
   "tab-busy": "another login runs in this tab",
@@ -62,7 +62,7 @@ const NOT_STARTED: Record<string, string> = {
 const NOT_SENT: Record<string, string> = {
   sending: "another request for this page is already being sent to the AI",
   sent: "the AI was asked about this page within the last 10 minutes, so it is not asked again yet",
-  "not-connected": "Pateat is not connected to its service",
+  "not-connected": "this device is not paired with the sync service",
   "no-vault-match": "no vault item matches this site",
   "vault-unavailable": "the vault could not be read",
   "connection-disabled": "the vault connection is turned off",
@@ -185,7 +185,7 @@ function attemptLines(status: Status): StatusLine[] {
         text:
           login.outcome === "rejected"
             ? "The site did not accept the last login; choose an account to try again."
-            : "Logged out of this site in this tab.",
+            : "You were logged out of this site in this tab.",
       },
     ];
   const outcome = login.outcome ?? "";

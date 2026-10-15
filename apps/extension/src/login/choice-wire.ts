@@ -16,14 +16,25 @@ export const logoutReasonSchema = v.picklist([
   "stopped-login",
 ]);
 export type LogoutReason = v.InferOutput<typeof logoutReasonSchema>;
-/** The toolbar popup's line saying why it asks for an account (ADR 0021). */
-export function choiceReason(logout: LogoutReason | undefined, matches: number): string {
-  if (logout === undefined) return `${matches} accounts match this page`;
+/**
+ * The toolbar popup's line saying why it asks for an account (ADR 0021), which the icon's
+ * title repeats. `other-tab` covers both a logout and a rejected login in another tab;
+ * `rejectedElsewhere` names the rejection when the popup knows another tab still asks after one.
+ */
+export function choiceReason(
+  logout: LogoutReason | undefined,
+  matches: number,
+  rejectedElsewhere = false,
+): string {
+  if (logout === undefined) return `${matches} accounts match this page.`;
+  if (logout === "other-tab" && rejectedElsewhere)
+    return "The site did not accept a login in another tab.";
   return {
-    "this-tab": "You logged out of this site in this tab",
-    rejected: "The site did not accept the last login in this tab",
-    "other-tab": "You logged out of this site in another tab",
-    "stopped-login": "The last login on this site stopped in this tab",
+    "this-tab": "You were logged out of this site in this tab.",
+    rejected: "The site did not accept the last login in this tab.",
+    "other-tab":
+      "You were logged out of this site in another tab, or the site did not accept a login there.",
+    "stopped-login": "The last login on this site stopped in this tab.",
   }[logout];
 }
 /** The toolbar popup asks which accounts the refused login in a tab could use (ADR 0021). */

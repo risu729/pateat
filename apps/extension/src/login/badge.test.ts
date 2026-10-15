@@ -1330,7 +1330,7 @@ describe("page status", () => {
     await h.flush();
     expect(h.view()).toMatchObject(FAILED);
     expect(h.view().title).toBe(
-      "Pateat: the login did not succeed (no-route: password-empty:no-passkey). Open Pateat for details.",
+      "Pateat: the login did not succeed (no-route: password-empty:no-passkey). Click for details.",
     );
     // A failure stays.
     await vi.advanceTimersByTimeAsync(60_000);

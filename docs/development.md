@@ -541,7 +541,7 @@ Offline local-vault restoration is independent of that provider session.
 
 Each connection is a row with one main action, Sync, or Sign in again while syncing
 needs a sign-in first (the vault is locked, setup is incomplete, automatic unlock is
-off or the sync sign-in is missing). The other of the two, Disable automatic unlock,
+off or the sync sign-in is missing). The other of the two, Turn off automatic unlock,
 Forget sync sign-in and Delete connection are in the row's menu.
 
 Delete connection, confirmed in the row, removes one connection from this
@@ -554,8 +554,8 @@ Saved settings, recipes and their field-policy entries are not modified; anythin
 referred to the deleted connection resolves as an unavailable connection. This is how
 a connection left over by a failed first sign-in is removed.
 
-The add form's **Use this connection** choice becomes the **Use this vault** switch
-in the connection's row when the connection is added, before its first sign-in. If
+The add form's **Use this vault** choice becomes the same switch in the connection's
+row when the connection is added, before its first sign-in. If
 that sign-in does not finish, **Sign in again** completes the setup and keeps the
 choice. Sign-ins never change the entry; the policy is edited on the settings page.
 Like other saved settings, the entry stays after Delete connection.
