@@ -54,7 +54,7 @@ const commit = git("rev-parse", "--short=7", "HEAD");
 const observed = new Date().toLocaleDateString("sv-SE");
 
 const bundle = await Bun.build({
-  entrypoints: [new URL("../formasaurus/probe.ts", import.meta.url).pathname],
+  entrypoints: [fileURLToPath(new URL("../formasaurus/probe.ts", import.meta.url))],
   target: "browser",
   format: "iife",
 });
@@ -159,7 +159,8 @@ try {
 /**
  * Observes every corpus page again. A case whose label moves whole to the new observation
  * takes it, with today's date and this commit; any other keeps its old observation and is
- * reported for a person to relabel. Exits with 1 when a case was not refreshed.
+ * reported for a person to relabel. It exits normally either way, so the task still
+ * formats the corpus after a partial refresh.
  */
 async function refresh(on: Browser) {
   const file = values.corpus ?? `${root}packages/inference/src/corpus/japanese.json`;
@@ -203,5 +204,4 @@ async function refresh(on: Browser) {
   if (Object.values(results).includes("refreshed"))
     await writeFile(file, `${JSON.stringify(corpus, null, 2)}\n`);
   console.log(JSON.stringify(results, null, 2));
-  if (Object.values(results).some((result) => result !== "refreshed")) process.exitCode = 1;
 }
