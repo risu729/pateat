@@ -49,6 +49,7 @@ import {
   reconnectSchema,
   type ExecutionDetail,
   type LoginReadiness,
+  type StartMiss,
   type TargetRequirement,
   type TargetState,
 } from "./wire";
@@ -119,6 +120,22 @@ function targetState(
     (require === "shown-input" && !(textInput(element) && shown))
     ? "unusable"
     : "unique";
+}
+/**
+ * The HTTP status of this document's own load, when the browser reports one (proposed ADR
+ * 0041); a status the page cannot see, as for a cached or cross-origin redirected load,
+ * reads as 0 and is left out.
+ */
+function navigationStatus(): number | undefined {
+  try {
+    const [entry] = performance.getEntriesByType("navigation") as (PerformanceEntry & {
+      responseStatus?: number;
+    })[];
+    const status = entry?.responseStatus;
+    return typeof status === "number" && status >= 100 && status <= 599 ? status : undefined;
+  } catch {
+    return undefined;
+  }
 }
 /** Whether the page lists an account by its email, masked or not (ADR 0028). */
 function listsAccounts(): boolean {
@@ -396,15 +413,58 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       noteShown();
     }
   }
+  /** The first steps watched on this path, other than a chooser's list (ADR 0028). */
+  function watchedHere(): LoginReadiness[] {
+    return starts.filter((start) => start.path === location.pathname && !start.accounts);
+  }
   /**
-   * Reports, for the log only, a sign-in input that still shows without a ready first step
-   * after the step wait, once per path. A page that renders its form in parts starts its
+   * Whether the page asks for a sign-in: a password, username or one-time-code input, or,
+   * where a first step is watched on this path, an identifier alone (ADR 0016), as a
+   * recipe's identifier-first start page does (proposed ADR 0041).
+   */
+  function asksSignIn(): boolean {
+    return showsSignIn() || (watchedHere().length > 0 && identifierInput(document) === "sole");
+  }
+  /**
+   * What the first steps watched on this path miss (proposed ADR 0041): the targets that
+   * match no element or several, the page's language as its description reads it, and the
+   * HTTP status of this document's load, which a maintenance page served on the login
+   * page's URL usually answers with (503). Undefined where no first step is watched.
+   */
+  function startMiss(): StartMiss | undefined {
+    const watched = watchedHere();
+    if (!watched.length) return undefined;
+    const missing = new Map<string, LoginTarget>();
+    for (const start of watched)
+      for (const target of start.targets) {
+        const state = targetState(target, start.require);
+        if (state === "missing" || state === "ambiguous")
+          missing.set(JSON.stringify(target), target);
+      }
+    let language: StartMiss["language"];
+    try {
+      const described = extractLoginObservation(document);
+      if (described.ok) language = described.observation.language;
+    } catch {
+      language = undefined;
+    }
+    const status = navigationStatus();
+    return {
+      missing: [...missing.values()].slice(0, 20),
+      ...(language ? { language } : {}),
+      ...(status ? { status } : {}),
+    };
+  }
+  /**
+   * Reports a sign-in input that still shows without a ready first step after the step
+   * wait, once per path: for the log, and with what the first steps missed, for a stale
+   * recipe's repair (proposed ADR 0041). A page that renders its form in parts starts its
    * login before then and is not reported. The reply changes nothing here: the page keeps
-   * watching, and no generation is offered for it.
+   * watching until the background reconnects it, as after a repaired recipe.
    */
   function noteShown(): void {
     const path = location.pathname;
-    if (shownTimer || shown.has(path) || !showsSignIn()) return;
+    if (shownTimer || shown.has(path) || !asksSignIn()) return;
     shownTimer = setTimeout(() => {
       shownTimer = undefined;
       if (
@@ -413,15 +473,16 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         location.pathname !== path ||
         shown.has(path) ||
         starts.some(ready) ||
-        !showsSignIn()
+        !asksSignIn()
       )
         return;
       shown.add(path);
+      const miss = startMiss();
       void sendMessage("login", {
         version: 1,
         type: "login.document.ready",
         token,
-        shown: { path },
+        shown: { path, ...(miss ? { miss } : {}) },
       }).catch(() => undefined);
     }, LOGIN_STEP_WAIT_MS);
   }

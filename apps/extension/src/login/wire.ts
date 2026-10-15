@@ -91,6 +91,18 @@ export const HELD_CLICK_WAIT_MS = 120_000;
  * the wait (`sign-in-shown`).
  */
 export const unofferedReasons = ["no-list", "after-sign-in", "sign-in-shown"] as const;
+/**
+ * What the first steps watched on a path missed after the step wait (proposed ADR 0041):
+ * the targets that match no element or several, not those that match one element that is
+ * not usable yet; the page's language as its description reads it; and the HTTP status of
+ * the document's own load when the browser reports one.
+ */
+export const startMissSchema = v.strictObject({
+  missing: v.pipe(v.array(loginTargetSchema), v.maxLength(20)),
+  language: v.optional(v.picklist(["ja", "en", "mixed"])),
+  status: v.optional(v.pipe(v.number(), v.integer(), v.minValue(100), v.maxValue(599))),
+});
+export type StartMiss = v.InferOutput<typeof startMissSchema>;
 export const helloSchema = v.strictObject({
   version: v.literal(1),
   type: v.literal("login.document.ready"),
@@ -104,10 +116,12 @@ export const helloSchema = v.strictObject({
    */
   signIn: v.optional(v.strictObject({ path, identifier: v.optional(v.literal(true)) })),
   /**
-   * Such an input shows on this path but no first step is ready; sent once per path, only
-   * for the log of a login that did not start.
+   * Such an input shows on this path but no first step is ready; sent once per path, for
+   * the log of a login that did not start. On a path where a first step is watched, the
+   * page may instead ask for an identifier alone (ADR 0016), and `miss` says what the
+   * first steps there missed, for a stale recipe's repair (proposed ADR 0041).
    */
-  shown: v.optional(v.strictObject({ path })),
+  shown: v.optional(v.strictObject({ path, miss: v.optional(startMissSchema) })),
   /**
    * Ten seconds after loading, this path shows no sign-in input but lists accounts (ADR
    * 0028): an entry or a text beside at most three buttons with an email, masked or not.

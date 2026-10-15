@@ -116,7 +116,9 @@ export async function startLoginFixture(
       }, 1200);
       return;
     }
-    response.writeHead(200, {
+    // The `/sign-in?maintenance` page answers 503 (proposed ADR 0041).
+    const maintenance = path === "/sign-in" && fixtureUrl.searchParams.has("maintenance");
+    response.writeHead(maintenance ? 503 : 200, {
       "content-type": "text/html; charset=utf-8",
       "cache-control": "no-store",
     });
@@ -669,23 +671,38 @@ export async function startLoginFixture(
       // button; `?button=script-link` a `javascript:` link without an id, as SMBC Direct's.
       // `?marker=link` makes /account show an account link without an id instead of a
       // sign-out button, as ポイントインカム's header.
+      // `?redesign` gives the form other element IDs, as a site's new login page does, and
+      // `?maintenance` answers 503 with a page whose only input is no login field (proposed
+      // ADR 0041).
       const variant = fixtureUrl.searchParams.get("button");
       const account =
         fixtureUrl.searchParams.get("marker") === "link" ? "/account?marker=link" : "/account";
+      const redesign = fixtureUrl.searchParams.has("redesign");
+      const field = redesign ? "passcode" : "password";
       const button =
         variant === "anchor"
           ? '<a id="login" onclick="return false">Log in</a>'
           : variant === "script-link"
             ? '<a href="javascript:;" onclick="return false"><span>Log in</span></a>'
-            : '<button id="login" type="button">Log in</button>';
+            : redesign
+              ? '<button id="continue" type="button">Log in</button>'
+              : '<button id="login" type="button">Log in</button>';
+      if (maintenance) {
+        response.end(
+          html(
+            '<h1>Synthetic maintenance</h1><p>Back soon.</p><label>Admin key<input id="admin-key" type="password"></label>',
+          ),
+        );
+        return;
+      }
       response.end(
         html(
-          `<h1>Synthetic sign-in</h1><form><label>Password<input id="password" type="password"></label>${button}</form>`,
-          `document.querySelector('#login, form a').addEventListener('click', () => {
+          `<h1>Synthetic sign-in</h1><form><label>Password<input id="${field}" type="password"></label>${button}</form>`,
+          `document.querySelector('form button, form a').addEventListener('click', () => {
           sessionStorage.setItem('submitClicks', String(Number(sessionStorage.getItem('submitClicks') || 0) + 1));
-          sessionStorage.setItem('passwordMatched', String(document.getElementById('password').value === ${JSON.stringify(password)}));
+          sessionStorage.setItem('passwordMatched', String(document.getElementById(${JSON.stringify(field)}).value === ${JSON.stringify(password)}));
           const runId = new URLSearchParams(location.search).get('runId');
-          if (runId) void fetch('/effect/' + encodeURIComponent(runId), {method:'POST', keepalive:true, body:new URLSearchParams({source:'click', password:document.getElementById('password').value})});
+          if (runId) void fetch('/effect/' + encodeURIComponent(runId), {method:'POST', keepalive:true, body:new URLSearchParams({source:'click', password:document.getElementById(${JSON.stringify(field)}).value})});
           location.href = ${JSON.stringify(account)};
         });`,
         ),

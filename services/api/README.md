@@ -214,7 +214,21 @@ the path ending before it), or `{ check: "plan", reason }` with the plan check's
   locator names a passkey or security key, not named like a registration and not used by
   any set or the account switch is stored as the recipe's `passkey` route, any other is
   dropped without failing the call, and a continuation's is ignored. The request log
-  records the kept button.
+  records the kept button. A first page's recipe records the page's `language` (`ja` or
+  `en`; none for a page of mixed language).
+- `POST /v1/recipes/generate` also takes `repair: { recipeId, revision }` with a first
+  page (no `base` and no `accounts`) to repair a generated recipe whose start page no
+  longer matches (proposed [ADR 0041](../../docs/adr/0041-repair-stale-recipes.md)). The
+  recipe ID must be the page's own generated recipe (400 otherwise). A revision other
+  than the named one is returned as `recipe` without a model call, a revoked recipe
+  answers `recipe-revoked`, and a recipe that is not a generated login route recipe
+  answers `recipe-conflict`. The ADR 0016 retry window and the recipe limit do not
+  apply: `recipe_repairs` allows one repair per owner and recipe a UTC day, checked and
+  taken under the owner's lock with the spend limits (`unavailable` `repair-limit`), and
+  taken before the model is called, so an abstention or a role refusal spends it. The
+  repaired steps replace the recipe's as a new revision; the stale revision stays in the
+  history, and an answer whose start page equals the stale one returns the current
+  revision unchanged. The request log records `repair: { revision }`.
 - `POST /v1/recipes/generate` also takes `{ version: 1, observation }` without `slots`:
   an entry request ([ADR 0031](../../docs/adr/0031-sign-in-entry-pages.md)) for a page
   without a login form, whose observation has no fill candidate and no `accounts`, and

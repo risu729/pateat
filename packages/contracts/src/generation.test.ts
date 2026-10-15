@@ -67,6 +67,19 @@ describe("recipe generation contracts", () => {
       expect(v.is(recipeGenerationRequestSchema, invalid)).toBe(false);
   });
 
+  it("accepts a repair of a recipe's start page, never with a base or a list (ADR 0041)", () => {
+    const repair = { recipeId: "gen-1", revision: 3 };
+    expect(v.is(recipeGenerationRequestSchema, { version: 1, observation, slots, repair })).toBe(
+      true,
+    );
+    for (const invalid of [
+      { version: 1, observation, slots, repair: { recipeId: "gen-1", revision: 0 } },
+      { version: 1, observation, slots, repair, base: repair },
+      { version: 1, observation: { ...observation, accounts: ["Taro"] }, slots, repair },
+    ])
+      expect(v.is(recipeGenerationRequestSchema, invalid)).toBe(false);
+  });
+
   it("answers a chooser recipe for an account list or one of its branches (ADR 0028)", () => {
     const chooser = {
       version: 1,

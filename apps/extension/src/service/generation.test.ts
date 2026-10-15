@@ -959,6 +959,34 @@ describe("continuing a recipe after its final advance (ADR 0018)", () => {
   );
 });
 
+describe("repairing a stale recipe's start page (proposed ADR 0041)", () => {
+  const repair: RecipeGenerationRequest = {
+    ...request,
+    repair: { recipeId: recipeChange.recipeId, revision: 2 },
+  };
+
+  it("claims the repair under the revision it repairs, apart from the path's first page", async () => {
+    const h = setup();
+    // The page's first generation was sent minutes ago; its claim does not hold the repair.
+    expect(await h.generation.generate(request)).toMatchObject({ outcome: "recipe" });
+    expect(await h.generation.generate(repair)).toMatchObject({ outcome: "recipe" });
+    expect(h.transport.generateRecipe).toHaveBeenLastCalledWith(
+      connection.origin,
+      connection.credential,
+      repair,
+    );
+    expect(await h.generation.generate(repair)).toEqual({ outcome: "skipped", reason: "sent" });
+    // A repair of the next revision is a new claim.
+    expect(
+      await h.generation.generate({
+        ...repair,
+        repair: { recipeId: recipeChange.recipeId, revision: 3 },
+      }),
+    ).toMatchObject({ outcome: "recipe" });
+    expect(h.transport.generateRecipe).toHaveBeenCalledTimes(3);
+  });
+});
+
 describe("continuation claims and answers, probed independently (ADR 0018)", () => {
   const base = { recipeId: recipeChange.recipeId, revision: 1 };
   const continuation: RecipeGenerationRequest = { ...request, base };

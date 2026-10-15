@@ -17,6 +17,9 @@ that amendment; the service route enforces the retry window as well
 ADR 0021's [site count badge](0021-account-choice-outside-settings.md#site-count-badge)
 (not implemented): condition 2's vault match is no longer the only vault access a page
 without a recipe gets.
+Proposed [ADR 0041](0041-repair-stale-recipes.md) (implemented, pending the owner's
+approval) also sends a generated recipe's start page that misses its first step on two
+loads in a row, outside the retry window.
 
 Date: 2026-10-11
 
