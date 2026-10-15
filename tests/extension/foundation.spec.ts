@@ -498,7 +498,7 @@ test("local policies and account defaults survive a browser restart", async () =
           .selectOption(JSON.stringify(["demo-personal", "primary"]));
         // Each change is saved as it is made.
         await page.locator("#add-default").click();
-        await expect(page.locator("#settings-status")).toContainText("saved locally");
+        await expect(page.locator("#settings-status")).toContainText("Settings saved");
       },
       profile,
     );
@@ -570,7 +570,7 @@ test("a stale settings page preserves its draft and cannot overwrite newer polic
     );
     await first.locator("#site-origin").fill("protected.example");
     await first.locator("#add-site").click();
-    await expect(first.locator("#settings-status")).toContainText("saved locally");
+    await expect(first.locator("#settings-status")).toContainText("Settings saved");
     await second.locator("#site-origin").fill("draft.example");
     await second.locator("#add-site").click();
     await expect(second.locator("#settings-status")).toContainText("Reload");
