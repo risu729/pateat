@@ -462,9 +462,9 @@ holds:
 - `signedBefore` when Pateat had signed for this RP ID in the tab, so the request asks
   again, or `logoutClicked` when instead a control that logs out was clicked on the RP
   ID's site in the tab and still waits for the site's first step (at most 10 minutes,
-  while the tab stays on the site), or the tab keeps the logout state such a click began
-  (ADR 0021 D). Such a request that cannot open the window is delegated with
-  `chooser-unavailable`;
+  while the tab stays on the site), or, after such a click was used, the tab keeps a
+  logout state for an origin of the site (ADR 0021 D). Such a request that cannot open
+  the window is delegated with `chooser-unavailable`;
 - `cause`: for a `cancelled` outcome, who cancelled it (`page-cancelled` or
   `settings-changed`); for the `assertion-failed` reason, the step that threw
   (`login-wait`, `account-lookup`, `passkey-lookup`, `signed-before-lookup`, `chooser`

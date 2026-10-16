@@ -21,18 +21,23 @@ const innerLimit = 64;
 const logoutWords = /(?:^| )(?:log|sign) ?(?:out|off)(?: |$)/u;
 const logoutParts = ["ログアウト", "サインアウト", "ログオフ", "サインオフ"];
 /**
- * Words of a logout of other sessions, such as "Log out of other devices": "other" and
- * the like next to a word for a device, session or browser. "Sign out and use another
- * account" logs this session out, so it counts.
+ * Words of a logout of other devices, sessions or accounts, such as "Log out of other
+ * devices", "Sign out everywhere else" or 「このデバイス以外からログアウト」: "other" and
+ * the like within three words before a word for a device, session or browser, or
+ * "other" before an account. "Sign out and use another account" logs this session out,
+ * so it counts.
  */
 const otherWords = new Set(["other", "others", "another"]);
 const placeWords = /^(?:devices?|sessions?|browsers?|computers?|phones?|places?|locations?)$/u;
-const otherPlaces = /(?:他|ほか|別)の?(?:端末|デバイス|セッション|ブラウザ|場所|機器)|他端末/u;
+const accountWords = /^accounts?$/u;
+const elsewherePhrases = /(?:^| )(?:(?:except|but) this|everywhere else)(?: |$)/u;
+const otherPlaces =
+  /(?:他|ほか|別)の[^、。]{0,8}?(?:端末|デバイス|セッション|ブラウザ|場所|機器)|(?:他|ほか)の[^、。]{0,8}?アカウント|他端末|以外/u;
 
 /**
  * What a name says (ADR 0021 D): `logout` for words that log out, `elsewhere` when they
- * log other devices or sessions out instead, else nothing. English words match whole,
- * Japanese parts anywhere; no site name counts.
+ * log other devices, sessions or accounts out instead, else nothing. English words match
+ * whole, Japanese parts anywhere; no site name counts.
  */
 export function logoutName(name: string): "logout" | "elsewhere" | undefined {
   const text = name.normalize("NFKC");
@@ -44,11 +49,16 @@ export function logoutName(name: string): "logout" | "elsewhere" | undefined {
     return undefined;
   const list = words.split(" ");
   const elsewhere =
-    list.some(
-      (word, index) =>
-        otherWords.has(word) &&
-        list.slice(index + 1, index + 3).some((next) => placeWords.test(next)),
-    ) || otherPlaces.test(text);
+    list.some((word, index) => {
+      if (!otherWords.has(word)) return false;
+      const next = list.slice(index + 1, index + 4);
+      return (
+        next.some((later) => placeWords.test(later)) ||
+        (word !== "another" && next.some((later) => accountWords.test(later)))
+      );
+    }) ||
+    elsewherePhrases.test(words) ||
+    otherPlaces.test(text);
   return elsewhere ? "elsewhere" : "logout";
 }
 
@@ -114,10 +124,11 @@ const usable = (name: string) => {
  * `aria-labelledby` names, its `aria-label`, its rendered text (an input button's `value`
  * or `alt`) and its `title`; only when it has none of them, the names of the elements
  * inside it (an image's `alt`, an SVG `<title>`, an `aria-label` or a `title`, as an
- * icon's) and the text its `aria-describedby` names. None when its rendered text is
- * longer than a label, as a container of several controls is.
+ * icon's) and the text its `aria-describedby` names. Empty when its name, or its
+ * rendered text, is longer than a label, as a container of several controls is: such a
+ * control is named, just not by a label. `undefined` when it names nothing at all.
  */
-function ownNames(control: HTMLElement): string[] {
+function ownNames(control: HTMLElement): string[] | undefined {
   const text =
     control instanceof HTMLInputElement
       ? control.type === "image"
@@ -140,9 +151,10 @@ function ownNames(control: HTMLElement): string[] {
     element.getAttribute("aria-label") ?? "",
     element.getAttribute("title") ?? "",
   ]);
-  return [...inner, referencedText(control, "aria-describedby")].flatMap(
+  const names = [...inner, referencedText(control, "aria-describedby")].flatMap(
     (name) => usable(name) ?? [],
   );
+  return names.length ? names : undefined;
 }
 
 /** Whether `node` is a control or holds one, so its text names that control instead. */
@@ -194,7 +206,6 @@ export function clickedLogout(event: Event): boolean {
     .slice(0, controlDepth);
   const control = path.find((element) => isSetting(element) || isControl(element));
   if (!control || !isControl(control)) return false;
-  const own = ownNames(control);
-  const read = (own.length ? own : besideNames(control)).map(logoutName);
+  const read = (ownNames(control) ?? besideNames(control)).map(logoutName);
   return read.includes("logout") && !read.includes("elsewhere");
 }

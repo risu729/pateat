@@ -67,6 +67,14 @@ describe("logoutName", () => {
       "他の端末からログアウト",
       "ほかのデバイスをログアウト",
       "別のブラウザからサインアウト",
+      "他のすべての端末からログアウト",
+      "他のすべてのセッションからログアウト",
+      "このデバイス以外からログアウト",
+      "Sign out of all other active web sessions",
+      "Log out of all devices except this one",
+      "Sign out everywhere else",
+      "Log out of other accounts",
+      "ほかのアカウントからログアウト",
     ])
       expect(logoutName(name), name).toBe("elsewhere");
   });
@@ -117,6 +125,13 @@ describe("clickedLogout", () => {
     expect(click(`<button title="Log out">Settings</button>`, "button")).toBe(false);
     expect(
       click(`<button aria-label="Menu"><svg><title>Log out</title></svg></button>`, "svg"),
+    ).toBe(false);
+    // A name too long for a label still names the control, so the text beside it is not read.
+    expect(
+      click(
+        `<li><button aria-label="${"Open the menu of account actions and preferences ".repeat(2)}"><svg></svg></button><span>Log out</span></li>`,
+        "button",
+      ),
     ).toBe(false);
   });
 

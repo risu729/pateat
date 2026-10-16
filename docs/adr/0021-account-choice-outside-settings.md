@@ -373,16 +373,20 @@ expires within 10 minutes after such a click.
   described by a warning that it will log out does not count. A control that names
   nothing even so is named by the nearest text before or after it, at most three levels
   up, never across another control or out of a form. A name longer than 64 characters
-  does not count, and a control whose rendered text is that long names nothing, as a
-  container of several controls does.
+  does not count, and a control whose name or rendered text is that long counts as
+  named, so nothing else is read for it, as for a container of several controls.
 - A name counts when it holds "log out", "logout", "sign out", "log off" or "sign off"
   as whole words in English, or ログアウト, サインアウト, ログオフ or サインオフ
-  anywhere, after NFKC normalisation. A name that logs other devices or sessions out
-  does not count: "other", "others" or "another" followed within two words by a device,
-  session, browser, computer, phone, place or location ("Log out of other devices"), or
-  他の, ほかの or 別の before 端末, デバイス, セッション, ブラウザ, 場所 or 機器 (or
-  他端末). "Sign out and use another account" logs this session out, so it counts. Only
-  these fixed words count, never a site name (ADR 0033).
+  anywhere, after NFKC normalisation. A name that logs other devices, sessions or
+  accounts out does not count: "other", "others" or "another" followed within three
+  words by a device, session, browser, computer, phone, place or location ("Sign out of
+  all other active web sessions"), "other" or "others" followed within three words by an
+  account ("Log out of other accounts"), "except this", "but this" or "everywhere else",
+  or 他の, ほかの or 別の before 端末, デバイス, セッション, ブラウザ, 場所 or 機器 with
+  at most eight characters between, 他の or ほかの before アカウント the same way,
+  他端末, or 以外 (「このデバイス以外からログアウト」). "Sign out and use another
+  account" and 「ログアウトして別のアカウントでログイン」 log this session out, so they
+  count. Only these fixed words count, never a site name (ADR 0033).
 - Only on a page of an origin with recipes, and only the fact that such a control was
   clicked goes to the worker, never its text, the page's URL or a locator (ADR 0019).
 - The worker keeps the click by tab and registrable site, so the first step may show on
@@ -403,8 +407,8 @@ expires within 10 minutes after such a click.
   `logout-clicked`). A username-less passkey request for an RP ID of the site in the tab
   opens the chooser as after Pateat signed there, saying "You logged out of this site in
   this tab" (`passkey.request` marked `logoutClicked`), while the click waits and, once
-  used, while the tab keeps the logout state it began for an origin of the site, so a
-  "Sign in with a passkey" press on the sign-in page asks too.
+  used, while the tab keeps a logout state for an origin of the site, so a "Sign in with
+  a passkey" press on the sign-in page asks too.
 - No permission is added: the login content script already runs on every HTTPS page.
 - Also counted, by the words alone: a link or button whose name holds them without
   logging out, such as "Auto sign out settings", "Logout history" or "How do I log
@@ -415,7 +419,8 @@ expires within 10 minutes after such a click.
   control in a closed shadow root or a cross-origin frame of another site, a control on
   an origin without recipes (its page does not send the click), a logout that passes
   through a page of another site that Pateat reads (the tab left the site), a logout in
-  another tab or on another site (such as an identity provider), a keyboard shortcut
+  another tab or on another site (such as an identity provider), a logout link inside a
+  `<label>` or an editable region, a keyboard shortcut
   that logs out without a click, words in languages other than English and Japanese,
   and a first step that shows more than 10 minutes later.
 
