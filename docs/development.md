@@ -655,6 +655,14 @@ Pateat uses:
 
 [integration]: #integration-conditions-pending-candidates-remain-conditional
 
+DOM listeners that share an installation or effect lifetime use one locally owned
+`AbortController` and register with its `signal`: the code-submission watcher, passkey
+relay and service-pairing return listeners. Stopping the watcher or relay, or unmounting
+the effect, aborts that controller to remove only its listeners; capture flags and
+request cancellation behavior stay unchanged. Mutation observers still disconnect
+separately. Single-listener cleanup and Chrome extension events retain their existing
+removal APIs.
+
 ## Dependency policy
 
 Renovate inherits the pinned `risu729/renovate-config` preset, matching the other owner

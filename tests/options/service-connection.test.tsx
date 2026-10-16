@@ -168,6 +168,32 @@ test("retries once when the page is shown or focused again", async () => {
   expect(client.pair).toHaveBeenCalledTimes(2);
 });
 
+test("removes the return listeners on unmount while other page listeners stay active", async () => {
+  const client = mockClient();
+  client.pair.mockResolvedValue(failed("sign-in-needed"));
+  await render(<ServiceConnection client={client} pollMs={60_000} />);
+  await submitPair();
+  await expect.element(page.getByText(/in the new tab/)).toBeVisible();
+  expect(client.pair).toHaveBeenCalledOnce();
+  const controller = new AbortController();
+  const shown = vi.fn();
+  const focused = vi.fn();
+  document.addEventListener("visibilitychange", shown, { signal: controller.signal });
+  window.addEventListener("focus", focused, { signal: controller.signal });
+  try {
+    await cleanup();
+    document.dispatchEvent(new Event("visibilitychange"));
+    window.dispatchEvent(new Event("focus"));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(shown).toHaveBeenCalledOnce();
+    expect(focused).toHaveBeenCalledOnce();
+    expect(client.pair).toHaveBeenCalledOnce();
+    expect(client.openSignIn).toHaveBeenCalledOnce();
+  } finally {
+    controller.abort();
+  }
+});
+
 test("does not retry on focus before a sign-in page was opened", async () => {
   const client = mockClient();
   client.pair.mockResolvedValue(failed("unreachable"));

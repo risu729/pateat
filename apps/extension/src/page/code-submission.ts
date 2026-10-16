@@ -148,10 +148,12 @@ export function watchCodeSubmission(
       event = true;
   };
   const navigation = (page.defaultView as { navigation?: EventTarget } | null)?.navigation;
-  page.addEventListener("submit", onSubmit, true);
-  page.defaultView?.addEventListener("beforeunload", mark, true);
-  page.defaultView?.addEventListener("pagehide", mark, true);
-  navigation?.addEventListener("navigate", mark);
+  const controller = new AbortController();
+  const { signal } = controller;
+  page.addEventListener("submit", onSubmit, { capture: true, signal });
+  page.defaultView?.addEventListener("beforeunload", mark, { capture: true, signal });
+  page.defaultView?.addEventListener("pagehide", mark, { capture: true, signal });
+  navigation?.addEventListener("navigate", mark, { signal });
   return {
     typed: () => {
       if (typedAt !== undefined) return;
@@ -207,10 +209,7 @@ export function watchCodeSubmission(
     },
     stop: () => {
       observer.disconnect();
-      page.removeEventListener("submit", onSubmit, true);
-      page.defaultView?.removeEventListener("beforeunload", mark, true);
-      page.defaultView?.removeEventListener("pagehide", mark, true);
-      navigation?.removeEventListener("navigate", mark);
+      controller.abort();
     },
   };
 }
