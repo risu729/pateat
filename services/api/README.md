@@ -201,8 +201,9 @@ the path ending before it), or `{ check: "plan", reason }` with the plan check's
   every generated page, including continuations and entry pages, needs at least 32 KiB
   of byte room before the model call. A refused write after the call also answers
   `recipe-limit`. A judge write refused for bytes keeps the page's answer
-  (`challenge`, or `signed-in` once the recipe has a marker) and is logged; only a
-  first marker refused for bytes answers `recipe-limit`. A `base` that is not a
+  (`challenge`, or `signed-in` once the recipe has a marker or the page is on another
+  origin of the site) and is logged; only a first marker on the recipe's own origin
+  refused for bytes answers `recipe-limit`. A `base` that is not a
   generated recipe ID is 400. The model maps the
   slots, the plan is checked with `validatePagePlan`, and the steps are stored with a
   conditional write. Up to 20 slots are accepted; a slot with a `fieldName` (and

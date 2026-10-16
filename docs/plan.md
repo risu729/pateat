@@ -1752,9 +1752,8 @@ tests cover it.
   from `onclick`.
 - Every table is owner-scoped, and any identity the Access policy admits becomes an
   owner on first pairing. Per-owner [service limits](architecture.md#service-limits)
-  cap requests (120 a minute), active recipes (1,000) and kept recipe revisions (10),
-  sized for the owner's own use; a byte quota is still needed before the service is
-  offered to other people.
+  cap requests (120 a minute), active recipes (1,000 recipes and 1.5 MiB of their
+  documents) and kept recipe revisions (10), sized for the owner's own use.
 
 ## Passkey progress
 

@@ -1964,8 +1964,8 @@ people.
   page keeps its answer when the cap refuses its handler or marker write (owner,
   2026-10-16): a challenge page still answers `challenge`, and a signed-in page of a
   recipe that already has a marker, or of another origin of the site, still answers
-  `signed-in`; the refusal is logged. Only a first marker the cap refuses answers
-  `recipe-limit`. The cap and
+  `signed-in`; the refusal is logged. Only a first marker on the recipe's own origin
+  that the cap refuses answers `recipe-limit`. The cap and
   `MAX_RECIPE_CACHE_BYTES` are defined together in the contracts; no migration is
   required.
 - Unchanged. Settings are one document of at most 120 KiB per owner. The inference
