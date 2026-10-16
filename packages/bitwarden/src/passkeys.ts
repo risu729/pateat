@@ -66,9 +66,11 @@ export function decodeBitwardenBase64(value: string): Uint8Array | undefined {
   if (typeof value !== "string" || value.length === 0 || value.length > 1_400_000) return undefined;
   const urlSafe = /[-_]/u.test(value);
   if (urlSafe && /[+/]/u.test(value)) return undefined;
-  const body = value.replace(/=+$/u, "");
-  const padding = value.length - body.length;
-  if (padding > 0 && (padding > 2 || value.length % 4 !== 0)) return undefined;
+  // Take off at most two `=`; any further `=` stays in the body and fails the alphabet check.
+  // A regex like /=+$/ would backtrack quadratically on a long run of `=` before another character.
+  const padding = value.endsWith("==") ? 2 : value.endsWith("=") ? 1 : 0;
+  if (padding > 0 && value.length % 4 !== 0) return undefined;
+  const body = value.slice(0, value.length - padding);
   if (!/^[A-Za-z0-9+/_-]*$/u.test(body)) return undefined;
   try {
     // Strict decoding rejects a one-character final chunk and non-zero trailing bits.
