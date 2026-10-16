@@ -788,6 +788,11 @@ Once the fixes have settled:
     deviation (medium), and [#639](https://github.com/risu729/pateat/issues/639) a
     quadratic padding regex in the Bitwarden passkey decoder (low). Which scans run
     later, and when, is still open.
+  - The owner's triage (2026-10-16 19:14 UTC): #638 is by design (ADR 0007) and was
+    closed without a change; fix #636 and #637 first, then #639 if Bitwarden's own
+    extension shows a simple way to avoid it. The scan's report is committed as
+    [2026-10-16-claude-security](research/2026-10-16-claude-security/CLAUDE-SECURITY-RESULTS.md),
+    reformatted for the repository's Markdown and JSON checks.
 
 ### Phase 4: issues and work as needed
 
