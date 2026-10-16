@@ -20,6 +20,24 @@ wait_for = [
 ]
 run = "node ../../node_modules/wxt/bin/wxt.mjs build --browser chrome"
 
+[tasks.zip]
+description = "Build the production extension and pack it as the release ZIP."
+depends = [":prepare"]
+# Like :build, it rewrites .wxt and the production output.
+wait_for = [
+  ":build",
+  ":build:probe",
+  ":typecheck",
+  ":test:connections",
+  ":test:crypto",
+  ":test:login",
+  ":test:messaging",
+  ":test:passkeys",
+  ":test:service",
+  ":test:vault",
+]
+run = "node ../../node_modules/wxt/bin/wxt.mjs zip --browser chrome"
+
 [tasks."build:probe"]
 description = "Build the isolated synthetic browser-test variant."
 depends = [":build"]

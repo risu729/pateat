@@ -1,8 +1,10 @@
 # CI and server delivery
 
 Status: CI and guarded server delivery after main CI are implemented, and the service
-has been released automatically to `pateat.takuk.me` since 2026-10-11. Extension
-releases on GitHub Releases, Chrome Web Store publishing if its policies allow, and a
+has been released automatically to `pateat.takuk.me` since 2026-10-11. A manual workflow
+packs an extension release as a draft GitHub Release ([extension
+releases](#extension-releases)); no extension release has been drafted or published yet.
+Automatic extension releases, Chrome Web Store publishing if its policies allow, and a
 mode without the service are planned for [phase 3](plan.md#phase-3-public-release).
 
 ## Current foundation workflows
@@ -226,6 +228,72 @@ the failed main run's jobs. Routine
 releases never change the Custom Domain or other triggers; the bootstrap applies them
 once. The complete service release gates below remain planned, including automatic
 promotion/failure acknowledgement.
+
+## Extension releases
+
+`release.yml` ("Extension release") packs the production extension and the source meant
+to meet the [binary distribution gate](sdk-source.md#binary-distribution-gate) and opens
+a draft GitHub Release; the owner checks and publishes the draft by hand. These defaults
+are Claude's, pending the owner's confirmation: the workflow runs only when started by
+hand (`workflow_dispatch`), it never publishes a release, it uploads nothing to the
+Chrome Web Store and it uses no signing key. The version is `version` in
+`apps/extension/package.json` (x.y.z), and the release's tag is `v<version>`.
+
+The `Pack` job (read-only token) checks out the revision, installs the locked tools and
+dependencies, runs `mise run check:sdk-source` and `mise run //apps/extension:zip`
+(WXT's production build and ZIP), then `.github/scripts/extension-release.mjs pack`.
+Every WXT build, including the Worker bundle, records the third-party packages it
+bundles in `apps/extension/.output/<output directory>.packages.json` (for the production
+build, `chrome-mv3.packages.json`)
+(`apps/extension/bundled-packages.ts`, a Vite plugin that does not change the output):
+the installed package of each module in each chunk, and each package whose license
+banner (`/*! name vX.Y.Z | ...`) a stylesheet keeps, which is how Tailwind's own CSS
+shows up, since Tailwind inlines it without making it a module.
+That script refuses a dirty checkout, another revision than `PATEAT_REVISION`, and a
+manifest that is not the production build of that version (fixed `key`, HTTPS-only host
+access). It writes to `work/extension-release/`:
+
+- `pateat-<version>-chrome.zip`: the built extension.
+- `pateat-<version>-source.tar.gz`: `git archive` of the revision under
+  `pateat-<version>/`, plus `third-party-source/` with a `README.md`, the Bitwarden
+  SDK source at the commit the installed package's `VERSION` names (downloaded from
+  `github.com/bitwarden/sdk-internal/archive/<commit>.tar.gz`), and under `npm/` the
+  registry tarball of every recorded package with an `index.json`. Each recorded package
+  must be pinned in `bun.lock`, and each tarball must match its `bun.lock` integrity. On
+  2026-10-15 the production build recorded 38 packages, among them `wxt`'s own run-time
+  modules, `@bitwarden/sdk-internal` and `tailwindcss`; a local dry run with a stand-in
+  for the SDK archive, which that container could not download, made a source archive of
+  about 24 MB.
+- `release.json`: repository, revision, version, tag, event, ref, workflow run, the SDK
+  version, commit, archive URL and digest, every bundled package with its integrity, and
+  the size and SHA-256 of both files above.
+- `SHA256SUMS` of the ZIP, the source archive and `release.json`, and `notes.md`, the
+  release text with the same digests and links to the revision, the run and the SDK
+  source.
+
+The job summary lists the digests, and the files are uploaded as the
+`extension-release-<sha>` artifact. With the `dry-run` input, which any branch may use,
+the run stops there. Otherwise only main may run it, and the `Draft release` job, which
+alone holds `contents: write` and never checks out or runs repository code, downloads
+that artifact, checks `SHA256SUMS` and that `release.json` names this revision, requires
+the revision's latest `CI Check` to have passed, refuses a version that already has a
+release (draft or published) or tag, and stops on any lookup error other than "not
+found", since `gh` would attach the draft to an existing tag, and creates the draft for
+`v<version>` targeting the revision with the ZIP, the source archive, `release.json` and
+`SHA256SUMS`. A draft creates no tag; publishing it creates `v<version>` at that
+revision. Raise the version in `apps/extension/package.json` before the next release.
+
+Before publishing a draft, the owner:
+
+1. Downloads its files and runs `sha256sum --check SHA256SUMS`.
+2. Unpacks the source archive and checks that `third-party-source/` holds the SDK
+   archive and the package tarballs its `README.md` lists, then loads the ZIP with Load
+   unpacked in Chrome and checks that `legal.html` links the same SDK commit.
+3. Settles the [open questions](sdk-source.md#release-archives) on what the source must
+   include; until then the release text calls the archive "its source", not
+   Corresponding Source.
+4. Publishes it, and keeps the published release and its files for as long as
+   [the gate](sdk-source.md#binary-distribution-gate) requires.
 
 ## Repository configuration
 
