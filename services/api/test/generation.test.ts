@@ -218,6 +218,16 @@ const rows = (sql: string, ...values: unknown[]) =>
 const month = () => new Date().toISOString().slice(0, 7);
 const day = () => new Date().toISOString().slice(0, 10);
 
+/** Only the retention delete fails; inserts, spend corrections and recipe reads use D1. */
+function failLogPurge() {
+  const prepare = env.DB.prepare.bind(env.DB);
+  return vi.spyOn(env.DB, "prepare").mockImplementation((query) => {
+    if (/^delete from "inference_log"/iu.test(query))
+      throw new Error("synthetic private log values");
+    return prepare(query);
+  });
+}
+
 /** Generates the two-page recipe and returns its last change. */
 async function twoPageRecipe(device: Device) {
   replies.push({ text: plan([["email", "email"]], "next", "advance") });
@@ -559,15 +569,90 @@ describe("recipe generation", () => {
       (row) => row.id,
     );
     expect(ids).toEqual([kept]);
+  });
 
-    // Reading recipes deletes them too, without any new call.
-    const later = `log-${crypto.randomUUID()}`;
-    await insert(later, 91 * DAY_MS).run();
+  it("deletes expired logs and keeps 89-day logs when recipes are read without a call", async () => {
+    const device = await owner({ claude: false });
+    const insert = (id: string, age: number) =>
+      env.DB.prepare(
+        "INSERT INTO inference_log (id, owner_id, role, provider, model_id, origin, path, request, outcome, cost_micro_usd, created_at) VALUES (?, ?, 'generate', 'anthropic', 'm', ?, '/', '{}', 'ok', 0, ?)",
+      ).bind(id, device.ownerId, ORIGIN, Date.now() - age);
+    const expired = `log-${crypto.randomUUID()}`;
+    const kept = `log-${crypto.randomUUID()}`;
+    await env.DB.batch([insert(expired, 91 * DAY_MS), insert(kept, 89 * DAY_MS)]);
     const feed = await exports.default.fetch("https://pateat.invalid/v1/recipes", {
       headers: { Authorization: `Bearer ${device.token}` },
     });
     expect(feed.status).toBe(200);
-    expect(await rows("SELECT id FROM inference_log WHERE id = ?", later)).toEqual([]);
+    expect(await feed.json()).toEqual({ version: 1, changes: [], cursor: 0, complete: true });
+    expect(await rows("SELECT id FROM inference_log WHERE id IN (?, ?)", expired, kept)).toEqual([
+      { id: kept },
+    ]);
+    expect(sent).toHaveLength(0);
+  });
+
+  it("serves the recipe feed when the retention delete fails and logs no error values", async () => {
+    const device = await owner();
+    replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    const generated = await generate(device, emailPage);
+    if (generated.status !== "recipe") throw new Error(generated.status);
+    const purge = failLogPurge();
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const feed = await exports.default.fetch("https://pateat.invalid/v1/recipes", {
+        headers: { Authorization: `Bearer ${device.token}` },
+      });
+      expect(feed.status).toBe(200);
+      expect(await feed.json()).toEqual({
+        version: 1,
+        changes: [generated.change],
+        cursor: 1,
+        complete: true,
+      });
+      expect(purge).toHaveBeenCalledWith(expect.stringMatching(/^delete from "inference_log"/iu));
+      expect(error.mock.calls).toEqual([["Inference log purge failed"]]);
+    } finally {
+      purge.mockRestore();
+      error.mockRestore();
+    }
+  });
+
+  it("records a paid call and its corrected spend when the retention delete fails", async () => {
+    const device = await owner();
+    replies.push({
+      text: plan([["email", "email"]], "next", "advance"),
+      usage: { input_tokens: 3_000, output_tokens: 900 },
+    });
+    const purge = failLogPurge();
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(await generate(device, emailPage)).toMatchObject({ status: "recipe" });
+      expect(
+        await rows(
+          "SELECT outcome, input_tokens, output_tokens, cost_micro_usd FROM inference_log WHERE owner_id = ?",
+          device.ownerId,
+        ),
+      ).toEqual([
+        { outcome: "ok", input_tokens: 3_000, output_tokens: 900, cost_micro_usd: 30_000 },
+      ]);
+      expect(
+        await rows(
+          "SELECT period, calls, cost_micro_usd FROM inference_spend WHERE owner_id = ? ORDER BY period",
+          device.ownerId,
+        ),
+      ).toEqual([
+        { period: month(), calls: 1, cost_micro_usd: 30_000 },
+        { period: day(), calls: 1, cost_micro_usd: 30_000 },
+      ]);
+      expect(
+        await rows("SELECT lock_id FROM inference_locks WHERE owner_id = ?", device.ownerId),
+      ).toEqual([]);
+      expect(purge).toHaveBeenCalledWith(expect.stringMatching(/^delete from "inference_log"/iu));
+      expect(error.mock.calls).toEqual([["Inference log purge failed"]]);
+    } finally {
+      purge.mockRestore();
+      error.mockRestore();
+    }
   });
 
   it("generates the next form of a login that stays on one path", async () => {

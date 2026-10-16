@@ -22,6 +22,8 @@ Amended on 2026-10-12 by the owner's decision on a sign-in form's lone `new-pass
 field ([Decision](#decision)), which the plan check implements.
 Amended on 2026-10-12: every number on the page shown after sign-in becomes `[number]`
 ([Architecture](../architecture.md#declarative-recipes-and-ai)).
+Amended on 2026-10-14: [retention purge failures](#retention-purge-failures)
+are isolated from sync and call logging (implemented).
 
 Date: 2026-10-11
 
@@ -282,6 +284,12 @@ Implementation choices for the page after a recipe's final `advance` step, made 
   page is sent to be continued rather than judged. A sign-in form whose only password
   field is marked `new-password`, which a first page may fill since 2026-10-12, is not
   continued after an `advance` step: such a page is judged.
+
+### Retention purge failures
+
+The owner chose this amendment on 2026-10-14 at 07:24 UTC
+([issue #543](https://github.com/risu729/pateat/issues/543)): a failed purge is logged
+without request or error values and never fails recipe sync or the call log.
 
 ## Consequences
 
