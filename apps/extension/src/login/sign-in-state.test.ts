@@ -60,6 +60,21 @@ describe("reachedReturnTarget", () => {
       ),
     ).toBe(true);
   });
+  it("refuses malformed current URLs and skips malformed return values", () => {
+    for (const current of ["https://[", "/settings"])
+      expect(reachedReturnTarget(`${start}?r=/settings`, current, [])).toBe(false);
+    const invalid = encodeURIComponent("https://[");
+    expect(reachedReturnTarget(`${start}?r=${invalid}`, "https://login.example/settings", [])).toBe(
+      false,
+    );
+    expect(
+      reachedReturnTarget(
+        `${start}?r=${invalid}&next=/settings`,
+        "https://login.example/settings",
+        [],
+      ),
+    ).toBe(true);
+  });
   it("refuses other origins, the top page, sign-in paths and the start page", () => {
     expect(
       reachedReturnTarget(`${start}?r=//evil.example/home`, "https://login.example/home", []),

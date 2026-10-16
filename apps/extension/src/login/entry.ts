@@ -6,13 +6,7 @@
 /** Whether `url` is on the page's site; the worker compares registrable domains. */
 export type OnSite = (url: URL) => boolean;
 
-const parse = (value: string, base?: URL) => {
-  try {
-    return new URL(value, base);
-  } catch {
-    return undefined;
-  }
-};
+const parse = (value: string, base?: URL) => URL.parse(value, base) ?? undefined;
 
 /**
  * Every URL a query key or value could lead to, as the URL parser reads it: on its own as

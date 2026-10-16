@@ -320,8 +320,11 @@ const entryBlockSchema = v.strictObject({
 type EntryBlock = v.InferOutput<typeof entryBlockSchema>;
 /** The registrable domain of an origin or URL, as Bitwarden's Domain match compares it. */
 function siteOf(value: string | URL): string | undefined {
+  const url = typeof value === "string" ? URL.parse(value) : value;
+  if (!url) return undefined;
+  // Keep domain matching failures separate from an invalid URL.
   try {
-    return domainKey(typeof value === "string" ? new URL(value) : value);
+    return domainKey(url);
   } catch {
     return undefined;
   }
@@ -2232,12 +2235,7 @@ export function createLoginRuntime(
     const live = documents.get(frameKey({ tabId, frameId: 0 }));
     // The tab's own URL, since its page may not have announced yet.
     const url = (await browser.tabs.get(tabId).catch(() => undefined))?.url ?? live?.url;
-    let page: URL | undefined;
-    try {
-      page = url ? new URL(url) : undefined;
-    } catch {
-      page = undefined;
-    }
+    const page = url ? (URL.parse(url) ?? undefined) : undefined;
     // The popup shows its page section only on HTTPS pages.
     if (page?.protocol !== "https:") return { ok: false, reason: "no-page" };
     const { origin: pageOrigin, pathname: path } = page;
@@ -8058,12 +8056,7 @@ export function createLoginRuntime(
       return;
     }
     // A tab with no URL yet, or one that does not parse, shows nothing to judge.
-    let parsed: URL | undefined;
-    try {
-      parsed = url ? new URL(url) : undefined;
-    } catch {
-      parsed = undefined;
-    }
+    const parsed = url ? (URL.parse(url) ?? undefined) : undefined;
     const web = parsed !== undefined && /^https?:$/u.test(parsed.protocol);
     if (web && siteOf(parsed!) !== siteOf(press.origin)) return settleEntry(press, "left-site");
     // A page of the site that has not announced yet, as one still loading, and a tab
@@ -8157,11 +8150,8 @@ export function createLoginRuntime(
     if (!parsed.success) return undefined;
     const onSite = sameSiteAs(live.url);
     return parsed.output.hosts.filter((host) => {
-      try {
-        return onSite(new URL(`https://${host}`));
-      } catch {
-        return false;
-      }
+      const url = URL.parse(`https://${host}`);
+      return url !== null && onSite(url);
     });
   }
   /**
@@ -8384,12 +8374,8 @@ export function createLoginRuntime(
       if (state !== "unique") return refuseEntry(live, recipe, `target-${state}`);
       if (refusal) return refuseEntry(live, recipe, refusal);
       if (!href) return refuseEntry(live, recipe, "not-link");
-      let destination: URL;
-      try {
-        destination = new URL(href);
-      } catch {
-        return refuseEntry(live, recipe, "link-off-site");
-      }
+      const destination = URL.parse(href);
+      if (!destination) return refuseEntry(live, recipe, "link-off-site");
       const linkCheck = linkRefusal(destination, sameSiteAs(url), new URL(url));
       if (linkCheck) return refuseEntry(live, recipe, linkCheck);
       // The page's own URL, as the content script reads it, must still name the path too.

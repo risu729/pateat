@@ -82,6 +82,8 @@ describe("provider endpoint admission", () => {
     "https://vault.example.test/../",
     "https://vault.example.test\\custom",
     "https://vault.example.test:invalid",
+    "https://[",
+    "/vault",
     "not-a-provider-url",
   ])("rejects an inadmissible server URL before any request: %s", (baseUrl) => {
     const fetch = vi.fn<Fetch>();

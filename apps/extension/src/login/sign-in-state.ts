@@ -84,26 +84,18 @@ export function reachedReturnTarget(
   current: string,
   excluded: readonly string[],
 ): boolean {
-  let startUrl: URL;
-  let currentUrl: URL;
-  try {
-    startUrl = new URL(start);
-    currentUrl = new URL(current);
-  } catch {
-    return false;
-  }
+  const startUrl = URL.parse(start);
+  if (!startUrl) return false;
+  const currentUrl = URL.parse(current);
+  if (!currentUrl) return false;
   if (currentUrl.origin !== startUrl.origin) return false;
   const path = currentUrl.pathname;
   if (path === "/" || path === startUrl.pathname || excluded.includes(path)) return false;
   for (const value of startUrl.searchParams.values()) {
     // A protocol-relative `//host/path` names another origin.
     if (!/^\/(?!\/)|^https?:/iu.test(value)) continue;
-    let target: URL;
-    try {
-      target = new URL(value, startUrl.origin);
-    } catch {
-      continue;
-    }
+    const target = URL.parse(value, startUrl.origin);
+    if (!target) continue;
     if (target.origin === startUrl.origin && target.pathname === path) return true;
   }
   return false;

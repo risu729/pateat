@@ -217,12 +217,8 @@ export function createPasskeyChooser(browser: ChooserBrowser): PasskeyChooser & 
     },
 
     handle(message, sender) {
-      let url: URL;
-      try {
-        url = new URL(sender.url ?? "");
-      } catch {
-        return undefined;
-      }
+      const url = URL.parse(sender.url ?? "");
+      if (!url) return undefined;
       if (url.origin !== page.origin || url.pathname !== page.pathname) return undefined;
       return (async (): Promise<ChooserResponse> => {
         const parsed = v.safeParse(chooserMessageSchema, message);

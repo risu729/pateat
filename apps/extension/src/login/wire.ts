@@ -589,12 +589,13 @@ export const configureSchema = v.strictObject({
   origin: v.pipe(
     v.string(),
     v.check((origin) => {
-      try {
-        const url = new URL(origin);
-        return url.origin === origin && url.protocol === "http:" && url.hostname === "127.0.0.1";
-      } catch {
-        return false;
-      }
+      const url = URL.parse(origin);
+      return (
+        url !== null &&
+        url.origin === origin &&
+        url.protocol === "http:" &&
+        url.hostname === "127.0.0.1"
+      );
     }),
   ),
   /** Probe-only explicit account binding; the default is the bundled demo item. */
