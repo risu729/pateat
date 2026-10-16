@@ -642,8 +642,10 @@ own `<form>` start tag and take its inputs. The step is also refused, with
 `form-owner-detached`, when a filled input or the clicked control belongs to a form that
 is not its nearest ancestor `<form>` and no `form` attribute names it, which only the
 parser does, as for a form left open by such markup or a `<form>` placed directly in a
-`<table>` (a known limitation for legacy table layouts). Both end the attempt
-`structural-mismatch`. A click outside any form, or on a control that does not submit
+`<table>` (a known limitation for legacy table layouts). A refused fill step is
+retried like any other failed fill and then ends the attempt `retry-limit`; a refused
+click ends it `structural-mismatch` and moves it to reconciling, as other failed clicks
+do. A click outside any form, or on a control that does not submit
 one, is not a form submission and is not checked here. A provider password goes only
 into a password input, and a TOTP code only into a one-time-code or short numeric
 input, so a recipe cannot place them in a search box. A
