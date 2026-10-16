@@ -5,7 +5,10 @@ logged only, as `login.state`) is implemented. The owner started delivery 2 (act
 it) on 2026-10-12 at 06:58 UTC; its outcome table is implemented (completing on evidence
 first, the other rows on 2026-10-12 after 14:22 UTC), and so are the header and
 navigation text for the judge, the list of learned markers, and sendable pages with a
-token-like path or a field no locator names (owner, 19:23 UTC). Amended on 2026-10-12
+token-like path or a field no locator names (owner, 19:23 UTC). Amended on 2026-10-16 by
+[ADR 0039](0039-redacted-token-path-segments.md) (owner, 14:10 UTC, implemented): the
+`[id]` path rule below applies to every observed page, and a handler may be learned on a
+path with `[id]`; see "Pages that could not be sent". Amended on 2026-10-12
 (13:08 UTC, owner's choice) by
 [ADR 0027](0027-per-account-login-routes.md#watching-after-a-challenge): the pages of a
 login watched after `challenge` or an unknown result; see the end of the implementation
@@ -374,7 +377,11 @@ such a segment share one judgement row, and a locator on a judged page never use
 attribute value that may be a token. Since a sign-in field left out of the description
 could no longer be seen by the service, a page where S1 holds, on any path, is not sent
 to the judge. Which field was unlocated on each site is inferred; Cloudflare's reason is
-inferred from its path.
+inferred from its path. Amended on 2026-10-16 by
+[ADR 0039](0039-redacted-token-path-segments.md): every observed page now carries `[id]`
+the same way, a login page with such a path is no longer refused, and since the
+extension compares a live page through the same redacted path, a page on a path with
+`[id]` may get a handler.
 
 Disabled fields (owner, 2026-10-12 22:03 UTC, 「除いて慎重に」): on 2026-10-12 at 21:29
 UTC, after the owner solved Q-move's CAPTCHA and signed in, its history page had a

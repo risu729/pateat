@@ -16,7 +16,10 @@ that amendment; the service route enforces the retry window as well
 ([API README](../../services/api/README.md#recipe-generation)). Amended on 2026-10-13 by
 ADR 0021's [site count badge](0021-account-choice-outside-settings.md#site-count-badge)
 (not implemented): condition 2's vault match is no longer the only vault access a page
-without a recipe gets.
+without a recipe gets. Amended on 2026-10-16 by
+[ADR 0039](0039-redacted-token-path-segments.md) (owner, 14:10 UTC, implemented): a page
+whose path may carry a token is observed and sent with `[id]` in place of each such
+segment, replacing the 2026-10-11 choice below that such a page is never observed.
 
 Date: 2026-10-11
 
@@ -72,6 +75,9 @@ new owner decision:
   path never reaches the service or the [ADR 0012](0012-inference-request-log.md)
   request log
   ([AI evaluation harness progress](../plan.md#ai-evaluation-harness-progress)).
+  Replaced on 2026-10-16 by [ADR 0039](0039-redacted-token-path-segments.md): such a
+  page is sent with `[id]` in place of each such segment, so the token still never
+  leaves the device.
 - Only a page that shows such an input within 10 seconds of loading is sent, the same
   wait a login step gets; a form shown later, for example after a click, is not. Since
   2026-10-12, a page that could be sent but shows nothing to send by then is logged at
