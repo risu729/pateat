@@ -338,9 +338,9 @@ function locatorIndex(document: Document): LocatorIndex {
  * and names often carry the account, and a value that may be a token (`tokenSegment`),
  * such as an account ID, is skipped too. With `tokens` only such a value is skipped,
  * which every page whose path had a segment replaced asks for (ADR 0039), so a token its
- * path carries never reaches the service through an ID or a name. With `links`, a link is located by its text too,
- * which only an account switch uses: the text must name no other link and no button.
- * With `paths`, which only a signed-in page's markers use (ADR 0029), a link to the
+ * path carries never reaches the service through an ID or a name. With `links`, a link
+ * is located by its text too, which only an account switch uses: the text must name no
+ * other link and no button. With `paths`, which only a signed-in page's markers use (ADR 0029), a link to the
  * page's own origin is located by its path before its text, when no other link goes there,
  * the path carries no number or token and no segment repeats the link's text or one or
  * two words of the page's header (`paths` holds those words, `shownWords`), so an account

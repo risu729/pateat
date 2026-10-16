@@ -382,10 +382,10 @@ type UnsavedChoice = {
  * Settings with the choice added where missing, or replacing the site default for an
  * account picked to become it; the same object when nothing changes.
  */
-/** A document's path before its token-like segments are replaced (ADR 0039). */
-const rawPath = (live: LiveDocument) => new URL(live.url).pathname;
 const withChoice = (value: SettingsSnapshot["settings"], choice: UnsavedChoice) =>
   saveLoginChoice(value, choice.binding, { replace: choice.replace === true });
+/** A document's path before its token-like segments are replaced (ADR 0039). */
+const rawPath = (live: LiveDocument) => new URL(live.url).pathname;
 type LiveDocument = {
   document: LoginDocument;
   token: string;
