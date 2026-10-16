@@ -938,10 +938,12 @@ describe("extractLoginObservation", () => {
     ]);
   });
 
-  it("refuses paths with matrix parameters and documents without a location", () => {
+  it("sends a path with a matrix parameter as [id], and refuses documents without a location", () => {
     page(`<input id="u">`);
     history.replaceState(null, "", "/login.do;jsessionid=SYNTHETIC123");
-    expect(extractLoginObservation()).toEqual({ ok: false, reason: "unsupported-page" });
+    // The whole segment goes, never the session ID (ADR 0039).
+    expect(extractLoginObservation()).toMatchObject({ ok: true, observation: { path: "/[id]" } });
+    expect(JSON.stringify(extractLoginObservation())).not.toContain("SYNTHETIC123");
     const detached = document.implementation.createHTMLDocument();
     expect(extractLoginObservation(detached)).toEqual({ ok: false, reason: "unsupported-page" });
   });
@@ -1341,13 +1343,13 @@ describe("extractLoginObservation", () => {
     expect(observe().complete).toBe(true);
   });
 
-  it("refuses paths that may carry a session ID or token, and hides them on a signed-in page", () => {
+  it("sends each path segment that may carry a session ID or token as [id] on every page (ADR 0039)", () => {
     page(`<input id="u"><input id="p" type="password"><button id="go">Log in</button>`);
     const magento = btoa("https://shop.example/en/?SID=synthetic0session1&___SID=U")
       .replaceAll("+", "-")
       .replaceAll("/", "_")
       .replaceAll("=", ",");
-    for (const refused of [
+    for (const redacted of [
       "/(S(lit3py55t21z5))/default.aspx",
       `/customer/account/login/referer/${magento}/`,
       // An `=`, such as base64 padding.
@@ -1360,24 +1362,38 @@ describe("extractLoginObservation", () => {
       "/s/0123456789abcdef0123456789abcdef/login",
       "/login/sid1234567890123456",
     ]) {
-      history.replaceState(null, "", refused);
-      expect(extractLoginObservation(), refused).toEqual({ ok: false, reason: "unsupported-page" });
-      // A signed-in page is described with each such segment replaced (ADR 0029).
+      history.replaceState(null, "", redacted);
+      // A login page and a signed-in page carry the same path, each such segment replaced
+      // as a whole, so the token never leaves the device.
+      const login = extractLoginObservation();
       const signedIn = extractSignedInObservation();
-      if (!signedIn.ok) throw new Error(refused);
-      expect(signedIn.observation.path, refused).toContain("/[id]");
-      expect(signedIn.observation.path.split("/").length, refused).toBe(refused.split("/").length);
+      if (!login.ok || !signedIn.ok) throw new Error(redacted);
+      expect(login.observation.path, redacted).toContain("/[id]");
+      expect(login.observation.path.split("/").length, redacted).toBe(redacted.split("/").length);
+      expect(signedIn.observation.path, redacted).toBe(login.observation.path);
     }
-    history.replaceState(null, "", "/0123456789abcdef0123456789abcdef/home");
-    expect(extractSignedInObservation()).toMatchObject({
-      ok: true,
-      observation: { path: "/[id]/home" },
-    });
-    history.replaceState(null, "", "/s/0123456789abcdef0123456789abcdef/login");
-    expect(extractSignedInObservation()).toMatchObject({
-      ok: true,
-      observation: { path: "/s/[id]/login" },
-    });
+    for (const [raw, sent] of [
+      // A tenant's UUID, as on a Microsoft Entra sign-in page.
+      ["/123e4567-e89b-12d3-a456-426614174000/oauth2/authorize", "/[id]/oauth2/authorize"],
+      ["/89abcdef-0123-4567-89ab-cdef01234567/oauth2/authorize", "/[id]/oauth2/authorize"],
+      // An authorization server's ID, as on an Okta sign-in page.
+      ["/oauth2/aus1a2b3c4d5e6f7g8h9/v1/authorize", "/oauth2/[id]/v1/authorize"],
+      // A matrix parameter replaces its whole segment.
+      ["/app/login;jsessionid=Synthetic0Session1", "/app/[id]"],
+      ["/app/register;jsessionid=Synthetic0Session2", "/app/[id]"],
+      ["/0123456789abcdef0123456789abcdef/home", "/[id]/home"],
+      ["/s/0123456789abcdef0123456789abcdef/login", "/s/[id]/login"],
+    ] as const) {
+      history.replaceState(null, "", raw);
+      expect(extractLoginObservation(), raw).toMatchObject({
+        ok: true,
+        observation: { path: sent },
+      });
+      expect(extractSignedInObservation(), raw).toMatchObject({
+        ok: true,
+        observation: { path: sent },
+      });
+    }
     for (const allowed of [
       "/customer/account/login/",
       "/ib/login-2fa-step2",
@@ -1389,12 +1405,42 @@ describe("extractLoginObservation", () => {
       "/tenant.onmicrosoft.com/B2C_1_signupsignin1/oauth2",
     ]) {
       history.replaceState(null, "", allowed);
-      expect(extractLoginObservation().ok, allowed).toBe(true);
+      expect(extractLoginObservation(), allowed).toMatchObject({
+        ok: true,
+        observation: { path: allowed },
+      });
       expect(extractSignedInObservation(), allowed).toMatchObject({
         ok: true,
         observation: { path: allowed },
       });
     }
+  });
+
+  it("locates nothing by an ID or name that may be a token on a page whose path had one replaced (ADR 0039)", () => {
+    // Stable-looking, so only the token rule keeps it out (`changingId` would not).
+    const token = "SYNTHETIC0TOKEN1234";
+    page(
+      `<form><label>Email <input id="email-${token}" name="loginfmt" type="email"></label>
+      <input id="pw-${token}" name="pw-${token}" type="password" autocomplete="current-password">
+      <button id="go-${token}" type="submit">Next</button></form>`,
+    );
+    history.replaceState(null, "", "/123e4567-e89b-12d3-a456-426614174000/oauth2/authorize");
+    const observation = observe();
+    expect(observation.path).toBe("/[id]/oauth2/authorize");
+    expect(observation.complete).toBe(true);
+    expect(summary(observation).map((candidate) => candidate.target)).toEqual([
+      { by: "name", value: "loginfmt" },
+      { by: "autocomplete", value: "current-password" },
+      { by: "text", value: "Next" },
+    ]);
+    expect(JSON.stringify(observation)).not.toContain(token);
+    // A page whose path carries no token keeps its IDs, as before.
+    history.replaceState(null, "", "/oauth2/authorize");
+    expect(summary(observe()).map((candidate) => candidate.target)).toEqual([
+      { by: "id", value: `email-${token}` },
+      { by: "id", value: `pw-${token}` },
+      { by: "id", value: `go-${token}` },
+    ]);
   });
 
   it("detects language without counting redaction placeholders", () => {
@@ -2899,6 +2945,23 @@ describe("extractAccountListObservation", () => {
       ok: false,
       reason: "unsupported-page",
     });
+    // The raw path is read, before a token-like name becomes `[id]` (ADR 0039).
+    const name = "taro0123456789abcdef";
+    history.replaceState(null, "", `/u/${name}/`);
+    page(`<div><span>${name}</span><button>Continue</button></div>`);
+    expect(extractAccountListObservation(document, [name])).toEqual({
+      ok: false,
+      reason: "unsupported-page",
+    });
+  });
+
+  it("sends a list on a path with a token-like segment as [id] (ADR 0039)", () => {
+    history.replaceState(null, "", "/123e4567-e89b-12d3-a456-426614174000/oauth2/authorize");
+    page(`<div><span>taro</span><button>Continue</button></div>`);
+    expect(extractAccountListObservation(document, ["taro"])).toMatchObject({
+      ok: true,
+      observation: { path: "/[id]/oauth2/authorize", accounts: ["[account]"] },
+    });
   });
 
   it("refuses a page with a field or without a shown account", () => {
@@ -3216,12 +3279,30 @@ describe("extractEntryObservation (ADR 0031)", () => {
     }
   });
 
-  it("refuses a path that may carry a token", () => {
-    page(`<a href="https://accounts.synthetic.example/login">Login</a>`);
-    history.replaceState(null, "", "/s/0123456789abcdef0123456789abcdef/");
-    expect(extractEntryObservation(document, onSite)).toEqual({
-      ok: false,
-      reason: "unsupported-page",
-    });
+  it("sends a path that may carry a token with [id] in its place, and no token locator (ADR 0039)", () => {
+    const token = "SYNTHETIC0TOKEN1234";
+    page(
+      `<a id="${token}" href="https://accounts.synthetic.example/login">Login</a>
+      <a id="help" href="https://www.synthetic.example/help">Help</a>`,
+    );
+    for (const [raw, sent] of [
+      ["/s/0123456789abcdef0123456789abcdef/", "/s/[id]/"],
+      // An Okta-style authorization server ID.
+      ["/oauth2/aus1a2b3c4d5e6f7g8h9/v1/authorize", "/oauth2/[id]/v1/authorize"],
+    ] as const) {
+      history.replaceState(null, "", raw);
+      const observation = entry();
+      expect(observation.path, raw).toBe(sent);
+      expect(observation.candidates.map(({ target }) => target)).toEqual([
+        { by: "text", value: "Login" },
+        { by: "id", value: "help" },
+      ]);
+      const sentText = JSON.stringify(observation);
+      expect(sentText).not.toContain(token);
+      expect(sentText).not.toContain("aus1a2b3c4d5e6f7g8h9");
+    }
+    // A path without a token keeps the link's ID.
+    history.replaceState(null, "", "/oauth2/default/v1/authorize");
+    expect(entry().candidates[0]!.target).toEqual({ by: "id", value: token });
   });
 });

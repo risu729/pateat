@@ -290,6 +290,9 @@ vi.mock("wxt/browser", () => ({ browser: fake.browser }));
 vi.stubEnv("MODE", "production");
 const { createLoginRuntime } = await import("./runtime");
 const { createLoginSites } = await import("./sites");
+const { observedPath } = await import("../observation/path");
+/** A URL's path as the content script reports it, token-like segments as `[id]` (ADR 0039). */
+const reportedPath = (url: string) => observedPath(new URL(url).pathname);
 
 const origin = "https://login.example";
 const connectionId = "50000000-0000-4000-8000-000000000001";
@@ -569,7 +572,7 @@ function harness(
         type: "login.document.ready",
         token: "synthetic-token",
         ...(start
-          ? { start: { path: new URL(String(from["url"] ?? fake.state.pageUrl)).pathname } }
+          ? { start: { path: reportedPath(String(from["url"] ?? fake.state.pageUrl)) } }
           : {}),
       },
       sender(from),
@@ -581,7 +584,7 @@ function harness(
         version: 1,
         type: "login.document.ready",
         token: "synthetic-token",
-        signIn: { path: new URL(fake.state.pageUrl).pathname },
+        signIn: { path: reportedPath(fake.state.pageUrl) },
       },
       sender(),
     );
@@ -597,7 +600,7 @@ const shownHello = (
       version: 1,
       type: "login.document.ready",
       token: "synthetic-token",
-      shown: { path: new URL(fake.state.pageUrl).pathname },
+      shown: { path: reportedPath(fake.state.pageUrl) },
     },
     sender(from),
   );
@@ -5516,6 +5519,81 @@ describe("production login document admission", () => {
         { slot: "username", value: "synthetic-secret" },
         { slot: "password", value: "synthetic-secret", secret: "password" },
       ]);
+    });
+
+    it("generates a tenant's page under its [id] path and runs it on another tenant's page (ADR 0039)", async () => {
+      const tenantPath = "/[id]/oauth2/authorize";
+      const tenantPage = page(tenantPath, loginPage.observation.candidates);
+      const tenantRecipe = parseLoginRecipe({
+        ...generated,
+        id: "gen-tenant",
+        steps: generated.steps.map((step) => ({ ...step, path: tenantPath })),
+      });
+      fake.state.pageUrl =
+        "https://login.example/123e4567-e89b-12d3-a456-426614174000/oauth2/authorize";
+      fake.state.observedPath = tenantPath;
+      fake.state.extracted = { login: tenantPage };
+      const service = generation();
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness(unsaved, {
+        allowedOrigins: [],
+        uris,
+        username: true,
+        custom: [],
+        generation: service,
+        report,
+        urls: true,
+      });
+      let stored = false;
+      // The cache selects a recipe by the path as observations carry it.
+      h.recipes.recipe.mockImplementation(async (_origin, path) =>
+        stored && path === tenantPath ? tenantRecipe : undefined,
+      );
+      h.recipes.starts.mockResolvedValue(startsOf([]));
+      expect(await h.hello({}, false)).toMatchObject({ generate: true });
+      service.generate.mockImplementation(async () => {
+        stored = true;
+        h.recipes.starts.mockResolvedValue(startsOf([tenantRecipe.steps[0]!]));
+        return { outcome: "recipe", recipe: tenantRecipe };
+      });
+      expect(await h.signIn()).toEqual({ ok: false, reason: "generating" });
+      await vi.waitFor(() =>
+        expect(fake.state.messages.map((entry) => entry.type)).toContain("login.reconnect"),
+      );
+      // The retry window and the request carry the replaced path, never the tenant's ID.
+      expect(service.available).toHaveBeenCalledWith(origin, tenantPath);
+      expect(service.generate).toHaveBeenCalledWith(
+        expect.objectContaining({ observation: tenantPage.observation }),
+        expect.any(Function),
+      );
+      expect(JSON.stringify(service.generate.mock.calls)).not.toContain("123e4567");
+      // The local log keeps the page's own URL (owner decision 2026-10-13).
+      expect(
+        report.mock.calls.some(([entry]) => entry.url?.includes("123e4567-e89b") === true),
+      ).toBe(true);
+
+      // Another tenant's page starts the same recipe at once, and is not offered again.
+      const offered = service.available.mock.calls.length;
+      fake.state.pageUrl =
+        "https://login.example/89abcdef-0123-4567-89ab-cdef01234567/oauth2/authorize";
+      const announced = await h.hello({ documentId: "other-tenant" }, false);
+      expect(announced).toMatchObject({ starts: [expect.objectContaining({ path: tenantPath })] });
+      expect(announced).not.toHaveProperty("generate");
+      expect(await h.hello({ documentId: "other-tenant" })).toEqual({ ok: true });
+      await vi.waitFor(() =>
+        expect(fake.state.messages.filter((entry) => entry.type === "login.execute")).toHaveLength(
+          2,
+        ),
+      );
+      expect(
+        fake.state.messages
+          .filter((entry) => entry.type === "login.execute")
+          .map(
+            (entry) => (entry as { operation?: { step: { path: string } } }).operation?.step.path,
+          ),
+      ).toEqual([tenantPath, tenantPath]);
+      expect(service.available).toHaveBeenCalledTimes(offered);
+      expect(service.generate).toHaveBeenCalledTimes(1);
     });
 
     it("logs a page sent for generation, then the answer", async () => {

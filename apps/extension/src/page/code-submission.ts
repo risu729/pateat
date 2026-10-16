@@ -1,5 +1,6 @@
 import type { LoginTarget } from "@pateat/contracts";
 import { acceptsSecret } from "../login/inputs";
+import { observedPath } from "../observation/path";
 import { findTargets } from "./targets";
 
 /** Whether the element is rendered and not hidden by its own style. */
@@ -174,7 +175,8 @@ export function watchCodeSubmission(
       const typed = typedAt ?? at;
       const first = !checked;
       checked = true;
-      if (event || page.location.pathname !== path) return true;
+      // `path` is a step's, as observations carry it (ADR 0039).
+      if (event || observedPath(page.location.pathname) !== path) return true;
       const fields = matches(field);
       if (fields.length !== 1 || fields[0] !== input || !input.isConnected) return true;
       if (input.matches(":disabled") || input.readOnly || input.closest("[inert]")) return true;

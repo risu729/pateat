@@ -1095,6 +1095,29 @@ describe("recipe generation", () => {
     expect(sent).toHaveLength(5);
   });
 
+  it("stores a recipe under a path with [id] and answers every tenant's page with it (ADR 0039)", async () => {
+    const device = await owner();
+    const tenantPage = { ...passwordPage, path: "/[id]/oauth2/authorize" };
+    replies.push({ text: plan([["password", "password"]], "sign-in", "submit") });
+    const first = await generate(device, tenantPage);
+    if (first.status !== "recipe") throw new Error(first.status);
+    expect(first.change).toMatchObject({
+      recipeId: await generatedRecipeId(ORIGIN, "/[id]/oauth2/authorize"),
+      recipe: {
+        steps: [{ path: "/[id]/oauth2/authorize" }, { path: "/[id]/oauth2/authorize" }],
+      },
+    });
+    expect(
+      await rows("SELECT path FROM generation_attempts WHERE owner_id = ?", device.ownerId),
+    ).toEqual([{ path: "/[id]/oauth2/authorize" }]);
+    // The same page, from another tenant, is answered with that recipe without a call.
+    expect(await generate(device, tenantPage)).toMatchObject({
+      status: "recipe",
+      change: { recipeId: first.change.recipeId },
+    });
+    expect(sent).toHaveLength(1);
+  });
+
   it("stores the account switch the model names", async () => {
     const device = await owner();
     const remembered = observation("/password", [

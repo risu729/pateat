@@ -147,7 +147,7 @@ import {
 } from "./choice-wire";
 import { customFieldOffers, type CustomFieldOffer } from "./generation-slots";
 import { emailUsername, namesUsername, type EntryMiss, type OtherMiss } from "../page/account-list";
-import { signedInPath } from "../observation/extract";
+import { observedPath } from "../observation/path";
 import { pathShowsUsername, withoutUsernames } from "../observation/usernames";
 import {
   decideSignInState,
@@ -403,6 +403,8 @@ type UnsavedChoice = {
  */
 const withChoice = (value: SettingsSnapshot["settings"], choice: UnsavedChoice) =>
   saveLoginChoice(value, choice.binding, { replace: choice.replace === true });
+/** A document's path before its token-like segments are replaced (ADR 0039). */
+const rawPath = (live: LiveDocument) => new URL(live.url).pathname;
 type LiveDocument = {
   document: LoginDocument;
   token: string;
@@ -411,6 +413,11 @@ type LiveDocument = {
    * document (it follows history.pushState), else `sender.url`. Provider URI rules match it.
    */
   url: string;
+  /**
+   * The URL's path as observations carry it (`observedPath`, ADR 0039): every comparison
+   * with a recipe's, an observation's or the content script's path reads this one. A
+   * username in the path is looked for in `url`'s raw path (`rawPath`).
+   */
   path: string;
   /**
    * For a document in a frame inside the page: the tab's URL. The account must match it
@@ -2281,7 +2288,8 @@ export function createLoginRuntime(
     const page = url ? (URL.parse(url) ?? undefined) : undefined;
     // The popup shows its page section only on HTTPS pages.
     if (page?.protocol !== "https:") return { ok: false, reason: "no-page" };
-    const { origin: pageOrigin, pathname: path } = page;
+    const pageOrigin = page.origin;
+    const path = observedPath(page.pathname);
     const [starts, entries] = await Promise.all([
       recipes.starts(pageOrigin).catch(() => []),
       recipes.entries(pageOrigin).catch(() => []),
@@ -4417,7 +4425,7 @@ export function createLoginRuntime(
       else if (
         parsed.output.origin !== run.live.document.origin ||
         // The description carries the path with any token-like segment replaced.
-        parsed.output.path !== signedInPath(path)
+        parsed.output.path !== observedPath(path)
       )
         unsent = "page-changed";
       else {
@@ -4432,7 +4440,7 @@ export function createLoginRuntime(
     // A judged page can show the identifier just entered: the usernames of the items that
     // match it, and the login's own, are hidden first.
     const usernames = await judgedUsernames(run).catch(() => undefined);
-    const hidden = hideUsernames(observation, usernames);
+    const hidden = hideUsernames(observation, usernames, run.live);
     if (!current(run)) return undefined;
     if ("reason" in hidden) return { unsent: hidden.reason };
     return { observation: hidden.observation, disabledLeftOut };
@@ -4928,7 +4936,7 @@ export function createLoginRuntime(
     const usernames = await readUsernames(pageOrigin, usernameReads(scope));
     const shape = usernames && usernameShape(scope, usernames);
     // The page after an `advance` step can show the identifier just entered.
-    const hidden = hideUsernames(observation, usernames);
+    const hidden = hideUsernames(observation, usernames, run.live);
     if (!current(run)) return "moved";
     // A username that could not be read now may be read on a later round; one that shows
     // where it cannot be hidden shows again.
@@ -6237,14 +6245,16 @@ export function createLoginRuntime(
   /**
    * The page with the account's usernames hidden (`withoutUsernames`), or why it is not
    * sent: `username-unread` when one could not be read, `username-shown` when one shows
-   * where it cannot be hidden. The usernames are dropped once it is built.
+   * where it cannot be hidden, including in a segment of `live`'s raw path that the
+   * observation carries as `[id]` (ADR 0039). The usernames are dropped once it is built.
    */
   function hideUsernames(
     observation: LoginObservation,
     usernames: string[] | undefined,
+    live: LiveDocument,
   ): { observation: LoginObservation } | { reason: string } {
     if (!usernames) return { reason: "username-unread" };
-    const hidden = withoutUsernames(observation, usernames);
+    const hidden = withoutUsernames(observation, usernames, rawPath(live));
     usernames.fill("");
     return hidden.ok ? { observation: hidden.observation } : { reason: hidden.reason };
   }
@@ -6365,7 +6375,7 @@ export function createLoginRuntime(
       const usernames = await readUsernames(live.document.origin, usernameReads(scope));
       const shape = usernames && usernameShape(scope, usernames);
       // The account's own usernames never reach the service.
-      const hidden = hideUsernames(observation, usernames);
+      const hidden = hideUsernames(observation, usernames, live);
       if (documents.get(key) !== live) return;
       if ("reason" in hidden) {
         skipGeneration(live, hidden.reason);
@@ -6435,7 +6445,8 @@ export function createLoginRuntime(
             if (documents.get(frameKey(other.document)) !== other) return;
             const tab = await browser.tabs.get(other.document.tabId).catch(() => undefined);
             const url = tab?.url ? new URL(tab.url) : undefined;
-            const shown = url?.origin === other.document.origin && url.pathname === other.path;
+            const shown =
+              url?.origin === other.document.origin && observedPath(url.pathname) === other.path;
             note(other.document, other.url, "reconnect-failed", undefined, !shown);
           }
         }),
@@ -6863,7 +6874,7 @@ export function createLoginRuntime(
             document.frameId === 0 &&
             (finishedLogin(carried.metadata) ||
               (carried.metadata.watch !== undefined &&
-                start?.path === new URL(url).pathname &&
+                start?.path === observedPath(new URL(url).pathname) &&
                 document.documentId !== carried.metadata.watch.documentId))
           )))
     ) {
@@ -6872,7 +6883,7 @@ export function createLoginRuntime(
     }
     if (oldLive && !sameDocument)
       await send(oldLive, { type: "login.cancel" }).catch(() => undefined);
-    const path = new URL(url).pathname;
+    const path = observedPath(new URL(url).pathname);
     const live: LiveDocument = {
       document,
       token,
@@ -7546,7 +7557,7 @@ export function createLoginRuntime(
         // `username-shown` once read (owner 2026-10-12 19:45 UTC).
         const listed =
           scope && listing
-            ? await listedNames(live.document.origin, scope, listing.names ?? [], live.path)
+            ? await listedNames(live.document.origin, scope, listing.names ?? [], rawPath(live))
             : undefined;
         if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
         const names = listing?.names ? listed?.names : undefined;
@@ -7684,7 +7695,8 @@ export function createLoginRuntime(
         documents.get(key) !== live ||
         (live.topUrl
           ? new URL(tab.url).origin !== new URL(live.topUrl).origin
-          : new URL(tab.url).origin !== document.origin || new URL(tab.url).pathname !== live.path)
+          : new URL(tab.url).origin !== document.origin ||
+            observedPath(new URL(tab.url).pathname) !== live.path)
       )
         return refuse("stale-document");
     } catch {
@@ -8483,7 +8495,7 @@ export function createLoginRuntime(
       )
     )
       return "blocked";
-    if (new URL(url).pathname !== recipe.entry.path) return "page-changed";
+    if (observedPath(new URL(url).pathname) !== recipe.entry.path) return "page-changed";
     const cached = (await recipes.entries(pageOrigin).catch(() => [])).find(
       (entry) => entry.id === recipe.id,
     );
@@ -9212,7 +9224,7 @@ export function createLoginRuntime(
           )
         : [],
     );
-    const hidden = hideUsernames(observation, others && [username, ...others]);
+    const hidden = hideUsernames(observation, others && [username, ...others], live);
     if (stale()) return false;
     if ("reason" in hidden) {
       reportJudge("not-sent", hidden.reason);
