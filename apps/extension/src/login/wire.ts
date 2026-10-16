@@ -476,9 +476,8 @@ export const executionResultSchema = v.strictObject({
    * failure, the form was replaced, the target is missing or not writable, the form
    * changed before a click, an `assert` did not hold, the step was sent values it does not
    * fill, its fields are in different forms, an input refused its secret, the page's inputs
-   * have no value setter, a code field's submission watch could not start, the form or the
-   * clicked button would send the form off the document's origin, or the parser rather
-   * than the markup's nesting gave an input or the button its form.
+   * have no value setter, a code field's submission watch could not start, or the form or
+   * the clicked button would send the form off the document's origin.
    */
   detail: v.optional(
     v.picklist([
@@ -499,7 +498,6 @@ export const executionResultSchema = v.strictObject({
       "unsupported-input",
       "code-watch-failed",
       "form-off-origin",
-      "form-owner-detached",
     ]),
   ),
   /**
