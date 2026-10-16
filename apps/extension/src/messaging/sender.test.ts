@@ -18,6 +18,7 @@ describe("a sender's document origin", () => {
   it.each<[string, { origin?: unknown; url?: unknown }]>([
     // A page served with a CSP `sandbox` header, or a sandboxed frame, on the site's URL.
     ["an opaque origin on the site's URL", { origin: "null", url: "https://login.example/signin" }],
+    ["an opaque origin on an opaque URL", { origin: "null", url: "data:text/html,<p>" }],
     ["no origin", { url: "https://login.example/signin" }],
     ["an undefined origin", { origin: undefined, url: "https://login.example/signin" }],
     ["another site's origin", { origin: "https://other.example", url: "https://login.example/" }],
