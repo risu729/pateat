@@ -324,6 +324,22 @@ are sent as for any login; since the roadmap's redaction of the account's own us
 hidden as `[account]` by the same rule
 ([architecture](../architecture.md#declarative-recipes-and-ai)).
 
+Amended on 2026-10-16 after a failure in the owner's Chrome on Cloudflare (07:09 UTC):
+after a logout the tab asked for an account on the list, the account the owner wanted
+was not listed, so the owner pressed "Sign in with another profile", which showed the
+email and password form on the list's path in the same document, and then picked the
+account in the popup. The pick started nothing ("Pateat could not log in with … on this
+page"), because a chooser login started only where the list showed. Now the chooser's
+start also includes the stored `afterOther` branch's first step when that step is on the
+list's path. When the page shows that step and a new login starts, the login runs the
+`other` branch alone, without a click (`chooser.click` is `other-shown` in the attempt
+record, and the log's `login.start` names it as `list`); it is planned, filled,
+submitted, continued and judged as that branch, and a fill-only login after a logout
+only fills its form. Without a stored `afterOther` branch nothing changes: the form is
+still no start, and a reload shows the list again, where the login clicks `other`. The
+person's own click on the button is not recorded; the login only reads what the page
+shows, as for any recipe's first step.
+
 Amended on 2026-10-13 by the owner's decision at 06:32 UTC
 ([ADR 0036](0036-passkey-after-the-identifier.md#account-lists)): an item without a
 password but with a usable passkey also logs in from a list. The click is chosen as

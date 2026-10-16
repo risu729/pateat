@@ -371,8 +371,9 @@ export function createRecipeSync(options: {
       if (!cache) return [];
       // Every variant starts on the recipe's start path (ADR 0027). A chooser recipe (ADR
       // 0028) starts where its list shows, once one of its buttons or a listed account
-      // does; an entry recipe (ADR 0031) is left out: the runtime counts its path as a
-      // start for generation through `entries` instead.
+      // does, or its `other` branch's first step on that path, as when the person pressed
+      // the button for another account; an entry recipe (ADR 0031) is left out: the runtime
+      // counts its path as a start for generation through `entries` instead.
       return [
         ...loginRecipesForOrigin(cache.recipes, origin).map((recipe) => ({
           path: recipe.steps[0]!.path,
@@ -383,7 +384,10 @@ export function createRecipeSync(options: {
             ? [
                 {
                   path: recipe.chooser.path,
-                  steps: [],
+                  steps:
+                    recipe.chooser.afterOther?.steps
+                      .slice(0, 1)
+                      .filter((step) => step.path === recipe.chooser.path) ?? [],
                   list: [recipe.chooser.other, recipe.chooser.continue].filter(
                     (target) => target !== undefined,
                   ),
