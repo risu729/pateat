@@ -414,6 +414,8 @@ describe("passkey create check (ADR 0007)", () => {
       ["no document", { documentId: undefined }],
       ["mismatched URL", { url: "https://evil.example.net/" }],
       ["missing origin", { origin: undefined }],
+      // A page served with a CSP `sandbox` header on the site's URL has an opaque origin.
+      ["an opaque origin on the site's URL", { origin: "null" }],
     ])("delegates from %s without reading anything or reporting", async (_name, overrides) => {
       const signIns = signedIn({});
       const check = handler(source(), signIns);
