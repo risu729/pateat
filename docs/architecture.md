@@ -2007,8 +2007,10 @@ field exclusions and custom-field review, which need the device's vault catalog
   extension's pages ([ADR 0004](adr/0004-library-composition.md)) and served by the
   Worker as static assets. Its header shows the logo and two tabs, Sites and Devices,
   and its footer the version, links to the source and the GPL text at the built commit
-  and to the third-party notices, and the Theme select. Each page is its own path, a
-  full page load that the Worker serves only for these paths:
+  and to the third-party notices, and the Theme select. React's rendered `<title>` sets
+  the tab title to `Devices – Pateat`, `Sites – Pateat` or `<origin> – Pateat`; the
+  static HTML keeps `Pateat` before the app renders. Each page is its own path, a full
+  page load that the Worker serves only for these paths:
   - Devices (`/manage`): the current list and revocation, moved into the app.
   - Sites (`/manage/sites`): one list of every origin the service holds a recipe, a
     `siteDefaults` entry or a `bindings` entry for, each with badges for its recipe
