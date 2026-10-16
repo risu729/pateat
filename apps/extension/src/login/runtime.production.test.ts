@@ -4800,7 +4800,11 @@ describe("production login document admission", () => {
             ]);
             await filledOnly(h, { documentId: "signed-out" });
             expect(logouts()).toEqual([{ tabId: 1, origin }]);
-            expect(clicks()).toEqual([]);
+            // Used: kept only so the site's passkey requests in the tab ask while it asks.
+            expect(clicks()).toEqual([
+              { tabId: 1, site: "login.example", clickedAt: expect.any(String), used: true },
+            ]);
+            expect(await h.login.logoutClicked(1, "login.example")).toBe(true);
             expect(steps().map((step) => step.kind)).toEqual(["fill"]);
             expect(report).toHaveBeenCalledWith({
               type: "logout",
@@ -4811,6 +4815,52 @@ describe("production login document admission", () => {
             // Cookies are shared, so the site's other tabs ask too.
             fake.state.tabUrls[2] = fake.state.pageUrl;
             await filledOnly(h, { tab: { id: 2 }, documentId: "other-tab" });
+          });
+          it("reads the next page only once a click sent before it is kept", async () => {
+            const h = setup();
+            // The click's message and the next page's announcement arrive back to back.
+            const clicked = clickLogout(h);
+            await filledOnly(h, { documentId: "signed-out" });
+            await clicked;
+            expect(logouts()).toEqual([{ tabId: 1, origin }]);
+          });
+          it("keeps waiting on a page without the first step, or in a frame", async () => {
+            const h = setup();
+            await clickLogout(h);
+            expect(await h.hello({ documentId: "home" }, false)).toMatchObject({ ok: false });
+            await h.hello({
+              frameId: 3,
+              documentId: "frame",
+              tab: { id: 1, url: fake.state.pageUrl },
+            });
+            // A login form in a frame is no logout (ADR 0021 D's known gap); the click waits.
+            expect(clicks()).toEqual([
+              { tabId: 1, site: "login.example", clickedAt: expect.any(String) },
+            ]);
+          });
+          it("takes a click on another origin of the site", async () => {
+            const h = setup();
+            const www = "https://www.login.example/account";
+            fake.state.tabUrls[1] = www;
+            await clickLogout(h, { url: www });
+            fake.state.tabUrls[1] = fake.state.pageUrl;
+            await filledOnly(h, { documentId: "signed-out" });
+            expect(logouts()).toEqual([{ tabId: 1, origin }]);
+          });
+          it("logs one logout of the tab's own login when it also clicked", async () => {
+            const report = vi.fn<(entry: LoginReport) => void>();
+            const h = setup(report);
+            expect(await h.hello()).toEqual({ ok: true });
+            await vi.waitFor(() => expect(attempts()).toMatchObject([{ state: "authenticated" }]));
+            await clickLogout(h);
+            await filledOnly(h, { documentId: "signed-out" });
+            const logoutReports = report.mock.calls
+              .map(([entry]) => entry)
+              .filter((entry) => entry.type === "logout");
+            expect(logoutReports).toEqual([
+              { type: "logout", tabId: 1, origin, recipeId: recipe.id, recipeRevision: 1 },
+            ]);
+            expect(clicks()).toEqual([expect.objectContaining({ used: true })]);
           });
           it("keeps the click across a worker restart", async () => {
             const h = setup();

@@ -461,8 +461,10 @@ holds:
   vault could not be searched in full;
 - `signedBefore` when Pateat had signed for this RP ID in the tab, so the request asks
   again, or `logoutClicked` when instead a control that logs out was clicked on the RP
-  ID's site in the tab within the last 10 minutes (ADR 0021 D). Such a request that
-  cannot open the window is delegated with `chooser-unavailable`;
+  ID's site in the tab and still waits for the site's first step (at most 10 minutes,
+  while the tab stays on the site), or the tab keeps the logout state such a click began
+  (ADR 0021 D). Such a request that cannot open the window is delegated with
+  `chooser-unavailable`;
 - `cause`: for a `cancelled` outcome, who cancelled it (`page-cancelled` or
   `settings-changed`); for the `assertion-failed` reason, the step that threw
   (`login-wait`, `account-lookup`, `passkey-lookup`, `signed-before-lookup`, `chooser`

@@ -1219,7 +1219,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     );
   };
   document.addEventListener("submit", onSubmit, true);
-  // On the window, so the click is read before the page's own handlers act on it.
+  // On the window in the capture phase, so the click is read before most of the page's
+  // own handlers act on it, such as one that removes the menu holding the control.
   addEventListener("click", onClick, true);
   browser.runtime.onMessage.addListener(listener);
   void announce(false).catch(() => undefined);

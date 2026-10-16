@@ -36,6 +36,8 @@ describe("logoutName", () => {
       "Log off",
       "Sign off",
       "Log out of all accounts",
+      "Sign out and use another account",
+      "ログアウトして別のアカウントでログイン",
       "ログアウト",
       "ログアウトする",
       "ｻｲﾝｱｳﾄ",
@@ -57,7 +59,7 @@ describe("logoutName", () => {
       expect(logoutName(name), name).toBeUndefined();
   });
 
-  it("tells a logout of other sessions apart", () => {
+  it("tells a logout of other devices or sessions apart", () => {
     for (const name of [
       "Log out of other devices",
       "Sign out all other sessions",
@@ -104,6 +106,34 @@ describe("clickedLogout", () => {
     expect(click(`<button aria-label="Settings"><svg></svg></button>`, "svg")).toBe(false);
   });
 
+  it("reads icon names and descriptions only for a control with no name of its own", () => {
+    // A session timeout's "stay signed in" button described by its warning.
+    expect(
+      click(
+        `<p id="warning">まもなくログアウトします</p><button aria-describedby="warning">継続する</button>`,
+        "button",
+      ),
+    ).toBe(false);
+    expect(click(`<button title="Log out">Settings</button>`, "button")).toBe(false);
+    expect(
+      click(`<button aria-label="Menu"><svg><title>Log out</title></svg></button>`, "svg"),
+    ).toBe(false);
+  });
+
+  it("never reads a field, a label or a setting", () => {
+    expect(click(`<input type="search" tabindex="0" value="log out">`, "input")).toBe(false);
+    expect(click(`<input type="text" style="cursor: pointer" value="logout">`, "input")).toBe(
+      false,
+    );
+    expect(
+      click(
+        `<div style="cursor: pointer"><label><input type="checkbox"> Log out when I close the browser</label></div>`,
+        "input",
+      ),
+    ).toBe(false);
+    expect(click(`<div role="switch" tabindex="0">Sign out on exit</div>`, "div")).toBe(false);
+  });
+
   it("reads the text beside a control that names nothing itself", () => {
     expect(click(`<li><button><svg></svg></button><span>Log out</span></li>`, "button")).toBe(true);
     expect(click(`<div><span>ログアウト</span><div><button></button></div></div>`, "button")).toBe(
@@ -119,6 +149,7 @@ describe("clickedLogout", () => {
 
   it("does not count a logout of other sessions", () => {
     expect(click(`<button>Log out of other devices</button>`, "button")).toBe(false);
+    expect(click(`<button>Sign out and use another account</button>`, "button")).toBe(true);
     expect(click(`<button aria-label="他の端末からログアウト">ログアウト</button>`, "button")).toBe(
       false,
     );

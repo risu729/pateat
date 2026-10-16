@@ -313,11 +313,15 @@ const entryPressSchema = v.strictObject({
   checked: v.optional(v.literal(true)),
 });
 type EntryPress = v.InferOutput<typeof entryPressSchema>;
-/** A control that logs out, clicked in a tab on a registrable site (ADR 0021 D). */
+/**
+ * A control that logs out, clicked in a tab on a registrable site (ADR 0021 D); `used`
+ * once the site's first step showed and the tab took it as its logout.
+ */
 const logoutClickSchema = v.strictObject({
   tabId: tabIdSchema,
   site: v.string(),
   clickedAt: isoTimeSchema,
+  used: v.optional(v.literal(true)),
 });
 type LogoutClick = v.InferOutput<typeof logoutClickSchema>;
 /** Why the page after an entry press blocked its recipe revision (ADR 0031). */
@@ -7403,12 +7407,15 @@ export function createLoginRuntime(
     if (logoutClick) {
       const clickKey = `${logoutClick.tabId} ${logoutClick.site}`;
       const known = logouts.has(logoutKey);
-      logoutClicks.delete(clickKey);
+      // Kept as used, so a passkey request of the site still asks while the tab asks.
+      const used = { ...logoutClick, used: true as const };
+      logoutClicks.set(clickKey, used);
       logouts.add(logoutKey);
       try {
         await saveSession();
       } catch {
-        logoutClicks.set(clickKey, logoutClick);
+        // A newer click recorded meanwhile stays.
+        if (logoutClicks.get(clickKey) === used) logoutClicks.set(clickKey, logoutClick);
         if (!known) logouts.delete(logoutKey);
         return refuse("storage-unavailable");
       }
@@ -8051,18 +8058,21 @@ export function createLoginRuntime(
   function pendingClick(tabId: number, site: string): LogoutClick | undefined {
     const key = `${tabId} ${site}`;
     const click = logoutClicks.get(key);
-    if (!click) return undefined;
+    if (!click || click.used) return undefined;
     const age = Date.now() - isoTimeMs(click.clickedAt);
     if (age >= 0 && age < LOGOUT_CLICK_MS) return click;
     logoutClicks.delete(key);
     void quietly(saveSession);
     return undefined;
   }
-  /** Drops the tab's logout clicks of other sites than `site`: the tab left them. */
+  /**
+   * Drops the tab's waiting logout clicks of other sites than `site`: the tab left them. A
+   * used one stays with the logout state it began.
+   */
   function leaveClicks(tabId: number, site: string | undefined): void {
     let changed = false;
     for (const [key, click] of logoutClicks)
-      if (click.tabId === tabId && click.site !== site) {
+      if (click.tabId === tabId && click.site !== site && !click.used) {
         logoutClicks.delete(key);
         changed = true;
       }
@@ -8070,7 +8080,7 @@ export function createLoginRuntime(
   }
   /**
    * Records a control that logs out, clicked in a document of an origin with recipes (ADR
-   * 0021 D, owner 2026-10-16), for its tab and site; the 256 oldest are kept.
+   * 0021 D, owner 2026-10-16), for its tab and site; the 256 newest are kept.
    */
   async function noteLogoutClick(sender: Sender): Promise<void> {
     await sessionLoaded;
@@ -8088,13 +8098,23 @@ export function createLoginRuntime(
   }
   /**
    * Whether a username-less passkey request for `rpId` in the tab follows a logout click
-   * on its site, so it asks as after Pateat signed there (ADR 0021 D).
+   * on its site, so it asks as after Pateat signed there (ADR 0021 D): while the click
+   * waits, and once used, while the tab keeps the logout state it began for an origin of
+   * the site. A used click whose logout state ended, as when a login started, is dropped.
    */
   async function logoutClicked(tabId: number, rpId: string): Promise<boolean> {
     await sessionLoaded;
     await Promise.all(clicksNoting);
     const site = siteOf(`https://${rpId}`);
-    return site !== undefined && pendingClick(tabId, site) !== undefined;
+    if (site === undefined) return false;
+    if (pendingClick(tabId, site)) return true;
+    const key = `${tabId} ${site}`;
+    if (!logoutClicks.get(key)?.used) return false;
+    if (scopes(logouts).some((entry) => entry.tabId === tabId && siteOf(entry.origin) === site))
+      return true;
+    logoutClicks.delete(key);
+    void quietly(saveSession);
+    return false;
   }
   /** The blocks stored on this device; a read that fails is not kept, so it is read again. */
   let entryBlocks: Promise<EntryBlock[] | undefined> | undefined;
