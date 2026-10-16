@@ -906,10 +906,12 @@ Once the fixes have settled:
     [#644](https://github.com/risu729/pateat/pull/644): the passkey decoder strips at
     most two trailing `=` without a regex, as Bitwarden's clients avoid a backtracking
     pattern, and accepts the same inputs as before.
-  - [#636](https://github.com/risu729/pateat/issues/636) fixed at the owner's request: a
-    fill into a form, or a click on a submit control, is refused unless the submission's
-    destination (the `formaction` or `action`, resolved against the base URL) has the
-    document's own origin ([architecture](architecture.md#background-execution)).
+  - [#636](https://github.com/risu729/pateat/issues/636) fixed at the owner's request
+    (2026-10-16 19:14 UTC): a fill into a form, or a click on a submit control, is
+    refused unless the submission's destination (the `formaction` or `action`, resolved
+    against the base URL) has the document's own origin
+    ([architecture](architecture.md#background-execution)). Same origin rather than
+    same site is the default chosen while the owner's choice is pending.
 
 ### Phase 4: issues and work as needed
 
