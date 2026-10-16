@@ -788,6 +788,10 @@ Once the fixes have settled:
     deviation (medium), and [#639](https://github.com/risu729/pateat/issues/639) a
     quadratic padding regex in the Bitwarden passkey decoder (low). Which scans run
     later, and when, is still open.
+  - [#636](https://github.com/risu729/pateat/issues/636) fixed at the owner's request: a
+    fill or a submitting click is refused unless the form goes to the document's own
+    origin from markup that holds it
+    ([architecture](architecture.md#background-execution)).
 
 ### Phase 4: issues and work as needed
 

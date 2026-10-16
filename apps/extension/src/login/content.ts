@@ -12,6 +12,7 @@ import {
   watchCodeSubmission,
 } from "../page/code-submission";
 import { fillBaseline, inputValueMismatch, rejectsFill, unreadyForm } from "../page/fill-checks";
+import { formRefusal, submitsForm } from "../page/form-destination";
 import { FIELD_GAP_MS, typeValue } from "../page/enter-value";
 import {
   extractAccountListObservation,
@@ -840,6 +841,10 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         const form = writableInputs[0]!.form;
         if (writableInputs.some((input) => input.form !== form))
           return fail("structural-mismatch", "fields-split");
+        // The form sends its values only to this document's origin, and holds them only when
+        // its markup does: a form left open by injected markup is refused.
+        const formRefused = formRefusal(form, writableInputs);
+        if (formRefused) return fail("structural-mismatch", formRefused);
         if (
           step.fields.some(
             (field, index) =>
@@ -1084,6 +1089,13 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           if (!clickable(only)) return fail("structural-mismatch", "target-missing");
           element = only;
         }
+        // A click that submits a form sends it, through the button's own `formaction` too,
+        // only to this document's origin, from a button its markup puts in that form. Any
+        // other click submits no form.
+        const submitRefused = submitsForm(element)
+          ? formRefusal(element.form, [element], element)
+          : undefined;
+        if (submitRefused) return fail("structural-mismatch", submitRefused);
         // The click's form's inputs, or the page's for an element outside a form.
         const form = isButton(element) ? element.form : element.closest("form");
         const formInputs = [...(form ? form.elements : document.querySelectorAll("input"))].filter(
