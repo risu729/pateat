@@ -1,5 +1,6 @@
 import { normalizeBitwardenProfile, type BitwardenProfile } from "@pateat/bitwarden";
 import type { SettingsResponse, VaultItemMetadata } from "@pateat/contracts";
+import { AlertDialog } from "@base-ui/react/alert-dialog";
 import { Menu } from "@base-ui/react/menu";
 import {
   CircleCheck,
@@ -40,6 +41,7 @@ import {
 type StatusReply = Extract<SetupReply, { kind: "status" }>;
 type Challenge = Extract<SetupReply, { kind: "mfa-required" | "new-device-verification-required" }>;
 type Connection = StatusReply["connections"][number];
+const deleteDialog = AlertDialog.createHandle<Connection>();
 function errorMessage(code: string, check?: string): string {
   if (code === "account-mismatch")
     return `The provider's sign-in and vault data did not agree${check ? ` (check: ${check})` : ""}. Setup is incomplete; report this check name.`;
@@ -214,19 +216,8 @@ export function BitwardenSetup({
   const [enabled, setEnabled] = useState(true);
   const [enableUnlock, setEnableUnlock] = useState(false);
   const [challenge, setChallenge] = useState<Challenge>();
-  const [confirmingDelete, setConfirmingDelete] = useState<string>();
-  const confirmDeleteButton = useRef<HTMLButtonElement>(null);
   const menuTriggers = useRef(new Map<string, HTMLButtonElement>());
-  /** The row whose menu trigger takes focus back once Keep connection closes the confirmation. */
-  const keptConnection = useRef<string>(undefined);
-  useEffect(() => {
-    if (confirmingDelete) {
-      confirmDeleteButton.current?.focus();
-    } else if (keptConnection.current) {
-      menuTriggers.current.get(keptConnection.current)?.focus();
-      keptConnection.current = undefined;
-    }
-  }, [confirmingDelete]);
+  const keepConnectionButton = useRef<HTMLButtonElement>(null);
   // Unset until toggled: the form starts open only while there is no connection.
   const [addOpen, setAddOpen] = useState<boolean>();
   const focusPassword = useRef(false);
@@ -347,7 +338,6 @@ export function BitwardenSetup({
     operation.current = true;
     const epoch = ++generation.current;
     setBusy(true);
-    setConfirmingDelete(undefined);
     // Invoke synchronously: provider permission must keep the original click gesture.
     void action(epoch)
       .catch(() => {
@@ -521,7 +511,6 @@ export function BitwardenSetup({
         {connections.map((connection) => {
           const signInFirst = needsSignIn(connection);
           const blocked = busy || !!challenge;
-          const confirming = confirmingDelete === connection.connectionId;
           return (
             <Row
               key={connection.connectionId}
@@ -536,141 +525,102 @@ export function BitwardenSetup({
                 </>
               }
               actions={
-                confirming ? (
-                  <>
-                    <Button
-                      ref={confirmDeleteButton}
-                      type="button"
-                      variant="danger"
-                      disabled={blocked}
-                      aria-label={`${connection.label}: Confirm delete connection`}
-                      onClick={() =>
-                        start(async (epoch) => {
-                          await receive(
-                            await client.deleteConnection(connection.connectionId),
-                            epoch,
-                          );
-                        })
-                      }
-                    >
-                      Confirm delete
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      aria-label={`${connection.label}: Keep connection`}
-                      onClick={() => {
-                        keptConnection.current = connection.connectionId;
-                        setConfirmingDelete(undefined);
-                        setMessage("Connection kept.");
+                <>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={blocked}
+                    aria-label={`${connection.label}: ${signInFirst ? "Sign in again" : "Sync"}`}
+                    onClick={() =>
+                      signInFirst ? signInAgain(connection) : syncConnection(connection)
+                    }
+                  >
+                    {signInFirst ? (
+                      <LogIn aria-hidden size={16} strokeWidth={2} />
+                    ) : (
+                      <RefreshCw aria-hidden size={16} strokeWidth={2} />
+                    )}
+                    {signInFirst ? "Sign in again" : "Sync"}
+                  </Button>
+                  <Menu.Root>
+                    <Menu.Trigger
+                      ref={(element: HTMLButtonElement | null) => {
+                        if (element) menuTriggers.current.set(connection.connectionId, element);
+                        else menuTriggers.current.delete(connection.connectionId);
                       }}
-                    >
-                      Keep connection
-                    </Button>
-                  </>
-                ) : (
-                  <>
-                    <Button
-                      type="button"
-                      variant="outline"
+                      className={iconButtonClass}
+                      aria-label={`More for ${connection.label}`}
                       disabled={blocked}
-                      aria-label={`${connection.label}: ${signInFirst ? "Sign in again" : "Sync"}`}
-                      onClick={() =>
-                        signInFirst ? signInAgain(connection) : syncConnection(connection)
-                      }
                     >
-                      {signInFirst ? (
-                        <LogIn aria-hidden size={16} strokeWidth={2} />
-                      ) : (
-                        <RefreshCw aria-hidden size={16} strokeWidth={2} />
-                      )}
-                      {signInFirst ? "Sign in again" : "Sync"}
-                    </Button>
-                    <Menu.Root>
-                      <Menu.Trigger
-                        ref={(element: HTMLButtonElement | null) => {
-                          if (element) menuTriggers.current.set(connection.connectionId, element);
-                          else menuTriggers.current.delete(connection.connectionId);
-                        }}
-                        className={iconButtonClass}
-                        aria-label={`More for ${connection.label}`}
-                        disabled={blocked}
-                      >
-                        <Ellipsis aria-hidden size={16} strokeWidth={2} />
-                      </Menu.Trigger>
-                      <Menu.Portal>
-                        <Menu.Positioner sideOffset={4} align="end">
-                          <Menu.Popup className="min-w-56 rounded-lg border border-border bg-surface p-1 text-ink shadow-[var(--shadow-menu)] outline-none">
-                            {signInFirst ? (
-                              <Menu.Item
-                                className={menuItemClass}
-                                aria-label={`${connection.label}: Sync`}
-                                onClick={() => syncConnection(connection)}
-                              >
-                                <RefreshCw aria-hidden size={16} strokeWidth={2} />
-                                Sync
-                              </Menu.Item>
-                            ) : (
-                              <Menu.Item
-                                className={menuItemClass}
-                                aria-label={`${connection.label}: Sign in again`}
-                                onClick={() => signInAgain(connection)}
-                              >
-                                <LogIn aria-hidden size={16} strokeWidth={2} />
-                                Sign in again
-                              </Menu.Item>
-                            )}
+                      <Ellipsis aria-hidden size={16} strokeWidth={2} />
+                    </Menu.Trigger>
+                    <Menu.Portal>
+                      <Menu.Positioner sideOffset={4} align="end">
+                        <Menu.Popup className="min-w-56 rounded-lg border border-border bg-surface p-1 text-ink shadow-[var(--shadow-menu)] outline-none">
+                          {signInFirst ? (
                             <Menu.Item
                               className={menuItemClass}
-                              aria-label={`${connection.label}: Disable automatic unlock`}
-                              disabled={connection.autoUnlock === "disabled"}
-                              onClick={() =>
-                                start(async (epoch) => {
-                                  await receive(
-                                    await client.disableAutoUnlock(connection.connectionId),
-                                    epoch,
-                                  );
-                                })
-                              }
+                              aria-label={`${connection.label}: Sync`}
+                              onClick={() => syncConnection(connection)}
                             >
-                              <Pause aria-hidden size={16} strokeWidth={2} />
-                              Disable automatic unlock
+                              <RefreshCw aria-hidden size={16} strokeWidth={2} />
+                              Sync
                             </Menu.Item>
+                          ) : (
                             <Menu.Item
                               className={menuItemClass}
-                              aria-label={`${connection.label}: Forget sync sign-in`}
-                              disabled={connection.providerSession === "none"}
-                              onClick={() =>
-                                start(async (epoch) => {
-                                  await receive(
-                                    await client.forgetProviderSession(connection.connectionId),
-                                    epoch,
-                                  );
-                                })
-                              }
+                              aria-label={`${connection.label}: Sign in again`}
+                              onClick={() => signInAgain(connection)}
                             >
-                              <LogOut aria-hidden size={16} strokeWidth={2} />
-                              Forget sync sign-in
+                              <LogIn aria-hidden size={16} strokeWidth={2} />
+                              Sign in again
                             </Menu.Item>
-                            <Menu.Item
-                              className={`${menuItemClass} text-danger`}
-                              aria-label={`${connection.label}: Delete connection`}
-                              onClick={() => {
-                                setConfirmingDelete(connection.connectionId);
-                                setMessage(
-                                  `Delete ${connection.label}? This removes the connection, its local vault cache, unlock key and sync sign-in from this device. It does not sign out other sessions, and saved settings that refer to it will show it as unavailable. Choose Confirm delete to continue.`,
+                          )}
+                          <Menu.Item
+                            className={menuItemClass}
+                            aria-label={`${connection.label}: Disable automatic unlock`}
+                            disabled={connection.autoUnlock === "disabled"}
+                            onClick={() =>
+                              start(async (epoch) => {
+                                await receive(
+                                  await client.disableAutoUnlock(connection.connectionId),
+                                  epoch,
                                 );
-                              }}
-                            >
-                              <Trash2 aria-hidden size={16} strokeWidth={2} />
-                              Delete connection
-                            </Menu.Item>
-                          </Menu.Popup>
-                        </Menu.Positioner>
-                      </Menu.Portal>
-                    </Menu.Root>
-                  </>
-                )
+                              })
+                            }
+                          >
+                            <Pause aria-hidden size={16} strokeWidth={2} />
+                            Disable automatic unlock
+                          </Menu.Item>
+                          <Menu.Item
+                            className={menuItemClass}
+                            aria-label={`${connection.label}: Forget sync sign-in`}
+                            disabled={connection.providerSession === "none"}
+                            onClick={() =>
+                              start(async (epoch) => {
+                                await receive(
+                                  await client.forgetProviderSession(connection.connectionId),
+                                  epoch,
+                                );
+                              })
+                            }
+                          >
+                            <LogOut aria-hidden size={16} strokeWidth={2} />
+                            Forget sync sign-in
+                          </Menu.Item>
+                          <Menu.Item
+                            className={`${menuItemClass} text-danger`}
+                            aria-label={`${connection.label}: Delete connection`}
+                            onClick={() => deleteDialog.openWithPayload(connection)}
+                          >
+                            <Trash2 aria-hidden size={16} strokeWidth={2} />
+                            Delete connection
+                          </Menu.Item>
+                        </Menu.Popup>
+                      </Menu.Positioner>
+                    </Menu.Portal>
+                  </Menu.Root>
+                </>
               }
             >
               {renderAccess?.(connection.connectionId)}
@@ -678,6 +628,59 @@ export function BitwardenSetup({
           );
         })}
       </RowList>
+      <AlertDialog.Root
+        handle={deleteDialog}
+        onOpenChange={(open, details) => {
+          if (!open && details.reason === "escape-key") setMessage("Connection kept.");
+        }}
+      >
+        {({ payload }) => (
+          <AlertDialog.Portal>
+            <AlertDialog.Backdrop
+              id="bitwarden-delete-backdrop"
+              className="fixed inset-0 bg-ink/40 transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0"
+            />
+            <AlertDialog.Popup
+              className="fixed top-1/2 left-1/2 max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border border-border bg-surface p-6 text-ink shadow-[var(--shadow-menu)] outline-none transition-opacity duration-150 data-ending-style:opacity-0 data-starting-style:opacity-0"
+              initialFocus={keepConnectionButton}
+              finalFocus={() => (payload && menuTriggers.current.get(payload.connectionId)) ?? true}
+            >
+              <AlertDialog.Title className="m-0 text-lg font-semibold wrap-anywhere">
+                Delete {payload?.label}?
+              </AlertDialog.Title>
+              <AlertDialog.Description className="my-4 text-sm leading-6">
+                This removes the connection, its local vault cache, unlock key and sync sign-in from
+                this device. It does not sign out other sessions, and saved settings that refer to
+                it will show it as unavailable.
+              </AlertDialog.Description>
+              <div className="flex flex-wrap justify-end gap-2">
+                <AlertDialog.Close
+                  ref={keepConnectionButton}
+                  render={<Button variant="outline" />}
+                  onClick={() => {
+                    if (deleteDialog.isOpen) setMessage("Connection kept.");
+                  }}
+                >
+                  Keep connection
+                </AlertDialog.Close>
+                <AlertDialog.Close
+                  render={<Button variant="danger" />}
+                  disabled={busy || !!challenge || !payload}
+                  onClick={() => {
+                    // Close retains these buttons during its exit animation.
+                    if (!deleteDialog.isOpen || !payload) return;
+                    start(async (epoch) => {
+                      await receive(await client.deleteConnection(payload.connectionId), epoch);
+                    });
+                  }}
+                >
+                  Delete connection
+                </AlertDialog.Close>
+              </div>
+            </AlertDialog.Popup>
+          </AlertDialog.Portal>
+        )}
+      </AlertDialog.Root>
       {renderOthers?.(
         statusKnown ? connections.map((connection) => connection.connectionId) : undefined,
       )}
