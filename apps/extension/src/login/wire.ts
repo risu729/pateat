@@ -1,6 +1,6 @@
 import * as v from "valibot";
 import {
-  chooserClickSchema,
+  listClickSchema,
   loginFieldTargetSchema,
   loginOperationSchema,
   loginMarkerTargetSchema,
@@ -225,7 +225,7 @@ export const chooseResultSchema = v.variant("ok", [
   v.pipe(
     v.strictObject({
       ok: v.literal(true),
-      click: v.picklist([...chooserClickSchema.options, "none"]),
+      click: v.picklist([...listClickSchema.options, "none"]),
       miss: v.optional(listMissSchema),
     }),
     v.check((result) => (result.click === "none") === (result.miss !== undefined)),
@@ -287,7 +287,7 @@ export const commandSchema = v.variant("type", [
      * With a chooser's click on its list (ADR 0028): the click goes to the element the
      * list's choice names, and only when that choice is `click`.
      */
-    list: v.optional(v.strictObject({ ...listInputSchema.entries, click: chooserClickSchema })),
+    list: v.optional(v.strictObject({ ...listInputSchema.entries, click: listClickSchema })),
     /**
      * With a `totp` handler's code fill (ADR 0027): the button that submits the code. The
      * fill then watches for the page submitting the code by itself before it answers.

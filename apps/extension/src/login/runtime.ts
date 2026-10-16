@@ -66,6 +66,7 @@ import {
   chooserRoute,
   type ChooserBranch,
   type ChooserClick,
+  type ListClick,
   type LoginChooserRecipe,
   type LoginRecipe,
   type LoginRoute,
@@ -736,8 +737,9 @@ const watchOver = (metadata: LoginAttemptMetadata, now: number) =>
  * variants, all on that path (ADR 0027).
  */
 /**
- * Where a recipe starts: its first steps, or for a chooser recipe (ADR 0028) no steps and
- * `list`, the list's own buttons, when it shows the list of accounts.
+ * Where a recipe starts: its first steps, or for a chooser recipe (ADR 0028) `list`, the
+ * list's own buttons, when it shows the list of accounts, and as its steps the first step
+ * of its `other` branch when that starts on the list's path.
  */
 export type LoginRecipeStart = { path: string; steps: LoginStep[]; list?: LoginTarget[] };
 /**
@@ -1252,7 +1254,8 @@ export type LoginReport = (
       fillOnly?: true;
       /**
        * For a login on a chooser's list (ADR 0028): what it clicks there, or `none` when
-       * it ends `account-not-listed`.
+       * it ends `account-not-listed`; `other-shown` when its path showed the `other`
+       * branch's form instead, so it clicked nothing there.
        */
       click?: ChooserClick | "none";
       /** With `none`: what the list showed, without any name or address. */
@@ -3640,11 +3643,12 @@ export function createLoginRuntime(
       // password variant (ADR 0034).
       if (inFlight && routeClick && passkeyAnswersRequest(run.recipe)) {
         let shows: boolean;
-        if (run.chooser) {
+        const onList = listOf(run);
+        if (onList) {
           // A chooser login's start page is its list, read as its click's wait reads it,
           // since the click's target names no element by itself (ADR 0028).
           if (!(await allowed(run))) return undefined;
-          const list = await waitFor(run, listReadiness(run.chooser), 1);
+          const list = await waitFor(run, listReadiness(onList.chooser), 1);
           if (!current(run) || list === "gone") return undefined;
           shows = list === "ready";
         } else {
@@ -5345,11 +5349,10 @@ export function createLoginRuntime(
         }
         if (!current(run) || run.metadata.state !== "ready") return;
         // A chooser login's click on its list waits for the list (ADR 0028).
+        const onList = run.metadata.stepIndex === 0 ? listOf(run) : undefined;
         const waited = await waitFor(
           run,
-          run.chooser && run.metadata.stepIndex === 0
-            ? listReadiness(run.chooser)
-            : loginReadiness(upcoming),
+          onList ? listReadiness(onList.chooser) : loginReadiness(upcoming),
         );
         if (!current(run) || run.metadata.state !== "ready") return;
         if (waited === "timeout") {
@@ -5519,12 +5522,8 @@ export function createLoginRuntime(
         }
         // A chooser login's click on its list goes where the list's choice for its account
         // is now (ADR 0028), read just before the click as a fill's values are.
-        if (
-          operation.step.kind === "click" &&
-          operation.stepIndex === 0 &&
-          run.chooser &&
-          run.metadata.chooser
-        ) {
+        const onList = operation.stepIndex === 0 ? listOf(run) : undefined;
+        if (operation.step.kind === "click" && onList) {
           const snapshot = await settings.handle({ version: 1, type: "settings.get" });
           if (!current(run)) return;
           if (!snapshot.ok) {
@@ -5537,7 +5536,7 @@ export function createLoginRuntime(
             await change(run, { type: "POLICY_CHANGED" }, { cause: "field-unavailable" });
             return;
           }
-          list = { ...usernames, ...listButtons(run.chooser), click: run.metadata.chooser.click };
+          list = { ...usernames, ...listButtons(onList.chooser), click: onList.click };
         }
         if (operation.step.kind === "fill" || operation.step.kind === "click")
           await pause("before-delivery");
@@ -5781,14 +5780,23 @@ export function createLoginRuntime(
       probeMode && documentOrigin === origin
         ? probeStarts(origin)
         : await recipes.starts(documentOrigin).catch(() => []);
-    // A chooser's list is ready once one of its buttons or a listed account shows (ADR 0028).
+    // A chooser's list is ready once one of its buttons or a listed account shows, and so
+    // is its path once it shows the `other` branch's first step instead (ADR 0028).
     const readiness = all
       .filter((start) => all.filter((other) => other.path === start.path).length === 1)
-      .flatMap((start): LoginReadiness[] =>
-        start.list
-          ? [{ path: start.path, require: "clickable", targets: start.list, accounts: true }]
-          : start.steps.map(loginReadiness),
-      );
+      .flatMap((start): LoginReadiness[] => [
+        ...(start.list
+          ? [
+              {
+                path: start.path,
+                require: "clickable" as const,
+                targets: start.list,
+                accounts: true as const,
+              },
+            ]
+          : []),
+        ...start.steps.map(loginReadiness),
+      ]);
     const unique = new Map(readiness.map((entry) => [JSON.stringify(entry), entry]));
     return [...unique.values()].slice(0, 32);
   }
@@ -6070,6 +6078,26 @@ export function createLoginRuntime(
     }
     return { username, others, othersComplete };
   }
+  /** Whether the document shows a step's elements now, without waiting for them. */
+  async function showsNow(live: LiveDocument, readiness: LoginReadiness): Promise<boolean> {
+    try {
+      const parsed = v.safeParse(
+        awaitResultSchema,
+        await send(live, { type: "login.await", readiness, timeoutMs: 0 }),
+      );
+      return parsed.success && parsed.output.ok;
+    } catch {
+      return false;
+    }
+  }
+  /**
+   * Whether a chooser login's first step is its click on the list (ADR 0028): not when it
+   * started on the `other` branch's form already shown on the list's path.
+   */
+  const listOf = (run: Execution) =>
+    run.chooser && run.metadata.chooser && run.metadata.chooser.click !== "other-shown"
+      ? { chooser: run.chooser, click: run.metadata.chooser.click }
+      : undefined;
   /** A chooser's buttons and what its readiness waits for on its list (ADR 0028). */
   const listButtons = (chooser: LoginChooserRecipe) => ({
     ...(chooser.chooser.other ? { other: chooser.chooser.other } : {}),
@@ -6094,7 +6122,7 @@ export function createLoginRuntime(
     live: LiveDocument,
     chooser: LoginChooserRecipe,
     chosen: { connectionId: string; itemId: string },
-  ): Promise<ChooserClick | ListMiss | "unreadable" | undefined> {
+  ): Promise<ListClick | ListMiss | "unreadable" | undefined> {
     const usernames = await listUsernames(snapshot, live, chosen);
     if (!usernames) return "unreadable";
     const list = { ...usernames, ...listButtons(chooser) };
@@ -6104,7 +6132,7 @@ export function createLoginRuntime(
         await send(live, { type: "login.choose", path: chooser.chooser.path, list }),
       );
       if (!parsed.success || !parsed.output.ok) return undefined;
-      return parsed.output.miss ?? (parsed.output.click as ChooserClick);
+      return parsed.output.miss ?? (parsed.output.click as ListClick);
     } catch {
       return undefined;
     } finally {
@@ -7355,6 +7383,21 @@ export function createLoginRuntime(
       if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
       if (chooser) recipe = chooserRoute(chooser, previous?.chooser?.click ?? "entry");
     }
+    // The chooser's path shows its `other` branch's form instead of the list, as after the
+    // person pressed the button for another account there: a new login starts on that
+    // branch and clicks nothing on the list (ADR 0028). While the list shows, it goes first.
+    let shownOther = false;
+    const shownRoute = chooser && chooserRoute(chooser, "other-shown");
+    const shownStart = shownRoute && loginReadiness(shownRoute.steps[0]!);
+    if (chooser && shownStart?.targets.length && !previous && start?.path === live.path) {
+      const shows =
+        (await showsNow(live, shownStart)) && !(await showsNow(live, listReadiness(chooser)));
+      if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+      if (shows) {
+        recipe = shownRoute;
+        shownOther = true;
+      }
+    }
     // A new attempt starts only once the document reports a first step of its recipe ready:
     // any route's or variant's, or the path alone when one of them needs no element. Until
     // then it watches the first steps of every recipe for its origin; this reads no
@@ -7600,7 +7643,7 @@ export function createLoginRuntime(
     // the list first, planned on the click alone: it goes on only through `other`, and is
     // refused with the account branch's reason, pressing nothing, when its row fits.
     let deferred: { route: LoginRecipe; detail?: string } | undefined;
-    if (!plan.ok && plan.reason === "no-route" && !previous && chooser) {
+    if (!plan.ok && plan.reason === "no-route" && !previous && chooser && !shownOther) {
       const { afterAccount: _afterAccount, ...lists } = chooser.chooser;
       const bare = chooserRoute({ ...chooser, chooser: lists }, "entry");
       const alone =
@@ -7663,9 +7706,9 @@ export function createLoginRuntime(
     }
     // A new login on a chooser's list decides what it clicks there for its account (ADR
     // 0028), and takes the route that click leads to. A fill-only login presses nothing.
-    let click: ChooserClick | "none" | undefined;
+    let click: ChooserClick | "none" | undefined = shownOther ? "other-shown" : undefined;
     let listMiss: ListMiss | undefined;
-    if (!previous && chooser && !("fillOnly" in plan)) {
+    if (!previous && chooser && !shownOther && !("fillOnly" in plan)) {
       const chosen = await listClick(snapshot, live, chooser, plan.account);
       if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
       // Without the account's username nothing on the list can be compared with it.

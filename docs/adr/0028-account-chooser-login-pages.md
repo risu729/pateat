@@ -324,6 +324,41 @@ are sent as for any login; since the roadmap's redaction of the account's own us
 hidden as `[account]` by the same rule
 ([architecture](../architecture.md#declarative-recipes-and-ai)).
 
+Amended on 2026-10-16 after a failure in the owner's Chrome on Cloudflare (07:09 UTC):
+after a logout the tab asked for an account on the list, the account the owner wanted
+was not listed, so the owner pressed "Sign in with another profile", which showed the
+email and password form on the list's path in the same document, and then picked the
+account in the popup. The pick started nothing ("Pateat could not log in with … on this
+page"), because a chooser login started only where the list showed. Now the chooser's
+start also includes the stored `afterOther` branch's first step when that step is on the
+list's path and waits for an element. When the page shows that step and does not show
+the list, a new login runs the `other` branch alone, without a click (`chooser.click` is
+`other-shown` in the attempt record, and the log's `login.start` names it as `list`); it
+is planned, filled, submitted, continued and judged as that branch. While the list
+shows, even beside such a form, the login clicks on the list as before. Without a stored
+`afterOther` branch nothing changes: the form is still no start, and a reload shows the
+list again, where the login clicks `other`. The person's own click on the button is not
+recorded; the login only reads what the page shows, as for any recipe's first step.
+
+Since that form is now a recipe's first step on the list's path, it also does what any
+first step does:
+
+- A page that shows the form directly, as when no profile is saved, starts a login with
+  the default or the single match, which submits, where Pateat did nothing before.
+- After a finished login in the tab, the form showing counts as a logout
+  ([ADR 0021](0021-account-choice-outside-settings.md) D), and while another tab's login
+  is watched, it ends that watch as the list does
+  ([ADR 0027](0027-per-account-login-routes.md#watching-after-a-challenge)).
+- After a logout, a fill-only login fills the form when it is the document's first
+  appearance of a start, as for any recipe. A document is filled at most once, so after
+  a fill-only login on the list, which presses nothing there, the form reached in the
+  same document is not filled; the tab asks, and a pick in the popup logs in on it.
+- For an item without a password (ADR 0036), the form is a start page: when it fills the
+  email and password on one page, no `advance` comes before the stop, so the login is
+  refused `no-route` (`password-empty:no-advance`), unless the form asks for a passkey
+  by itself and the item holds one ([ADR 0034](0034-answer-page-passkey-requests.md)),
+  while a click on `other` from the list stops before the password.
+
 Amended on 2026-10-13 by the owner's decision at 06:32 UTC
 ([ADR 0036](0036-passkey-after-the-identifier.md#account-lists)): an item without a
 password but with a usable passkey also logs in from a list. The click is chosen as

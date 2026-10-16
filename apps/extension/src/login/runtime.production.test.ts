@@ -17048,9 +17048,10 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
       service: ReturnType<typeof generation>,
       reports?: LoginReport[],
       live: Parameters<typeof harness>[1] = {},
+      overrides: Partial<LocalSettings> = {},
     ) => {
       const h = harness(
-        { siteDefaults: [], bindings: [] },
+        { siteDefaults: [], bindings: [], ...overrides },
         {
           allowedOrigins: [],
           uris,
@@ -17179,6 +17180,161 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
       const h = onList(generation());
       expect(await h.hello()).toEqual({ ok: false, reason: "stale-document" });
       expect(status()).toBeUndefined();
+    });
+
+    describe("on the other branch's form shown on the list's path", () => {
+      afterEach(() => {
+        fake.state.awaitReply = undefined;
+      });
+      /** The form after "Sign in with another profile", on the list's own path. */
+      const afterOther = parseLoginRecipe({
+        version: 1,
+        id: listed.id,
+        revision: 2,
+        origin,
+        slots: ["username", "password"],
+        steps: [
+          {
+            kind: "fill",
+            path: "/signin",
+            fields: [
+              { slot: "username", target: target("email") },
+              { slot: "password", target: target("password") },
+            ],
+          },
+          { kind: "click", path: "/signin", target: target("login"), purpose: "submit" },
+        ],
+        maxSubmissions: 1,
+      });
+      const withOther: LoginChooserRecipe = {
+        ...listed,
+        revision: 2,
+        chooser: { ...listed.chooser, afterOther },
+      };
+      /**
+       * The page shows the branch's form, or with `list` the list of accounts, or with
+       * `both` the form beside the list.
+       */
+      const shows = (h: ReturnType<typeof onList>, list: boolean | "both" = false) => {
+        h.recipes.chooser.mockResolvedValue(withOther);
+        h.recipes.starts.mockResolvedValue([
+          { path: "/signin", steps: [afterOther.steps[0]!], list: [other] },
+        ]);
+        fake.state.present = list === true ? new Set() : new Set(["email", "password", "login"]);
+        fake.state.awaitReply = (readiness) =>
+          list === "both" || (readiness.accounts === true) === list
+            ? { ok: true }
+            : { ok: false, reason: "timeout" };
+      };
+
+      it("logs in on that branch without a click on the list", async () => {
+        const reports: LoginReport[] = [];
+        const service = generation();
+        const h = onList(service, reports);
+        shows(h);
+        fake.state.signIn = true;
+        // The signed-in page replaces the form once it is submitted.
+        fake.state.onExecute = async (message) => {
+          const step = (message["operation"] as { step: LoginStep }).step;
+          if (step.kind !== "click") return;
+          fake.state.observedPath = "/home";
+          fake.state.present = new Set();
+          fake.state.extracted = { "signed-in": homePage };
+        };
+        expect(await h.hello()).toEqual({ ok: true });
+        await until(settled("authenticated"));
+        expect(executed()).toEqual(["fill:email,password", "click:login"]);
+        expect(fake.state.messages.some((entry) => entry.type === "login.choose")).toBe(false);
+        expect(clicks().every((entry) => entry.list === undefined)).toBe(true);
+        expect(status()![0]).toMatchObject({
+          recipeRevision: 2,
+          chooser: { click: "other-shown" },
+          stepCount: 2,
+          maxSubmissions: 1,
+        });
+        expect(reports.find((entry) => entry.type === "start")).toMatchObject({
+          click: "other-shown",
+        });
+        // The page after the sign-in is judged on the other branch.
+        expect(service.judge.mock.calls[0]![5]).toBe("other");
+      });
+
+      it.each([
+        ["the list shows", true],
+        ["the list shows beside the form", "both"],
+      ] as const)("still clicks on the list while %s", async (_name, list) => {
+        fake.state.chosen = { ok: true, click: "other" };
+        const h = onList(generation());
+        shows(h, list);
+        expect(await h.hello()).toEqual({ ok: true });
+        await until(() => clicks().length > 0);
+        expect(clicks()[0]!.operation.step.target).toEqual(other);
+        expect(status()![0]).toMatchObject({ chooser: { click: "other" } });
+      });
+
+      it("only fills the form for the default after a logout", async () => {
+        // This tab logged out of the site (ADR 0021 D); the item is the site default.
+        fake.state.session["pateat.login-logouts.v1"] = [{ tabId: 1, origin }];
+        const reports: LoginReport[] = [];
+        const h = onList(
+          generation(),
+          reports,
+          {},
+          { siteDefaults: [{ origin, provider: "bitwarden", userId, itemId }] },
+        );
+        shows(h);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.advanceTimersByTimeAsync(5_000);
+        expect(executed()).toEqual(["fill:email,password"]);
+        expect(reports.find((entry) => entry.type === "start")).toMatchObject({
+          fillOnly: true,
+          click: "other-shown",
+        });
+        expect(reports.at(-1)).toMatchObject({ type: "refused", reason: "logged-out" });
+      });
+
+      it("logs in with the account picked after a logout", async () => {
+        // This tab logged out of the site (ADR 0021 D), and two items match without a
+        // default; the person then pressed the button for another account on the list.
+        fake.state.session["pateat.login-logouts.v1"] = [{ tabId: 1, origin }];
+        const both = uriMatch({
+          candidates: [
+            { itemId, matches: [{ uriIndex: 0, match: 0 }] },
+            { itemId: otherItemId, matches: [{ uriIndex: 0, match: 0 }] },
+          ],
+        });
+        const h = onList(generation(), undefined, {
+          uris: async () => ({ ok: true, data: both }),
+          otherUsername: true,
+        });
+        shows(h);
+        expect(await h.hello()).toEqual({ ok: false, reason: "logged-out" });
+        expect(executed()).toEqual([]);
+        fake.state.onReconnect = () => h.hello();
+        expect(
+          await h.login.handle(
+            {
+              version: 1,
+              type: "login.choice.pick",
+              tabId: 1,
+              documentId: "synthetic-document",
+              connectionId,
+              itemId: otherItemId,
+              makeDefault: false,
+            },
+            {
+              id: "synthetic-extension",
+              url: "chrome-extension://synthetic-extension/popup.html",
+            } as never,
+          ),
+        ).toEqual({ ok: true });
+        await until(() => executed().length >= 2);
+        expect(executed()).toEqual(["fill:email,password", "click:login"]);
+        expect(status()![0]).toMatchObject({
+          account: { itemId: otherItemId },
+          chooser: { click: "other-shown" },
+        });
+      });
     });
 
     const named = { username: "name", entries: 1, beside: 0, named: 0, other: "none" };

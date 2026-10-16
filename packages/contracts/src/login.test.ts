@@ -3,6 +3,7 @@ import * as v from "valibot";
 import {
   chooseLoginRoute,
   chooserBranch,
+  chooserClickBranch,
   chooserRoute,
   CHOOSER_ENTRY_TARGET,
   continuesRecipe,
@@ -2295,6 +2296,28 @@ describe("chooser recipes (ADR 0028)", () => {
     expect(v.is(loginRecipeSchema, route)).toBe(true);
     // The other branch is still absent: its route is the click alone.
     expect(chooserRoute(both, "other")?.steps).toHaveLength(1);
+    expect(chooserRoute(both, "other-shown")).toBeUndefined();
+  });
+
+  it("runs the other branch alone when its form shows on the list's path", () => {
+    const stored = v.parse(loginChooserRecipeSchema, chooser());
+    const onList = {
+      ...recipe(),
+      steps: recipe().steps.map((step) => ({ ...step, path: "/login" })),
+    };
+    const { alternatives: _alternatives, passkey: _passkey, ...branch } = onList;
+    const shown = withChooserBranch(stored, "other", { ...onList, revision: 2 });
+    expect(chooserClickBranch("other-shown")).toBe("other");
+    // No click: the branch's own steps, slots and submissions, without its passkey route
+    // or alternatives, under the chooser's ID and revision.
+    expect(chooserRoute(shown, "other-shown")).toEqual({ ...branch, revision: 2 });
+    // A branch that starts on another path never shows on the list's.
+    const elsewhere = withChooserBranch(stored, "other", {
+      ...onList,
+      steps: [{ ...onList.steps[0]!, path: "/email" }, ...onList.steps.slice(1)],
+      revision: 2,
+    });
+    expect(chooserRoute(elsewhere, "other-shown")).toBeUndefined();
   });
 });
 
