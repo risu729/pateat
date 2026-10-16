@@ -15,7 +15,8 @@ Date: 2026-10-16
 
 ## Context
 
-`tokenSegment()` in `apps/extension/src/observation/extract.ts` flags a path segment
+`tokenSegment()` (in `apps/extension/src/observation/extract.ts` until this ADR, now in
+`apps/extension/src/observation/path.ts`) flags a path segment
 that may carry a session ID or another token: a matrix parameter such as `;jsessionid=`,
 an ASP.NET cookieless part, `?`, `&` or `=`, a UUID, or a long run of letters and digits
 with a digit, as it is or percent-decoded. Since ADR 0016 a login page, a list of
@@ -43,10 +44,10 @@ server rather than a session:
 On every page Pateat observes (a login page, a list of accounts, a sign-in entry page,
 the page after an `advance` step and a judged page), each whole path segment that
 `tokenSegment()` flags is replaced by `[id]`, as ADR 0029 already does for the judged
-page. The page is no longer refused for its path. The token itself never leaves the
-device. A recipe is stored under the redacted path, and a live page matches a recipe
-through its redacted path, so every tenant's
-`login.microsoftonline.com/[id]/oauth2/authorize` shares one recipe.
+page. The page is no longer refused for its path. A flagged segment is not sent. A
+recipe is stored under the redacted path, and a live page matches a recipe through its
+redacted path, so every tenant's `login.microsoftonline.com/[id]/oauth2/authorize`
+shares one recipe.
 
 Example: `https://login.microsoftonline.com/<tenant UUID>/oauth2/authorize` is observed
 and sent as `/[id]/oauth2/authorize`, and UniSuper's entry page as
@@ -95,11 +96,15 @@ another ID in the path get recipes, and one recipe serves every tenant of such a
 provider for the owner. Pages that differ only in a token-like segment now share one
 recipe, one retry window and one judgement row, so two different forms behind such a
 segment, such as a `;jsessionid=` login and register page, are treated as one page: the
-recipe of one may be tried on the other, and its steps then miss their elements as on
-any changed page.
+recipe of one may be tried on the other. When the other form's fields have the same
+names, such as a register form with `name="email"` and `name="password"`, the recipe's
+steps find them, and Pateat fills and submits the item's username and password into
+that form. This stays on the same origin and in the same tab, so the scope of the login
+is unchanged; otherwise the steps miss their elements as on any changed page.
 
 The rule stays a heuristic: a short or plain-looking token is still sent as it is, as
-before, and some segments that carry no secret, such as an Azure AD B2C policy name, are
+before, a token the page also writes into page text, a label or the title is not removed
+there, and some segments that carry no secret, such as an Azure AD B2C policy name, are
 replaced too.
 
 ## Alternatives

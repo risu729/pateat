@@ -1657,7 +1657,10 @@ recipe is stored under that path, and the extension compares a live page with a 
 an observation or a content-script report only through the same replacement, so every
 tenant's page shares one recipe and one retry window. On a page whose path had a segment
 replaced, an `id`, `name` or `data-testid` that may be a token locates nothing, as on a
-judged page, so the token cannot leave through a locator either. A username in the path
+judged page, so a token the page also writes into such an attribute is not sent through
+a locator either. Text, labels and the title are not checked against the replaced
+segment, and a short token the rule does not flag is sent as it is, so this is a
+heuristic. A username in the path
 is looked for in the raw path, before the replacement. The local log's `url` keeps the
 raw path (owner decision 2026-10-13). Labels can
 contain private data too: sanitize and bound them, with privacy fixtures and an
