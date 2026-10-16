@@ -127,7 +127,17 @@ async function prepare(browser: VaultBrowser, service: SyncService) {
     body: {
       version: 1,
       expectedRevision: 0,
-      settings: { connections: [], excludedSites: [], siteDefaults: [], bindings: [binding] },
+      settings: {
+        connections: [],
+        excludedSites: [],
+        siteDefaults: [],
+        bindings: [binding],
+        protections: {
+          passkeyPresence: "always",
+          passkeyVerification: "always",
+          masterPasswordReprompt: "ignore",
+        },
+      },
     },
   });
   expect(stored.status).toBe(200);

@@ -54,6 +54,8 @@ const NOT_STARTED: Record<string, string> = {
   "no-route": "the recipe has no way to log in with this vault item",
   "entry-blocked": "the site's sign-in link was not pressed",
   "account-changed": "the chosen account changed",
+  "master-password-reprompt":
+    "the vault item asks for the master password again (Bitwarden re-prompt), and the settings honour that",
   "field-unavailable":
     "the vault item's username could not be read, so its account cannot be found on the list",
 };

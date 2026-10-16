@@ -368,5 +368,8 @@ describe("pageStatusLines", () => {
     expect(lines({ refused: { reason: "attempt-limit" } })[1]?.[2]).toBe(
       "Pateat did not log in: Pateat already holds as many login records as it can.",
     );
+    expect(lines({ refused: { reason: "master-password-reprompt" } })[1]?.[2]).toBe(
+      "Pateat did not log in: the vault item asks for the master password again (Bitwarden re-prompt), and the settings honour that.",
+    );
   });
 });

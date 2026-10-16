@@ -266,6 +266,7 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
           label: item.label,
           allowedOrigins: [],
           groupIds: item.groupIds,
+          ...(item.reprompt ? { reprompt: item.reprompt } : {}),
           fields: item.fields.map(({ id, label, name, kind, linkedFieldId }) => ({
             id,
             label,

@@ -1,4 +1,5 @@
 import {
+  DEFAULT_PROTECTIONS,
   createSettingsStore,
   type LocalSettings,
   type SettingsSnapshot,
@@ -59,6 +60,7 @@ const settingsOf = (parts: Partial<LocalSettings> = {}): LocalSettings => ({
   excludedSites: [],
   siteDefaults: [],
   bindings: [],
+  protections: { ...DEFAULT_PROTECTIONS },
   ...parts,
 });
 const state = (revision: number, settings: LocalSettings | null): SyncSettingsState => ({
@@ -210,6 +212,7 @@ describe("settings sync on a new pairing", () => {
       excludedSites: [site("intranet.example"), site("local-only.example")],
       siteDefaults: [account("https://bank.example"), account("https://shop.example")],
       bindings: [binding("https://bank.example")],
+      protections: DEFAULT_PROTECTIONS,
     };
     expect(service()).toEqual(state(4, { connections: [], ...merged }));
     expect(after()?.revision).toBe(8);
@@ -324,7 +327,45 @@ describe("settings sync after the first", () => {
       excludedSites: [site("intranet.example")],
       siteDefaults: [account("https://bank.example", "item-service")],
       bindings: [binding("https://bank.example", "totp")],
+      protections: DEFAULT_PROTECTIONS,
     });
+  });
+
+  it("merges each protection on its own, the service's change winning", () => {
+    const base = syncedSettings(agreed);
+    const local = syncedSettings({
+      ...agreed,
+      protections: {
+        ...DEFAULT_PROTECTIONS,
+        passkeyVerification: "never",
+        masterPasswordReprompt: "honour",
+      },
+    });
+    const service = syncedSettings({
+      ...agreed,
+      protections: {
+        ...DEFAULT_PROTECTIONS,
+        passkeyPresence: "activation",
+        passkeyVerification: "always",
+      },
+    });
+    // The service did not change verification, so the local change stands beside its own.
+    expect(mergeSyncedSettings({ service: base, local: base }, local, service).protections).toEqual(
+      {
+        passkeyPresence: "activation",
+        passkeyVerification: "never",
+        masterPasswordReprompt: "honour",
+      },
+    );
+    const changed = syncedSettings({
+      ...agreed,
+      protections: { ...DEFAULT_PROTECTIONS, masterPasswordReprompt: "honour" },
+    });
+    // Both changed re-prompt since the base: the service's copy wins, as for an entry.
+    expect(
+      mergeSyncedSettings({ service: changed, local: base }, local, syncedSettings(agreed))
+        .protections.masterPasswordReprompt,
+    ).toBe("ignore");
   });
 
   it("applies a default that differs only in its item name once, then stays settled", async () => {

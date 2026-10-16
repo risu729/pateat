@@ -1,6 +1,7 @@
 import * as v from "valibot";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import {
+  DEFAULT_PROTECTIONS,
   createSettingsStore,
   parseLoginRecipe,
   recipeStartSteps,
@@ -362,6 +363,8 @@ function harness(
     quarantined?: boolean;
     /** Adds a second, not enabled connection of the same provider account. */
     duplicateAccount?: boolean;
+    /** Marks the item with Bitwarden's master password re-prompt. */
+    reprompt?: boolean;
     /** Adds a login username field to the item. */
     username?: boolean;
     /**
@@ -416,6 +419,7 @@ function harness(
     excludedSites: [],
     siteDefaults: [{ origin, provider: "bitwarden", userId, itemId }],
     bindings: [savedBinding],
+    protections: { ...DEFAULT_PROTECTIONS },
     ...overrides,
   };
   const snapshot: SettingsSnapshot = { version: 1, revision: 1, settings };
@@ -454,6 +458,7 @@ function harness(
                 label: "Synthetic item",
                 allowedOrigins: live.allowedOrigins ?? [origin],
                 groupIds: [],
+                ...(live.reprompt ? { reprompt: true as const } : {}),
                 fields: [
                   ...(live.username
                     ? [
@@ -1248,6 +1253,22 @@ describe("production login document admission", () => {
     );
     expect(report.mock.calls.at(-1)![0]).toMatchObject({ reason: "connection-disabled" });
     expect(h.fields).not.toHaveBeenCalled();
+  });
+  it("stops before any vault read when the item asks for the master password and that is honoured", async () => {
+    const report = vi.fn<(report: LoginReport) => void>();
+    const honoured = { ...DEFAULT_PROTECTIONS, masterPasswordReprompt: "honour" as const };
+    const h = harness({ protections: honoured }, { report, reprompt: true });
+    expect(await h.hello()).toEqual({ ok: false, reason: "master-password-reprompt" });
+    expect(report.mock.calls.map(([entry]) => entry)).toContainEqual(
+      expect.objectContaining({ type: "refused", reason: "master-password-reprompt" }),
+    );
+    expect(h.fields).not.toHaveBeenCalled();
+    expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.execute");
+  });
+  it("fills an item marked with re-prompt while the settings ignore re-prompt", async () => {
+    const h = harness({}, { reprompt: true });
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(h.fields).toHaveBeenCalled());
   });
   it("retries twice, then stops before any vault read or page change when a step's elements never appear", async () => {
     fake.state.awaited = { ok: false, reason: "timeout" };
@@ -10690,6 +10711,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
           excludedSites,
           siteDefaults: [],
           bindings: [],
+          protections: { ...DEFAULT_PROTECTIONS },
         });
         const agreed = settings([{ hostname: "intranet.example", includeSubdomains: false }]);
         let local: SettingsSnapshot = { version: 1, revision: 7, settings: agreed };

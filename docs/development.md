@@ -442,7 +442,13 @@ holds:
   `no-login` (no login of its page started), `login-ended` (the login did not sign
   in) or `no-pick` (the popup offered its page a choice of accounts outside a logout,
   with an item that holds a passkey, and nothing was picked within four minutes)
-  ([ADR 0034](adr/0034-answer-page-passkey-requests.md));
+  ([ADR 0034](adr/0034-answer-page-passkey-requests.md)). A request is handed on as
+  `master-password-reprompt` (`login-item-master-password-reprompt` for a login's own
+  item) when a passkey it accepts belongs to an item marked with Bitwarden's master
+  password re-prompt and Protections honours that, and as `no-user-activation` or
+  `user-verification-required` when Protections asks for a click or leaves
+  verification unset
+  ([ADR 0007](adr/0007-existing-passkey-assertions.md#presence-and-verification));
 - once the request is admitted, `rpId` and `allowCredentials` (how many credential IDs
   the site listed);
 - once the vault was searched, `stored` (eligible stored passkeys with that RP ID in
@@ -510,7 +516,8 @@ The sign-ins the check reads are kept per tab in `chrome.storage.session`
   `delegate` (handed on to the browser and other providers), with the delegate `reason`:
   `not-signed-in` (no Pateat sign-in to that RP ID in the tab), `expired` (the latest
   one was more than five minutes ago), `not-listed` (no listed credential is a passkey
-  Pateat could sign with there), `vault-incomplete` (none is, but a connection or item
+  Pateat could sign with there; a passkey of an item whose re-prompt Protections honours
+  does not count), `vault-incomplete` (none is, but a connection or item
   could not be searched, as when the vault is locked), `not-configured` (the site is
   excluded or the settings could not be read), `vault-unavailable` (the sign-in records
   or the lookup failed) or `timeout` (the lookup took too long), `invalid-request`,

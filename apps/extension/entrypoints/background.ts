@@ -20,6 +20,7 @@ import { createConnectionProbeTransport } from "../src/connections/probe";
 import { CHOOSER_PAGE, createPasskeyChooser } from "../src/passkeys/chooser";
 import { createPasskeyCreateHandler } from "../src/passkeys/create";
 import { createProbePasskeySource } from "../src/passkeys/probe";
+import { passkeyPolicyOf } from "../src/passkeys/policy";
 import { createPasskeyRuntime } from "../src/passkeys/runtime";
 import { createSignIns, SIGN_INS_KEY } from "../src/passkeys/sign-ins";
 import { createSignedTabs, SIGNED_TABS_KEY } from "../src/passkeys/signed-tabs";
@@ -292,11 +293,13 @@ export default defineBackground(() => {
         : undefined,
     );
   };
+  // ADR 0007: the protections setting chooses presence and verification for every site.
+  const passkeyPolicy = async () => passkeyPolicyOf((await settings.read()).settings);
   const passkeys = passkeyProbe
     ? createPasskeyRuntime(passkeyProbe.source, {
         extensionId: browser.runtime.id,
         timeoutMs: passkeyProbe.timeoutMs,
-        policy: passkeyProbe.policy,
+        policy: passkeyPolicy,
         chooser: passkeyChooser,
         remember: passkeyProbe.remember,
         loginAccount: login.loginAccount,
@@ -308,6 +311,7 @@ export default defineBackground(() => {
       })
     : createPasskeyRuntime(vaultPasskeys, {
         extensionId: browser.runtime.id,
+        policy: passkeyPolicy,
         // Only the local log keeps it; the page never learns why.
         report: diagnosticsLog.passkey,
         chooser: passkeyChooser,

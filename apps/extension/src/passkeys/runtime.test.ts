@@ -10,7 +10,9 @@ import {
 } from "./runtime";
 import type { PasskeyCandidates } from "./select";
 import { CHOOSER_MAX_WAIT_MS, CHOOSER_MIN_WAIT_MS } from "./wire";
+import { fromBase64Url } from "./encoding";
 import { snapshotGetOptions } from "./page";
+import type { PasskeyPolicy } from "./policy";
 import type { SignedTabs } from "./signed-tabs";
 
 const extensionId = "synthetic-extension";
@@ -285,6 +287,207 @@ describe("passkey runtime policy", () => {
     });
     expect(policy).toHaveBeenCalledWith(origin);
     expect(backing.candidates).not.toHaveBeenCalled();
+    expect(backing.sign).not.toHaveBeenCalled();
+  });
+});
+
+describe("passkey runtime protections setting", () => {
+  it("waits for a policy read from the settings and leaves UV clear under `never`", async () => {
+    const policy = vi.fn(async () => ({ presence: "always", verification: "never" }) as const);
+    const backing = source();
+    const runtime = createPasskeyRuntime(backing, { extensionId, policy });
+    const result = await runtime.handle(get(undefined, false), sender());
+    expect(result).toMatchObject({ kind: "assertion" });
+    if (!("kind" in result) || result.kind !== "assertion")
+      throw new Error("Expected an assertion");
+    // UP, BE and BS without UV.
+    expect(fromBase64Url(result.assertion.authenticatorData)?.[32]).toBe(0x19);
+    expect(
+      await runtime.handle(
+        { ...get(), request: { ...request, userVerification: "required" } },
+        sender(),
+      ),
+    ).toEqual({ kind: "delegate", reason: "user-verification-required" });
+  });
+
+  it("follows the ceremony when the policy cannot be read", async () => {
+    const backing = source();
+    const runtime = createPasskeyRuntime(backing, {
+      extensionId,
+      policy: async () => {
+        throw new Error("settings-unavailable");
+      },
+    });
+    expect(await runtime.handle(get(undefined, false), sender())).toEqual({
+      kind: "delegate",
+      reason: "no-user-activation",
+    });
+    expect(backing.candidates).not.toHaveBeenCalled();
+  });
+
+  it("cancels a request whose page cancels it while the policy is read", async () => {
+    let release!: () => void;
+    const read = new Promise<void>((resolve) => (release = resolve));
+    const report = vi.fn();
+    const backing = source();
+    const runtime = createPasskeyRuntime(backing, {
+      extensionId,
+      report,
+      policy: async () => {
+        await read;
+        return { presence: "always", verification: "always" } as const;
+      },
+    });
+    const operationId = crypto.randomUUID();
+    const pending = runtime.handle(get(operationId), sender());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(
+      await runtime.handle({ version: 1, type: "passkey.cancel", operationId }, sender()),
+    ).toEqual({ ok: true });
+    release();
+    expect(await pending).toEqual({ kind: "cancelled" });
+    expect(backing.candidates).not.toHaveBeenCalled();
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: "cancelled", cause: "page-cancelled" }),
+    );
+  });
+
+  it("cancels a request whose policy is read while the settings change", async () => {
+    let release!: () => void;
+    const read = new Promise<void>((resolve) => (release = resolve));
+    const report = vi.fn();
+    const backing = source();
+    const runtime = createPasskeyRuntime(backing, {
+      extensionId,
+      report,
+      policy: async () => {
+        await read;
+        return { presence: "always", verification: "always" } as const;
+      },
+    });
+    const pending = runtime.handle(get(), sender());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    runtime.settingsChanged();
+    release();
+    expect(await pending).toEqual({ kind: "cancelled" });
+    expect(backing.candidates).not.toHaveBeenCalled();
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: "cancelled", cause: "settings-changed" }),
+    );
+  });
+
+  it("signs a passkey chosen in the window under protections changed meanwhile", async () => {
+    let policy: PasskeyPolicy = { presence: "always", verification: "always" };
+    const other = { ...candidate, credentialId: "BAUG" };
+    const backing = source({
+      candidates: vi.fn(async () => ({ candidates: [candidate, other], complete: true })),
+    });
+    const choose = vi.fn(async (): Promise<PasskeyChoice> => {
+      policy = { presence: "activation", verification: "never" };
+      return { kind: "chosen", index: 0, makeDefault: false };
+    });
+    const runtime = createPasskeyRuntime(backing, {
+      extensionId,
+      chooser: { choose },
+      policy: () => policy,
+    });
+    // The person's choice is the gesture; UV is left clear.
+    const result = await runtime.handle(get(undefined, false), sender());
+    if (!("kind" in result) || result.kind !== "assertion")
+      throw new Error("Expected an assertion");
+    expect(fromBase64Url(result.assertion.authenticatorData)?.[32]).toBe(0x19);
+    // A request that requires UV is handed on after the choice.
+    policy = { presence: "always", verification: "always" };
+    expect(
+      await runtime.handle(
+        { ...get(), request: { ...request, userVerification: "required" } },
+        sender(),
+      ),
+    ).toEqual({ kind: "delegate", reason: "user-verification-required" });
+    expect(backing.sign).toHaveBeenCalledTimes(1);
+  });
+
+  it("hands on a chosen passkey when a re-prompt passkey it accepts appears meanwhile", async () => {
+    const other = { ...candidate, credentialId: "BAUG" };
+    let withheld = false;
+    const backing = source({
+      candidates: vi.fn(async () => ({
+        candidates: [candidate, withheld ? { ...other, reprompt: true } : other],
+        complete: true,
+      })),
+    });
+    const choose = vi.fn(async (): Promise<PasskeyChoice> => {
+      withheld = true;
+      return { kind: "chosen", index: 0, makeDefault: false };
+    });
+    const runtime = createPasskeyRuntime(backing, { extensionId, chooser: { choose } });
+    expect(await runtime.handle(get(), sender())).toEqual({
+      kind: "delegate",
+      reason: "master-password-reprompt",
+    });
+    expect(backing.sign).not.toHaveBeenCalled();
+  });
+
+  it("hands on a request any re-prompt passkey accepts, never signing another in its place", async () => {
+    const withheld = { ...candidate, credentialId: "BAUG", reprompt: true };
+    const choose = vi.fn(async (): Promise<PasskeyChoice> => ({ kind: "closed" }));
+    const report = vi.fn();
+    const backing = source({
+      candidates: vi.fn(async () => ({ candidates: [candidate, withheld], complete: true })),
+    });
+    const runtime = createPasskeyRuntime(backing, {
+      extensionId,
+      chooser: { choose },
+      report,
+    });
+    expect(await runtime.handle(get(), sender())).toEqual({
+      kind: "delegate",
+      reason: "master-password-reprompt",
+    });
+    // Alone, or as the site default, it is handed on too.
+    vi.mocked(backing.candidates)
+      .mockResolvedValueOnce({ candidates: [withheld], complete: true })
+      .mockResolvedValueOnce({ candidates: [{ ...withheld, preferred: true }], complete: true });
+    expect(await runtime.handle(get(), sender())).toEqual({
+      kind: "delegate",
+      reason: "master-password-reprompt",
+    });
+    expect(await runtime.handle(get(), sender())).toEqual({
+      kind: "delegate",
+      reason: "master-password-reprompt",
+    });
+    // A request whose allow list names only the other passkey still signs with it.
+    expect(
+      await runtime.handle(
+        {
+          ...get(),
+          request: { ...request, allowCredentials: [{ type: "public-key", id: "AQID" }] },
+        },
+        sender(),
+      ),
+    ).toMatchObject({ kind: "assertion", assertion: { credentialId: "AQID" } });
+    expect(backing.sign).toHaveBeenCalledTimes(1);
+    expect(choose).not.toHaveBeenCalled();
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: "delegate", reason: "master-password-reprompt" }),
+    );
+  });
+
+  it("hands on a login's request when its item asks for the master password", async () => {
+    const backing = source({
+      candidates: vi.fn(async () => ({
+        candidates: [{ ...candidate, reprompt: true }],
+        complete: true,
+      })),
+    });
+    const runtime = createPasskeyRuntime(backing, {
+      extensionId,
+      loginAccount: () => ({ connectionId: "personal", itemId: "login-item" }),
+    });
+    expect(await runtime.handle(get(), sender())).toEqual({
+      kind: "delegate",
+      reason: "login-item-master-password-reprompt",
+    });
     expect(backing.sign).not.toHaveBeenCalled();
   });
 });
@@ -1375,6 +1578,46 @@ describe("a page's own conditional request through a login (ADR 0034)", () => {
         mediation: "conditional",
       }),
     );
+  });
+
+  it("admits a waiting request again under protections changed while it waited", async () => {
+    let policy: PasskeyPolicy = { presence: "always", verification: "always" };
+    const report = vi.fn();
+    const backing = source();
+    const { conditional, waiting } = decisions();
+    const runtime = createPasskeyRuntime(backing, {
+      extensionId,
+      report,
+      conditional,
+      policy: () => policy,
+    });
+    const required = {
+      ...conditionalGet(),
+      request: { ...request, mediation: "conditional", userVerification: "required" },
+    };
+    const pending = runtime.handle(required, sender());
+    await vi.waitFor(() => expect(waiting).toHaveLength(1));
+    policy = { presence: "always", verification: "never" };
+    runtime.settingsChanged();
+    const signed = vi.fn();
+    waiting[0]!.decide({ kind: "answer", item: loginItem, answered: signed });
+    // Under the new policy the request requires UV Pateat no longer asserts, so it goes back
+    // to the page rather than waiting for another login.
+    expect(await pending).toEqual({ kind: "delegate", reason: "user-verification-required" });
+    expect(signed.mock.calls).toEqual([[false]]);
+    expect(waiting).toHaveLength(1);
+    expect(backing.sign).not.toHaveBeenCalled();
+
+    // A request that only prefers UV signs, with UV left clear.
+    policy = { presence: "always", verification: "always" };
+    const preferred = runtime.handle(conditionalGet(), sender());
+    await vi.waitFor(() => expect(waiting).toHaveLength(2));
+    policy = { presence: "always", verification: "never" };
+    waiting[1]!.decide({ kind: "answer", item: loginItem, answered: vi.fn() });
+    const result = await preferred;
+    if (!("kind" in result) || result.kind !== "assertion")
+      throw new Error("Expected an assertion");
+    expect(fromBase64Url(result.assertion.authenticatorData)?.[32]).toBe(0x19);
   });
 
   it("tells the login of a failed signing, and of a timeout once it answers", async () => {

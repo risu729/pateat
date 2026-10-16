@@ -281,7 +281,24 @@ test("a ceremony policy delegates unattended and UV-required requests and clears
   try {
     await withLoginExtension(async (context, _worker, extensionId) => {
       const probe = await probeControls(context, extensionId);
-      await probe.configure({ presence: "activation", verification: "never" });
+      await probe.configure();
+      // The settings page's protections choose the policy, as in production (ADR 0007).
+      const options = await context.newPage();
+      await options.goto(`chrome-extension://${extensionId}/options.html`);
+      const initial = await settingsRequest(options);
+      await settingsRequest(options, {
+        version: 1,
+        type: "settings.save",
+        expectedRevision: initial.snapshot.revision,
+        settings: {
+          ...initial.snapshot.settings,
+          protections: {
+            ...initial.snapshot.settings.protections,
+            passkeyPresence: "activation",
+            passkeyVerification: "never",
+          },
+        },
+      });
       const unattended = await openRelyingParty(context, origin, "/?unattended");
       expectNativeAssertion(
         await unattended.evaluate(
@@ -772,6 +789,60 @@ test("a passkey stored in the synthetic Bitwarden vault signs inside the crypto 
       settings,
     });
     // The browser's virtual authenticator then answers with its own credential.
+    const nativeChallenge = challengeHex();
+    expectNativeAssertion(
+      await clickRequest(page, { challenge: nativeChallenge }),
+      vaultOrigin,
+      nativeChallenge,
+    );
+  });
+});
+
+test("a vault passkey of an item with master password re-prompt signs only while re-prompt is ignored", async () => {
+  await withVaultProfile(async (open) => {
+    const browser = await open();
+    await setupProbe(browser.page, { action: "configure", variant: "reprompt-passkey" });
+    const options = await browser.context.newPage();
+    await options.goto(`chrome-extension://${browser.extensionId}/options.html`);
+    const accepted = await setupRequest(options, {
+      type: "connection.begin",
+      input: beginInput(),
+    });
+    if (!accepted.ok || accepted.kind !== "ready") throw new Error("Synthetic setup failed");
+    await browser.context.route(`${vaultOrigin}/**`, (route) =>
+      route.fulfill({ contentType: "text/html; charset=utf-8", body: passkeyPageHtml }),
+    );
+    const initial = await settingsRequest(options);
+    // The catalog carries the item's re-prompt flag, never its values.
+    expect(
+      initial.catalog.connections.find((entry) => entry.id === accepted.connectionId)?.items[0],
+    ).toMatchObject({ reprompt: true });
+    const enabled = initial.snapshot.settings;
+    for (const entry of enabled.connections)
+      entry.enabled = entry.connectionId === accepted.connectionId;
+    expect(enabled.protections.masterPasswordReprompt).toBe("ignore");
+    const saved = await settingsRequest(options, {
+      version: 1,
+      type: "settings.save",
+      expectedRevision: initial.snapshot.revision,
+      settings: enabled,
+    });
+    const page = await openRelyingParty(browser.context, vaultOrigin);
+    // Ignored by default: Pateat signs as before.
+    const ignored = await clickRequest(page, { challenge: challengeHex() });
+    if ("error" in ignored) throw new Error(`Expected an assertion, got ${ignored.error}`);
+    expect(ignored.id).toBe(vaultCredentialId);
+
+    // Honoured: the request goes to the browser, whose virtual authenticator answers.
+    await settingsRequest(options, {
+      version: 1,
+      type: "settings.save",
+      expectedRevision: saved.snapshot.revision,
+      settings: {
+        ...saved.snapshot.settings,
+        protections: { ...saved.snapshot.settings.protections, masterPasswordReprompt: "honour" },
+      },
+    });
     const nativeChallenge = challengeHex();
     expectNativeAssertion(
       await clickRequest(page, { challenge: nativeChallenge }),

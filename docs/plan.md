@@ -725,15 +725,19 @@ Once the fixes have settled:
   `runSteps`. `runtime.production.test.ts` is split along its eight top-level `describe`
   blocks once its 38 shared helpers have their own module
   ([external review](research/2026-10-13-external-review.md)).
-- Before Pateat is public: settings for the two protections Pateat does not honour
-  today (owner, 2026-10-13 21:57 UTC). Passkey user presence and user verification:
-  Pateat sets UP and UV on every assertion it claims without a gesture or a check
-  ([ADR 0007](adr/0007-existing-passkey-assertions.md#presence-and-verification)); a
-  setting over the existing `PasskeyPolicy`, which ADR 0007 plans per site. Bitwarden's
-  master password re-prompt: Pateat fills items marked with it and signs with their
-  passkeys without asking for the master password
-  ([vault adapter](architecture.md#vault-adapter)); a setting to honour it. Until then
-  both stay as they are, and the README says so.
+- Before Pateat is public: settings for the two protections Pateat does not honour by
+  default (owner, 2026-10-13 21:57 UTC). Implemented 2026-10-15, pending the owner's
+  approval of
+  [ADR 0007](adr/0007-existing-passkey-assertions.md#presence-and-verification)'s
+  amendment: one `protections` setting in the synced settings document, for every site,
+  edited under Protections on the extension's settings page. It supplies the
+  `PasskeyPolicy` (presence `always` or `activation`, verification `always` or `never`)
+  and can honour Bitwarden's master password re-prompt, which refuses such an item's
+  login (`master-password-reprompt`) and hands on passkey requests its passkey accepts.
+  The defaults keep today's behaviour. Unit, options-page and probe-build tests cover it
+  with synthetic items. Open: in the owner's Chrome, check that a real item marked with
+  re-prompt is refused and that a real site's passkey request goes to the browser under
+  each protection; asking for the master password in a Pateat window stays later work.
 - Anyone can use Pateat. The service is not opened to other people. Continuous delivery
   publishes each extension release on GitHub Releases and meets the
   [Corresponding Source](sdk-source.md) requirements. The owner has a Chrome Web Store

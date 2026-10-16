@@ -38,14 +38,16 @@ extension is built into `apps/extension/.output/chrome-mv3/`; the separate probe
 build is for synthetic tests only. Compatibility and unattended passkey support
 remain subject to the [acceptance gates](docs/plan.md).
 
-Two protections are not honoured yet. Pateat answers a site's passkey request with
-the user presence (UP) and user verification (UV) flags set, although it performs no
+Two protections are off by default. Pateat answers a site's passkey request with the
+user presence (UP) and user verification (UV) flags set, although it performs no
 presence test or verification of its own
 ([ADR 0007](docs/adr/0007-existing-passkey-assertions.md#presence-and-verification)). It
 also fills, and signs with the passkeys of, Bitwarden items marked with master password
 re-prompt without asking for the master password
-([vault adapter](docs/architecture.md#vault-adapter)). Both are planned to become
-settings before Pateat is public ([plan](docs/plan.md#phase-3-public-release)).
+([vault adapter](docs/architecture.md#vault-adapter)). Protections on the extension's
+settings page can make Pateat answer passkey requests only after a click or key press,
+leave UV unset, and leave re-prompt items unused; Pateat never asks for the master
+password itself.
 
 Start with the [documentation index](docs/README.md), then the
 [architecture](docs/architecture.md) and [implementation plan](docs/plan.md).

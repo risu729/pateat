@@ -244,6 +244,11 @@ describe("passkey create check (ADR 0007)", () => {
       expect(check.leave).toHaveBeenCalledOnce();
     });
 
+    it("does not count a passkey Pateat may not sign with because of re-prompt", async () => {
+      const check = handler(source([{ ...candidate, reprompt: true }]));
+      expect(await check.handle(create(request()), sender())).toEqual(delegate("not-listed"));
+    });
+
     it("skips descriptors of another credential type without a lookup", async () => {
       const check = handler();
       const excludeCredentials = [{ type: "future-type", id: "AQID" }];

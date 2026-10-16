@@ -1,6 +1,6 @@
 import * as v from "valibot";
 import { createPasskeyAssertion } from "./assertion";
-import { INITIAL_PASSKEY_POLICY, type PasskeyPolicy } from "./policy";
+import { CEREMONY_PASSKEY_POLICY, INITIAL_PASSKEY_POLICY, type PasskeyPolicy } from "./policy";
 import { admitGetRequest, describeInvalidRequest } from "./request";
 import {
   matchingPasskeys,
@@ -221,8 +221,11 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
   options: {
     extensionId: string;
     timeoutMs?: () => number;
-    /** Per-origin presence and verification policy; the initial policy when absent. */
-    policy?: (origin: string) => PasskeyPolicy;
+    /**
+     * Per-origin presence and verification policy, read for each request before admission;
+     * the initial policy when absent.
+     */
+    policy?: (origin: string) => PasskeyPolicy | Promise<PasskeyPolicy>;
     /** Receives a value-free report of each finished request. */
     report?: (report: PasskeyRequestReport) => void;
     /** Asks the user when several passkeys match and no site default is among them. */
@@ -313,14 +316,41 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       documentOperations >= MAX_DOCUMENT_OPERATIONS
     )
       return { kind: "delegate", reason: "busy" };
+    const controller = new AbortController();
+    const operation: Operation = {
+      documentId,
+      controller,
+      asked: false,
+      choosing: false,
+      parked: false,
+    };
+    // Registered before the policy is read, so a cancel sent meanwhile reaches it.
+    operations.set(message.operationId, operation);
+    // A policy that cannot be read follows the ceremony, so it never asserts more than chosen.
+    const readPolicy = async (signal: AbortSignal): Promise<PasskeyPolicy> =>
+      (await abortable(
+        Promise.resolve()
+          .then(() => options.policy?.(origin))
+          .catch(() => CEREMONY_PASSKEY_POLICY),
+        signal,
+      )) ?? INITIAL_PASSKEY_POLICY;
+    let policy: PasskeyPolicy;
+    try {
+      policy = await readPolicy(controller.signal);
+    } catch {
+      operations.delete(message.operationId);
+      if (operation.cancelledBy) detail.cause = operation.cancelledBy;
+      return { kind: "cancelled" };
+    }
     const admission = admitGetRequest({
       origin,
       request: message.request,
       userActivation: message.userActivation,
-      policy: options.policy?.(origin) ?? INITIAL_PASSKEY_POLICY,
+      policy,
       conditional: options.conditional !== undefined,
     });
     if (admission.kind === "delegate") {
+      operations.delete(message.operationId);
       if (admission.reason === "invalid-request") {
         const invalid = describeInvalidRequest(message.request);
         if (invalid) {
@@ -330,18 +360,32 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       }
       return admission;
     }
-    detail.rpId = admission.request.rpId;
-    detail.allowCredentials = admission.request.allowCredentialIds.length;
-    const conditional = admission.request.conditional === true;
-    const controller = new AbortController();
-    const operation: Operation = {
-      documentId,
-      controller,
-      asked: false,
-      choosing: false,
-      parked: false,
+    // The admitted request, with the UV decision signing follows; admitted again under the
+    // current policy before a request that outlived a settings change signs.
+    let request = admission.request;
+    detail.rpId = request.rpId;
+    detail.allowCredentials = request.allowCredentialIds.length;
+    const conditional = request.conditional === true;
+    /**
+     * Admits the request again under the policy saved now, for a request that waited for a
+     * login or a person while the settings may have changed. A delegation is returned; a
+     * person's choice in the chooser counts as the gesture.
+     */
+    const admitAgain = async (
+      signal: AbortSignal,
+      userActivation: boolean,
+    ): Promise<RuntimeResult | undefined> => {
+      const again = admitGetRequest({
+        origin,
+        request: message.request,
+        userActivation,
+        policy: await readPolicy(signal),
+        conditional: options.conditional !== undefined,
+      });
+      if (again.kind === "delegate") return again;
+      request = again.request;
+      return undefined;
     };
-    operations.set(message.operationId, operation);
     const received = Date.now();
     const expire = () =>
       controller.abort(new DOMException("Passkey bridge timed out", "TimeoutError"));
@@ -370,19 +414,26 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       step = "passkey-lookup";
       const candidates = await abortable(
         login
-          ? source.candidates(origin, admission.request.rpId, signal, login)
-          : source.candidates(origin, admission.request.rpId, signal),
+          ? source.candidates(origin, request.rpId, signal, login)
+          : source.candidates(origin, request.rpId, signal),
         signal,
       );
       if (!candidates) return { kind: "delegate", reason: "not-configured" };
-      const accepted = matchingPasskeys(admission.request, candidates.candidates);
+      const accepted = matchingPasskeys(request, candidates.candidates);
       detail.stored = candidates.candidates.length;
       detail.accepted = accepted.length;
       detail.siteDefault = candidates.candidates.filter((entry) => entry.preferred === true).length;
       detail.siteDefaultAccepted = accepted.filter((entry) => entry.preferred === true).length;
       if (candidates.siteDefault) detail.siteDefaultItem = candidates.siteDefault;
       detail.complete = candidates.complete;
-      const selection = selectPasskey(admission.request, candidates);
+      // A passkey of an item that asks for the master password again is never used, and no
+      // other passkey is chosen in its place: the browser, or Bitwarden's own extension, asks.
+      if (accepted.some((entry) => entry.reprompt === true))
+        return {
+          kind: "delegate",
+          reason: login ? "login-item-master-password-reprompt" : "master-password-reprompt",
+        };
+      const selection = selectPasskey(request, candidates);
       step = "signed-before-lookup";
       // ADR 0021 D: a username-less request in a tab Pateat already signed in from may follow
       // a logout, so it asks even for one match or a site default. Named credentials, as in a
@@ -390,16 +441,16 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       const again =
         !login &&
         options.chooser !== undefined &&
-        admission.request.allowCredentialIds.length === 0 &&
+        request.allowCredentialIds.length === 0 &&
         (await abortable(
-          options.signedTabs?.has(context.tabId, admission.request.rpId) ?? Promise.resolve(false),
+          options.signedTabs?.has(context.tabId, request.rpId) ?? Promise.resolve(false),
           signal,
         ));
       if (again) detail.signedBefore = true;
       const signWith = (candidate: TCandidate) => {
         step = "signing";
         return abortable(
-          createPasskeyAssertion(admission.request, candidate, (data, hash) =>
+          createPasskeyAssertion(request, candidate, (data, hash) =>
             source.sign(candidate, data, hash, signal),
           ),
           signal,
@@ -414,15 +465,14 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       ): Promise<Signed | { reason: string }> => {
         try {
           step = "passkey-lookup";
-          const current = await abortable(
-            source.candidates(origin, admission.request.rpId, signal),
-            signal,
+          const current = await abortable(source.candidates(origin, request.rpId, signal), signal);
+          const acceptedNow = current ? matchingPasskeys(request, current.candidates) : [];
+          // As before the window opened, a re-prompt passkey the request accepts hands it on.
+          if (acceptedNow.some((entry) => entry.reprompt === true))
+            return { reason: "master-password-reprompt" };
+          const same = acceptedNow.filter(
+            (entry) => entry.credentialId === credentialId && entry.counter === 0,
           );
-          const same = current
-            ? matchingPasskeys(admission.request, current.candidates).filter(
-                (entry) => entry.credentialId === credentialId && entry.counter === 0,
-              )
-            : [];
           if (same.length !== 1)
             return {
               reason: current?.complete === false ? "vault-incomplete" : "settings-changed",
@@ -457,7 +507,7 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
           return selection;
         // An unsearched item might hold the passkey the person signed out to switch to.
         if (!candidates.complete) return { kind: "delegate", reason: "vault-incomplete" };
-        const remaining = received + chooserWaitMs(admission.request.timeoutMs) - Date.now();
+        const remaining = received + chooserWaitMs(request.timeoutMs) - Date.now();
         if (
           !options.chooser ||
           // An extension window would open outside the incognito window (ADR 0021).
@@ -482,7 +532,7 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
           options.chooser.choose({
             tabId: context.tabId,
             origin,
-            rpId: admission.request.rpId,
+            rpId: request.rpId,
             entries: offered.map((entry, index) => ({
               ...(entry.display ?? { item: `Passkey ${index + 1}` }),
               ...(entry.preferred === true ? { preferred: true } : {}),
@@ -505,6 +555,9 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
         // Settings may have changed while the person decided, by a sync, a save or another
         // tab's login, and signing refuses a candidate from older settings. So the chosen
         // passkey is looked up again and used only if the current settings still offer it.
+        // The protections may have changed too; the person's choice is the gesture.
+        const readmitted = await admitAgain(signal, true);
+        if (readmitted) return readmitted;
         const signed = await signCurrent(chosen.credentialId, true);
         if ("reason" in signed) return { kind: "delegate", reason: signed.reason };
         ({ credential, assertion } = signed);
@@ -542,6 +595,13 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       timer = setTimeout(expire, budget());
       let result: RuntimeResult;
       try {
+        // The protections may have changed while the request waited for the login. A request
+        // they no longer admit goes back to the page, since no later login can answer it.
+        const refused = await admitAgain(signal, message.userActivation);
+        if (refused) {
+          answered(false);
+          return refused;
+        }
         result = await answer(decision.item, signal);
       } catch (error) {
         if (signal.aborted) throw error;

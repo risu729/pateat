@@ -1,4 +1,5 @@
 import {
+  DEFAULT_PROTECTIONS,
   deviceIdSchema,
   localSettingsSchema,
   MAX_SETTINGS_DOCUMENT_BYTES,
@@ -8,6 +9,7 @@ import {
   siteDefaultConnection,
   siteDefaultSchema,
   type LocalSettings,
+  type ProtectionSettings,
   type SettingsSnapshot,
   type SyncSettingsState,
   type VaultCatalog,
@@ -36,6 +38,7 @@ export type SyncedSettings = {
   excludedSites: ExcludedSite[];
   siteDefaults: SiteDefault[];
   bindings: Binding[];
+  protections: ProtectionSettings;
 };
 
 export function syncedSettings(settings: LocalSettings): SyncedSettings {
@@ -43,10 +46,16 @@ export function syncedSettings(settings: LocalSettings): SyncedSettings {
     excludedSites: settings.excludedSites,
     siteDefaults: settings.siteDefaults,
     bindings: settings.bindings,
+    protections: settings.protections,
   };
 }
 
-const emptySynced: SyncedSettings = { excludedSites: [], siteDefaults: [], bindings: [] };
+const emptySynced: SyncedSettings = {
+  excludedSites: [],
+  siteDefaults: [],
+  bindings: [],
+  protections: DEFAULT_PROTECTIONS,
+};
 
 // The base of the next three-way merge. Normally both copies are the same; after an
 // upload whose local write has not happened yet, `local` is still the local copy the
@@ -159,6 +168,24 @@ export function mergeSyncedSettings(
       defaultKey,
     ),
     bindings: mergeEntries(part("bindings"), local.bindings, service.bindings, bindingKey),
+    protections: mergeProtections(part("protections"), local.protections, service.protections),
+  };
+}
+
+/** Per protection, as for an entry: a service change wins, then a local change. */
+function mergeProtections(
+  base: { service: ProtectionSettings; local: ProtectionSettings },
+  local: ProtectionSettings,
+  service: ProtectionSettings,
+): ProtectionSettings {
+  const pick = <K extends keyof ProtectionSettings>(name: K): ProtectionSettings[K] =>
+    service[name] === base.service[name] && local[name] !== base.local[name]
+      ? local[name]
+      : service[name];
+  return {
+    passkeyPresence: pick("passkeyPresence"),
+    passkeyVerification: pick("passkeyVerification"),
+    masterPasswordReprompt: pick("masterPasswordReprompt"),
   };
 }
 
@@ -195,6 +222,7 @@ export function refreshDisplayNames(synced: SyncedSettings, catalog: VaultCatalo
     excludedSites: synced.excludedSites,
     siteDefaults: synced.siteDefaults.map((entry) => refresh(entry, siteDefaultSchema)),
     bindings: synced.bindings.map((entry) => refresh(entry, savedLoginBindingSchema)),
+    protections: synced.protections,
   };
 }
 
@@ -211,7 +239,8 @@ function equalSynced(left: SyncedSettings, right: SyncedSettings): boolean {
   return (
     same(sorted(left.excludedSites, siteKey), sorted(right.excludedSites, siteKey)) &&
     same(sorted(left.siteDefaults, defaultKey), sorted(right.siteDefaults, defaultKey)) &&
-    same(sorted(left.bindings, bindingKey), sorted(right.bindings, bindingKey))
+    same(sorted(left.bindings, bindingKey), sorted(right.bindings, bindingKey)) &&
+    same(left.protections, right.protections)
   );
 }
 

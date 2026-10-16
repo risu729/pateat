@@ -7,6 +7,11 @@ export interface PasskeyCandidate {
   readonly counter: number;
   /** The item is the page origin's entry in `siteDefaults`. */
   readonly preferred?: boolean;
+  /**
+   * The item asks for the master password again before use and the settings honour that, so
+   * Pateat never signs with this passkey or chooses another one in its place.
+   */
+  readonly reprompt?: boolean;
   /** What the chooser window shows for this passkey; never used for selection. */
   readonly display?: PasskeyDisplay;
 }

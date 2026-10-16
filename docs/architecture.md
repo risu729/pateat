@@ -83,14 +83,21 @@ vault connections from the start. Scope item and field IDs by connection.
 Adapters are developer-written and bundled with extension releases; no remotely
 loaded executable plugins or speculative second provider implementation.
 
-Bitwarden's master password re-prompt is not honoured. The adapter reads a cipher's
-`reprompt` (`0` or `1`) but carries it no further: an item with `reprompt: 1` is filled
-and its passkeys sign without the master password prompt the official clients show.
-Bitwarden describes re-prompt as "an interface-only guardrail" and "not an encryption
-mechanism"
+Bitwarden's master password re-prompt is not honoured by default. The adapter reads a
+cipher's `reprompt` (`0` or `1`), and the vault catalog marks an item with `reprompt: 1`
+as `reprompt: true`. With the `protections` setting's `masterPasswordReprompt` at its
+default `ignore`, such an item is filled and its passkeys sign without the master
+password prompt the official clients show. Under `honour` (proposed 2026-10-15,
+implemented pending the owner's approval in
+[ADR 0007](adr/0007-existing-passkey-assertions.md#master-password-re-prompt)), the
+login plan refuses the item before any vault read with `master-password-reprompt`, which
+the badge shows as a failure and the popup explains; the popup's and settings page's
+account lists say that such an item is not used; and a passkey request that its passkey
+accepts is handed on. Pateat never asks for the master password itself, so honouring
+it means not using the item; a prompt window is later work. Bitwarden describes
+re-prompt as "an interface-only guardrail" and "not an encryption mechanism"
 ([Master Password Re-prompt](https://bitwarden.com/help/master-password-re-prompt/),
-checked 2026-10-14), so the vault data does not enforce it. A setting to honour it
-is planned for [phase 3](plan.md#phase-3-public-release) (owner, 2026-10-13 21:57 UTC).
+checked 2026-10-14), so the vault data does not enforce it.
 
 Expose authentication, unlock, sync, eligible references, field resolution, OTP
 generation and signing capabilities. Reserve create/update capabilities for
@@ -404,7 +411,11 @@ in flight, and the last login and model request the badge keeps from the log rep
 with the badge's lifetime: a top page of another origin or the tab's closing drops them,
 and `chrome.storage.session` keeps them across a worker restart. Item selection, field
 exclusions and custom-field review stay on the extension's settings page once synced
-([ADR 0023](adr/0023-synced-vault-policy.md)). The service keeps one settings document
+([ADR 0023](adr/0023-synced-vault-policy.md)), and so do the protections (passkey
+presence and verification, and Bitwarden's master password re-prompt;
+[ADR 0007](adr/0007-existing-passkey-assertions.md#presence-and-verification)). The
+extension merges each protection on its own: a change synced from the service since the
+last merge wins over a local one. The service keeps one settings document
 per owner; [ADR 0024](adr/0024-settings-profiles.md) assigns its parts either to a
 settings profile that each device will choose later or to the owner. Chrome use access
 to these pages is not assumed. Keep settings and execution operations independent of
@@ -1769,11 +1780,12 @@ made after its first submission
 requires separate compatibility tests.
 
 The bridge, admission rules, assertion format and unattended presence and verification
-policy are in [ADR 0007](adr/0007-existing-passkey-assertions.md). Like the official
-Bitwarden client, passkey requests search every live login item by RP ID rather than by
-saved URI; a site default only chooses among several matches. Every build registers the
-bridge on top-level `https://*/*` documents: `passkey-main.js` in the MAIN world and
-`passkey-isolated.js` in the isolated world, both at document start, under the
+policy are in [ADR 0007](adr/0007-existing-passkey-assertions.md); the `protections`
+setting of the synced settings document chooses that policy for every site. Like the
+official Bitwarden client, passkey requests search every live login item by RP ID rather
+than by saved URI; a site default only chooses among several matches. Every build
+registers the bridge on top-level `https://*/*` documents: `passkey-main.js` in the MAIN
+world and `passkey-isolated.js` in the isolated world, both at document start, under the
 install-time HTTPS access of [ADR 0009](adr/0009-install-time-https-site-access.md). The
 background answers them from the vault-backed passkey source, which applies the item
 selection. The crypto Worker signs with the stored vault passkey, keeping the private

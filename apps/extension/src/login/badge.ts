@@ -32,7 +32,8 @@ const FAILED = new Set([
 ]);
 /**
  * Refusals that stop a page's login before it starts: the vault item cannot be used with
- * the recipe (`no-route`, `field-unavailable`), or Pateat cannot keep the login's state
+ * the recipe (`no-route`, `field-unavailable`) or, under the protections setting, at all
+ * (`master-password-reprompt`), or Pateat cannot keep the login's state
  * (`storage-unavailable`, `attempt-limit`). The owner asked
  * on 2026-10-13 at 20:42 UTC for a failure badge when a login fails after the AI was
  * asked, as on a site whose only item has neither a password nor a passkey.
@@ -42,6 +43,7 @@ const FAILED_REFUSALS = new Set([
   "field-unavailable",
   "storage-unavailable",
   "attempt-limit",
+  "master-password-reprompt",
 ]);
 /** Outcomes that ended a login without a known result: shown briefly, as a warning. */
 const UNSETTLED = new Set([

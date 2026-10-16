@@ -78,6 +78,11 @@ function settingsDocument(hostname: string) {
     excludedSites: [{ hostname, includeSubdomains: true }],
     siteDefaults: [],
     bindings: [],
+    protections: {
+      passkeyPresence: "always",
+      passkeyVerification: "always",
+      masterPasswordReprompt: "ignore",
+    },
   };
 }
 
