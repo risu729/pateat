@@ -788,10 +788,12 @@ Once the fixes have settled:
     deviation (medium), and [#639](https://github.com/risu729/pateat/issues/639) a
     quadratic padding regex in the Bitwarden passkey decoder (low). Which scans run
     later, and when, is still open.
-  - [#636](https://github.com/risu729/pateat/issues/636) fixed at the owner's request: a
-    fill into a form, or a click on a submit control, is refused unless the submission's
-    destination (the `formaction` or `action`, resolved against the base URL) has the
-    document's own origin ([architecture](architecture.md#background-execution)).
+  - [#636](https://github.com/risu729/pateat/issues/636) fixed at the owner's request
+    (2026-10-16 19:14 UTC): a fill into a form, or a click on a submit control, is
+    refused unless the submission's destination (the `formaction` or `action`, resolved
+    against the base URL) has the document's own origin
+    ([architecture](architecture.md#background-execution)). Same origin rather than
+    same site is the default chosen while the owner's choice is pending.
 
 ### Phase 4: issues and work as needed
 
