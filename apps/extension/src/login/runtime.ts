@@ -2084,6 +2084,9 @@ export function createLoginRuntime(
       const url = new URL(sender.url);
       if (!(await admitted(url))) return undefined;
       if (sender.frameId !== 0) {
+        // Only the top page's URL is known here, not its origin. A sandboxed top page still
+        // cannot have a login filled under it: its frames inherit the sandbox, so their own
+        // origin check above refuses them.
         const top = sender.tab.url ? new URL(sender.tab.url) : undefined;
         if (!top || !(probeTop(top) || (await admitted(top)))) return undefined;
       }
