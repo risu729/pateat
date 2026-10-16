@@ -8099,7 +8099,8 @@ export function createLoginRuntime(
   /**
    * Whether a username-less passkey request for `rpId` in the tab follows a logout click
    * on its site, so it asks as after Pateat signed there (ADR 0021 D): while the click
-   * waits, and once used, while the tab keeps a logout state for an origin of the site. A used click whose logout state ended, as when a login started, is dropped.
+   * waits, and once used, while the tab keeps a logout state for an origin of the site.
+   * A used click whose logout state ended, as when a login started, is dropped.
    */
   async function logoutClicked(tabId: number, rpId: string): Promise<boolean> {
     await sessionLoaded;

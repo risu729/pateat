@@ -420,9 +420,9 @@ expires within 10 minutes after such a click.
   an origin without recipes (its page does not send the click), a logout that passes
   through a page of another site that Pateat reads (the tab left the site), a logout in
   another tab or on another site (such as an identity provider), a logout link inside a
-  `<label>` or an editable region, a keyboard shortcut
-  that logs out without a click, words in languages other than English and Japanese,
-  and a first step that shows more than 10 minutes later.
+  `<label>` or an editable region, a keyboard shortcut that logs out without a click,
+  words in languages other than English and Japanese, and a first step that shows more
+  than 10 minutes later.
 
 ## Considered alternatives
 
