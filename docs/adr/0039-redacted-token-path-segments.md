@@ -52,8 +52,10 @@ Example: `https://login.microsoftonline.com/<tenant UUID>/oauth2/authorize` is o
 and sent as `/[id]/oauth2/authorize`, and UniSuper's entry page as
 `/oauth2/[id]/v1/authorize`. The recipe generated there runs on that page of any tenant.
 
-The whole segment is replaced, as before; the owner accepted in the same discussion that
-`/app/login;jsessionid=X` and `/app/register;jsessionid=Y` both read `/app/[id]`.
+The whole segment is replaced, as `signedInPath` already did, so
+`/app/login;jsessionid=X` and `/app/register;jsessionid=Y` both read `/app/[id]`. The
+decision card the owner answered (2026-10-16, 08:10 UTC) named this risk of different
+pages sharing one recipe; the owner then asked for the same replacement on every page.
 
 The local log's `url` keeps the raw path (owner decision of 2026-10-13); only what goes
 to the service is redacted.
@@ -104,7 +106,7 @@ replaced too.
 
 - Keep refusing such pages, the earlier rule: no recipe on these identity providers.
 - Replace only the matched part of a segment, so `/app/login;jsessionid=X` reads
-  `/app/login;[id]`: keeps more pages apart, but the owner accepted the whole-segment
-  rule.
+  `/app/login;[id]`: keeps more pages apart, but differs from the rule the owner asked
+  to apply everywhere.
 - Apply the attribute token rule on every login page: stricter, but would leave many
   ASP.NET login pages incomplete (`unlocated-field`) that are generated today.
