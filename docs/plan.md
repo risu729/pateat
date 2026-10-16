@@ -864,6 +864,14 @@ Once the fixes have settled:
     deviation (medium), and [#639](https://github.com/risu729/pateat/issues/639) a
     quadratic padding regex in the Bitwarden passkey decoder (low). Which scans run
     later, and when, is still open.
+  - The owner's triage (2026-10-16 19:14 UTC):
+    [#638](https://github.com/risu729/pateat/issues/638) is by design (ADR 0007) and was
+    closed without a change; fix [#636](https://github.com/risu729/pateat/issues/636)
+    and [#637](https://github.com/risu729/pateat/issues/637) first, then
+    [#639](https://github.com/risu729/pateat/issues/639) if Bitwarden's own
+    extension shows a simple way to avoid it. The scan's report is committed as
+    [2026-10-16-claude-security](research/2026-10-16-claude-security/CLAUDE-SECURITY-RESULTS.md),
+    reformatted for the repository's Markdown and JSON checks.
   - [#637](https://github.com/risu729/pateat/issues/637) fixed at the owner's request
     (2026-10-16 19:14 UTC): a document whose browser-reported origin is not its URL's,
     such as a page served with a CSP `sandbox` header or a sandboxed frame, is refused

@@ -1,0 +1,99 @@
+{
+  "generated_at": "2026-10-16T15:10:39+00:00",
+  "duration_s": 6255,
+  "scan_id": "3e88f840-6fd7-416f-9e00-23d4bc99dc97",
+  "mode": "scan",
+  "scan_prefix": "",
+  "scope": [],
+  "revision": {
+    "versioned": true,
+    "commit": "88837458c6a922e56b53016e67712ea809ac8475",
+    "branch": "HEAD",
+    "dirty": false
+  },
+  "revision_source": "self-reported",
+  "model": null,
+  "effort": "medium",
+  "run_shape": {
+    "requested_effort": "medium",
+    "collapsed": null,
+    "source": "coverage.json",
+    "diff_files": null,
+    "diff_lines": null,
+    "scope_files": null,
+    "empty_diff": false,
+    "empty_scope": false,
+    "researchers_dispatched": 50,
+    "verification_runs": 1,
+    "skipped_components": [
+      {
+        "name": "docs",
+        "paths": ["docs"],
+        "reason": "Documentation and ADRs only, no executable code"
+      },
+      {
+        "name": "tests",
+        "paths": ["tests"],
+        "reason": "Test suites, Playwright specs and fixtures, not production code"
+      },
+      {
+        "name": "api-migration-snapshots",
+        "paths": ["services/api/migrations/meta", "services/api/test"],
+        "reason": "Generated drizzle snapshots and API test files/fixtures"
+      },
+      {
+        "name": "api-later-migrations",
+        "paths": [
+          "services/api/migrations/0005_inference_generation.sql",
+          "services/api/migrations/0006_generation_attempts_per_recipe.sql",
+          "services/api/migrations/0007_device_last_used.sql",
+          "services/api/migrations/0008_drop_enrollments.sql",
+          "services/api/migrations/0009_page_judgements.sql",
+          "services/api/migrations/0010_inference_log_prompt_version.sql",
+          "services/api/migrations/0011_chooser_branches.sql",
+          "services/api/migrations/0012_page_judgement_verdicts.sql",
+          "services/api/migrations/0013_completion_markers.sql",
+          "services/api/migrations/0014_page_judgement_prompt_versions.sql",
+          "services/api/migrations/0015_page_judgement_origins.sql"
+        ],
+        "reason": "Incremental schema migrations, low-risk DDL covered by schema review"
+      }
+    ],
+    "completeness_check_outcome": "checked",
+    "unaccounted_top_level_dirs": [],
+    "inventory_fallback": null,
+    "top_level_dir_count": 8,
+    "target_files": 622,
+    "component_cap": 24,
+    "research_coverage": {
+      "files": 383,
+      "read": 257,
+      "not_reached": 105,
+      "unaccounted": 21,
+      "outside_components": 239,
+      "capped": false
+    }
+  },
+  "findings": {
+    "total": 6,
+    "critical": 0,
+    "high": 0,
+    "medium": 5,
+    "low": 1
+  },
+  "verification": {
+    "status": "verified",
+    "candidates": 7,
+    "candidates_deduped": 7,
+    "panel_votes": 21,
+    "panel_reviewed_findings": 6,
+    "panel_quorum_findings": 6,
+    "unreviewed_candidate_sites": 0,
+    "incomplete_panel_candidates": 0,
+    "attested_findings": 0,
+    "reason": null,
+    "reason_kind": null,
+    "researchers_dispatched": 50,
+    "researchers_returned": 50
+  }
+}
