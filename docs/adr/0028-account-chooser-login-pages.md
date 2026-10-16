@@ -355,8 +355,9 @@ first step does:
   same document is not filled; the tab asks, and a pick in the popup logs in on it.
 - For an item without a password (ADR 0036), the form is a start page: when it fills the
   email and password on one page, no `advance` comes before the stop, so the login is
-  refused `no-route` (`password-empty:no-advance`), while a click on `other` from the
-  list stops before the password.
+  refused `no-route` (`password-empty:no-advance`), unless the form asks for a passkey
+  by itself and the item holds one ([ADR 0034](0034-answer-page-passkey-requests.md)),
+  while a click on `other` from the list stops before the password.
 
 Amended on 2026-10-13 by the owner's decision at 06:32 UTC
 ([ADR 0036](0036-passkey-after-the-identifier.md#account-lists)): an item without a
