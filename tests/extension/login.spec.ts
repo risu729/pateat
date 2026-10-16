@@ -1489,6 +1489,55 @@ test("values the page would not accept are never submitted", async () => {
   }
 });
 
+test("values never go into or submit a form bound for another origin", async () => {
+  const fixture = await startLoginFixture();
+  try {
+    await withLoginExtension(async (context, _worker, id) => {
+      const options = await context.newPage();
+      await configure(options, id, fixture.origin);
+      const status = async () => await send(options, { version: 1, type: "login.probe.status" });
+      // The password's form posts to another origin: the fill is refused on every retry, so
+      // nothing is filled or clicked.
+      const fill = await context.newPage();
+      await fill.goto(`${fixture.origin}/single?form=off-origin`);
+      await expect.poll(status).toMatchObject({
+        attempts: [{ operationKind: "fill", outcome: "retry-limit", submissions: 0 }],
+      });
+      await expect(fill.locator("#password")).toHaveValue("");
+      expect(await clicks(fill)).toBe(0);
+      await fill.close();
+      await expect.poll(status).toMatchObject({ attempts: [] });
+      // The password is outside any form, but the submit button's formaction names another
+      // origin: the fill proceeds and the click is refused.
+      const submit = await context.newPage();
+      await submit.goto(`${fixture.origin}/single?form=submit-off-origin`);
+      await expect.poll(status).toMatchObject({
+        attempts: [{ operationKind: "click", outcome: "structural-mismatch" }],
+      });
+      await expect(submit.locator("#password")).not.toHaveValue("");
+      // Cover the time a click's handler would take to count it.
+      await submit.waitForTimeout(500);
+      expect(await clicks(submit)).toBe(0);
+      expect(submit.url()).toBe(`${fixture.origin}/single?form=submit-off-origin`);
+      await submit.close();
+      await expect.poll(status).toMatchObject({ attempts: [] });
+      // A form that submits to its own page is filled and submitted.
+      const same = await context.newPage();
+      await same.goto(`${fixture.origin}/single?form=same-origin`);
+      await expect(same.locator("#authenticated")).toBeVisible();
+      expect(await clicks(same)).toBe(1);
+      await same.close();
+      // A button outside any form submits nothing, so its click proceeds.
+      const outside = await context.newPage();
+      await outside.goto(`${fixture.origin}/single`);
+      await expect(outside.locator("#authenticated")).toBeVisible();
+      expect(await clicks(outside)).toBe(1);
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
 test("credential rejection and unknown outcome each stop after one submission", async () => {
   const fixture = await startLoginFixture();
   try {
