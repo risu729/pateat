@@ -71,6 +71,8 @@ export interface PasskeyChooser {
     readonly replacesDefault: boolean;
     /** Pateat signed for this RP ID in this tab before, so this may follow a logout. */
     readonly again: boolean;
+    /** With `again`: the person clicked a control that logs out on the site in this tab. */
+    readonly loggedOut?: boolean;
     /** Aborted when the request ends any other way; the window then closes. */
     readonly signal: AbortSignal;
   }): Promise<PasskeyChoice>;
@@ -111,6 +113,8 @@ export interface PasskeyRequestReport {
   readonly chooser?: PasskeyChoice["kind"] | "timeout" | "cancelled";
   /** Pateat signed for this RP ID in this tab before, so the request asks again. */
   readonly signedBefore?: boolean;
+  /** A control that logs out was clicked on the site in this tab, so the request asks. */
+  readonly logoutClicked?: boolean;
   /** The request's mediation, when it names one (ADR 0034). */
   readonly mediation?: "optional" | "conditional" | "required" | "silent" | "immediate" | "other";
   /**
@@ -255,6 +259,11 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
     /** Where Pateat signed before; a username-less request there asks again (ADR 0021 D). */
     signedTabs?: SignedTabs;
     /**
+     * Whether a control that logs out was clicked on the RP ID's site in the tab, and its
+     * first step has not shown since; a username-less request there asks too (ADR 0021 D).
+     */
+    logoutClicked?: (tabId: number, rpId: string) => Promise<boolean>;
+    /**
      * Decides a `conditional` request of a top document through the login of its page
      * (ADR 0034). Without it, conditional requests are handed on (ADR 0007).
      */
@@ -385,17 +394,29 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       const selection = selectPasskey(admission.request, candidates);
       step = "signed-before-lookup";
       // ADR 0021 D: a username-less request in a tab Pateat already signed in from may follow
-      // a logout, so it asks even for one match or a site default. Named credentials, as in a
+      // a logout, so it asks even for one match or a site default; so does one after a
+      // control that logs out was clicked there. Named credentials, as in a
       // re-authentication, still sign silently. A running login never asks (ADR 0027).
-      const again =
+      const usernameLess =
         !login &&
         options.chooser !== undefined &&
-        admission.request.allowCredentialIds.length === 0 &&
+        admission.request.allowCredentialIds.length === 0;
+      const signedBefore =
+        usernameLess &&
         (await abortable(
           options.signedTabs?.has(context.tabId, admission.request.rpId) ?? Promise.resolve(false),
           signal,
         ));
-      if (again) detail.signedBefore = true;
+      const loggedOut =
+        usernameLess &&
+        !signedBefore &&
+        (await abortable(
+          options.logoutClicked?.(context.tabId, admission.request.rpId) ?? Promise.resolve(false),
+          signal,
+        ));
+      const again = signedBefore || loggedOut;
+      if (signedBefore) detail.signedBefore = true;
+      if (loggedOut) detail.logoutClicked = true;
       const signWith = (candidate: TCandidate) => {
         step = "signing";
         return abortable(
@@ -490,6 +511,7 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
             replacesDefault:
               candidates.siteDefault !== undefined && candidates.siteDefault !== "unset",
             again,
+            ...(loggedOut ? { loggedOut } : {}),
             signal,
           }),
           signal,

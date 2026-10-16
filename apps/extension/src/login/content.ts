@@ -32,6 +32,7 @@ import {
   type OtherMiss,
 } from "../page/account-list";
 import { entryElementRefusal, entryHosts, showsSignUp } from "../page/entry";
+import { clickedLogout } from "../page/logout-click";
 import {
   pageSigns,
   passedCaptcha,
@@ -1205,13 +1206,28 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       () => undefined,
     );
   };
+  /**
+   * The person clicked a control that logs out (ADR 0021 D, owner 2026-10-16): the tab's
+   * next sign-in form of the site asks instead of logging in. Only on a page of an origin
+   * with recipes, only for the person's own clicks (a page's script clicking for an expired
+   * session is not one), and only the fact is sent, never the control's text.
+   */
+  const onClick = (event: MouseEvent) => {
+    if (cancelled || !event.isTrusted || !starts.length || !clickedLogout(event)) return;
+    void sendMessage("login", { version: 1, type: "login.document.logout-clicked", token }).catch(
+      () => undefined,
+    );
+  };
   document.addEventListener("submit", onSubmit, true);
+  // On the window, so the click is read before the page's own handlers act on it.
+  addEventListener("click", onClick, true);
   browser.runtime.onMessage.addListener(listener);
   void announce(false).catch(() => undefined);
   return () => {
     cancelled = true;
     unwatch();
     document.removeEventListener("submit", onSubmit, true);
+    removeEventListener("click", onClick, true);
     browser.runtime.onMessage.removeListener(listener);
   };
 }

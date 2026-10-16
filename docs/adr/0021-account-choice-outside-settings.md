@@ -10,7 +10,9 @@ login is released like a finished one when its first step shows in a new page of
 or of another tab of the site (implemented). Amended on 2026-10-13 by ADR 0027 (owner's
 「このタブだけ」): a watched login is no longer released as a logout; only its own tab
 asks (implemented, see the end of D). Amended on 2026-10-13 by the owner's
-[site count badge](#site-count-badge) decision (part B, not implemented).
+[site count badge](#site-count-badge) decision (part B, not implemented). Amended on
+2026-10-16 by the owner: in D, a click on a control that logs out also makes the tab ask
+(implemented, see [logout clicks](#logout-clicks)).
 
 Amended on 2026-10-11 by [ADR 0023](0023-synced-vault-policy.md): the popup also repairs
 a binding that names a missing custom field (not implemented yet). Amended on 2026-10-11
@@ -291,7 +293,8 @@ is opened out of their expected order (owner, 07:42 UTC). So a tab treats a logi
 as a logout only after this tab's own login (finished, or stopped after a submission as
 above) or while another tab of the site asks after its logout. A session
 carried over from a login in another tab, or from an earlier browser session, is
-therefore not detected: after a logout there, Pateat logs in again automatically.
+therefore not detected by the form alone: after a logout there, Pateat logs in again
+automatically, unless the logout was a click [counted since 2026-10-16](#logout-clicks).
 Rejected for this reason: counting a signed-in marker seen in the tab (it would make
 every expiry after such a page ask), and counting another tab's finished login (also
 against ADR 0022's choice that a new tab logs in).
@@ -340,6 +343,60 @@ nothing. When the window cannot open (the
 same cases as C) or a connection or item could not be searched, the request goes to
 the browser instead of being signed unasked.
 
+#### Logout clicks
+
+Amended 2026-10-16 by the owner (14:06 UTC, decision card answer 「B: 語のクリック」,
+then 「表示テキスト以外、ariaとかも見て」「後周りのテキストとか。他と同様です」: read
+ARIA names and the text around a control as other page reading does). Evidence: on
+dash.cloudflare.com the owner logged out of a session that no Pateat login in that tab
+had started, and Pateat logged in again with the site default. A click on a control that
+logs out now counts as a logout of that tab's site, so the case above is detected when
+the person logs out by hand. An expired session still logs in by itself, since nobody
+clicked, so the constraint holds; the tab asks wrongly only when the session also
+expires within 10 minutes after such a click.
+
+- The content script listens for clicks on the window in the capture phase, so the click
+  is read before the page acts on it, and reads the nearest control around the clicked
+  element (a button, a link, an element with a control role or a `tabindex` of 0 or
+  more, or the element that sets `cursor: pointer`), also inside an open shadow root.
+  Only trusted clicks count: a page's own script that clicks for an expired session is
+  not a person's logout.
+- The control's names are read as the observation reads a control (ADR 0037): the text
+  its `aria-labelledby` names, its `aria-label`, its rendered text (an input button's
+  `value` or `alt`), its `title`, the text its `aria-describedby` names, and the names
+  of the elements inside it (an image's `alt`, an SVG `<title>`, an `aria-label` or a
+  `title`), as an icon's. A control that names nothing itself is named by the nearest
+  text before or after it, at most three levels up, never across another control or out
+  of a form. A name longer than 64 characters does not count, and a control whose
+  rendered text is that long names nothing, as a container of several controls does.
+- A name counts when it holds "log out", "logout", "sign out", "log off" or "sign off"
+  as whole words in English, or ログアウト, サインアウト, ログオフ or サインオフ
+  anywhere, after NFKC normalisation. A name that also says other, others, another,
+  他の, ほかの, 他端末 or 別の ("Log out of other devices") logs other sessions out, so
+  the click does not count. Only these fixed words count, never a site name (ADR 0033).
+- Only on a page of an origin with recipes, and only the fact that such a control was
+  clicked goes to the worker, never its text, the page's URL or a locator (ADR 0019).
+- The worker keeps the click by tab and registrable site (so `www.` and `accounts.` are
+  one site) in memory and in `pateat.login-logout-clicks.v1` in `chrome.storage.session`
+  (the 256 newest), and a page of the tab announced after the click waits until it is
+  kept. It is forgotten when the tab closes, moves with a tab Chrome replaced, and ends
+  when the tab's page shows another site, after 10 minutes (as a watch of ADR 0027), or
+  when it is used.
+- When a recipe's first step then shows in that tab's page on that site, and the tab has
+  no login record of the origin, it is used as this tab's logout: the tab asks, fills
+  only when one account is to be used, and the site's other tabs ask too, as above. The
+  log shows `login.logout` marked `clicked`. Logging out to the top page and pressing
+  the site's own sign-in link later within the 10 minutes is caught the same way.
+- While a click waits, the tab presses no sign-in entry of the site (ADR 0031,
+  `logout-clicked`), and a username-less passkey request for an RP ID of the site in the
+  tab opens the chooser as after Pateat signed there, saying "You logged out of this
+  site in this tab" (`passkey.request` marked `logoutClicked`).
+- No permission is added: the login content script already runs on every HTTPS page.
+- Still missed, so Pateat logs in again: a control with no name and no text beside it, a
+  control in a closed shadow root or a cross-origin frame of another site, a logout in
+  another tab or on another site (such as an identity provider), a keyboard shortcut
+  that logs out without a click, and a first step that shows more than 10 minutes later.
+
 ## Considered alternatives
 
 - An in-page card in an extension-origin iframe: needs the no-page-UI rule changed, can
@@ -351,7 +408,9 @@ the browser instead of being signed unasked.
   choosing after logout.
 - Other logout detection:
   - logout locators in recipes: needs recipe-format and generation changes per site;
-  - watching clicks on "log out" text: misses and false positives;
+  - watching clicks on "log out" text: misses and false positives (rejected on
+    2026-10-11; adopted on 2026-10-16 for sessions the tab's own login did not start,
+    see [logout clicks](#logout-clicks));
   - watching cookie removal: new `cookies` permission;
   - watching logout requests: new `webRequest` permission.
 

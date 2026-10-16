@@ -110,6 +110,7 @@ import {
   stateResultSchema,
   statusSchema,
   submittedSchema,
+  logoutClickedSchema,
   chooseResultSchema,
   type ListMissReport as ListMiss,
   probeControlSchema,
@@ -191,6 +192,11 @@ const REJECTED_ASKS_KEY = "session:pateat.login-rejected-asks.v1";
  * again after a worker restart does not log the same reason as news (ADR 0019).
  */
 const NOTED_KEY = "session:pateat.login-noted.v1";
+/**
+ * Logout clicks per tab and site whose first step has not shown yet (ADR 0021 D, owner
+ * 2026-10-16): when it does, the tab asks as after its own login.
+ */
+const LOGOUT_CLICKS_KEY = "session:pateat.login-logout-clicks.v1";
 const CONFIG_KEY = "pateat.login-probe-origin.v1";
 /**
  * How long another tab's login that has not succeeded holds its origin after its record
@@ -227,6 +233,8 @@ const SITE_MOVE_READINGS = 5;
  * is checked for a signed-in marker before its sign-in state is read, as after a click.
  */
 const WATCH_MS = 10 * 60_000;
+/** How long a logout click waits for the site's first step in its tab, as a watch does. */
+const LOGOUT_CLICK_MS = WATCH_MS;
 const WATCH_SETTLE_MS = 3000;
 /**
  * The sign-in state of ADR 0029 for a page no check explained, and whether a later reading
@@ -305,6 +313,13 @@ const entryPressSchema = v.strictObject({
   checked: v.optional(v.literal(true)),
 });
 type EntryPress = v.InferOutput<typeof entryPressSchema>;
+/** A control that logs out, clicked in a tab on a registrable site (ADR 0021 D). */
+const logoutClickSchema = v.strictObject({
+  tabId: tabIdSchema,
+  site: v.string(),
+  clickedAt: isoTimeSchema,
+});
+type LogoutClick = v.InferOutput<typeof logoutClickSchema>;
 /** Why the page after an entry press blocked its recipe revision (ADR 0031). */
 type EntryBlockReason = "left-site" | "no-sign-in" | "sign-up";
 /**
@@ -1262,15 +1277,21 @@ export type LoginReport = (
       listMiss?: ListMiss;
     }
   | {
-      /** The recipe's first step showed again after a finished login (ADR 0021 D). */
+      /**
+       * The recipe's first step showed again after a finished login, or after a control
+       * that logs out was clicked in the tab (ADR 0021 D).
+       */
       type: "logout";
       tabId: number;
       origin: string;
-      recipeId: string;
+      /** The recipe the finished login ran; none after a click. */
+      recipeId?: string;
       /** The recipe revision the login runs. */
-      recipeRevision: number;
+      recipeRevision?: number;
       /** The site rejected the login; its page showing that asks at once. */
       rejected?: true;
+      /** A control that logs out was clicked in the tab, with no login of its own. */
+      clicked?: true;
     }
   | {
       /**
@@ -1805,6 +1826,13 @@ export function createLoginRuntime(
   const logoutFills = new Set<string>();
   /** By tab: its sign-in entry press, kept until the tab closes (ADR 0031). */
   const entryPresses = new Map<number, EntryPress>();
+  /**
+   * By `${tabId} ${site}`: logout clicks whose first step has not shown yet (ADR 0021 D),
+   * the oldest first.
+   */
+  const logoutClicks = new Map<string, LogoutClick>();
+  /** Logout clicks being recorded; a page announcing meanwhile waits for them. */
+  const clicksNoting = new Set<Promise<void>>();
   /** By tab: the document whose sign-in entry is being checked and pressed now (ADR 0031). */
   const pressing = new Map<number, string>();
   /**
@@ -1848,6 +1876,7 @@ export function createLoginRuntime(
       REJECTED_ASKS_KEY,
       ENTRY_PRESSES_KEY,
       NOTED_KEY,
+      LOGOUT_CLICKS_KEY,
     ]);
     const stored = Object.fromEntries(items.map(({ key, value }) => [key, value]));
     const picks = v.safeParse(v.array(pickedAccountSchema), stored[PICKS_KEY] ?? []);
@@ -1890,6 +1919,12 @@ export function createLoginRuntime(
         // A press whose next page was not checked before a restart is checked in time.
         if (!entry.checked) armEntryTimer(entry);
       }
+    const clicks = v.safeParse(
+      v.pipe(v.array(logoutClickSchema), v.maxLength(256)),
+      stored[LOGOUT_CLICKS_KEY] ?? [],
+    );
+    if (clicks.success)
+      for (const entry of clicks.output) logoutClicks.set(`${entry.tabId} ${entry.site}`, entry);
   });
   const scopes = (keys: Set<string>) =>
     [...keys].map((key) => {
@@ -1906,6 +1941,7 @@ export function createLoginRuntime(
       { key: REJECTED_ASKS_KEY, value: scopes(rejectedAsks) },
       { key: ENTRY_PRESSES_KEY, value: [...entryPresses.values()] },
       { key: NOTED_KEY, value: [...noted].map(([page, ids]) => [page, [...ids]]) },
+      { key: LOGOUT_CLICKS_KEY, value: [...logoutClicks.values()] },
     ]);
   }
   /**
@@ -6694,6 +6730,8 @@ export function createLoginRuntime(
   ): Promise<Readiness> {
     await loaded;
     await sessionLoaded;
+    // A logout clicked on the tab's previous page is recorded before this page is read.
+    await Promise.all(clicksNoting);
     const document = await identify(sender);
     if (!document || !sender.url) {
       await noteUnadmitted(sender);
@@ -6701,6 +6739,8 @@ export function createLoginRuntime(
     }
     if (hellos.get(helloKey) !== sequence) return { ok: false, reason: "stale-document" };
     const key = frameKey(document);
+    // A logout click waits for its site's first step only while the tab stays on that site.
+    if (document.frameId === 0) leaveClicks(document.tabId, siteOf(document.origin));
     // The tab's next page of the origin after a submitted password form (ADR 0028).
     const submitted = passwordSubmits.get(document.tabId);
     if (submitted && document.frameId === 0 && submitted.documentId !== document.documentId) {
@@ -7351,6 +7391,36 @@ export function createLoginRuntime(
       }
       /* eslint-enable no-await-in-loop */
     }
+    // A control that logs out was clicked in this tab on this site, after a login the tab
+    // does not know, such as one in another tab or before a browser restart: the recipe's
+    // first step showing now is that logout, and the tab asks as after its own login
+    // (ADR 0021 D, owner 2026-10-16). An expired session, where nobody clicked, still logs in.
+    const clickSite = siteOf(document.origin);
+    const logoutClick =
+      !recorded && document.frameId === 0 && start?.path === live.path && clickSite !== undefined
+        ? pendingClick(document.tabId, clickSite)
+        : undefined;
+    if (logoutClick) {
+      const clickKey = `${logoutClick.tabId} ${logoutClick.site}`;
+      const known = logouts.has(logoutKey);
+      logoutClicks.delete(clickKey);
+      logouts.add(logoutKey);
+      try {
+        await saveSession();
+      } catch {
+        logoutClicks.set(clickKey, logoutClick);
+        if (!known) logouts.delete(logoutKey);
+        return refuse("storage-unavailable");
+      }
+      if (!known)
+        report(document, {
+          type: "logout",
+          tabId: document.tabId,
+          origin: document.origin,
+          clicked: true,
+        });
+      if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+    }
     // A logout in another tab ends the shared session too, so this tab asks as well.
     const asking =
       !recorded &&
@@ -7973,6 +8043,59 @@ export function createLoginRuntime(
         holdsSite(entry, now),
     );
   }
+  /**
+   * The tab's logout click on `site` while it still waits for the site's first step (ADR
+   * 0021 D): for 10 minutes after the click. One older, or from a clock that went back,
+   * is dropped.
+   */
+  function pendingClick(tabId: number, site: string): LogoutClick | undefined {
+    const key = `${tabId} ${site}`;
+    const click = logoutClicks.get(key);
+    if (!click) return undefined;
+    const age = Date.now() - isoTimeMs(click.clickedAt);
+    if (age >= 0 && age < LOGOUT_CLICK_MS) return click;
+    logoutClicks.delete(key);
+    void quietly(saveSession);
+    return undefined;
+  }
+  /** Drops the tab's logout clicks of other sites than `site`: the tab left them. */
+  function leaveClicks(tabId: number, site: string | undefined): void {
+    let changed = false;
+    for (const [key, click] of logoutClicks)
+      if (click.tabId === tabId && click.site !== site) {
+        logoutClicks.delete(key);
+        changed = true;
+      }
+    if (changed) void quietly(saveSession);
+  }
+  /**
+   * Records a control that logs out, clicked in a document of an origin with recipes (ADR
+   * 0021 D, owner 2026-10-16), for its tab and site; the 256 oldest are kept.
+   */
+  async function noteLogoutClick(sender: Sender): Promise<void> {
+    await sessionLoaded;
+    const document = await identify(sender);
+    const site = document && siteOf(document.origin);
+    if (!document || site === undefined) return;
+    const key = `${document.tabId} ${site}`;
+    logoutClicks.delete(key);
+    logoutClicks.set(key, { tabId: document.tabId, site, clickedAt: isoTime(Date.now()) });
+    for (const oldest of logoutClicks.keys()) {
+      if (logoutClicks.size <= 256) break;
+      logoutClicks.delete(oldest);
+    }
+    await quietly(saveSession);
+  }
+  /**
+   * Whether a username-less passkey request for `rpId` in the tab follows a logout click
+   * on its site, so it asks as after Pateat signed there (ADR 0021 D).
+   */
+  async function logoutClicked(tabId: number, rpId: string): Promise<boolean> {
+    await sessionLoaded;
+    await Promise.all(clicksNoting);
+    const site = siteOf(`https://${rpId}`);
+    return site !== undefined && pendingClick(tabId, site) !== undefined;
+  }
   /** The blocks stored on this device; a read that fails is not kept, so it is read again. */
   let entryBlocks: Promise<EntryBlock[] | undefined> | undefined;
   function readEntryBlocks(): Promise<EntryBlock[] | undefined> {
@@ -8357,6 +8480,8 @@ export function createLoginRuntime(
     if (siteRecorded(tabId, site)) return "site-record";
     if (siteHeldElsewhere(tabId, site)) return "site-held";
     if (siteLoggedOut(site)) return "logged-out";
+    // The person just logged out in this tab and may want another account (ADR 0021 D).
+    if (pendingClick(tabId, site)) return "logout-clicked";
     const last = entryPresses.get(tabId);
     if (last && Date.now() - isoTimeMs(last.pressedAt) < ENTRY_PRESS_MS) return "press-limit";
     const snapshot = await settings
@@ -8554,6 +8679,14 @@ export function createLoginRuntime(
       if (pick.success) return pickFor(pick.output);
       return undefined;
     }
+    if (v.safeParse(logoutClickedSchema, message).success) {
+      // Registered at once, so the tab's next page, announced after it, waits for it.
+      const noting = noteLogoutClick(sender).catch(() => undefined);
+      clicksNoting.add(noting);
+      void noting.finally(() => clicksNoting.delete(noting));
+      await noting;
+      return undefined;
+    }
     if (v.safeParse(submittedSchema, message).success) {
       const document = await identify(sender);
       // A sign-in in a frame counts for the tab's page, whose next page is skipped.
@@ -8685,6 +8818,15 @@ export function createLoginRuntime(
         if (!kept.checked) armEntryTimer(kept);
         changed = true;
       }
+      // In place, so the clicks keep their turn among the oldest.
+      if ([...logoutClicks.values()].some((click) => click.tabId === removed)) {
+        const kept = [...logoutClicks.values()].map((click) =>
+          click.tabId === removed ? { ...click, tabId: added } : click,
+        );
+        logoutClicks.clear();
+        for (const click of kept) logoutClicks.set(`${click.tabId} ${click.site}`, click);
+        changed = true;
+      }
       // A pick that started its login stays with that login; one for the gone page does not.
       const pick = picked.get(removed);
       if (pick?.attemptId !== undefined) {
@@ -8746,6 +8888,8 @@ export function createLoginRuntime(
       for (const key of logoutFills)
         if (key.startsWith(`${tabId} `)) changed = logoutFills.delete(key) || changed;
       if (entryPresses.delete(tabId)) changed = true;
+      for (const [key, click] of logoutClicks)
+        if (click.tabId === tabId) changed = logoutClicks.delete(key) || changed;
       for (const key of noted.keys())
         if (key.startsWith(`${tabId} `)) changed = noted.delete(key) || changed;
       if (changed) await quietly(saveSession);
@@ -10023,5 +10167,6 @@ export function createLoginRuntime(
     passkeyRequested,
     passkeyAnswered,
     conditionalRequest,
+    logoutClicked,
   };
 }

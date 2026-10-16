@@ -261,6 +261,10 @@ that evidence before the rule is widened.
   origin of the site, ended or not: a tab that already ran a login there, failed or not,
   is not sent back to the login page. "Nothing holds the site" means ADR 0022's holding
   rules, and no logout state kept for an origin of the site in any tab.
+- Amended on 2026-10-16 by
+  [ADR 0021 D's logout clicks](0021-account-choice-outside-settings.md#logout-clicks):
+  no entry is pressed in a tab while a control that logs out, clicked there on the site
+  in the last 10 minutes, waits for the site's first step (`logout-clicked`).
 
 Neither the press nor the recipe's start is an ADR 0022 attempt. The press starts no
 attempt, holds no origin, is not a first step for ADR 0021 D's logout detection and is
@@ -351,7 +355,8 @@ with the reason (warn).
 - A manual logout that lands on the bare top page is never undone, because that URL has
   no query value naming a same-site path. A logout that redirects to a URL carrying
   `return_to`, in a tab where Pateat never logged in to the site and while no tab keeps
-  a logout state for it, would be pressed.
+  a logout state for it, would be pressed, unless the person clicked a control that logs
+  out there (ADR 0021 D, since 2026-10-16).
 - A wrong answer that leads to another site, to a page without a sign-in input or to a
   sign-up form blocks the recipe on the device after one press.
 
