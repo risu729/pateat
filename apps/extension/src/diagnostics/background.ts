@@ -338,6 +338,7 @@ export function createDiagnosticsLog(options: {
             recipe: report.recipeId,
             recipeRevision: report.recipeRevision,
             rejected: report.rejected,
+            clicked: report.clicked,
             url: report.url,
           },
           { source },

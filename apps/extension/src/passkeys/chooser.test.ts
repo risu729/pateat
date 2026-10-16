@@ -152,6 +152,30 @@ describe("passkey chooser window", () => {
     });
   });
 
+  it("says when asking again follows a logout clicked in the tab", async () => {
+    const { browser } = fakeBrowser();
+    const chooser = createPasskeyChooser(browser);
+    void chooser.choose({
+      tabId: 7,
+      origin: "https://login.example.com",
+      rpId: "example.com",
+      entries: [{ item: "Work", preferred: true }],
+      replacesDefault: true,
+      again: true,
+      loggedOut: true,
+      signal: new AbortController().signal,
+    });
+    await vi.waitFor(() => expect(browser.createWindow).toHaveBeenCalledOnce());
+    const url = openedUrl(browser);
+    const request = new URL(url).searchParams.get("request");
+    expect(
+      await chooser.handle(
+        { version: 1, type: "passkey-chooser.load", request },
+        { url, tab: { windowId: 41 } },
+      ),
+    ).toMatchObject({ ok: true, view: { again: true, loggedOut: true } });
+  });
+
   it("refuses an index outside the list", async () => {
     const { browser } = fakeBrowser();
     const chooser = createPasskeyChooser(browser);

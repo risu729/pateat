@@ -2589,7 +2589,10 @@ popup say the site did not accept the login (`pateat.login-rejected-asks.v1`). F
 logins and sites whose logout page shows only a password step are not detected. By the
 owner's constraint (2026-10-12) a session that only expired never needs a manual press,
 so a logout of a session carried over from another tab's login or an earlier browser
-session is not detected either: Pateat logs in again there.
+session is not detected by the form alone. Since 2026-10-16 (owner, after
+dash.cloudflare.com) a click on a control whose name or nearby text says log out makes
+the tab's next first step of that site within 10 minutes ask the same way
+(`pateat.login-logout-clicks.v1`, ADR 0021 D); otherwise Pateat logs in again there.
 
 Later work includes independently permitted vault create/update operations, nonzero
 passkey counter writeback and passkey creation; Bitwarden provider login with passkeys,

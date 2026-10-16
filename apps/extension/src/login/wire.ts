@@ -152,6 +152,15 @@ export const submittedSchema = v.strictObject({
   token: id,
 });
 /**
+ * A control that logs out was clicked in this document by the person (ADR 0021 D, owner
+ * 2026-10-16): nothing about the control or the page is sent.
+ */
+export const logoutClickedSchema = v.strictObject({
+  version: v.literal(1),
+  type: v.literal("login.document.logout-clicked"),
+  token: id,
+});
+/**
  * The answer to a hello. `starts` lists the first steps of the origin's recipes; the
  * document announces again with `start` once one of them is ready on the current path. A
  * refused hello carries them, and so does an accepted one of a watched login (ADR 0027).
