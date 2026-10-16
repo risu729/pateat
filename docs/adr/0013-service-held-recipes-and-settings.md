@@ -22,7 +22,8 @@ recipe is reused by name
 ([ADR 0027](0027-per-account-login-routes.md#implementation-choices)).
 
 Amended on 2026-10-14: the implemented cache-overflow behavior below applies
-revocations without advancing past skipped active changes.
+revocations without advancing past skipped active changes. A second amendment on
+2026-10-14 adds non-growing active updates and durable bounded lookahead recovery.
 
 Date: 2026-10-10
 
@@ -215,3 +216,48 @@ sync advances the cursor. If it still does not fit, sync reports `cache-full`.
 Each page's removals are saved before requesting another page, so a later
 transport failure leaves those revocations applied. An overflow containing only
 active changes writes nothing unless the retry fits.
+
+## Amendment: Durable recovery under cache pressure (2026-10-14)
+
+The owner approved the cache-pressure recovery follow-up on 2026-10-14. This
+amends the revoke-only behavior above: lookahead also saves a newer active head
+of an already cached recipe when its serialized UTF-8 document does not grow.
+It never adds a missing recipe during lookahead. The applied cursor stays with
+the last complete page; pending additions and growing updates remain pending.
+Normal replay ignores equal or older revisions already held, so it neither
+undoes a saved newer shrink nor counts that replay as another update.
+
+Lookahead checkpoints its last scanned sequence in a separate trusted
+`storage.local` record containing only the service origin, device ID, applied
+cursor and scan cursor. It contains no recipe bodies or tombstone history and
+has constant space independent of the backlog. The serialized recipe cache
+retains its actual 2 MiB cap, including its envelope; an exactly full old cache
+can still checkpoint. A valid cache of the same device and applied cursor is
+required to resume a checkpoint. Advancing the applied cursor invalidates the
+old checkpoint; an absent, corrupt or differently bound cache starts normally.
+
+Each run still shares 50 page reads between normal sync and lookahead, plus one
+fresh retry from the applied cursor. A blocked cursor's next run resumes
+lookahead after the checkpoint, so freeing heads beyond 50 pages are reachable
+across worker restarts. Safe cache writes finish before checkpoint writes; a
+checkpoint failure repeats work without skipping an unwritten reduction. A
+transport failure or rejection preserves earlier saved reductions. Clearing
+waits behind pending cache and checkpoint writes, then removes both records, so
+a late durable write cannot restore a disconnected device's state.
+
+The service returns each recipe's current head, ordered by its globally
+increasing sequence; updating or revoking it replaces that head and moves it
+forward. Requests bypass HTTP caches. Retry refetches these current heads after
+lookahead rather than applying the saved pre-scan page. Thus a revocation seen
+in lookahead cannot be resurrected by that earlier active response. A later
+strictly newer republication can be added when its whole fresh page fits.
+This relies on the service's current-head contract, not on retaining an
+unbounded historical feed or a tombstone history in the extension.
+
+With a finite settled feed whose current active documents fit the service's
+1.5 MiB cap, repeated successful bounded runs eventually reach its reductions
+and apply pending pages. The cap alone does not promise completion during
+continuous service changes, unavailable storage or failed requests. Until a
+whole page fits, the outcome remains `cache-full`; successful partial normal
+progress beyond one run's budget remains `incomplete`. Logged changes count
+only successfully written additions, updates and removals.

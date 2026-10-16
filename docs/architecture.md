@@ -1904,14 +1904,15 @@ people.
   with both branches about 2.3 KiB (measured on hand-made examples on 2026-10-14, not on
   the owner's recipes), so 2 MiB holds about 1,800 of the first or 880 of the second;
   1,000 recipes fit only while they average 2 KiB or less. The service cap below leaves
-  margin for the cache envelope. A device can still remain blocked by `cache-full`: a
-  page of new recipes may coexist with stale large revisions whose shrinking updates
-  are already on later pages, even when both service snapshots fit the cap. For example,
-  shrinking old recipes frees room for new ones, then another update of those shrunken
-  recipes moves their latest heads after the additions in the change feed. The overflow
-  leaves the persisted cursor unchanged, so each retry of the same feed repeats the
-  additions page and cannot reach the shrinking updates. This can persist indefinitely
-  without a further service change or cache reset that lets the page fit.
+  margin for the cache envelope. New recipes may initially overflow a stale cache
+  before later shrinking current heads are reached. Bounded lookahead saves
+  removals and newer non-growing updates to held recipes, while retaining the
+  applied cursor. A separate constant-size checkpoint resumes that walk across
+  syncs and worker restarts; pending pages advance the applied cursor only once
+  they fit. Thus a settled feed under the service cap can recover without a cache
+  reset, even when a freeing head lies beyond one run's 50-page budget. See
+  [ADR 0013](adr/0013-service-held-recipes-and-settings.md#amendment-durable-recovery-under-cache-pressure-2026-10-14)
+  for write ordering, the fresh retry and the live current-head contract.
 - Recipe bytes on the service (implemented,
   [#550](https://github.com/risu729/pateat/issues/550)). The owner chose on 2026-10-14
   (07:56 UTC) a cap of 1.5 MiB on the UTF-8 bytes of an owner's active recipe documents,
