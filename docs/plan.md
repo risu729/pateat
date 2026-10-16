@@ -758,6 +758,26 @@ Once the fixes have settled:
   own. Each scan writes them to a `CLAUDE-SECURITY-<timestamp>/` directory in the
   repository. Which scans run and when is decided when it is adopted. Not started
   without the owner's confirmation (owner, 2026-10-13 15:10 UTC).
+  - Started (owner, 2026-10-15 11:09 UTC): the owner added the plugin to their claude.ai
+    account from the plugin directory, which loads it into this project's cloud threads.
+    A repository `.claude/settings.json` does not, because cloud sessions do not install
+    the plugins a repository enables
+    ([cloud environments](https://code.claude.com/docs/en/cloud-environments)). The
+    plugin's license forbids distributing it, so it is not copied into the repository.
+  - First scan (2026-10-16, owner's go-ahead 13:24 UTC): the whole repository on main
+    [8883745](https://github.com/risu729/pateat/commit/8883745)
+    at `medium` effort, verification status `verified`. Six findings survived the
+    panel, four distinct problems, each filed as an issue at the owner's request; none
+    is fixed without the owner's word (owner, 13:25 UTC):
+    [#636](https://github.com/risu729/pateat/issues/636) form destination not checked
+    before filling and submitting (medium),
+    [#637](https://github.com/risu729/pateat/issues/637) sandboxed documents treated as
+    their URL's origin (medium),
+    [#638](https://github.com/risu729/pateat/issues/638) passkey assertions signed with
+    UP and UV and no gesture, the [ADR 0007](adr/0007-existing-passkey-assertions.md)
+    deviation (medium), and [#639](https://github.com/risu729/pateat/issues/639) a
+    quadratic padding regex in the Bitwarden passkey decoder (low). Which scans run
+    later, and when, is still open.
 
 ### Phase 4: issues and work as needed
 
