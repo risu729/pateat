@@ -39,6 +39,7 @@ import {
   submittedPage,
   type SubmittedPage,
 } from "../page/sign-in-state";
+import { observedPath } from "../observation/path";
 import { sendMessage } from "../messaging/protocol";
 import { acceptsSecret } from "./inputs";
 import {
@@ -54,6 +55,12 @@ import {
 } from "./wire";
 import { newId } from "@pateat/contracts/ids";
 
+/**
+ * This page's path as observations and recipes carry it, each token-like segment replaced
+ * (`observedPath`, ADR 0039): every path this script reports, or compares with a step's,
+ * reads this, so a step on `/[id]/login` runs on the same page of any tenant.
+ */
+const pagePath = () => observedPath(location.pathname);
 /** Fixed locators deliberately reject duplicates rather than taking the first match. */
 function matches(target: LoginMarkerTarget, links = false): Element[] {
   return findTargets(document, target, { links });
@@ -126,7 +133,7 @@ function listsAccounts(): boolean {
 }
 /** Whether a step's elements are ready now: the path matches and each target is unique and usable. */
 function ready(readiness: LoginReadiness): boolean {
-  if (location.pathname !== readiness.path) return false;
+  if (pagePath() !== readiness.path) return false;
   // A chooser's list (ADR 0028): one of its buttons, or an account it lists by email.
   if (readiness.accounts)
     return (
@@ -317,7 +324,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             type: "login.document.ready",
             token,
             unoffered: {
-              path: location.pathname,
+              path: pagePath(),
               why: afterSubmitted() ? "after-sign-in" : showsSignIn() ? "sign-in-shown" : "no-list",
             },
           }).catch(() => undefined);
@@ -403,14 +410,14 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
    * watching, and no generation is offered for it.
    */
   function noteShown(): void {
-    const path = location.pathname;
+    const path = pagePath();
     if (shownTimer || shown.has(path) || !showsSignIn()) return;
     shownTimer = setTimeout(() => {
       shownTimer = undefined;
       if (
         !observer ||
         cancelled ||
-        location.pathname !== path ||
+        pagePath() !== path ||
         shown.has(path) ||
         starts.some(ready) ||
         !showsSignIn()
@@ -427,7 +434,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   }
   /** Whether this path is the one this document showed next after a submitted password form. */
   function afterSubmitted(): boolean {
-    const path = location.pathname;
+    const path = pagePath();
     if (submitPath !== undefined && path !== submitPath) afterSubmit ??= path;
     return path === afterSubmit;
   }
@@ -445,7 +452,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         missed?: EntryMiss;
       }
     | undefined {
-    const path = location.pathname;
+    const path = pagePath();
     // A list by email may be sent without an email username only for its control to sign
     // in with another account (ADR 0028).
     if (listsAccounts())
@@ -487,17 +494,17 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       version: 1,
       type: "login.document.ready",
       token,
-      ...(start ? { start: { path: location.pathname } } : {}),
+      ...(start ? { start: { path: pagePath() } } : {}),
       ...(signIn
         ? {
             signIn: {
-              path: location.pathname,
+              path: pagePath(),
               ...(signIn === "identifier" ? { identifier: true as const } : {}),
             },
           }
         : {}),
       ...(list ? { list } : {}),
-      ...(entryPage ? { entry: { path: location.pathname } } : {}),
+      ...(entryPage ? { entry: { path: pagePath() } } : {}),
     });
     const parsed = v.safeParse(readySchema, result);
     if (parsed.success && parsed.output.ok && parsed.output.starts) {
@@ -552,7 +559,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     }
     if (command.type === "login.choose") {
       const choice =
-        cancelled || location.pathname !== command.path || showsSignIn()
+        cancelled || pagePath() !== command.path || showsSignIn()
           ? undefined
           : listChoice(document, command.list);
       command.list.username = "";
@@ -574,7 +581,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         !cancelled &&
         pending?.operationId === command.operationId &&
         Date.now() < pending.expiresAt &&
-        location.pathname === pending.path &&
+        pagePath() === pending.path &&
         switchable(pending.element) &&
         isOnly(findTargets(document, pending.target, { links: true }), pending.element);
       if (click) pending.element.click();
@@ -748,7 +755,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         return false;
       }
       respond({
-        path: location.pathname,
+        path: pagePath(),
         targets: command.targets.map((target, index) =>
           targetState(target, command.require?.[index], command.links?.[index] === true),
         ),
@@ -796,10 +803,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       if (cancelled) return fail("cancelled", "document-cancelled");
       if (used.has(operation.operationId)) return fail("cancelled", "operation-used");
       if (Date.now() >= operation.expiresAt) return fail("cancelled", "operation-expired");
-      if (
-        operation.document.origin !== location.origin ||
-        operation.step.path !== location.pathname
-      )
+      if (operation.document.origin !== location.origin || operation.step.path !== pagePath())
         return fail("cancelled", "page-changed");
       used.add(operation.operationId);
       const step = operation.step;
@@ -870,7 +874,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                 operationId: operation.operationId,
                 element,
                 target: command.accountSwitch,
-                path: location.pathname,
+                path: pagePath(),
                 expiresAt: Date.now() + switchTimeoutMs,
               };
               return { ...fail("wrong-account"), switchable: true as const };
@@ -927,7 +931,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             const value = command.values.find((entry) => entry.slot === field.slot)!;
             if (
               cancelled ||
-              location.pathname !== step.path ||
+              pagePath() !== step.path ||
               current.length !== 1 ||
               current[0] !== input ||
               !writable(input) ||
@@ -939,7 +943,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                 "cancelled",
                 cancelled
                   ? "document-cancelled"
-                  : location.pathname !== step.path
+                  : pagePath() !== step.path
                     ? "page-changed"
                     : "field-changed",
               );
@@ -966,7 +970,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                 const scope = () =>
                   cancelled
                     ? "document-cancelled"
-                    : location.pathname !== step.path
+                    : pagePath() !== step.path
                       ? "page-changed"
                       : !writable(digit) ||
                           digit.form !== form ||
@@ -999,7 +1003,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                 beforeInput: code?.typed,
                 between: () => {
                   if (cancelled) return "document-cancelled";
-                  if (location.pathname !== step.path) return "page-changed";
+                  if (pagePath() !== step.path) return "page-changed";
                   const now = matches(field.target);
                   return now.length !== 1 ||
                     now[0] !== input ||
@@ -1123,7 +1127,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       const until = Math.min(operation.expiresAt, Date.now() + step.timeoutMs);
       // Cancellation is set by the independent background message listener.
       // eslint-disable-next-line no-unmodified-loop-condition
-      while (!cancelled && Date.now() < until && location.pathname === step.path) {
+      while (!cancelled && Date.now() < until && pagePath() === step.path) {
         if (satisfied()) return { ok: true, mutation: "none" };
         // Poll the current DOM serially; parallel polls cannot observe later render states.
         // eslint-disable-next-line no-await-in-loop
@@ -1132,7 +1136,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       // The page moving to another path ends the wait early; that is not a timeout.
       return cancelled
         ? fail("cancelled", "document-cancelled")
-        : location.pathname !== step.path
+        : pagePath() !== step.path
           ? fail("timeout", "page-changed")
           : fail("timeout");
     })()
@@ -1199,7 +1203,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       )
     )
       return;
-    submitPath = location.pathname;
+    submitPath = pagePath();
     afterSubmit = undefined;
     void sendMessage("login", { version: 1, type: "login.document.submitted", token }).catch(
       () => undefined,
