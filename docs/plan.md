@@ -421,10 +421,11 @@ than in this repository.
   page's kind, recipes generated as `confirm` neither run nor count as logouts, a
   passkey re-verification after Pateat's login in the tab is handed on, and the logs for
   judging whether `confirm` can be split are kept.
-- The toolbar badge counts the matching items on every HTTPS site: teal with the usable
-  count, light gray when every match is excluded, amber while a login waits for a choice
-  (owner, 2026-10-13 14:42 UTC;
-  [ADR 0021](adr/0021-account-choice-outside-settings.md#site-count-badge)).
+- Done: the toolbar badge counts the matching items on every HTTPS site: teal with the
+  usable count, light gray when every match is excluded, amber while a login waits for a
+  choice (owner, 2026-10-13 14:42 UTC;
+  [ADR 0021](adr/0021-account-choice-outside-settings.md#site-count-badge)). Next: see
+  it once in installed Chrome on a site with a saved item.
 - The owner uses Pateat on many sites and reports bugs; Claude may also fix problems it
   finds on its own. Reading the extension's error logs without a report needs a way for
   them to leave the device, which [ADR 0019](adr/0019-local-diagnostics-and-logs.md)

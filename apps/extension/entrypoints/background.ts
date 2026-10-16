@@ -26,6 +26,12 @@ import { createSignedTabs, SIGNED_TABS_KEY } from "../src/passkeys/signed-tabs";
 import { sessionValue } from "../src/storage";
 import { createLoginBadge, LOGIN_BADGE_KEY, setActionBadge } from "../src/login/badge";
 import {
+  countedOrigin,
+  createCountScope,
+  createSiteCounter,
+  SITE_COUNT_KEY,
+} from "../src/login/site-count";
+import {
   createVaultPasskeyFinder,
   createVaultPasskeySource,
   itemPasskeyFacts,
@@ -90,6 +96,7 @@ export default defineBackground(() => {
       : {}),
     onVaultStateMayChange: () => {
       void actionIcon.refresh();
+      void siteCounter.refresh();
       diagnosticsLog.vaultStateMayChange();
     },
     onSync: diagnosticsLog.vaultSync,
@@ -108,13 +115,39 @@ export default defineBackground(() => {
     storage: sessionValue(LOGIN_BADGE_KEY),
   });
   void loginBadge.restore();
+  // ADR 0021: how many vault items match each tab's HTTPS site, under the states above. A
+  // count reads only vaults already open, through the login runtime's vault path.
+  const siteCounter = createSiteCounter({
+    scope: createCountScope(connections, catalog),
+    hold: () => login.siteCount.hold(),
+    step: (job) => login.siteCount.step(job),
+    show: (tabId, origin, state) => loginBadge.count(tabId, origin, state),
+    storage: sessionValue(SITE_COUNT_KEY),
+  });
+  const showCount = (tabId: number) =>
+    void browser.tabs
+      .get(tabId)
+      .then((tab) => siteCounter.apply(tabId, tab.url))
+      .catch(() => undefined);
+  void browser.tabs
+    .query({})
+    .then((tabs) =>
+      Promise.all(tabs.map((tab) => tab.id !== undefined && siteCounter.apply(tab.id, tab.url))),
+    )
+    .catch(() => undefined);
   // Chrome resets a tab's badge when its page commits a navigation, which a url change
   // marks; the url shows only on pages Pateat can read.
   browser.tabs.onUpdated.addListener((tabId, change, tab) => {
     if (change.url !== undefined || change.status === "loading" || change.status === "complete")
       loginBadge.loaded(tabId, tab.url);
+    if (change.status === "loading") siteCounter.loading(tabId);
+    if (change.status === "complete") void siteCounter.loaded(tabId, tab.url);
   });
-  browser.tabs.onRemoved.addListener((tabId) => loginBadge.removed(tabId));
+  browser.tabs.onActivated.addListener(({ tabId }) => showCount(tabId));
+  browser.tabs.onRemoved.addListener((tabId) => {
+    loginBadge.removed(tabId);
+    siteCounter.removed(tabId);
+  });
   const settings = connections.settings;
   const serviceTransport = createServiceTransport();
   const service = createServiceRuntime({
@@ -134,6 +167,7 @@ export default defineBackground(() => {
     // Synced changes replace the policy that running attempts were authorized under.
     applied: () => {
       login.settingsChanged("synced");
+      void siteCounter.refresh();
       passkeys.settingsChanged();
       diagnosticsLog.settingsChanged("synced");
     },
@@ -230,6 +264,16 @@ export default defineBackground(() => {
     },
     signedIn: (tabId, origin) => noteSignIn(tabId, origin),
     badge: loginBadge,
+    // A late answer to the tab's previous page does not take the tab over from its new one.
+    announced: (tabId, url) =>
+      void browser.tabs
+        .get(tabId)
+        .then((tab) =>
+          countedOrigin(tab.url) === countedOrigin(url)
+            ? siteCounter.announced(tabId, url)
+            : undefined,
+        )
+        .catch(() => undefined),
   });
   const setupProbe = syntheticSetup?.handler(connections);
   const siteAccounts = createSiteAccountsHandler({
@@ -262,6 +306,8 @@ export default defineBackground(() => {
   // A tab Chrome discards to save memory gets a new ID; its sign-ins and badge stay with it.
   browser.tabs.onReplaced.addListener((added, removed) => {
     loginBadge.replaced(added, removed);
+    siteCounter.removed(removed);
+    showCount(added);
     void signIns.replaced(added, removed).catch(() => {});
     void signedTabs.replaced(added, removed).catch(() => {});
   });
@@ -418,6 +464,7 @@ export default defineBackground(() => {
       settings.handle(request).then((response) => {
         if (requestType(request) === "settings.save" && response.ok) {
           login.settingsChanged("saved");
+          void siteCounter.refresh();
           passkeys.settingsChanged();
           diagnosticsLog.settingsChanged("saved");
           void recipeSync.sync();
