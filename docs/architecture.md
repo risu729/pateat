@@ -1888,8 +1888,8 @@ people.
   generation is also bounded by spend and one call at a time
   ([ADR 0018](adr/0018-recipe-generation-route.md)).
 - Recipes. An owner holds at most 1,000 active recipes. Creating a recipe or
-  republishing a tombstone beyond that answers 409 `recipe_limit`; updating or revoking
-  an active recipe always works, and a revocation frees its place. Generation answers
+  republishing a tombstone beyond that answers 409 `recipe_limit`; updating an active
+  recipe does not add to the count, and a revocation frees its place. Generation answers
   `unavailable` with `recipe-limit` before any model call when a first page would add a
   recipe, or after the call if the last place was taken meanwhile.
 - Recipe history. Each recipe keeps its newest 10 revisions; a winning write deletes
@@ -1903,18 +1903,29 @@ people.
   password, two markers, a TOTP handler) is about 1.1 KiB and an account-list recipe
   with both branches about 2.3 KiB (measured on hand-made examples on 2026-10-14, not on
   the owner's recipes), so 2 MiB holds about 1,800 of the first or 880 of the second;
-  1,000 recipes fit only while they average 2 KiB or less. The service has no byte limit
-  on the recipes it writes itself: the 128 KiB body limit applies only to the recipe
-  `PUT` route, which the extension does not call.
-- Recipe bytes on the service (planned,
+  1,000 recipes fit only while they average 2 KiB or less. The service cap below leaves
+  margin for the cache envelope. A device can still remain blocked by `cache-full`: a
+  page of new recipes may coexist with stale large revisions whose shrinking updates
+  are already on later pages, even when both service snapshots fit the cap. For example,
+  shrinking old recipes frees room for new ones, then another update of those shrunken
+  recipes moves their latest heads after the additions in the change feed. The overflow
+  leaves the persisted cursor unchanged, so each retry of the same feed repeats the
+  additions page and cannot reach the shrinking updates. This can persist indefinitely
+  without a further service change or cache reset that lets the page fit.
+- Recipe bytes on the service (implemented,
   [#550](https://github.com/risu729/pateat/issues/550)). The owner chose on 2026-10-14
   (07:56 UTC) a cap of 1.5 MiB on the UTF-8 bytes of an owner's active recipe documents,
   so that they fit a device's 2 MiB with room to spare. It applies to creating a recipe
   and to any update that grows one (continuation pages, judge handlers and markers);
-  tombstones are not counted. Over the cap, a write answers 409 `recipe_limit` and
-  generation answers `unavailable` with `recipe-limit`, the reason the extension already
-  handles, and generation refuses before a model call when less than 32 KiB of room is
-  left. The cap and `MAX_RECIPE_CACHE_BYTES` are defined together in the contracts.
+  equal or shrinking updates and revocations always pass. Only current active head
+  documents count, excluding tombstones and retained historical revisions. The claim SQL
+  checks the UTF-8 byte sum atomically with the write. Over the cap, a write answers 409
+  `recipe_limit` and generation answers `unavailable` with `recipe-limit`, the reason
+  the extension already handles, and generation refuses before a model call when less
+  than 32 KiB of room is left, including continuation and entry generation. Judge
+  handler and marker writes also answer `recipe-limit` if refused. The cap and
+  `MAX_RECIPE_CACHE_BYTES` are defined together in the contracts; no migration is
+  required.
 - Unchanged. Settings are one document of at most 120 KiB per owner. The inference
   request log is kept 90 days and bounded by the $5 daily spend limit. Devices are not
   counted: each pairing needs an interactive Access login.
