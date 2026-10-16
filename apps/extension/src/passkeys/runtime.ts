@@ -1,4 +1,5 @@
 import * as v from "valibot";
+import { senderDocumentOrigin } from "../messaging/sender";
 import { createPasskeyAssertion } from "./assertion";
 import { INITIAL_PASSKEY_POLICY, type PasskeyPolicy } from "./policy";
 import { admitGetRequest, describeInvalidRequest } from "./request";
@@ -197,12 +198,10 @@ export function senderOrigin(sender: Sender, extensionId: string): string | unde
     sender.id !== extensionId ||
     sender.tab?.id === undefined ||
     sender.frameId !== 0 ||
-    typeof sender.documentId !== "string" ||
-    typeof sender.origin !== "string" ||
-    typeof sender.url !== "string"
+    typeof sender.documentId !== "string"
   )
     return undefined;
-  return URL.parse(sender.url)?.origin === sender.origin ? sender.origin : undefined;
+  return senderDocumentOrigin(sender);
 }
 
 /** Settles with `pending`, or rejects with the signal's reason once it aborts. */

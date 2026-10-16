@@ -302,15 +302,20 @@ const trusted = {
   id: "synthetic-extension",
   url: "chrome-extension://synthetic-extension/options.html",
 } as never;
-const sender = (overrides: Record<string, unknown> = {}) =>
-  ({
+/** A content script's sender; Chrome reports its document's origin, here its URL's. */
+const sender = (overrides: Record<string, unknown> = {}) => {
+  const { url = fake.state.pageUrl } = overrides;
+  const parsed = typeof url === "string" ? URL.parse(url) : null;
+  return {
     id: "synthetic-extension",
     tab: { id: 1 },
     frameId: 0,
     documentId: "synthetic-document",
-    url: fake.state.pageUrl,
+    ...(parsed ? { origin: parsed.origin } : {}),
+    url,
     ...overrides,
-  }) as never;
+  } as never;
+};
 const target = (value: string) => ({ by: "id" as const, value });
 /** One recipe start per step, as the recipe cache lists single-variant recipes. */
 const startsOf = (steps: LoginStep[]): LoginRecipeStart[] =>

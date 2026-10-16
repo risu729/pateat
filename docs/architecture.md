@@ -58,8 +58,14 @@ compatibility claim or an alternative cloud-browser implementation.
 Content/page messages are untrusted. Validate payloads with Valibot and bind
 requests to the browser-supplied sender, permitted origin, tab, frame, document,
 and short-lived operation ID. Page-provided origin strings never authorize a
-secret lookup. MAIN-world bridging needs its own request matching and cancellation
-protocol; TypeScript types and a message nonce alone are not authorization.
+secret lookup. A document's origin is the sender's browser-reported `origin`,
+accepted only when it is the origin of the sender's `url`: a document with an
+opaque origin, such as a page served with a CSP `sandbox` header or a sandboxed
+frame, is refused for logins, recipe generation and passkeys alike, and the login
+content script compares its own effective origin (`self.origin`), not its URL's,
+with the operation's before each fill or click. MAIN-world bridging needs its own
+request matching and cancellation protocol; TypeScript types and a message nonce
+alone are not authorization.
 
 Extension pages and content scripts send their requests to the service worker through
 `@webext-core/messaging`, under one key per area (settings, service, diagnostics,

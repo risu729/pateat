@@ -148,6 +148,7 @@ import {
 import { customFieldOffers, type CustomFieldOffer } from "./generation-slots";
 import { emailUsername, namesUsername, type EntryMiss, type OtherMiss } from "../page/account-list";
 import { observedPath } from "../observation/path";
+import { senderDocumentOrigin } from "../messaging/sender";
 import { pathShowsUsername, withoutUsernames } from "../observation/usernames";
 import {
   decideSignInState,
@@ -2063,7 +2064,9 @@ export function createLoginRuntime(
     probeDocument(url) || (sites !== undefined && (await sites.admission(url)) === "admitted");
   /**
    * The browser-identified document. A frame inside the page is admitted only when the
-   * tab's page is admitted too; excluded sites stop it on either side (ADR 0017).
+   * tab's page is admitted too; excluded sites stop it on either side (ADR 0017). A
+   * document whose origin is not its URL's, such as a page the site isolates with a CSP
+   * `sandbox` header or a sandboxed frame, is not the site and is refused.
    */
   async function identify(sender: Sender): Promise<LoginDocument | undefined> {
     if (
@@ -2073,7 +2076,8 @@ export function createLoginRuntime(
       !sender.documentId ||
       // A prerendered page also has a nonzero frame ID; it is not a frame of the tab.
       (sender as { documentLifecycle?: string }).documentLifecycle === "prerender" ||
-      !sender.url
+      !sender.url ||
+      senderDocumentOrigin(sender) === undefined
     )
       return undefined;
     try {

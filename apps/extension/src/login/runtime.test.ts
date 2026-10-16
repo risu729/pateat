@@ -85,6 +85,7 @@ const page = {
   tab: { id: 1 },
   frameId: 0,
   documentId: "synthetic-document",
+  origin: new URL(fake.pageUrl).origin,
   url: fake.pageUrl,
 } as never;
 
