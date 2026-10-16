@@ -804,7 +804,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       if (cancelled) return fail("cancelled", "document-cancelled");
       if (used.has(operation.operationId)) return fail("cancelled", "operation-used");
       if (Date.now() >= operation.expiresAt) return fail("cancelled", "operation-expired");
-      if (operation.document.origin !== location.origin || operation.step.path !== pagePath())
+      // The document's own origin, opaque ("null") in a sandboxed document whatever its URL.
+      if (operation.document.origin !== self.origin || operation.step.path !== pagePath())
         return fail("cancelled", "page-changed");
       used.add(operation.operationId);
       const step = operation.step;

@@ -74,6 +74,8 @@ describe("passkey runtime sender binding", () => {
     ["no document", { documentId: undefined }],
     ["mismatched URL", { url: "https://evil.example.net/" }],
     ["missing origin", { origin: undefined }],
+    // A page served with a CSP `sandbox` header on the site's URL has an opaque origin.
+    ["an opaque origin on the site's URL", { origin: "null" }],
   ])("delegates requests from %s without a lookup", async (_name, overrides) => {
     const backing = source();
     const runtime = createPasskeyRuntime(backing, { extensionId });

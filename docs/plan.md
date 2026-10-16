@@ -788,6 +788,11 @@ Once the fixes have settled:
     deviation (medium), and [#639](https://github.com/risu729/pateat/issues/639) a
     quadratic padding regex in the Bitwarden passkey decoder (low). Which scans run
     later, and when, is still open.
+  - [#637](https://github.com/risu729/pateat/issues/637) fixed at the owner's request
+    (2026-10-16 19:14 UTC): a document whose browser-reported origin is not its URL's,
+    such as a page served with a CSP `sandbox` header or a sandboxed frame, is refused
+    for logins, recipe generation and passkeys
+    ([architecture](architecture.md#components-and-trust-boundaries)).
 
 ### Phase 4: issues and work as needed
 
