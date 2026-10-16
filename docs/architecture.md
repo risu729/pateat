@@ -1960,8 +1960,12 @@ people.
   checks the UTF-8 byte sum atomically with the write. Over the cap, a write answers 409
   `recipe_limit` and generation answers `unavailable` with `recipe-limit`, the reason
   the extension already handles, and generation refuses before a model call when less
-  than 32 KiB of room is left, including continuation and entry generation. Judge
-  handler and marker writes also answer `recipe-limit` if refused. The cap and
+  than 32 KiB of room is left, including continuation and entry generation. A judged
+  page keeps its answer when the cap refuses its handler or marker write (owner,
+  2026-10-16): a challenge page still answers `challenge`, and a signed-in page of a
+  recipe that already has a marker, or of another origin of the site, still answers
+  `signed-in`; the refusal is logged. Only a first marker the cap refuses answers
+  `recipe-limit`. The cap and
   `MAX_RECIPE_CACHE_BYTES` are defined together in the contracts; no migration is
   required.
 - Unchanged. Settings are one document of at most 120 KiB per owner. The inference

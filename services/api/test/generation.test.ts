@@ -1908,28 +1908,47 @@ describe("page judgement (ADR 0027)", () => {
     expect(await judgements(device)).toEqual(stored);
   });
 
-  it.each(["marker", "handler"] as const)(
-    "maps a judge %s write refused for bytes to recipe-limit",
-    async (kind) => {
-      const device = await owner();
-      const change = await twoPageRecipe(device);
-      await seedRecipeBytes(device.ownerId, MAX_ACTIVE_RECIPE_BYTES - documentBytes(change.recipe));
-      replies.push(
-        kind === "marker"
-          ? judgeReply({ decision: "signed-in", marker: "logout" })
-          : judgeReply({ decision: "challenge", passkeyButton: "key" }),
-      );
-      const answer = await complete(
-        device,
-        change.recipeId,
-        2,
-        kind === "marker" ? homePage : webauthnPage,
-      );
-      expect(answer.body).toEqual({ version: 1, status: "unavailable", reason: "recipe-limit" });
-      expect(await head(device, change.recipeId)).toBe(2);
-      expect(sent).toHaveLength(3);
-    },
-  );
+  it("maps a first marker write refused for bytes to recipe-limit", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    await seedRecipeBytes(device.ownerId, MAX_ACTIVE_RECIPE_BYTES - documentBytes(change.recipe));
+    replies.push(judgeReply({ decision: "signed-in", marker: "logout" }));
+    const answer = await complete(device, change.recipeId, 2, homePage);
+    expect(answer.body).toEqual({ version: 1, status: "unavailable", reason: "recipe-limit" });
+    expect(await head(device, change.recipeId)).toBe(2);
+    expect(sent).toHaveLength(3);
+  });
+
+  it("answers signed-in when a later marker is refused for bytes", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    replies.push(judgeReply({ decision: "signed-in", marker: "logout" }));
+    const first = await complete(device, change.recipeId, 2, homePage);
+    if (!("change" in first.body) || !first.body.change) throw new Error("no change");
+    await seedRecipeBytes(
+      device.ownerId,
+      MAX_ACTIVE_RECIPE_BYTES - documentBytes(first.body.change.recipe),
+    );
+    const account = observation("/account", [element("account", "button", "Account")]);
+    replies.push(judgeReply({ decision: "signed-in", marker: "account" }));
+    expect((await complete(device, change.recipeId, 3, account)).body).toEqual({
+      version: 1,
+      status: "signed-in",
+    });
+    expect(await head(device, change.recipeId)).toBe(3);
+    expect(sent).toHaveLength(4);
+  });
+
+  it("answers challenge when its handler is refused for bytes", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    await seedRecipeBytes(device.ownerId, MAX_ACTIVE_RECIPE_BYTES - documentBytes(change.recipe));
+    replies.push(judgeReply({ decision: "challenge", passkeyButton: "key" }));
+    const answer = await complete(device, change.recipeId, 2, webauthnPage);
+    expect(answer.body).toEqual({ version: 1, status: "challenge" });
+    expect(await head(device, change.recipeId)).toBe(2);
+    expect(sent).toHaveLength(3);
+  });
 
   it("judges each revision and path once", async () => {
     const device = await owner();

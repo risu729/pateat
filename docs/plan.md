@@ -1650,7 +1650,7 @@ a later sync. If the retry still does not fit, the settings page says the recipe
 no longer fit
 ([ADR 0013 amendment](adr/0013-service-held-recipes-and-settings.md#amendment-revocations-while-the-cache-is-full-2026-10-14),
 [issue #544](https://github.com/risu729/pateat/issues/544)). How many recipes that
-holds, and the planned service cap that keeps an owner within it, are under [service
+holds, and the service cap that keeps an owner within it, are under [service
 limits](architecture.md#service-limits). A 401 marks the device as rejected: syncing
 stops, login keeps using the cached recipes, and the settings page says to pair again.
 Lookup uses `selectLoginRecipe` for a new attempt and the recipe ID for a resumed one;

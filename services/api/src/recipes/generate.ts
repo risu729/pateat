@@ -905,7 +905,9 @@ export async function judgeCompletion(
       { version: 1, state: "active", expectedRevision: head.revision, recipe: withHandlers },
       scope.deviceId,
     );
-    if (!written.ok && written.limited) return unavailable("recipe-limit");
+    // The page is a challenge whether or not its handlers fit the owner's recipe bytes.
+    if (!written.ok && written.limited)
+      console.warn("Judged page handlers refused by the recipe limit", { recipeId });
     const change = written.ok ? answerable(written.change) : undefined;
     return { version: 1, status: "challenge", ...(change ? { change } : {}) };
   }
@@ -926,8 +928,10 @@ export async function judgeCompletion(
     { version: 1, state: "active", expectedRevision: head.revision, recipe: learnedRecipe },
     scope.deviceId,
   );
-  if (!written.ok && written.limited) return unavailable("recipe-limit");
+  const limited = !written.ok && written.limited;
+  if (limited) console.warn("Signed-in marker refused by the recipe limit", { recipeId });
   const change = written.ok ? answerable(written.change) : undefined;
   if (change) return { ...signedIn, change };
-  return signedInAnyway ? signedIn : unavailable("recipe-conflict");
+  if (signedInAnyway) return signedIn;
+  return unavailable(limited ? "recipe-limit" : "recipe-conflict");
 }
