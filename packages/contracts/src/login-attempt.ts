@@ -108,8 +108,9 @@ export const attemptMetadataSchema = v.pipe(
     /** The item's facts read when the login started; never sent anywhere. */
     facts: loginItemFactsSchema,
     /**
-     * For a chooser recipe's login (ADR 0028): what it clicks on the list, which decides
-     * the branch whose steps follow (`chooserRoute`).
+     * For a chooser recipe's login (ADR 0028): what it clicks on the list, or
+     * `other-shown` when the list's path showed the `other` branch's form instead; this
+     * decides the branch whose steps follow (`chooserRoute`).
      */
     chooser: v.optional(v.strictObject({ click: chooserClickSchema })),
     /**
@@ -199,7 +200,8 @@ export const attemptMetadataSchema = v.pipe(
      * ever prepared, whatever the item holds later; a handler entered before it moves it
      * along with the plan. A `passkey` route the login switched to keeps it, and never
      * falls back to the password. A chooser login's plan starts with its click on the list
-     * (ADR 0028), so its stop lies in or just past the branch that click leads to.
+     * (ADR 0028), unless it started on the shown `other` branch, so its stop lies in or
+     * just past the branch it runs.
      */
     stopAt: v.optional(v.pipe(integer(MAX_ATTEMPT_STEPS), v.minValue(1))),
     /**
@@ -1290,7 +1292,7 @@ export function createAttemptMetadata(input: {
   pageOrigin?: string;
   accountSwitched?: boolean;
   fillOnly?: boolean;
-  /** For a chooser recipe's login (ADR 0028): what it clicks on the list. */
+  /** For a chooser recipe's login (ADR 0028): what it clicks on the list, or `other-shown`. */
   chooser?: ChooserClick;
   /** For an item without a password: where its `password` route stops (ADR 0036). */
   stopAt?: number;

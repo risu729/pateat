@@ -11,6 +11,7 @@ import {
 } from "@pateat/contracts";
 import * as v from "valibot";
 import type { LoginRecipes } from "../login/runtime";
+import { loginReadiness } from "../login/wire";
 import type { RecipeSyncRecord, ServiceConnection } from "./runtime";
 import type { SettingsSyncOutcome } from "./settings-sync";
 import type { ServiceTransport, TransportFailure } from "./transport";
@@ -387,7 +388,13 @@ export function createRecipeSync(options: {
                   steps:
                     recipe.chooser.afterOther?.steps
                       .slice(0, 1)
-                      .filter((step) => step.path === recipe.chooser.path) ?? [],
+                      // Only a step that waits for an element: one that needs none would
+                      // show on the list as well.
+                      .filter(
+                        (step) =>
+                          step.path === recipe.chooser.path &&
+                          loginReadiness(step).targets.length > 0,
+                      ) ?? [],
                   list: [recipe.chooser.other, recipe.chooser.continue].filter(
                     (target) => target !== undefined,
                   ),

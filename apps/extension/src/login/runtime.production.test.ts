@@ -17048,9 +17048,10 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
       service: ReturnType<typeof generation>,
       reports?: LoginReport[],
       live: Parameters<typeof harness>[1] = {},
+      overrides: Partial<LocalSettings> = {},
     ) => {
       const h = harness(
-        { siteDefaults: [], bindings: [] },
+        { siteDefaults: [], bindings: [], ...overrides },
         {
           allowedOrigins: [],
           uris,
@@ -17210,15 +17211,20 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
         revision: 2,
         chooser: { ...listed.chooser, afterOther },
       };
-      /** The page shows the branch's form, or with `list` the list of accounts. */
-      const shows = (h: ReturnType<typeof onList>, list = false) => {
+      /**
+       * The page shows the branch's form, or with `list` the list of accounts, or with
+       * `both` the form beside the list.
+       */
+      const shows = (h: ReturnType<typeof onList>, list: boolean | "both" = false) => {
         h.recipes.chooser.mockResolvedValue(withOther);
         h.recipes.starts.mockResolvedValue([
           { path: "/signin", steps: [afterOther.steps[0]!], list: [other] },
         ]);
-        fake.state.present = list ? new Set() : new Set(["email", "password", "login"]);
+        fake.state.present = list === true ? new Set() : new Set(["email", "password", "login"]);
         fake.state.awaitReply = (readiness) =>
-          (readiness.accounts === true) === list ? { ok: true } : { ok: false, reason: "timeout" };
+          list === "both" || (readiness.accounts === true) === list
+            ? { ok: true }
+            : { ok: false, reason: "timeout" };
       };
 
       it("logs in on that branch without a click on the list", async () => {
@@ -17253,14 +17259,38 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
         expect(service.judge.mock.calls[0]![5]).toBe("other");
       });
 
-      it("still clicks on the list while the list shows", async () => {
+      it.each([
+        ["the list shows", true],
+        ["the list shows beside the form", "both"],
+      ] as const)("still clicks on the list while %s", async (_name, list) => {
         fake.state.chosen = { ok: true, click: "other" };
         const h = onList(generation());
-        shows(h, true);
+        shows(h, list);
         expect(await h.hello()).toEqual({ ok: true });
         await until(() => clicks().length > 0);
         expect(clicks()[0]!.operation.step.target).toEqual(other);
         expect(status()![0]).toMatchObject({ chooser: { click: "other" } });
+      });
+
+      it("only fills the form for the default after a logout", async () => {
+        // This tab logged out of the site (ADR 0021 D); the item is the site default.
+        fake.state.session["pateat.login-logouts.v1"] = [{ tabId: 1, origin }];
+        const reports: LoginReport[] = [];
+        const h = onList(
+          generation(),
+          reports,
+          {},
+          { siteDefaults: [{ origin, provider: "bitwarden", userId, itemId }] },
+        );
+        shows(h);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.advanceTimersByTimeAsync(5_000);
+        expect(executed()).toEqual(["fill:email,password"]);
+        expect(reports.find((entry) => entry.type === "start")).toMatchObject({
+          fillOnly: true,
+          click: "other-shown",
+        });
+        expect(reports.at(-1)).toMatchObject({ type: "refused", reason: "logged-out" });
       });
 
       it("logs in with the account picked after a logout", async () => {

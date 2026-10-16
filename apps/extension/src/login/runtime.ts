@@ -66,6 +66,7 @@ import {
   chooserRoute,
   type ChooserBranch,
   type ChooserClick,
+  type ListClick,
   type LoginChooserRecipe,
   type LoginRecipe,
   type LoginRoute,
@@ -6123,7 +6124,7 @@ export function createLoginRuntime(
     live: LiveDocument,
     chooser: LoginChooserRecipe,
     chosen: { connectionId: string; itemId: string },
-  ): Promise<ChooserClick | ListMiss | "unreadable" | undefined> {
+  ): Promise<ListClick | ListMiss | "unreadable" | undefined> {
     const usernames = await listUsernames(snapshot, live, chosen);
     if (!usernames) return "unreadable";
     const list = { ...usernames, ...listButtons(chooser) };
@@ -6133,7 +6134,7 @@ export function createLoginRuntime(
         await send(live, { type: "login.choose", path: chooser.chooser.path, list }),
       );
       if (!parsed.success || !parsed.output.ok) return undefined;
-      return parsed.output.miss ?? (parsed.output.click as ChooserClick);
+      return parsed.output.miss ?? (parsed.output.click as ListClick);
     } catch {
       return undefined;
     } finally {
@@ -7386,14 +7387,16 @@ export function createLoginRuntime(
     }
     // The chooser's path shows its `other` branch's form instead of the list, as after the
     // person pressed the button for another account there: a new login starts on that
-    // branch and clicks nothing on the list (ADR 0028).
+    // branch and clicks nothing on the list (ADR 0028). While the list shows, it goes first.
     let shownOther = false;
-    if (chooser && !previous && start?.path === live.path) {
-      const branch = chooserRoute(chooser, "other-shown");
-      const shows = branch ? await showsNow(live, loginReadiness(branch.steps[0]!)) : false;
+    const shownRoute = chooser && chooserRoute(chooser, "other-shown");
+    const shownStart = shownRoute && loginReadiness(shownRoute.steps[0]!);
+    if (chooser && shownStart?.targets.length && !previous && start?.path === live.path) {
+      const shows =
+        (await showsNow(live, shownStart)) && !(await showsNow(live, listReadiness(chooser)));
       if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
       if (shows) {
-        recipe = branch;
+        recipe = shownRoute;
         shownOther = true;
       }
     }
