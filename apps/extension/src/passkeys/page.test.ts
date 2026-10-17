@@ -120,19 +120,17 @@ describe("MAIN-world passkey wrapper", () => {
     });
   });
 
-  it("hands mixed credentials and Immediate UI signals directly to the original provider", async () => {
-    for (const extra of [
-      { password: true },
-      { identity: { providers: [] } },
-      { signal: new AbortController().signal },
-    ]) {
-      const page = fakePage();
-      const options = { publicKey, uiMode: "immediate", ...extra };
-      await expect(page.container.get(options)).resolves.toBe("native");
-      expect(page.posted).toHaveLength(0);
-      expect(page.nativeGet.mock.calls[0]![0]).toBe(options);
-      expect(page.nativeGet.mock.contexts[0]).toBe(page.container);
-    }
+  it.each([
+    ["password", { password: true }],
+    ["identity", { identity: { providers: [] } }],
+    ["signal", { signal: new AbortController().signal }],
+  ])("hands Immediate UI %s options directly to the original provider", async (_, extra) => {
+    const page = fakePage();
+    const options = { publicKey, uiMode: "immediate", ...extra };
+    await expect(page.container.get(options)).resolves.toBe("native");
+    expect(page.posted).toHaveLength(0);
+    expect(page.nativeGet.mock.calls[0]![0]).toBe(options);
+    expect(page.nativeGet.mock.contexts[0]).toBe(page.container);
   });
 
   it("delegates promptly when no relay acknowledges", async () => {
