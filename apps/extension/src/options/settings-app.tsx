@@ -9,7 +9,7 @@ import {
 import { useForm, useSelector } from "@tanstack/react-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bug, Globe, Info, Link, Shield, Vault, type LucideIcon } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import * as v from "valibot";
 import { Logo } from "../logo";
 import { Button } from "./button";
@@ -63,7 +63,7 @@ export function SettingsApp({
   const [message, setMessageValue] = useState<LocalizedMessage>(
     (): LocalizedMessage => (translate) => translate("Loading saved settings…"),
   );
-  const setMessage = (value: LocalizedMessage) => setMessageValue(() => value);
+  const setMessage = useCallback((value: LocalizedMessage) => setMessageValue(() => value), []);
   const [generation, setGeneration] = useState(0);
   const settings = useQuery({
     queryKey: SETTINGS_QUERY_KEY,
@@ -221,7 +221,7 @@ export function SettingsApp({
     }
     operation.current = undefined;
     setBusy(false);
-  }, [settings.data, settings.isError, settings.isFetched, form]);
+  }, [settings.data, settings.isError, settings.isFetched, form, setMessage]);
   // oxlint-enable react/set-state-in-effect
   /** Applies one edit to the draft and saves it at once; a running save picks it up after. */
   function edit(update: (value: LocalSettings) => void) {
