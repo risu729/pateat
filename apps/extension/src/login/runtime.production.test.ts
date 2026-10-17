@@ -21695,6 +21695,28 @@ describe("an item without a password, up to its password (ADR 0036)", () => {
     expect(passwordRead(h)).toBe(false);
   });
 
+  it("ends a login watched at its stop that leaves its origin where it stopped, so no logout", async () => {
+    vi.useFakeTimers();
+    const { h, report } = start();
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => status()?.[0]?.["state"] === "watching");
+    fake.state.tabUrls[1] = "https://elsewhere.example/home";
+    expect(
+      await h.hello({ documentId: "elsewhere", url: "https://elsewhere.example/home" }, false),
+    ).toMatchObject({ ok: false });
+    expect(status()).toMatchObject([{ state: "blocked", outcome: "challenge" }]);
+    // Its first step showing again in the tab is no logout (ADR 0021 D).
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+    delete fake.state.tabUrls[1];
+    fake.state.pageUrl = `${origin}/signin`;
+    fake.state.observedPath = "/signin";
+    fake.state.present = new Set(["email", "next"]);
+    expect(await h.hello({ documentId: "back" })).toEqual({ ok: true });
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(report).not.toHaveBeenCalledWith(expect.objectContaining({ type: "logout" }));
+    expect(fake.state.session["pateat.login-logouts.v1"] ?? []).toEqual([]);
+  });
+
   it("ends at the stop when the attempt refuses the answer", async () => {
     vi.useFakeTimers();
     // A login left at its stop by a stopped worker, with its submissions spent.
