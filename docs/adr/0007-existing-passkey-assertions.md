@@ -51,8 +51,8 @@ Amended on 2026-10-17 to match the code since
 [ADR 0021](0021-account-choice-outside-settings.md), which cancels a page's pending
 requests when it is left: leaving a document cancels its pending requests, because the
 relay sends a cancel on `pagehide`, so the [Bridge topology](#bridge-topology) sentence
-"Navigation does not cancel it" no longer holds. Chrome dropping a response to a replaced document now matters only
-when signing finishes before that cancel arrives
+"Navigation does not cancel it" no longer holds. Chrome dropping a response to a
+replaced document now matters only when signing finishes before that cancel arrives
 ([plan](../plan.md#passkey-progress)).
 
 Amended on 2026-10-12 under the owner's passkey-first policy of 13:58 UTC
