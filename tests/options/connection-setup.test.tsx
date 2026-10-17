@@ -221,7 +221,8 @@ test("cancel closes the private lifetime and ignores a late successful begin", a
     .element(page.getByText("Setup stopped. Refresh to confirm the latest state."))
     .toBeVisible();
   expect(changed).toHaveBeenCalledTimes(changes);
-  expect(client.list).toHaveBeenCalledTimes(1);
+  // Stopping re-reads the rows once; the late reply adds no read.
+  expect(client.list).toHaveBeenCalledTimes(2);
 });
 
 test("unmount closes credential work and ignores its late response", async () => {
@@ -594,7 +595,8 @@ test("a running sync says so, can be cancelled from the header, and its reply re
   await expect
     .element(page.getByText("Stopped. Refresh to confirm the latest state.", { exact: true }))
     .toBeVisible();
-  expect(client.list).toHaveBeenCalledTimes(2);
+  // Stopping re-reads the rows once; the late reply adds no read.
+  expect(client.list).toHaveBeenCalledTimes(3);
 });
 
 test("deleting a connection needs an explicit confirmation and then removes it from the list", async () => {
