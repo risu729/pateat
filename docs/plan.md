@@ -924,7 +924,7 @@ items the owner mentioned and gates still open on 2026-10-11.
   (18:35 UTC), since few users are expected to need them; each needs the owner's
   approval for real-account use.
 - Proposed: the remaining checks, namely pairing while signed out of Access and the
-  Access cookie settings, real sites that wrap `get`, and a navigation during signing.
+  Access cookie settings, and real sites that wrap `get`.
 
 ### Research
 
@@ -1818,8 +1818,18 @@ no content script posts a message to the page, and that with no vault connected 
 request goes to the browser. A claimed assertion from a vault passkey is tested only
 through the probe build, which wraps the same vault source. The real-site and
 real-account results are listed below, including a primary sign-in with a discoverable
-passkey on `https://my.jcb.co.jp`; a navigation during signing relies on Chrome dropping
-the response to the replaced document.
+passkey on `https://my.jcb.co.jp`. A document left while Pateat answers its request gets
+no assertion: the relay sends a cancel on `pagehide`, the background ends the operation
+as `cancelled` (`page-cancelled`) even while the Worker still signs, releases the vault
+hold, closes an open chooser window and records no sign-in, so the tab's next document
+is answered without asking again. Unit tests in `runtime.test.ts` and `relay.test.ts`
+cover this, the relay's also on entering the back/forward cache, and a packaged test in
+`tests/extension/passkeys.spec.ts`, which runs in CI only, navigates during a delayed
+signature and with the chooser window open. A signature that finishes before the cancel
+arrives still counts as a sign-in: the tab is recorded as signed in (so its next
+username-less request asks again), the login and the registration check are told of it
+and a chosen default is saved, while the reply goes to the replaced document's closed
+message channel, which Chrome drops.
 [Development](development.md#installed-chrome-synthetic-passkey-probe) describes the
 installed-Chrome acceptance procedure. Page script can detect the wrapper and read the
 extension ID from stack traces; the relay posts only the outcome of a request to the
