@@ -225,6 +225,19 @@ describe("pageStatusLines", () => {
     ]);
   });
 
+  it("shows a login whose result settled as unknown as watched, not as logging in", () => {
+    // Its result settled as unknown, so it runs no step and checks the next pages (ADR 0027).
+    expect(
+      lines({ login: { state: "reconciling", outcome: "unknown-submit", settled: true } })[1],
+    ).toEqual(["login", "warn", "The result is not known yet; the next pages are checked for it."]);
+    // One still observing its result, as after a restart before it settled, is in flight.
+    expect(lines({ login: { state: "reconciling", outcome: "unknown-submit" } })[1]).toEqual([
+      "login",
+      "busy",
+      "Logging in…",
+    ]);
+  });
+
   it.each(["structural-mismatch", "timeout", "retry-limit"])(
     "adds that a recipe failing with %s is not made again automatically",
     (outcome) => {

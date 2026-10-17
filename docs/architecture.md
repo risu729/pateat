@@ -396,13 +396,16 @@ section ([ADR 0038](adr/0038-login-status-badge.md#popup);
 on other paths only, or none; the AI's last answer for the tab (making a recipe, made
 one, chose not to, could not, or a page sent with no answer recorded), or why the page
 was not sent; and the tab's last login on the site (logging in, logged in, waiting on a
-second step, an ended sign-in that could not be confirmed, or why it did not start,
-stopped or did not succeed, with a note that a
+second step, a result not known yet whose next pages are checked, as for a login
+watched after its result settled as unknown, an ended sign-in that could not be
+confirmed, or why it did not start, stopped or did not succeed, with a note that a
 broken recipe is not made again automatically), and a refusal the badge shows, such as
 "the vault item has neither a password nor a passkey". Known codes get a plain sentence
 and others show their log name; a link opens the diagnostics page. The worker answers
 from the recipe cache, its own record of the top page, the badge's spin for a request
-in flight, and the last login and model request the badge keeps from the log reports,
+in flight, the tab's login record for whether a `reconciling` login's result settled
+as unknown (`settled`), and the last login and model request the badge keeps from the
+log reports,
 with the badge's lifetime: a top page of another origin or the tab's closing drops them,
 and `chrome.storage.session` keeps them across a worker restart. Item selection, field
 exclusions and custom-field review stay on the extension's settings page once synced
@@ -999,7 +1002,12 @@ the watch is over, the next page of the tab ends the login where it stopped
 (`WATCH_ENDED`: `blocked` with `challenge` or `unknown-submit`) without changing the
 record's last change time, so it holds the site only until 5 minutes after that time; a
 login stopped after a submission is then handled as before, also on a page the watch
-already followed, other than the one it began in. A restart keeps the watch. Leaving the
+already followed, other than the one it began in. A restart keeps the watch, and the
+document the watch began in is not read again: a restarted worker that resumes a login
+whose result settled as unknown in that document runs no check there, and the tab's next
+page or one after the watch's 10 minutes is handled as before (agent fix applying ADR
+0027, 2026-10-17; a bank's settled login in the owner's Chrome was read again in its
+submitted document after each worker restart). Leaving the
 origin without a confirmed sign-in ends it the same way where it stopped, not
 `left-origin`, so its first step showing again later in the tab is no logout either
 (2026-10-13). Newer settings end it

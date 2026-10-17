@@ -9600,9 +9600,10 @@ describe("production login document admission", () => {
       /**
        * Logs in on the generated recipe; the submitted document settles as unknown first,
        * and `pages` then load in new documents, one after another, `afterMs` later. Each
-       * shows `signs` when the worker names the sign-in fields to read.
+       * shows `signs` when the worker names the sign-in fields to read. A `badge` keeps the
+       * tab's page status for the popup.
        */
-      async function settledFirst(pages: (typeof noSigns)[], afterMs = 0) {
+      async function settledFirst(pages: (typeof noSigns)[], afterMs = 0, badge?: LoginBadge) {
         fake.state.extracted = { "signed-in": homePage };
         let shown = { ...noSigns, password: true };
         fake.state.signs = (message) =>
@@ -9614,7 +9615,15 @@ describe("production login document admission", () => {
           uris,
           username: true,
           generation: service,
-          report,
+          ...(badge
+            ? {
+                badge,
+                report: (entry: LoginReport) => {
+                  badge.observe(entry);
+                  report(entry);
+                },
+              }
+            : { report }),
         });
         h.recipes.recipe.mockResolvedValue(generated);
         fake.state.present = new Set(["user", "password", "login"]);
@@ -9649,8 +9658,100 @@ describe("production login document admission", () => {
           });
         }
         /* eslint-enable no-await-in-loop */
-        return { states, service };
+        return { states, service, report };
       }
+
+      it("does not read the submitted document again when a restarted worker resumes the settled login there", async () => {
+        // Seen on a bank's sign-in page on 2026-10-17: the click had no effect, the login
+        // settled as unknown in the submitted document, and after each worker restart that
+        // document announced again and was read and sent to the judge again. The watch's own
+        // document is not read again; a restart keeps the watch (ADR 0027).
+        const tabBadge = createLoginBadge({
+          setBadge: vi.fn(async () => undefined),
+          storage: memoryBadgeStorage(),
+        });
+        const { states, service, report } = await settledFirst([], 0, tabBadge);
+        const [settledRecord] = status() as { watch: { documentId: string; since: number } }[];
+        expect(settledRecord!.watch).toMatchObject({ documentId: "synthetic-document" });
+        const popup = {
+          id: "synthetic-extension",
+          url: "chrome-extension://synthetic-extension/popup.html",
+        } as never;
+        const ask = (at: ReturnType<typeof harness>) =>
+          at.login.handle({ version: 1, type: "login.status.get", tabId: 1 }, popup);
+        const judges = () => report.mock.calls.filter(([value]) => value.type === "judge");
+        const reads = () => fake.state.messages.filter((entry) => entry.type === "login.state");
+        const before = { states: states().length, judges: judges().length, reads: reads().length };
+        const reported = report.mock.calls.length;
+        const query = fake.browser.tabs.query;
+        fake.browser.tabs.query = async () => [{ id: 1 }] as never;
+        try {
+          // The badge keeps the tab's page status across the restart, as its storage does.
+          const restarted = harness(unsaved, {
+            allowedOrigins: [],
+            uris,
+            username: true,
+            generation: service,
+            badge: tabBadge,
+            report: (entry) => {
+              tabBadge.observe(entry);
+              report(entry);
+            },
+          });
+          restarted.recipes.recipe.mockResolvedValue(generated);
+          // The same document announces again, its form still filled.
+          expect(await restarted.hello()).toEqual({ ok: true });
+          // Longer than the observation budget a reconcile of the page would take.
+          await new Promise((resolve) => setTimeout(resolve, 3_500));
+          expect(states()).toHaveLength(before.states);
+          expect(judges()).toHaveLength(before.judges);
+          expect(reads()).toHaveLength(before.reads);
+          // The resumed login is logged only as a quiet repeat.
+          expect(
+            report.mock.calls
+              .slice(reported)
+              .flatMap(([value]) => (value.type === "attempt" ? [value] : [])),
+          ).toEqual([
+            expect.objectContaining({
+              state: "reconciling",
+              outcome: "unknown-submit",
+              repeat: true,
+            }),
+          ]);
+          expect(status()).toMatchObject([
+            {
+              state: "reconciling",
+              outcome: "unknown-submit",
+              settled: true,
+              watch: settledRecord!.watch,
+            },
+          ]);
+          // The popup shows it as watched, not as logging in.
+          expect(await ask(restarted)).toMatchObject({
+            ok: true,
+            login: { state: "reconciling", outcome: "unknown-submit", settled: true },
+          });
+          expect(service.judge).not.toHaveBeenCalled();
+          // After the watch's 10 minutes, the next page of the tab ends the login where it
+          // stopped, as before.
+          const now = Date.now.bind(Date);
+          const clock = vi.spyOn(Date, "now").mockImplementation(() => now() + 10 * 60_000 + 1000);
+          onTestFinished(() => clock.mockRestore());
+          fake.state.gone.add("synthetic-document");
+          await restarted.hello({ documentId: "document-1" }, false);
+          await vi.waitFor(
+            () => expect(status()).toMatchObject([{ state: "blocked", outcome: "unknown-submit" }]),
+            { timeout: 8_000 },
+          );
+          expect(judges()).toHaveLength(before.judges);
+          expect(await ask(restarted)).toMatchObject({
+            ok: true,
+            login: { state: "blocked", outcome: "unknown-submit" },
+          });
+        } finally {
+          fake.browser.tabs.query = query;
+        }
+      }, 30_000);
 
       it("rejects the sign-in form shown again after the submitted document settled", async () => {
         // A slow answer, still well within 30 seconds of the submission.

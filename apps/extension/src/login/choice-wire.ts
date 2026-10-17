@@ -112,13 +112,18 @@ export const statusResponseSchema = v.variant("ok", [
         generationSkip: v.optional(code),
       }),
     ),
-    /** The tab's last login on this origin's page: `started`, then its state and outcome. */
+    /**
+     * The tab's last login on this origin's page: `started`, then its state and outcome;
+     * `settled` while it is `reconciling` with a result that settled as unknown, which is
+     * watched from the next page on (ADR 0027).
+     */
     login: v.optional(
       v.strictObject({
         state: code,
         outcome: v.optional(code),
         cause: v.optional(code),
         unconfirmed: v.optional(v.literal(true)),
+        settled: v.optional(v.literal(true)),
       }),
     ),
     /**
