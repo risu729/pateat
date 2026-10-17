@@ -555,7 +555,17 @@ control character), `beforeinput`, the character appended through the native
 sees a change; a number input gets the characters typed so far, as Chrome empties one
 that is not yet a number, such as `1.`), `input` (an `InputEvent` of type `insertText`
 with the character as its data) and `keyup`; then `change`, and blur unless the page
-moved focus elsewhere. Key events carry Shift for the characters a US layout types with
+moved focus elsewhere. Chrome moves focus without sending the page `focus`, `focusin`,
+`blur` or `focusout` while the page does not have focus (`document.hasFocus()` is
+false), because its window is not the focused one, as when the person works in another
+application during a login, or its tab is in the background; then the fill sends them
+itself, in Chrome's order and naming the other element as `relatedTarget`, so a page
+that reads a field only on blur still sees the value (`src/page/focus.ts`, owner,
+2026-10-17 04:41 UTC), and so does a press's focus. Those events are a known limit too:
+the element that had focus already got Chrome's `blur` when the page lost focus, so it
+gets a second one, and the element left focused gets Chrome's `focus` again when the
+person returns; a focus move the page's own handler for one of them makes gets no
+events. Key events carry Shift for the characters a US layout types with
 it. A page that cancels a character's `keydown`, `keypress` or `beforeinput` keeps it
 out, as a browser does. One more wait follows the last character, 25 ms on a shown page
 and one task on a hidden one (a framework writes a key it cancelled only once its
@@ -588,10 +598,9 @@ is false), so a page that checks that, or opens a software keyboard on focus, ca
 refuse a fill; key events name the key and Chrome's `keyCode` that a US layout types the
 character with, as `{ key: "@", code: "Digit2", keyCode: 50, shiftKey: true }`, whatever
 the person's own layout, and a character no US key types, such as `é`, gets an empty
-`code` and `keyCode` 0 (owner, 2026-10-17 04:41 UTC, which added the symbols); Chrome
-sends no focus or blur events to a page whose window is not focused, so a page that
-reads a field only on blur may still miss it there; a hidden tab's timers are throttled,
-so the waits between fields and between the digits of a split code may stretch; a page
+`code` and `keyCode` 0 (owner, 2026-10-17 04:41 UTC, which added the symbols); a hidden
+tab's timers are throttled, so the waits between fields and between the digits of a
+split code may stretch; a page
 that writes the field from its own timer after each key may drop characters, and its
 fill then stops at the check after typing, while one that keeps its own copy of the
 value from such a timer may hold another value while the field passes that check, and

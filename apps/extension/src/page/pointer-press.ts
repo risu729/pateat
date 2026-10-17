@@ -6,6 +6,7 @@
 // (`isTrusted` is false) and carry no user activation, as the click itself does not.
 
 import { nextTask } from "./enter-value";
+import { blurElement, focusElement, focusedElement } from "./focus";
 
 /** The pointer a mouse is, as Chrome reports it. */
 const mouse = { pointerId: 1, pointerType: "mouse", isPrimary: true, width: 1, height: 1 };
@@ -31,13 +32,6 @@ function ancestry(element: Element): Element[] {
   return chain;
 }
 
-/** The page's focused element, inside shadow roots too. */
-function focusedElement(): Element | null {
-  let active = document.activeElement;
-  while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
-  return active;
-}
-
 /**
  * What a `mousedown` Chrome does not cancel does to focus: the nearest element of
  * `element`'s ancestry a click can focus takes it, without scrolling; with none, the
@@ -47,11 +41,10 @@ function focusOnPress(element: Element): void {
   for (const node of ancestry(element)) {
     if (!(node instanceof HTMLElement || node instanceof SVGElement)) continue;
     if (!node.matches(clickFocusable)) continue;
-    node.focus({ preventScroll: true });
-    if (node.matches(":focus")) return;
+    if (focusElement(node)) return;
   }
   const active = focusedElement();
-  if (active instanceof HTMLElement || active instanceof SVGElement) active.blur();
+  if (active instanceof HTMLElement || active instanceof SVGElement) blurElement(active);
 }
 
 /**
