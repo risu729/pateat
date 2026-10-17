@@ -1365,7 +1365,8 @@ path that another Access application, or none, guards.
 
 ## Extension UI language
 
-The popup and passkey chooser bundle English and Japanese translations with the
+The popup, passkey chooser, service connection settings and diagnostics page bundle
+English and Japanese translations with the
 owner-chosen i18next and react-i18next libraries. Their labels, status explanations,
 accessible names and document titles follow the language selected in the extension
 settings. Vault names, usernames and hostnames are interpolated as text; unknown
@@ -1378,9 +1379,18 @@ uses the first English or Japanese browser preference, falling back to English.
 An open translated page follows another extension page's change. With storage
 unavailable, the choice applies to the current page until it closes.
 
-This is a partial rollout. The settings page has a language selector but its other
-content and HTML language remain English. Diagnostics, background toolbar titles,
-manifest metadata, service pages and user documentation still need translation.
+Service pairing keeps transient messages as keys and interpolation data, so existing
+errors, completed actions and validation messages follow language changes without
+resetting drafts or pending operations. Diagnostics translates check presentation from
+structured status fields and leaves unknown codes and details visible. Collection in
+the background, copied bug reports and JSONL log exports retain their existing English
+text, raw codes and formats; a language change does not rewrite an open preview or
+anything copied or downloaded. The diagnostics page initializes its language and title
+before rendering and follows later changes.
+
+This is a partial rollout. Other settings content and its HTML language, background
+toolbar titles, manifest metadata, service pages and user documentation still need
+translation.
 The phase 3 wording review and complete Japanese-language acceptance gate remain open.
 
 ## Page styles and theme
