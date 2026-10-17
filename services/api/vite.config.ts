@@ -10,6 +10,7 @@ export default defineConfig({
     // under /manage, with the notices of the dependencies it bundles.
     client: {
       build: {
+        cssTarget: "chrome145",
         assetsDir: "manage/assets",
         license: { fileName: "manage/assets/licenses.md" },
         rollupOptions: { input: "manage/index.html" },

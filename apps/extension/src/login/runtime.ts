@@ -66,6 +66,7 @@ import {
   chooserRoute,
   type ChooserBranch,
   type ChooserClick,
+  type ListClick,
   type LoginChooserRecipe,
   type LoginRecipe,
   type LoginRoute,
@@ -109,6 +110,7 @@ import {
   stateResultSchema,
   statusSchema,
   submittedSchema,
+  logoutClickedSchema,
   chooseResultSchema,
   type ListMissReport as ListMiss,
   probeControlSchema,
@@ -145,7 +147,7 @@ import {
 } from "./choice-wire";
 import { customFieldOffers, type CustomFieldOffer } from "./generation-slots";
 import { emailUsername, namesUsername, type EntryMiss, type OtherMiss } from "../page/account-list";
-import { signedInPath } from "../observation/extract";
+import { observedPath } from "../observation/path";
 import { pathShowsUsername, withoutUsernames } from "../observation/usernames";
 import {
   decideSignInState,
@@ -154,6 +156,7 @@ import {
   type SignInDecision,
   type SignInSigns,
 } from "./sign-in-state";
+import { judgedCompletionResult, settleCompletion, undecidedCandidate } from "./completion-policy";
 import type { AlertMiss } from "../page/sign-in-state";
 import type { LoginSites } from "./sites";
 import { linkRefusal, namesReturnPath, type OnSite } from "./entry";
@@ -190,6 +193,11 @@ const REJECTED_ASKS_KEY = "session:pateat.login-rejected-asks.v1";
  * again after a worker restart does not log the same reason as news (ADR 0019).
  */
 const NOTED_KEY = "session:pateat.login-noted.v1";
+/**
+ * Logout clicks per tab and site whose first step has not shown yet (ADR 0021 D, owner
+ * 2026-10-16): when it does, the tab asks as after its own login.
+ */
+const LOGOUT_CLICKS_KEY = "session:pateat.login-logout-clicks.v1";
 const CONFIG_KEY = "pateat.login-probe-origin.v1";
 /**
  * How long another tab's login that has not succeeded holds its origin after its record
@@ -204,6 +212,11 @@ const EXTRACT_READS = 3;
 const EXTRACT_RETRY_MS = 1000;
 /** How soon after a password submission the tab's next page counts as right after it (ADR 0028). */
 const AFTER_SIGN_IN_MS = 60_000;
+/**
+ * How long after another tab's login of an origin authenticated a list of accounts showing
+ * on it is not sent for generation (ADR 0028, owner 2026-10-17).
+ */
+const SIGNED_IN_ELSEWHERE_MS = 60 * 60_000;
 /**
  * How long after evidence of a sign-in the page is read again before the login completes
  * on it (ADR 0029), so a page that is still redirecting or about to ask for a second
@@ -226,6 +239,8 @@ const SITE_MOVE_READINGS = 5;
  * is checked for a signed-in marker before its sign-in state is read, as after a click.
  */
 const WATCH_MS = 10 * 60_000;
+/** How long a logout click waits for the site's first step in its tab, as a watch does. */
+const LOGOUT_CLICK_MS = WATCH_MS;
 const WATCH_SETTLE_MS = 3000;
 /**
  * The sign-in state of ADR 0029 for a page no check explained, and whether a later reading
@@ -256,25 +271,6 @@ const formAgain = (signs: SignInSigns) =>
   !signs.e1 &&
   !signs.e2 &&
   !signs.e3;
-/** A confirmed sign of another sign-in step (S2 to S5) without the sign-in fields. */
-const continuing = (reading: SignInReading | undefined) =>
-  reading?.confirmed === true && reading.decision === "continuing";
-/**
- * Why the judge gave no verdict that still completes a page with no sign and no evidence
- * (ADR 0029): the model could not decide (no reason), the path was judged before, as
- * undecided or signed in, or a
- * spending or judgement limit applies. A page judged `challenge` or `rejected` before
- * (`judged-challenge`, `judged-rejected`), one whose earlier request has no verdict
- * (`judgement-unanswered`), a failure, a conflict or a missing service does not.
- */
-const UNDECIDED_COMPLETES = new Set([
-  undefined,
-  "already-judged",
-  "judged-signed-in",
-  "judgement-limit",
-  "daily-limit",
-  "monthly-limit",
-]);
 /** Sign-in entry presses per tab, until the tab closes (ADR 0031). */
 const ENTRY_PRESSES_KEY = "session:pateat.login-entry-presses.v1";
 /** Entry recipe revisions blocked on this device after a press that led nowhere (ADR 0031). */
@@ -304,6 +300,17 @@ const entryPressSchema = v.strictObject({
   checked: v.optional(v.literal(true)),
 });
 type EntryPress = v.InferOutput<typeof entryPressSchema>;
+/**
+ * A control that logs out, clicked in a tab on a registrable site (ADR 0021 D); `used`
+ * once the site's first step showed and the tab took it as its logout.
+ */
+const logoutClickSchema = v.strictObject({
+  tabId: tabIdSchema,
+  site: v.string(),
+  clickedAt: isoTimeSchema,
+  used: v.optional(v.literal(true)),
+});
+type LogoutClick = v.InferOutput<typeof logoutClickSchema>;
 /** Why the page after an entry press blocked its recipe revision (ADR 0031). */
 type EntryBlockReason = "left-site" | "no-sign-in" | "sign-up";
 /**
@@ -320,8 +327,11 @@ const entryBlockSchema = v.strictObject({
 type EntryBlock = v.InferOutput<typeof entryBlockSchema>;
 /** The registrable domain of an origin or URL, as Bitwarden's Domain match compares it. */
 function siteOf(value: string | URL): string | undefined {
+  const url = typeof value === "string" ? URL.parse(value) : value;
+  if (!url) return undefined;
+  // Keep domain matching failures separate from an invalid URL.
   try {
-    return domainKey(typeof value === "string" ? new URL(value) : value);
+    return domainKey(url);
   } catch {
     return undefined;
   }
@@ -358,7 +368,7 @@ const REQUEST_HOLD_MS = 15_000;
 type Sender = Browser.runtime.MessageSender;
 type SettingsRuntime = {
   handle(value: unknown): Promise<SettingsResponse>;
-  /** Trusted background mutation; saves an automatic account choice after `authenticated`. */
+  /** Trusted background mutation; saves an automatic account choice after confirmed `authenticated`. */
   update?(
     expectedRevision: number | undefined,
     mutate: (snapshot: SettingsSnapshot) => SettingsSnapshot,
@@ -380,6 +390,8 @@ type UnsavedChoice = {
  */
 const withChoice = (value: SettingsSnapshot["settings"], choice: UnsavedChoice) =>
   saveLoginChoice(value, choice.binding, { replace: choice.replace === true });
+/** A document's path before its token-like segments are replaced (ADR 0039). */
+const rawPath = (live: LiveDocument) => new URL(live.url).pathname;
 type LiveDocument = {
   document: LoginDocument;
   token: string;
@@ -388,6 +400,11 @@ type LiveDocument = {
    * document (it follows history.pushState), else `sender.url`. Provider URI rules match it.
    */
   url: string;
+  /**
+   * The URL's path as observations carry it (`observedPath`, ADR 0039): every comparison
+   * with a recipe's, an observation's or the content script's path reads this one. A
+   * username in the path is looked for in `url`'s raw path (`rawPath`).
+   */
   path: string;
   /**
    * For a document in a frame inside the page: the tab's URL. The account must match it
@@ -487,7 +504,7 @@ const documentKey = (page: { tabId: number; documentId: string }) =>
  * An account the user picked in the toolbar popup (ADR 0021). It is used instead of the
  * saved default by the refused document it restarted and then by the attempt that
  * document started, on that login's later pages too. It is saved as the default after
- * `authenticated` only with `makeDefault`.
+ * confirmed `authenticated` only with `makeDefault`.
  */
 const pickedAccountSchema = v.strictObject({
   tabId: v.pipe(v.number(), v.integer(), v.minValue(0)),
@@ -562,7 +579,7 @@ type Execution = {
   operation?: LoginOperation;
   /** `operation` was sent to the page, so its effect may have started. */
   delivered?: boolean;
-  /** Saved only once this attempt reaches `authenticated`. */
+  /** Saved only once this attempt reaches confirmed `authenticated`. */
   choice?: UnsavedChoice;
   /**
    * The step index of a held click this document performed (ADR 0027): a handler's click
@@ -723,6 +740,14 @@ const advancingToStop = (metadata: LoginAttemptMetadata) =>
   metadata.operationId !== undefined &&
   metadata.operationEffect === "advance" &&
   metadata.stepIndex + 1 === metadata.stopAt;
+/**
+ * Whether a login whose result settled as unknown runs in the document its watch began in
+ * (ADR 0027), which was already read for that result.
+ */
+const settledHere = (run: Execution) =>
+  run.metadata.state === "reconciling" &&
+  run.metadata.settled === true &&
+  run.metadata.watch?.documentId === run.live.document.documentId;
 /** Whether a login's watch is over at `now`; a clock set back ends it too (ADR 0027). */
 const watchOver = (metadata: LoginAttemptMetadata, now: number) =>
   metadata.watch !== undefined &&
@@ -733,8 +758,9 @@ const watchOver = (metadata: LoginAttemptMetadata, now: number) =>
  * variants, all on that path (ADR 0027).
  */
 /**
- * Where a recipe starts: its first steps, or for a chooser recipe (ADR 0028) no steps and
- * `list`, the list's own buttons, when it shows the list of accounts.
+ * Where a recipe starts: its first steps, or for a chooser recipe (ADR 0028) `list`, the
+ * list's own buttons, when it shows the list of accounts, and as its steps the first step
+ * of its `other` branch when that starts on the list's path.
  */
 export type LoginRecipeStart = { path: string; steps: LoginStep[]; list?: LoginTarget[] };
 /**
@@ -843,10 +869,40 @@ function acceptedObservation(
   return { observation };
 }
 
+/** Roles of a field that can take an account's email address, username or ID. */
+const accountRoles = new Set(["text", "email", "tel", "number"]);
+/**
+ * A field's `autocomplete` that leaves it free to take an account: none, or one for a
+ * username, an email address or a phone number.
+ */
+const accountTokens = new Set([undefined, "off", "username", "email", "tel"]);
+/**
+ * Whether a page asks for an account (ADR 0028): it holds a field that can take one, in the
+ * same form as a password field when it shows one, so a search box or another form's
+ * field beside a password-only form does not count.
+ */
+const asksAccount = (observation: LoginObservation) => {
+  const passwords = observation.candidates.filter((candidate) => candidate.role === "password");
+  return observation.candidates.some(
+    (candidate) =>
+      accountRoles.has(candidate.role) &&
+      accountTokens.has(candidate.autocomplete) &&
+      (!passwords.length || passwords.some((password) => password.group === candidate.group)),
+  );
+};
+
 /** The service's recipe generation routes (ADR 0016, ADR 0018). */
 export interface LoginGeneration {
-  /** `true` when a page may be sent, else why not. */
-  available(origin: string, path: string): Promise<true | GenerationHold>;
+  /**
+   * `true` when a page may be sent, else why not; with `base` and `branch`, as the first
+   * page of that chooser branch (ADR 0028).
+   */
+  available(
+    origin: string,
+    path: string,
+    base?: RecipeGenerationRequest["base"],
+    branch?: ChooserBranch,
+  ): Promise<true | GenerationHold>;
   /**
    * Sends one page: a recipe's first page, or with `base` the page after the final
    * `advance` step of that revision, which continues it. A continuation pulls recipes only,
@@ -1191,6 +1247,8 @@ export type LoginReport = (
       effect?: string;
       handler?: number;
       outcome?: string;
+      /** An undecided page ended the login without a confirmed sign-in (ADR 0029). */
+      unconfirmed?: true;
       /**
        * For a `policy-changed` outcome: its cause, and a refused plan's reason. For a login
        * that failed or was cancelled: why, as the worker or the page saw it (ADR 0019).
@@ -1249,22 +1307,29 @@ export type LoginReport = (
       fillOnly?: true;
       /**
        * For a login on a chooser's list (ADR 0028): what it clicks there, or `none` when
-       * it ends `account-not-listed`.
+       * it ends `account-not-listed`; `other-shown` when its path showed the `other`
+       * branch's form instead, so it clicked nothing there.
        */
       click?: ChooserClick | "none";
       /** With `none`: what the list showed, without any name or address. */
       listMiss?: ListMiss;
     }
   | {
-      /** The recipe's first step showed again after a finished login (ADR 0021 D). */
+      /**
+       * The recipe's first step showed again after a finished login, or after a control
+       * that logs out was clicked in the tab (ADR 0021 D).
+       */
       type: "logout";
       tabId: number;
       origin: string;
-      recipeId: string;
+      /** The recipe the finished login ran; none after a click. */
+      recipeId?: string;
       /** The recipe revision the login runs. */
-      recipeRevision: number;
+      recipeRevision?: number;
       /** The site rejected the login; its page showing that asks at once. */
       rejected?: true;
+      /** A control that logs out was clicked in the tab, with no login of its own. */
+      clicked?: true;
     }
   | {
       /**
@@ -1341,9 +1406,10 @@ export type LoginReport = (
       takenOver?: boolean;
       /**
        * `accounts` for a page that lists accounts (ADR 0028), `entry` for a page sent as a
-       * site's sign-in entry (ADR 0031).
+       * site's sign-in entry (ADR 0031), `other` for a form shown on a chooser's path sent
+       * as its `other` branch's first page (ADR 0028).
        */
-      page?: "accounts" | "entry";
+      page?: "accounts" | "entry" | "other";
     }
   | {
       /**
@@ -1687,6 +1753,7 @@ export function createLoginRuntime(
       ...(metadata.operationEffect ? { effect: metadata.operationEffect } : {}),
       ...(handler === undefined ? {} : { handler }),
       ...(metadata.outcome ? { outcome: metadata.outcome } : {}),
+      ...(metadata.unconfirmed ? { unconfirmed: true as const } : {}),
       ...(metadata.fillOnly ? { reason: "fill-only" } : {}),
       ...(metadata.stopAt === undefined ? {} : { stop: "password" as const }),
       ...(policy && metadata.outcome === "policy-changed" ? policy : {}),
@@ -1799,6 +1866,13 @@ export function createLoginRuntime(
   const logoutFills = new Set<string>();
   /** By tab: its sign-in entry press, kept until the tab closes (ADR 0031). */
   const entryPresses = new Map<number, EntryPress>();
+  /**
+   * By `${tabId} ${site}`: logout clicks whose first step has not shown yet (ADR 0021 D),
+   * the oldest first.
+   */
+  const logoutClicks = new Map<string, LogoutClick>();
+  /** Logout clicks being recorded; a page announcing meanwhile waits for them. */
+  const clicksNoting = new Set<Promise<void>>();
   /** By tab: the document whose sign-in entry is being checked and pressed now (ADR 0031). */
   const pressing = new Map<number, string>();
   /**
@@ -1842,6 +1916,7 @@ export function createLoginRuntime(
       REJECTED_ASKS_KEY,
       ENTRY_PRESSES_KEY,
       NOTED_KEY,
+      LOGOUT_CLICKS_KEY,
     ]);
     const stored = Object.fromEntries(items.map(({ key, value }) => [key, value]));
     const picks = v.safeParse(v.array(pickedAccountSchema), stored[PICKS_KEY] ?? []);
@@ -1884,6 +1959,12 @@ export function createLoginRuntime(
         // A press whose next page was not checked before a restart is checked in time.
         if (!entry.checked) armEntryTimer(entry);
       }
+    const clicks = v.safeParse(
+      v.pipe(v.array(logoutClickSchema), v.maxLength(256)),
+      stored[LOGOUT_CLICKS_KEY] ?? [],
+    );
+    if (clicks.success)
+      for (const entry of clicks.output) logoutClicks.set(`${entry.tabId} ${entry.site}`, entry);
   });
   const scopes = (keys: Set<string>) =>
     [...keys].map((key) => {
@@ -1900,6 +1981,7 @@ export function createLoginRuntime(
       { key: REJECTED_ASKS_KEY, value: scopes(rejectedAsks) },
       { key: ENTRY_PRESSES_KEY, value: [...entryPresses.values()] },
       { key: NOTED_KEY, value: [...noted].map(([page, ids]) => [page, [...ids]]) },
+      { key: LOGOUT_CLICKS_KEY, value: [...logoutClicks.values()] },
     ]);
   }
   /**
@@ -2064,12 +2146,35 @@ export function createLoginRuntime(
    */
   function heldElsewhere(tabId: number, siteOrigin: string): boolean {
     const now = Date.now();
-    return [...persisted.values()].some(
-      (entry) =>
+    return persisted
+      .values()
+      .some(
+        (entry) =>
+          entry.account.origin === siteOrigin &&
+          entry.document.tabId !== tabId &&
+          holdsSite(entry, now),
+      );
+  }
+  /**
+   * Whether another tab's login of the origin authenticated within the last hour. A list of
+   * accounts showing then is most likely the signed-in site's own, such as its accounts or
+   * workspaces, so it is not sent for generation (ADR 0028, owner 2026-10-17). The record
+   * stays until that tab shows the recipe's first step again or closes, so the hour bounds
+   * how long a tab left open keeps a real list of the site from being sent.
+   */
+  function signedInElsewhere(tabId: number, siteOrigin: string): boolean {
+    const now = Date.now();
+    return persisted.values().some((entry) => {
+      const age = now - (entry.changedAt ?? Number.NEGATIVE_INFINITY);
+      return (
         entry.account.origin === siteOrigin &&
         entry.document.tabId !== tabId &&
-        holdsSite(entry, now),
-    );
+        entry.state === "authenticated" &&
+        // A clock set back ends the skip rather than prolonging it.
+        age >= 0 &&
+        age < SIGNED_IN_ELSEWHERE_MS
+      );
+    });
   }
   /** Whether another tab asks for an account after a logout of the origin (ADR 0021 D). */
   function askedElsewhere(tabId: number, siteOrigin: string): boolean {
@@ -2232,15 +2337,11 @@ export function createLoginRuntime(
     const live = documents.get(frameKey({ tabId, frameId: 0 }));
     // The tab's own URL, since its page may not have announced yet.
     const url = (await browser.tabs.get(tabId).catch(() => undefined))?.url ?? live?.url;
-    let page: URL | undefined;
-    try {
-      page = url ? new URL(url) : undefined;
-    } catch {
-      page = undefined;
-    }
+    const page = url ? (URL.parse(url) ?? undefined) : undefined;
     // The popup shows its page section only on HTTPS pages.
     if (page?.protocol !== "https:") return { ok: false, reason: "no-page" };
-    const { origin: pageOrigin, pathname: path } = page;
+    const pageOrigin = page.origin;
+    const path = observedPath(page.pathname);
     const [starts, entries] = await Promise.all([
       recipes.starts(pageOrigin).catch(() => []),
       recipes.entries(pageOrigin).catch(() => []),
@@ -2249,8 +2350,18 @@ export function createLoginRuntime(
       ...starts.map((start) => start.path),
       ...entries.map((entry) => entry.entry.path),
     ];
+    await loaded;
     const status = badge.status(tabId);
     const known = status?.origin === pageOrigin ? status : undefined;
+    // A login whose result settled as unknown has nothing in flight; its next pages are
+    // checked (ADR 0027), so the popup does not show it as logging in. A login in a frame
+    // is recorded under the frame's origin.
+    const attempt = recordFor(tabId, pageOrigin) ?? tabAttempt(tabId);
+    const settled =
+      known?.login?.state === "reconciling" &&
+      attempt?.state === "reconciling" &&
+      attempt.settled === true &&
+      (attempt.pageOrigin ?? attempt.account.origin) === pageOrigin;
     // The worker's view of the page holds only while the tab still shows its path.
     const shown = live?.document.origin === pageOrigin && live.path === path ? live : undefined;
     const pageState = shown && {
@@ -2265,7 +2376,19 @@ export function createLoginRuntime(
       recipe: paths.includes(path) ? "page" : paths.length ? "other-paths" : "none",
       ...(badge.asking(tabId) ? { asking: true as const } : {}),
       ...(pageState ? { page: clipCodes(pageState) } : {}),
-      ...(known?.login ? { login: clipCodes(known.login) } : {}),
+      ...(known?.login
+        ? {
+            login: {
+              ...clipCodes({
+                state: known.login.state,
+                outcome: known.login.outcome,
+                cause: known.login.cause,
+              }),
+              ...(known.login.unconfirmed ? { unconfirmed: true as const } : {}),
+              ...(settled ? { settled: true as const } : {}),
+            },
+          }
+        : {}),
       ...(known?.refused ? { refused: clipCodes(known.refused) } : {}),
       ...(known?.generation ? { generation: clipCodes(known.generation) } : {}),
     };
@@ -2408,7 +2531,8 @@ export function createLoginRuntime(
     next: LoginAttemptMetadata,
     pageOrigin?: string,
   ) => {
-    if (next.state !== "authenticated" || previous.state === "authenticated") return;
+    if (next.state !== "authenticated" || next.unconfirmed || previous.state === "authenticated")
+      return;
     const origins = new Set(
       [next.account.origin, next.pageOrigin, pageOrigin].filter(
         (value): value is string => value !== undefined,
@@ -2491,7 +2615,8 @@ export function createLoginRuntime(
     await publish(run.live, run.metadata);
     // A conditional request of the page waits for how this login ends (ADR 0034).
     if (terminal(run.metadata) || idle(run.metadata)) reviewRequests();
-    if (run.metadata.state === "authenticated" && run.choice) await remember(run);
+    if (run.metadata.state === "authenticated" && !run.metadata.unconfirmed && run.choice)
+      await remember(run);
   }
   /**
    * Ends a fill-only login before its first step with an effect and forgets its record, so
@@ -2537,7 +2662,7 @@ export function createLoginRuntime(
     await publish(run.live, run.metadata);
   }
   /**
-   * Saves an automatic account choice after `authenticated` (ADR 0013). The settings must
+   * Saves an automatic account choice after confirmed `authenticated` (ADR 0013). The settings must
    * still be the revision the attempt was authorized under, or the newer one a watch took
    * over after checking its account; otherwise nothing is saved and the next login chooses
    * again.
@@ -2564,14 +2689,13 @@ export function createLoginRuntime(
       return;
     }
     // Saving bumps the revision every attempt checks; never stop another login with it.
-    if ([...attempts.values()].some((other) => other !== run && inProgress(other))) {
+    if (attempts.values().some((other) => other !== run && inProgress(other))) {
       outcome("login-in-progress");
       return;
     }
     // A login another tab is admitting waits for this save, which no in-progress check above
     // can see yet (see `admit`).
-    let finish!: () => void;
-    const saving = new Promise<void>((resolve) => (finish = resolve));
+    const { promise: saving, resolve: finish } = Promise.withResolvers<void>();
     savingChoices.add(saving);
     let writing = false;
     try {
@@ -3642,11 +3766,12 @@ export function createLoginRuntime(
       // password variant (ADR 0034).
       if (inFlight && routeClick && passkeyAnswersRequest(run.recipe)) {
         let shows: boolean;
-        if (run.chooser) {
+        const onList = listOf(run);
+        if (onList) {
           // A chooser login's start page is its list, read as its click's wait reads it,
           // since the click's target names no element by itself (ADR 0028).
           if (!(await allowed(run))) return undefined;
-          const list = await waitFor(run, listReadiness(run.chooser), 1);
+          const list = await waitFor(run, listReadiness(onList.chooser), 1);
           if (!current(run) || list === "gone") return undefined;
           shows = list === "ready";
         } else {
@@ -4375,7 +4500,7 @@ export function createLoginRuntime(
       else if (
         parsed.output.origin !== run.live.document.origin ||
         // The description carries the path with any token-like segment replaced.
-        parsed.output.path !== signedInPath(path)
+        parsed.output.path !== observedPath(path)
       )
         unsent = "page-changed";
       else {
@@ -4390,7 +4515,7 @@ export function createLoginRuntime(
     // A judged page can show the identifier just entered: the usernames of the items that
     // match it, and the login's own, are hidden first.
     const usernames = await judgedUsernames(run).catch(() => undefined);
-    const hidden = hideUsernames(observation, usernames);
+    const hidden = hideUsernames(observation, usernames, run.live);
     if (!current(run)) return undefined;
     if ("reason" in hidden) return { unsent: hidden.reason };
     return { observation: hidden.observation, disabledLeftOut };
@@ -4512,41 +4637,29 @@ export function createLoginRuntime(
     // A page with no sign and no evidence completes when the judge cannot decide, unless
     // the login is watched (ADR 0027); one with a sign of another sign-in step goes to the
     // person, as does a page judged `challenge` before (ADR 0029).
-    const undecided = verdict === "unclear";
-    let completes =
-      undecided &&
-      reading?.confirmed === true &&
-      reading.decision === "judge" &&
-      run.metadata.watch === undefined &&
-      run.metadata.route !== "passkey" &&
-      UNDECIDED_COMPLETES.has(reason);
-    // A login that stopped before its item's missing password never completes on an
-    // undecided answer: it ends `challenge`, watched (ADR 0036). A path the judge found
-    // signed in before is the judge's own answer, as on a move.
-    const stopHeld =
-      undecided && run.metadata.stopAt !== undefined && reason !== "judged-signed-in";
-    if (stopHeld) completes = false;
+    const candidate = undecidedCandidate({
+      verdict,
+      reason,
+      reading,
+      watched: run.metadata.watch !== undefined,
+      route: run.metadata.route,
+      stopAt: run.metadata.stopAt,
+    });
+    let again: Awaited<ReturnType<typeof readSignInState>>;
     // The judge's answer can take a while: the page completes only if, once the answer is
     // back, it has loaded and still shows no sign of a sign-in going on.
-    if (completes) {
-      const again = await readSignInState(run);
+    if (candidate.completes) {
+      again = await readSignInState(run);
       if (!current(run)) {
         reportJudge(verdict, { ...(reason ? { reason } : {}) });
         return true;
       }
-      completes =
-        again?.loaded === true && (again.decision === "judge" || again.decision === "signed-in");
     }
-    // A disabled field left out of the description may be a code field waiting for a timer
-    // or a sent code: such a page completes only when the judge answers `signed-in`, and
-    // otherwise settles as an unjudged page would (owner, 2026-10-12, ADR 0029).
-    const notCompleted =
-      completes && disabledLeftOut
-        ? ("disabled-left-out" as const)
-        : stopHeld
-          ? ("password-empty" as const)
-          : undefined;
-    if (notCompleted) completes = false;
+    const { completes, notCompleted } = settleCompletion({
+      ...candidate,
+      again,
+      disabledLeftOut,
+    });
     // Reported before the takeover's own entries, once whether it is taken over is known.
     let reported = false;
     // A watched login only reads its pages; it never runs a learned handler (ADR 0027).
@@ -4567,25 +4680,27 @@ export function createLoginRuntime(
         ...(notCompleted ? { notCompleted } : {}),
       });
     if (movedOn || !current(run)) return true;
-    const result =
-      verdict === "signed-in" || completes
-        ? "authenticated"
-        : unproven(
-            run,
-            verdict === "rejected"
-              ? "credential-rejected"
-              : verdict === "challenge" ||
-                  reason === "judged-challenge" ||
-                  (undecided && continuing(reading)) ||
-                  stopHeld
-                ? "challenge"
-                : "unknown",
-          );
+    const { result, confirmed } = judgedCompletionResult({
+      verdict,
+      reason,
+      reading,
+      completes,
+      stopHeld: candidate.stopHeld,
+      route: run.metadata.route,
+      stopAt: run.metadata.stopAt,
+    });
     // The page after the final advance before a stop just past the plan's last step, not
     // found signed in or rejected and with no handler taken over, takes the login to its
     // stop, where the page's passkey request is answered (ADR 0036).
     if (result === "challenge" && (await toStop(run))) return true;
-    await change(run, { type: "OBSERVED", result, document: run.live.document });
+    const unconfirmed = result === "authenticated" && !confirmed;
+    if (unconfirmed) delete run.choice;
+    await change(run, {
+      type: "OBSERVED",
+      result,
+      document: run.live.document,
+      ...(unconfirmed ? { unconfirmed: true } : {}),
+    });
     return true;
   }
   /**
@@ -4886,7 +5001,7 @@ export function createLoginRuntime(
     const usernames = await readUsernames(pageOrigin, usernameReads(scope));
     const shape = usernames && usernameShape(scope, usernames);
     // The page after an `advance` step can show the identifier just entered.
-    const hidden = hideUsernames(observation, usernames);
+    const hidden = hideUsernames(observation, usernames, run.live);
     if (!current(run)) return "moved";
     // A username that could not be read now may be read on a later round; one that shows
     // where it cannot be hidden shows again.
@@ -5289,6 +5404,10 @@ export function createLoginRuntime(
       await watchPage(run);
       return;
     }
+    // A result that settled as unknown is watched from the next page on: the document the
+    // watch began in is not read again, as when a restarted worker resumes the login there
+    // (ADR 0027).
+    if (settledHere(run)) return;
     if (run.metadata.state === "reconciling" || run.metadata.state === "awaiting-result")
       await reconcileBounded(run);
     while (current(run) && run.metadata.state === "ready") {
@@ -5347,11 +5466,10 @@ export function createLoginRuntime(
         }
         if (!current(run) || run.metadata.state !== "ready") return;
         // A chooser login's click on its list waits for the list (ADR 0028).
+        const onList = run.metadata.stepIndex === 0 ? listOf(run) : undefined;
         const waited = await waitFor(
           run,
-          run.chooser && run.metadata.stepIndex === 0
-            ? listReadiness(run.chooser)
-            : loginReadiness(upcoming),
+          onList ? listReadiness(onList.chooser) : loginReadiness(upcoming),
         );
         if (!current(run) || run.metadata.state !== "ready") return;
         if (waited === "timeout") {
@@ -5521,12 +5639,8 @@ export function createLoginRuntime(
         }
         // A chooser login's click on its list goes where the list's choice for its account
         // is now (ADR 0028), read just before the click as a fill's values are.
-        if (
-          operation.step.kind === "click" &&
-          operation.stepIndex === 0 &&
-          run.chooser &&
-          run.metadata.chooser
-        ) {
+        const onList = operation.stepIndex === 0 ? listOf(run) : undefined;
+        if (operation.step.kind === "click" && onList) {
           const snapshot = await settings.handle({ version: 1, type: "settings.get" });
           if (!current(run)) return;
           if (!snapshot.ok) {
@@ -5539,7 +5653,7 @@ export function createLoginRuntime(
             await change(run, { type: "POLICY_CHANGED" }, { cause: "field-unavailable" });
             return;
           }
-          list = { ...usernames, ...listButtons(run.chooser), click: run.metadata.chooser.click };
+          list = { ...usernames, ...listButtons(onList.chooser), click: onList.click };
         }
         if (operation.step.kind === "fill" || operation.step.kind === "click")
           await pause("before-delivery");
@@ -5783,14 +5897,23 @@ export function createLoginRuntime(
       probeMode && documentOrigin === origin
         ? probeStarts(origin)
         : await recipes.starts(documentOrigin).catch(() => []);
-    // A chooser's list is ready once one of its buttons or a listed account shows (ADR 0028).
+    // A chooser's list is ready once one of its buttons or a listed account shows, and so
+    // is its path once it shows the `other` branch's first step instead (ADR 0028).
     const readiness = all
       .filter((start) => all.filter((other) => other.path === start.path).length === 1)
-      .flatMap((start): LoginReadiness[] =>
-        start.list
-          ? [{ path: start.path, require: "clickable", targets: start.list, accounts: true }]
-          : start.steps.map(loginReadiness),
-      );
+      .flatMap((start): LoginReadiness[] => [
+        ...(start.list
+          ? [
+              {
+                path: start.path,
+                require: "clickable" as const,
+                targets: start.list,
+                accounts: true as const,
+              },
+            ]
+          : []),
+        ...start.steps.map(loginReadiness),
+      ]);
     const unique = new Map(readiness.map((entry) => [JSON.stringify(entry), entry]));
     return [...unique.values()].slice(0, 32);
   }
@@ -5810,6 +5933,25 @@ export function createLoginRuntime(
     if (entries === undefined || entries.some((entry) => entry.entry.path === live.path))
       return undefined;
     return generation.available(live.document.origin, live.path).catch(() => undefined);
+  }
+  /**
+   * Whether a chooser's path may be sent as its `other` branch's first page (ADR 0028):
+   * `true`, why not, or `undefined` for a page that is never sent.
+   */
+  async function offersOther(
+    live: LiveDocument,
+    chooser: LoginChooserRecipe,
+  ): Promise<true | GenerationHold | undefined> {
+    if (!generation || !uris || live.document.frameId !== 0 || live.topUrl) return undefined;
+    if (probeMode && live.document.origin === origin) return undefined;
+    return generation
+      .available(
+        live.document.origin,
+        live.path,
+        { recipeId: chooser.id, revision: chooser.revision },
+        "other",
+      )
+      .catch(() => undefined);
   }
   /**
    * The slots to generate for when a vault item's URI matches the page, with the
@@ -6072,6 +6214,26 @@ export function createLoginRuntime(
     }
     return { username, others, othersComplete };
   }
+  /** Whether the document shows a step's elements now, without waiting for them. */
+  async function showsNow(live: LiveDocument, readiness: LoginReadiness): Promise<boolean> {
+    try {
+      const parsed = v.safeParse(
+        awaitResultSchema,
+        await send(live, { type: "login.await", readiness, timeoutMs: 0 }),
+      );
+      return parsed.success && parsed.output.ok;
+    } catch {
+      return false;
+    }
+  }
+  /**
+   * Whether a chooser login's first step is its click on the list (ADR 0028): not when it
+   * started on the `other` branch's form already shown on the list's path.
+   */
+  const listOf = (run: Execution) =>
+    run.chooser && run.metadata.chooser && run.metadata.chooser.click !== "other-shown"
+      ? { chooser: run.chooser, click: run.metadata.chooser.click }
+      : undefined;
   /** A chooser's buttons and what its readiness waits for on its list (ADR 0028). */
   const listButtons = (chooser: LoginChooserRecipe) => ({
     ...(chooser.chooser.other ? { other: chooser.chooser.other } : {}),
@@ -6096,7 +6258,7 @@ export function createLoginRuntime(
     live: LiveDocument,
     chooser: LoginChooserRecipe,
     chosen: { connectionId: string; itemId: string },
-  ): Promise<ChooserClick | ListMiss | "unreadable" | undefined> {
+  ): Promise<ListClick | ListMiss | "unreadable" | undefined> {
     const usernames = await listUsernames(snapshot, live, chosen);
     if (!usernames) return "unreadable";
     const list = { ...usernames, ...listButtons(chooser) };
@@ -6106,7 +6268,7 @@ export function createLoginRuntime(
         await send(live, { type: "login.choose", path: chooser.chooser.path, list }),
       );
       if (!parsed.success || !parsed.output.ok) return undefined;
-      return parsed.output.miss ?? (parsed.output.click as ChooserClick);
+      return parsed.output.miss ?? (parsed.output.click as ListClick);
     } catch {
       return undefined;
     } finally {
@@ -6171,14 +6333,16 @@ export function createLoginRuntime(
   /**
    * The page with the account's usernames hidden (`withoutUsernames`), or why it is not
    * sent: `username-unread` when one could not be read, `username-shown` when one shows
-   * where it cannot be hidden. The usernames are dropped once it is built.
+   * where it cannot be hidden, including in a segment of `live`'s raw path that the
+   * observation carries as `[id]` (ADR 0039). The usernames are dropped once it is built.
    */
   function hideUsernames(
     observation: LoginObservation,
     usernames: string[] | undefined,
+    live: LiveDocument,
   ): { observation: LoginObservation } | { reason: string } {
     if (!usernames) return { reason: "username-unread" };
-    const hidden = withoutUsernames(observation, usernames);
+    const hidden = withoutUsernames(observation, usernames, rawPath(live));
     usernames.fill("");
     return hidden.ok ? { observation: hidden.observation } : { reason: hidden.reason };
   }
@@ -6216,7 +6380,7 @@ export function createLoginRuntime(
   function skipGeneration(
     live: LiveDocument,
     reason: string,
-    page?: "entry",
+    page?: "entry" | "other",
     /** A code that tells more, such as why a vault could not tell (ADR 0019). */
     detail?: string,
   ): void {
@@ -6242,9 +6406,19 @@ export function createLoginRuntime(
     scope: GenerationScope,
     /** For a list of accounts (ADR 0028): the shown texts to hide as `[account]`. */
     list?: { names: string[] },
+    /**
+     * A chooser without an `other` branch whose path shows a form instead of its list: the
+     * page is sent as that branch's first page (ADR 0028).
+     */
+    otherless?: LoginChooserRecipe,
   ): Promise<void> {
     if (!generation) return;
-    const page = list ? ({ page: "accounts" } as const) : {};
+    const base = otherless && { recipeId: otherless.id, revision: otherless.revision };
+    const page = list
+      ? ({ page: "accounts" } as const)
+      : base
+        ? ({ page: "other", recipeId: base.recipeId, baseRevision: base.revision } as const)
+        : {};
     const key = frameKey(live.document);
     let sent = false;
     try {
@@ -6289,20 +6463,27 @@ export function createLoginRuntime(
           detail = accepted.detail;
         }
         if (unsent === "cancelled" || read >= EXTRACT_READS) {
-          skipGeneration(live, unsent, undefined, detail);
+          skipGeneration(live, unsent, otherless && "other", detail);
           return;
         }
         // eslint-disable-next-line no-await-in-loop
         await new Promise((resolve) => setTimeout(resolve, EXTRACT_RETRY_MS));
         if (documents.get(key) !== live) return;
       }
+      // The `other` branch's first page asks for the account. A form without such a field,
+      // as the password form after the person's own click on a listed profile, belongs to
+      // the account branch and is never stored as `other` (ADR 0028).
+      if (otherless && !asksAccount(observation)) {
+        skipGeneration(live, "no-account-field", "other");
+        return;
+      }
       const usernames = await readUsernames(live.document.origin, usernameReads(scope));
       const shape = usernames && usernameShape(scope, usernames);
       // The account's own usernames never reach the service.
-      const hidden = hideUsernames(observation, usernames);
+      const hidden = hideUsernames(observation, usernames, live);
       if (documents.get(key) !== live) return;
       if ("reason" in hidden) {
-        skipGeneration(live, hidden.reason);
+        skipGeneration(live, hidden.reason, otherless && "other");
         return;
       }
       const custom = await customSlots(live.document.origin, scope);
@@ -6319,6 +6500,7 @@ export function createLoginRuntime(
               ),
               ...custom,
             ],
+            ...(base ? { base, branch: "other" as const } : {}),
           },
           spin.sent(() =>
             report(live.document, {
@@ -6369,7 +6551,8 @@ export function createLoginRuntime(
             if (documents.get(frameKey(other.document)) !== other) return;
             const tab = await browser.tabs.get(other.document.tabId).catch(() => undefined);
             const url = tab?.url ? new URL(tab.url) : undefined;
-            const shown = url?.origin === other.document.origin && url.pathname === other.path;
+            const shown =
+              url?.origin === other.document.origin && observedPath(url.pathname) === other.path;
             note(other.document, other.url, "reconnect-failed", undefined, !shown);
           }
         }),
@@ -6380,8 +6563,8 @@ export function createLoginRuntime(
       // (ADR 0019).
       if (!sent && documents.get(key) === live)
         if (error instanceof DocumentGone)
-          skipGeneration(live, "unreachable", undefined, error.reason);
-        else skipGeneration(live, "exception");
+          skipGeneration(live, "unreachable", otherless && "other", error.reason);
+        else skipGeneration(live, "exception", otherless && "other");
     }
   }
   /**
@@ -6668,6 +6851,8 @@ export function createLoginRuntime(
   ): Promise<Readiness> {
     await loaded;
     await sessionLoaded;
+    // A logout clicked on the tab's previous page is recorded before this page is read.
+    await Promise.all(clicksNoting);
     const document = await identify(sender);
     if (!document || !sender.url) {
       await noteUnadmitted(sender);
@@ -6675,6 +6860,8 @@ export function createLoginRuntime(
     }
     if (hellos.get(helloKey) !== sequence) return { ok: false, reason: "stale-document" };
     const key = frameKey(document);
+    // A logout click waits for its site's first step only while the tab stays on that site.
+    if (document.frameId === 0) leaveClicks(document.tabId, siteOf(document.origin));
     // The tab's next page of the origin after a submitted password form (ADR 0028).
     const submitted = passwordSubmits.get(document.tabId);
     if (submitted && document.frameId === 0 && submitted.documentId !== document.documentId) {
@@ -6793,7 +6980,7 @@ export function createLoginRuntime(
             document.frameId === 0 &&
             (finishedLogin(carried.metadata) ||
               (carried.metadata.watch !== undefined &&
-                start?.path === new URL(url).pathname &&
+                start?.path === observedPath(new URL(url).pathname) &&
                 document.documentId !== carried.metadata.watch.documentId))
           )))
     ) {
@@ -6802,7 +6989,7 @@ export function createLoginRuntime(
     }
     if (oldLive && !sameDocument)
       await send(oldLive, { type: "login.cancel" }).catch(() => undefined);
-    const path = new URL(url).pathname;
+    const path = observedPath(new URL(url).pathname);
     const live: LiveDocument = {
       document,
       token,
@@ -7325,6 +7512,39 @@ export function createLoginRuntime(
       }
       /* eslint-enable no-await-in-loop */
     }
+    // A control that logs out was clicked in this tab on this site, after a login the tab
+    // does not know, such as one in another tab or before a browser restart: the recipe's
+    // first step showing now is that logout, and the tab asks as after its own login
+    // (ADR 0021 D, owner 2026-10-16). An expired session, where nobody clicked, still logs in.
+    const clickSite = siteOf(document.origin);
+    const logoutClick =
+      !recorded && document.frameId === 0 && start?.path === live.path && clickSite !== undefined
+        ? pendingClick(document.tabId, clickSite)
+        : undefined;
+    if (logoutClick) {
+      const clickKey = `${logoutClick.tabId} ${logoutClick.site}`;
+      const known = logouts.has(logoutKey);
+      // Kept as used, so a passkey request of the site still asks while the tab asks.
+      const used = { ...logoutClick, used: true as const };
+      logoutClicks.set(clickKey, used);
+      logouts.add(logoutKey);
+      try {
+        await saveSession();
+      } catch {
+        // A newer click recorded meanwhile stays.
+        if (logoutClicks.get(clickKey) === used) logoutClicks.set(clickKey, logoutClick);
+        if (!known) logouts.delete(logoutKey);
+        return refuse("storage-unavailable");
+      }
+      if (!known)
+        report(document, {
+          type: "logout",
+          tabId: document.tabId,
+          origin: document.origin,
+          clicked: true,
+        });
+      if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+    }
     // A logout in another tab ends the shared session too, so this tab asks as well.
     const asking =
       !recorded &&
@@ -7357,6 +7577,21 @@ export function createLoginRuntime(
       if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
       if (chooser) recipe = chooserRoute(chooser, previous?.chooser?.click ?? "entry");
     }
+    // The chooser's path shows its `other` branch's form instead of the list, as after the
+    // person pressed the button for another account there: a new login starts on that
+    // branch and clicks nothing on the list (ADR 0028). While the list shows, it goes first.
+    let shownOther = false;
+    const shownRoute = chooser && chooserRoute(chooser, "other-shown");
+    const shownStart = shownRoute && loginReadiness(shownRoute.steps[0]!);
+    if (chooser && shownStart?.targets.length && !previous && start?.path === live.path) {
+      const shows =
+        (await showsNow(live, shownStart)) && !(await showsNow(live, listReadiness(chooser)));
+      if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+      if (shows) {
+        recipe = shownRoute;
+        shownOther = true;
+      }
+    }
     // A new attempt starts only once the document reports a first step of its recipe ready:
     // any route's or variant's, or the path alone when one of them needs no element. Until
     // then it watches the first steps of every recipe for its origin; this reads no
@@ -7383,6 +7618,45 @@ export function createLoginRuntime(
         await publish(live);
         void pressEntry(live, entryRecipe).catch(() => refuseEntry(live, entryRecipe, "exception"));
         return { ok: false, reason: "entry", starts };
+      }
+      // The chooser's path shows a sign-in form instead of its list, and the chooser has no
+      // `other` branch yet, as after the person pressed its button for another account: the
+      // page is sent as that branch's first page, as after Pateat's own click, and once
+      // stored the form starts as `other-shown` (ADR 0028, owner 2026-10-17).
+      const otherless =
+        chooser?.chooser.other && !chooser.chooser.afterOther && !previous ? chooser : undefined;
+      const otherOffer = otherless && (await offersOther(live, otherless));
+      if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+      const otherShown = otherless && signIn?.path === live.path ? otherless : undefined;
+      // Logged only for a shown form: the list may still show on this path.
+      if (
+        otherShown &&
+        (otherOffer === "sending" || otherOffer === "sent" || otherOffer === "not-connected")
+      )
+        skipGeneration(live, otherOffer, "other");
+      if (otherShown && otherOffer === true) {
+        // Nor is the page right after a sign-in.
+        if (afterSignIn.get(document.tabId) === document.documentId)
+          skipGeneration(live, "after-sign-in", "other");
+        // Nor a page whose list shows meanwhile: the login clicks there (ADR 0028).
+        else if (await showsNow(live, listReadiness(otherShown))) {
+          if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+          skipGeneration(live, "list-shown", "other");
+        } else {
+          let missed: [GenerationMiss, (string | undefined)?] = ["vault-unavailable", "error"];
+          const scope = await generationSlotsFor(live, (...reason) => {
+            missed = reason;
+          }).catch(() => undefined);
+          if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+          if (scope) {
+            live.state = "generating";
+            delete live.reason;
+            await publish(live);
+            void generateFor(live, scope, undefined, otherShown);
+            return { ok: false, reason: "generating" };
+          }
+          skipGeneration(live, missed[0], "other", missed[1]);
+        }
       }
       const availability = recipe ? undefined : await offersGeneration(live);
       if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
@@ -7411,6 +7685,20 @@ export function createLoginRuntime(
         if (!listing.names || listing.other || entryOffer) skipGeneration(live, "after-sign-in");
         offer = false;
       }
+      // Nor while another tab's login of the origin authenticated within the hour, as on a
+      // signed-in dashboard listing the site's accounts by email opened in a new tab, unless
+      // the tab logged out or the site asks after a logout (ADR 0028, owner 2026-10-17).
+      if (
+        offer &&
+        listing &&
+        !asking &&
+        signedInElsewhere(document.tabId, document.origin) &&
+        !(clickSite && pendingClick(document.tabId, clickSite))
+      ) {
+        if (!listing.names || listing.other || entryOffer)
+          skipGeneration(live, "signed-in-elsewhere");
+        offer = false;
+      }
       // Nor as a page that asks for an identifier alone (ADR 0016), such as a profile page
       // with an email field.
       if (offer && signIn?.identifier && afterSignIn.get(document.tabId) === document.documentId) {
@@ -7428,7 +7716,7 @@ export function createLoginRuntime(
         // `username-shown` once read (owner 2026-10-12 19:45 UTC).
         const listed =
           scope && listing
-            ? await listedNames(live.document.origin, scope, listing.names ?? [], live.path)
+            ? await listedNames(live.document.origin, scope, listing.names ?? [], rawPath(live))
             : undefined;
         if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
         const names = listing?.names ? listed?.names : undefined;
@@ -7511,7 +7799,7 @@ export function createLoginRuntime(
         ok: false,
         reason: recipe ? "form-not-ready" : "recipe-not-found",
         starts,
-        ...(offer ? { generate: true as const } : {}),
+        ...(offer || otherOffer === true ? { generate: true as const } : {}),
         ...(offer && entryPage ? { entry: true as const } : {}),
       };
     }
@@ -7566,7 +7854,8 @@ export function createLoginRuntime(
         documents.get(key) !== live ||
         (live.topUrl
           ? new URL(tab.url).origin !== new URL(live.topUrl).origin
-          : new URL(tab.url).origin !== document.origin || new URL(tab.url).pathname !== live.path)
+          : new URL(tab.url).origin !== document.origin ||
+            observedPath(new URL(tab.url).pathname) !== live.path)
       )
         return refuse("stale-document");
     } catch {
@@ -7602,7 +7891,7 @@ export function createLoginRuntime(
     // the list first, planned on the click alone: it goes on only through `other`, and is
     // refused with the account branch's reason, pressing nothing, when its row fits.
     let deferred: { route: LoginRecipe; detail?: string } | undefined;
-    if (!plan.ok && plan.reason === "no-route" && !previous && chooser) {
+    if (!plan.ok && plan.reason === "no-route" && !previous && chooser && !shownOther) {
       const { afterAccount: _afterAccount, ...lists } = chooser.chooser;
       const bare = chooserRoute({ ...chooser, chooser: lists }, "entry");
       const alone =
@@ -7665,9 +7954,9 @@ export function createLoginRuntime(
     }
     // A new login on a chooser's list decides what it clicks there for its account (ADR
     // 0028), and takes the route that click leads to. A fill-only login presses nothing.
-    let click: ChooserClick | "none" | undefined;
+    let click: ChooserClick | "none" | undefined = shownOther ? "other-shown" : undefined;
     let listMiss: ListMiss | undefined;
-    if (!previous && chooser && !("fillOnly" in plan)) {
+    if (!previous && chooser && !shownOther && !("fillOnly" in plan)) {
       const chosen = await listClick(snapshot, live, chooser, plan.account);
       if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
       // Without the account's username nothing on the list can be compared with it.
@@ -7914,9 +8203,9 @@ export function createLoginRuntime(
     const run = attempts.get(tabId);
     return (
       (run !== undefined && siteOf(run.metadata.account.origin) === site) ||
-      [...persisted.values()].some(
-        (entry) => entry.document.tabId === tabId && siteOf(entry.account.origin) === site,
-      )
+      persisted
+        .values()
+        .some((entry) => entry.document.tabId === tabId && siteOf(entry.account.origin) === site)
     );
   }
   /** Whether any tab keeps a logout state for an origin of `site` (ADR 0021 D). */
@@ -7925,12 +8214,80 @@ export function createLoginRuntime(
   /** Whether another tab's login of an origin of `site` holds it (ADR 0022). */
   function siteHeldElsewhere(tabId: number, site: string): boolean {
     const now = Date.now();
-    return [...persisted.values()].some(
-      (entry) =>
-        entry.document.tabId !== tabId &&
-        siteOf(entry.account.origin) === site &&
-        holdsSite(entry, now),
-    );
+    return persisted
+      .values()
+      .some(
+        (entry) =>
+          entry.document.tabId !== tabId &&
+          siteOf(entry.account.origin) === site &&
+          holdsSite(entry, now),
+      );
+  }
+  /**
+   * The tab's logout click on `site` while it still waits for the site's first step (ADR
+   * 0021 D): for 10 minutes after the click. One older, or from a clock that went back,
+   * is dropped.
+   */
+  function pendingClick(tabId: number, site: string): LogoutClick | undefined {
+    const key = `${tabId} ${site}`;
+    const click = logoutClicks.get(key);
+    if (!click || click.used) return undefined;
+    const age = Date.now() - isoTimeMs(click.clickedAt);
+    if (age >= 0 && age < LOGOUT_CLICK_MS) return click;
+    logoutClicks.delete(key);
+    void quietly(saveSession);
+    return undefined;
+  }
+  /**
+   * Drops the tab's waiting logout clicks of other sites than `site`: the tab left them. A
+   * used one stays with the logout state it began.
+   */
+  function leaveClicks(tabId: number, site: string | undefined): void {
+    let changed = false;
+    for (const [key, click] of logoutClicks)
+      if (click.tabId === tabId && click.site !== site && !click.used) {
+        logoutClicks.delete(key);
+        changed = true;
+      }
+    if (changed) void quietly(saveSession);
+  }
+  /**
+   * Records a control that logs out, clicked in a document of an origin with recipes (ADR
+   * 0021 D, owner 2026-10-16), for its tab and site; the 256 newest are kept.
+   */
+  async function noteLogoutClick(sender: Sender): Promise<void> {
+    await sessionLoaded;
+    const document = await identify(sender);
+    const site = document && siteOf(document.origin);
+    if (!document || site === undefined) return;
+    const key = `${document.tabId} ${site}`;
+    logoutClicks.delete(key);
+    logoutClicks.set(key, { tabId: document.tabId, site, clickedAt: isoTime(Date.now()) });
+    for (const oldest of logoutClicks.keys()) {
+      if (logoutClicks.size <= 256) break;
+      logoutClicks.delete(oldest);
+    }
+    await quietly(saveSession);
+  }
+  /**
+   * Whether a username-less passkey request for `rpId` in the tab follows a logout click
+   * on its site, so it asks as after Pateat signed there (ADR 0021 D): while the click
+   * waits, and once used, while the tab keeps a logout state for an origin of the site.
+   * A used click whose logout state ended, as when a login started, is dropped.
+   */
+  async function logoutClicked(tabId: number, rpId: string): Promise<boolean> {
+    await sessionLoaded;
+    await Promise.all(clicksNoting);
+    const site = siteOf(`https://${rpId}`);
+    if (site === undefined) return false;
+    if (pendingClick(tabId, site)) return true;
+    const key = `${tabId} ${site}`;
+    if (!logoutClicks.get(key)?.used) return false;
+    if (scopes(logouts).some((entry) => entry.tabId === tabId && siteOf(entry.origin) === site))
+      return true;
+    logoutClicks.delete(key);
+    void quietly(saveSession);
+    return false;
   }
   /** The blocks stored on this device; a read that fails is not kept, so it is read again. */
   let entryBlocks: Promise<EntryBlock[] | undefined> | undefined;
@@ -8038,7 +8395,7 @@ export function createLoginRuntime(
   }
   /** Whether the check of a page after the tab's entry press is running. */
   const entryChecked = (tabId: number) =>
-    [...entryChecks.keys()].some((key) => key.startsWith(`${tabId} `));
+    entryChecks.keys().some((key) => key.startsWith(`${tabId} `));
   /**
    * Checks an entry press whose next page did not announce in time (ADR 0031). A tab now on
    * another site's web page blocks it as `left-site`; one still on the pressed URL, or with
@@ -8058,12 +8415,7 @@ export function createLoginRuntime(
       return;
     }
     // A tab with no URL yet, or one that does not parse, shows nothing to judge.
-    let parsed: URL | undefined;
-    try {
-      parsed = url ? new URL(url) : undefined;
-    } catch {
-      parsed = undefined;
-    }
+    const parsed = url ? (URL.parse(url) ?? undefined) : undefined;
     const web = parsed !== undefined && /^https?:$/u.test(parsed.protocol);
     if (web && siteOf(parsed!) !== siteOf(press.origin)) return settleEntry(press, "left-site");
     // A page of the site that has not announced yet, as one still loading, and a tab
@@ -8157,11 +8509,8 @@ export function createLoginRuntime(
     if (!parsed.success) return undefined;
     const onSite = sameSiteAs(live.url);
     return parsed.output.hosts.filter((host) => {
-      try {
-        return onSite(new URL(`https://${host}`));
-      } catch {
-        return false;
-      }
+      const url = URL.parse(`https://${host}`);
+      return url !== null && onSite(url);
     });
   }
   /**
@@ -8307,7 +8656,7 @@ export function createLoginRuntime(
       )
     )
       return "blocked";
-    if (new URL(url).pathname !== recipe.entry.path) return "page-changed";
+    if (observedPath(new URL(url).pathname) !== recipe.entry.path) return "page-changed";
     const cached = (await recipes.entries(pageOrigin).catch(() => [])).find(
       (entry) => entry.id === recipe.id,
     );
@@ -8324,6 +8673,8 @@ export function createLoginRuntime(
     if (siteRecorded(tabId, site)) return "site-record";
     if (siteHeldElsewhere(tabId, site)) return "site-held";
     if (siteLoggedOut(site)) return "logged-out";
+    // The person just logged out in this tab and may want another account (ADR 0021 D).
+    if (pendingClick(tabId, site)) return "logout-clicked";
     const last = entryPresses.get(tabId);
     if (last && Date.now() - isoTimeMs(last.pressedAt) < ENTRY_PRESS_MS) return "press-limit";
     const snapshot = await settings
@@ -8384,12 +8735,8 @@ export function createLoginRuntime(
       if (state !== "unique") return refuseEntry(live, recipe, `target-${state}`);
       if (refusal) return refuseEntry(live, recipe, refusal);
       if (!href) return refuseEntry(live, recipe, "not-link");
-      let destination: URL;
-      try {
-        destination = new URL(href);
-      } catch {
-        return refuseEntry(live, recipe, "link-off-site");
-      }
+      const destination = URL.parse(href);
+      if (!destination) return refuseEntry(live, recipe, "link-off-site");
       const linkCheck = linkRefusal(destination, sameSiteAs(url), new URL(url));
       if (linkCheck) return refuseEntry(live, recipe, linkCheck);
       // The page's own URL, as the content script reads it, must still name the path too.
@@ -8525,6 +8872,14 @@ export function createLoginRuntime(
       if (pick.success) return pickFor(pick.output);
       return undefined;
     }
+    if (v.safeParse(logoutClickedSchema, message).success) {
+      // Registered at once, so the tab's next page, announced after it, waits for it.
+      const noting = noteLogoutClick(sender).catch(() => undefined);
+      clicksNoting.add(noting);
+      void noting.finally(() => clicksNoting.delete(noting));
+      await noting;
+      return undefined;
+    }
     if (v.safeParse(submittedSchema, message).success) {
       const document = await identify(sender);
       // A sign-in in a frame counts for the tab's page, whose next page is skipped.
@@ -8656,6 +9011,15 @@ export function createLoginRuntime(
         if (!kept.checked) armEntryTimer(kept);
         changed = true;
       }
+      // In place, so the clicks keep their turn among the oldest.
+      if ([...logoutClicks.values()].some((click) => click.tabId === removed)) {
+        const kept = [...logoutClicks.values()].map((click) =>
+          click.tabId === removed ? { ...click, tabId: added } : click,
+        );
+        logoutClicks.clear();
+        for (const click of kept) logoutClicks.set(`${click.tabId} ${click.site}`, click);
+        changed = true;
+      }
       // A pick that started its login stays with that login; one for the gone page does not.
       const pick = picked.get(removed);
       if (pick?.attemptId !== undefined) {
@@ -8717,6 +9081,8 @@ export function createLoginRuntime(
       for (const key of logoutFills)
         if (key.startsWith(`${tabId} `)) changed = logoutFills.delete(key) || changed;
       if (entryPresses.delete(tabId)) changed = true;
+      for (const [key, click] of logoutClicks)
+        if (click.tabId === tabId) changed = logoutClicks.delete(key) || changed;
       for (const key of noted.keys())
         if (key.startsWith(`${tabId} `)) changed = noted.delete(key) || changed;
       if (changed) await quietly(saveSession);
@@ -8743,13 +9109,13 @@ export function createLoginRuntime(
         ...(probeMode ? [`${origin}/*`] : []),
         ...(sites ? (await sites.origins()).map((entry) => `${entry}/*`) : []),
         // An automatically chosen account has no saved default until it authenticates.
-        ...[...persisted.values()].map((entry) => `${entry.account.origin}/*`),
+        ...persisted.values().map((entry) => `${entry.account.origin}/*`),
       ];
       const tabs = patterns.length ? await browser.tabs.query({ url: patterns }) : [];
       // A frame's attempt lives in a tab whose own URL may be on another origin.
       const tabIds = new Set([
         ...tabs.flatMap((tab) => (tab.id === undefined ? [] : [tab.id])),
-        ...[...persisted.values()].map((entry) => entry.document.tabId),
+        ...persisted.values().map((entry) => entry.document.tabId),
       ]);
       for (const tabId of tabIds)
         void browser.tabs
@@ -8770,8 +9136,8 @@ export function createLoginRuntime(
   async function active(): Promise<boolean> {
     await loaded;
     return (
-      [...attempts.values()].some(inProgress) ||
-      [...persisted.values()].some((metadata) => !terminal(metadata) && !idle(metadata))
+      attempts.values().some(inProgress) ||
+      persisted.values().some((metadata) => !terminal(metadata) && !idle(metadata))
     );
   }
   /**
@@ -9019,7 +9385,7 @@ export function createLoginRuntime(
           )
         : [],
     );
-    const hidden = hideUsernames(observation, others && [username, ...others]);
+    const hidden = hideUsernames(observation, others && [username, ...others], live);
     if (stale()) return false;
     if ("reason" in hidden) {
       reportJudge("not-sent", hidden.reason);
@@ -9994,5 +10360,6 @@ export function createLoginRuntime(
     passkeyRequested,
     passkeyAnswered,
     conditionalRequest,
+    logoutClicked,
   };
 }

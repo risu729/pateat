@@ -31,6 +31,15 @@ describe("pageStatusLines", () => {
     ]);
   });
 
+  it("says an ended sign-in could not be confirmed", () => {
+    expect(lines({ recipe: "page", login: { state: "authenticated", unconfirmed: true } })).toEqual(
+      [
+        ["recipe", "idle", "This site has a recipe for this page."],
+        ["login", "warn", "The sign-in could not be confirmed."],
+      ],
+    );
+  });
+
   it("says why a page without a recipe on it was not sent to the AI", () => {
     expect(lines({ page: { generationSkip: "sent" } })).toEqual([
       ["recipe", "idle", "This site has no recipe yet."],
@@ -213,6 +222,19 @@ describe("pageStatusLines", () => {
       "login",
       "warn",
       "The result is not known yet; the next pages are checked for it.",
+    ]);
+  });
+
+  it("shows a login whose result settled as unknown as watched, not as logging in", () => {
+    // Its result settled as unknown, so it runs no step and checks the next pages (ADR 0027).
+    expect(
+      lines({ login: { state: "reconciling", outcome: "unknown-submit", settled: true } })[1],
+    ).toEqual(["login", "warn", "The result is not known yet; the next pages are checked for it."]);
+    // One still observing its result, as after a restart before it settled, is in flight.
+    expect(lines({ login: { state: "reconciling", outcome: "unknown-submit" } })[1]).toEqual([
+      "login",
+      "busy",
+      "Logging in…",
     ]);
   });
 

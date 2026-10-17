@@ -11,14 +11,24 @@ function fakeWindow() {
   const posted: unknown[] = [];
   const scope = {
     isSecureContext: true,
-    addEventListener: (type: string, listener: (event: unknown) => void) =>
-      listeners.push({ type, listener }),
+    addEventListener: (
+      type: string,
+      listener: (event: unknown) => void,
+      options?: AddEventListenerOptions,
+    ) => {
+      if (options?.signal?.aborted) return;
+      listeners.push({ type, listener });
+      options?.signal?.addEventListener("abort", () => scope.removeEventListener(type, listener), {
+        once: true,
+      });
+    },
     removeEventListener: (type: string, listener: (event: unknown) => void) => {
       const index = listeners.findIndex(
         (entry) => entry.type === type && entry.listener === listener,
       );
       if (index >= 0) listeners.splice(index, 1);
     },
+    listenerCount: (type: string) => listeners.filter((entry) => entry.type === type).length,
     dispatch(type: string, event: unknown) {
       for (const entry of [...listeners]) if (entry.type === type) entry.listener(event);
     },
@@ -72,6 +82,31 @@ describe("isolated passkey relay", () => {
     });
   });
 
+  it.each(["get", "create"])(
+    "delegates a %s request when the runtime is unavailable synchronously",
+    async (type) => {
+      vi.useFakeTimers();
+      const { scope, posted } = fakeWindow();
+      const send = vi.fn(() => {
+        throw new Error("extension context invalidated");
+      });
+      const cleanup = installPasskeyRelay(send);
+      // runtime-unavailable stays inside the relay; the page only sees delegation.
+      expect(() =>
+        scope.postMessage({ channel: PAGE_CHANNEL, type, id, request: {} }),
+      ).not.toThrow();
+      expect(send).toHaveBeenCalledOnce();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(posted.slice(1)).toEqual([
+        { channel: PAGE_CHANNEL, type: "ack", id },
+        { channel: PAGE_CHANNEL, type: "result", id, result: { kind: "delegate" } },
+      ]);
+      await vi.advanceTimersByTimeAsync(RELAY_HEARTBEAT_MS * 2);
+      expect(posted).toHaveLength(3);
+      cleanup();
+    },
+  );
+
   it("drops the reason of delegations the relay decides itself", async () => {
     const { scope, posted } = fakeWindow();
     vi.stubGlobal("document", { featurePolicy: { allowsFeature: () => false } });
@@ -124,6 +159,45 @@ describe("isolated passkey relay", () => {
     alive = false;
     await vi.advanceTimersByTimeAsync(RELAY_HEARTBEAT_MS * 3);
     expect(posted.filter((data) => (data as { type: string }).type === "ack")).toHaveLength(2);
+  });
+
+  it("removes only its listeners and heartbeats on cleanup, leaving pending work to answer", async () => {
+    vi.useFakeTimers();
+    const { scope, posted } = fakeWindow();
+    let answer!: (value: unknown) => void;
+    const send = vi.fn(() => new Promise((resolve) => (answer = resolve)));
+    const stop = installPasskeyRelay(send);
+    const pageMessage = vi.fn();
+    const pageHide = vi.fn();
+    scope.addEventListener("message", pageMessage);
+    scope.addEventListener("pagehide", pageHide);
+    scope.postMessage({ channel: PAGE_CHANNEL, type: "get", id, request: { challenge: "AA" } });
+    await vi.advanceTimersByTimeAsync(RELAY_HEARTBEAT_MS);
+    expect(send).toHaveBeenCalledOnce();
+    const acks = () => posted.filter((data) => (data as { type: string }).type === "ack").length;
+    expect(acks()).toBe(2);
+
+    stop();
+    stop();
+    expect(scope.listenerCount("message")).toBe(1);
+    expect(scope.listenerCount("pagehide")).toBe(1);
+    pageMessage.mockClear();
+    scope.postMessage({ channel: PAGE_CHANNEL, type: "get", id, request: { challenge: "AA" } });
+    scope.dispatch("pagehide", {});
+    await vi.advanceTimersByTimeAsync(RELAY_HEARTBEAT_MS * 3);
+    expect(pageMessage).toHaveBeenCalledOnce();
+    expect(pageHide).toHaveBeenCalledOnce();
+    expect(send).toHaveBeenCalledOnce();
+    expect(acks()).toBe(2);
+
+    answer({ kind: "delegate", reason: "chooser-closed" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(posted.at(-1)).toEqual({
+      channel: PAGE_CHANNEL,
+      type: "result",
+      id,
+      result: { kind: "delegate" },
+    });
   });
 
   it("cancels pending requests when the page is left", async () => {

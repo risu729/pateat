@@ -546,7 +546,7 @@ export async function createLocalCryptoSession(
   if (organizationKeys.size !== (options.organizationKeys?.length ?? 0))
     return failure("invalid-crypto-input");
   // Invalid EncString deserialization inside the SDK's async WASM export can strand its Promise.
-  if (![...organizationKeys.values()].every((key) => framedEncryption(key, [3, 4, 7])))
+  if (!organizationKeys.values().every((key) => framedEncryption(key, [3, 4, 7])))
     return failure("unsupported-crypto");
   const accountVersion = "V1" in options.accountCryptographicState ? "v1" : "v2";
   const memory = memoryBridge();

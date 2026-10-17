@@ -1,6 +1,7 @@
 import {
   deviceIdSchema,
   loginRecipesForOrigin,
+  MAX_RECIPE_CACHE_BYTES,
   recipeStartSteps,
   selectLoginRecipe,
   serviceOriginSchema,
@@ -8,9 +9,11 @@ import {
   type LoginChooserRecipe,
   type LoginEntryRecipe,
   type LoginRecipe,
+  type SyncRecipeChanges,
 } from "@pateat/contracts";
 import * as v from "valibot";
 import type { LoginRecipes } from "../login/runtime";
+import { loginReadiness } from "../login/wire";
 import type { RecipeSyncRecord, ServiceConnection } from "./runtime";
 import type { SettingsSyncOutcome } from "./settings-sync";
 import type { ServiceTransport, TransportFailure } from "./transport";
@@ -25,10 +28,12 @@ export const MAX_RECIPE_PAGES_PER_SYNC = 50;
  * The serialized cache stays well inside the 10 MB `storage.local` quota it shares with
  * settings, login attempts and other extension state; the vault cache is in IndexedDB.
  */
-export const MAX_RECIPE_CACHE_BYTES = 2 * 1024 * 1024;
+export { MAX_RECIPE_CACHE_BYTES } from "@pateat/contracts";
 
 // The last-known-good copy of the owner's active recipes (ADR 0013). The cursor and
 // recipes are written together, so a failed write leaves the previous consistent copy.
+// An overflow walk writes only removals with the old cursor; skipped active changes
+// remain pending until their entire page fits.
 // Entry and chooser recipes (ADR 0031, ADR 0028) are cached with the rest; only a
 // chooser is looked up and starts a login, on its list's path, and `entries` lists an
 // origin's entry recipes.
@@ -74,7 +79,7 @@ export type RecipeSyncOutcome =
   | "incomplete"
   | "not-connected"
   | "rejected"
-  /** The next page would grow the cache past its size limit; it was not applied. */
+  /** Active changes do not fit; bounded revoke-only pages still remove cached recipes. */
   | "cache-full"
   | "storage-unavailable"
   | SettingsSyncOutcome
@@ -210,21 +215,70 @@ export function createRecipeSync(options: {
     };
     // Disconnected while loading the cache; the old credential is not used again.
     if (generation !== started) return "not-connected";
-    for (let page = 0; page < MAX_RECIPE_PAGES_PER_SYNC; page += 1) {
-      // oxlint-disable-next-line no-await-in-loop -- each page continues from the last cursor
+    async function readPage(cursor: number): Promise<SyncRecipeChanges | RecipeSyncOutcome> {
+      if (generation !== started) return "not-connected";
       const result = await transport.recipeChanges(
         connection.origin,
         connection.credential,
-        cache.cursor,
+        cursor,
       );
+      if (generation !== started) return "not-connected";
       if (result.kind === "rejected") {
-        // oxlint-disable-next-line no-await-in-loop -- ends the loop
         await service.recordSync(connection.deviceId, { rejected: true });
         return "rejected";
       }
       if (result.kind === "failed") return result.error;
-      const { changes, cursor, complete } = result.page;
-      if (!complete && cursor === cache.cursor) return "unexpected-response";
+      if (result.page.cursor < cursor || (!result.page.complete && result.page.cursor === cursor))
+        return "unexpected-response";
+      return result.page;
+    }
+
+    async function writeCache(
+      next: RecipeCache,
+      counts: { added: number; updated: number; removed: number },
+    ): Promise<RecipeSyncOutcome | undefined> {
+      if (generation !== started) return "not-connected";
+      try {
+        memory = undefined;
+        await storage.write(next);
+      } catch {
+        return "storage-unavailable";
+      }
+      if (generation !== started) return "not-connected";
+      memory = next;
+      cache = next;
+      changed.added += counts.added;
+      changed.updated += counts.updated;
+      changed.removed += counts.removed;
+      return undefined;
+    }
+
+    /** Save only removals; later active changes remain pending at the old cursor. */
+    async function revokePage(page: SyncRecipeChanges): Promise<RecipeSyncOutcome | undefined> {
+      const remaining = new Map(cache.recipes.map((recipe) => [recipe.id, recipe]));
+      let removed = 0;
+      for (const change of page.changes) {
+        if (change.state === "revoked" && remaining.delete(change.recipeId)) removed += 1;
+      }
+      return removed > 0
+        ? writeCache(
+            { ...cache, recipes: [...remaining.values()] },
+            { added: 0, updated: 0, removed },
+          )
+        : undefined;
+    }
+
+    // Normal and revoke-only walks share the page budget. The stuck-page retry gets
+    // one extra request, always from the persisted cursor, never the scan cursor.
+    let pagesRead = 0;
+    let walkedOverflow = false;
+    let retrying = false;
+    while (pagesRead < MAX_RECIPE_PAGES_PER_SYNC || retrying) {
+      if (!retrying) pagesRead += 1;
+      // oxlint-disable-next-line no-await-in-loop -- normal pages use the persisted cursor
+      const result = await readPage(cache.cursor);
+      if (typeof result === "string") return result;
+      const { changes, cursor, complete } = result;
       const before = new Map(cache.recipes.map((recipe) => [recipe.id, recipe]));
       const recipes = new Map(before);
       for (const change of changes) {
@@ -240,25 +294,36 @@ export function createRecipeSync(options: {
       }
       const next: RecipeCache = { ...cache, cursor, recipes: [...recipes.values()] };
       if (encoder.encode(JSON.stringify(next)).byteLength > MAX_RECIPE_CACHE_BYTES) {
-        // oxlint-disable-next-line no-await-in-loop -- ends the loop
-        await service.recordSync(connection.deviceId, { cacheFull: true });
-        return "cache-full";
+        if (walkedOverflow) {
+          // The retry may include revocations made while the walk was running.
+          // oxlint-disable-next-line no-await-in-loop -- keep fresh removals without another walk
+          const failure = await revokePage(result);
+          if (failure) return failure;
+          // oxlint-disable-next-line no-await-in-loop -- ends the loop after one retry
+          await service.recordSync(connection.deviceId, { cacheFull: true });
+          return "cache-full";
+        }
+        walkedOverflow = true;
+        let scan = result;
+        for (;;) {
+          // Persist removals before requesting more pages, even if a later request fails.
+          // oxlint-disable-next-line no-await-in-loop -- preserve the old cursor with removals
+          const failure = await revokePage(scan);
+          if (failure) return failure;
+          if (scan.complete || pagesRead >= MAX_RECIPE_PAGES_PER_SYNC) break;
+          pagesRead += 1;
+          // oxlint-disable-next-line no-await-in-loop -- only this local cursor skips active pages
+          const later = await readPage(scan.cursor);
+          if (typeof later === "string") return later;
+          scan = later;
+        }
+        retrying = true;
+        continue;
       }
-      // The device was disconnected meanwhile; its recipes are not written back.
-      if (generation !== started) return "not-connected";
-      try {
-        memory = undefined;
-        // oxlint-disable-next-line no-await-in-loop -- the cursor advances only with its recipes
-        await storage.write(next);
-      } catch {
-        return "storage-unavailable";
-      }
-      if (generation !== started) return "not-connected";
-      memory = next;
-      cache = next;
-      changed.added += counts.added;
-      changed.updated += counts.updated;
-      changed.removed += counts.removed;
+      retrying = false;
+      // oxlint-disable-next-line no-await-in-loop -- advance the cursor only with a complete page
+      const failure = await writeCache(next, counts);
+      if (failure) return failure;
       if (complete) return "synced";
     }
     return "incomplete";
@@ -371,8 +436,9 @@ export function createRecipeSync(options: {
       if (!cache) return [];
       // Every variant starts on the recipe's start path (ADR 0027). A chooser recipe (ADR
       // 0028) starts where its list shows, once one of its buttons or a listed account
-      // does; an entry recipe (ADR 0031) is left out: the runtime counts its path as a
-      // start for generation through `entries` instead.
+      // does, or its `other` branch's first step on that path, as when the person pressed
+      // the button for another account; an entry recipe (ADR 0031) is left out: the runtime
+      // counts its path as a start for generation through `entries` instead.
       return [
         ...loginRecipesForOrigin(cache.recipes, origin).map((recipe) => ({
           path: recipe.steps[0]!.path,
@@ -383,7 +449,16 @@ export function createRecipeSync(options: {
             ? [
                 {
                   path: recipe.chooser.path,
-                  steps: [],
+                  steps:
+                    recipe.chooser.afterOther?.steps
+                      .slice(0, 1)
+                      // Only a step that waits for an element: one that needs none would
+                      // show on the list as well.
+                      .filter(
+                        (step) =>
+                          step.path === recipe.chooser.path &&
+                          loginReadiness(step).targets.length > 0,
+                      ) ?? [],
                   list: [recipe.chooser.other, recipe.chooser.continue].filter(
                     (target) => target !== undefined,
                   ),

@@ -43,27 +43,24 @@ export function normalizeBitwardenProfile(input: unknown): BitwardenResult<Bitwa
   const raw = environment.baseUrl;
   // Reject syntax which URL() would repair, including dot segments and encoded paths.
   if (!/^https:\/\/[^/?#\\\s%@*]+\/?$/i.test(raw)) return failure("invalid-profile");
-  try {
-    const url = new URL(raw);
-    if (
-      url.protocol !== "https:" ||
-      url.username ||
-      url.password ||
-      url.search ||
-      url.hash ||
-      url.pathname !== "/"
-    )
-      return failure("invalid-profile");
-    return {
-      ok: true,
-      data: Object.freeze({
-        connectionId,
-        environment: Object.freeze({ kind: "self-hosted" as const, baseUrl: url.origin }),
-      }),
-    };
-  } catch {
+  const url = URL.parse(raw);
+  if (!url) return failure("invalid-profile");
+  if (
+    url.protocol !== "https:" ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash ||
+    url.pathname !== "/"
+  )
     return failure("invalid-profile");
-  }
+  return {
+    ok: true,
+    data: Object.freeze({
+      connectionId,
+      environment: Object.freeze({ kind: "self-hosted" as const, baseUrl: url.origin }),
+    }),
+  };
 }
 
 export function bitwardenEndpoints(profile: BitwardenProfile): Readonly<{

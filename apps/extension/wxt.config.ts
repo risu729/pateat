@@ -1,9 +1,9 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "wxt";
 import tailwindcss from "@tailwindcss/vite";
 import { MANIFEST_KEY } from "./manifest-key";
+import { bitwardenSdkSourceAssets, readBitwardenSdkSource } from "./sdk-source";
 
 /** CI sets PATEAT_REVISION, as for the service; a local build reads its own checkout. */
 function buildRevision(): string {
@@ -18,20 +18,14 @@ function buildRevision(): string {
 
 /** The SDK version the bundled Bitwarden package pins, shown on the diagnostics page. */
 function bitwardenSdkVersion(): string {
-  const manifest: unknown = JSON.parse(
-    readFileSync(new URL("../../packages/bitwarden/package.json", import.meta.url), "utf8"),
-  );
-  const version = (manifest as { dependencies?: Record<string, string> }).dependencies?.[
-    "@bitwarden/sdk-internal"
-  ];
-  if (!version) throw new Error("Missing @bitwarden/sdk-internal dependency");
-  return version;
+  return readBitwardenSdkSource().version;
 }
 
 export default defineConfig({
   modules: ["@wxt-dev/module-react"],
   vite: () => ({
     plugins: [tailwindcss()],
+    build: { cssTarget: "chrome145" },
     define: {
       PATEAT_BUILD_REVISION: JSON.stringify(buildRevision()),
       PATEAT_BITWARDEN_SDK_VERSION: JSON.stringify(bitwardenSdkVersion()),
@@ -41,9 +35,9 @@ export default defineConfig({
     name: "Pateat",
     description:
       "Logs in to websites and answers passkey sign-ins from your own password vault, kept on this device.",
-    // Chrome 144 is the first with the native Temporal the extension uses; the standard
-    // Uint8Array base64 and hex methods and RegExp.escape need 140.
-    minimum_chrome_version: "144",
+    // Chrome 145 is the first with Map.prototype.getOrInsertComputed; native Temporal
+    // needs 144, and the standard Uint8Array base64 and hex methods and RegExp.escape need 140.
+    minimum_chrome_version: "145",
     action: {
       default_title: "Pateat",
       // Until the worker reads the vault records, show the locked icon.
@@ -70,6 +64,13 @@ export default defineConfig({
         { key: MANIFEST_KEY }),
   }),
   hooks: {
+    "build:publicAssets"(_wxt, files) {
+      for (const record of bitwardenSdkSourceAssets()) {
+        const index = files.findIndex((file) => file.relativeDest === record.relativeDest);
+        if (index < 0) throw new Error(`Missing SDK source notice: ${record.relativeDest}`);
+        files[index] = record;
+      }
+    },
     "entrypoints:found"(wxt, entrypoints) {
       // These scripts are compatibility experiments, never production features.
       if (wxt.config.mode !== "probe") return;

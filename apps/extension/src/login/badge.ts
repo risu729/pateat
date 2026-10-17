@@ -86,7 +86,7 @@ export type PageStatus = {
    * `logged-out` once its first step showed again, with outcome `rejected` when the site
    * rejected it (ADR 0021 D).
    */
-  login?: { state: string; outcome?: string; cause?: string };
+  login?: { state: string; outcome?: string; cause?: string; unconfirmed?: true };
   /** A refusal that shows a failure badge, until a login of the tab moves on. */
   refused?: { reason: string; detail?: string };
   /**
@@ -143,7 +143,9 @@ export function badgeResult(
   if (report.type !== "attempt" || report.repeat) return undefined;
   const until = now + NOTICE_MS;
   if (report.state === "authenticated")
-    return { kind: "succeeded", reason: "authenticated", until };
+    return report.unconfirmed
+      ? { kind: "unsettled", reason: "unconfirmed", until }
+      : { kind: "succeeded", reason: "authenticated", until };
   const outcome = report.outcome ?? "";
   if (report.state === "blocked") {
     if (FAILED.has(outcome))
@@ -324,10 +326,15 @@ export function createLoginBadge(deps: {
           state: report.state,
           ...(report.outcome ? { outcome: report.outcome } : {}),
           ...(report.cause ? { cause: report.cause } : {}),
+          ...(report.unconfirmed ? { unconfirmed: true as const } : {}),
         },
       };
     else if (report.type === "generation" && report.outcome !== "skipped") {
-      const page = report.page ?? (report.recipeId ? "continuation" : undefined);
+      // A chooser's `other` branch page goes on from its list, as a continuation does.
+      const page =
+        report.page === "other"
+          ? "continuation"
+          : (report.page ?? (report.recipeId ? "continuation" : undefined));
       change = {
         generation: {
           outcome: report.outcome,
@@ -418,7 +425,7 @@ export function createLoginBadge(deps: {
     /** Reads a log report for how a login ended (ADR 0038). */
     observe(report: LoginReport): void {
       if (report.type === "attempt" && !report.repeat) {
-        const key = `${report.state} ${report.outcome ?? ""} ${report.settled ?? ""}`;
+        const key = `${report.state} ${report.outcome ?? ""} ${report.settled ?? ""} ${report.unconfirmed ?? ""}`;
         if (lastAttempt.get(report.tabId) === key) return;
         lastAttempt.set(report.tabId, key);
       }
@@ -441,12 +448,7 @@ export function createLoginBadge(deps: {
      * the top page's, absent for a page Pateat cannot read, which counts as another origin.
      */
     loaded(tabId: number, url?: string): void {
-      let origin = "unreadable";
-      try {
-        if (url) origin = new URL(url).origin;
-      } catch {
-        origin = "unreadable";
-      }
+      const origin = (url ? URL.parse(url)?.origin : undefined) ?? "unreadable";
       const before = tops.get(tabId);
       tops.set(tabId, origin);
       if (before !== undefined && before !== origin) {
@@ -564,6 +566,7 @@ const storedSchema = v.object({
             state: v.string(),
             outcome: v.exactOptional(v.string()),
             cause: v.exactOptional(v.string()),
+            unconfirmed: v.exactOptional(v.literal(true)),
           }),
         ),
         refused: v.exactOptional(

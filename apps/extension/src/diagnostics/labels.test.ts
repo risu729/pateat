@@ -15,10 +15,15 @@ describe("diagnostics labels", () => {
 
   it("rounds an age down at the unit boundaries", () => {
     expect(age(-5 * MINUTE)).toBe("0 min");
+    expect(age(0)).toBe("0 min");
+    expect(age(MINUTE - 1)).toBe("0 min");
+    expect(age(MINUTE)).toBe("1 min");
     expect(age(59 * MINUTE + 59_999)).toBe("59 min");
-    expect(age(HOUR)).toBe("1 h");
-    expect(age(48 * HOUR - 1)).toBe("47 h");
-    expect(age(48 * HOUR)).toBe("2 d");
+    expect(age(HOUR)).toBe("1 hr");
+    expect(age(48 * HOUR - 1)).toBe("47 hr");
+    expect(age(48 * HOUR)).toBe("2 days");
+    expect(age(72 * HOUR - 1)).toBe("2 days");
+    expect(age(72 * HOUR)).toBe("3 days");
   });
 
   it("names install types without trusting inherited keys", () => {

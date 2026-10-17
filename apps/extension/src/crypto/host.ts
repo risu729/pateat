@@ -91,11 +91,7 @@ function unique(itemIds: readonly string[]): boolean {
 }
 
 function sameOrigin(targetUrl: string, origin: string): boolean {
-  try {
-    return new URL(targetUrl).origin === origin;
-  } catch {
-    return false;
-  }
+  return URL.parse(targetUrl)?.origin === origin;
 }
 
 /** Background-internal API. Neither the options page nor content scripts get these operations. */
@@ -199,6 +195,7 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
     ready = false;
     sessions.clear();
     rejectHello?.();
+    // Finish deletes pending jobs; process the IDs present when invalidation starts.
     for (const id of [...pending.keys()]) finish(id, fail("crypto-failed"));
   }
   async function connect(port: CryptoHostPort) {
@@ -499,10 +496,9 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
       if (!active || disposed) throw new Error();
       if (contexts.length) await deps.closeDocument();
       if (!active || disposed) throw new Error();
-      const wait = new Promise<void>((resolve, reject) => {
-        hello = resolve;
-        rejectHello = () => reject(new Error());
-      });
+      const { promise: wait, resolve, reject } = Promise.withResolvers<void>();
+      hello = resolve;
+      rejectHello = () => reject(new Error());
       // Prevent an unhandled rejected handshake if native document creation fails.
       void wait.catch(() => {});
       await deps.createDocument();
@@ -592,9 +588,9 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
       pending.size >= (destructive ? 16 : 8) ||
       (operation.kind === "open" && sessions.size >= 4) ||
       ((operation.kind === "open" || operation.kind === "derive-auth") &&
-        [...pending.values()].some(
-          (job) => job.operation.kind === "open" || job.operation.kind === "derive-auth",
-        ))
+        pending
+          .values()
+          .some((job) => job.operation.kind === "open" || job.operation.kind === "derive-auth"))
     )
       return fail("resource-limit");
     // A session's Worker runs one job at a time, so a job for a busy session waits for its
@@ -607,9 +603,9 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
     // session alone.
     let waiting = before !== undefined;
     if (lane) {
-      const turn = Promise.all([before, new Promise<void>((done) => (ended = done))]).then(
-        () => undefined,
-      );
+      const { promise, resolve } = Promise.withResolvers<void>();
+      ended = resolve;
+      const turn = Promise.all([before, promise]).then(() => undefined);
       turns.set(lane, turn);
       void turn.then(() => turns.get(lane) === turn && turns.delete(lane));
     }

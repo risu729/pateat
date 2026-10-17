@@ -1042,10 +1042,16 @@ describe("totp handler assembly, probed independently (ADR 0027)", () => {
     ).toEqual({ ok: false, reason: "origin-mismatch" });
   });
 
-  it("refuses a handler on a path with a replaced segment, which names no real page", () => {
-    expect(
-      addHandler(recipe, at("/[id]/two-factor", code("otp"), candidate("v", verify)), totp()),
-    ).toEqual({ ok: false, reason: "redacted-path" });
+  it("adds a handler on a path with a replaced segment, which every tenant's page shares (ADR 0039)", () => {
+    const added = addHandler(
+      recipe,
+      at("/[id]/two-factor", code("otp"), candidate("v", verify)),
+      totp(),
+    );
+    if (!added.ok) throw new Error(added.reason);
+    expect(added.recipe.handlers).toEqual([
+      expect.objectContaining({ kind: "totp", path: "/[id]/two-factor" }),
+    ]);
   });
 
   it("learns no completion beside the handler's code field on its path, but beside other inputs", () => {

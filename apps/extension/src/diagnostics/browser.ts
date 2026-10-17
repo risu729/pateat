@@ -26,9 +26,7 @@ export async function readBrowserInfo(deps: {
   const [values, self] = await Promise.all([
     deps.userAgentData?.getHighEntropyValues(["fullVersionList"]).catch(() => undefined),
     // A missing API throws synchronously; either failure only hides the install type.
-    Promise.resolve()
-      .then(() => deps.getSelf())
-      .catch(() => ({ installType: "unknown" })),
+    Promise.try(() => deps.getSelf()).catch(() => ({ installType: "unknown" })),
   ]);
   return { ...pickBrowser(values?.fullVersionList), installType: self.installType };
 }

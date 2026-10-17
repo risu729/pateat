@@ -2,7 +2,6 @@ import {
   extendsRecipe,
   fillRoles,
   handlerTargets,
-  hasRedactedSegment,
   isTotpCode,
   loginEntryRecipeSchema,
   loginRecipeSchema,
@@ -264,11 +263,6 @@ export function addCompletion(
 
 export type HandlerRejection =
   | "origin-mismatch"
-  /**
-   * The page's path has a segment the extension replaced (`REDACTED_PATH_SEGMENT`), so
-   * the handler's path would never match the page.
-   */
-  | "redacted-path"
   /** The button is not a button of the judged page. */
   | "not-on-page"
   /** The button registers, adds or sets up a passkey rather than signing in with one. */
@@ -298,7 +292,9 @@ export type HandlerRejection =
  * The page may be on a route path: a second-factor form on the sign-in path still gets a
  * handler. A `totp` handler's button may even be the route's own submit button on that
  * path, as on a page that asks for the code in the sign-in form after the password, but
- * its field is never a field the route fills.
+ * its field is never a field the route fills. A page on a path with `[id]` in place of a
+ * token-like segment gets one too (ADR 0039): the extension compares a live page through
+ * the same redacted path, so the handler matches that page of every tenant.
  */
 export function addHandler(
   base: LoginRecipe,
@@ -308,7 +304,6 @@ export function addHandler(
     | { kind: "totp"; field: LoginFieldTarget; target: LoginTarget },
 ): { ok: true; recipe: LoginRecipe } | { ok: false; reason: HandlerRejection } {
   if (base.origin !== page.origin) return { ok: false, reason: "origin-mismatch" };
-  if (hasRedactedSegment(page.path)) return { ok: false, reason: "redacted-path" };
   const button = page.candidates.find(
     (candidate) => candidate.role === "button" && sameTarget(candidate.target, handler.target),
   );

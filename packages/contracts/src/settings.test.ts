@@ -53,6 +53,8 @@ describe("host policy and URL validation", () => {
     const settings = withDefault();
     for (const url of [
       "bank.example",
+      "/signin",
+      "https://[",
       "https:bank.example",
       "https:///bank.example",
       "javascript:alert(1)",

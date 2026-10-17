@@ -55,7 +55,7 @@ import * as v from "valibot";
 import type { DeviceScope } from "../auth";
 import { callClaude, MAX_OUTPUT_TOKENS, ROLE_LIMITS, type ClaudeCall } from "../claude/calls";
 import { generationAttempts, pageJudgements, type PageJudgementVerdict } from "../db/schema";
-import { hasRecipeRoom, readHead, writeRecipe } from "../recipe-store";
+import { hasRecipeByteRoom, hasRecipeRoom, readHead, writeRecipe } from "../recipe-store";
 
 // The recipe generation routes of ADR 0018: one page per call, appended to one recipe
 // per origin and start path (ADR 0016), and a page no recipe check explained judged for
@@ -63,6 +63,8 @@ import { hasRecipeRoom, readHead, writeRecipe } from "../recipe-store";
 
 /** A page tried is not sent to the model again for this long (owner, 2026-10-12). */
 export const ATTEMPT_WINDOW_MS = 10 * 60 * 1000;
+/** Room required before paying for a new page's recipe generation. */
+export const MIN_GENERATION_RECIPE_ROOM_BYTES = 32 * 1024;
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** Judgements per recipe per UTC day, whatever the path (owner, ADR 0027). */
 export const JUDGEMENTS_PER_RECIPE_DAY = 20;
@@ -275,7 +277,8 @@ export async function generateRecipe(
     // tombstone (owner, 2026-10-12); a later page never continues it.
     if (head?.state === "revoked") {
       if (base) return { answer: unavailable("recipe-revoked") };
-      return (await hasRecipeRoom(env.DB, scope.ownerId))
+      return (await hasRecipeRoom(env.DB, scope.ownerId)) &&
+        (await hasRecipeByteRoom(env.DB, scope.ownerId, MIN_GENERATION_RECIPE_ROOM_BYTES))
         ? { base: undefined, revoked: head.revision }
         : { answer: unavailable("recipe-limit") };
     }
@@ -293,10 +296,13 @@ export async function generateRecipe(
       return { answer: { version: 1, status: "recipe", change: answer } };
     // A first page adds a recipe, so the owner needs room for one before any model call.
     if (!base)
-      return (await hasRecipeRoom(env.DB, scope.ownerId))
+      return (await hasRecipeRoom(env.DB, scope.ownerId)) &&
+        (await hasRecipeByteRoom(env.DB, scope.ownerId, MIN_GENERATION_RECIPE_ROOM_BYTES))
         ? { base: undefined }
         : { answer: unavailable("recipe-limit") };
     if (!current) return { answer: unavailable("recipe-conflict") };
+    if (!(await hasRecipeByteRoom(env.DB, scope.ownerId, MIN_GENERATION_RECIPE_ROOM_BYTES)))
+      return { answer: unavailable("recipe-limit") };
     const chooser = "chooser" in current.recipe ? current.recipe : undefined;
     // The other branch starts only with the chooser's button for it.
     if (branch === "other" && !chooser?.chooser.other)
@@ -535,7 +541,10 @@ export async function generateEntry(
     }
     // A revoked recipe is generated again as the revision after its tombstone (owner,
     // 2026-10-12), and a new one needs room under the active recipe limit.
-    if (!(await hasRecipeRoom(env.DB, scope.ownerId)))
+    if (
+      !(await hasRecipeRoom(env.DB, scope.ownerId)) ||
+      !(await hasRecipeByteRoom(env.DB, scope.ownerId, MIN_GENERATION_RECIPE_ROOM_BYTES))
+    )
       return { answer: unavailable("recipe-limit") };
     return { revision: head?.revision ?? 0 };
   };
@@ -896,6 +905,9 @@ export async function judgeCompletion(
       { version: 1, state: "active", expectedRevision: head.revision, recipe: withHandlers },
       scope.deviceId,
     );
+    // The page is a challenge whether or not its handlers fit the owner's recipe bytes.
+    if (!written.ok && written.limited)
+      console.warn("Judged page handlers refused by the recipe limit", { recipeId });
     const change = written.ok ? answerable(written.change) : undefined;
     return { version: 1, status: "challenge", ...(change ? { change } : {}) };
   }
@@ -916,7 +928,10 @@ export async function judgeCompletion(
     { version: 1, state: "active", expectedRevision: head.revision, recipe: learnedRecipe },
     scope.deviceId,
   );
+  const limited = !written.ok && written.limited;
+  if (limited) console.warn("Signed-in marker refused by the recipe limit", { recipeId });
   const change = written.ok ? answerable(written.change) : undefined;
   if (change) return { ...signedIn, change };
-  return signedInAnyway ? signedIn : unavailable("recipe-conflict");
+  if (signedInAnyway) return signedIn;
+  return unavailable(limited ? "recipe-limit" : "recipe-conflict");
 }

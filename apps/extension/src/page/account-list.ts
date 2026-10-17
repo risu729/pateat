@@ -52,7 +52,8 @@ function control(element: HTMLElement): boolean {
   return element instanceof HTMLAnchorElement || isButton(element) || entryRole(element);
 }
 
-function pointer(element: HTMLElement): boolean {
+/** Whether `element` is the one that sets `cursor: pointer`, not one that inherits it. */
+export function setsPointer(element: HTMLElement): boolean {
   const view = element.ownerDocument.defaultView;
   if (!view || view.getComputedStyle(element).cursor !== "pointer") return false;
   // `cursor` is inherited: only the element that sets it counts, not its descendants.
@@ -75,7 +76,7 @@ export function entryLike(element: Element): element is HTMLElement {
   }
   if (entryRole(element)) return true;
   if (element.hasAttribute("tabindex") && element.tabIndex >= 0) return true;
-  return pointer(element);
+  return setsPointer(element);
 }
 
 const isEntry = (element: Element): boolean => entryLike(element);

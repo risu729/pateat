@@ -16,7 +16,11 @@ const password = "test_password";
 async function serveSite(context: BrowserContext, fixture: { origin: string }) {
   await context.route(`${site}/**`, async (route) => {
     const url = new URL(route.request().url());
-    const response = await route.fetch({ url: `${fixture.origin}${url.pathname}${url.search}` });
+    // A redirect goes to the browser, so the page's URL follows it, as on a real site.
+    const response = await route.fetch({
+      url: `${fixture.origin}${url.pathname}${url.search}`,
+      maxRedirects: 0,
+    });
     await route.fulfill({ response });
   });
 }
@@ -62,7 +66,8 @@ function syntheticClaude({ abstainOnPassword = false }: { abstainOnPassword?: bo
       if (!found) throw new Error(`No candidate for ${by} ${value}`);
       return found.id;
     };
-    // The `script-link` fixture's login link has no id, so only its text names it.
+    // The `script-link` and `script-url` fixtures' login links have no id, so only their
+    // text names them.
     const login = () =>
       prompt.observation.candidates.some(
         ({ target }) => target.by === "id" && target.value === "login",
@@ -178,6 +183,7 @@ for (const [button, marker] of [
   ["button", "button"],
   ["anchor", "button"],
   ["script-link", "button"],
+  ["script-url", "button"],
   ["button", "link"],
 ] as const)
   test(`a login page without a recipe is generated on the service, logs in and learns its completion (${button}, ${marker} marker)`, async () => {
@@ -255,6 +261,74 @@ for (const [button, marker] of [
       await fixture.close();
     }
   });
+
+test("a tenant's login page is generated under [id] and its recipe signs in on another tenant's page (ADR 0039)", async () => {
+  const fixture = await startLoginFixture(0, { password });
+  const claude = syntheticClaude();
+  const service = await startSyncService({ claude: claude.answer });
+  // Two synthetic tenant IDs in the first path segment, as an identity provider's
+  // `/<tenant>/oauth2/authorize`; the fixture serves its sign-in page under either.
+  const tenants = ["123e4567-e89b-12d3-a456-426614174000", "89abcdef-0123-4567-89ab-cdef01234567"];
+  try {
+    await withVaultProfile(
+      async (open, externalRequests) => {
+        const browser = await open();
+        await browser.context.route(`${site}/**`, async (route) => {
+          const url = new URL(route.request().url());
+          const path = url.pathname.replace(/^\/[\da-f-]{36}(?=\/)/u, "");
+          const response = await route.fetch({ url: `${fixture.origin}${path}${url.search}` });
+          await route.fulfill({ response });
+        });
+        const options = await connect(browser, service);
+
+        const runId = fixture.createRun();
+        const page = await browser.context.newPage();
+        await page.goto(`${site}/${tenants[0]}/sign-in?runId=${runId}`);
+        await expect(page.locator("#signed-in")).toBeVisible();
+        expect(fixture.evidence(runId)).toMatchObject({ posts: 1, allMatched: true });
+        await expect
+          .poll(() => send(options, { version: 1, type: "login.probe.status" }))
+          .toMatchObject({ attempts: [{ state: "authenticated", outcome: "authenticated" }] });
+        // The tenant's ID never leaves the device: the page goes with `[id]` in its place.
+        expect(claude.prompts.map((prompt) => [prompt.task, prompt.observation.path])).toEqual([
+          ["generate", "/[id]/sign-in"],
+          ["judge-sign-in", "/account"],
+        ]);
+        expect(JSON.stringify(claude.prompts)).not.toContain(tenants[0]);
+        expect(JSON.stringify(claude.prompts)).not.toContain(password);
+        expect(await service.generationAttempts()).toEqual([
+          { path: "/[id]/sign-in", base_revision: 0 },
+        ]);
+        const recipes = (await (await service.request("/v1/recipes")).json()) as {
+          changes: { recipe?: { steps: unknown[] } }[];
+        };
+        expect(recipes.changes.map((change) => change.recipe)).toMatchObject([
+          {
+            steps: [
+              { kind: "fill", path: "/[id]/sign-in" },
+              { kind: "click", path: "/[id]/sign-in" },
+            ],
+          },
+        ]);
+
+        // Another tenant's page runs the stored recipe, its steps' path checks passing on
+        // the other ID, with no model call.
+        await page.close();
+        const again = fixture.createRun();
+        const next = await browser.context.newPage();
+        await next.goto(`${site}/${tenants[1]}/sign-in?runId=${again}`);
+        await expect(next.locator("#signed-in")).toBeVisible();
+        expect(fixture.evidence(again)).toMatchObject({ posts: 1, allMatched: true });
+        expect(claude.prompts).toHaveLength(2);
+        expect([...new Set(externalRequests)].sort()).toEqual(["https://127.0.0.1", site]);
+      },
+      { args: ["--ignore-certificate-errors"] },
+    );
+  } finally {
+    await service.close();
+    await fixture.close();
+  }
+});
 
 for (const { name, start, query, passwordPath } of [
   // Next hides the account form and shows the password form on the same path.

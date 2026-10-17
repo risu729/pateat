@@ -48,7 +48,8 @@ function withinBound(request: unknown): boolean {
  */
 export function installPasskeyRelay(send: Send, alive: () => boolean = () => true): () => void {
   // A synchronous throw, such as from an invalidated extension context, still settles.
-  const relay = (message: unknown) => Promise.resolve().then(() => send(message));
+  const relay = (message: unknown) => Promise.try(() => send(message));
+  // Cleanup snapshots the keys because cancel and settle delete entries from this map.
   const heartbeats = new Map<string, ReturnType<typeof setInterval>>();
   const acknowledge = (id: string) =>
     window.postMessage({ channel: PAGE_CHANNEL, type: "ack", id }, location.origin);
@@ -139,11 +140,12 @@ export function installPasskeyRelay(send: Send, alive: () => boolean = () => tru
   const leave = () => {
     for (const id of [...heartbeats.keys()]) cancel(id);
   };
-  window.addEventListener("message", listener);
-  window.addEventListener("pagehide", leave);
+  const controller = new AbortController();
+  const { signal } = controller;
+  window.addEventListener("message", listener, { signal });
+  window.addEventListener("pagehide", leave, { signal });
   return () => {
-    window.removeEventListener("message", listener);
-    window.removeEventListener("pagehide", leave);
+    controller.abort();
     for (const id of [...heartbeats.keys()]) settle(id);
   };
 }

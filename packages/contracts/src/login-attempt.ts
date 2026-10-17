@@ -108,8 +108,9 @@ export const attemptMetadataSchema = v.pipe(
     /** The item's facts read when the login started; never sent anywhere. */
     facts: loginItemFactsSchema,
     /**
-     * For a chooser recipe's login (ADR 0028): what it clicks on the list, which decides
-     * the branch whose steps follow (`chooserRoute`).
+     * For a chooser recipe's login (ADR 0028): what it clicks on the list, or
+     * `other-shown` when the list's path showed the `other` branch's form instead; this
+     * decides the branch whose steps follow (`chooserRoute`).
      */
     chooser: v.optional(v.strictObject({ click: chooserClickSchema })),
     /**
@@ -148,6 +149,8 @@ export const attemptMetadataSchema = v.pipe(
     operationEffect: v.optional(v.picklist(["prepare", "advance", "submit"])),
     mutationIntent: v.optional(v.literal(true)),
     outcome: v.optional(loginOutcomeSchema),
+    /** The login ended on an undecided page without a confirmed sign-in (ADR 0029). */
+    unconfirmed: v.optional(v.literal(true)),
     /**
      * The result of the current effect step settled as unknown; cleared once the attempt
      * moves on. A settled login no longer scopes the passkey bridge (ADR 0027).
@@ -199,7 +202,8 @@ export const attemptMetadataSchema = v.pipe(
      * ever prepared, whatever the item holds later; a handler entered before it moves it
      * along with the plan. A `passkey` route the login switched to keeps it, and never
      * falls back to the password. A chooser login's plan starts with its click on the list
-     * (ADR 0028), so its stop lies in or just past the branch that click leads to.
+     * (ADR 0028), unless it started on the shown `other` branch, so its stop lies in or
+     * just past the branch it runs.
      */
     stopAt: v.optional(v.pipe(integer(MAX_ATTEMPT_STEPS), v.minValue(1))),
     /**
@@ -208,6 +212,12 @@ export const attemptMetadataSchema = v.pipe(
      */
     stopJudged: v.optional(v.literal(true)),
   }),
+  v.check(
+    (metadata) =>
+      metadata.unconfirmed === undefined ||
+      (metadata.state === "authenticated" && metadata.outcome === "authenticated"),
+    "Only an authenticated completion can be unconfirmed",
+  ),
   v.check(
     (metadata) =>
       metadata.stopAt === undefined ||
@@ -300,17 +310,24 @@ export const loginAttemptEventSchema = v.variant("type", [
   v.strictObject({ type: v.literal("OPERATION_OK"), operationId: identifier }),
   v.strictObject({ type: v.literal("SUBMIT_INTENT"), operationId: identifier }),
   v.strictObject({ type: v.literal("SUBMITTED"), operationId: identifier }),
-  v.strictObject({
-    type: v.literal("OBSERVED"),
-    result: v.picklist([
-      "continue",
-      "authenticated",
-      "credential-rejected",
-      "challenge",
-      "unknown",
-    ]),
-    document: v.optional(loginDocumentSchema),
-  }),
+  v.pipe(
+    v.strictObject({
+      type: v.literal("OBSERVED"),
+      result: v.picklist([
+        "continue",
+        "authenticated",
+        "credential-rejected",
+        "challenge",
+        "unknown",
+      ]),
+      document: v.optional(loginDocumentSchema),
+      unconfirmed: v.optional(v.literal(true)),
+    }),
+    v.check(
+      (event) => event.unconfirmed === undefined || event.result === "authenticated",
+      "Only an authenticated observation can be unconfirmed",
+    ),
+  ),
   /**
    * `signedIn`: the runtime confirmed that a top-level move to another origin finished the
    * sign-in, as after a passkey answer for that site (ADR 0022). Only an attempt that may
@@ -592,6 +609,7 @@ function record(
       return {
         document: event.document ?? context.document,
         outcome: event.result === "unknown" ? "unknown-submit" : event.result,
+        ...(event.unconfirmed ? { unconfirmed: true } : {}),
         settled: event.result === "unknown" ? true : undefined,
       };
     case "NAVIGATED":
@@ -1290,7 +1308,7 @@ export function createAttemptMetadata(input: {
   pageOrigin?: string;
   accountSwitched?: boolean;
   fillOnly?: boolean;
-  /** For a chooser recipe's login (ADR 0028): what it clicks on the list. */
+  /** For a chooser recipe's login (ADR 0028): what it clicks on the list, or `other-shown`. */
   chooser?: ChooserClick;
   /** For an item without a password: where its `password` route stops (ADR 0036). */
   stopAt?: number;

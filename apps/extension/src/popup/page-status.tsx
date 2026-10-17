@@ -176,7 +176,12 @@ function attemptLines(status: Status): StatusLine[] {
     if (!why || why === "recipe-not-found") return [];
     return [{ id: "login", tone: "idle", text: `No login started: ${plain(NOT_STARTED, why)}.` }];
   }
-  if (login.state === "authenticated") return [{ id: "login", tone: "ok", text: "Logged in." }];
+  if (login.state === "authenticated")
+    return [
+      login.unconfirmed
+        ? { id: "login", tone: "warn", text: "The sign-in could not be confirmed." }
+        : { id: "login", tone: "ok", text: "Logged in." },
+    ];
   if (login.state === "logged-out")
     return [
       {
@@ -189,7 +194,8 @@ function attemptLines(status: Status): StatusLine[] {
       },
     ];
   const outcome = login.outcome ?? "";
-  if (login.state === "watching")
+  // A result that settled as unknown is watched as after a `challenge` (ADR 0027).
+  if (login.state === "watching" || (login.state === "reconciling" && login.settled))
     return [
       {
         id: "login",

@@ -60,8 +60,11 @@ export async function startLoginFixture(
     const requestedRunId = fixtureUrl.searchParams.get("runId");
     const issuedRunId =
       requestedRunId !== null && runs.has(requestedRunId) ? requestedRunId : undefined;
-    if (path.startsWith("/effect/") && request.method === "POST") {
-      const run = runs.get(path.slice("/effect/".length));
+    // `/sign-in-submit` is the `?button=script-url` sign-in form's own POST, which answers
+    // with a redirect to the account page instead of JSON.
+    const formPost = path === "/sign-in-submit";
+    if ((path.startsWith("/effect/") || formPost) && request.method === "POST") {
+      const run = runs.get(formPost ? (requestedRunId ?? "") : path.slice("/effect/".length));
       if (!run) {
         response.writeHead(404).end();
         return;
@@ -87,6 +90,18 @@ export async function startLoginFixture(
         // Retain counts and matched flags only, never submitted synthetic values.
         body = "";
         const finish = () => {
+          if (formPost) {
+            response.writeHead(303, {
+              // Only fixed locations, never the query's own value.
+              location:
+                fixtureUrl.searchParams.get("marker") === "link"
+                  ? "/account?marker=link"
+                  : "/account",
+              "cache-control": "no-store",
+            });
+            response.end();
+            return;
+          }
           response.writeHead(200, {
             "content-type": "application/json",
             "cache-control": "no-store",
@@ -666,7 +681,10 @@ export async function startLoginFixture(
       // A page with no recipe: a generated one fills the password and opens /account. The
       // page reads its run ID itself, so nothing from the request URL is written into it.
       // `?button=anchor` makes the login button a link without href, as MyJCB's passkey
-      // button; `?button=script-link` a `javascript:` link without an id, as SMBC Direct's.
+      // button; `?button=script-link` a `javascript:` link without an id, as SMBC Direct's;
+      // `?button=script-url` a link whose `javascript:` URL alone copies the shown password
+      // into a hidden input and submits the form, as SMBC Trust Bank's, so only the hidden
+      // input reaches the server.
       // `?marker=link` makes /account show an account link without an id instead of a
       // sign-out button, as ポイントインカム's header.
       const variant = fixtureUrl.searchParams.get("button");
@@ -677,11 +695,24 @@ export async function startLoginFixture(
           ? '<a id="login" onclick="return false">Log in</a>'
           : variant === "script-link"
             ? '<a href="javascript:;" onclick="return false"><span>Log in</span></a>'
-            : '<button id="login" type="button">Log in</button>';
+            : variant === "script-url"
+              ? '<input type="hidden" name="source" value="click"><input type="hidden" name="password"><a href="javascript:copyAndSubmit()"><span>Log in</span></a>'
+              : '<button id="login" type="button">Log in</button>';
       response.end(
         html(
-          `<h1>Synthetic sign-in</h1><form><label>Password<input id="password" type="password"></label>${button}</form>`,
-          `document.querySelector('#login, form a').addEventListener('click', () => {
+          `<h1>Synthetic sign-in</h1><form${variant === "script-url" ? ' method="post"' : ""}><label>Password<input id="password" type="password"></label>${button}</form>`,
+          variant === "script-url"
+            ? `function copyAndSubmit() {
+          const form = document.querySelector('form');
+          const shown = document.getElementById('password').value;
+          form.querySelector('input[type=hidden][name=password]').value = shown;
+          sessionStorage.setItem('submitClicks', String(Number(sessionStorage.getItem('submitClicks') || 0) + 1));
+          sessionStorage.setItem('passwordMatched', String(shown === ${JSON.stringify(password)}));
+          const query = new URLSearchParams(location.search);
+          form.action = '/sign-in-submit?' + new URLSearchParams({runId: query.get('runId') || '', marker: query.get('marker') || ''});
+          form.submit();
+        }`
+            : `document.querySelector('#login, form a').addEventListener('click', () => {
           sessionStorage.setItem('submitClicks', String(Number(sessionStorage.getItem('submitClicks') || 0) + 1));
           sessionStorage.setItem('passwordMatched', String(document.getElementById('password').value === ${JSON.stringify(password)}));
           const runId = new URLSearchParams(location.search).get('runId');
