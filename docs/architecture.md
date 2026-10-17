@@ -367,6 +367,32 @@ TOTP URIs and Bitwarden's Steam variant. Unsupported OTP formats must not be
 silently interpreted as TOTP. Bitwarden setup's manually entered verification
 codes are distinct from future automatic email/SMS challenge retrieval.
 
+### Unsupported Bitwarden sign-in cases
+
+The settings page's Bitwarden setup does not support these cases, checked against the
+code on 2026-10-17; each ends in a refusal rather than a guess:
+
+- A self-hosted server under a path (`https://example.com/bitwarden`) or with separate
+  identity and API addresses: the address must be an HTTPS origin
+  (`normalizeBitwardenProfile` in `packages/bitwarden/src/environment.ts`).
+- Accounts without a master password sign-in: SSO-required organizations, Key Connector
+  and trusted-device encryption, passkey and login-with-device sign-in. Setup ends with
+  an interaction-required error naming the reason.
+- Two-step methods other than an authenticator app (provider 0) and email (provider 1),
+  such as Duo, YubiKey OTP, FIDO2/WebAuthn or a recovery code. The page cannot ask
+  Bitwarden to send an email code, so email needs a code already received, and it never
+  asks Bitwarden to remember the device, so every password sign-in asks for a code.
+- Email addresses that Valibot's `email()` check refuses, such as ones with an
+  apostrophe, `&`, a non-ASCII local part or a one-letter top-level domain, although
+  Bitwarden may accept them.
+- A sign-in or sync that takes longer than 120 seconds: the settings page's request
+  times out and closes its connection to the worker, which cancels the work. A
+  verification challenge expires after 5 minutes without a countdown.
+- More than one operation at a time from one settings page, or more than four sign-ins
+  at once across settings pages: the worker answers `resource-limit`.
+- Changes made in another settings tab or by automatic sync while the page is open: the
+  connection rows show them only after Refresh.
+
 ## Settings, eligibility and operation grants
 
 Settings, exclusions, account defaults and inference settings are edited on the
@@ -466,6 +492,42 @@ transactions/approvals require separate site/action grants and deterministic
 execution checks. Users may preauthorize bounded automatic operations without
 confirmation every time; AI cannot expand those grants. The initial action
 vocabulary contains login operations only.
+
+### Unsupported cases in the popup and settings page
+
+Checked against the code on 2026-10-17:
+
+- A login form in a frame of another origin than the tab's page (ADR 0017). The popup
+  edits the top page's site only: it does not offer a choice that waits in such a frame,
+  its default list and switch edit the top page's origin while frame defaults are saved
+  under the frame's origin, and its recipe line describes the top page's site.
+- A tab that moves to another site while the popup is open. The popup reads the tab
+  once, so its header, switch and default list stay on the site it opened on, while the
+  page section and any choice disappear.
+- Ports and schemes. A default is saved for an exact origin, port included, while an
+  exclusion covers a hostname on every scheme and port; the popup names only the
+  hostname. The settings page accepts a default for an `http://` origin, where Pateat
+  never runs, since its content scripts match HTTPS pages only.
+- Hostnames Chrome opens but Pateat's hostname check refuses, such as labels with an
+  underscore or longer than 63 characters: the popup says Pateat works on HTTPS
+  websites. A trailing-dot hostname (`bank.example.`) is excluded as `bank.example`, but
+  its default is saved for the separate origin `https://bank.example.`.
+- Internationalized domain names show in their punycode form (`xn--…`); a default's
+  origin can be typed only in that form.
+- HTTPS pages where Chrome runs no extension content script, such as the Chrome Web
+  Store or the PDF viewer: the popup still shows the switch and default list.
+- Private windows share the settings of normal ones: the popup's switch and "Use as
+  default" change them for every window; only a pick's "Make it the default" box starts
+  unchecked there (ADR 0021).
+- Exclusion rules name hostnames only: no wildcard patterns, paths or ports, subdomains
+  only through the checkbox, and no warning for a rule on a public suffix such as `com`
+  or for subdomains of an IP address.
+- At most 1000 exclusion rules, 1000 site defaults and 1000 IDs in each item selection
+  or exclusion list; a draft over a limit is not saved and says only that it is invalid.
+- A settings edit that meets a revision conflict is not merged: reloading the saved
+  settings discards it, and it has to be made again.
+- Accounts are told apart by an item ID's first 8 characters when their names read the
+  same; two items whose IDs share that prefix still read the same.
 
 ## Background execution
 
