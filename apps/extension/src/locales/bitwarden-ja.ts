@@ -44,7 +44,7 @@ export const bitwardenJa = {
   "Not signed in for sync": "同期用のログインは行われていません",
   "Sync sign-in unavailable": "同期用のログイン情報を利用できません",
   "Vault synced {{time}}": "保管庫の同期日時：{{time}}",
-  "at an unknown time": "時刻不明",
+  "at an unknown time": "日時不明",
   "Automatic unlock on": "自動ロック解除は有効です",
   "Automatic unlock off": "自動ロック解除は無効です",
   "Automatic unlock unknown": "自動ロック解除の状態は不明です",
