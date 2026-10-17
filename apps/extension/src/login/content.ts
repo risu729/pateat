@@ -17,6 +17,7 @@ import {
   extractAccountListObservation,
   extractEntryObservation,
   extractLoginObservation,
+  extractPasskeyObservation,
   extractSignedInObservation,
   presence,
 } from "../observation/extract";
@@ -312,10 +313,14 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           bare && !(accounts && !accounts.names && !accounts.missed)
             ? identifierInput(document)
             : undefined;
-        const offerEntry = bare && entryWanted && !entryOffered && identifier !== "sole";
+        const passkey = bare && !accounts && !identifier && extractPasskeyObservation(document).ok;
+        const offerEntry =
+          bare && !passkey && entryWanted && !entryOffered && identifier !== "sole";
         if (offerEntry) entryOffered = true;
         watch(starts);
-        if (identifier && !offerEntry) void announce(false, "identifier").catch(() => undefined);
+        if (passkey) void announce(false, "passkey").catch(() => undefined);
+        else if (identifier && !offerEntry)
+          void announce(false, "identifier").catch(() => undefined);
         else if (accounts || offerEntry)
           void announce(false, false, accounts, offerEntry).catch(() => undefined);
         // Nothing to send: the log says why (ADR 0019).
@@ -480,7 +485,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   async function announce(
     start: boolean,
     /** `identifier` for a page that asks for an account identifier alone (ADR 0016). */
-    signIn: boolean | "identifier" = false,
+    signIn: boolean | "identifier" | "passkey" = false,
     list?: {
       path: string;
       names?: string[];
@@ -501,6 +506,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             signIn: {
               path: pagePath(),
               ...(signIn === "identifier" ? { identifier: true as const } : {}),
+              ...(signIn === "passkey" ? { passkey: true as const } : {}),
             },
           }
         : {}),
@@ -714,13 +720,15 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       try {
         const onSite = new Set(command.onSite ?? []);
         result =
-          command.page === "login"
-            ? extractLoginObservation(document, command.known)
-            : command.page === "accounts"
-              ? extractAccountListObservation(document, command.names)
-              : command.page === "entry"
-                ? extractEntryObservation(document, (url) => onSite.has(url.hostname))
-                : extractSignedInObservation();
+          command.page === "passkey"
+            ? extractPasskeyObservation(document)
+            : command.page === "login"
+              ? extractLoginObservation(document, command.known)
+              : command.page === "accounts"
+                ? extractAccountListObservation(document, command.names)
+                : command.page === "entry"
+                  ? extractEntryObservation(document, (url) => onSite.has(url.hostname))
+                  : extractSignedInObservation();
       } catch {
         // A page the extractor cannot read still gets an answer the log can name.
         result = { ok: false, reason: "extract-error" };

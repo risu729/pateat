@@ -6,6 +6,7 @@ import {
   extractAccountListObservation,
   extractEntryObservation,
   extractLoginObservation,
+  extractPasskeyObservation,
   extractSignedInObservation,
 } from "./extract";
 
@@ -3304,5 +3305,36 @@ describe("extractEntryObservation (ADR 0031)", () => {
     // A path without a token keeps the link's ID.
     history.replaceState(null, "", "/oauth2/default/v1/authorize");
     expect(entry().candidates[0]!.target).toEqual({ by: "id", value: token });
+  });
+});
+
+describe("passkey-only start observation", () => {
+  it("extracts only visible sign-in controls and redacts the page URL", () => {
+    history.replaceState(null, "", "/login?token=synthetic-private-token");
+    page(`<h1>Sign in</h1><button id="login-key">Sign in with a passkey</button>
+      <button hidden>Create a passkey</button><input type="hidden" value="synthetic-private-value">`);
+    const result = extractPasskeyObservation(document);
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.observation.candidates).toContainEqual(
+      expect.objectContaining({
+        role: "button",
+        label: "Sign in with a passkey",
+        target: { by: "id", value: "login-key" },
+      }),
+    );
+    const serialized = JSON.stringify(result.observation);
+    expect(serialized).not.toContain("synthetic-private");
+    expect(serialized).not.toContain("Create a passkey");
+  });
+
+  it.each([
+    `<button>Create a passkey</button>`,
+    `<button hidden>Sign in with a passkey</button>`,
+    `<button>Sign in with a passkey</button><input type="email" aria-label="Email">`,
+    `<button>Sign in with a passkey</button><input type="password" aria-label="Password">`,
+  ])("does not qualify registration, hidden buttons or a fill form: %s", (html) => {
+    page(html);
+    expect(extractPasskeyObservation(document).ok).toBe(false);
   });
 });

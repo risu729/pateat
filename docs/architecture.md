@@ -1004,6 +1004,20 @@ contract for a future trusted consumer, but do not assume Chrome use already
 waits for it. Coexistence tests must include overlapping actions; avoid claiming
 race-free operation before a wait/ownership mechanism is established.
 
+Passkey-only start generation is implemented under the provisional policy in
+[ADR 0046](adr/0046-passkey-only-generation.md). After the existing ten-second wait, a
+top document with no fill fields may offer an enabled, locatable button naming a passkey
+or security key, excluding registration and management. A matching eligible vault item
+must also hold a usable discoverable passkey. The value-free request uses
+`passkeyOnly: true` and empty `slots`; the generated declarative recipe exposes only its
+passkey route, preserving ordinary account choice and refusing password fallback. A
+conditional request by itself never offers generation, and no-recipe requests still
+delegate. The inherited post-submission guard covers observed password forms; a manual
+passkey exchange without a password form does not trigger that guard. Existing retry,
+spending, path redaction and document bounds apply. These implementation choices are
+proposed, not recorded owner acceptance; local synthetic verification does not establish
+real-site compatibility.
+
 ## Extension icon
 
 The owner chose the logo on 2026-10-11: a Roman arch whose keystone completes it,

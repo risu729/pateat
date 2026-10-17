@@ -1,5 +1,8 @@
 import {
   actionRoles,
+  fillRoles,
+  namesPasskey,
+  registersPasskey,
   genericSlotIdSchema,
   isCodeField,
   isLoginTarget,
@@ -281,56 +284,7 @@ export function validatePagePlan(
   };
 }
 
-/**
- * Words of a button that registers, adds, sets up, turns on or manages a passkey ("Add a
- * passkey", "Set up security key", "Manage passkeys", "パスキーを登録", "パスキーを設定",
- * "パスキーを有効にする"). The model is told not to name one; this local check also refuses
- * it, and can refuse a sign-in button whose text happens to match. Latin words match whole
- * words, Japanese ones anywhere except 設定済み ("already set up") and 有効な ("valid"),
- * which describe the passkey a sign-in button uses.
- */
-const registration =
-  /\b(?:add|register|create|set\s*up|new|enrol?l|manage|enable|turn\s*on)\b|登録|追加|作成|設定(?!済)|有効(?!な)|管理/iu;
-/**
- * A locator value as words: `addPasskey`, `register_key` and `#set-up-key` read as
- * "add Passkey", "register key" and "set up key".
- */
-const words = (value: string) =>
-  value.replaceAll(/([a-z])([A-Z])/gu, "$1 $2").replaceAll(/[^\p{L}\p{N}]+/gu, " ");
-/** A label as words: split at anything but letters and digits, never inside a word. */
-const labelWords = (value: string) => value.replaceAll(/[^\p{L}\p{N}]+/gu, " ");
-/**
- * Whether a button registers, adds, creates or sets up a passkey or security key rather
- * than signing in with one (ADR 0027): its label, its text or its `id`, `name` or test ID
- * locator reads so. Shared by the generated passkey route and the judge's `passkey`
- * handler.
- */
-export const registersPasskey = (button: Pick<ObservedCandidate, "label" | "target">) =>
-  [button.label, button.target.value].some(
-    (text) => text !== undefined && registration.test(words(text)),
-  );
-
-/**
- * Words that name a passkey or a security key ("Sign in with a passkey", "Use security
- * key", "パスキーでログイン", `#passkeyLoginButton`), matched case-insensitively. Latin words
- * match whole words of a label, or whole camelCase, kebab or snake parts of a locator, so
- * "MyFido" or "Fidor" in a label never match; Japanese words match anywhere, except that
- * セキュリティキー followed by more katakana is another word, such as
- * セキュリティキーボード ("security keyboard").
- */
-const passkeyWording =
-  /\b(?:pass\s*keys?|security\s*keys?|webauthn|fido\d*)\b|パスキー|セキュリティー?\s*キー(?![\p{sc=Katakana}ー])|生体認証/iu;
-/**
- * Whether a button's label, text or `id`, `name` or test ID locator names a passkey or a
- * security key (ADR 0027). The generated passkey route keeps only such a button, so a
- * mislabelled "Sign in with Google" never becomes a passkey click; the judge's `passkey`
- * handler may use it later.
- */
-export const namesPasskey = (button: Pick<ObservedCandidate, "label" | "target">) =>
-  (button.label !== undefined && passkeyWording.test(labelWords(button.label))) ||
-  passkeyWording.test(
-    button.target.by === "text" ? labelWords(button.target.value) : words(button.target.value),
-  );
+export { namesPasskey, registersPasskey } from "@pateat/contracts";
 
 /**
  * One more identifier set the page shows for the same sign-in (ADR 0027), such as a
@@ -354,6 +308,7 @@ export type ValidatedGeneratedPage = ValidatedPagePlan & {
   alternatives?: ValidatedPagePlan[];
   passkeyButton?: string;
   passkeyTarget?: LoginTarget;
+  passkeyOnly?: true;
 };
 export type GeneratedPageRejection =
   | PlanRejection
@@ -470,6 +425,41 @@ export function validateGeneratedPage(
   slots: readonly SemanticSlot[],
   draft: GeneratedPagePlan,
 ): { ok: true; plan: ValidatedGeneratedPage } | { ok: false; reason: GeneratedPageRejection } {
+  if (slots.length === 0) {
+    const button = observation.candidates.find(
+      (candidate) => candidate.id === draft.action.candidate,
+    );
+    if (
+      observation.accounts !== undefined ||
+      observation.candidates.some((candidate) =>
+        (fillRoles as readonly string[]).includes(candidate.role),
+      ) ||
+      draft.fields.length ||
+      draft.alternatives?.length ||
+      draft.accountSwitch !== undefined ||
+      draft.action.purpose !== "submit" ||
+      draft.passkeyButton !== button?.id ||
+      !button ||
+      button.role !== "button" ||
+      !isLoginTarget(button.target) ||
+      !namesPasskey(button) ||
+      registersPasskey(button)
+    )
+      return { ok: false, reason: "empty-plan" };
+    return {
+      ok: true,
+      plan: {
+        fields: [],
+        action: draft.action,
+        passkeyButton: button.id,
+        passkeyTarget: button.target,
+        passkeyOnly: true,
+        steps: [
+          { kind: "click", path: observation.path, target: button.target, purpose: "submit" },
+        ],
+      },
+    };
+  }
   const { passkeyButton, ...sets } = draft;
   const validated = validateGeneratedSets(observation, slots, sets);
   if (!validated.ok) return validated;
