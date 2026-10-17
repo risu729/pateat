@@ -111,12 +111,13 @@ export function snapshotGetOptions(options: unknown): BridgedGetRequest | undefi
   const rpId = optional(pk["rpId"]);
   const userVerification = optional(pk["userVerification"]);
   const mediation = optional(record["mediation"]);
-  // Chrome 149's Immediate UI asks with `uiMode: "immediate"` in place of the origin trial's
-  // `mediation: "immediate"`. It is relayed as that mediation, which the background delegates and
-  // logs (ADR 0007). Any other `uiMode` is left to the browser.
+  // Keep Chrome's current UI mode separate from the obsolete origin-trial mediation.
+  // Immediate UI cannot be programmatically dismissed and rejects credential allowlists.
   const uiMode = optional(record["uiMode"]);
   if (rpId === null || userVerification === null || mediation === null) return undefined;
   if (uiMode !== undefined && uiMode !== "immediate") return undefined;
+  if (uiMode === "immediate" && (record["signal"] !== undefined || allowCredentials.length !== 0))
+    return undefined;
   // Only a plain number is read; any other value is left out, which only lengthens Pateat's
   // wait up to its own limit and never changes what the browser receives.
   const rawTimeout = pk["timeout"];
@@ -129,11 +130,8 @@ export function snapshotGetOptions(options: unknown): BridgedGetRequest | undefi
     allowCredentials,
     ...(rpId === undefined ? {} : { rpId }),
     ...(userVerification === undefined ? {} : { userVerification }),
-    ...(uiMode === "immediate"
-      ? { mediation: uiMode }
-      : mediation === undefined
-        ? {}
-        : { mediation }),
+    ...(mediation === undefined ? {} : { mediation }),
+    ...(uiMode === "immediate" ? { uiMode } : {}),
     ...(timeout === undefined ? {} : { timeout }),
   };
 }

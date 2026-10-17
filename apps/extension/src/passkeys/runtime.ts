@@ -14,6 +14,7 @@ import {
   CHOOSER_MAX_WAIT_MS,
   CHOOSER_MIN_REMAINING_MS,
   CHOOSER_MIN_WAIT_MS,
+  IMMEDIATE_TIMEOUT_MS,
   RUNTIME_TIMEOUT_MS,
   runtimeMessageSchema,
   type RuntimeResult,
@@ -117,6 +118,7 @@ export interface PasskeyRequestReport {
   readonly logoutClicked?: boolean;
   /** The request's mediation, when it names one (ADR 0034). */
   readonly mediation?: "optional" | "conditional" | "required" | "silent" | "immediate" | "other";
+  readonly uiMode?: "immediate";
   /**
    * Why the login's item could not answer a conditional request the login gave it, which
    * then waited for that login again (ADR 0034).
@@ -342,6 +344,11 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
     detail.rpId = admission.request.rpId;
     detail.allowCredentials = admission.request.allowCredentialIds.length;
     const conditional = admission.request.conditional === true;
+    const immediate = admission.request.immediate === true;
+    // These are native Immediate UI restrictions, independent of unattended UP/UV policy.
+    // The isolated relay supplies focus; document lifecycle and incognito come from Chrome.
+    if (immediate && (context.incognito || !context.active || !message.focused))
+      return { kind: "delegate", reason: "immediate-document-not-active" };
     const controller = new AbortController();
     const operation: Operation = {
       documentId,
@@ -354,7 +361,10 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
     const received = Date.now();
     const expire = () =>
       controller.abort(new DOMException("Passkey bridge timed out", "TimeoutError"));
-    const budget = () => options.timeoutMs?.() ?? RUNTIME_TIMEOUT_MS;
+    const budget = () =>
+      immediate
+        ? Math.min(options.timeoutMs?.() ?? RUNTIME_TIMEOUT_MS, IMMEDIATE_TIMEOUT_MS)
+        : (options.timeoutMs?.() ?? RUNTIME_TIMEOUT_MS);
     // A conditional request gets its budget once a login answers it (ADR 0034).
     let timer = conditional ? undefined : setTimeout(expire, budget());
     // The step running when something threw, for the report.
@@ -391,6 +401,9 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       detail.siteDefaultAccepted = accepted.filter((entry) => entry.preferred === true).length;
       if (candidates.siteDefault) detail.siteDefaultItem = candidates.siteDefault;
       detail.complete = candidates.complete;
+      // An unsearched item can change the account offered by this discoverable request.
+      if (immediate && !candidates.complete)
+        return { kind: "delegate", reason: "vault-incomplete" };
       const selection = selectPasskey(admission.request, candidates);
       step = "signed-before-lookup";
       // ADR 0021 D: a username-less request in a tab Pateat already signed in from may follow
@@ -399,7 +412,7 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       // re-authentication, still sign silently. A running login never asks (ADR 0027).
       const usernameLess =
         !login &&
-        options.chooser !== undefined &&
+        (immediate || options.chooser !== undefined) &&
         admission.request.allowCredentialIds.length === 0;
       const signedBefore =
         usernameLess &&
@@ -417,6 +430,14 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       const again = signedBefore || loggedOut;
       if (signedBefore) detail.signedBefore = true;
       if (loggedOut) detail.logoutClicked = true;
+      // Immediate UI either signs with the current unambiguous account or hands on. It
+      // never turns the browser's quick fallback into an extension account-choice window.
+      if (immediate && again) return { kind: "delegate", reason: "immediate-account-choice" };
+      if (immediate && selection.kind === "delegate")
+        return {
+          kind: "delegate",
+          reason: login ? `login-item-${selection.reason}` : selection.reason,
+        };
       const signWith = (candidate: TCandidate) => {
         step = "signing";
         return abortable(
@@ -588,7 +609,11 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       if (conditional) return await waitForLogin(signal);
       await hold(signal);
       // A failed lookup fails closed: the catch below delegates.
-      return await answer(await options.loginAccount?.(context.tabId, origin), signal);
+      const account = options.loginAccount?.(context.tabId, origin);
+      return await answer(
+        immediate ? await abortable(Promise.resolve(account), signal) : await account,
+        signal,
+      );
     } catch {
       answered?.(false);
       const reason = controller.signal.reason as unknown;
@@ -676,6 +701,8 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       const remembered = after.remember;
       const mediation = mediationOf(request);
       if (mediation) detail.mediation = mediation;
+      if (typeof request === "object" && request !== null && "uiMode" in request)
+        if (request.uiMode === "immediate") detail.uiMode = "immediate";
       if (remembered && options.remember) {
         const remember = options.remember;
         // After the reply is on its way: saving settings cancels pending passkey requests.

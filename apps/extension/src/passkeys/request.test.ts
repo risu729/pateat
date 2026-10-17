@@ -632,3 +632,45 @@ describe("credential selection", () => {
     });
   });
 });
+
+describe("Immediate UI admission", () => {
+  it.each([undefined, "optional", "required"])(
+    "admits activated discoverable uiMode with mediation %s",
+    (mediation) => {
+      expect(
+        admit({ ...base, uiMode: "immediate", ...(mediation ? { mediation } : {}) }),
+      ).toMatchObject({
+        kind: "claim",
+        request: { immediate: true, allowCredentialIds: [] },
+      });
+    },
+  );
+  it("requires activation even under the initial presence policy", () => {
+    expect(admit({ ...base, uiMode: "immediate" }, false)).toEqual({
+      kind: "delegate",
+      reason: "no-user-activation",
+    });
+  });
+  it.each(["conditional", "silent", "immediate", "other"])(
+    "does not admit conflicting mediation %s",
+    (mediation) => {
+      expect(admit({ ...base, uiMode: "immediate", mediation }).kind).toBe("delegate");
+    },
+  );
+  it("refuses an allowlist and still enforces the RP boundary", () => {
+    expect(
+      admit({
+        ...base,
+        uiMode: "immediate",
+        allowCredentials: [{ type: "public-key", id: "AQID" }],
+      }),
+    ).toEqual({
+      kind: "delegate",
+      reason: "immediate-allow-credentials",
+    });
+    expect(admit({ ...base, uiMode: "immediate", rpId: "evil.example.net" })).toEqual({
+      kind: "delegate",
+      reason: "rp-id-mismatch",
+    });
+  });
+});
