@@ -99,6 +99,32 @@ test("validates the device name with the shared label rules", async () => {
   expect(client.pair).not.toHaveBeenCalled();
 });
 
+test("marks only the field whose value is invalid", async () => {
+  const client = mockClient();
+  await render(<ServiceConnection client={client} pollMs={60_000} />);
+  const address = page.getByLabelText("Service address", { exact: true });
+  const name = page.getByLabelText("Device name", { exact: true });
+  const pair = page.getByRole("button", { name: "Pair this device", exact: true });
+  await address.fill(ORIGIN);
+  await name.fill("   ");
+  await pair.click();
+  await expect.element(name).toHaveAttribute("aria-invalid", "true");
+  await expect.element(name).toHaveAccessibleDescription("Enter a device name.");
+  await expect.element(name).toHaveFocus();
+  await expect.element(address).not.toHaveAttribute("aria-invalid");
+  await expect.element(address).not.toHaveAttribute("aria-describedby");
+
+  await address.fill("http://pateat.example.com");
+  await name.fill("Chrome");
+  await pair.click();
+  await expect.element(address).toHaveAttribute("aria-invalid", "true");
+  await expect.element(address).toHaveAccessibleDescription(/Enter an HTTPS address/);
+  await expect.element(address).toHaveFocus();
+  await expect.element(name).not.toHaveAttribute("aria-invalid");
+  await expect.element(name).not.toHaveAttribute("aria-describedby");
+  expect(client.pair).not.toHaveBeenCalled();
+});
+
 test("does not pair when site access is declined", async () => {
   const client = mockClient();
   client.requestSiteAccess.mockResolvedValue(false);
@@ -165,6 +191,38 @@ test("retries once when the page is shown or focused again", async () => {
   window.dispatchEvent(new Event("focus"));
   await new Promise((resolve) => setTimeout(resolve, 50));
   expect(pairs).toBe(1);
+  expect(client.pair).toHaveBeenCalledTimes(2);
+});
+
+test("drops the pending retry when the address or device name changes", async () => {
+  const client = mockClient();
+  client.pair.mockResolvedValueOnce(failed("sign-in-needed"));
+  await render(<ServiceConnection client={client} pollMs={60_000} />);
+  await submitPair();
+  await expect.element(page.getByText(/in the new tab/)).toBeVisible();
+  await expect.element(page.getByRole("button", { name: "Try again", exact: true })).toBeVisible();
+  await page.getByLabelText("Service address", { exact: true }).fill("https://other.example.com");
+  await expect
+    .element(page.getByRole("button", { name: "Try again", exact: true }))
+    .not.toBeInTheDocument();
+  await expect
+    .element(page.getByRole("button", { name: "Open sign-in page", exact: true }))
+    .not.toBeInTheDocument();
+  document.dispatchEvent(new Event("visibilitychange"));
+  window.dispatchEvent(new Event("focus"));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(client.pair).toHaveBeenCalledOnce();
+
+  client.pair.mockResolvedValueOnce(failed("sign-in-needed"));
+  await page.getByRole("button", { name: "Pair this device", exact: true }).click();
+  await expect.element(page.getByRole("button", { name: "Try again", exact: true })).toBeVisible();
+  expect(client.pair).toHaveBeenLastCalledWith("https://other.example.com", "Chrome");
+  await page.getByLabelText("Device name", { exact: true }).fill("Work laptop");
+  await expect
+    .element(page.getByRole("button", { name: "Try again", exact: true }))
+    .not.toBeInTheDocument();
+  window.dispatchEvent(new Event("focus"));
+  await new Promise((resolve) => setTimeout(resolve, 50));
   expect(client.pair).toHaveBeenCalledTimes(2);
 });
 
