@@ -12391,6 +12391,53 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         expect(clicks("verify")).toBe(0);
       }, 15_000);
 
+      it("settles a page that hid its button when it submitted the code itself", async () => {
+        vi.useFakeTimers();
+        onClick({ login: toCode, verify: toHome });
+        onCodeFill(() => {
+          // The content script saw the button go hidden: the app moved on in the same
+          // document and kept its code form there, hidden.
+          fake.state.executeReply = { ok: false, reason: "submitted", mutation: "possible" };
+          fake.state.observedPath = "/home";
+          fake.state.unusable = new Set(["app-code", "verify"]);
+          fake.state.extracted = { "signed-in": homePage };
+        });
+        const service = generation(async () => ({ verdict: "signed-in" }));
+        const h = harness({}, { passkeys: noPasskey, generation: service });
+        withTotp(h);
+        codes(h);
+        h.recipes.recipe.mockResolvedValue(coded);
+        expect(await h.hello()).toEqual({ ok: true });
+        await until(() => codeFills().length === 1, 10_000);
+        // Well before the held click's two minutes.
+        await until(settled("authenticated"), 20_000);
+        expect(status()![0]).toMatchObject({ stepIndex: 3, submissions: 2 });
+        expect(codeFills()).toHaveLength(1);
+        expect(clicks("verify")).toBe(0);
+        expect(service.judge).toHaveBeenCalledTimes(1);
+      });
+
+      it("settles a page that hid its button beside the completion before the click", async () => {
+        onClick({ login: toCode, verify: toHome });
+        onCodeFill(() => {
+          // The code went in without a sign of a submission; the page then signs in on the
+          // same path, keeping its code form there, hidden, so the click's wait never ends.
+          fake.state.present = new Set(["app-code", "verify", "logout"]);
+          fake.state.unusable = new Set(["app-code", "verify"]);
+          fake.state.awaited = { ok: false, reason: "timeout" };
+        });
+        const h = harness({}, { passkeys: noPasskey });
+        withTotp(h);
+        codes(h);
+        h.recipes.recipe.mockResolvedValue(coded);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+          timeout: 6_000,
+        });
+        expect(codeFills()).toHaveLength(1);
+        expect(clicks("verify")).toBe(0);
+      }, 10_000);
+
       it("settles a page that moved to another path before the click", async () => {
         onClick({ login: toCode, verify: toHome });
         onCodeFill(() => {
@@ -14241,6 +14288,7 @@ describe("the start page's passkey route (ADR 0027)", () => {
     fake.state.gone = new Set();
     fake.state.extracted = {};
     fake.state.signs = undefined;
+    fake.state.unusable = new Set();
   });
 
   const button = { by: "text" as const, value: "Sign in with a passkey" };
@@ -14913,6 +14961,26 @@ describe("the start page's passkey route (ADR 0027)", () => {
         expect(service.judge).not.toHaveBeenCalled();
       },
     );
+
+    it("judges the page once the clicked button is only hidden in its document", async () => {
+      vi.useFakeTimers();
+      // An app that signs in with the passkey and keeps its sign-in view in the DOM, hidden.
+      onClick({ [button.value]: { path: "/home", present: [button.value], extracted: homePage } });
+      const clicked = fake.state.onExecute!;
+      fake.state.onExecute = async (message, tabId) => {
+        await clicked(message, tabId);
+        fake.state.unusable = new Set([button.value]);
+      };
+      const service = generation(async () => ({ verdict: "signed-in" }));
+      const { h } = start(routed, { generation: service });
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(() => clicks(button.value) === 1);
+      // Well before the held click's two minutes.
+      await until(settled("authenticated"), 20_000);
+      expect(status()![0]).toMatchObject({ route: "passkey", submissions: 1 });
+      expect(clicks(button.value)).toBe(1);
+      expect(service.judge).toHaveBeenCalledTimes(1);
+    });
 
     it("names the login's item for the passkey bridge while the click is held", async () => {
       vi.useFakeTimers();
