@@ -43,6 +43,9 @@ private page captures, or raw model requests. Reviewed observations derived from
 pages, with synthetic slot hints, may be committed as evaluation data
 ([ADR 0012](adr/0012-inference-request-log.md)).
 
+Privacy and release disclosures: [privacy policy and Limited Use statement](privacy.md).
+The policy describes current data flows and remaining publication gates.
+
 ## Decision records
 
 A new ADR starts with `Status:` and `Date:` lines. `Status:` says who accepted it, the

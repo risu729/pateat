@@ -750,7 +750,10 @@ Once the fixes have settled:
   developer account and will also publish there if the store's policies allow it
   (2026-10-11). The owner accepted on 2026-10-11 (18:36 UTC) that a store item gets a
   store-assigned extension ID, so devices pair again, and that the store requires a
-  privacy policy and a Limited Use statement. Risk: the
+  privacy policy and a Limited Use statement. The repository now includes a
+  [policy and Limited Use statement](privacy.md) grounded in the current data paths;
+  a published policy URL, store disclosures and store acceptance remain release gates.
+  Risk: the
   [MV3 code rules](https://developer.chrome.com/docs/webstore/program-policies/mv3-requirements)
   forbid "building an interpreter to run complex commands fetched from a remote source,
   even if those commands are fetched as data". A reviewer may count service-held recipes
