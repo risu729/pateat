@@ -1,5 +1,8 @@
 import {
   deviceIdSchema,
+  profileIdSchema,
+  profileCreateSchema,
+  deviceProfileSchema,
   manageRecipeRevokeSchema,
   manageSettingsWriteSchema,
   syncRecipeIdSchema,
@@ -15,10 +18,12 @@ import { devices, recipeHeads } from "../db/schema";
 import { apiError } from "../http";
 import { findOwner } from "../owners";
 import { selectHeads, toChange, writeRecipe } from "../recipe-store";
+import { listProfiles, copyProfile, assignProfile } from "../profile-store";
 import { readSettings, writeSettings } from "../settings-store";
 import { jsonBody, requireJsonBody, validate } from "../validation";
 
 const deviceParamSchema = v.strictObject({ deviceId: deviceIdSchema });
+const profileParamSchema = v.strictObject({ profileId: profileIdSchema });
 const recipeParamSchema = v.strictObject({ recipeId: syncRecipeIdSchema });
 
 /**
@@ -26,12 +31,31 @@ const recipeParamSchema = v.strictObject({ recipeId: syncRecipeIdSchema });
  * names; an identity that never paired a device has no owner and sees no data.
  */
 export const manageApiRoutes = new Hono<ApiEnv>()
+  .get("/profiles", async (c) => {
+    const ownerId = await findOwner(c.env.DB, c.get("identity"));
+    return c.json({ version: 1 as const, profiles: ownerId ? await listProfiles(c.env.DB, ownerId) : [] });
+  })
+  .post("/profiles", requireJsonBody, jsonBody(profileCreateSchema), async (c) => {
+    const ownerId = await findOwner(c.env.DB, c.get("identity"));
+    if (!ownerId) return apiError(c, 404, { error: "not_paired" });
+    const { name, copyFrom } = c.req.valid("json");
+    const profile = await copyProfile(c.env.DB, ownerId, copyFrom, name);
+    return profile ? c.json(profile, 201) : apiError(c, 404, { error: "not_found" });
+  })
+  .post("/devices/:deviceId/profile", validate("param", deviceParamSchema, { status: 404, error: "not_found" }),
+    requireJsonBody, jsonBody(deviceProfileSchema), async (c) => {
+      const ownerId = await findOwner(c.env.DB, c.get("identity"));
+      if (!ownerId || !await assignProfile(c.env.DB, ownerId, c.req.valid("param").deviceId, c.req.valid("json").profileId))
+        return apiError(c, 404, { error: "not_found" });
+      return c.body(null, 204);
+    })
   .get("/devices", async (c) => {
     const ownerId = await findOwner(c.env.DB, c.get("identity"));
     const rows = ownerId
       ? await drizzle(c.env.DB)
           .select({
             id: devices.id,
+            profileId: devices.profileId,
             label: devices.label,
             createdAt: devices.createdAt,
             lastUsedAt: devices.lastUsedAt,
@@ -65,16 +89,20 @@ export const manageApiRoutes = new Hono<ApiEnv>()
     },
   )
   // The same revision-checked document devices sync through /v1/settings.
-  .get("/settings", async (c) => {
+  .get("/profiles/:profileId/settings", validate("param", profileParamSchema, { status: 404, error: "not_found" }), async (c) => {
     const ownerId = await findOwner(c.env.DB, c.get("identity"));
     if (!ownerId) return apiError(c, 404, { error: "not_paired" });
-    return c.json(await readSettings(c.env.DB, ownerId));
+    const profileId = c.req.valid("param").profileId;
+    if (!(await listProfiles(c.env.DB, ownerId)).some((profile) => profile.id === profileId)) return apiError(c, 404, { error: "not_found" });
+    return c.json(await readSettings(c.env.DB, ownerId, profileId));
   })
-  .put("/settings", requireJsonBody, jsonBody(manageSettingsWriteSchema), async (c) => {
+  .put("/profiles/:profileId/settings", validate("param", profileParamSchema, { status: 404, error: "not_found" }), requireJsonBody, jsonBody(manageSettingsWriteSchema), async (c) => {
     // Settings belong to an owner, who exists once a device was paired.
     const ownerId = await findOwner(c.env.DB, c.get("identity"));
     if (!ownerId) return apiError(c, 404, { error: "not_paired" });
-    const result = await writeSettings(c.env.DB, ownerId, c.req.valid("json"), null);
+    const profileId = c.req.valid("param").profileId;
+    if (!(await listProfiles(c.env.DB, ownerId)).some((profile) => profile.id === profileId)) return apiError(c, 404, { error: "not_found" });
+    const result = await writeSettings(c.env.DB, ownerId, profileId, c.req.valid("json"), null);
     if (!result.ok)
       return c.json({ error: "settings_conflict" as const, current: result.current }, 409);
     return c.json(result.state);

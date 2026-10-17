@@ -1,5 +1,5 @@
 import * as v from "valibot";
-import { deviceIdSchema, deviceLabelSchema } from "./pairing";
+import { deviceIdSchema, deviceLabelSchema, profileIdSchema, profileSchema } from "./pairing";
 import { normalizeHostname, parseSiteUrl } from "./settings";
 
 // Options page ↔ background contracts for the optional sync service connection.
@@ -50,6 +50,7 @@ export const serviceRequestSchema = v.variant("type", [
   v.strictObject({
     version: v.literal(1),
     type: v.literal("service.pair"),
+    profileId: v.optional(profileIdSchema),
     origin: serviceOriginSchema,
     label: deviceLabelSchema,
   }),
@@ -60,6 +61,7 @@ export const serviceRequestSchema = v.variant("type", [
 
 export const serviceErrorCodeSchema = v.picklist([
   "invalid-request",
+  "profile-required",
   "storage-unavailable",
   /** The stored connection cannot be read; `service.forget` is the way out. */
   "storage-corrupt",
@@ -90,6 +92,7 @@ export const serviceResponseSchema = v.variant("ok", [
   v.strictObject({
     ok: v.literal(false),
     error: serviceErrorCodeSchema,
+    profiles: v.optional(v.array(profileSchema)),
     state: v.optional(serviceStateSchema),
   }),
 ]);
