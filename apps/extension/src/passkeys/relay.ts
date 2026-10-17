@@ -48,7 +48,7 @@ function withinBound(request: unknown): boolean {
  */
 export function installPasskeyRelay(send: Send, alive: () => boolean = () => true): () => void {
   // A synchronous throw, such as from an invalidated extension context, still settles.
-  const relay = (message: unknown) => Promise.resolve().then(() => send(message));
+  const relay = (message: unknown) => Promise.try(() => send(message));
   // Cleanup snapshots the keys because cancel and settle delete entries from this map.
   const heartbeats = new Map<string, ReturnType<typeof setInterval>>();
   const acknowledge = (id: string) =>
