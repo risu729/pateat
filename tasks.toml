@@ -57,3 +57,7 @@ description = "Print a new ES256 key set for the OIDC_SIGNING_KEYS Worker secret
 usage = 'arg "[kid]" help="Key ID; defaults to the current date."'
 # The argument arrives as `usage_kid`: quoting it in `run` breaks under the Windows shell.
 run = "node scripts/server/oidc-key.mjs"
+
+["measure:limits"]
+description = "Measure configured limits and synthetic JSON sizes offline; no accounts or model calls."
+run = "node scripts/measure-limits.mjs"
