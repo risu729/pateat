@@ -259,6 +259,7 @@ test("forced colors keep the selected account and the switch position visible", 
     ].join(" ");
   };
   expect(look(checked!)).not.toBe(look(unchecked!));
+  expect(checked!.getBoundingClientRect().height).toBe(unchecked!.getBoundingClientRect().height);
 
   // The track and its knob both use background colors, which forced colors make Canvas.
   const toggle = page.getByRole("switch", { name: "Pateat on this site" }).element();
@@ -277,4 +278,9 @@ test("forced colors keep the selected account and the switch position visible", 
   toggle.checked = true;
   expect(off.knob).not.toBe(off.track);
   expect(off.track).not.toBe(on.track);
+  toggle.disabled = true;
+  const disabled = { track: track.backgroundColor, knob: knob.backgroundColor };
+  toggle.disabled = false;
+  expect(disabled.knob).not.toBe(disabled.track);
+  expect(toggle.getBoundingClientRect()).toMatchObject({ width: 36, height: 20 });
 });
