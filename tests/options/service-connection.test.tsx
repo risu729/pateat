@@ -235,6 +235,31 @@ test("drops the pending retry when the address or device name changes", async ()
   expect(client.pair).toHaveBeenCalledTimes(2);
 });
 
+test("keeps no retry and opens no tab for an address edited while pairing runs", async () => {
+  const client = mockClient();
+  let answer: (response: ServiceResponse) => void = () => undefined;
+  client.pair.mockReturnValueOnce(
+    new Promise((resolve) => {
+      answer = resolve;
+    }),
+  );
+  await render(<ServiceConnection client={client} pollMs={60_000} />);
+  await submitPair();
+  await expect.poll(() => client.pair.mock.calls.length).toBe(1);
+  await page.getByLabelText("Service address", { exact: true }).fill("https://other.example.com");
+  answer(failed("sign-in-needed"));
+  await expect
+    .element(page.getByRole("button", { name: "Pair this device", exact: true }))
+    .toBeEnabled();
+  expect(client.openSignIn).not.toHaveBeenCalled();
+  await expect
+    .element(page.getByRole("button", { name: "Try again", exact: true }))
+    .not.toBeInTheDocument();
+  window.dispatchEvent(new Event("focus"));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(client.pair).toHaveBeenCalledOnce();
+});
+
 test("removes the return listeners on unmount while other page listeners stay active", async () => {
   const client = mockClient();
   client.pair.mockResolvedValue(failed("sign-in-needed"));
