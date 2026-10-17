@@ -3043,6 +3043,11 @@ planned change. Each is current behavior that the service does not handle.
   A misconfigured `ACCESS_AUD` or `ACCESS_PAIR_AUD` (for example with stray
   whitespace) refuses every token with 403.
 
+The [offline synthetic measurement report](research/2026-10-17-synthetic-limits.md)
+provides a reproducible UTF-8 serialization check against these configured limits,
+including a valid wide-marker shape that reaches the device cap before 1,000 recipes.
+It is not hosted enforcement, storage-quota or performance evidence.
+
 ### Device enrollment
 
 Status: direct pairing ([ADR 0020](adr/0020-direct-device-pairing.md)) is implemented
