@@ -82,6 +82,7 @@ import {
   type SavedLoginBinding,
   type SemanticSlot,
   type SettingsResponse,
+  type SettingsChangeCause,
   type SettingsSnapshot,
   type ValueShape,
   type VaultCatalog,
@@ -385,6 +386,7 @@ type SettingsRuntime = {
   update?(
     expectedRevision: number | undefined,
     mutate: (snapshot: SettingsSnapshot) => SettingsSnapshot,
+    cause: SettingsChangeCause,
   ): Promise<SettingsSnapshot>;
 };
 /**
@@ -2644,7 +2646,7 @@ export function createLoginRuntime(
         .update(run.metadata.policyRevision, (snapshot) => ({
           ...snapshot,
           settings: withChoice(snapshot.settings, choice),
-        }))
+        }), "account-choice")
         .then(
           () => "saved" as const,
           () => "write-failed" as const,
