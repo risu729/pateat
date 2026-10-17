@@ -654,8 +654,8 @@ masked number that is not the account, such as a card number on a password page,
 stops a digits-only username: a known limitation. A recipe can name an `accountSwitch`
 target: the button or `<a href>` link that switches to another account
 (`{ "by": "text", "value": "Use another account" }`; text locators match link text only
-here and in a signed-in marker; the recipe must not use it for a click step or
-`rejection`). When the page shows another account, nothing was submitted in the attempt,
+here and in a signed-in marker; the recipe must not use it for a click step, a
+handler, `rejection` or a signed-in marker). When the page shows another account, nothing was submitted in the attempt,
 and that target matches exactly one shown link or button that does not submit a form,
 the background first records the attempt as `account-switched` (blocked, no submission
 spent) and then has the content script click it. The click happens only within 10
@@ -1457,7 +1457,8 @@ A recipe's `completion` is a list of up to four signed-in markers without a path
 ([ADR 0029](adr/0029-local-sign-in-state.md)), in the order the judge found them: the
 first from the page after the first sign-in, each later one from another page the judge
 answered `signed-in` for while no learned marker showed there. A marker is never an
-element the recipe's steps, passkey route or handlers use, on any path. Each may also
+element the recipe's steps, passkey route or handlers use, nor its account switch or
+rejection, on any path. Each may also
 list up to four `absent` elements. The executor reports `authenticated` when one marker
 is unique and visible on any path and every `absent` element of that marker is missing.
 A marker may be a link named by its text, such as an account page link without an `id`,
@@ -1778,7 +1779,8 @@ four-digit rule, since hints such as `4 digits` help map fields. When a login pa
 already shows a chosen account and offers a button or link to use another one, the
 generation role may name it as the plan's `accountSwitch`; it must be an observed button
 or link that the plan neither fills nor uses as its action. The generated recipe keeps
-the first switch a page names that no step clicks. Only links inside the login form are
+the first switch a page names that no step clicks and that is not the passkey button,
+a handler's element, the rejection or a signed-in marker. Only links inside the login form are
 observed, so a switch link outside it is not named. A button whose text a link elsewhere
 on the page shows too, and a button that would submit a form, are never clicked as a
 switch; the attempt then ends `wrong-account`. Locating links by text means in-form
