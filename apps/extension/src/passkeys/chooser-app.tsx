@@ -1,3 +1,5 @@
+import { useTranslation } from "react-i18next";
+import { i18n } from "../i18n";
 import { ChevronRight, Info, KeyRound, Star } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 import * as v from "valibot";
@@ -39,6 +41,7 @@ function Header({ children }: { children: React.ReactNode }) {
  * or closing the window hands the request to the browser or another extension.
  */
 export function ChooserApp({ client }: { client: ChooserClient }) {
+  const { t } = useTranslation(undefined, { i18n });
   const [view, setView] = useState<ChooserView | "ended" | undefined>(
     client.request ? undefined : "ended",
   );
@@ -90,13 +93,13 @@ export function ChooserApp({ client }: { client: ChooserClient }) {
   if (view === "ended")
     return (
       <main className={MAIN}>
-        <Header>Passkey request ended</Header>
+        <Header>{t("Passkey request ended")}</Header>
         <p className="m-0">
-          The site stopped waiting, or Pateat restarted. Close this window and try again.
+          {t("The site stopped waiting, or Pateat restarted. Close this window and try again.")}
         </p>
         <div className="mt-auto flex justify-end border-t border-border pt-4">
           <Button variant="outline" onClick={() => client.close()}>
-            Close
+            {t("Close")}
           </Button>
         </div>
       </main>
@@ -107,13 +110,13 @@ export function ChooserApp({ client }: { client: ChooserClient }) {
   const canSave = view.entries.some((entry) => !entry.preferred);
   return (
     <main className={MAIN}>
-      <Header>Sign in to {host}</Header>
+      <Header>{t("Sign in to {{host}}", { host })}</Header>
       {view.again && (
         <p className="m-0 flex items-center gap-1.5 text-[13px]/5 text-ink-muted">
           <Info aria-hidden size={14} strokeWidth={2} className="shrink-0" />
           {view.loggedOut
-            ? "You logged out of this site in this tab"
-            : "Pateat signed in here from this tab before"}
+            ? t("You logged out of this site in this tab")
+            : t("Pateat signed in here from this tab before")}
         </p>
       )}
       {/* Above the list, so it is seen before a choice is made. */}
@@ -127,11 +130,11 @@ export function ChooserApp({ client }: { client: ChooserClient }) {
         />
         <label htmlFor={checkboxId} className="m-0 text-[15px]/6 font-normal">
           {view.replacesDefault
-            ? `Replace the default account for ${host} with this one`
-            : `Use this account for ${host} from now on`}
+            ? t("Replace the default account for {{host}} with this one", { host })
+            : t("Use this account for {{host}} from now on", { host })}
         </label>
       </p>
-      <ul aria-label="Matching passkeys" className="m-0 flex list-none flex-col gap-2 p-0">
+      <ul aria-label={t("Matching passkeys")} className="m-0 flex list-none flex-col gap-2 p-0">
         {rows.map(({ entry, index }) => (
           // The list never changes while the window is open, so its position is a stable key.
           <li key={index}>
@@ -151,7 +154,7 @@ export function ChooserApp({ client }: { client: ChooserClient }) {
                   <span className="text-[13px]/5 wrap-anywhere text-ink-muted">
                     {entry.userName
                       ? entry.account
-                        ? `${entry.item} in ${entry.account}`
+                        ? t("{{item}} in {{account}}", { item: entry.item, account: entry.account })
                         : entry.item
                       : entry.account}
                   </span>
@@ -160,7 +163,7 @@ export function ChooserApp({ client }: { client: ChooserClient }) {
               {entry.preferred && (
                 <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-accent-tint px-2 text-xs/5 font-semibold text-accent-ink">
                   <Star aria-hidden size={12} strokeWidth={2} />
-                  Default
+                  {t("Default")}
                 </span>
               )}
               <ChevronRight
@@ -179,7 +182,7 @@ export function ChooserApp({ client }: { client: ChooserClient }) {
           disabled={sending}
           onClick={() => void answer({ kind: "browser" })}
         >
-          Use the browser or another extension
+          {t("Use the browser or another extension")}
         </Button>
       </div>
     </main>

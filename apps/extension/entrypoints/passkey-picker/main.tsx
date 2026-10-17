@@ -1,3 +1,4 @@
+import { followLanguagePreference, followLanguageMetadata } from "../../src/i18n";
 import { createRoot } from "react-dom/client";
 import { sendMessage } from "../../src/messaging/protocol";
 import { ChooserApp } from "../../src/passkeys/chooser-app";
@@ -7,6 +8,8 @@ import "../options/style.css";
 
 // The theme is set before the first render, and follows changes made on another page.
 followThemePreference();
+followLanguagePreference();
+followLanguageMetadata("Pateat passkey sign-in");
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Missing passkey chooser root");
