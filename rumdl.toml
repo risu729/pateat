@@ -10,3 +10,4 @@ reflow = true
 [per-file-ignores]
 # The home page's hero shows the title, so the page has no level 1 heading.
 "apps/docs/src/index.md" = ["MD041"]
+"apps/docs/src/ja/index.md" = ["MD041"]
