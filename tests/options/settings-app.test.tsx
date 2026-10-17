@@ -618,6 +618,49 @@ test("an edit made during a save that conflicts stays in the draft unsaved", asy
   expect(client.saveSettings).toHaveBeenCalledTimes(1);
 });
 
+test("a save conflict after an automatic vault sync says so and keeps the draft (ADR 0025)", async () => {
+  const client = mockClient();
+  client.saveSettings.mockResolvedValueOnce({
+    version: 1,
+    ok: false,
+    error: {
+      code: "revision-conflict",
+      message: "Synthetic newer revision exists.",
+      causes: ["automatic-vault-sync"],
+    },
+  });
+  await mount(client);
+  await addSite("draft.example");
+  await expect
+    .element(control("settings-status"))
+    .toMatchTextContent(
+      "Saved settings changed before this save: a Bitwarden vault was synced automatically. Your unsaved draft has been preserved.",
+    );
+  await expect.element(control("site-list")).toMatchTextContent("draft.example");
+  expect(client.saveSettings).toHaveBeenCalledTimes(1);
+});
+
+test("a save conflict names each cause in one sentence", async () => {
+  const client = mockClient();
+  client.saveSettings.mockResolvedValueOnce({
+    version: 1,
+    ok: false,
+    error: {
+      code: "revision-conflict",
+      message: "Synthetic newer revision exists.",
+      causes: ["unknown", "automatic-vault-sync", "service-sync"],
+    },
+  });
+  await mount(client);
+  await addSite("draft.example");
+  await expect
+    .element(control("settings-status"))
+    .toMatchTextContent(
+      "Saved settings changed before this save: settings changed elsewhere, a Bitwarden vault was synced automatically and settings from your other devices arrived from the sync service.",
+    );
+  await expect.element(control("site-list")).toMatchTextContent("draft.example");
+});
+
 test("a default for an account not connected here shows its saved names", async () => {
   const client = mockClient();
   const response = saved(1);
