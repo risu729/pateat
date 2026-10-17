@@ -249,6 +249,46 @@ async function twoPageRecipe(device: Device) {
   return second.change;
 }
 
+/**
+ * A page with every field at its bound: a request for it fits the route's 128 KiB body
+ * limit but not the role's 64 KiB input bound, so the role refuses it before any call.
+ */
+const oversizedPage = (path: string): LoginObservation => {
+  const wide = "\u3042".repeat(120);
+  return {
+    ...observation(path, [
+      {
+        id: "p".repeat(64),
+        role: "password",
+        target: { by: "name", value: "n".repeat(120) },
+        label: wide,
+        placeholder: wide,
+        autocomplete: "current-password",
+        group: "g".repeat(64),
+        maxLength: 1024,
+        minLength: 1000,
+        inputMode: "text",
+      },
+      ...Array.from({ length: 47 }, (_, index) => ({
+        id: `${"b".repeat(60)}${String(index).padStart(4, "0")}`,
+        role: "button" as const,
+        target: { by: "text" as const, value: `${"\u3044".repeat(116)}${index}` },
+        label: wide,
+        placeholder: wide,
+        group: "g".repeat(64),
+      })),
+    ]),
+    title: wide,
+    headings: Array.from({ length: 8 }, () => wide),
+  };
+};
+const oversizedSlots = Array.from({ length: 8 }, (_, index) => ({
+  id: `${"s".repeat(62)}${index}`,
+  kind: "identifier" as const,
+  description: "\u3042".repeat(120),
+  fieldName: `${"\u3042".repeat(119)}${index}`,
+}));
+
 describe("recipe generation", () => {
   it("builds a recipe page by page, learns its completion and logs every call", async () => {
     const device = await owner();
@@ -832,6 +872,17 @@ describe("recipe generation", () => {
     expect(
       await rows("SELECT path FROM generation_attempts WHERE owner_id = ?", device.ownerId),
     ).toEqual([{ path: big.path }]);
+  });
+
+  it("gives an oversized page back: a resend is refused again, not recently-tried", async () => {
+    const device = await owner();
+    const request = { version: 1, observation: oversizedPage("/oversized"), slots: oversizedSlots };
+    const refused = { version: 1, status: "failed", error: "input-too-large" };
+    expect(await (await post(device, "/v1/recipes/generate", request)).json()).toEqual(refused);
+    // No model call was made, so the extension frees the page for its next visit (ADR
+    // 0016); `recently-tried` would tell it the model was called.
+    expect(await (await post(device, "/v1/recipes/generate", request)).json()).toEqual(refused);
+    expect(sent).toEqual([]);
   });
 
   it("answers a conflict when this origin's recipe ID holds another origin", async () => {
@@ -2225,6 +2276,22 @@ describe("page judgement (ADR 0027)", () => {
       reason: "judged-challenge",
     });
     expect(sent).toHaveLength(calls + 1);
+  });
+
+  it("gives an oversized page back without a verdict row or a judgement of the day", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    const calls = sent.length;
+    const big = { ...oversizedPage("/home"), headerText: "\u3046".repeat(1000) };
+    const refused = { version: 1, status: "failed", error: "input-too-large" };
+    expect(await complete(device, change.recipeId, 2, big)).toEqual({ status: 200, body: refused });
+    expect(sent).toHaveLength(calls);
+    // Nothing reached the model, so the page gives the judgement back (ADR 0027): its
+    // resend is refused locally again, not `judgement-unanswered`, and no row holds the
+    // path without a verdict or counts toward the recipe's 20 a day.
+    expect((await complete(device, change.recipeId, 2, big)).body).toEqual(refused);
+    expect(sent).toHaveLength(calls);
+    expect(await judgements(device)).toEqual([]);
   });
 
   it("judges a recipe at most 20 times a UTC day, whatever the path", async () => {
