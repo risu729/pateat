@@ -20,7 +20,7 @@ import { awaitRoomInMinute } from "./limiter";
 type Device = { ownerId: string; deviceId: string; token: string };
 
 async function enrollOwner(): Promise<Device> {
-  const ownerId = `owner-${crypto.randomUUID()}`;
+  const ownerId = crypto.randomUUID();
   await env.DB.prepare("INSERT INTO owners (id, created_at) VALUES (?, ?)")
     .bind(ownerId, Date.now())
     .run();
@@ -31,9 +31,14 @@ async function addDevice(ownerId: string, lastUsedAt = Date.now()): Promise<Devi
   const deviceId = `device-${crypto.randomUUID()}`;
   const token = createDeviceToken();
   await env.DB.prepare(
-    "INSERT INTO devices (id, owner_id, token_hash, created_at, last_used_at) VALUES (?, ?, ?, ?, ?)",
+    "INSERT INTO profiles (owner_id, id, name) VALUES (?, ?, 'Default') ON CONFLICT DO NOTHING",
   )
-    .bind(deviceId, ownerId, await hashDeviceToken(token), lastUsedAt, lastUsedAt)
+    .bind(ownerId, ownerId)
+    .run();
+  await env.DB.prepare(
+    "INSERT INTO devices (id, owner_id, profile_id, token_hash, created_at, last_used_at) VALUES (?, ?, ?, ?, ?, ?)",
+  )
+    .bind(deviceId, ownerId, ownerId, await hashDeviceToken(token), lastUsedAt, lastUsedAt)
     .run();
   return { ownerId, deviceId, token };
 }
@@ -64,6 +69,7 @@ function put(device: Device, path: string, body: unknown) {
 function settings(hostname = "excluded.example"): LocalSettings {
   return {
     ...createDefaultSettings(),
+    connections: [],
     excludedSites: [{ hostname, includeSubdomains: true }],
   };
 }
@@ -154,7 +160,12 @@ describe("device authentication", () => {
     expect((await api(first, "/v1/recipes")).status).toBe(401);
 
     const read = await api(second, "/v1/settings");
-    expect(await read.json()).toEqual({ version: 1, revision: 0, settings: null });
+    expect(await read.json()).toEqual({
+      version: 1,
+      profileId: expect.any(String),
+      revision: 0,
+      settings: null,
+    });
   });
 
   it("renews a device used 89 days ago", async () => {
@@ -229,6 +240,7 @@ describe("settings sync", () => {
     const device = await enrollOwner();
     expect(await (await api(device, "/v1/settings")).json()).toEqual({
       version: 1,
+      profileId: expect.any(String),
       revision: 0,
       settings: null,
     });
@@ -239,7 +251,12 @@ describe("settings sync", () => {
       settings: settings(),
     });
     expect(created.status).toBe(200);
-    expect(await created.json()).toEqual({ version: 1, revision: 1, settings: settings() });
+    expect(await created.json()).toEqual({
+      version: 1,
+      profileId: expect.any(String),
+      revision: 1,
+      settings: settings(),
+    });
 
     const duplicate = await put(device, "/v1/settings", {
       version: 1,
@@ -249,7 +266,7 @@ describe("settings sync", () => {
     expect(duplicate.status).toBe(409);
     expect(await duplicate.json()).toEqual({
       error: "settings_conflict",
-      current: { version: 1, revision: 1, settings: settings() },
+      current: { version: 1, profileId: expect.any(String), revision: 1, settings: settings() },
     });
   });
 
@@ -266,12 +283,12 @@ describe("settings sync", () => {
     const stale = await put(laptop, "/v1/settings", {
       version: 1,
       expectedRevision: 1,
-      settings: createDefaultSettings(),
+      settings: { ...createDefaultSettings(), connections: [] },
     });
     expect(stale.status).toBe(409);
     expect(await stale.json()).toEqual({
       error: "settings_conflict",
-      current: { version: 1, revision: 2, settings: newer },
+      current: { version: 1, profileId: expect.any(String), revision: 2, settings: newer },
     });
   });
 
@@ -298,17 +315,19 @@ describe("settings sync", () => {
 
     expect(await (await api(bob, "/v1/settings")).json()).toEqual({
       version: 1,
+      profileId: expect.any(String),
       revision: 0,
       settings: null,
     });
     const crossWrite = await put(bob, "/v1/settings", {
       version: 1,
       expectedRevision: 1,
-      settings: createDefaultSettings(),
+      settings: { ...createDefaultSettings(), connections: [] },
     });
     expect(crossWrite.status).toBe(409);
     expect(await (await api(alice, "/v1/settings")).json()).toEqual({
       version: 1,
+      profileId: expect.any(String),
       revision: 1,
       settings: settings(),
     });

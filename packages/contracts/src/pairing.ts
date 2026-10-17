@@ -27,9 +27,19 @@ export const extensionIdSchema = v.pipe(v.string(), v.regex(/^[a-p]{32}$/));
 
 export const profileIdSchema = deviceIdSchema;
 export const profileSchema = v.strictObject({ id: profileIdSchema, name: deviceLabelSchema });
-export const profilesSchema = v.strictObject({ version: v.literal(1), profiles: v.array(profileSchema) });
-export const profileCreateSchema = v.strictObject({ version: v.literal(1), name: deviceLabelSchema, copyFrom: profileIdSchema });
-export const deviceProfileSchema = v.strictObject({ version: v.literal(1), profileId: profileIdSchema });
+export const profilesSchema = v.strictObject({
+  version: v.literal(1),
+  profiles: v.array(profileSchema),
+});
+export const profileCreateSchema = v.strictObject({
+  version: v.literal(1),
+  name: deviceLabelSchema,
+  copyFrom: profileIdSchema,
+});
+export const deviceProfileSchema = v.strictObject({
+  version: v.literal(1),
+  profileId: profileIdSchema,
+});
 
 export const devicePairRequestSchema = v.strictObject({
   version: v.literal(1),

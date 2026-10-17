@@ -27,7 +27,7 @@ export type TransportFailure = "unreachable" | "unexpected-response" | "rate-lim
 /** `POST /pair`'s answer (ADR 0020). */
 export type PairResult =
   | { kind: "issued"; result: DevicePairResult }
-  | { kind: "profile-required"; profiles: {id: string; name: string}[] }
+  | { kind: "profile-required"; profiles: { id: string; name: string }[] }
   /**
    * No login session reached the service: a redirect, a `401`, or a body that is not
    * JSON, such as the Access login page, with any status below 500 except 429.

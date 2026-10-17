@@ -19,6 +19,11 @@ Proposed implementation details, not owner-confirmed:
 - One owner-wide revision serializes shared binding writes, profile writes, and
   device profile reassignment. Reassignment advances that revision so an in-flight
   write from a previous profile cannot replace the selected profile.
+- A device with no matching merge base adopts an existing service profile's policy.
+  Only the first uninitialized owner profile is seeded from local settings. This
+  prevents disconnect/re-pair and browser reinstalls from importing earlier local
+  policy into a selected existing profile. Copy creation also advances the owner
+  revision, so an empty copied profile is already initialized.
 - The first pairing creates a profile named Default. Later profiles copy an
   explicitly selected existing profile. Names contain 1–64 printable characters.
 - Profile creation and device selection are available on the owner management page.

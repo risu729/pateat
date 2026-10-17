@@ -156,14 +156,18 @@ beforeEach(() => {
 type Device = { ownerId: string; deviceId: string; token: string };
 
 async function owner({ claude = true } = {}): Promise<Device> {
-  const ownerId = `owner-${crypto.randomUUID()}`;
+  const ownerId = crypto.randomUUID();
   const deviceId = `device-${crypto.randomUUID()}`;
   const token = createDeviceToken();
   await env.DB.batch([
     env.DB.prepare("INSERT INTO owners (id, created_at) VALUES (?, ?)").bind(ownerId, Date.now()),
+    env.DB.prepare("INSERT INTO profiles (owner_id, id, name) VALUES (?, ?, 'Default')").bind(
+      ownerId,
+      ownerId,
+    ),
     env.DB.prepare(
-      "INSERT INTO devices (id, owner_id, token_hash, created_at, last_used_at) VALUES (?, ?, ?, ?, ?)",
-    ).bind(deviceId, ownerId, await hashDeviceToken(token), Date.now(), Date.now()),
+      "INSERT INTO devices (id, owner_id, profile_id, token_hash, created_at, last_used_at) VALUES (?, ?, ?, ?, ?, ?)",
+    ).bind(deviceId, ownerId, ownerId, await hashDeviceToken(token), Date.now(), Date.now()),
   ]);
   if (claude)
     await saveWifCredential(env.DB, ownerId, {

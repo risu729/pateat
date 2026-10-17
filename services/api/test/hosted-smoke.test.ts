@@ -106,9 +106,13 @@ describe("hosted smoke checks", () => {
     const deviceId = crypto.randomUUID();
     await env.DB.batch([
       env.DB.prepare("INSERT INTO owners (id, created_at) VALUES (?, 1)").bind(ownerId),
+      env.DB.prepare("INSERT INTO profiles (owner_id, id, name) VALUES (?, ?, 'Default')").bind(
+        ownerId,
+        deviceId,
+      ),
       env.DB.prepare(
-        "INSERT INTO devices (id, owner_id, token_hash, created_at) VALUES (?, ?, ?, 1)",
-      ).bind(deviceId, ownerId, crypto.randomUUID()),
+        "INSERT INTO devices (id, owner_id, profile_id, token_hash, created_at) VALUES (?, ?, ?, ?, 1)",
+      ).bind(deviceId, ownerId, deviceId, crypto.randomUUID()),
       env.DB.prepare(
         "INSERT INTO settings (owner_id, revision, document, updated_at, updated_by_device_id) VALUES (?, 1, '{}', 1, ?)",
       ).bind(ownerId, deviceId),
