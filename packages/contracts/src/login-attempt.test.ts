@@ -894,6 +894,131 @@ describe("submission and failure reconciliation", () => {
       ).toMatchObject({ state: "blocked", outcome: "cancelled" });
   });
 
+  it("never settles as unknown a login with nothing possibly submitted (ADR 0022)", () => {
+    const top: LoginDocument = { ...document, frameId: 0 };
+    const next: LoginDocument = { ...top, documentId: "document-next" };
+    const ready = transitionLoginAttempt(
+      createAttemptMetadata({
+        id: "attempt-top",
+        recipe,
+        policyRevision: 3,
+        account: { origin: top.origin, connectionId: "demo-personal", itemId: "primary" },
+        choice: { route: "password", variant: 0 },
+        facts,
+        document: top,
+      }),
+      { type: "RESOLVE" },
+    );
+    let filled = transitionLoginAttempt(ready, {
+      type: "PREPARE",
+      operationId: "fill-one",
+      kind: "fill",
+    });
+    filled = transitionLoginAttempt(filled, { type: "MUTATION_INTENT", operationId: "fill-one" });
+    filled = transitionLoginAttempt(filled, { type: "OPERATION_OK", operationId: "fill-one" });
+    // A new page of the origin, or a restarted worker, before the next step ran: a page
+    // that does not show that step yet is no unknown result, since nothing was submitted.
+    for (const [between, paused, page] of [
+      [ready, transitionLoginAttempt(ready, { type: "NAVIGATED", document: next }), next],
+      [filled, transitionLoginAttempt(filled, { type: "NAVIGATED", document: next }), next],
+      [ready, recoverLoginAttempt(ready), top],
+    ] as const) {
+      expect(paused).toMatchObject({ state: "reconciling", outcome: "interrupted" });
+      const unknown = transitionLoginAttempt(
+        paused,
+        { type: "OBSERVED", result: "unknown", document: page },
+        5000,
+      );
+      expect(unknown.settled).toBeUndefined();
+      expect(unknown.watch).toBeUndefined();
+      expect(unknown.outcome).not.toBe("unknown-submit");
+      // The step goes on with its own bounded wait, as on any page.
+      expect(unknown).toMatchObject({
+        state: "ready",
+        stepIndex: between.stepIndex,
+        submissions: 0,
+        document: page,
+      });
+      expect(nextLoginOperation(unknown, recipe, page, "step-again")).toMatchObject({
+        stepIndex: between.stepIndex,
+      });
+    }
+  });
+
+  it("treats a fill that confirmed it changed nothing as no possible submission (ADR 0022)", () => {
+    const top: LoginDocument = { ...document, frameId: 0 };
+    const away: LoginDocument = {
+      origin: "https://other.example",
+      tabId: top.tabId,
+      frameId: 0,
+      documentId: "document-away",
+    };
+    let filling = transitionLoginAttempt(
+      createAttemptMetadata({
+        id: "attempt-top",
+        recipe,
+        policyRevision: 3,
+        account: { origin: top.origin, connectionId: "demo-personal", itemId: "primary" },
+        choice: { route: "password", variant: 0 },
+        facts,
+        document: top,
+      }),
+      { type: "RESOLVE" },
+    );
+    filling = transitionLoginAttempt(filling, {
+      type: "PREPARE",
+      operationId: "fill-one",
+      kind: "fill",
+    });
+    filling = transitionLoginAttempt(filling, { type: "MUTATION_INTENT", operationId: "fill-one" });
+    const failed = transitionLoginAttempt(filling, {
+      type: "FAILED",
+      reason: "structural-mismatch",
+      mutation: "none",
+      operationId: "fill-one",
+      document: top,
+    });
+    expect(failed).toMatchObject({ state: "retryable", retryRequired: true, submissions: 0 });
+    // Leaving the origin ends it `interrupted`, not `left-origin`.
+    expect(transitionLoginAttempt(failed, { type: "NAVIGATED", document: away })).toMatchObject({
+      state: "blocked",
+      outcome: "interrupted",
+    });
+    // A restarted worker finds nothing in flight, and a page without the step is no
+    // unknown result: the step is tried again within its retries.
+    const restored = recoverLoginAttempt(failed);
+    expect(restored).toMatchObject({ state: "reconciling", outcome: "interrupted" });
+    const unknown = transitionLoginAttempt(
+      restored,
+      { type: "OBSERVED", result: "unknown", document: top },
+      5000,
+    );
+    expect(unknown.settled).toBeUndefined();
+    expect(unknown.watch).toBeUndefined();
+    expect(unknown).toMatchObject({ state: "retryable", stepIndex: 0, retries: 0 });
+    expect(transitionLoginAttempt(unknown, { type: "RETRY" })).toMatchObject({
+      state: "ready",
+      stepIndex: 0,
+      retries: 1,
+    });
+    // A fill that may have reached the page still counts as a possible submission.
+    const possible = transitionLoginAttempt(filling, {
+      type: "FAILED",
+      reason: "structural-mismatch",
+      mutation: "possible",
+      operationId: "fill-one",
+      document: top,
+    });
+    expect(possible).toMatchObject({ state: "reconciling" });
+    expect(transitionLoginAttempt(possible, { type: "NAVIGATED", document: away })).toMatchObject({
+      state: "blocked",
+      outcome: "left-origin",
+    });
+    expect(
+      transitionLoginAttempt(possible, { type: "OBSERVED", result: "unknown", document: top }),
+    ).toMatchObject({ state: "reconciling", outcome: "unknown-submit", settled: true });
+  });
+
   it("values the page would not accept end the attempt without a retry", () => {
     const ready = transitionLoginAttempt(detected(), { type: "RESOLVE" });
     const filling = transitionLoginAttempt(ready, {
