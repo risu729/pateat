@@ -994,6 +994,11 @@ describe("page status", () => {
     ["a list of accounts", { page: "accounts" as const }, "accounts"],
     ["a sign-in entry", { page: "entry" as const }, "entry"],
     ["a continuation", { recipeId: "recipe", baseRevision: 1 }, "continuation"],
+    [
+      "a chooser's other branch page",
+      { page: "other" as const, recipeId: "r", baseRevision: 1 },
+      "continuation",
+    ],
     ["a list of accounts after a recipe", { page: "accounts" as const, recipeId: "r" }, "accounts"],
     ["a sign-in page", {}, undefined],
   ])("tells %s apart", (_name, fields, page) => {

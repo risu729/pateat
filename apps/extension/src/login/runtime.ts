@@ -874,10 +874,40 @@ function acceptedObservation(
   return { observation };
 }
 
+/** Roles of a field that can take an account's email address, username or ID. */
+const accountRoles = new Set(["text", "email", "tel", "number"]);
+/**
+ * A field's `autocomplete` that leaves it free to take an account: none, or one for a
+ * username, an email address or a phone number.
+ */
+const accountTokens = new Set([undefined, "off", "username", "email", "tel"]);
+/**
+ * Whether a page asks for an account (ADR 0028): it holds a field that can take one, in the
+ * same form as a password field when it shows one, so a search box or another form's
+ * field beside a password-only form does not count.
+ */
+const asksAccount = (observation: LoginObservation) => {
+  const passwords = observation.candidates.filter((candidate) => candidate.role === "password");
+  return observation.candidates.some(
+    (candidate) =>
+      accountRoles.has(candidate.role) &&
+      accountTokens.has(candidate.autocomplete) &&
+      (!passwords.length || passwords.some((password) => password.group === candidate.group)),
+  );
+};
+
 /** The service's recipe generation routes (ADR 0016, ADR 0018). */
 export interface LoginGeneration {
-  /** `true` when a page may be sent, else why not. */
-  available(origin: string, path: string): Promise<true | GenerationHold>;
+  /**
+   * `true` when a page may be sent, else why not; with `base` and `branch`, as the first
+   * page of that chooser branch (ADR 0028).
+   */
+  available(
+    origin: string,
+    path: string,
+    base?: RecipeGenerationRequest["base"],
+    branch?: ChooserBranch,
+  ): Promise<true | GenerationHold>;
   /**
    * Sends one page: a recipe's first page, or with `base` the page after the final
    * `advance` step of that revision, which continues it. A continuation pulls recipes only,
@@ -1379,9 +1409,10 @@ export type LoginReport = (
       takenOver?: boolean;
       /**
        * `accounts` for a page that lists accounts (ADR 0028), `entry` for a page sent as a
-       * site's sign-in entry (ADR 0031).
+       * site's sign-in entry (ADR 0031), `other` for a form shown on a chooser's path sent
+       * as its `other` branch's first page (ADR 0028).
        */
-      page?: "accounts" | "entry";
+      page?: "accounts" | "entry" | "other";
     }
   | {
       /**
@@ -5866,6 +5897,25 @@ export function createLoginRuntime(
     return generation.available(live.document.origin, live.path).catch(() => undefined);
   }
   /**
+   * Whether a chooser's path may be sent as its `other` branch's first page (ADR 0028):
+   * `true`, why not, or `undefined` for a page that is never sent.
+   */
+  async function offersOther(
+    live: LiveDocument,
+    chooser: LoginChooserRecipe,
+  ): Promise<true | GenerationHold | undefined> {
+    if (!generation || !uris || live.document.frameId !== 0 || live.topUrl) return undefined;
+    if (probeMode && live.document.origin === origin) return undefined;
+    return generation
+      .available(
+        live.document.origin,
+        live.path,
+        { recipeId: chooser.id, revision: chooser.revision },
+        "other",
+      )
+      .catch(() => undefined);
+  }
+  /**
    * The slots to generate for when a vault item's URI matches the page, with the
    * matching items. No field value is read here. Without them, `miss` hears why, for the
    * log: `no-vault-match` when no item fits, or why the vault could not tell.
@@ -6292,7 +6342,7 @@ export function createLoginRuntime(
   function skipGeneration(
     live: LiveDocument,
     reason: string,
-    page?: "entry",
+    page?: "entry" | "other",
     /** A code that tells more, such as why a vault could not tell (ADR 0019). */
     detail?: string,
   ): void {
@@ -6318,9 +6368,19 @@ export function createLoginRuntime(
     scope: GenerationScope,
     /** For a list of accounts (ADR 0028): the shown texts to hide as `[account]`. */
     list?: { names: string[] },
+    /**
+     * A chooser without an `other` branch whose path shows a form instead of its list: the
+     * page is sent as that branch's first page (ADR 0028).
+     */
+    otherless?: LoginChooserRecipe,
   ): Promise<void> {
     if (!generation) return;
-    const page = list ? ({ page: "accounts" } as const) : {};
+    const base = otherless && { recipeId: otherless.id, revision: otherless.revision };
+    const page = list
+      ? ({ page: "accounts" } as const)
+      : base
+        ? ({ page: "other", recipeId: base.recipeId, baseRevision: base.revision } as const)
+        : {};
     const key = frameKey(live.document);
     let sent = false;
     try {
@@ -6365,12 +6425,19 @@ export function createLoginRuntime(
           detail = accepted.detail;
         }
         if (unsent === "cancelled" || read >= EXTRACT_READS) {
-          skipGeneration(live, unsent, undefined, detail);
+          skipGeneration(live, unsent, otherless && "other", detail);
           return;
         }
         // eslint-disable-next-line no-await-in-loop
         await new Promise((resolve) => setTimeout(resolve, EXTRACT_RETRY_MS));
         if (documents.get(key) !== live) return;
+      }
+      // The `other` branch's first page asks for the account. A form without such a field,
+      // as the password form after the person's own click on a listed profile, belongs to
+      // the account branch and is never stored as `other` (ADR 0028).
+      if (otherless && !asksAccount(observation)) {
+        skipGeneration(live, "no-account-field", "other");
+        return;
       }
       const usernames = await readUsernames(live.document.origin, usernameReads(scope));
       const shape = usernames && usernameShape(scope, usernames);
@@ -6378,7 +6445,7 @@ export function createLoginRuntime(
       const hidden = hideUsernames(observation, usernames, live);
       if (documents.get(key) !== live) return;
       if ("reason" in hidden) {
-        skipGeneration(live, hidden.reason);
+        skipGeneration(live, hidden.reason, otherless && "other");
         return;
       }
       const custom = await customSlots(live.document.origin, scope);
@@ -6395,6 +6462,7 @@ export function createLoginRuntime(
               ),
               ...custom,
             ],
+            ...(base ? { base, branch: "other" as const } : {}),
           },
           spin.sent(() =>
             report(live.document, {
@@ -6457,8 +6525,8 @@ export function createLoginRuntime(
       // (ADR 0019).
       if (!sent && documents.get(key) === live)
         if (error instanceof DocumentGone)
-          skipGeneration(live, "unreachable", undefined, error.reason);
-        else skipGeneration(live, "exception");
+          skipGeneration(live, "unreachable", otherless && "other", error.reason);
+        else skipGeneration(live, "exception", otherless && "other");
     }
   }
   /**
@@ -7513,6 +7581,45 @@ export function createLoginRuntime(
         void pressEntry(live, entryRecipe).catch(() => refuseEntry(live, entryRecipe, "exception"));
         return { ok: false, reason: "entry", starts };
       }
+      // The chooser's path shows a sign-in form instead of its list, and the chooser has no
+      // `other` branch yet, as after the person pressed its button for another account: the
+      // page is sent as that branch's first page, as after Pateat's own click, and once
+      // stored the form starts as `other-shown` (ADR 0028, owner 2026-10-17).
+      const otherless =
+        chooser?.chooser.other && !chooser.chooser.afterOther && !previous ? chooser : undefined;
+      const otherOffer = otherless && (await offersOther(live, otherless));
+      if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+      const otherShown = otherless && signIn?.path === live.path ? otherless : undefined;
+      // Logged only for a shown form: the list may still show on this path.
+      if (
+        otherShown &&
+        (otherOffer === "sending" || otherOffer === "sent" || otherOffer === "not-connected")
+      )
+        skipGeneration(live, otherOffer, "other");
+      if (otherShown && otherOffer === true) {
+        // Nor is the page right after a sign-in.
+        if (afterSignIn.get(document.tabId) === document.documentId)
+          skipGeneration(live, "after-sign-in", "other");
+        // Nor a page whose list shows meanwhile: the login clicks there (ADR 0028).
+        else if (await showsNow(live, listReadiness(otherShown))) {
+          if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+          skipGeneration(live, "list-shown", "other");
+        } else {
+          let missed: [GenerationMiss, (string | undefined)?] = ["vault-unavailable", "error"];
+          const scope = await generationSlotsFor(live, (...reason) => {
+            missed = reason;
+          }).catch(() => undefined);
+          if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+          if (scope) {
+            live.state = "generating";
+            delete live.reason;
+            await publish(live);
+            void generateFor(live, scope, undefined, otherShown);
+            return { ok: false, reason: "generating" };
+          }
+          skipGeneration(live, missed[0], "other", missed[1]);
+        }
+      }
       const availability = recipe ? undefined : await offersGeneration(live);
       if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
       let offer = availability === true;
@@ -7640,7 +7747,7 @@ export function createLoginRuntime(
         ok: false,
         reason: recipe ? "form-not-ready" : "recipe-not-found",
         starts,
-        ...(offer ? { generate: true as const } : {}),
+        ...(offer || otherOffer === true ? { generate: true as const } : {}),
         ...(offer && entryPage ? { entry: true as const } : {}),
       };
     }

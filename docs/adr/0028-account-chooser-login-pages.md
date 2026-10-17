@@ -1,7 +1,8 @@
 # ADR 0028: Login pages that list accounts to choose from
 
 Status: accepted by the owner on 2026-10-12 (04:36 to 04:45 UTC), and extended to a
-single shown account and to usernames that are not emails at 08:36 UTC. Implemented
+single shown account and to usernames that are not emails at 08:36 UTC. Amended on
+2026-10-16 and 2026-10-17 for a form shown on the list's path (below). Implemented
 in the service and the extension, with local tests only: it is not yet checked in the
 owner's Chrome. It builds on the
 extension's `advance` continuation of [ADR 0018](0018-recipe-generation-route.md)
@@ -224,7 +225,8 @@ shape:
 `continue` is the button for a shown account beside it (Wise, below). Each branch is the
 login recipe of the page the click leads to, under the chooser's own ID, revision and
 origin, so the executor and the continuation handle it as any login recipe. A branch is
-absent until a login takes it and its page is generated as an ADR 0018 continuation, so
+absent until a login takes it and its page is generated as an ADR 0018 continuation (or,
+for `afterOther`, until the form shows on the list's path, amended 2026-10-17 below), so
 a chooser recipe may have no slots at first; `afterOther` needs `other`. The entry to
 click is never stored. [ADR 0027](0027-per-account-login-routes.md)
 `alternatives` cannot hold the branches: a continuation cannot add a variant, a
@@ -250,7 +252,8 @@ newer chooser without a model call, which the extension sends the page again aga
 when the chooser still lacks the page's branch step. A list of accounts shown again
 after a branch's step is never judged (`not-judgeable`). A form page on the chooser's
 own path, as when no profile is saved, gets no recipe of its own (`recipe-conflict`): it
-is reached only as the `other` branch. The service's retry window and its
+is reached only as the `other` branch, after the list's click or as that branch's first
+page (amended 2026-10-17 below). The service's retry window and its
 once-per-revision judgement are kept per branch as well. The service sends the
 `accounts` texts as they come, so the extension must hide a non-email account name as
 `[account]` before it sends any list.
@@ -336,9 +339,10 @@ the list, a new login runs the `other` branch alone, without a click (`chooser.c
 `other-shown` in the attempt record, and the log's `login.start` names it as `list`); it
 is planned, filled, submitted, continued and judged as that branch. While the list
 shows, even beside such a form, the login clicks on the list as before. Without a stored
-`afterOther` branch nothing changes: the form is still no start, and a reload shows the
-list again, where the login clicks `other`. The person's own click on the button is not
-recorded; the login only reads what the page shows, as for any recipe's first step.
+`afterOther` branch nothing changed (until the 2026-10-17 amendment below): the form was
+still no start, and a reload shows the list again, where the login clicks `other`. The
+person's own click on the button is not recorded; the login only reads what the page
+shows, as for any recipe's first step.
 
 Since that form is now a recipe's first step on the list's path, it also does what any
 first step does:
@@ -358,6 +362,31 @@ first step does:
   refused `no-route` (`password-empty:no-advance`), unless the form asks for a passkey
   by itself and the item holds one ([ADR 0034](0034-answer-page-passkey-requests.md)),
   while a click on `other` from the list stops before the password.
+
+Amended on 2026-10-17 by the owner's decision (00:11 UTC, decision card "A: 生成に送る",
+send it for generation), after the owner's Chrome on Cloudflare still started nothing on
+that form with the build above: the stored chooser had `other` but no `afterOther`,
+since no login had clicked `other` there yet (read from the service's database on
+2026-10-16 15:36 UTC). The form was no start (`login.refused` `not-started`
+`first-step-missing`) and, with a chooser on its path, was never sent for generation.
+Now, when a chooser has `other` and no `afterOther`, and its path in a top-level
+document shows a sign-in form while the list does not show (checked again just before
+sending, else logged `list-shown`), the extension sends that page as the `other`
+branch's first page: the request a login sends after its own click on `other` (`base`
+the chooser, `"branch": "other"`), held per chooser revision and branch as such a page
+is. The service is unchanged; it writes the answer into `afterOther`. The page announces
+again once the chooser comes back and starts on the branch as `other-shown` above, with
+the same rules after a logout and for several matches. Only a form that asks for the
+account is sent: it has a text, email, phone or number field with no `autocomplete` or
+one for a username, an email or a phone number, in the same form as the password field
+when one shows. The password form after the person's own click on a listed profile
+belongs to `afterAccount` and is never stored as `afterOther`, even beside a search box
+(logged `recipe.generate` `skipped` `no-account-field`). The page is not sent right
+after a submitted password form, nor while the document has stopped watching after a
+refusal such as `account-ambiguous`; it is sent once the document announces again, as
+after a pick in the popup or a reload. The log's `recipe.generate` names it `page`
+`other`, with the chooser's ID and revision once it is sent. A chooser whose
+`afterOther` starts on another path still gets nothing on such a form.
 
 Amended on 2026-10-13 by the owner's decision at 06:32 UTC
 ([ADR 0036](0036-passkey-after-the-identifier.md#account-lists)): an item without a
