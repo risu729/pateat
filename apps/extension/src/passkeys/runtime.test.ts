@@ -1681,12 +1681,42 @@ describe("Immediate UI stored-passkey runtime", () => {
     const answered = vi.fn();
     const runtime = createPasskeyRuntime(backing, { extensionId, answered });
     const pending = runtime.handle(immediate(), sender());
-    await vi.waitUntil(() => backing.sign.mock.calls.length === 1);
+    await vi.waitUntil(() => vi.mocked(backing.sign).mock.calls.length === 1);
     expect(backing.sign).toHaveBeenCalledOnce();
     await vi.advanceTimersByTimeAsync(1000);
     expect(await pending).toEqual({ kind: "delegate", reason: "timeout" });
     finish(Uint8Array.of(0x30, 0x06, 0x02, 0x01, 0x01, 0x02, 0x01, 0x01));
     await vi.advanceTimersByTimeAsync(0);
     expect(answered).not.toHaveBeenCalled();
+  });
+});
+
+describe("Immediate UI account boundaries", () => {
+  const message = () => ({ ...get(), request: { ...request, uiMode: "immediate" } });
+  it("delegates even a preferred passkey when another vault could not be searched", async () => {
+    const backing = source({
+      candidates: vi.fn(async () => ({
+        candidates: [{ ...candidate, preferred: true }],
+        complete: false,
+      })),
+    });
+    const runtime = createPasskeyRuntime(backing, { extensionId });
+    expect(await runtime.handle(message(), sender())).toEqual({
+      kind: "delegate",
+      reason: "vault-incomplete",
+    });
+    expect(backing.sign).not.toHaveBeenCalled();
+  });
+  it("scopes the search to the running login's item", async () => {
+    const item = { connectionId: "synthetic-connection", itemId: "login-item" };
+    const backing = source();
+    const runtime = createPasskeyRuntime(backing, { extensionId, loginAccount: () => item });
+    expect(await runtime.handle(message(), sender())).toMatchObject({ kind: "assertion" });
+    expect(backing.candidates).toHaveBeenCalledWith(
+      origin,
+      "example.com",
+      expect.any(AbortSignal),
+      item,
+    );
   });
 });
