@@ -1,6 +1,6 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, test, vi } from "vitest";
-import { page } from "vitest/browser";
+import { cdp, page } from "vitest/browser";
 import { cleanup, render } from "vitest-browser-react";
 // oxlint-disable-next-line import/no-unassigned-import -- Apply the shared extension stylesheet.
 import "../../apps/extension/entrypoints/options/style.css";
@@ -21,7 +21,10 @@ const HOSTNAME =
   "a-rather-long-subdomain-name.accounts.an-unusually-long-bank-name-for-a-test.example";
 const ORIGIN = `https://${HOSTNAME}`;
 
-afterEach(() => cleanup());
+afterEach(async () => {
+  await cleanup();
+  await cdp().send("Emulation.setEmulatedMedia", { features: [] });
+});
 
 test("long hostnames and usernames wrap inside the 360px popup", async () => {
   await page.viewport(360, 800);
@@ -182,4 +185,96 @@ test("the page section's long log codes wrap inside the 360px popup", async () =
   }
   const link = document.querySelector("#popup-open-diagnostics")!;
   expect(link.getBoundingClientRect().right).toBeLessThanOrEqual(right);
+});
+
+test("forced colors keep the selected account and the switch position visible", async () => {
+  await page.viewport(360, 800);
+  await cdp().send("Emulation.setEmulatedMedia", {
+    features: [{ name: "forced-colors", value: "active" }],
+  });
+  const settings = createDefaultSettings();
+  settings.siteDefaults.push({
+    origin: ORIGIN,
+    provider: "dummy",
+    userId: "demo-work-account",
+    itemId: "primary",
+    itemName: "Demo team account",
+    accountName: "Demo work vault",
+  });
+  const client = {
+    getSettings: vi.fn<SettingsClient["getSettings"]>().mockResolvedValue({
+      version: 1,
+      ok: true,
+      snapshot: { version: 1, revision: 0, settings },
+      catalog: DUMMY_VAULT_CATALOG,
+    }),
+    saveSettings: vi.fn<SettingsClient["saveSettings"]>(),
+    findSiteAccounts: vi.fn<SettingsClient["findSiteAccounts"]>().mockResolvedValue({
+      version: 1,
+      ok: true,
+      origin: ORIGIN,
+      complete: true,
+      accounts: [
+        { connectionId: "demo-personal", itemId: "primary", uri: true, passkey: false },
+        { connectionId: "demo-work", itemId: "primary", uri: true, passkey: false },
+      ],
+    }),
+  };
+  const choices = {
+    get: vi.fn<ChoiceClient["get"]>().mockResolvedValue({ ok: false, reason: "no-choice" }),
+    pick: vi.fn<ChoiceClient["pick"]>(),
+    status: vi.fn<ChoiceClient["status"]>().mockResolvedValue({ ok: false, reason: "no-page" }),
+  };
+  await render(
+    <QueryClientProvider client={createMetadataQueryClient()}>
+      <SiteApp
+        client={client}
+        choices={choices}
+        host={{
+          currentTab: async () => ({ id: 7, url: `${ORIGIN}/login`, incognito: false }),
+          openSettings: vi.fn(),
+          openDiagnostics: vi.fn(),
+          close: vi.fn(),
+          watchSettings: () => () => {},
+        }}
+      />
+    </QueryClientProvider>,
+  );
+  expect(matchMedia("(forced-colors: active)").matches).toBe(true);
+  const radios = page.getByRole("group", { name: "Default account" }).getByRole("radio");
+  await expect.element(radios).toHaveLength(2);
+  const [unchecked, checked] = radios.elements().map((radio) => radio.closest("label")!);
+  expect(checked!.querySelector("input")!.checked).toBe(true);
+  // Forced colors replace the accent border, tint and inset shadow with the same system
+  // colors on every card, so the selection needs a mark of its own.
+  const look = (element: Element) => {
+    const style = getComputedStyle(element);
+    return [
+      style.borderTopWidth,
+      style.borderTopColor,
+      style.outlineStyle,
+      style.outlineWidth,
+      style.outlineColor,
+      style.backgroundColor,
+    ].join(" ");
+  };
+  expect(look(checked!)).not.toBe(look(unchecked!));
+
+  // The track and its knob both use background colors, which forced colors make Canvas.
+  const toggle = page.getByRole("switch", { name: "Pateat on this site" }).element();
+  if (!(toggle instanceof HTMLInputElement)) throw new Error("the switch is not an input");
+  expect(toggle.checked).toBe(true);
+  const track = getComputedStyle(toggle);
+  const knob = getComputedStyle(toggle, "::after");
+  const canvas = getComputedStyle(document.body).backgroundColor;
+  expect(Number.parseFloat(track.borderTopWidth)).toBeGreaterThan(0);
+  expect(track.borderTopColor).not.toBe(canvas);
+  const on = { track: track.backgroundColor, knob: knob.backgroundColor };
+  expect(on.knob).not.toBe(on.track);
+  // Flip only the rendered state to read the off position's colors.
+  toggle.checked = false;
+  const off = { track: track.backgroundColor, knob: knob.backgroundColor };
+  toggle.checked = true;
+  expect(off.knob).not.toBe(off.track);
+  expect(off.track).not.toBe(on.track);
 });
