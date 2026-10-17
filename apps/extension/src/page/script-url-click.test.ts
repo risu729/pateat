@@ -45,11 +45,12 @@ describe("runsScriptUrl", () => {
   it("reads the parsed URL of an `<a href>`", () => {
     document.body.innerHTML = `<a id="a" href="javascript:;">A</a><a id="b" href=" JavaScript:void 0">B</a>
       <a id="c" href="java&#9;script:x()">C</a><a id="d" href="#">D</a><a id="e" onclick="x()">E</a>
-      <a id="f" href="https://example.test/javascript:">F</a><button id="g">G</button><a id="h" href="data:,x">H</a>`;
+      <a id="f" href="https://example.test/javascript:">F</a><button id="g">G</button><a id="h" href="data:,x">H</a><a id="i" href="VBScript:x">I</a>`;
     const ids = [...document.querySelectorAll("[id]")]
       .filter((element) => runsScriptUrl(element))
       .map((element) => element.id);
-    expect(ids).toEqual(["a", "b", "c"]);
+    // `data:` and `vbscript:` URLs never navigate from a page, so either world may click them.
+    expect(ids).toEqual(["a", "b", "c", "h", "i"]);
   });
 });
 

@@ -49,6 +49,7 @@ compatibility claim or an alternative cloud-browser implementation.
 | Offscreen crypto host   | Own Dedicated Workers for local SDK operations and hard cancellation                     | Yes, private background channel only                            |
 | Isolated content script | Extract sanitized form structure, validate document identity, execute fixed DOM operations | Only the specific values being filled, briefly                  |
 | MAIN-world bridge       | Mediate WebAuthn requests and return results to the site                                   | No vault keys; assertions necessarily reach the requesting site |
+| MAIN-world click relay  | Click a `javascript:` link the isolated script names, under the page's own policy          | No; it receives no values                                       |
 | Settings page           | Vault connection, re-authentication, unlock and service pairing                            | Deliberate user setup only; no auto-opening during login        |
 | Toolbar popup           | Current site's default account and exclusion; choosing among several matches (ADR 0021) | Item names and login usernames only; opened only by the user    |
 | Passkey chooser window  | Choosing a passkey for one pending request: several match, or Pateat signed in the tab   | Item names and passkey user names only                           |
@@ -1508,8 +1509,9 @@ as buttons, so pages whose login control is one, such as MyJCB and SMBC Direct, 
 a generated recipe. Chrome runs a `javascript:` URL that a click follows under the
 content security policy of the world that clicked, and the login content script's
 isolated world has the extension's own policy. So a click Pateat makes on an `<a href>`
-whose URL, as the browser parses it, is `javascript:` (`src/page/script-url-click.ts`)
-is made in the page's main world by `login-main.js`, which runs at document start in the
+whose URL, as the browser parses it, is `javascript:` (`src/page/script-url-click.ts`;
+`data:` and `vbscript:` links take the same path, though Chrome follows neither) is made
+in the page's main world by `login-main.js`, which runs at document start in the
 MAIN world wherever the login script runs (every HTTPS page and frame), with no
 permission or host access of its own. The isolated script dispatches a fixed,
 non-bubbling event that carries nothing on the link itself; the main-world listener
@@ -1517,8 +1519,13 @@ clicks that link once, only when it is such a link, and cancels the event. When 
 cancels it, as when the script did not load, the isolated script clicks the link itself,
 as before; only one world clicks, so the link's `onclick` handler runs once, and
 whether the page reacted is still judged by the attempt's own checks, never by anything
-the main world reports. A page sees the event and can click its own links anyway, so the
-bridge gives it nothing new. Every other click, including links with other URLs, buttons
+the main world reports. A page sees the event and can click its own links anyway, so it
+gains no power over its own login it lacked, though the event tells any HTTPS page or
+frame that Pateat is installed (the passkey bridge does so in top-level documents). A
+link in a closed shadow root is still clicked from the isolated world, since the
+main-world listener sees only its host. The click on a list's link for another account
+(ADR 0028) takes the same path, so such a `javascript:` link now runs its URL. Every
+other click, including links with other URLs, buttons
 and form submits, is made in the isolated world as before. Before this, a link whose
 action is its URL alone never submitted: on 2026-10-13 a recruiting site's sign-in
 logged `Refused to run the JavaScript URL` in the console after such a click,

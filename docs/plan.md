@@ -505,8 +505,8 @@ than in this repository.
   script's own `script-src` policy. Such a click is now made in the page's main world
   ([architecture](architecture.md#declarative-recipes-and-ai); agent implementation
   choice under the owner's 2026-10-11 decision that script links are clicked as buttons;
-  local DOM tests and a standalone extension in Chromium 141, the synthetic browser test
-  not yet run in CI). Check that page in the owner's Chrome.
+  local DOM tests, a standalone extension in Chromium 141 and the synthetic browser test
+  in CI). Check that page in the owner's Chrome.
 - Known faults moved from phase 1 (owner, 2026-10-12 20:35 UTC), fixed when a real site
   shows them again: the `reconciling` exception seen on SBI証券, and `generate` ignoring
   a failed sync after generation (both recorded under phase 1).

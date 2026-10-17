@@ -10,21 +10,31 @@
  * listener ({@link installMainWorldClicks}) clicks it and cancels the event. The event
  * carries nothing, and the main world, which the page controls, can only click a link the
  * page could click itself. Nothing is read back from it but whether the event was
- * cancelled: when no listener cancels it (the script did not load, or the page stopped the
- * event), the isolated world clicks as before. A page that cancels the event without
- * clicking only refuses its own login, which the attempt's checks of the page report.
+ * cancelled: when no listener cancels it (the script did not load, the page stopped the
+ * event, or the link sits in a closed shadow root, where the listener sees only the host),
+ * the isolated world clicks as before. A page can patch what the listener calls, or cancel
+ * the event without clicking, but only to refuse or repeat its own login, which the
+ * attempt's checks of the page report; it gains nothing it could not do itself. The event
+ * does tell a page, in any HTTPS frame, that Pateat is installed.
  */
 
 /** The event's fixed name; it neither bubbles nor carries a detail. */
 export const MAIN_WORLD_CLICK = "pateat-main-world-click";
 
-/** Whether `element` is an `<a href>` whose URL, as the browser parses it, is `javascript:`. */
+/**
+ * The schemes of a script URL, as `scriptHref` in `text.ts` reads a script link. Only a
+ * `javascript:` URL runs; Chrome blocks top-level `data:` navigations and has no
+ * `vbscript:`, so such a link does the same from either world.
+ */
+const scriptSchemes: readonly string[] = ["javascript:", "data:", "vbscript:"];
+
+/** Whether `element` is an `<a href>` whose URL, as the browser parses it, is a script URL. */
 export function runsScriptUrl(element: unknown): element is HTMLAnchorElement {
   // `protocol` reads the parsed URL: case, surrounding spaces and tabs inside do not matter.
   return (
     element instanceof HTMLAnchorElement &&
     element.hasAttribute("href") &&
-    element.protocol === "javascript:"
+    scriptSchemes.includes(element.protocol)
   );
 }
 
@@ -49,7 +59,9 @@ export function pressElement(element: HTMLElement): void {
  * such as one a page script names, is left alone. Returns the removal.
  */
 export function installMainWorldClicks(): () => void {
-  // Taken at document start, before page scripts can replace it.
+  // Taken at document start, before page scripts can replace it. The other calls below are
+  // looked up when the event comes, so a page can patch them, but only to break its own
+  // login.
   const click = HTMLElement.prototype.click;
   const listener = (event: Event) => {
     // The link itself, also inside an open shadow root.
