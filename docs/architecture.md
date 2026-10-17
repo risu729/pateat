@@ -2098,11 +2098,12 @@ field exclusions and custom-field review, which need the device's vault catalog
   state. The service copy of settings holds no `connections`: the extension uploads
   none, a web write must have none, and the page drops any that another client stored.
   A web write also stays within the 120 KiB document size devices upload. An identity
-  with no paired device has no settings to edit and is told to pair one. Devices receive the change on their next
-  settings or recipe sync. The device ID columns recording who wrote a settings or
-  recipe revision are nullable; null means the web UI wrote it. The Claude identifiers
-  are written whole by `PUT /manage/api/claude` without a revision, since only the owner
-  edits them and devices never do; an identity with no paired device has none either.
+  with no paired device has no settings to edit and is told to pair one. Devices receive
+  the change on their next settings or recipe sync. The device ID columns recording who
+  wrote a settings or recipe revision are nullable; null means the web UI wrote it. The
+  Claude identifiers are written whole by `PUT /manage/api/claude` without a revision,
+  since only the owner edits them and devices never do; an identity with no paired
+  device has none either.
 - Display names. Site defaults and bindings keep display-only names beside their IDs, so
   the page can name them: `itemName`, the item's label (optional on a site default), and
   an optional `accountName`, the label the owner gave the vault connection the account
