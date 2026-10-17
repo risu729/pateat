@@ -2133,12 +2133,14 @@ export function createLoginRuntime(
    */
   function heldElsewhere(tabId: number, siteOrigin: string): boolean {
     const now = Date.now();
-    return [...persisted.values()].some(
-      (entry) =>
-        entry.account.origin === siteOrigin &&
-        entry.document.tabId !== tabId &&
-        holdsSite(entry, now),
-    );
+    return persisted
+      .values()
+      .some(
+        (entry) =>
+          entry.account.origin === siteOrigin &&
+          entry.document.tabId !== tabId &&
+          holdsSite(entry, now),
+      );
   }
   /** Whether another tab asks for an account after a logout of the origin (ADR 0021 D). */
   function askedElsewhere(tabId: number, siteOrigin: string): boolean {
@@ -2642,7 +2644,7 @@ export function createLoginRuntime(
       return;
     }
     // Saving bumps the revision every attempt checks; never stop another login with it.
-    if ([...attempts.values()].some((other) => other !== run && inProgress(other))) {
+    if (attempts.values().some((other) => other !== run && inProgress(other))) {
       outcome("login-in-progress");
       return;
     }
@@ -8138,9 +8140,9 @@ export function createLoginRuntime(
     const run = attempts.get(tabId);
     return (
       (run !== undefined && siteOf(run.metadata.account.origin) === site) ||
-      [...persisted.values()].some(
-        (entry) => entry.document.tabId === tabId && siteOf(entry.account.origin) === site,
-      )
+      persisted
+        .values()
+        .some((entry) => entry.document.tabId === tabId && siteOf(entry.account.origin) === site)
     );
   }
   /** Whether any tab keeps a logout state for an origin of `site` (ADR 0021 D). */
@@ -8149,12 +8151,14 @@ export function createLoginRuntime(
   /** Whether another tab's login of an origin of `site` holds it (ADR 0022). */
   function siteHeldElsewhere(tabId: number, site: string): boolean {
     const now = Date.now();
-    return [...persisted.values()].some(
-      (entry) =>
-        entry.document.tabId !== tabId &&
-        siteOf(entry.account.origin) === site &&
-        holdsSite(entry, now),
-    );
+    return persisted
+      .values()
+      .some(
+        (entry) =>
+          entry.document.tabId !== tabId &&
+          siteOf(entry.account.origin) === site &&
+          holdsSite(entry, now),
+      );
   }
   /**
    * The tab's logout click on `site` while it still waits for the site's first step (ADR
@@ -8328,7 +8332,7 @@ export function createLoginRuntime(
   }
   /** Whether the check of a page after the tab's entry press is running. */
   const entryChecked = (tabId: number) =>
-    [...entryChecks.keys()].some((key) => key.startsWith(`${tabId} `));
+    entryChecks.keys().some((key) => key.startsWith(`${tabId} `));
   /**
    * Checks an entry press whose next page did not announce in time (ADR 0031). A tab now on
    * another site's web page blocks it as `left-site`; one still on the pressed URL, or with
@@ -9042,13 +9046,13 @@ export function createLoginRuntime(
         ...(probeMode ? [`${origin}/*`] : []),
         ...(sites ? (await sites.origins()).map((entry) => `${entry}/*`) : []),
         // An automatically chosen account has no saved default until it authenticates.
-        ...[...persisted.values()].map((entry) => `${entry.account.origin}/*`),
+        ...persisted.values().map((entry) => `${entry.account.origin}/*`),
       ];
       const tabs = patterns.length ? await browser.tabs.query({ url: patterns }) : [];
       // A frame's attempt lives in a tab whose own URL may be on another origin.
       const tabIds = new Set([
         ...tabs.flatMap((tab) => (tab.id === undefined ? [] : [tab.id])),
-        ...[...persisted.values()].map((entry) => entry.document.tabId),
+        ...persisted.values().map((entry) => entry.document.tabId),
       ]);
       for (const tabId of tabIds)
         void browser.tabs
@@ -9069,8 +9073,8 @@ export function createLoginRuntime(
   async function active(): Promise<boolean> {
     await loaded;
     return (
-      [...attempts.values()].some(inProgress) ||
-      [...persisted.values()].some((metadata) => !terminal(metadata) && !idle(metadata))
+      attempts.values().some(inProgress) ||
+      persisted.values().some((metadata) => !terminal(metadata) && !idle(metadata))
     );
   }
   /**
