@@ -334,7 +334,8 @@ export function SitePolicy({
         return;
       }
       if (accountsPending) {
-        setSiteError(WAIT_FOR_ACCOUNTS);
+        setSiteError("");
+        setAccountError(WAIT_FOR_ACCOUNTS);
         return;
       }
       const origin = validated.output;
@@ -433,7 +434,7 @@ export function SitePolicy({
   const accountsPending =
     accountOrigin !== undefined && (queriedOrigin !== accountOrigin || accounts.isPending);
   // The wait message no longer applies once the accounts are listed.
-  const siteMessage = siteError === WAIT_FOR_ACCOUNTS && !accountsPending ? "" : siteError;
+  const accountMessage = accountError === WAIT_FOR_ACCOUNTS && !accountsPending ? "" : accountError;
   const found =
     !accountsPending && accounts.data?.ok && accounts.data.origin === accountOrigin
       ? accounts.data
@@ -677,8 +678,8 @@ export function SitePolicy({
                   type="text"
                   placeholder="https://bank.example"
                   autoComplete="off"
-                  aria-describedby={siteMessage ? "site-error" : undefined}
-                  aria-invalid={Boolean(siteMessage)}
+                  aria-describedby={siteError ? "site-error" : undefined}
+                  aria-invalid={Boolean(siteError)}
                   value={field.state.value}
                   onBlur={field.handleBlur}
                   onChange={(event) => {
@@ -700,11 +701,11 @@ export function SitePolicy({
                     id="default-account"
                     className={controlClass}
                     aria-describedby={
-                      accountError
+                      accountMessage
                         ? "default-account-error default-account-note"
                         : "default-account-note"
                     }
-                    aria-invalid={Boolean(accountError)}
+                    aria-invalid={Boolean(accountMessage)}
                     disabled={!accountOptions.length}
                     value={shownAccount}
                     onBlur={field.handleBlur}
@@ -764,14 +765,14 @@ export function SitePolicy({
             )}
           </siteForm.Field>
         </div>
-        {siteMessage && (
+        {siteError && (
           <p id="site-error" className="validation-error m-0" role="alert">
-            {siteMessage}
+            {siteError}
           </p>
         )}
-        {accountError && (
+        {accountMessage && (
           <p id="default-account-error" className="validation-error m-0" role="alert">
-            {accountError}
+            {accountMessage}
           </p>
         )}
         <div className="flex flex-wrap gap-2">
