@@ -5,7 +5,7 @@ import { createMiddleware } from "hono/factory";
 import { devices } from "./db/schema";
 import { apiError } from "./http";
 
-export type DeviceScope = { ownerId: string; deviceId: string };
+export type DeviceScope = { ownerId: string; deviceId: string; profileId: string };
 /** A verified external identity; the owner is looked up from it, never from input. */
 export type AccessIdentity = { issuer: string; subject: string };
 export type ApiEnv = {
@@ -49,6 +49,7 @@ export const requireDevice = createMiddleware<ApiEnv>(async (c, next) => {
     .select({
       id: devices.id,
       ownerId: devices.ownerId,
+      profileId: devices.profileId,
       lastUsedAt: devices.lastUsedAt,
       revokedAt: devices.revokedAt,
     })
@@ -70,6 +71,6 @@ export const requireDevice = createMiddleware<ApiEnv>(async (c, next) => {
       .where(and(eq(devices.id, device.id), lte(devices.lastUsedAt, stale)))
       .catch(() => undefined);
   }
-  c.set("scope", { ownerId: device.ownerId, deviceId: device.id });
+  c.set("scope", { ownerId: device.ownerId, deviceId: device.id, profileId: device.profileId });
   return next();
 });
