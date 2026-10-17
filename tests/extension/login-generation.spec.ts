@@ -16,7 +16,11 @@ const password = "test_password";
 async function serveSite(context: BrowserContext, fixture: { origin: string }) {
   await context.route(`${site}/**`, async (route) => {
     const url = new URL(route.request().url());
-    const response = await route.fetch({ url: `${fixture.origin}${url.pathname}${url.search}` });
+    // A redirect goes to the browser, so the page's URL follows it, as on a real site.
+    const response = await route.fetch({
+      url: `${fixture.origin}${url.pathname}${url.search}`,
+      maxRedirects: 0,
+    });
     await route.fulfill({ response });
   });
 }
@@ -62,7 +66,8 @@ function syntheticClaude({ abstainOnPassword = false }: { abstainOnPassword?: bo
       if (!found) throw new Error(`No candidate for ${by} ${value}`);
       return found.id;
     };
-    // The `script-link` fixture's login link has no id, so only its text names it.
+    // The `script-link` and `script-url` fixtures' login links have no id, so only their
+    // text names them.
     const login = () =>
       prompt.observation.candidates.some(
         ({ target }) => target.by === "id" && target.value === "login",
@@ -178,6 +183,7 @@ for (const [button, marker] of [
   ["button", "button"],
   ["anchor", "button"],
   ["script-link", "button"],
+  ["script-url", "button"],
   ["button", "link"],
 ] as const)
   test(`a login page without a recipe is generated on the service, logs in and learns its completion (${button}, ${marker} marker)`, async () => {

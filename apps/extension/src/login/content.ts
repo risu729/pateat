@@ -3,6 +3,7 @@ import type { LoginMarkerTarget, LoginTarget } from "@pateat/contracts";
 import { browser } from "wxt/browser";
 import { accountText, showsOtherAccount, shownAccounts } from "../page/accounts";
 import { isButton, isScriptButton } from "../page/text";
+import { pressElement } from "../page/script-url-click";
 import { findTargets } from "../page/targets";
 import { identifierInput } from "../page/identifier-field";
 import {
@@ -585,7 +586,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         pagePath() === pending.path &&
         switchable(pending.element) &&
         isOnly(findTargets(document, pending.target, { links: true }), pending.element);
-      if (click) pending.element.click();
+      if (click) pressElement(pending.element);
       respond({ ok: click });
       return false;
     }
@@ -684,7 +685,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         return false;
       }
       watchPressedUrl();
-      element.click();
+      pressElement(element);
       respond({ ok: true });
       return false;
     }
@@ -1114,7 +1115,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         if (!command.list && showsCaptcha(document) && !passedCaptcha(document))
           return fail("captcha");
         mutated = true;
-        element.click();
+        pressElement(element);
         return { ok: true, mutation: "possible" };
       }
       const satisfied = () => {

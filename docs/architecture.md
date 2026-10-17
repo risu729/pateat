@@ -1505,14 +1505,33 @@ one, which Chrome never follows from a page), such as
 `<a id="login" href="#" onclick="document.loginForm.submit()">` (some pages' scripts add
 `href="#"` after load). The owner chose on 2026-10-11 that such `href` links are clicked
 as buttons, so pages whose login control is one, such as MyJCB and SMBC Direct, can get
-a generated recipe. Known limit: Chrome does not run a `javascript:` URL that Pateat's
-click follows, since the content script's isolated world has the extension's own
-content security policy; the link's `onclick` handler still runs, so only a link whose
-action is its URL alone, such as `href="javascript:__doPostBack(...)"`, does not
-submit. On 2026-10-13 a recruiting site's sign-in logged `Refused to run the JavaScript
-URL` in the console after such a click, and the same refusal was reproduced in Chromium
-with a synthetic page; running the URL in the page's main world would be a separate
-change. A text locator names a script link by its rendered text, but only
+a generated recipe. Chrome runs a `javascript:` URL that a click follows under the
+content security policy of the world that clicked, and the login content script's
+isolated world has the extension's own policy. So a click Pateat makes on an `<a href>`
+whose URL, as the browser parses it, is `javascript:` (`src/page/script-url-click.ts`)
+is made in the page's main world by `login-main.js`, which runs at document start in the
+MAIN world wherever the login script runs (every HTTPS page and frame), with no
+permission or host access of its own. The isolated script dispatches a fixed,
+non-bubbling event that carries nothing on the link itself; the main-world listener
+clicks that link once, only when it is such a link, and cancels the event. When nothing
+cancels it, as when the script did not load, the isolated script clicks the link itself,
+as before; only one world clicks, so the link's `onclick` handler runs once, and
+whether the page reacted is still judged by the attempt's own checks, never by anything
+the main world reports. A page sees the event and can click its own links anyway, so the
+bridge gives it nothing new. Every other click, including links with other URLs, buttons
+and form submits, is made in the isolated world as before. Before this, a link whose
+action is its URL alone never submitted: on 2026-10-13 a recruiting site's sign-in
+logged `Refused to run the JavaScript URL` in the console after such a click,
+reproduced in Chromium with a synthetic page, and on 2026-10-17 the owner's Chrome on
+build `d29951d` (01:55 UTC) filled SMBC Trust Bank's sign-on page and clicked its
+サインオン control, `<a href="javascript:submitProc();doTransaction(...)">`, whose
+`submitProc()` copies the shown fields into hidden ones and submits, and
+`chrome://extensions` logged
+`Running the JavaScript URL violates the following Content Security Policy directive
+'script-src 'self' 'wasm-unsafe-eval' …'` from `content-scripts/login.js`, so the page
+never submitted. Clicking such links from the main world is an agent implementation
+choice under the owner's 2026-10-11 decision that they are clicked as buttons. A text
+locator names a script link by its rendered text, but only
 when no native button carries that text, shown or hidden: native buttons are matched
 first, so a login tab such as `<a href="#" onclick="...">Login</a>` never makes the
 `<input type="submit" value="Login">` below it ambiguous, and a text locator waits for a

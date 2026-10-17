@@ -139,13 +139,21 @@ test("production package permits local storage, the crypto host and the HTTPS lo
     32: "icon-locked/32.png",
   });
   // Owner-approved install-time HTTPS access (ADR 0009); the login script also runs in
-  // frames, which need the tab's page admitted too (ADR 0017). The ADR 0007
-  // passkey bridge is the only MAIN-world script.
+  // frames, which need the tab's page admitted too (ADR 0017). The MAIN-world scripts are
+  // the ADR 0007 passkey bridge and, wherever the login script runs, the click on
+  // `javascript:` links.
   expect(
     [...manifest.content_scripts].sort((a: { js: string[] }, b: { js: string[] }) =>
       a.js[0]!.localeCompare(b.js[0]!),
     ),
   ).toEqual([
+    {
+      matches: ["https://*/*"],
+      run_at: "document_start",
+      all_frames: true,
+      world: "MAIN",
+      js: ["content-scripts/login-main.js"],
+    },
     {
       matches: ["https://*/*"],
       run_at: "document_idle",
@@ -190,7 +198,9 @@ test("production package permits local storage, the crypto host and the HTTPS lo
   // The production HTTPS login and passkey scripts are shared with the probe build.
   for (const script of probeManifest.content_scripts as Array<{ matches: string[]; js: string[] }>)
     expect(script.matches).toEqual(
-      /^content-scripts\/(?:login|passkey-main|passkey-isolated)\.js$/u.test(script.js.join())
+      /^content-scripts\/(?:login|login-main|passkey-main|passkey-isolated)\.js$/u.test(
+        script.js.join(),
+      )
         ? ["https://*/*"]
         : script.js.some((file) => /\/passkey-probe-(?:main|isolated)\.js$/u.test(file))
           ? ["http://localhost/*"]

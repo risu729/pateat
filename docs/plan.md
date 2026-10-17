@@ -499,6 +499,14 @@ than in this repository.
   is inferred, not shown. Since 2026-10-17 an element that is fading in counts as
   opaque ([AI evaluation harness progress](#ai-evaluation-harness-progress); agent fix,
   local tests only). Check the page in the owner's Chrome.
+- A login control that is a link whose `javascript:` URL alone submits never submitted:
+  on 2026-10-17 (build `d29951d`, 01:55 UTC) the owner's Chrome filled SMBC Trust Bank's
+  sign-on page and clicked サインオン, and Chrome refused the URL under the content
+  script's own `script-src` policy. Such a click is now made in the page's main world
+  ([architecture](architecture.md#declarative-recipes-and-ai); agent implementation
+  choice under the owner's 2026-10-11 decision that script links are clicked as buttons;
+  local DOM tests and a standalone extension in Chromium 141, the synthetic browser test
+  not yet run in CI). Check that page in the owner's Chrome.
 - Known faults moved from phase 1 (owner, 2026-10-12 20:35 UTC), fixed when a real site
   shows them again: the `reconciling` exception seen on SBI証券, and `generate` ignoring
   a failed sync after generation (both recorded under phase 1).
