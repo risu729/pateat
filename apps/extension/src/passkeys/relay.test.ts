@@ -224,6 +224,48 @@ describe("isolated passkey relay", () => {
     expect(send).toHaveBeenCalledTimes(2);
   });
 
+  it.each<[string, (answer: (value: unknown) => void, fail: (error: Error) => void) => void, unknown]>([
+    ["the background's late answer", (answer) => answer({ kind: "cancelled" }), { kind: "cancelled" }],
+    // Chrome closes the message channel of a document entering the back/forward cache.
+    ["its closed message channel", (_answer, fail) => fail(new Error("closed")), { kind: "delegate" }],
+  ])(
+    "stops vouching for a request cancelled on entering the back/forward cache, then settles it after %s",
+    async (_name, settle, outcome) => {
+      vi.useFakeTimers();
+      const { scope, posted } = fakeWindow();
+      let answer!: (value: unknown) => void;
+      let fail!: (error: Error) => void;
+      const send = vi.fn((message: unknown) =>
+        (message as { type: string }).type === "passkey.get"
+          ? new Promise((resolve, reject) => {
+              answer = resolve;
+              fail = reject;
+            })
+          : Promise.resolve({ ok: true }),
+      );
+      installPasskeyRelay(send);
+      scope.postMessage({ channel: PAGE_CHANNEL, type: "get", id, request: { challenge: "AA" } });
+      const acks = () => posted.filter((data) => (data as { type: string }).type === "ack").length;
+      await vi.advanceTimersByTimeAsync(RELAY_HEARTBEAT_MS);
+      expect(acks()).toBe(2);
+      scope.dispatch("pagehide", { persisted: true });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(send).toHaveBeenLastCalledWith({
+        version: 1,
+        type: "passkey.cancel",
+        operationId: id,
+      });
+      await vi.advanceTimersByTimeAsync(RELAY_HEARTBEAT_MS * 3);
+      expect(acks()).toBe(2);
+
+      // A page restored from the cache gets the answer and settles; page.test.ts covers how.
+      settle(answer, fail);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(posted.at(-1)).toEqual({ channel: PAGE_CHANNEL, type: "result", id, result: outcome });
+      expect(acks()).toBe(2);
+    },
+  );
+
   it.each([
     ["a focused, visible", "visible", true, true],
     ["a hidden", "hidden", true, false],
