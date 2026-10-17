@@ -585,8 +585,9 @@ describe("account and provider binding admission", () => {
     expect(mapRaw(raw).ok).toBe(false);
   });
 
-  // Duende and Vaultwarden set nbf to the server's issue second, so a browser clock slightly
-  // behind the server must still accept a fresh token; 300 s matches Duende's default ClockSkew.
+  // Bitwarden (Duende) and Vaultwarden set nbf to the server's issue second, so a browser clock
+  // slightly behind the server must still accept a fresh token; 300 s is the skew Duende allows
+  // by default when it validates a token.
   it.each([1, 60, 300])("accepts a token whose nbf is %i s ahead of the local clock", (ahead) => {
     const raw = rawV1Account();
     raw.token.access_token = syntheticJwt({ nbf: accountNow + ahead, iat: accountNow + ahead });

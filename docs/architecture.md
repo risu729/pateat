@@ -180,11 +180,11 @@ binding. Decoding unsigned JWT claims does not verify their signature or establi
 ownership; the calling host must preserve the fixed HTTPS response provenance.
 An access token whose `exp` has passed is expired. One whose `nbf` is more than 300
 seconds ahead of the local clock is treated the same way, so a clock slightly behind
-the server's still accepts a fresh token; 300 seconds is Duende IdentityServer's
-default clock skew. Authentication salt/KDF and vault-unlock salt/KDF remain
-independent. Incomplete modern account keys cannot fall back to legacy state.
-Previously verified account format and signed security-version floors must survive
-subsequent syncs.
+the server's still accepts a fresh token; 300 seconds is the skew Duende
+IdentityServer allows by default when it validates a token. Authentication salt/KDF
+and vault-unlock salt/KDF remain independent. Incomplete modern account keys cannot
+fall back to legacy state. Previously verified account format and signed
+security-version floors must survive subsequent syncs.
 
 The initial mapper admits login, secure-note, card and identity items. Other
 types have explicit unavailable results containing only IDs and an unsupported
