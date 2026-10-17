@@ -4,6 +4,7 @@ import { browser } from "wxt/browser";
 import { SettingsApp } from "../../src/options/settings-app";
 import { createMetadataQueryClient, createSettingsClient } from "../../src/options/client";
 import { createConnectionClient } from "../../src/options/connection-client";
+import { createRecipeClient } from "../../src/options/recipe-client";
 import { createServiceClient } from "../../src/options/service-client";
 import { sendMessage } from "../../src/messaging/protocol";
 import { followThemePreference } from "../../src/theme";
@@ -32,6 +33,7 @@ createRoot(root).render(
         requestSiteAccess: (origin) =>
           browser.permissions.request({ origins: [`https://${new URL(origin).hostname}/*`] }),
       })}
+      recipeClient={createRecipeClient((message) => sendMessage("recipes", message))}
     />
   </QueryClientProvider>,
 );

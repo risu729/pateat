@@ -17,6 +17,8 @@ export interface BackgroundAreas {
   /** `settings.site-accounts`. */
   siteAccounts(request: unknown): Promise<unknown>;
   service(request: unknown): Promise<unknown>;
+  /** `recipes.*`: recipes kept on the device without a service (ADR 0040). */
+  recipes(request: unknown): Promise<unknown>;
   diagnostics(request: DiagnosticsRequest): Promise<unknown>;
   /** `undefined` when the sender is not the chooser window. */
   chooser(request: unknown, sender: Sender): Promise<unknown> | undefined;
@@ -77,6 +79,11 @@ export function listenForBackgroundMessages(areas: BackgroundAreas): void {
   answer("service", (request, sender) =>
     fromPage(sender, "/options.html") && requestType(request)?.startsWith("service.")
       ? areas.service(request)
+      : undefined,
+  );
+  answer("recipes", (request, sender) =>
+    fromPage(sender, "/options.html") && requestType(request)?.startsWith("recipes.")
+      ? areas.recipes(request)
       : undefined,
   );
   answer("diagnostics", (request, sender) =>

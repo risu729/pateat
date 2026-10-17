@@ -1,6 +1,7 @@
 import type { VaultSyncRecord } from "../connections/auto-sync";
 import type { ServiceStorage } from "./runtime";
 import type { GeneratedSlotStorage, GenerationAttemptStorage } from "./generation";
+import type { LocalRecipeStorage } from "./local-recipes";
 import type { RecipeCacheStorage, RecipeScheduleStorage } from "./recipes";
 import type { SettingsBaseStorage, SettingsHoldStorage } from "./settings-sync";
 import { trustedRecord } from "../storage";
@@ -13,6 +14,11 @@ export function createBrowserServiceStorage(): ServiceStorage {
 /** Synced recipes are login policy; content scripts never read them directly. */
 export function createBrowserRecipeCacheStorage(): RecipeCacheStorage {
   return trustedRecord("pateat.sync-recipes.v1");
+}
+
+/** Recipes kept on a device without a paired service (ADR 0040); login policy too. */
+export function createBrowserLocalRecipeStorage(): LocalRecipeStorage {
+  return trustedRecord("pateat.local-recipes.v1");
 }
 
 /** When the next background recipe sync is due, kept across service worker restarts. */

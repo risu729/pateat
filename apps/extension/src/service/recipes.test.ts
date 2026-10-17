@@ -69,6 +69,7 @@ function setup(
     scheduled?: unknown;
     now?: () => number;
     settings?: SettingsSyncOutcome;
+    local?: Parameters<typeof createRecipeSync>[0]["local"];
   } = {},
 ) {
   let value = options.stored;
@@ -115,6 +116,7 @@ function setup(
     report,
     now: options.now ?? (() => 5_000),
     ...(options.settings ? { settings: settingsSync } : {}),
+    ...(options.local ? { local: options.local } : {}),
   });
   return {
     sync,
@@ -873,6 +875,69 @@ describe("cached recipe lookup", () => {
     });
     expect(await sync.recipes.recipe(SITE, "/login")).toEqual(signin);
     await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(transport.recipeChanges).not.toHaveBeenCalled();
+  });
+});
+
+describe("recipes kept without a service (ADR 0040)", () => {
+  const kept = recipe("kept-signin", "/login");
+  const cached = recipe("synced-signin", "/login");
+  const stored = { version: 1, origin: SERVICE, deviceId: DEVICE, cursor: 1, recipes: [cached] };
+  const local = (recipes: StoredLoginRecipe[] | undefined) => ({
+    list: vi.fn(async () => recipes),
+    upload: vi.fn(
+      async (_connection: ServiceConnection, _stale: () => boolean): Promise<"done" | "rejected"> =>
+        "done",
+    ),
+  });
+
+  it("looks up the kept recipes while no device is paired, and the cache once one is", async () => {
+    const unpaired = setup({ stored, connection: undefined, local: local([kept]) });
+    expect(await unpaired.sync.recipes.recipe(SITE, "/login")).toEqual(kept);
+    expect(await unpaired.sync.recipes.starts(SITE)).toHaveLength(1);
+    expect(unpaired.transport.recipeChanges).not.toHaveBeenCalled();
+    const paired = setup({ stored, local: local([kept]) });
+    expect(await paired.sync.recipes.recipe(SITE, "/login")).toEqual(cached);
+    expect(await paired.sync.cached()).toEqual([cached]);
+    expect(await unpaired.sync.cached()).toBeUndefined();
+  });
+
+  it("serves neither when the pairing cannot be read or the kept copy cannot", async () => {
+    const unreadable = setup({ stored, local: local([kept]) });
+    unreadable.service.connection.mockRejectedValue(new Error("corrupt"));
+    expect(await unreadable.sync.recipes.recipe(SITE, "/login")).toBeUndefined();
+    expect(await unreadable.sync.recipes.entries(SITE)).toEqual([]);
+    const corrupt = setup({ connection: undefined, local: local(undefined) });
+    expect(await corrupt.sync.recipes.recipe(SITE, "/login")).toBeUndefined();
+    expect(await corrupt.sync.recipes.starts(SITE)).toEqual([]);
+  });
+
+  it("uploads the kept recipes before pulling, in full syncs only", async () => {
+    const held = local([kept]);
+    const order: string[] = [];
+    held.upload.mockImplementation(async () => {
+      order.push("upload");
+      return "done";
+    });
+    const { sync, transport } = setup({ local: held });
+    transport.recipeChanges.mockImplementation(async () => {
+      order.push("pull");
+      return page([], 0);
+    });
+    expect(await sync.sync({ settings: false })).toBe("synced");
+    expect(held.upload).not.toHaveBeenCalled();
+    expect(await sync.sync()).toBe("synced");
+    expect(held.upload).toHaveBeenCalledOnce();
+    expect(held.upload.mock.calls[0]![0]).toMatchObject({ deviceId: DEVICE });
+    expect(order).toEqual(["pull", "upload", "pull"]);
+  });
+
+  it("marks the device rejected when an upload is refused for its credential", async () => {
+    const held = local([kept]);
+    held.upload.mockResolvedValue("rejected");
+    const { sync, service, transport } = setup({ local: held });
+    expect(await sync.sync()).toBe("rejected");
+    expect(service.recordSync).toHaveBeenCalledWith(DEVICE, { rejected: true });
     expect(transport.recipeChanges).not.toHaveBeenCalled();
   });
 });

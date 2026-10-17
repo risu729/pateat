@@ -6,7 +6,7 @@ import {
 } from "@pateat/contracts";
 import { useForm, useSelector } from "@tanstack/react-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bug, Globe, Info, Link, Shield, Vault, type LucideIcon } from "lucide-react";
+import { Bug, Globe, Info, Link, ScrollText, Shield, Vault, type LucideIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Logo } from "../logo";
 import { Button } from "./button";
@@ -15,6 +15,8 @@ import { VaultAccess, VaultRows } from "./connections";
 import { SitePolicy } from "./site-policy";
 import { BitwardenSetup } from "./bitwarden-setup";
 import type { ConnectionClient } from "./connection-client";
+import type { RecipeClient } from "./recipe-client";
+import { RecipesPanel } from "./recipes-panel";
 import type { ServiceClient } from "./service-client";
 import { ServiceConnection } from "./service-connection";
 import { ThemeSelect } from "./theme-select";
@@ -32,10 +34,12 @@ export function SettingsApp({
   client,
   connectionClient,
   serviceClient,
+  recipeClient,
 }: {
   client: SettingsClient;
   connectionClient?: ConnectionClient;
   serviceClient?: ServiceClient;
+  recipeClient?: RecipeClient;
 }) {
   const queryClient = useQueryClient();
   const [accepted, setAccepted] = useState<AcceptedSettings>();
@@ -293,6 +297,7 @@ export function SettingsApp({
       ? { id: "bitwarden", label: "Bitwarden", icon: Shield }
       : { id: "demo-vaults", label: "Demo vaults", icon: Vault },
     { id: "sites", label: "Sites", icon: Globe },
+    ...(recipeClient ? [{ id: "recipes", label: "Recipes", icon: ScrollText }] : []),
     ...(serviceClient ? [{ id: "sync", label: "Sync service", icon: Link }] : []),
   ];
   return (
@@ -422,6 +427,7 @@ export function SettingsApp({
               </Panel>
             )}
           </fieldset>
+          {recipeClient && <RecipesPanel client={recipeClient} />}
           {serviceClient && <ServiceConnection client={serviceClient} />}
           <footer className="flex flex-wrap gap-4 text-[0.8125rem] leading-5 text-ink-muted">
             <a href="legal.html" target="_blank" rel="noreferrer">

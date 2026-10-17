@@ -34,12 +34,14 @@ import {
   type VaultPasskeyCandidate,
 } from "../src/passkeys/vault";
 import { createLoginGeneration } from "../src/service/generation";
+import { createLocalRecipes } from "../src/service/local-recipes";
 import { createRecipeSync } from "../src/service/recipes";
 import { createServiceRuntime } from "../src/service/runtime";
 import { createSettingsSync } from "../src/service/settings-sync";
 import {
   createBrowserGeneratedSlotStorage,
   createBrowserGenerationAttemptStorage,
+  createBrowserLocalRecipeStorage,
   createBrowserRecipeCacheStorage,
   createBrowserRecipeScheduleStorage,
   createBrowserServiceStorage,
@@ -145,12 +147,21 @@ export default defineBackground(() => {
   });
   const recipeCacheStorage = createBrowserRecipeCacheStorage();
   const recipeScheduleStorage = createBrowserRecipeScheduleStorage();
+  // Recipes kept here while no service is paired (ADR 0040); they read the synced cache
+  // through `recipeSync`, which is created below with them and only calls them later.
+  const localRecipes = createLocalRecipes({
+    storage: createBrowserLocalRecipeStorage(),
+    service,
+    synced: () => recipeSync.cached(),
+    transport: serviceTransport,
+  });
   const recipeSync = createRecipeSync({
     service,
     transport: serviceTransport,
     storage: recipeCacheStorage,
     schedule: recipeScheduleStorage,
     settings: settingsSync,
+    local: localRecipes,
     report: diagnosticsLog.recipeSync,
   });
   // Workers stop when idle, so the persisted schedule, not each start, paces syncs.
@@ -448,6 +459,10 @@ export default defineBackground(() => {
         () => ({ ok: false, error: "storage-unavailable" }),
       );
     },
+    recipes: (request) =>
+      localRecipes
+        .handle(request)
+        .catch(() => ({ version: 1, ok: false, error: "storage-unavailable" })),
     diagnostics: (request) =>
       request.type === "diagnostics.status" ? diagnostics() : diagnosticsLog.handle(request),
     chooser: (request, sender) =>

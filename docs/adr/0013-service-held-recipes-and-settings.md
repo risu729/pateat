@@ -20,6 +20,9 @@ uses; the `passkey` and `sso` routes are not yet). A generated mapping becomes a
 binding after its first `authenticated` login, and another item's saved binding of the
 recipe is reused by name
 ([ADR 0027](0027-per-account-login-routes.md#implementation-choices)).
+[ADR 0040](0040-running-without-the-service.md), proposed on 2026-10-15 and not accepted
+yet, would amend it: with no device paired, logins use recipes kept on the device and
+imported from a file, and a later pairing uploads them once.
 
 Date: 2026-10-10
 

@@ -1,17 +1,11 @@
 import {
   deviceIdSchema,
-  loginRecipesForOrigin,
-  recipeStartSteps,
-  selectLoginRecipe,
   serviceOriginSchema,
   storedLoginRecipeSchema,
-  type LoginChooserRecipe,
-  type LoginEntryRecipe,
-  type LoginRecipe,
+  type StoredLoginRecipe,
 } from "@pateat/contracts";
 import * as v from "valibot";
-import type { LoginRecipes } from "../login/runtime";
-import { loginReadiness } from "../login/wire";
+import { recipeLookups } from "./recipe-lookups";
 import type { RecipeSyncRecord, ServiceConnection } from "./runtime";
 import type { SettingsSyncOutcome } from "./settings-sync";
 import type { ServiceTransport, TransportFailure } from "./transport";
@@ -104,6 +98,14 @@ export function createRecipeSync(options: {
     run(connection: ServiceConnection, stale: () => boolean): Promise<SettingsSyncOutcome>;
     clear(): Promise<void>;
   };
+  /**
+   * The recipes kept on this device without a service (ADR 0040): looked up while no
+   * device is paired, and uploaded once by the first syncs after pairing.
+   */
+  local?: {
+    list(): Promise<readonly StoredLoginRecipe[] | undefined>;
+    upload(connection: ServiceConnection, stale: () => boolean): Promise<"done" | "rejected">;
+  };
   /** Receives the outcome of each sync run and what it changed, for the local log. */
   report?: (outcome: RecipeSyncOutcome, changes: RecipeSyncChanges) => void;
   now?: () => number;
@@ -172,6 +174,14 @@ export function createRecipeSync(options: {
       return "not-connected";
     }
     if (connection.rejected) return "rejected";
+    // Recipes kept from before the pairing go up first, so this sync pulls them back.
+    if (
+      withSettings &&
+      (await options.local?.upload(connection, () => generation !== started)) === "rejected"
+    ) {
+      await service.recordSync(connection.deviceId, { rejected: true });
+      return "rejected";
+    }
     const recipesOutcome = await pullRecipes(connection, started, changed);
     if (["not-connected", "rejected", "unreachable", "rate-limited"].includes(recipesOutcome))
       return recipesOutcome;
@@ -330,90 +340,28 @@ export function createRecipeSync(options: {
     await Promise.all([storage.clear().catch(() => undefined), options.settings?.clear()]);
   }
 
-  const recipes: LoginRecipes = {
-    async recipe(origin: string, path: string, recipeId?: string) {
-      const connection = await service.connection().catch(() => undefined);
-      if (!connection) return undefined;
-      if (!connection.rejected) refreshIfStale();
-      const cache = await load(connection);
-      if (!cache) return undefined;
-      // A resumed attempt asks for its own recipe; the executor checks its revision.
-      if (recipeId !== undefined)
-        return loginRecipesForOrigin(cache.recipes, origin).find(
-          (recipe): recipe is LoginRecipe => recipe.id === recipeId,
-        );
-      const selection = selectLoginRecipe(cache.recipes, origin, path);
-      return selection.ok ? selection.recipe : undefined;
-    },
-    async chooser(origin: string, path: string, recipeId?: string) {
-      const connection = await service.connection().catch(() => undefined);
-      if (!connection) return undefined;
-      if (!connection.rejected) refreshIfStale();
-      const cache = await load(connection);
-      if (!cache) return undefined;
-      const choosers = cache.recipes.filter(
-        (recipe): recipe is LoginChooserRecipe => "chooser" in recipe && recipe.origin === origin,
-      );
-      if (recipeId !== undefined) return choosers.find((recipe) => recipe.id === recipeId);
-      // The service keeps one generated recipe per origin and start path; a path where
-      // several start, or where a login recipe starts as well, starts none (ADR 0013).
-      const here = choosers.filter((recipe) => recipe.chooser.path === path);
-      return here.length === 1 &&
-        !loginRecipesForOrigin(cache.recipes, origin).some(
-          (recipe) => recipe.steps[0]!.path === path,
-        )
-        ? here[0]
-        : undefined;
-    },
-    async starts(origin: string) {
-      const connection = await service.connection().catch(() => undefined);
-      if (!connection) return [];
-      const cache = await load(connection);
-      if (!cache) return [];
-      // Every variant starts on the recipe's start path (ADR 0027). A chooser recipe (ADR
-      // 0028) starts where its list shows, once one of its buttons or a listed account
-      // does, or its `other` branch's first step on that path, as when the person pressed
-      // the button for another account; an entry recipe (ADR 0031) is left out: the runtime
-      // counts its path as a start for generation through `entries` instead.
-      return [
-        ...loginRecipesForOrigin(cache.recipes, origin).map((recipe) => ({
-          path: recipe.steps[0]!.path,
-          steps: recipeStartSteps(recipe),
-        })),
-        ...cache.recipes.flatMap((recipe) =>
-          "chooser" in recipe && recipe.origin === origin
-            ? [
-                {
-                  path: recipe.chooser.path,
-                  steps:
-                    recipe.chooser.afterOther?.steps
-                      .slice(0, 1)
-                      // Only a step that waits for an element: one that needs none would
-                      // show on the list as well.
-                      .filter(
-                        (step) =>
-                          step.path === recipe.chooser.path &&
-                          loginReadiness(step).targets.length > 0,
-                      ) ?? [],
-                  list: [recipe.chooser.other, recipe.chooser.continue].filter(
-                    (target) => target !== undefined,
-                  ),
-                },
-              ]
-            : [],
-        ),
-      ];
-    },
-    async entries(origin: string) {
-      const connection = await service.connection().catch(() => undefined);
-      if (!connection) return [];
-      const cache = await load(connection);
-      if (!cache) return [];
-      return cache.recipes.filter(
-        (recipe): recipe is LoginEntryRecipe => "entry" in recipe && recipe.origin === origin,
-      );
-    },
-  };
+  /**
+   * The recipes a login may use: a paired device's synced cache, or, with no device
+   * paired, the recipes kept on this device (ADR 0040). A pairing that cannot be read
+   * serves neither.
+   */
+  async function inUse(starting: boolean): Promise<readonly StoredLoginRecipe[] | undefined> {
+    let connection: ServiceConnection | undefined;
+    try {
+      connection = await service.connection();
+    } catch {
+      return undefined;
+    }
+    if (!connection) return options.local?.list();
+    if (starting && !connection.rejected) refreshIfStale();
+    return (await load(connection))?.recipes;
+  }
 
-  return { sync, refreshIfStale, clear, recipes };
+  /** The paired device's cached recipes, for the settings page and export. */
+  async function cached(): Promise<readonly StoredLoginRecipe[] | undefined> {
+    const connection = await service.connection().catch(() => undefined);
+    return connection ? (await load(connection))?.recipes : undefined;
+  }
+
+  return { sync, refreshIfStale, clear, recipes: recipeLookups(inUse), cached };
 }

@@ -18,11 +18,12 @@ The client works without a native helper or desktop daemon. Settings, recipes an
 account bindings live on the owner's self-hosted Pateat service and are edited on its
 web UI ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). The extension keeps
 a last-known-good cache, so login keeps working while the service is offline, and a
-reinstalled extension restores the data by syncing. A mode without the service is
-planned for [phase 3](plan.md#phase-3-public-release). Missing recipes produce an
-explicit result rather than guessing. Bitwarden sync still needs its own service. The
-same Worker provides the initial inference path. Direct extension-to-AI calls with
-user-owned keys are a later option, not the recommended initial setup.
+reinstalled extension restores the data by syncing. Without a paired service, the
+extension keeps its settings and the recipes the user imports from a file, and generates
+no recipes ([ADR 0040](adr/0040-running-without-the-service.md), proposed). Missing
+recipes produce an explicit result rather than guessing. Bitwarden sync still needs its
+own service. The same Worker provides the initial inference path. Direct extension-to-AI
+calls with user-owned keys are a later option, not the recommended initial setup.
 
 Configure accounts and site permissions once, then automatically fill and submit
 login forms. Cover multi-page flows and separate branch/account/password fields,
@@ -62,15 +63,15 @@ secret lookup. MAIN-world bridging needs its own request matching and cancellati
 protocol; TypeScript types and a message nonce alone are not authorization.
 
 Extension pages and content scripts send their requests to the service worker through
-`@webext-core/messaging`, under one key per area (settings, service, diagnostics,
-passkey chooser, login, passkey); the request keeps its own `type`. The worker checks
-the sender before the area's handler runs, and the handler still validates the request
-with Valibot and checks a content script's tab, frame and document. A handler that
-fails answers `undefined`, so no error the library would serialize reaches the sender.
-The worker's sends to a tab stay raw `tabs.sendMessage` calls addressed by `frameId` and
-`documentId`, which the library's tab send cannot address. The Ports to the settings
-page and the offscreen crypto host, the offscreen document's Worker messages and the
-`window.postMessage` channel between the passkey scripts also stay raw.
+`@webext-core/messaging`, under one key per area (settings, service, recipes,
+diagnostics, passkey chooser, login, passkey); the request keeps its own `type`. The
+worker checks the sender before the area's handler runs, and the handler still validates
+the request with Valibot and checks a content script's tab, frame and document. A
+handler that fails answers `undefined`, so no error the library would serialize reaches
+the sender. The worker's sends to a tab stay raw `tabs.sendMessage` calls addressed by
+`frameId` and `documentId`, which the library's tab send cannot address. The Ports to
+the settings page and the offscreen crypto host, the offscreen document's Worker
+messages and the `window.postMessage` channel between the passkey scripts also stay raw.
 
 DOM-filled values can be read by the receiving page and potentially its debugger.
 The local-only vault boundary does not promise invisibility to Chrome use or a
