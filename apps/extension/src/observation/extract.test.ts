@@ -1176,6 +1176,105 @@ describe("extractLoginObservation", () => {
     expect(observe().complete).toBe(false);
   });
 
+  describe("a form fading in from opacity 0 (Microsoft Entra, 2026-10-17)", () => {
+    const keyframes = `<style>
+      @keyframes in { from { opacity: 0 } }
+      @keyframes out { to { opacity: 0 } }
+      @keyframes hold { from, to { opacity: 0 } }
+      @keyframes show { from { opacity: 0 } to { opacity: 1 } }
+      @keyframes outhold { 0% { opacity: 1 } 5%, 100% { opacity: 0 } }
+      @keyframes slide { 0%, 30% { opacity: 1 } 33%, 100% { opacity: 0 } }
+    </style>`;
+    const fields = `<input id="u" type="email"><input id="p" type="password">
+      <button id="go">Next</button>`;
+    const ids = (observation: LoginObservation) =>
+      observation.candidates.map((candidate) => candidate.target.value);
+    const container = () => document.querySelector<HTMLElement>("#fade")!;
+    /** A container whose opacity transitions from 0 to 1 over 5 seconds. */
+    const transition = () => {
+      page(`<div id="fade" style="opacity:0"><form id="f">${fields}</form></div>`);
+      const fade = container();
+      // Read the style so the change below starts a transition.
+      expect(getComputedStyle(fade).opacity).toBe("0");
+      fade.style.transition = "opacity 5s";
+      fade.style.opacity = "1";
+      return fade;
+    };
+
+    it("is complete while a CSS animation or transition is still at opacity 0", () => {
+      for (const animation of [
+        "in 5s",
+        // Held at its start, as an animation stays while the tab is not rendered.
+        "in 5s 1000s both",
+        "in 5s paused",
+      ]) {
+        page(
+          `${keyframes}<div id="fade" style="animation:${animation}"><form id="f">${fields}</form></div>`,
+        );
+        expect(getComputedStyle(container()).opacity, animation).toBe("0");
+        const observation = observe();
+        expect(observation.complete, animation).toBe(true);
+        expect(ids(observation), animation).toEqual(["u", "p", "go"]);
+        expect(observation.candidates.at(-1), animation).toMatchObject({ label: "Next" });
+      }
+      transition();
+      expect(getComputedStyle(container()).opacity).toBe("0");
+      expect(observe().complete).toBe(true);
+      // Transparent by its own style until a delayed animation without a fill starts.
+      page(`${keyframes}<div id="fade" style="opacity:0;animation:show 5s 1000s">
+        <form id="f">${fields}</form></div>`);
+      expect(getComputedStyle(container()).opacity).toBe("0");
+      expect(observe().complete).toBe(true);
+      // Paused at its start by a script.
+      const fade = transition();
+      const [running] = fade.getAnimations();
+      running!.pause();
+      running!.currentTime = 0;
+      expect(running!.playState).toBe("paused");
+      expect(getComputedStyle(fade).opacity).toBe("0");
+      expect(ids(observe())).toEqual(["u", "p", "go"]);
+    });
+
+    it("counts an animation on an ancestor further up and in a script's animate()", () => {
+      page(`<main id="fade"><div><form id="f">${fields}</form></div></main>`);
+      container()
+        .animate([{ opacity: 0 }, { opacity: 1 }], { duration: 5000 })
+        .pause();
+      expect(getComputedStyle(container()).opacity).toBe("0");
+      expect(observe().complete).toBe(true);
+    });
+
+    it("keeps transparent inputs that are not fading in unfillable", () => {
+      const outcome = (html: string) => {
+        page(`${keyframes}${html}`);
+        for (const animation of container().getAnimations())
+          if (animation.effect?.getTiming().fill === "forwards") animation.finish();
+        const result = extractLoginObservation();
+        return result.ok ? [result.observation.complete, result.gap] : result.reason;
+      };
+      // A trap at opacity 0 of its own inside a form that fades in.
+      expect(
+        outcome(`<div id="fade" style="animation:in 5s paused"><form id="f">${fields}
+          <input id="trap" style="opacity:0"></form></div>`),
+      ).toEqual([false, "unfillable-field"]);
+      // A form at opacity 0 is refused alike with no animation, with one that holds the
+      // opacity at 0, after a fade-out finished, halfway through a fade-out that then
+      // holds for 100 seconds, and as a carousel's slide hidden until its next cycle.
+      const still = outcome(`<div id="fade" style="opacity:0"><form id="f">${fields}</form></div>`);
+      expect(still).toBe("no-candidates");
+      for (const animation of [
+        "hold 5s infinite",
+        "out 5s forwards",
+        "outhold 100s -50s",
+        "slide 10s -5s infinite",
+      ]) {
+        const html = `<div id="fade" style="animation:${animation}"><form id="f">${fields}</form></div>`;
+        expect(outcome(html), animation).toEqual(still);
+        expect(getComputedStyle(container()).opacity, animation).toBe("0");
+      }
+    });
+  });
+
   it("names the first cause of an incomplete observation, without page text (ADR 0019)", () => {
     const gap = (html: string, shadow?: string) => {
       page(html);

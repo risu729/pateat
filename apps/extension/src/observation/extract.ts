@@ -250,6 +250,8 @@ function headerText(document: Document): string | undefined {
  * Whether a control is on the page: `visible`, `faint` when it is rendered but
  * transparent or tiny (a trap, or a real input under a styled widget), or `absent`
  * when it is hidden or moved before the page's start, where trap inputs usually go.
+ * A control transparent only while it or an ancestor fades in from opacity 0 counts as
+ * opaque, as `shown` does (2026-10-17).
  */
 export function presence(element: HTMLElement): "visible" | "faint" | "absent" {
   const view = element.ownerDocument.defaultView;

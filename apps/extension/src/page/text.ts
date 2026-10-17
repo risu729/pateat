@@ -1,3 +1,5 @@
+import { browser } from "wxt/browser";
+
 /** Elements whose text is never page text: code, styles, raw markup and control contents. */
 const textless = new Set([
   "SCRIPT",
@@ -88,7 +90,102 @@ function hiddenByAttribute(element: Element): boolean {
 }
 
 /**
- * Rendered: not hidden by CSS, a closed `<details>` or an attribute (opacity optional).
+ * The parent of `element` in the flat tree, as `checkVisibility` walks it, or `undefined`
+ * when its slot in its parent's shadow root cannot be found. A closed shadow root hides
+ * the slot from `assignedSlot`; a content script reaches the root through
+ * `dom.openOrClosedShadowRoot`.
+ */
+function flatParent(element: Element): Element | null | undefined {
+  if (element.assignedSlot) return element.assignedSlot;
+  const parent = element.parentNode;
+  if (parent instanceof ShadowRoot) return parent.host;
+  const host = element.parentElement;
+  const root = host && browser?.dom?.openOrClosedShadowRoot?.(host);
+  if (!root) return host;
+  return [...root.querySelectorAll("slot")].find((slot) => slot.assignedNodes().includes(element));
+}
+
+/** Whether the current iteration of `animation` plays toward its effect's last keyframe. */
+function forward(animation: Animation, timing: ComputedEffectTiming): boolean {
+  const odd = (timing.currentIteration ?? Math.floor(timing.iterationStart ?? 0)) % 2 === 1;
+  const reversed =
+    timing.direction === "reverse" ||
+    (timing.direction === "alternate" && odd) ||
+    (timing.direction === "alternate-reverse" && !odd);
+  return reversed === animation.playbackRate < 0;
+}
+
+/**
+ * Whether an animation of `element` that has not finished, running or paused, still
+ * takes its opacity above 0 in its current iteration: a CSS animation, a CSS transition
+ * or a script's `animate()` with a keyframe ahead of its current progress, in the
+ * direction it plays, whose opacity is above 0. One that holds the opacity at 0 for the
+ * rest of the iteration, as a fade-out that then holds or a carousel's slide hidden
+ * until its next cycle, does not count. One still waiting out its delay counts from the
+ * iteration's start.
+ */
+function fades(element: Element): boolean {
+  return element.getAnimations().some((animation) => {
+    const effect = animation.effect;
+    if (
+      (animation.playState !== "running" && animation.playState !== "paused") ||
+      !(effect instanceof KeyframeEffect)
+    )
+      return false;
+    const timing = effect.getComputedTiming();
+    const ahead = forward(animation, timing);
+    // Before its delay ends without a backwards fill, the effect is not applied yet.
+    const waiting = timing.localTime !== null && Number(timing.localTime) < (timing.delay ?? 0);
+    const at = timing.progress ?? (waiting ? (ahead ? 0 : 1) : undefined);
+    if (at === undefined) return false;
+    return effect
+      .getKeyframes()
+      .some(
+        (frame) =>
+          (ahead ? frame.computedOffset >= at : frame.computedOffset <= at) &&
+          Number(frame["opacity"] ?? 0) > 0,
+      );
+  });
+}
+
+/**
+ * Whether `element` is transparent only while it fades in: each of it and its flat-tree
+ * ancestors whose opacity is 0, which `checkVisibility` counts as hidden, has an
+ * animation of its opacity under way ({@link fades}). A sign-in form often fades in, as
+ * Microsoft Entra's did: its email field stayed under a container at opacity 0 until
+ * about 1.3 seconds after the page started in cloud Chromium (2026-10-17). An animation
+ * does not advance while the tab is not rendered (inferred for the owner's Chrome), so
+ * one held at its start counts, paused ones too. An input at opacity 0 with no such
+ * animation, as a trap, is not fading.
+ */
+function fadingIn(element: Element): boolean {
+  const view = element.ownerDocument.defaultView;
+  if (!view) return false;
+  let transparent = false;
+  for (let node: Element | null = element; node;) {
+    if (Number(view.getComputedStyle(node).opacity) === 0) {
+      if (!fades(node)) return false;
+      transparent = true;
+    }
+    const parent = flatParent(node);
+    // A slot it cannot find may sit under a transparent element that is not fading.
+    if (parent === undefined) return false;
+    node = parent;
+  }
+  return transparent;
+}
+
+/** `checkVisibility`, with an element that is fading in counted as opaque. */
+function rendered(element: Element, opacity: boolean): boolean {
+  return (
+    element.checkVisibility(visibility(opacity)) ||
+    (opacity && element.checkVisibility(visibility(false)) && fadingIn(element))
+  );
+}
+
+/**
+ * Rendered: not hidden by CSS, a closed `<details>` or an attribute (opacity optional; an
+ * element still fading in from opacity 0 counts as opaque, {@link fadingIn}).
  * An element with `display: contents` has no box of its own, so `checkVisibility` is
  * false for it although its children render in its place; it counts as shown when its
  * parent is, the parent renders its content (not a closed `<details>` or
@@ -103,7 +200,7 @@ export function shown(element: Element, opacity = true): element is HTMLElement 
     hiddenByAttribute(element)
   )
     return false;
-  if (element.checkVisibility(visibility(opacity))) return true;
+  if (rendered(element, opacity)) return true;
   const parent = element.parentElement;
   const view = element.ownerDocument.defaultView;
   const style = view?.getComputedStyle(element);
@@ -123,9 +220,7 @@ export function shown(element: Element, opacity = true): element is HTMLElement 
   return (
     !children.length ||
     children.some(
-      (child) =>
-        child.checkVisibility(visibility(opacity)) ||
-        view.getComputedStyle(child).display === "contents",
+      (child) => rendered(child, opacity) || view.getComputedStyle(child).display === "contents",
     )
   );
 }
