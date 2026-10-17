@@ -419,6 +419,28 @@ test("an account that cannot be saved marks the account select, not the origin",
   expect(client.saveSettings).not.toHaveBeenCalled();
 });
 
+test("saving while accounts load marks the account select until they are listed", async () => {
+  const client = mockClient();
+  const listed = deferred<Awaited<ReturnType<typeof demoSiteAccounts>>>();
+  client.findSiteAccounts.mockReturnValue(listed.promise);
+  await mount(client);
+  await control("site-origin").fill("https://bank.example");
+  await control("add-default").click();
+  await expect
+    .element(page.getByRole("alert"))
+    .toMatchTextContent("Wait until the matching accounts are listed.");
+  await expect.element(control("site-origin")).toHaveAttribute("aria-invalid", "false");
+  await expect.element(control("default-account")).toHaveAttribute("aria-invalid", "true");
+  await expect
+    .element(control("default-account"))
+    .toHaveAccessibleDescription(/Wait until the matching accounts are listed\./);
+  listed.resolve(await demoSiteAccounts("https://bank.example"));
+  await expect.element(control("default-account-note")).toMatchTextContent("3 matching items");
+  await expect.element(page.getByRole("alert")).not.toBeInTheDocument();
+  await expect.element(control("default-account")).toHaveAttribute("aria-invalid", "false");
+  expect(client.saveSettings).not.toHaveBeenCalled();
+});
+
 test("after a default is saved the next origin starts from its best match", async () => {
   const client = mockClient();
   await mount(client);
