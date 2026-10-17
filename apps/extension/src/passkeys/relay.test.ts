@@ -224,13 +224,13 @@ describe("isolated passkey relay", () => {
     expect(send).toHaveBeenCalledTimes(2);
   });
 
-  it.each<[string, (answer: (value: unknown) => void, fail: (error: Error) => void) => void, unknown]>([
-    ["the background's late answer", (answer) => answer({ kind: "cancelled" }), { kind: "cancelled" }],
+  it.each([
+    ["the background's late answer", { kind: "cancelled" }],
     // Chrome closes the message channel of a document entering the back/forward cache.
-    ["its closed message channel", (_answer, fail) => fail(new Error("closed")), { kind: "delegate" }],
+    ["its closed message channel", { kind: "delegate" }],
   ])(
     "stops vouching for a request cancelled on entering the back/forward cache, then settles it after %s",
-    async (_name, settle, outcome) => {
+    async (name, outcome) => {
       vi.useFakeTimers();
       const { scope, posted } = fakeWindow();
       let answer!: (value: unknown) => void;
@@ -259,7 +259,8 @@ describe("isolated passkey relay", () => {
       expect(acks()).toBe(2);
 
       // A page restored from the cache gets the answer and settles; page.test.ts covers how.
-      settle(answer, fail);
+      if (outcome.kind === "cancelled") answer(outcome);
+      else fail(new Error(name));
       await vi.advanceTimersByTimeAsync(0);
       expect(posted.at(-1)).toEqual({ channel: PAGE_CHANNEL, type: "result", id, result: outcome });
       expect(acks()).toBe(2);
