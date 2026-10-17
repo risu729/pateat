@@ -213,6 +213,11 @@ const EXTRACT_RETRY_MS = 1000;
 /** How soon after a password submission the tab's next page counts as right after it (ADR 0028). */
 const AFTER_SIGN_IN_MS = 60_000;
 /**
+ * How long after another tab's login of an origin authenticated a list of accounts showing
+ * on it is not sent for generation (ADR 0028, owner 2026-10-17).
+ */
+const SIGNED_IN_ELSEWHERE_MS = 60 * 60_000;
+/**
  * How long after evidence of a sign-in the page is read again before the login completes
  * on it (ADR 0029), so a page that is still redirecting or about to ask for a second
  * factor does not settle the login, and how many times it is read again at most while
@@ -2141,6 +2146,27 @@ export function createLoginRuntime(
           entry.document.tabId !== tabId &&
           holdsSite(entry, now),
       );
+  }
+  /**
+   * Whether another tab's login of the origin authenticated within the last hour. A list of
+   * accounts showing then is most likely the signed-in site's own, such as its accounts or
+   * workspaces, so it is not sent for generation (ADR 0028, owner 2026-10-17). The record
+   * stays until that tab shows the recipe's first step again or closes, so the hour bounds
+   * how long a tab left open keeps a real list of the site from being sent.
+   */
+  function signedInElsewhere(tabId: number, siteOrigin: string): boolean {
+    const now = Date.now();
+    return persisted.values().some((entry) => {
+      const age = now - (entry.changedAt ?? Number.NEGATIVE_INFINITY);
+      return (
+        entry.account.origin === siteOrigin &&
+        entry.document.tabId !== tabId &&
+        entry.state === "authenticated" &&
+        // A clock set back ends the skip rather than prolonging it.
+        age >= 0 &&
+        age < SIGNED_IN_ELSEWHERE_MS
+      );
+    });
   }
   /** Whether another tab asks for an account after a logout of the origin (ADR 0021 D). */
   function askedElsewhere(tabId: number, siteOrigin: string): boolean {
@@ -7634,6 +7660,20 @@ export function createLoginRuntime(
         // Logged for a list with an email, one with a control for another account, or an
         // offered entry only: short texts alone are ordinary browsing.
         if (!listing.names || listing.other || entryOffer) skipGeneration(live, "after-sign-in");
+        offer = false;
+      }
+      // Nor while another tab's login of the origin authenticated within the hour, as on a
+      // signed-in dashboard listing the site's accounts by email opened in a new tab, unless
+      // the tab logged out or the site asks after a logout (ADR 0028, owner 2026-10-17).
+      if (
+        offer &&
+        listing &&
+        !asking &&
+        signedInElsewhere(document.tabId, document.origin) &&
+        !(clickSite && pendingClick(document.tabId, clickSite))
+      ) {
+        if (!listing.names || listing.other || entryOffer)
+          skipGeneration(live, "signed-in-elsewhere");
         offer = false;
       }
       // Nor as a page that asks for an identifier alone (ADR 0016), such as a profile page
