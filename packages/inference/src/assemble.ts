@@ -126,7 +126,8 @@ export function entryRecipe(page: {
  * becomes the `passkey` route (ADR 0027); a continuation needs a single-variant recipe and
  * a page with neither. The revision is the next one; the caller stores it with a
  * conditional write. The recipe keeps the first account switch a page names that is not
- * also one of its click targets or its passkey button.
+ * also one of its click targets, its passkey button, a handler's element, its rejection or
+ * a signed-in marker.
  */
 export function appendPageSteps(
   base: LoginRecipe | undefined,
@@ -158,10 +159,17 @@ export function appendPageSteps(
   const variants = [steps, ...alternatives];
   const { accountSwitch: kept, ...rest } = base ?? {};
   const passkey = base?.passkey?.target ?? page.passkey;
+  // Elements the switch must not be: the base's handlers, rejection and markers.
+  const taken = [
+    ...(base?.handlers ?? []).flatMap(handlerTargets),
+    ...(base?.rejection ? [base.rejection] : []),
+    ...(base?.completion ?? []).map((marker) => marker.target),
+  ];
   const accountSwitch = [kept, page.accountSwitch].find(
     (target) =>
       target !== undefined &&
       !(passkey && sameTarget(passkey, target)) &&
+      !taken.some((element) => sameTarget(element, target)) &&
       !variants.some((variant) =>
         variant.some((step) => step.kind === "click" && sameTarget(step.target, target)),
       ),
@@ -232,6 +240,9 @@ export function addCompletion(
     ...steps.flatMap(stepTargets),
     ...(base.passkey ? [base.passkey.target] : []),
     ...(base.handlers ?? []).flatMap(handlerTargets),
+    // A login page that shows the switch or the rejection must not read as signed in.
+    ...(base.accountSwitch ? [base.accountSwitch] : []),
+    ...(base.rejection ? [base.rejection] : []),
   ];
   if (own.some((element) => sameTarget(element, target)))
     return { ok: false, reason: "step-target" };
