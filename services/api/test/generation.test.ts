@@ -4273,3 +4273,46 @@ describe("sign-in entry pages (ADR 0031)", () => {
     });
   });
 });
+
+describe("passkey-only authenticated recipe generation", () => {
+  it("persists and reuses a click-only passkey recipe from a locally mocked model", async () => {
+    const device = await owner();
+    const page = observation("/passkey-login", [
+      element("login-key", "button", "Sign in with a passkey"),
+    ]);
+    replies.push({
+      text: JSON.stringify({
+        result: {
+          decision: "plan",
+          fields: [],
+          action: { candidate: "login-key", purpose: "submit" },
+          passkeyButton: "login-key",
+        },
+      }),
+    });
+    const body = { version: 1, observation: page, slots: [], passkeyOnly: true };
+    const response = await post(device, "/v1/recipes/generate", body);
+    expect(response.status).toBe(200);
+    const first = (await response.json()) as RecipeGenerationResult;
+    expect(first).toMatchObject({
+      status: "recipe",
+      change: {
+        recipe: {
+          passkeyOnly: true,
+          slots: [],
+          steps: [{ kind: "click", purpose: "submit", path: "/passkey-login" }],
+        },
+      },
+    });
+    expect(sent).toHaveLength(1);
+    const again = await post(device, "/v1/recipes/generate", body);
+    expect(await again.json()).toEqual(first);
+    expect(sent).toHaveLength(1);
+    const unmarked = await post(device, "/v1/recipes/generate", {
+      ...body,
+      passkeyOnly: undefined,
+    });
+    expect(unmarked.status).toBe(400);
+    expect(sent).toHaveLength(1);
+  });
+});

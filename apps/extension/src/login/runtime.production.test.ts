@@ -13174,6 +13174,107 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
     );
   });
 
+  describe("passkey-only generation eligibility", () => {
+    it("does not run the passkey button as a password fallback for a password-only item", async () => {
+      const only = parseLoginRecipe({
+        version: 1,
+        id: "synthetic-passkey-only",
+        revision: 1,
+        origin,
+        slots: [],
+        passkeyOnly: true,
+        passkey: { path: "/signin", target: target("login") },
+        steps: [{ kind: "click", purpose: "submit", path: "/signin", target: target("login") }],
+        maxSubmissions: 1,
+      });
+      const h = harness({}, { passkeys: async () => ({ passkey: false, discoverable: false }) });
+      h.recipes.recipe.mockResolvedValue(only);
+      h.recipes.starts.mockResolvedValue(startsOf(only.steps));
+      expect(await h.hello()).toEqual({ ok: false, reason: "no-route" });
+      expect(clicks("login")).toBe(0);
+      expect(h.fields).not.toHaveBeenCalled();
+    });
+
+    const showPasskey = (h: ReturnType<typeof harness>) =>
+      h.login.handle(
+        {
+          version: 1,
+          type: "login.document.ready",
+          token: "synthetic-token",
+          signIn: { path: reportedPath(fake.state.pageUrl), passkey: true },
+        },
+        sender(),
+      );
+
+    it.each([
+      ["no passkey", []],
+      ["a passkey from a different item", [{ connectionId, itemId: "unrelated-item" }]],
+    ])("does not generate for %s", async (_, held) => {
+      const service = {
+        available: vi.fn(async (): Promise<true> => true),
+        generate: vi.fn<LoginGeneration["generate"]>(),
+        generateEntry: vi.fn<LoginGeneration["generateEntry"]>(),
+        judge: vi.fn<LoginGeneration["judge"]>(),
+        slotFields: vi.fn<LoginGeneration["slotFields"]>(),
+      };
+      const h = harness(
+        { siteDefaults: [], bindings: [] },
+        {
+          uris: async () => ({ ok: true as const, data: uriMatch() }),
+          passkeyItems: async () => held,
+          generation: service,
+        },
+      );
+      h.recipes.recipe.mockResolvedValue(undefined);
+      h.recipes.starts.mockResolvedValue(startsOf([]));
+      await showPasskey(h);
+      expect(service.generate).not.toHaveBeenCalled();
+    });
+
+    it("sends no fill slots only when the same eligible matching item holds a discoverable passkey", async () => {
+      fake.state.extracted = {
+        passkey: {
+          ok: true,
+          observation: {
+            version: 1,
+            origin,
+            path: "/signin",
+            language: "en",
+            complete: true,
+            candidates: [
+              { id: "key", role: "button", label: "Sign in with a passkey", target: target("key") },
+            ],
+          },
+        },
+      };
+      const service = {
+        available: vi.fn(async (): Promise<true> => true),
+        generate: vi.fn<LoginGeneration["generate"]>(async () => ({
+          outcome: "abstained",
+          reason: "ambiguous",
+        })),
+        generateEntry: vi.fn<LoginGeneration["generateEntry"]>(),
+        judge: vi.fn<LoginGeneration["judge"]>(),
+        slotFields: vi.fn<LoginGeneration["slotFields"]>(),
+      };
+      const h = harness(
+        { siteDefaults: [], bindings: [] },
+        {
+          uris: async () => ({ ok: true as const, data: uriMatch() }),
+          passkeyItems: async () => [{ connectionId, itemId }],
+          generation: service,
+        },
+      );
+      h.recipes.recipe.mockResolvedValue(undefined);
+      h.recipes.starts.mockResolvedValue(startsOf([]));
+      await showPasskey(h);
+      await vi.waitFor(() => expect(service.generate).toHaveBeenCalledOnce());
+      expect(service.generate.mock.calls[0]![0]).toMatchObject({ passkeyOnly: true, slots: [] });
+      expect(service.generateEntry).not.toHaveBeenCalled();
+      expect(fake.state.messages.filter((entry) => entry["type"] === "login.fill")).toEqual([]);
+    });
+  });
+
   describe("the item a running login uses", () => {
     it("is named only while the tab's login on that origin has not ended", async () => {
       onClick({ login: "hang" });
