@@ -282,6 +282,36 @@ describe("typeValue", () => {
     expect(keys).toEqual(["a:false", "B:true", "!:true"]);
   });
 
+  it("names a symbol's US key and Chrome's keyCode", async () => {
+    document.body.innerHTML = '<input id="field">';
+    const field = document.getElementById("field") as HTMLInputElement;
+    const keys: string[] = [];
+    field.addEventListener("keydown", (event) =>
+      keys.push(`${event.key}:${event.code}:${event.keyCode}:${event.which}:${event.shiftKey}`),
+    );
+    const pressed: string[] = [];
+    field.addEventListener("keypress", (event) =>
+      pressed.push(`${event.key}:${event.keyCode}:${event.which}:${event.charCode}`),
+    );
+    await typeValue(field, "aA1@;:-_/ é", setter);
+    expect(keys).toEqual([
+      "a:KeyA:65:65:false",
+      "A:KeyA:65:65:true",
+      "1:Digit1:49:49:false",
+      "@:Digit2:50:50:true",
+      ";:Semicolon:186:186:false",
+      "::Semicolon:186:186:true",
+      "-:Minus:189:189:false",
+      "_:Minus:189:189:true",
+      "/:Slash:191:191:false",
+      " :Space:32:32:false",
+      // A character no US key types has neither.
+      "é::0:0:false",
+    ]);
+    // `keypress` names the character itself, as Chrome's does: `;` is 186 on `keydown`.
+    expect(pressed[4]).toBe(";:59:59:59");
+  });
+
   it("clears a field's earlier text before typing", async () => {
     document.body.innerHTML = '<input id="field" value="old">';
     const field = document.getElementById("field") as HTMLInputElement;

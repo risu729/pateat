@@ -396,13 +396,16 @@ section ([ADR 0038](adr/0038-login-status-badge.md#popup);
 on other paths only, or none; the AI's last answer for the tab (making a recipe, made
 one, chose not to, could not, or a page sent with no answer recorded), or why the page
 was not sent; and the tab's last login on the site (logging in, logged in, waiting on a
-second step, an ended sign-in that could not be confirmed, or why it did not start,
-stopped or did not succeed, with a note that a
+second step, a result not known yet whose next pages are checked, for a watched login
+or one whose result settled as unknown, an ended sign-in that could not be
+confirmed, or why it did not start, stopped or did not succeed, with a note that a
 broken recipe is not made again automatically), and a refusal the badge shows, such as
 "the vault item has neither a password nor a passkey". Known codes get a plain sentence
 and others show their log name; a link opens the diagnostics page. The worker answers
 from the recipe cache, its own record of the top page, the badge's spin for a request
-in flight, and the last login and model request the badge keeps from the log reports,
+in flight, the tab's login record for whether a `reconciling` login's result settled
+as unknown (`settled`), and the last login and model request the badge keeps from the
+log reports,
 with the badge's lifetime: a top page of another origin or the tab's closing drops them,
 and `chrome.storage.session` keeps them across a worker restart. Item selection, field
 exclusions and custom-field review stay on the extension's settings page once synced
@@ -582,29 +585,32 @@ the last field. A fill that advances or submits through the page's own event set
 value and sends that one `input` or `change` event alone, with no focus, keys or blur
 that could run its effect again. Known limits: the events are not trusted (`isTrusted`
 is false), so a page that checks that, or opens a software keyboard on focus, can still
-refuse a fill; only letters, digits and space get a `code` and `keyCode`, after a US
-layout; Chrome sends no focus or blur events to a page whose window is not focused, so a
-page that reads a field only on blur may still miss it there; a hidden tab's timers are
-throttled, so the waits between fields and between the digits of a split code may
-stretch; a page that writes the field from its own timer after each key may drop
-characters, and its fill then stops at the check after typing, while one that keeps its
-own copy of the value from such a timer may hold another value while the field passes
-that check, and the copy is submitted (a page's zero-delay timer runs before the next
-character only when Chrome queues it first, which it does not once it clamps nested
-timers to 4 ms); and a page that submits on its own from a key or blur handler of a
-preparing fill is not watched for, so the click after the 500 ms check still runs if its
-button stays clickable. Before 2026-10-13 a preparing fill sent only `input` and
-`change` after the setter, in one task; that day a bank page showed its required-field
-error under its filled fields. Until later that day it then set the whole value at once
-between bare key events, as Bitwarden's autofill does; the same page's React inputs kept
-their state empty after that (a dummy-value probe in the owner's Chrome), and took each
-value when it was typed a character at a time. Characters were 25 ms apart, about 0.5 s
-for a username and a password, until the owner chose one task apart that day
-(2026-10-13), for speed: a character the page drops from the field still stops the fill
-before the click. Fields are not typed at the same time: only one input has focus, and
-typing two at once would move focus, and run the page's blur and focus checks, at every
-character; one task apart, a field's characters take a few milliseconds, so typing the
-fields in turn costs little (owner, 2026-10-13).
+refuse a fill; key events name the key and Chrome's `keyCode` that a US layout types the
+character with, as `{ key: "@", code: "Digit2", keyCode: 50, shiftKey: true }`, whatever
+the person's own layout, and a character no US key types, such as `é`, gets an empty
+`code` and `keyCode` 0 (owner, 2026-10-17 04:41 UTC, which added the symbols); Chrome
+sends no focus or blur events to a page whose window is not focused, so a page that
+reads a field only on blur may still miss it there; a hidden tab's timers are throttled,
+so the waits between fields and between the digits of a split code may stretch; a page
+that writes the field from its own timer after each key may drop characters, and its
+fill then stops at the check after typing, while one that keeps its own copy of the
+value from such a timer may hold another value while the field passes that check, and
+the copy is submitted (a page's zero-delay timer runs before the next character only
+when Chrome queues it first, which it does not once it clamps nested timers to 4 ms);
+and a page that submits on its own from a key or blur handler of a preparing fill is not
+watched for, so the click after the 500 ms check still runs if its button stays
+clickable. Before 2026-10-13 a preparing fill sent only `input` and `change` after the
+setter, in one task; that day a bank page showed its required-field error under its
+filled fields. Until later that day it then set the whole value at once between bare key
+events, as Bitwarden's autofill does; the same page's React inputs kept their state
+empty after that (a dummy-value probe in the owner's Chrome), and took each value when
+it was typed a character at a time. Characters were 25 ms apart, about 0.5 s for a
+username and a password, until the owner chose one task apart that day (2026-10-13), for
+speed: a character the page drops from the field still stops the fill before the click.
+Fields are not typed at the same time: only one input has focus, and typing two at once
+would move focus, and run the page's blur and focus checks, at every character; one task
+apart, a field's characters take a few milliseconds, so typing the fields in turn costs
+little (owner, 2026-10-13).
 
 MV3 workers can stop. Persist only resumable metadata, never an instruction to blindly
 replay a submit. Input and change handlers can submit without a click. Declare whether a
@@ -705,6 +711,39 @@ before. Explicit credential rejection stops retries with that credential. Struct
 mismatch is meant to request bounded repair (not implemented, see
 [Declarative recipes and AI](#declarative-recipes-and-ai)); unknown submission outcomes
 require reconciliation before any resubmission.
+
+Every click Pateat makes on a page (a step's, a chooser's list, an account switch and a
+sign-in entry) first sends the element the mouse events a person's click sends, in
+Chrome's order and with its properties for a mouse moved onto the element and pressed
+(`src/page/pointer-press.ts`, owner, 2026-10-17 03:58 UTC), at the centre of its first
+box: moving onto it, when this document's last press left the mouse elsewhere,
+`pointerout` and `pointerleave` there (`pointerleave` on each ancestor left), then
+`pointerover` and `pointerenter` (on each ancestor entered, outermost first, neither
+bubbling nor composed), then the same as `mouseout`, `mouseleave`, `mouseover` and
+`mouseenter`, then `pointermove` and `mousemove`; one task later `pointerdown`,
+`mousedown` and focus (the nearest ancestor a click can focus, without scrolling, or a
+blur of the focused field when there is none); one task later `pointerup` and `mouseup`,
+then `click()`. The page's microtasks run after each event, as they do between the
+events of one input, so a framework that renders in a microtask, such as one that
+disables a button once its `mousedown` submitted, renders before the next event. Until
+that day `click()` alone sent the page only `click`, so a control that acts on
+`pointerdown` or `mousedown` never reacted. As in a browser, a page that cancels
+`pointerdown` gets no `mousedown` or `mouseup`, and one that cancels `mousedown` keeps
+focus where it was. Before each task's events the press is checked again, as a fill is
+between its characters: when the page's handlers removed the element from the document,
+the page moved to another path (for an entry press, another URL), or the document's
+login was cancelled or its operation expired, the press stops there without the click.
+After `pointerdown` it is answered as made, since the page may have acted on it, and
+before it as not made, so a step ends `structural-mismatch` (`target-missing`), or
+`cancelled` after a cancel, a path change or the operation's expiry, an account switch
+is withdrawn and an entry press does not count. The isolated world sends the events,
+also before a `javascript:` link's main-world click. Known limits: like a fill's events
+they are not trusted and carry no user activation; `screenX` and `screenY` are 0, and
+the `click` itself has no coordinates; they go to the element even where another element
+covers its centre; an element in a shadow root's slot gets the events its light-DOM
+ancestors get rather than the slot's; Pateat does not know where the person's own mouse
+is; and a `mousedown` handler that rewrites an entry link's `href` sends the press where
+it now points, as a person's click would.
 
 A new login reads its item's facts once and records them in its attempt
 ([ADR 0027](adr/0027-per-account-login-routes.md)): a non-empty, not excluded password
@@ -999,7 +1038,12 @@ the watch is over, the next page of the tab ends the login where it stopped
 (`WATCH_ENDED`: `blocked` with `challenge` or `unknown-submit`) without changing the
 record's last change time, so it holds the site only until 5 minutes after that time; a
 login stopped after a submission is then handled as before, also on a page the watch
-already followed, other than the one it began in. A restart keeps the watch. Leaving the
+already followed, other than the one it began in. A restart keeps the watch, and the
+document the watch began in is not read again: a restarted worker that resumes a login
+whose result settled as unknown in that document runs no check there, and the tab's next
+page or one after the watch's 10 minutes is handled as before (agent fix applying ADR
+0027, 2026-10-17; a bank's settled login in the owner's Chrome was read again in its
+submitted document after each worker restart). Leaving the
 origin without a confirmed sign-in ends it the same way where it stopped, not
 `left-origin`, so its first step showing again later in the tab is no logout either
 (2026-10-13). Newer settings end it
