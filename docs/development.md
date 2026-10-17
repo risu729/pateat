@@ -28,6 +28,15 @@ package. The Drizzle schema in `services/api/src/db/schema.ts` owns the D1 schem
 `mise run //services/api:generate:migrations` writes SQL to `services/api/migrations/`
 without contacting a database, and the check graph fails if committed migrations drift.
 
+The ordinary judged-page completion rule of
+[ADR 0029](adr/0029-local-sign-in-state.md#implementation-notes) lives in
+`apps/extension/src/login/completion-policy.ts`: pure functions select an undecided
+candidate, settle it from the fresh reading and disabled-field omission, and choose the
+judged outcome. `runtime.ts` retains the asynchronous page re-read, current-run checks,
+handler takeover and reporting. Its `judgeMove` and `judgeStop` keep their distinct
+completion rules. The policy's table tests pin the existing behavior; extracting it
+does not change what an undecided answer means.
+
 `mise.toml` owns exact tool versions and installation. Tool lockfiles use format
 version 3 and `lockfile_mode = "generate"`, rebuilding them from current requests
 while reusing unchanged artifacts. The repository-wide tasks live in the root

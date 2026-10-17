@@ -156,6 +156,7 @@ import {
   type SignInDecision,
   type SignInSigns,
 } from "./sign-in-state";
+import { judgedCompletionResult, settleCompletion, undecidedCandidate } from "./completion-policy";
 import type { AlertMiss } from "../page/sign-in-state";
 import type { LoginSites } from "./sites";
 import { linkRefusal, namesReturnPath, type OnSite } from "./entry";
@@ -265,25 +266,6 @@ const formAgain = (signs: SignInSigns) =>
   !signs.e1 &&
   !signs.e2 &&
   !signs.e3;
-/** A confirmed sign of another sign-in step (S2 to S5) without the sign-in fields. */
-const continuing = (reading: SignInReading | undefined) =>
-  reading?.confirmed === true && reading.decision === "continuing";
-/**
- * Why the judge gave no verdict that still completes a page with no sign and no evidence
- * (ADR 0029): the model could not decide (no reason), the path was judged before, as
- * undecided or signed in, or a
- * spending or judgement limit applies. A page judged `challenge` or `rejected` before
- * (`judged-challenge`, `judged-rejected`), one whose earlier request has no verdict
- * (`judgement-unanswered`), a failure, a conflict or a missing service does not.
- */
-const UNDECIDED_COMPLETES = new Set([
-  undefined,
-  "already-judged",
-  "judged-signed-in",
-  "judgement-limit",
-  "daily-limit",
-  "monthly-limit",
-]);
 /** Sign-in entry presses per tab, until the tab closes (ADR 0031). */
 const ENTRY_PRESSES_KEY = "session:pateat.login-entry-presses.v1";
 /** Entry recipe revisions blocked on this device after a press that led nowhere (ADR 0031). */
@@ -4593,41 +4575,29 @@ export function createLoginRuntime(
     // A page with no sign and no evidence completes when the judge cannot decide, unless
     // the login is watched (ADR 0027); one with a sign of another sign-in step goes to the
     // person, as does a page judged `challenge` before (ADR 0029).
-    const undecided = verdict === "unclear";
-    let completes =
-      undecided &&
-      reading?.confirmed === true &&
-      reading.decision === "judge" &&
-      run.metadata.watch === undefined &&
-      run.metadata.route !== "passkey" &&
-      UNDECIDED_COMPLETES.has(reason);
-    // A login that stopped before its item's missing password never completes on an
-    // undecided answer: it ends `challenge`, watched (ADR 0036). A path the judge found
-    // signed in before is the judge's own answer, as on a move.
-    const stopHeld =
-      undecided && run.metadata.stopAt !== undefined && reason !== "judged-signed-in";
-    if (stopHeld) completes = false;
+    const candidate = undecidedCandidate({
+      verdict,
+      reason,
+      reading,
+      watched: run.metadata.watch !== undefined,
+      route: run.metadata.route,
+      stopAt: run.metadata.stopAt,
+    });
+    let again: Awaited<ReturnType<typeof readSignInState>>;
     // The judge's answer can take a while: the page completes only if, once the answer is
     // back, it has loaded and still shows no sign of a sign-in going on.
-    if (completes) {
-      const again = await readSignInState(run);
+    if (candidate.completes) {
+      again = await readSignInState(run);
       if (!current(run)) {
         reportJudge(verdict, { ...(reason ? { reason } : {}) });
         return true;
       }
-      completes =
-        again?.loaded === true && (again.decision === "judge" || again.decision === "signed-in");
     }
-    // A disabled field left out of the description may be a code field waiting for a timer
-    // or a sent code: such a page completes only when the judge answers `signed-in`, and
-    // otherwise settles as an unjudged page would (owner, 2026-10-12, ADR 0029).
-    const notCompleted =
-      completes && disabledLeftOut
-        ? ("disabled-left-out" as const)
-        : stopHeld
-          ? ("password-empty" as const)
-          : undefined;
-    if (notCompleted) completes = false;
+    const { completes, notCompleted } = settleCompletion({
+      ...candidate,
+      again,
+      disabledLeftOut,
+    });
     // Reported before the takeover's own entries, once whether it is taken over is known.
     let reported = false;
     // A watched login only reads its pages; it never runs a learned handler (ADR 0027).
@@ -4648,20 +4618,15 @@ export function createLoginRuntime(
         ...(notCompleted ? { notCompleted } : {}),
       });
     if (movedOn || !current(run)) return true;
-    const result =
-      verdict === "signed-in" || completes
-        ? "authenticated"
-        : unproven(
-            run,
-            verdict === "rejected"
-              ? "credential-rejected"
-              : verdict === "challenge" ||
-                  reason === "judged-challenge" ||
-                  (undecided && continuing(reading)) ||
-                  stopHeld
-                ? "challenge"
-                : "unknown",
-          );
+    const result = judgedCompletionResult({
+      verdict,
+      reason,
+      reading,
+      completes,
+      stopHeld: candidate.stopHeld,
+      route: run.metadata.route,
+      stopAt: run.metadata.stopAt,
+    });
     // The page after the final advance before a stop just past the plan's last step, not
     // found signed in or rejected and with no handler taken over, takes the login to its
     // stop, where the page's passkey request is answered (ADR 0036).
