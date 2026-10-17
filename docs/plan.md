@@ -848,8 +848,9 @@ items the owner mentioned and gates still open on 2026-10-11.
   existing account selection, requires transient activation and an active, focused
   top document outside incognito, and delegates nonempty allowlists, supplied
   signals and every request needing an account chooser. It has a one-second lookup
-  and signing budget and never parks for a login. Synthetic checks and independent
-  review are pending; installed-Chrome behavior is unverified. `password: true` and
+  and signing budget and never parks for a login. Synthetic unit checks pass in
+  [the draft PR](https://github.com/risu729/pateat/pull/658); independent review is
+  pending, and installed-Chrome behavior is unverified. `password: true` and
   mixed credential requests still delegate; handing the page a `PasswordCredential`
   needs a design of its own. The
   [login standards](research/2026-10-13-login-standards.md) note records how the
