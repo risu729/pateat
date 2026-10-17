@@ -1045,14 +1045,14 @@ items the owner mentioned and gates still open on 2026-10-11.
     [phase 2](#phase-2-use-it-and-fix-what-comes-up); deliveries 2 to 4 (the settings
     and fill-only `sign-in`, filling `confirm` pages, personal details) are here.
 - The items under [later work](#initial-delivery-and-later-scope) and the ADRs' later
-  sections, including synced vault policy
-  ([ADR 0023](adr/0023-synced-vault-policy.md)), more settings profiles
-  ([ADR 0024](adr/0024-settings-profiles.md)), the ADR 0025 later work, the ADR 0027
-  cases it does not handle. Generation for passkey-only start pages has an implementation
-  under the provisional policy in [ADR 0046](adr/0046-passkey-only-generation.md): a
-  button-only page needs a matching eligible item with a discoverable usable passkey,
-  and its recipe has no password fallback. Owner confirmation of the detailed policy
-  and real-site verification remain open; no paid inference or deployment is included.
+  sections, including synced vault policy ([ADR 0023](adr/0023-synced-vault-policy.md)),
+  more settings profiles ([ADR 0024](adr/0024-settings-profiles.md)), the ADR 0025 later
+  work, the ADR 0027 cases it does not handle. Generation for passkey-only start pages
+  has an implementation under the provisional policy in
+  [ADR 0046](adr/0046-passkey-only-generation.md): a button-only page needs a matching
+  eligible item with a discoverable usable passkey, and its recipe has no password
+  fallback. Owner confirmation of the detailed policy and real-site verification remain
+  open; no paid inference or deployment is included.
 - Real-account checks of individual Bitwarden two-step methods, other KDFs, V2 keys and
   organization items. The owner moved them after the public release on 2026-10-11
   (18:35 UTC), since few users are expected to need them; each needs the owner's
