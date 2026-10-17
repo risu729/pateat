@@ -2100,8 +2100,9 @@ steady-state API calls carry no cookie.
   page, counts as rate limiting or an unexpected failure instead. On "sign in first" the
   settings page opens `<service>/pair/signed-in` in a new tab once per click, where
   Access signs the browser in and the page asks the user to return; it retries once when
-  it is shown or focused again, and offers **Try again** and **Open sign-in page**. A
-  refused sign-in, an unlisted extension ID and a service without pairing settings each
+  it is shown or focused again, and offers **Try again** and **Open sign-in page**.
+  Editing the address or device name drops that retry and both buttons. A refused
+  sign-in, an unlisted extension ID and a service without pairing settings each
   have their own message.
 - Lifetime and recovery. A credential expires once it has gone unused for 90 days, and
   each authenticated use renews it; there is no absolute lifetime and no rotation (owner
