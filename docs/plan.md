@@ -899,6 +899,18 @@ items the owner mentioned and gates still open on 2026-10-11.
     [Research](#research)): it fills only a page of a login, not a sign-up or checkout.
   - Which part of the guess runs locally, and whether the AI may see the names of card
     or identity items, is left to the design; their values never leave the device.
+- Entering a value on a page's software keyboard (owner, 2026-10-17 03:35 UTC): a
+  login whose field takes characters only from buttons the page draws, such as an input
+  that is `readonly` and opens a keypad on focus. Pateat leaves such a page to the
+  person today, as the [phase 1](#phase-1-usable) row for these pages (エポスNet)
+  records: its fill writes only into inputs that are not `readonly`, and its events are
+  not trusted (`isTrusted` is false), which some keypads check
+  ([architecture](architecture.md#background-execution)). A page that only offers a
+  software keyboard beside an ordinary input, as SMBC Direct does with its software
+  keyboard button, is typed into as usual. The design is still to come: how a recipe
+  names a keypad's keys, keys that change position or show their character only as an
+  image, and keeping the value's characters out of what reaches the service and the AI.
+  A PIN or card code asked in an ordinary input is the item above.
 - Optional confirmation pages after a login, such as
   GitHub's "Verify your two-factor authentication (2FA) settings": Pateat should
   complete them itself (owner, 2026-10-12 04:08 UTC), as a general rule rather than for
