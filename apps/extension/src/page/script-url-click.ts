@@ -18,6 +18,8 @@
  * does tell a page, in any HTTPS frame, that Pateat is installed.
  */
 
+import { pressPointer } from "./pointer-press";
+
 /** The event's fixed name; it neither bubbles nor carries a detail. */
 export const MAIN_WORLD_CLICK = "pateat-main-world-click";
 
@@ -39,18 +41,27 @@ export function runsScriptUrl(element: unknown): element is HTMLAnchorElement {
 }
 
 /**
- * The login executor's click. A `javascript:` link is clicked by the main world when its
- * listener answers, and otherwise here; every other element is clicked here, as before.
- * Only one world clicks, so `onclick` handlers run once.
+ * The login executor's click, after the mouse events a person's click sends first
+ * ({@link pressPointer}, which stops when `between` says so or the element left the
+ * document). A `javascript:` link is clicked by the main world when its listener answers,
+ * and otherwise here; every other element is clicked here, as before. Only one world
+ * clicks, so `onclick` handlers run once. Resolves `clicked`, or how the press stopped
+ * before the click.
  */
-export function pressElement(element: HTMLElement): void {
+export async function pressElement(
+  element: HTMLElement,
+  between?: () => boolean,
+): Promise<"clicked" | "stopped" | "missed"> {
+  const pressed = await pressPointer(element, between);
+  if (pressed !== "pressed") return pressed;
   if (
     runsScriptUrl(element) &&
     // Synchronous: a cancelled event means the main world has already clicked.
     !element.dispatchEvent(new CustomEvent(MAIN_WORLD_CLICK, { cancelable: true, composed: true }))
   )
-    return;
+    return "clicked";
   element.click();
+  return "clicked";
 }
 
 /**

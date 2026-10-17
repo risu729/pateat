@@ -48,7 +48,7 @@ function keyOf(character: string): KeyboardEventInit {
  * before the next one. It is no timer, which Chrome throttles on a hidden page to a
  * second or, after five minutes hidden, to a minute.
  */
-function nextTask(): Promise<void> {
+export function nextTask(): Promise<void> {
   return new Promise((resolve) => {
     const channel = new MessageChannel();
     channel.port1.onmessage = () => {

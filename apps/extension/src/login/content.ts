@@ -586,9 +586,18 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         pagePath() === pending.path &&
         switchable(pending.element) &&
         isOnly(findTargets(document, pending.target, { links: true }), pending.element);
-      if (click) pressElement(pending.element);
-      respond({ ok: click });
-      return false;
+      if (!click) {
+        respond({ ok: false });
+        return false;
+      }
+      // The switch is withdrawn only when the page got no press: one the page stopped after
+      // `pointerdown` may already have switched.
+      const pressing = () => !cancelled && pagePath() === pending.path;
+      void pressElement(pending.element, pressing).then(
+        (pressed) => respond({ ok: pressed !== "missed" }),
+        () => respond({ ok: true }),
+      );
+      return true;
     }
     if (command.type === "login.await") {
       // Polls the current DOM serially until the step's elements are ready; never mutates.
@@ -685,9 +694,25 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         return false;
       }
       watchPressedUrl();
-      pressElement(element);
-      respond({ ok: true });
-      return false;
+      // A press the page stopped after `pointerdown` is answered as made, so the link is not
+      // pressed again; one that never reached `pointerdown` did not press it.
+      void pressElement(element, () => !cancelled && location.href === command.url).then(
+        (pressed) =>
+          respond(
+            pressed !== "missed"
+              ? { ok: true }
+              : {
+                  ok: false,
+                  reason: cancelled
+                    ? "cancelled"
+                    : location.href === command.url
+                      ? "target-changed"
+                      : "page-changed",
+                },
+          ),
+        () => respond({ ok: true }),
+      );
+      return true;
     }
     if (command.type === "login.entry.check") {
       // The page after an entry press: polls until a sign-in input, an input that asks for
@@ -1115,7 +1140,19 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         if (!command.list && showsCaptcha(document) && !passedCaptcha(document))
           return fail("captcha");
         mutated = true;
-        pressElement(element);
+        // The page may change between the press's events, as the fill's checks allow for:
+        // a press the page stopped after `pointerdown` may have acted as the click, so it is
+        // answered as made; one the moving events already stopped clicked nothing.
+        const pressing = () =>
+          !cancelled && pagePath() === step.path && Date.now() < operation.expiresAt;
+        if ((await pressElement(element, pressing)) === "missed")
+          return cancelled
+            ? fail("cancelled", "document-cancelled")
+            : pagePath() !== step.path
+              ? fail("cancelled", "page-changed")
+              : Date.now() >= operation.expiresAt
+                ? fail("cancelled", "operation-expired")
+                : fail("structural-mismatch", "target-missing");
         return { ok: true, mutation: "possible" };
       }
       const satisfied = () => {
