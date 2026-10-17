@@ -393,8 +393,8 @@ test("a document navigated away from while Pateat signs gets nothing, and the ta
       expect(opened).toEqual([]);
       expect(await probe.signatures()).toBe(1);
 
-      // Navigating away from a request whose chooser window is open closes the window, and
-      // nothing is signed or saved.
+      // Navigating away from a request whose chooser window is open closes the window; without
+      // the cancel it would stay open. The counts below are sanity checks only.
       await probe.configure({ count: 2 });
       const fresh = await openRelyingParty(context, origin);
       const waiting = await requestWithChooser(context, fresh, { challenge: challengeHex() });
