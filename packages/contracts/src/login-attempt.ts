@@ -534,6 +534,11 @@ const atStop = (context: LoginAttemptMetadata) =>
   context.fillOnly !== true &&
   context.submissions > 0;
 /**
+ * Whether a move to another origin may complete the login (ADR 0022): its current
+ * operation may have submitted, or it stands at its stop after a submission (ADR 0036).
+ */
+const maySignIn = (context: LoginAttemptMetadata) => maySubmit(context) || atStop(context);
+/**
  * Whether the login's stop lies just past its plan's last step (ADR 0036): its route fills
  * no password and ends with an `advance`, so no step is there.
  */
@@ -619,13 +624,14 @@ function record(
         // its watch ends: it never signed in, so its first step showing again is no logout
         // (ADR 0027, 2026-10-13).
         return {
-          outcome: !maySubmit(context)
-            ? "interrupted"
-            : event.signedIn
+          outcome:
+            event.signedIn && maySignIn(context)
               ? "authenticated"
               : watched(context)
                 ? context.outcome
-                : "left-origin",
+                : !maySubmit(context)
+                  ? "interrupted"
+                  : "left-origin",
         };
       return {
         document: sameScope(context.document, event.document) ? event.document : context.document,
@@ -932,7 +938,7 @@ function createLoginAttemptMachine() {
         event.type === "NAVIGATED" &&
         event.signedIn === true &&
         leftOrigin(context.document, event.document) &&
-        maySubmit(context),
+        maySignIn(context),
       observedAuthenticated: ({ context, event }) =>
         event.type === "OBSERVED" &&
         event.result === "authenticated" &&
