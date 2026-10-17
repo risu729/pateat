@@ -37,6 +37,9 @@ describe("device labels", () => {
       "mark\u200f",
       "arabic\u061cmark",
       "lone\ud800surrogate",
+      // Invisible characters alone would show as a blank name.
+      "\u200b",
+      "\u2060\u00ad",
     ])
       expect(v.safeParse(deviceLabelSchema, label).success).toBe(false);
   });
