@@ -2350,12 +2350,13 @@ export function createLoginRuntime(
       ...starts.map((start) => start.path),
       ...entries.map((entry) => entry.entry.path),
     ];
+    await loaded;
     const status = badge.status(tabId);
     const known = status?.origin === pageOrigin ? status : undefined;
     // A login whose result settled as unknown has nothing in flight; its next pages are
-    // checked (ADR 0027), so the popup does not show it as logging in.
-    await loaded;
-    const attempt = tabAttempt(tabId);
+    // checked (ADR 0027), so the popup does not show it as logging in. A login in a frame
+    // is recorded under the frame's origin.
+    const attempt = recordFor(tabId, pageOrigin) ?? tabAttempt(tabId);
     const settled =
       known?.login?.state === "reconciling" &&
       attempt?.state === "reconciling" &&

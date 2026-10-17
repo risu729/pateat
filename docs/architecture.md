@@ -396,8 +396,8 @@ section ([ADR 0038](adr/0038-login-status-badge.md#popup);
 on other paths only, or none; the AI's last answer for the tab (making a recipe, made
 one, chose not to, could not, or a page sent with no answer recorded), or why the page
 was not sent; and the tab's last login on the site (logging in, logged in, waiting on a
-second step, a result not known yet whose next pages are checked, as for a login
-watched after its result settled as unknown, an ended sign-in that could not be
+second step, a result not known yet whose next pages are checked, for a watched login
+or one whose result settled as unknown, an ended sign-in that could not be
 confirmed, or why it did not start, stopped or did not succeed, with a note that a
 broken recipe is not made again automatically), and a refusal the badge shows, such as
 "the vault item has neither a password nor a passkey". Known codes get a plain sentence
