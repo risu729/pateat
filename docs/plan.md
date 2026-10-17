@@ -1633,8 +1633,8 @@ removed `/enroll` and `/redeem` routes and cross-owner revocation. The typed-cod
 a D1 migration drops the table.
 
 The extension side of pairing is the third slice. The settings page has an optional sync
-service panel: it accepts only an exact HTTPS origin and a device name that passes the
-shared label schema. **Pair this device** asks Chrome for site access to the service
+service panel: it accepts only an exact HTTPS origin, dropping a trailing slash and a
+host's trailing dot, and a device name that passes the shared label schema. **Pair this device** asks Chrome for site access to the service
 host inside the click, then asks the background to pair. The background service worker
 sends one `POST /pair` with the browser's cookies, unfollowed redirects and
 `X-Requested-With: XMLHttpRequest`, and writes the credential straight into trusted
