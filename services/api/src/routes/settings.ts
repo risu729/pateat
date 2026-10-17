@@ -5,7 +5,9 @@ import { readSettings, writeSettings } from "../settings-store";
 import { jsonBody, requireJsonBody } from "../validation";
 
 export const settingsRoutes = new Hono<ApiEnv>()
-  .get("/", async (c) => c.json(await readSettings(c.env.DB, c.get("scope").ownerId, c.get("scope").profileId)))
+  .get("/", async (c) =>
+    c.json(await readSettings(c.env.DB, c.get("scope").ownerId, c.get("scope").profileId)),
+  )
   .put("/", requireJsonBody, jsonBody(syncSettingsWriteSchema), async (c) => {
     const scope = c.get("scope");
     const result = await writeSettings(
