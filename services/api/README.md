@@ -15,8 +15,8 @@ migrations to that database before activation
 
 All responses carry `Cache-Control: no-store` and `nosniff`; no route sends CORS
 headers. API routes answer JSON, and owner pages answer script-free HTML that cannot be
-framed. Contracts live in `packages/contracts/src/sync.ts`, `pairing.ts`, `manage.ts` and
-`generation.ts`.
+framed. Contracts live in `packages/contracts/src/sync.ts`, `pairing.ts`, `manage.ts`
+and `generation.ts`.
 
 | Route | Purpose |
 | --- | --- |

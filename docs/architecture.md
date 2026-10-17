@@ -1082,10 +1082,9 @@ owner web UI take their colors, type, radii and focus ring from the
 `services/api/web/styles.css` each define its tokens as CSS custom properties and
 Tailwind colors, with the same values. The Worker's script-free pages
 (`services/api/src/pages.ts`: `/pair/signed-in` and the Access and error pages) inline a
-small stylesheet, `services/api/src/page-styles.ts`, with the same tokens, the logo beside
-"Pateat" and the page in one panel.
-`tests/options/design-tokens.test.tsx` fails when any copy's light or dark token values
-differ.
+small stylesheet, `services/api/src/page-styles.ts`, with the same tokens, the logo
+beside "Pateat" and the page in one panel. `tests/options/design-tokens.test.tsx` fails
+when any copy's light or dark token values differ.
 
 Each page has light and dark themes. The extension's pages and the owner web UI have a
 Theme select (Browser setting, Light, Dark): at the foot of the extension settings
@@ -2046,8 +2045,8 @@ field exclusions and custom-field review, which need the device's vault catalog
   built commit and to the third-party notices, and the Theme select. React's rendered
   `<title>` sets the tab title to `Devices – Pateat`, `Sites – Pateat`,
   `Claude – Pateat` or `<origin> – Pateat`; the static HTML keeps `Pateat` before the
-  app renders. Each page is its own path, a full
-  page load that the Worker serves only for these paths:
+  app renders. Each page is its own path, a full page load that the Worker serves only
+  for these paths:
   - Devices (`/manage`): the current list and revocation, moved into the app.
   - Sites (`/manage/sites`): one list of every origin the service holds a recipe, a
     `siteDefaults` entry or a `bindings` entry for, each with badges for its recipe
@@ -2069,6 +2068,20 @@ field exclusions and custom-field review, which need the device's vault catalog
     with a tombstone after a confirmation that names the revision shown; and the
     origin's `bindings` entries with Remove, which makes that item fall back to the
     built-in-slot binding. A generated recipe may have no marker yet (ADR 0018).
+  - Claude (`/manage/claude`): the owner's Workload Identity Federation credentials
+    ([ADR 0015](adr/0015-per-owner-claude-credentials.md)), in three panels. Claude
+    Console lists the values to enter there (the issuer URL, or that the service has
+    none configured; the exact subject `owner:<ownerId>`; the audience; the scope).
+    Federation identifiers is a form of the four identifiers, starting from the saved
+    ones and keeping what the owner typed across refetches, which shows each field's
+    expected shape, checks each against its pattern before saving, and says when a saved
+    row no longer validates. Test the connection exchanges one token with the saved
+    identifiers, which calls no model and costs nothing, and shows how long the token is
+    valid for or why the exchange failed; the token never reaches the page. The page
+    notes that none of the values is a secret and that archiving the federation rule in
+    the Console stops Pateat's access. This replaces the temporary script-free form the
+    owner chose on 2026-10-11 to try WIF before the web UI existed; its layout is
+    proposed and not confirmed by the owner.
 
   The UI does not pick vault items or fields, because the item list exists only on
   devices. Choices are saved by login or by AI generation, and bindings come from AI
@@ -2076,21 +2089,6 @@ field exclusions and custom-field review, which need the device's vault catalog
   `PUT /v1/recipes/:recipeId`. Item selection and field exclusions are not shown yet;
   once synced ([ADR 0023](adr/0023-synced-vault-policy.md)) the web UI first only lists
   them, and they are edited on the extension's settings page.
-
-- Claude (`/manage/claude`): the owner's Workload Identity Federation credentials
-  ([ADR 0015](adr/0015-per-owner-claude-credentials.md)), in three panels. Claude
-  Console lists the values to enter there (the issuer URL, or that the service has
-  none configured; the exact subject `owner:<ownerId>`; the audience; the scope).
-  Federation identifiers is a form of the four identifiers, starting from the saved
-  ones and keeping what the owner typed across refetches, which shows each field's
-  expected shape, checks each against its pattern before saving, and says when a saved
-  row no longer validates. Test the connection exchanges one token with the saved
-  identifiers, which calls no model and costs nothing, and shows how long the token is
-  valid for or why the exchange failed; the token never reaches the page. The page
-  notes that none of the values is a secret and that archiving the federation rule in
-  the Console stops Pateat's access. This replaces the temporary script-free form the
-  owner chose on 2026-10-11 to try WIF before the web UI existed; its layout is
-  proposed and not confirmed by the owner.
 - Data. The app calls a JSON API under `/manage/api/*`. It does not call `/v1`, whose
   routes accept only device credentials. The API shares the owner-scoped read and write
   code of `/v1/settings` and `/v1/recipes/:recipeId`. Settings and recipe writes carry
