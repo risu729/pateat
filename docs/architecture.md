@@ -2171,6 +2171,17 @@ made after its first submission
 ([ADR 0036](adr/0036-passkey-after-the-identifier.md)). Real-extension coexistence
 requires separate compatibility tests.
 
+The provisional Immediate UI implementation
+([ADR 0045](adr/0045-immediate-ui-stored-passkeys.md), not confirmed by the owner)
+keeps `uiMode: "immediate"` distinct from mediation. It answers public-key-only
+discoverable requests without a supplied signal, in an active, focused top document
+outside incognito with transient activation. Existing account and credential scope
+still applies. It never waits for a login or opens the extension chooser; a required
+account choice delegates, and lookup plus signing has a one-second budget. Mixed
+credential requests, nonempty allowlists and unsupported modes delegate unchanged.
+This uses Pateat's unattended selection rather than Chrome's native account picker;
+installed-Chrome Immediate UI compatibility is not verified.
+
 The bridge, admission rules, assertion format and unattended presence and verification
 policy are in [ADR 0007](adr/0007-existing-passkey-assertions.md). Like the official
 Bitwarden client, passkey requests search every live login item by RP ID rather than by
