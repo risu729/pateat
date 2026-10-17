@@ -365,9 +365,13 @@ stored, and the Worker logs only `Model output refused` with the role, its promp
 version and the `rejection`. A schema `path` resolves each key where the output format
 defines it, so a key the format defines only in another object also ends the path as
 `unknown-key`; the options of a variant are read together, so a key of a sibling option
-gives that object's issue instead. Rows older than 90 days are deleted whenever a call
-is logged and on every `GET /v1/recipes`, because routine releases do not apply cron
-triggers.
+gives that object's issue instead. For `refused`, the result is `{ refusalCategory }`
+with the provider's refusal category code (for Claude, `stop_details.category`, such as
+`cyber`) when it reported a short code
+([ADR 0014](../../docs/adr/0014-claude-generation-provider.md)), and empty otherwise;
+the provider's explanation is never stored. Rows older than 90 days are deleted whenever
+a call is logged and on every `GET /v1/recipes`, because routine releases do not apply
+cron triggers.
 
 ## Schema and tests
 
