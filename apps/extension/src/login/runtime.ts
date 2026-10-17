@@ -417,8 +417,8 @@ type SettingsRuntime = {
   /** Trusted background mutation; saves an automatic account choice after confirmed `authenticated`. */
   update?(
     expectedRevision: number | undefined,
-    mutate: (snapshot: SettingsSnapshot) => SettingsSnapshot,
     cause: SettingsChangeCause,
+    mutate: (snapshot: SettingsSnapshot) => SettingsSnapshot,
   ): Promise<SettingsSnapshot>;
 };
 /**
@@ -3103,10 +3103,10 @@ export function createLoginRuntime(
       }
       writing = true;
       const written = await settings
-        .update(run.metadata.policyRevision, (snapshot) => ({
+        .update(run.metadata.policyRevision, "account-choice", (snapshot) => ({
           ...snapshot,
           settings: withChoice(snapshot.settings, choice),
-        }), "account-choice")
+        }))
         .then(
           () => "saved" as const,
           () => "write-failed" as const,

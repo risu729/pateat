@@ -6,6 +6,7 @@
 import {
   getItemEligibility,
   isSiteExcluded,
+  type SettingsChangeCause,
   type SettingsSnapshot,
   type VaultCatalog,
 } from "@pateat/contracts";
@@ -202,14 +203,15 @@ export function recountingSettings<
   T extends {
     update(
       expectedRevision: number | undefined,
+      cause: SettingsChangeCause,
       mutate: (snapshot: SettingsSnapshot) => SettingsSnapshot,
     ): Promise<SettingsSnapshot>;
   },
 >(settings: T, saved: () => void): T {
   return {
     ...settings,
-    update: (expectedRevision, mutate) =>
-      settings.update(expectedRevision, mutate).then((snapshot) => {
+    update: (expectedRevision, cause, mutate) =>
+      settings.update(expectedRevision, cause, mutate).then((snapshot) => {
         saved();
         return snapshot;
       }),

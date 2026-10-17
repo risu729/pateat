@@ -185,8 +185,8 @@ export function createSettingsStore(
   }
   async function executeUpdate(
     expectedRevision: number | undefined,
-    mutate: (snapshot: SettingsSnapshot) => SettingsSnapshot,
     cause: SettingsChangeCause,
+    mutate: (snapshot: SettingsSnapshot) => SettingsSnapshot,
   ) {
     const current = await readSnapshot();
     if (expectedRevision !== undefined && expectedRevision !== current.revision)
@@ -215,10 +215,10 @@ export function createSettingsStore(
      */
     update(
       expectedRevision: number | undefined,
-      mutate: (snapshot: SettingsSnapshot) => SettingsSnapshot,
       cause: SettingsChangeCause,
+      mutate: (snapshot: SettingsSnapshot) => SettingsSnapshot,
     ): Promise<SettingsSnapshot> {
-      const pending = queue.then(() => executeUpdate(expectedRevision, mutate, cause));
+      const pending = queue.then(() => executeUpdate(expectedRevision, cause, mutate));
       queue = pending.then(
         () => undefined,
         () => undefined,
