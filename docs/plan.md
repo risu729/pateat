@@ -713,8 +713,9 @@ Once the fixes have settled:
   in [ADR 0043](adr/0043-extension-language-preference.md) keeps the language preference
   local to the browser profile, outside service sync. The extension infrastructure,
   language selector, popup and passkey chooser are implemented in
-  [draft PR 661](https://github.com/risu729/pateat/pull/661); The settings shell, shared
-  theme controls and site policies are translated on the follow-up draft branch;
+  [draft PR 661](https://github.com/risu729/pateat/pull/661). The settings shell, shared
+  theme controls and site policies are translated in
+  [draft PR 723](https://github.com/risu729/pateat/pull/723);
   Bitwarden/vault and service connection controls, diagnostics, toolbar background
   titles, manifest metadata and user docs remain separate work. This partial slice does
   not complete the preceding wording review or this phase's translation gate. The owner
