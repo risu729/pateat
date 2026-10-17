@@ -1098,10 +1098,10 @@ decision to keep it. Generated recipes hold only preparing fills and clicks
 recipes written by hand.
 
 - At most 100 login records, one per tab and origin, are kept. A record stays after its
-  login ended, until its tab closes or the record is released (a logout, the sign-in form
-  shown again after a rejection, or the end of a fill-only login), so with 100 records a
-  new tab and origin pair is refused `attempt-limit`. So is the next login of a tab whose
-  record ended `account-switched`, though it reuses that record's place.
+  login ended, until its tab closes or the record is released (a logout, the sign-in
+  form shown again after a rejection, or the end of a fill-only login), so with 100
+  records a new tab and origin pair is refused `attempt-limit`. So is the next login of
+  a tab whose record ended `account-switched`, though it reuses that record's place.
 - A step's operation is valid for 15 seconds from when the worker builds it. A `wait`
   step therefore ends at whichever comes first, its own `timeoutMs` or that limit, so a
   `wait` of 15,000 ms always ends a little early. A fill whose vault reads take longer
