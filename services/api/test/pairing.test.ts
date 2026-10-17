@@ -144,7 +144,7 @@ describe("direct pairing", () => {
     );
     const owners = async () =>
       (await env.DB.prepare("SELECT COUNT(*) AS count FROM owners").first<{ count: number }>())
-        ?.count;
+        ?.count ?? 0;
     const before = await owners();
     let failed: Response;
     try {
@@ -159,7 +159,7 @@ describe("direct pairing", () => {
 
     expect((await pair(by)).status).toBe(201);
     expect(await ownerIdFor(by.subject)).not.toBeNull();
-    expect(await owners()).toBe((before ?? 0) + 1);
+    expect(await owners()).toBe(before + 1);
     expect(await devicesOf(by.subject)).toHaveLength(1);
   });
 });
