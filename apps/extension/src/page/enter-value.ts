@@ -7,6 +7,8 @@
 // value is typed as a keyboard would type it. Its characters are one task apart, as fast
 // as the page's handlers allow (owner decision, 2026-10-13).
 
+import { blurElement, focusElement, focusedElement } from "./focus";
+
 /**
  * How long a preparing fill waits between its inputs, between the digits of a split code
  * and after a value's last character, so the page's handlers for one, their microtasks
@@ -141,7 +143,7 @@ export async function typeValue<Cause extends string>(
 ): Promise<Cause | "refused" | undefined> {
   const current = () => (valueProperty?.get ? valueProperty.get.call(input) : input.value);
   let refused = false;
-  input.focus({ preventScroll: true });
+  focusElement(input);
   if (current() !== "") {
     const clear = { bubbles: true, composed: true, inputType: "deleteContentBackward" };
     if (input.dispatchEvent(new InputEvent("beforeinput", { ...clear, cancelable: true }))) {
@@ -223,7 +225,7 @@ export async function typeValue<Cause extends string>(
   const entered = settled(refused, false);
   if (entered) return entered;
   input.dispatchEvent(new Event("change", { bubbles: true }));
-  if (document.activeElement === input) input.blur();
+  if (focusedElement() === input) blurElement(input);
   // A page's change or blur handler may rewrite the value it holds, as a framework that
   // sets the state it last rendered does. One that empties the field, as a form switching
   // to another set of fields does, is left to the checks before the click.
