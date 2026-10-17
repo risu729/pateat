@@ -44,13 +44,26 @@ export function plural(value: number, noun: string, nouns = `${noun}s`): string 
   return `${value} ${value === 1 ? noun : nouns}`;
 }
 
-/** `25 min`, `4 h` or `3 d`; a time in the future counts as `0 min`. */
+// Diagnostics text is English; phase 3 localisation should pass the UI locale here.
+const minutesFormat = new Intl.DurationFormat("en", {
+  style: "short",
+  minutesDisplay: "always",
+});
+const hoursFormat = new Intl.DurationFormat("en", { style: "short", hoursDisplay: "always" });
+const daysFormat = new Intl.DurationFormat("en", { style: "short", daysDisplay: "always" });
+
+/** An already chosen hour count, including zero; overdue syncs keep hours beyond 48. */
+export function formatHours(hours: number): string {
+  return hoursFormat.format({ hours });
+}
+
+/** `25 min`, `4 hr` or `3 days`; a time in the future counts as `0 min`. */
 export function age(ms: number): string {
   const elapsed = Temporal.Duration.from({ milliseconds: Math.max(0, ms) });
   const hours = elapsed.total("hours");
-  if (hours < 1) return `${Math.floor(elapsed.total("minutes"))} min`;
-  if (hours < 48) return `${Math.floor(hours)} h`;
-  return `${Math.floor(elapsed.total("days"))} d`;
+  if (hours < 1) return minutesFormat.format({ minutes: Math.floor(elapsed.total("minutes")) });
+  if (hours < 48) return formatHours(Math.floor(hours));
+  return daysFormat.format({ days: Math.floor(elapsed.total("days")) });
 }
 
 /** The Bitwarden server line: its kind and version, or why it could not be read. */
