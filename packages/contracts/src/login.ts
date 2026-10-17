@@ -1094,7 +1094,11 @@ export function passwordStopOrMiss(
   if (!before.some((step) => loginStepEffect(step) === "advance")) return { miss: "no-advance" };
   return before.some((step) => fills(step, lacking)) ? { miss: "fills-lacking" } : { stop };
 }
-/** The slot a `totp` handler's fill uses; a binding for it reads the item's TOTP field. */
+/**
+ * The slot a `totp` handler's fill uses; it always fills a generated code. A binding for it
+ * reads the item's TOTP field, or a Text or Hidden custom field that a saved binding names
+ * and that holds a TOTP seed.
+ */
 export const TOTP_HANDLER_SLOT = "totp";
 /**
  * The steps a handler runs: a `passkey` handler's click, or a `totp` handler's fill of the
