@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { LocalFieldSnapshot } from "@pateat/bitwarden";
+import { rfcTotpSecrets } from "../../../../packages/bitwarden/src/__fixtures__/totp";
 import type { HostCommand, HostSessionRef } from "./wire";
 
 const mocks = vi.hoisted(() => ({
@@ -112,6 +113,9 @@ beforeEach(async () => {
         id: itemId(index + 1),
         type: 1,
         login: { password: `synthetic-password-${index + 1}` },
+        ...(index === 0
+          ? { fields: [{ name: "seed", value: rfcTotpSecrets.SHA1, type: 1, linkedId: null }] }
+          : {}),
       })),
     },
   });
@@ -181,5 +185,31 @@ describe("crypto Worker decrypted field cache", () => {
     expect(captured(1, 1).dispose).not.toHaveBeenCalled();
     expect(await resolve(1)).toEqual(resolved(1));
     expect(mocks.decrypt).toHaveBeenCalledTimes(130);
+  });
+});
+
+describe("crypto Worker TOTP code grant", () => {
+  it("passes the code grant to the field snapshot", async () => {
+    // The first synthetic item holds a Hidden custom field with an RFC 6238 seed.
+    const fieldId = `custom.${snapshotId}.0`;
+    const ref = { connectionId, userId, snapshotId, itemId: itemId(1), fieldId };
+    const coded = await command({
+      kind: "resolve",
+      session,
+      ref,
+      allowedFieldIds: [fieldId],
+      nowMs: 59_000,
+      code: true,
+    });
+    expect(coded).toEqual({
+      ok: true,
+      data: { kind: "otp", value: "287082", period: 30, validUntilMs: 60_000 },
+    });
+    expect(JSON.stringify(coded)).not.toContain(rfcTotpSecrets.SHA1);
+    // Without the grant, the same field is plain text: the grant alone made the code.
+    expect(await command({ kind: "resolve", session, ref, allowedFieldIds: [fieldId] })).toEqual({
+      ok: true,
+      data: { kind: "text", value: rfcTotpSecrets.SHA1 },
+    });
   });
 });

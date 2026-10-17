@@ -3290,14 +3290,15 @@ export function createLoginRuntime(
       });
       // The `totp` fact describes the field a `totp` handler makes its code from: a custom
       // field the saved binding names counts when the account may read it, and the built-in
-      // TOTP then does not.
+      // TOTP then does not. A binding naming a field no code is made from leaves none.
       const code = codeFieldOf(
         resolved.connection,
         resolved.account.itemId,
         snapshot.snapshot.settings.bindings,
         recipe,
       );
-      return code?.startsWith("custom.")
+      if (!code) return { ...read, totp: false };
+      return code.startsWith("custom.")
         ? { ...read, totp: resolved.account.fieldIds.includes(code) }
         : read;
     };
