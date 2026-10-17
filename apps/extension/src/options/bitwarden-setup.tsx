@@ -806,7 +806,9 @@ export function BitwardenSetup({
               id="bitwarden-continue"
               type="button"
               disabled={
-                busy || !code || (challenge.kind === "mfa-required" && !challenge.providers.length)
+                busy ||
+                !code.replace(/\s/g, "") ||
+                (challenge.kind === "mfa-required" && !challenge.providers.length)
               }
               onClick={continueSetup}
             >

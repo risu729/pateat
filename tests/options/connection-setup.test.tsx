@@ -199,7 +199,10 @@ test("verification codes are sent without spaces and a blank code sends nothing"
   await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
   const mfaCode = page.getByLabelText("Verification code", { exact: true });
   await mfaCode.fill("   ");
-  await page.getByRole("button", { name: "Verify code", exact: true }).click();
+  await expect
+    .element(page.getByRole("button", { name: "Verify code", exact: true }))
+    .toBeDisabled();
+  await userEvent.keyboard("{Enter}");
   await mfaCode.fill(" 123 456\t");
   await page.getByRole("button", { name: "Verify code", exact: true }).click();
   await vi.waitFor(() => expect(client.continue).toHaveBeenCalledTimes(1));
