@@ -108,9 +108,10 @@ export function generateLocalTotp(
       )
         return failure("invalid-totp");
     }
-    // Like Bitwarden, drop the unused bits of the last character. Issuers that draw random
-    // Base32 characters, rather than encoding bytes, leave them non-zero.
+    // Like Bitwarden, drop the bits left over after the last whole byte. Issuers that draw
+    // random Base32 characters, rather than encoding bytes, leave them non-zero.
     secret = Secret.fromBase32(unpadded);
+    // The length check guards against a library change; a secret under one byte is refused.
     if (secret.bytes.length !== Math.floor((unpadded.length * 5) / 8) || !secret.bytes.length)
       return failure("invalid-totp");
     let value: string;

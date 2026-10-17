@@ -1272,9 +1272,10 @@ destination policy and invalidate stale operations.
 
 OTPAuth supplies local standard TOTP and Steam generation. Supported inputs are
 Base32 secrets and explicit TOTP URI parameters; unsupported algorithms, HOTP and
-unknown URI parameters are explicit errors. As in Bitwarden, the unused bits of a
-secret's last character are dropped, and the display-only `image`, `icon` and `color`
-URI parameters are ignored. OTP seeds are not field values or inference inputs.
+unknown URI parameters are explicit errors. As in Bitwarden, the bits left over after
+a secret's last whole byte are dropped, and the display-only `image`, `icon` and `color`
+URI parameters are ignored. Unlike Bitwarden, padding must be canonical and a secret
+shorter than one byte is refused. OTP seeds are not field values or inference inputs.
 Independent RFC 6238 and pinned upstream answers, clock boundaries and the
 packaged MV3 probe are the verification gates for this slice.
 

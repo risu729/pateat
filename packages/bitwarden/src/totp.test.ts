@@ -186,6 +186,8 @@ describe("local TOTP independent known answers", () => {
 });
 
 describe("local TOTP admission", () => {
+  // Some of these, such as non-canonical padding and one-character secrets, give a code in
+  // the Bitwarden SDK. Pateat refuses them on purpose; do not loosen them toward parity.
   it.each([
     "",
     " ",
