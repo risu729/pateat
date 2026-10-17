@@ -1021,7 +1021,8 @@ items the owner mentioned and gates still open on 2026-10-11.
   The packaged synthetic browser suite also covers a page-owned `get` wrapper that
   clones request options: Pateat answers an eligible request once, native fallback
   remains reachable, and caller cancellation survives the copied options. This added
-  coverage is not yet executed and does not close the real-site wrapper gate.
+  coverage passed in isolated cloud Chromium on 2026-10-17; it does not close the
+  real-site wrapper gate.
 
 ### Research
 

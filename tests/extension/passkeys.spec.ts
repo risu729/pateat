@@ -71,6 +71,7 @@ async function addVirtualAuthenticator(context: BrowserContext, page: Page, rpId
       signCount: 0,
     },
   });
+  return { session, authenticatorId };
 }
 
 async function openRelyingParty(context: BrowserContext, origin: string, path = "/") {
@@ -606,7 +607,9 @@ test("a page wrapper cloning request options preserves native fallback and calle
     await withLoginExtension(async (context, _worker, extensionId) => {
       const probe = await probeControls(context, extensionId);
       await probe.configure();
-      const page = await openRelyingParty(context, origin, "/page-wrapper");
+      const page = await context.newPage();
+      const { session, authenticatorId } = await addVirtualAuthenticator(context, page);
+      await page.goto(`${origin}/page-wrapper`);
       const calls = () =>
         page.evaluate(() => (window as unknown as { pageWrapperCalls: number }).pageWrapperCalls);
       const claimed = challengeHex();
@@ -619,15 +622,22 @@ test("a page wrapper cloning request options preserves native fallback and calle
       expectNativeAssertion(await clickRequest(page, { challenge: fallback }), origin, fallback);
       expect(await calls()).toBe(1);
 
-      // No authenticator can answer this allowlist. Wait until the page's wrapper has
-      // forwarded its copy before aborting, proving cancellation survives delegation.
-      await page.evaluate((challenge) => {
-        (window as unknown as { nextSpec: Spec }).nextSpec = {
-          challenge,
-          allow: ["aa".repeat(32)],
+      // Hold native user presence so the request stays pending after delegation.
+      // An unknown allowlist would let Chromium reject before the caller can abort.
+      await session.send("WebAuthn.setAutomaticPresenceSimulation", {
+        authenticatorId,
+        enabled: false,
+      });
+      await page.evaluate(
+        (spec) => {
+          (window as unknown as { nextSpec: Spec }).nextSpec = spec;
+        },
+        {
+          challenge: challengeHex(),
+          allow: [virtualCredentialId.toString("hex")],
           timeout: 30_000,
-        };
-      }, challengeHex());
+        },
+      );
       await page.getByRole("button", { name: "Sign in with a passkey" }).click();
       await expect.poll(calls).toBe(2);
       await page.evaluate(() => {
