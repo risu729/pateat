@@ -40,13 +40,13 @@ Email-like text, masked values and long digit runs are redacted; completion judg
 redacts numbers of any length. Known matching usernames of at least three characters
 are hidden or keep an unsafe page from being sent.
 
-Redaction is heuristic. Names, short usernames, personal subdomains, unrecognized
-path tokens or other private text in labels and locators can remain. Sign-in entry
-pages do not receive the same matching-username redaction as login/judged pages.
-Model requests and service-stored recipes must therefore be treated as potentially
-sensitive. The precise collection rules and known limits are in
-[AI input boundaries](architecture.md#declarative-recipes-and-ai), including the rule for
-text behind an open modal on a judged page.
+Redaction is heuristic. Names, short usernames, personal subdomains, unrecognized path
+tokens or other private text in labels and locators can remain. Sign-in entry pages do
+not receive the same matching-username redaction as login/judged pages. Model requests
+and service-stored recipes must therefore be treated as potentially sensitive. The
+precise collection rules and known limits are in
+[AI input boundaries](architecture.md#declarative-recipes-and-ai), including the rule
+for text behind an open modal on a judged page.
 
 ## Retention and controls
 
