@@ -363,7 +363,7 @@ const REQUEST_HOLD_MS = 15_000;
 type Sender = Browser.runtime.MessageSender;
 type SettingsRuntime = {
   handle(value: unknown): Promise<SettingsResponse>;
-  /** Trusted background mutation; saves an automatic account choice after `authenticated`. */
+  /** Trusted background mutation; saves an automatic account choice after confirmed `authenticated`. */
   update?(
     expectedRevision: number | undefined,
     mutate: (snapshot: SettingsSnapshot) => SettingsSnapshot,
@@ -499,7 +499,7 @@ const documentKey = (page: { tabId: number; documentId: string }) =>
  * An account the user picked in the toolbar popup (ADR 0021). It is used instead of the
  * saved default by the refused document it restarted and then by the attempt that
  * document started, on that login's later pages too. It is saved as the default after
- * `authenticated` only with `makeDefault`.
+ * confirmed `authenticated` only with `makeDefault`.
  */
 const pickedAccountSchema = v.strictObject({
   tabId: v.pipe(v.number(), v.integer(), v.minValue(0)),
@@ -574,7 +574,7 @@ type Execution = {
   operation?: LoginOperation;
   /** `operation` was sent to the page, so its effect may have started. */
   delivered?: boolean;
-  /** Saved only once this attempt reaches `authenticated`. */
+  /** Saved only once this attempt reaches confirmed `authenticated`. */
   choice?: UnsavedChoice;
   /**
    * The step index of a held click this document performed (ADR 0027): a handler's click
@@ -1234,6 +1234,8 @@ export type LoginReport = (
       effect?: string;
       handler?: number;
       outcome?: string;
+      /** An undecided page ended the login without a confirmed sign-in (ADR 0029). */
+      unconfirmed?: true;
       /**
        * For a `policy-changed` outcome: its cause, and a refused plan's reason. For a login
        * that failed or was cancelled: why, as the worker or the page saw it (ADR 0019).
@@ -1738,6 +1740,7 @@ export function createLoginRuntime(
       ...(metadata.operationEffect ? { effect: metadata.operationEffect } : {}),
       ...(handler === undefined ? {} : { handler }),
       ...(metadata.outcome ? { outcome: metadata.outcome } : {}),
+      ...(metadata.unconfirmed ? { unconfirmed: true as const } : {}),
       ...(metadata.fillOnly ? { reason: "fill-only" } : {}),
       ...(metadata.stopAt === undefined ? {} : { stop: "password" as const }),
       ...(policy && metadata.outcome === "policy-changed" ? policy : {}),
@@ -2327,7 +2330,18 @@ export function createLoginRuntime(
       recipe: paths.includes(path) ? "page" : paths.length ? "other-paths" : "none",
       ...(badge.asking(tabId) ? { asking: true as const } : {}),
       ...(pageState ? { page: clipCodes(pageState) } : {}),
-      ...(known?.login ? { login: clipCodes(known.login) } : {}),
+      ...(known?.login
+        ? {
+            login: {
+              ...clipCodes({
+                state: known.login.state,
+                outcome: known.login.outcome,
+                cause: known.login.cause,
+              }),
+              ...(known.login.unconfirmed ? { unconfirmed: true as const } : {}),
+            },
+          }
+        : {}),
       ...(known?.refused ? { refused: clipCodes(known.refused) } : {}),
       ...(known?.generation ? { generation: clipCodes(known.generation) } : {}),
     };
@@ -2470,7 +2484,8 @@ export function createLoginRuntime(
     next: LoginAttemptMetadata,
     pageOrigin?: string,
   ) => {
-    if (next.state !== "authenticated" || previous.state === "authenticated") return;
+    if (next.state !== "authenticated" || next.unconfirmed || previous.state === "authenticated")
+      return;
     const origins = new Set(
       [next.account.origin, next.pageOrigin, pageOrigin].filter(
         (value): value is string => value !== undefined,
@@ -2553,7 +2568,8 @@ export function createLoginRuntime(
     await publish(run.live, run.metadata);
     // A conditional request of the page waits for how this login ends (ADR 0034).
     if (terminal(run.metadata) || idle(run.metadata)) reviewRequests();
-    if (run.metadata.state === "authenticated" && run.choice) await remember(run);
+    if (run.metadata.state === "authenticated" && !run.metadata.unconfirmed && run.choice)
+      await remember(run);
   }
   /**
    * Ends a fill-only login before its first step with an effect and forgets its record, so
@@ -2599,7 +2615,7 @@ export function createLoginRuntime(
     await publish(run.live, run.metadata);
   }
   /**
-   * Saves an automatic account choice after `authenticated` (ADR 0013). The settings must
+   * Saves an automatic account choice after confirmed `authenticated` (ADR 0013). The settings must
    * still be the revision the attempt was authorized under, or the newer one a watch took
    * over after checking its account; otherwise nothing is saved and the next login chooses
    * again.
@@ -4617,7 +4633,7 @@ export function createLoginRuntime(
         ...(notCompleted ? { notCompleted } : {}),
       });
     if (movedOn || !current(run)) return true;
-    const result = judgedCompletionResult({
+    const { result, confirmed } = judgedCompletionResult({
       verdict,
       reason,
       reading,
@@ -4630,7 +4646,14 @@ export function createLoginRuntime(
     // found signed in or rejected and with no handler taken over, takes the login to its
     // stop, where the page's passkey request is answered (ADR 0036).
     if (result === "challenge" && (await toStop(run))) return true;
-    await change(run, { type: "OBSERVED", result, document: run.live.document });
+    const unconfirmed = result === "authenticated" && !confirmed;
+    if (unconfirmed) delete run.choice;
+    await change(run, {
+      type: "OBSERVED",
+      result,
+      document: run.live.document,
+      ...(unconfirmed ? { unconfirmed: true } : {}),
+    });
     return true;
   }
   /**

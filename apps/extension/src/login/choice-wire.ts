@@ -40,7 +40,7 @@ export const pickRequestSchema = v.strictObject({
   documentId: id,
   connectionId: id,
   itemId: id,
-  /** Save it as the site default once the login is `authenticated`. */
+  /** Save it as the site default once the login is confirmed `authenticated`. */
   makeDefault: v.boolean(),
 });
 export const choiceResponseSchema = v.variant("ok", [
@@ -114,7 +114,12 @@ export const statusResponseSchema = v.variant("ok", [
     ),
     /** The tab's last login on this origin's page: `started`, then its state and outcome. */
     login: v.optional(
-      v.strictObject({ state: code, outcome: v.optional(code), cause: v.optional(code) }),
+      v.strictObject({
+        state: code,
+        outcome: v.optional(code),
+        cause: v.optional(code),
+        unconfirmed: v.optional(v.literal(true)),
+      }),
     ),
     /**
      * A refusal on this origin's page that the badge shows as a failure, such as `no-route`

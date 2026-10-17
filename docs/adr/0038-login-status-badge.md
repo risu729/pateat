@@ -7,6 +7,11 @@ warningっぽいの数秒、詳しくはポップアップでよい」. Amends
 [site count badge](0021-account-choice-outside-settings.md#site-count-badge)) and
 replaces the spinning toolbar icon the owner chose at 14:04 UTC the same day.
 
+Amended on 2026-10-14 by
+[ADR 0029](0029-local-sign-in-state.md#amendment-unconfirmed-completion-2026-10-14):
+only confirmed completion counts as a successful sign-in (implemented); see the dated
+amendment below.
+
 Date: 2026-10-13
 
 ## Context
@@ -114,3 +119,21 @@ section adds that the recipe is not made again automatically.
   for one tab are ordered and send only changed fields.
 - No permission or library is added: `tabs.onUpdated` gives the URL only for pages
   Pateat can read, and a result is kept when the URL is unknown.
+
+## Amendment: show unconfirmed completion as unsettled (2026-10-14)
+
+The owner's decision at 07:24 UTC in
+[issue #546](https://github.com/risu729/pateat/issues/546), recorded in
+[ADR 0029](0029-local-sign-in-state.md#amendment-unconfirmed-completion-2026-10-14),
+amends the badge table's success and unknown rows:
+
+| State | Badge | Colours (background / text) |
+| --- | --- | --- |
+| The last login confirmed sign-in | `✓`, for 4 seconds | green `#15803d` / white |
+| The last login ended `authenticated` with `unconfirmed: true` | `!`, for 4 seconds | yellow `#facc15` / `#1e293b` |
+
+The latter is `unsettled`. The popup's "This page" section says "The sign-in could
+not be confirmed." The report and stored page status carry `unconfirmed`; the popup
+retains the explanation after the badge expires and across a worker restart, under
+the existing origin and tab lifetime rules. The earlier table above is retained as
+history; all other badge priorities and lifetimes are unchanged.

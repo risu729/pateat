@@ -80,6 +80,11 @@ popup's answer carries `rejectedElsewhere`); the owner chose this on 2026-10-13
 (14:43 UTC, decision card answer 「他のタブもそろえる」) over leaving them on the first
 account (implemented).
 
+Amended on 2026-10-14 by
+[ADR 0029](0029-local-sign-in-state.md#amendment-unconfirmed-completion-2026-10-14):
+only confirmed completion counts as a successful sign-in (implemented); see the dated
+amendment below.
+
 Date: 2026-10-11
 
 ## Context
@@ -542,3 +547,14 @@ it.
   origin.
 - ADR 0007's item selection now ends with a chooser instead of delegation. Its rejected
   alternative "Show a Pateat chooser" is reversed for this window.
+
+## Amendment: save choices only after confirmed sign-in (2026-10-14)
+
+The owner's decision at 07:24 UTC in
+[issue #546](https://github.com/risu729/pateat/issues/546), recorded in
+[ADR 0029](0029-local-sign-in-state.md#amendment-unconfirmed-completion-2026-10-14),
+changes the save-after-`authenticated` rule in B: a pending automatic choice or popup
+pick marked "make default" is saved only on a confirmed completion. An undecided
+completion drops the pending choice and saves no default or binding. It still ends
+`authenticated`, releases the site to other tabs and counts as a finished login for
+D's detection of a later logout. The earlier accepted rules above remain as history.

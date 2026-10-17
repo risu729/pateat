@@ -31,6 +31,15 @@ describe("pageStatusLines", () => {
     ]);
   });
 
+  it("says an ended sign-in could not be confirmed", () => {
+    expect(lines({ recipe: "page", login: { state: "authenticated", unconfirmed: true } })).toEqual(
+      [
+        ["recipe", "idle", "This site has a recipe for this page."],
+        ["login", "warn", "The sign-in could not be confirmed."],
+      ],
+    );
+  });
+
   it("says why a page without a recipe on it was not sent to the AI", () => {
     expect(lines({ page: { generationSkip: "sent" } })).toEqual([
       ["recipe", "idle", "This site has no recipe yet."],

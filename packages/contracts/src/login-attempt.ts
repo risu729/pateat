@@ -149,6 +149,8 @@ export const attemptMetadataSchema = v.pipe(
     operationEffect: v.optional(v.picklist(["prepare", "advance", "submit"])),
     mutationIntent: v.optional(v.literal(true)),
     outcome: v.optional(loginOutcomeSchema),
+    /** The login ended on an undecided page without a confirmed sign-in (ADR 0029). */
+    unconfirmed: v.optional(v.literal(true)),
     /**
      * The result of the current effect step settled as unknown; cleared once the attempt
      * moves on. A settled login no longer scopes the passkey bridge (ADR 0027).
@@ -210,6 +212,12 @@ export const attemptMetadataSchema = v.pipe(
      */
     stopJudged: v.optional(v.literal(true)),
   }),
+  v.check(
+    (metadata) =>
+      metadata.unconfirmed === undefined ||
+      (metadata.state === "authenticated" && metadata.outcome === "authenticated"),
+    "Only an authenticated completion can be unconfirmed",
+  ),
   v.check(
     (metadata) =>
       metadata.stopAt === undefined ||
@@ -302,17 +310,24 @@ export const loginAttemptEventSchema = v.variant("type", [
   v.strictObject({ type: v.literal("OPERATION_OK"), operationId: identifier }),
   v.strictObject({ type: v.literal("SUBMIT_INTENT"), operationId: identifier }),
   v.strictObject({ type: v.literal("SUBMITTED"), operationId: identifier }),
-  v.strictObject({
-    type: v.literal("OBSERVED"),
-    result: v.picklist([
-      "continue",
-      "authenticated",
-      "credential-rejected",
-      "challenge",
-      "unknown",
-    ]),
-    document: v.optional(loginDocumentSchema),
-  }),
+  v.pipe(
+    v.strictObject({
+      type: v.literal("OBSERVED"),
+      result: v.picklist([
+        "continue",
+        "authenticated",
+        "credential-rejected",
+        "challenge",
+        "unknown",
+      ]),
+      document: v.optional(loginDocumentSchema),
+      unconfirmed: v.optional(v.literal(true)),
+    }),
+    v.check(
+      (event) => event.unconfirmed === undefined || event.result === "authenticated",
+      "Only an authenticated observation can be unconfirmed",
+    ),
+  ),
   /**
    * `signedIn`: the runtime confirmed that a top-level move to another origin finished the
    * sign-in, as after a passkey answer for that site (ADR 0022). Only an attempt that may
@@ -594,6 +609,7 @@ function record(
       return {
         document: event.document ?? context.document,
         outcome: event.result === "unknown" ? "unknown-submit" : event.result,
+        ...(event.unconfirmed ? { unconfirmed: true } : {}),
         settled: event.result === "unknown" ? true : undefined,
       };
     case "NAVIGATED":

@@ -4312,6 +4312,117 @@ describe("production login document admission", () => {
           expect.objectContaining({ origin, userId, itemId: otherItemId }),
         ]);
       });
+      it.each([
+        [{ verdict: "unclear" }, false],
+        [{ verdict: "unclear", reason: "already-judged" }, false],
+        [{ verdict: "unclear", reason: "judgement-limit" }, false],
+        [{ verdict: "unclear", reason: "daily-limit" }, false],
+        [{ verdict: "unclear", reason: "monthly-limit" }, false],
+        [{ verdict: "unclear", reason: "judged-signed-in" }, true],
+        [{ verdict: "signed-in" }, true],
+      ] as const)(
+        "saves a popup pick only after confirmed completion (%j, confirmed=%s)",
+        async (answer, confirmed) => {
+          vi.useFakeTimers();
+          onTestFinished(() => void vi.useRealTimers());
+          const signedIn = vi.fn<(tabId: number, origin: string) => void>();
+          const report = vi.fn<(entry: LoginReport) => void>();
+          const tabBadge = createLoginBadge({
+            setBadge: vi.fn(async () => undefined),
+            storage: memoryBadgeStorage(),
+          });
+          const h = harness(unsaved, {
+            allowedOrigins: [],
+            uris: async () => ({ ok: true, data: both }),
+            generation: {
+              available: vi.fn(async () => true as const),
+              generate: vi.fn(async () => ({ outcome: "abstained", reason: "ambiguous" }) as const),
+              generateEntry: vi.fn(
+                async () => ({ outcome: "abstained", reason: "ambiguous" }) as const,
+              ),
+              judge: vi.fn<LoginGeneration["judge"]>(async (...args) => {
+                args[4]?.();
+                return answer;
+              }),
+              slotFields: vi.fn(async () => undefined),
+            },
+            signedIn,
+            badge: tabBadge,
+            report: (entry) => {
+              report(entry);
+              tabBadge.observe(entry);
+            },
+          });
+          // There is no learned marker. The submitted form disappears on a quiet page.
+          const { completion: _completion, ...withoutCompletion } = recipe;
+          h.recipes.recipe.mockResolvedValue(withoutCompletion);
+          fake.state.present = new Set(["password", "login"]);
+          expect(await h.hello()).toEqual({ ok: false, reason: "account-ambiguous" });
+          fake.state.onReconnect = () => h.hello();
+          fake.state.signs = {
+            password: false,
+            code: false,
+            captcha: false,
+            invalid: false,
+            alert: false,
+          };
+          fake.state.extracted = {
+            "signed-in": {
+              ok: true,
+              observation: {
+                version: 1,
+                origin,
+                path: "/home",
+                complete: true,
+                language: "en",
+                candidates: [
+                  { id: "logout", role: "button", target: target("logout"), label: "Sign out" },
+                ],
+              },
+            },
+          };
+          fake.state.onExecute = async (message) => {
+            if ((message["operation"] as { step: { kind: string } }).step.kind !== "click") return;
+            fake.state.present = new Set();
+            fake.state.observedPath = "/home";
+          };
+          expect(await pick(h, { makeDefault: true })).toEqual({ ok: true });
+          await vi.waitFor(
+            () =>
+              expect(fake.state.storage["pateat.login-attempts.v4"]).toMatchObject([
+                { state: "authenticated" },
+              ]),
+            { timeout: 12_000 },
+          );
+          const popupStatus = await h.login.handle(
+            { version: 1, type: "login.status.get", tabId: 1 },
+            popup,
+          );
+          const parsedStatus = v.parse(statusResponseSchema, popupStatus);
+          expect(parsedStatus).toMatchObject({ ok: true, login: { state: "authenticated" } });
+          const attempt = report.mock.calls
+            .flatMap(([entry]) => (entry.type === "attempt" ? [entry] : []))
+            .at(-1);
+          if (confirmed) {
+            await vi.waitFor(() => expect(h.store.update).toHaveBeenCalledOnce());
+            expect(h.settings.settings.siteDefaults).toEqual([
+              expect.objectContaining({ origin, userId, itemId: otherItemId }),
+            ]);
+            expect(signedIn.mock.calls).toEqual([[1, origin]]);
+            expect(attempt).not.toHaveProperty("unconfirmed");
+            if (parsedStatus.ok) expect(parsedStatus.login).not.toHaveProperty("unconfirmed");
+          } else {
+            expect(h.store.update).not.toHaveBeenCalled();
+            expect(h.settings.settings.siteDefaults).toEqual([]);
+            expect(signedIn).not.toHaveBeenCalled();
+            expect(attempt).toMatchObject({ state: "authenticated", unconfirmed: true });
+            expect(parsedStatus).toMatchObject({
+              login: { state: "authenticated", unconfirmed: true },
+            });
+          }
+        },
+        15_000,
+      );
       it("refuses a pick that is not offered, for another document, or after the page left", async () => {
         const h = await refused();
         expect(await pick(h, { itemId: "80000000-0000-4000-8000-000000000009" })).toEqual({
@@ -9026,12 +9137,14 @@ describe("production login document admission", () => {
           },
         });
         const report = vi.fn<(report: LoginReport) => void>();
+        const signedIn = vi.fn<(tabId: number, origin: string) => void>();
         const h = harness(unsaved, {
           allowedOrigins: [],
           uris,
           username: true,
           generation: service,
           report,
+          signedIn,
         });
         h.recipes.recipe.mockResolvedValue(generated);
         fake.state.present = new Set(["user", "password", "login"]);
@@ -9046,28 +9159,48 @@ describe("production login document admission", () => {
           report.mock.calls.flatMap(([value]) =>
             value.type === "judge" && value.verdict !== "sent" ? [value] : [],
           );
-        return { judges, service, report };
+        return { judges, service, report, h, signedIn };
       }
 
       it.each([
-        undefined,
-        "already-judged",
-        "judged-signed-in",
-        "judgement-limit",
-        "daily-limit",
-        "monthly-limit",
-      ])(
-        "completes a page with no sign and no evidence the judge did not decide (%s)",
-        async (reason) => {
-          const { judges, service } = await judged({
-            verdict: "unclear",
-            ...(reason ? { reason } : {}),
-          });
+        [{ verdict: "unclear" }, false],
+        [{ verdict: "unclear", reason: "already-judged" }, false],
+        [{ verdict: "unclear", reason: "judgement-limit" }, false],
+        [{ verdict: "unclear", reason: "daily-limit" }, false],
+        [{ verdict: "unclear", reason: "monthly-limit" }, false],
+        [{ verdict: "unclear", reason: "judged-signed-in" }, true],
+        [{ verdict: "signed-in" }, true],
+      ] as const)(
+        "ends a quiet judged page (%j), confirmed=%s, with only confirmed sign-in effects",
+        async (answer, confirmed) => {
+          const { judges, service, report, h, signedIn } = await judged(answer);
           await vi.waitFor(() =>
             expect(status()).toMatchObject([{ state: "authenticated", outcome: "authenticated" }]),
           );
+          const ended = (status() as Record<string, unknown>[])[0];
+          const attempt = report.mock.calls
+            .flatMap(([entry]) => (entry.type === "attempt" ? [entry] : []))
+            .at(-1);
+          if (confirmed) {
+            expect(ended).not.toHaveProperty("unconfirmed");
+            expect(attempt).not.toHaveProperty("unconfirmed");
+            await vi.waitFor(() => expect(h.store.update).toHaveBeenCalledOnce());
+            expect(h.settings.settings.siteDefaults).toEqual([
+              expect.objectContaining({ origin, userId, itemId }),
+            ]);
+            expect(signedIn.mock.calls).toEqual([[1, origin]]);
+          } else {
+            expect(ended).toHaveProperty("unconfirmed", true);
+            expect(attempt).toMatchObject({ state: "authenticated", unconfirmed: true });
+            expect(h.store.update).not.toHaveBeenCalled();
+            expect(h.settings.settings.siteDefaults).toEqual([]);
+            expect(signedIn).not.toHaveBeenCalled();
+          }
           expect(judges()).toEqual([
-            expect.objectContaining({ verdict: "unclear", completed: true }),
+            expect.objectContaining({
+              verdict: answer.verdict,
+              ...(answer.verdict === "unclear" ? { completed: true } : {}),
+            }),
           ]);
           expect(judges()[0]).not.toHaveProperty("disabledLeftOut");
           expect(judges()[0]).not.toHaveProperty("notCompleted");
