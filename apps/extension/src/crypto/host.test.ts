@@ -427,6 +427,52 @@ describe("fixed operations, session scope and reply fencing", () => {
     });
   });
 
+  it("carries a code grant to the Worker and returns only its generated code", async () => {
+    const h = harness();
+    const session = await h.open();
+    const ref = {
+      connectionId,
+      userId: accountUserId,
+      itemId,
+      snapshotId,
+      fieldId: `custom.${snapshotId}.0`,
+    };
+    const pending = h.host.resolveField(session, ref, {
+      allowedFieldIds: [ref.fieldId],
+      code: true,
+    });
+    const command = await h.command(1);
+    expect(command.operation).toEqual({
+      kind: "resolve",
+      session,
+      ref,
+      allowedFieldIds: [ref.fieldId],
+      code: true,
+    });
+    const otp = { kind: "otp", value: "654321", period: 30, validUntilMs: 60_000 };
+    h.reply(command, { ok: true, data: otp });
+    expect(await pending).toEqual({ ok: true, data: otp });
+  });
+
+  it.each([false, 1, "true", null])("rejects a code grant of %j before dispatch", async (code) => {
+    const h = harness();
+    const session = await h.open();
+    const ref = {
+      connectionId,
+      userId: accountUserId,
+      itemId,
+      snapshotId,
+      fieldId: "login.totp-code",
+    };
+    expect(
+      await h.host.resolveField(session, ref, {
+        allowedFieldIds: ["login.totp-code"],
+        code,
+      } as never),
+    ).toEqual({ ok: false, error: { code: "invalid-request" } });
+    expect(h.commands).toHaveLength(1);
+  });
+
   const uriCandidates = {
     connectionId,
     userId: accountUserId,

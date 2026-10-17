@@ -340,6 +340,7 @@ async function execute(command: HostCommand) {
   return snapshot.resolve(op.ref, {
     allowedFieldIds: op.allowedFieldIds,
     ...(op.nowMs === undefined ? {} : { nowMs: () => op.nowMs! }),
+    ...(op.code ? { code: true as const } : {}),
   });
 }
 self.onmessage = (event: MessageEvent<unknown>) => {

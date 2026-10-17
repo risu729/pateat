@@ -851,51 +851,55 @@ shows. A handler that already ran counts as shown again when its elements are pr
 all, hidden or disabled. The `passkey` handler clicks a button such as "Use security
 key" only for an item with a usable passkey. The `totp` handler fills a code from the
 item's built-in TOTP field into its code field under the TOTP fill rule and clicks its
-button once; it needs the TOTP fact and that field allowed for the account, and a
-binding that names another field for the code ends `challenge`, since Pateat cannot make
-a code from a custom field yet. When several handlers show, the first that qualifies is
-entered, a `passkey` handler before a `totp` handler; one is passed over when it already
-ran, the item lacks its fact, or, for a `totp` handler, the login already types a TOTP
-code (`code-used`), since a login types at most one code. When every shown handler is
-passed over, the attempt ends `challenge`. After the code goes in, the content script
-watches the page for 2 seconds before the click: a submit event, the document unloading
-or navigating, the field or form disabled, removed or replaced, the field cleared, the
-button gone, hidden, busy, disabled after it was enabled or still disabled half a second
-after the code went in, or a new busy indicator in the form each mean the page submitted
-the code by itself. So do a page that leaves the path or shows a signed-in marker or the
-rejection without the button before the click, and a new document after the fill. Each
-counts as the handler's click (`AUTO_SUBMITTED`); the code is never filled again or
-followed by a click. A route step that fills only the `totp` slot, followed by a click
-on the same path, is watched and settled the same way. A button rendered again at the
-same locator and a status message alone, such as a digit counter, are not signs, and a
-status message never refuses the code. While a handler's or the `passkey` route's
-clicked button, or the button of a code the page submitted itself, still shows in that
-document, the page is neither judged nor settled for up to two minutes; then it ends
-`challenge`. A new document of the tab that shows the `passkey` route's button again
-ends `challenge` at once, and so does one that shows a handler that already ran and no
-other that qualifies; a handler shown there that still qualifies, such as a `totp`
-handler beside a `passkey` handler that already ran, is entered. When the result
-settles, the page's sign-in state ([ADR 0029](adr/0029-local-sign-in-state.md)) is read
-first: on the `password` route, evidence of a sign-in that a reading a second later
-confirms in the fully loaded document (read again a second apart, at most ten times,
-while it loads) completes the login as `authenticated`, and a failure shown next to the
-sign-in fields (S1 with F1 or F2) confirmed the same way ends it `credential-rejected`.
-In the submitted document F1 and F2 are a new mark or new alert text. When the sign-in
-form comes back in the first new top document of the tab after a password submission,
-announced within 30 seconds of it, any mark on its sign-in inputs or any text of an
-alert next to the form counts (inside it, named by one of its inputs, or sharing a
-container with it that is not the body and holds no page chrome, no `main` area and no
-other shown form with a shown, enabled field to type in or pick from, as a passkey or
-social sign-in form of buttons and hidden inputs is not), never while a recognised
-CAPTCHA (S4: reCAPTCHA, hCaptcha, Turnstile) shows; this also ends a login already
-watched after the submitted document's reading. Later documents and pages after an
-`advance` or passkey step are not read this way. Otherwise a page no check explains is
-sent to be judged unless it still shows a fill field of any of the route's variants on a
-route path or a signed-in marker (on the `passkey` route, its button or a fill field of
-any `password` variant on its path or a `password` route path); this applies to later
-documents of the tab too, while the attempt has not ended. The page of a login's stop
-before its item's missing password is the exception: sent as a stop's page, it must show
-the route's password field, and the service keeps only a `passkey` handler from it
+button once; it needs the TOTP fact and that field allowed for the account. A saved
+binding that names a Text or Hidden custom field for the code makes the code from that
+field's seed instead, in the crypto Worker, and never types the field's value; a binding
+that names another kind of field ends `challenge`. Every fill of the `totp` slot, a
+route step's too, asks the Worker for a code and never types a field's value
+([ADR 0027 amendment](adr/0027-per-account-login-routes.md#amendment-a-totp-code-from-a-custom-field)).
+When several handlers show, the first that qualifies is entered, a `passkey` handler
+before a `totp` handler; one is passed over when it already ran, the item lacks its
+fact, or, for a `totp` handler, the login already types a TOTP code (`code-used`), since
+a login types at most one code. When every shown handler is passed over, the attempt
+ends `challenge`. After the code goes in, the content script watches the page for 2
+seconds before the click: a submit event, the document unloading or navigating, the
+field or form disabled, removed or replaced, the field cleared, the button gone, hidden,
+busy, disabled after it was enabled or still disabled half a second after the code went
+in, or a new busy indicator in the form each mean the page submitted the code by itself.
+So do a page that leaves the path or shows a signed-in marker or the rejection without
+the button before the click, and a new document after the fill. Each counts as the
+handler's click (`AUTO_SUBMITTED`); the code is never filled again or followed by a
+click. A route step that fills only the `totp` slot, followed by a click on the same
+path, is watched and settled the same way. A button rendered again at the same locator
+and a status message alone, such as a digit counter, are not signs, and a status message
+never refuses the code. While a handler's or the `passkey` route's clicked button, or
+the button of a code the page submitted itself, still shows in that document, the page
+is neither judged nor settled for up to two minutes; then it ends `challenge`. A new
+document of the tab that shows the `passkey` route's button again ends `challenge` at
+once, and so does one that shows a handler that already ran and no other that qualifies;
+a handler shown there that still qualifies, such as a `totp` handler beside a `passkey`
+handler that already ran, is entered. When the result settles, the page's sign-in state
+([ADR 0029](adr/0029-local-sign-in-state.md)) is read first: on the `password` route,
+evidence of a sign-in that a reading a second later confirms in the fully loaded
+document (read again a second apart, at most ten times, while it loads) completes the
+login as `authenticated`, and a failure shown next to the sign-in fields (S1 with F1 or
+F2) confirmed the same way ends it `credential-rejected`. In the submitted document F1
+and F2 are a new mark or new alert text. When the sign-in form comes back in the first
+new top document of the tab after a password submission, announced within 30 seconds of
+it, any mark on its sign-in inputs or any text of an alert next to the form counts
+(inside it, named by one of its inputs, or sharing a container with it that is not the
+body and holds no page chrome, no `main` area and no other shown form with a shown,
+enabled field to type in or pick from, as a passkey or social sign-in form of buttons
+and hidden inputs is not), never while a recognised CAPTCHA (S4: reCAPTCHA, hCaptcha,
+Turnstile) shows; this also ends a login already watched after the submitted document's
+reading. Later documents and pages after an `advance` or passkey step are not read this
+way. Otherwise a page no check explains is sent to be judged unless it still shows a
+fill field of any of the route's variants on a route path or a signed-in marker (on the
+`passkey` route, its button or a fill field of any `password` variant on its path or a
+`password` route path); this applies to later documents of the tab too, while the
+attempt has not ended. The page of a login's stop before its item's missing password is
+the exception: sent as a stop's page, it must show the route's password field, and the
+service keeps only a `passkey` handler from it
 ([ADR 0036](adr/0036-passkey-after-the-identifier.md), owner 2026-10-13 05:39 UTC). At
 most 2 pages count per effect step: the attempt counts a page once its complete
 description is in hand, before the request, so a restart during the request cannot
@@ -912,19 +916,19 @@ each segment that may hold a token, as every observed page's does
 share one judgement, its locators never use an attribute value that may be a token, and
 a field no locator names is left out unless it may be a sign-in field (ADR 0029). Since
 ADR 0039 a handler is learned on a path with `[id]` too, and matches that page of every
-tenant. A disabled field that may not be a sign-in field is left out too:
-the request says so (`partial`), the page then completes only on `signed-in`, and the
-service keeps the model's abstention on it as `partial`, so the path is judged again
-when a page of it is described in full (ADR 0029). A page where a route's sign-in field
-shows (S1), on any path, is not sent; only an input of a kind Pateat fills counts as
-that field, never another element its locator names on another page, while the passkey
-route's button counts as shown. A handler's click is a new effect step. A `challenge`
-verdict that added a handler hands back the newer revision: the attempt takes it over
-(`REVISED`) when it only adds handlers or signed-in markers, and runs the handler on the
-page it is on. A resumed attempt accepts a newer cached revision on the same terms only
-while the worker still holds its recorded revision; after a worker restart only the
-recorded revision resumes. What the judge answers settles the login on the `password`
-route as the ADR's outcome table says: `signed-in` completes it, `rejected` ends it
+tenant. A disabled field that may not be a sign-in field is left out too: the request
+says so (`partial`), the page then completes only on `signed-in`, and the service keeps
+the model's abstention on it as `partial`, so the path is judged again when a page of it
+is described in full (ADR 0029). A page where a route's sign-in field shows (S1), on any
+path, is not sent; only an input of a kind Pateat fills counts as that field, never
+another element its locator names on another page, while the passkey route's button
+counts as shown. A handler's click is a new effect step. A `challenge` verdict that
+added a handler hands back the newer revision: the attempt takes it over (`REVISED`)
+when it only adds handlers or signed-in markers, and runs the handler on the page it is
+on. A resumed attempt accepts a newer cached revision on the same terms only while the
+worker still holds its recorded revision; after a worker restart only the recorded
+revision resumes. What the judge answers settles the login on the `password` route as
+the ADR's outcome table says: `signed-in` completes it, `rejected` ends it
 `credential-rejected`, and `challenge` ends it `challenge`. An `unclear` answer
 completes it, as a warning marked `completed`, only when the page confirmed no sign and
 no evidence (S1 to S5, E1 to E3) before the request and still shows none in the loaded
@@ -1206,7 +1210,7 @@ kind's check is left out and a string over 512 characters becomes `"[truncated]"
 | `service.sync` | debug for `synced`, `incomplete`, `not-connected` unless a recipe was added, updated or removed, then info; info for `unreachable`, since a device offline for a while would otherwise fill the warnings, and `busy` (a settings write that waits for a login, a sync superseded by a later one, or attempts that ran out); else warn | recipe and settings sync outcome; `full`, or `recipes` for a recipes-only run after a judged page; recipes added, updated and removed in the cache |
 | `settings.changed` | info | `synced` (a settings sync wrote local settings) or `saved` (the settings page); the settings revision when the entry is written. Running logins and passkey requests stop; a watched login stops only if the new settings no longer allow its account |
 | `login.attempt` | debug when a new page resumes the attempt without changing its state or outcome; otherwise info for `authenticated` and `retryable`, for a route change and for the end of a fill-only login after a logout, warn for other `blocked`, for `watching` and when the result settles as unknown (`unknown-submit`, marked `settled`), so a login that did not finish counts as a warning, info for `document-gone` with a reason other than `no-receiver` and for `captcha-shown`, else debug | origin, recipe ID and revision (`recipeRevision`), route and `password` variant, state, step, step count, the current step's kind (`fill`, `click`, `wait`, `assert`) and effect (`prepare`, `advance`, `submit`), the entered handler the step belongs to, outcome (`challenge-abandoned` or `watch-abandoned` when a watched login's first step showed again before it signed in, [ADR 0027](adr/0027-per-account-login-routes.md#watching-after-a-challenge)); for `policy-changed`, its cause and a refused plan's reason; else `fill-only` as the reason for a login that only fills the form after a logout (ADR 0021 D); `routeChange` when the login changed route ([ADR 0034](adr/0034-answer-page-passkey-requests.md)): `page-request` (to the `passkey` route, because the page asked for a passkey), or back to the `password` route as `request-missing`, `answer-failed`, `sign-in-rejected` or `sign-in-shown`; `stop` (`password`) on every entry of a login that stops before its item's missing password, also one whose stop lies just past its route's last step, and `password-empty` as the reason when it ends `challenge` at that stop, or `password-empty:<why>` (such as `password-empty:fills-lacking`) when a continuation of a stop past the plan's last step could not take the stop over ([ADR 0036](adr/0036-passkey-after-the-identifier.md)); the item's lack of a password shows as the `no-route` detail does, never a value. A result that settles as unknown (`unknown-submit`) on a page that still shows a sign-in element of the route, with no failure that acted (S1, [ADR 0029](adr/0029-local-sign-in-state.md)), names `sign-in-shown` as its `cause`. A login that failed or was cancelled names its `cause` when one is known (a plain wait timeout or a cancel without a reason has none): the step's elements did not show in time (`elements-timeout`), a code page neither submitted the code nor took the click (`code-not-submitted`), no operation could be built (`no-operation`), the login's item could not answer the page's passkey request (`answer-failed`), the operation no longer validated (`operation-invalid`), a field had no vault binding (`slot-unbound`), the page did not answer or its answer failed its check (`no-answer`), a code page said it submitted the code itself but no check confirmed it (`page-submitted`), the page showed a CAPTCHA, so the click was left to the person and the attempt waits in `awaiting-result` (`captcha-shown`), the document stopped answering, as when a submit replaced it, so the attempt waits in `reconciling` for the next document to resume it (`document-gone`, with what the browser said as the reason: `no-receiver` when no listener was left or the page went into the back/forward cache, logged at debug as a submit's usual navigation, else `port-closed` when the listener did not answer or `send-failed`, logged at info as they may hide a fault), or the page's own reason: the worker did not authorize the step (`not-authorized`), the document was cancelled (`document-cancelled`), the operation was used (`operation-used`) or expired (`operation-expired`), the page moved to another path (`page-changed`, also with a `timeout` outcome when the wait ended on another path), a field changed under the fill (`field-changed`), the step threw (`threw`), the form was replaced (`form-replaced`), the target is missing or not writable (`target-missing`), the form changed before a click (`form-changed`), an `assert` did not hold (`assert-failed`), the step was sent values it does not fill (`unexpected-values`), its fields are in different forms (`fields-split`), an input refused its secret (`secret-refused`), the page's inputs have no value setter (`unsupported-input`), or a code field's submission watch could not start (`code-watch-failed`) |
-| `login.handler` | info | origin, recipe ID and revision (`recipeRevision`), handler index, kind, step count; `entered`, `shown-again` (left to the person after this login ran it), `missing-fact` (the item lacks what the handler needs, including a `totp` handler's built-in TOTP field), `code-used` (a `totp` handler in a login that already types a TOTP code) or `no-room` (the attempt's step or submission budget is spent) |
+| `login.handler` | info | origin, recipe ID and revision (`recipeRevision`), handler index, kind, step count; `entered`, `shown-again` (left to the person after this login ran it), `missing-fact` (the item lacks what the handler needs, including a `totp` handler's code field: the built-in TOTP field, or the Text or Hidden custom field a saved binding names for `totp`), `code-used` (a `totp` handler in a login that already types a TOTP code) or `no-room` (the attempt's step or submission budget is spent) |
 | `login.entry` | info for `pressed` and for the first `refused` of each reason on a document, debug for `refused` with `no-return-target` or `in-progress` and for a reason the document already logged, warn for `blocked` ([ADR 0019](adr/0019-local-diagnostics-and-logs.md#amendment-what-the-log-records)'s levels) | a site's sign-in entry ([ADR 0031](adr/0031-sign-in-entry-pages.md)): origin, recipe ID and revision (`recipeRevision`) and outcome. `pressed` when the document answered that it clicked the link. `refused` with the check before the press that failed: `frame`, `storage-unavailable`, `blocked` (the revision is blocked on this device), `tab-unavailable` (the tab could not be read), `page-changed`, `recipe-changed`, `no-return-target` (the URL names no other path of the site), `no-site`, `site-record` (the tab ran a login of the site), `site-held` (another tab's login holds it), `logged-out` (a tab keeps a logout of it), `logout-clicked` (a control that logs out was clicked on the site in this tab, ADR 0021 D), `press-limit` (the tab pressed an entry in the last 10 minutes), `settings-unavailable`, `site-excluded`, `destination-excluded`, `no-vault-match`, `in-progress` (another document of the tab is being pressed), `no-answer`, `target-missing`, `target-ambiguous`, the element's refusal (`not-link`, `script-link`, `hidden`, `no-text`, `new-window`, `download`), the `href`'s (`link-not-https`, `link-off-site`, `link-query-off-site`, `link-same-page`), `target-changed`, `cancelled`, `unconfirmed` (the document never answered the press, which still counts against the tab's limit) or `exception`. `blocked` with why the page after the press blocked the revision: `left-site`, `no-sign-in` or `sign-up`, and the detail `storage-unavailable` when the block holds in this worker only |
 | `login.state` | debug for a later page of an attempt that already settled as unknown, else info | origin, recipe ID and revision (`recipeRevision`), route; the page signs of [ADR 0029](adr/0029-local-sign-in-state.md) that show, as flags: a sign-in element of the route (`s1`), a password input not for a new password and not in a form with two or more shown password inputs (`s2`), a code input (`s3`), a CAPTCHA widget (`s4`), a passkey request of the top document after the step, outside conditional mediation (`s5`), a new invalid mark on the step's sign-in inputs (`f1`) or new alert text, read as the fill check reads it (`f2`), next to the sign-in fields in the submitted document, or, with `reshown`, any invalid mark on the route's sign-in inputs or any text of an alert next to the form in the first new top document after a password submission, within 30 seconds of it, that shows the sign-in form again, a signed-in marker on any path (`e1`), the username in the header or navigation (`e2`), the return target the sign-in page's URL named (`e3`); and what the ADR would do (`rejected`, `unknown`, `continuing`, `signed-in`, `judge`); `settled` for a later page of an attempt that already settled as unknown; `reshown` when S1 holds in the first new top document after the attempt's password submission, announced within 30 seconds of it, where `rejected` needs no CAPTCHA (`s4`) and also ends a watched login. When S1 holds without `reshown`, `reshownMiss` says why: no effect step of the attempt is known (`no-effect`, as after a worker restart), the last one asked for a passkey (`passkey-step`) or did not submit (`not-submit`, as an `advance`), the page is the document the step ran in (`same-document`), no other top document came within 30 seconds of the step (`late`), or the page is a later document than the first one that did (`later-document`). With `reshown` and no F2, `alertMiss` says why no alert next to the form counted: none outside the sign-in inputs shows text (`no-alert`), none of the route's sign-in elements is a single shown writable input (`no-input`), or the first rule failed by the region closest to counting: its nearest common container with the form is the body or the root (`body`), or holds page chrome (`chrome`), another form that asks for input (`other-form`) or the main area (`main`). Both are codes only, never page text. Logged for a page after an effect step that no check explained, before the judge is asked. On the `password` route a `signed-in` page is read again a second later, and a second apart while it loads (at most ten times), and the last reading is the one logged; the other decisions but `unknown` are read again the same way, and so is an `unknown` reading of the sign-in form shown again with its password input and no other sign, before the tab asks again (ADR 0021 D). A confirmed `signed-in` completes the login without the judge and a confirmed `rejected` ends it `credential-rejected`; the rest go to the judge as described above (ADR 0029). E1 reads the recipe's signed-in markers as the completion check does: a marker counts on any path, but not while one of its `absent` elements is there, even hidden. A login in a frame is not read |
 | `login.move` | info | a login's tab moved to a page of another origin that did not complete it ([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md)), logged unless the judge decided the move (`recipe.judge` with `moved`): that page's origin, recipe ID and revision (`recipeRevision`), route, and why: no step or second factor fits the move (`no-factor`, as a move to another site right after the password step or more than 30 seconds after the second factor), the account has no username to look for (`no-username`), the page could not be read (`unreadable`), shows a password field, code input or CAPTCHA (`sign-in-shown`) or asked for a passkey since the step (`passkey-request`), or never read quiet twice (`not-quiet`); `frame` when a frame of the new page announced first and ended the login. `page-gone` with `kept` when the page went away before its quiet readings answered, as a redirect through another page does: the login is not ended there, and the tab's next page is checked instead, which must still come within the same 30 seconds; a page that goes away while it is judged still ends the login. `passkey-request` with `kept` when the page is of another origin of the site and asked for a passkey at most 30 seconds after the step: the login waits for the tab's next page, which a passkey answered there with the login's own item lets complete it |
