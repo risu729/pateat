@@ -49,15 +49,15 @@ export function createCryptoProbeControls() {
     checkpoint(checkpoint: Checkpoint) {
       if (stage !== checkpoint) return Promise.resolve();
       reached = true;
-      return new Promise<void>((resolve) => {
-        release = resolve;
-        timer = setTimeout(() => {
-          stage = undefined;
-          reached = false;
-          release = undefined;
-          resolve();
-        }, 30_000);
-      });
+      const { promise, resolve } = Promise.withResolvers<void>();
+      release = resolve;
+      timer = setTimeout(() => {
+        stage = undefined;
+        reached = false;
+        release = undefined;
+        resolve();
+      }, 30_000);
+      return promise;
     },
     arm(checkpoint: Checkpoint) {
       if (stage) return false;

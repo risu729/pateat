@@ -2632,8 +2632,7 @@ export function createLoginRuntime(
     }
     // A login another tab is admitting waits for this save, which no in-progress check above
     // can see yet (see `admit`).
-    let finish!: () => void;
-    const saving = new Promise<void>((resolve) => (finish = resolve));
+    const { promise: saving, resolve: finish } = Promise.withResolvers<void>();
     savingChoices.add(saving);
     let writing = false;
     try {

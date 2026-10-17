@@ -2132,7 +2132,8 @@ their UUIDv4 IDs; both validate as UUIDs.
 Pateat reads the clock with `Date.now()` and keeps times as epoch milliseconds in
 extension storage, IndexedDB and D1, and durations as `*_MS` numbers for timers and
 comparisons. In the extension, Chrome's native `Temporal` formats, reads and measures
-them, which is why the extension requires Chrome 144: `isoTime`, `isoMinute`,
+them (first available in Chrome 144; the current minimum is Chrome 145 for
+`Map.prototype.getOrInsertComputed`): `isoTime`, `isoMinute`,
 `isoTimeMs` and `isoTimeSchema` in
 [`apps/extension/src/time.ts`](../apps/extension/src/time.ts) write and read the ISO
 8601 times of the diagnostics report and log export and the stored entry-page presses
