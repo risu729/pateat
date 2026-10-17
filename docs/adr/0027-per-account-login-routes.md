@@ -1255,8 +1255,8 @@ section applies instead.
   whether the account allows that field (not excluded); the built-in TOTP field does not
   count then. A custom field has no value-free empty flag in the catalog, so an empty
   one is found only when the code is read, and stops the login as above.
-- **Every `totp` fill asks for a code.** A fill of the `totp` slot always asks the Worker
-  for a code and fills it under the TOTP fill rule, a route step's as well as a
+- **Every `totp` fill asks for a code.** A fill of the `totp` slot always asks the
+  Worker for a code and fills it under the TOTP fill rule, a route step's as well as a
   handler's, so a binding that names a custom field for a start page's code field types
   a code made from it, never the field's value. A fill of any other slot is unchanged.
 - "One code per login", "Code fill rule" and the rest of "Which TOTP field" still hold:
