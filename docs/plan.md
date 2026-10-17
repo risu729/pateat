@@ -1672,13 +1672,14 @@ after pairing completes, also when another device's sync is still running, and i
 background when the worker starts, a lookup arrives (each page Pateat runs on looks up
 its recipe) or the settings page loads, and the last attempt is more than five minutes
 old; the open settings page asks again every 10 seconds only until the first sync
-finishes. The attempt time is stored, so a worker
-restart does not sync again sooner, and a 429 postpones background syncs, but not the
-one after pairing, for 15 minutes. A lookup does not wait for the network or for pairing
-and disconnect requests. The serialized cache is limited to 2 MiB of the extension's 10
-MB `storage.local` quota, which it shares with settings, login attempts and other
-extension state (the vault cache is in IndexedDB); a page that would exceed it is not
-fully applied. Sync walks the remaining pages within the shared 50-page budget,
+finishes. The attempt time is stored, so a worker restart does not sync again sooner,
+and a 429, also an edge rate-limit page that is not JSON, postpones background syncs,
+but not the one after pairing, for 15 minutes. A clock set back before the last attempt
+makes a sync due at once, also within one worker. A lookup does not wait for the network
+or for pairing and disconnect requests. The serialized cache is limited to 2 MiB of the
+extension's 10 MB `storage.local` quota, which it shares with settings, login attempts
+and other extension state (the vault cache is in IndexedDB); a page that would exceed it
+is not fully applied. Sync walks the remaining pages within the shared 50-page budget,
 applying only revocations with the old persisted cursor, then retries the blocked
 page once from that cursor. Active changes, including later reactivations, stay
 pending until their entire page fits; revocations beyond the bounded walk wait for
