@@ -370,7 +370,7 @@ test("a document navigated away from while Pateat signs gets nothing, and the ta
       // Nothing was recorded as a sign-in in this tab, so the single match signs silently.
       await probe.configure();
       const opened: Page[] = [];
-      const track = (window: Page) => opened.push(window);
+      const track = (added: Page) => opened.push(added);
       context.on("page", track);
       const next = challengeHex();
       expectPateatAssertion(await clickRequest(page, { challenge: next }), origin, next);
