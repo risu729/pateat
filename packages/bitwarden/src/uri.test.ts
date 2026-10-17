@@ -223,12 +223,12 @@ describe("retained account URI context", () => {
     );
   });
 
-  it("marks groups unavailable when IDNA normalization exceeds the retained bound", () => {
+  it("ignores an entry whose IDNA normalization exceeds the retained bound", () => {
     // Distinct CJK code points: about 240 raw characters become several hundred ASCII ones.
     const long = `${Array.from({ length: 240 }, (_, i) => String.fromCodePoint(0x4e00 + i * 37)).join("")}.jp`;
     expect(long.length).toBeLessThanOrEqual(253);
     expect(createBitwardenUriMatchContext(userDomains([["example.com", long]]), 2)).toEqual({
-      equivalentDomains: "unavailable",
+      equivalentDomains: [["example.com"]],
       defaultMatch: 2,
     });
   });
@@ -277,7 +277,6 @@ describe("retained account URI context", () => {
     [],
     userDomains(Array.from({ length: 1001 }, () => ["example.com", "example.net"])),
     userDomains([Array.from({ length: 10_001 }, () => "example.com")]),
-    userDomains([["example.com", `${"x".repeat(254)}.com`]]),
   ])("marks malformed sync domains unavailable instead of guessing case %#", (domains) => {
     const context = createBitwardenUriMatchContext(domains, 0);
     expect(context).toEqual({ equivalentDomains: "unavailable", defaultMatch: 0 });
@@ -310,6 +309,10 @@ describe("retained account URI context", () => {
     "foo..com",
     "user@example.net",
     "example.net/login",
+    "",
+    `${"x".repeat(254)}.com`,
+    // 247 characters raw, 271 after IDNA.
+    `${Array.from({ length: 4 }, () => "ä".repeat(60)).join(".")}.com`,
   ])("keeps the groups available when an entry %s is not a hostname", (entry) => {
     const context = createBitwardenUriMatchContext(
       {
@@ -500,6 +503,9 @@ describe("strict destination and unsupported rule admission", () => {
     "https://example.org",
     "example.com:8080",
     "a.com b.com",
+    "",
+    `${"x".repeat(254)}.com`,
+    `${Array.from({ length: 4 }, () => "ä".repeat(60)).join(".")}.com`,
   ])("ignores malformed equivalent-group entry %s and keeps the rest of its group", (entry) => {
     const domains = userDomains([["example.com", "example.net", entry]]);
     for (const uri of ["https://example.com", "https://example.net"])
@@ -626,7 +632,8 @@ describe("strict destination and unsupported rule admission", () => {
     { overrideNeverMatchStrategy: true },
     { domains: [] },
     { domains: { equivalentDomains: "secret" } },
-    { domains: { equivalentDomains: [["https://example.com"]] } },
+    // Missing globalEquivalentDomains key.
+    { domains: { equivalentDomains: [["example.com"]] } },
     { domains: { equivalentDomains: ["example.com"], globalEquivalentDomains: null } },
     { domains: { equivalentDomains: [["example.com", 1]], globalEquivalentDomains: null } },
     {
@@ -663,7 +670,6 @@ describe("strict destination and unsupported rule admission", () => {
   it.each([
     userDomains(Array.from({ length: 1001 }, () => ["example.com", "example.net"])),
     userDomains([Array.from({ length: 10_001 }, () => "example.com")]),
-    userDomains([[`${"x".repeat(254)}.com`]]),
   ])("bounds same-account domain context before matching case %#", (domains) => {
     expect(matchBitwardenLoginUris(saved(), target, { domains })).toEqual({
       ok: false,

@@ -257,8 +257,9 @@ receive unavailable metadata without blocking unrelated valid candidates.
 Equivalent groups and the effective default mode are retained with the prepared
 account snapshot; an unavailable or conflicting context makes the affected URIs
 unavailable instead of falling back. A group entry that is not a hostname, such as
-a URL or `host:port`, is ignored and the rest of its group applies, as in the
-official clients; malformed group structure still marks the groups unavailable.
+a URL, `host:port`, an empty entry or a name over 253 characters, is ignored and the
+rest of its group applies, as in the official clients; malformed group structure
+still marks the groups unavailable.
 Decrypted URI rules stay in the crypto Worker.
 
 Deliberate differences from the official Bitwarden clients, to be reconsidered later:
