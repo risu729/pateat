@@ -4,7 +4,7 @@ import {
   type WifIdentifiers,
 } from "@pateat/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Archive, KeyRound } from "lucide-react";
+import { Archive, CircleX, KeyRound } from "lucide-react";
 import { useId, useRef, useState, type FormEvent } from "react";
 import * as v from "valibot";
 import { describeError, ManageApiError, type ManageClient } from "./api";
@@ -24,28 +24,38 @@ export const CLAUDE_QUERY_KEY = ["claude"] as const;
 type FieldName = keyof WifIdentifiers;
 
 /** The identifiers in the order the Console shows them, with what each must look like. */
-const FIELDS: readonly { name: FieldName; label: string; placeholder: string; hint: string }[] = [
+const FIELDS: readonly {
+  name: FieldName;
+  label: string;
+  placeholder: string;
+  hint: string;
+  error: string;
+}[] = [
   {
     name: "federationRuleId",
     label: "Federation rule ID",
+    error: "This is not a federation rule ID.",
     placeholder: "fdrl_…",
     hint: "Enter the rule's ID, which starts with fdrl_.",
   },
   {
     name: "organizationId",
     label: "Organization ID",
+    error: "This is not an organization ID.",
     placeholder: "00000000-0000-0000-0000-000000000000",
     hint: "Enter the organization's UUID.",
   },
   {
     name: "serviceAccountId",
     label: "Service account ID",
+    error: "This is not a service account ID.",
     placeholder: "svac_…",
     hint: "Enter the service account's ID, which starts with svac_.",
   },
   {
     name: "workspaceId",
     label: "Workspace ID",
+    error: "This is not a workspace ID.",
     placeholder: "wrkspc_…",
     hint: "Enter the workspace's ID, which starts with wrkspc_.",
   },
@@ -206,6 +216,8 @@ function IdentifiersPanel({
 }) {
   const [values, setValues] = useState<Record<FieldName, string>>(saved ?? EMPTY);
   const [errors, setErrors] = useState<Partial<Record<FieldName, string>>>({});
+  // Each failed save renders its errors anew, so they are announced again.
+  const [attempt, setAttempt] = useState(0);
   const inputs = useRef<Partial<Record<FieldName, HTMLInputElement | null>>>({});
   const baseId = useId();
 
@@ -216,10 +228,11 @@ function IdentifiersPanel({
     ) as Record<FieldName, string>;
     const invalid = Object.fromEntries(
       FIELDS.filter(({ name }) => !v.is(wifIdentifiersSchema.entries[name], trimmed[name])).map(
-        ({ name, hint }) => [name, hint],
+        ({ name, error }) => [name, error],
       ),
     ) as Partial<Record<FieldName, string>>;
     setErrors(invalid);
+    setAttempt(attempt + 1);
     const first = FIELDS.find(({ name }) => invalid[name]);
     if (first) {
       inputs.current[first.name]?.focus();
@@ -241,7 +254,9 @@ function IdentifiersPanel({
       <p>
         {saved
           ? "These identifiers are saved. Copy new ones from the rule in the Console to replace them."
-          : "None are saved yet. Copy them from the federation rule the Console created."}
+          : storedInvalid
+            ? "Copy them from the federation rule in the Console and save them again."
+            : "None are saved yet. Copy them from the federation rule the Console created."}
       </p>
       <form noValidate onSubmit={submit} className="grid gap-4 sm:grid-cols-2">
         {FIELDS.map(({ name, label, placeholder, hint }) => {
@@ -265,15 +280,21 @@ function IdentifiersPanel({
                 onChange={(event) => setValues({ ...values, [name]: event.target.value })}
                 aria-required
                 aria-invalid={error ? true : undefined}
-                aria-describedby={`${id}-hint`}
-                className="min-h-10 rounded-lg border border-border-strong bg-surface px-3 font-mono text-[13px] placeholder:text-ink-muted"
+                aria-describedby={error ? `${id}-error ${id}-hint` : `${id}-hint`}
+                className="min-h-10 rounded-lg border border-border-strong bg-surface px-3 font-mono text-[13px] placeholder:text-ink-muted aria-invalid:border-danger"
               />
-              {/* The hint turns into the error, announced even when the field kept focus. */}
-              <p
-                id={`${id}-hint`}
-                role={error ? "alert" : undefined}
-                className={`text-[13px]/5 ${error ? "text-danger" : "text-ink-muted"}`}
-              >
+              {error && (
+                <p
+                  key={attempt}
+                  id={`${id}-error`}
+                  role="alert"
+                  className="flex items-start gap-1.5 text-[13px]/5 font-semibold text-danger"
+                >
+                  <CircleX size={14} aria-hidden className="mt-0.5 flex-none" />
+                  {error}
+                </p>
+              )}
+              <p id={`${id}-hint`} className="text-[13px]/5 text-ink-muted">
                 {hint}
               </p>
             </div>

@@ -179,10 +179,20 @@ test("marks each invalid field, focuses the first and saves nothing", async () =
   await expect.element(field("federationRuleId")).toHaveFocus();
   await expect
     .element(field("federationRuleId"))
-    .toHaveAccessibleDescription("Enter the rule's ID, which starts with fdrl_.");
+    .toHaveAccessibleDescription(
+      "This is not a federation rule ID. Enter the rule's ID, which starts with fdrl_.",
+    );
   await expect
     .element(field("workspaceId"))
-    .toHaveAccessibleDescription("Enter the workspace's ID, which starts with wrkspc_.");
+    .toHaveAccessibleDescription(
+      "This is not a workspace ID. Enter the workspace's ID, which starts with wrkspc_.",
+    );
+  await expect
+    .element(field("organizationId"))
+    .toHaveAccessibleDescription("Enter the organization's UUID.");
+  await expect
+    .element(page.getByRole("alert").first())
+    .toHaveTextContent("This is not a federation rule ID.");
   expect(client.saveClaude).not.toHaveBeenCalled();
 
   // An empty form marks every field.
@@ -191,10 +201,12 @@ test("marks each invalid field, focuses the first and saves nothing", async () =
   await saveButton().click();
   await expect
     .element(field("organizationId"))
-    .toHaveAccessibleDescription("Enter the organization's UUID.");
+    .toHaveAccessibleDescription("This is not an organization ID. Enter the organization's UUID.");
   await expect
     .element(field("serviceAccountId"))
-    .toHaveAccessibleDescription("Enter the service account's ID, which starts with svac_.");
+    .toHaveAccessibleDescription(
+      "This is not a service account ID. Enter the service account's ID, which starts with svac_.",
+    );
   await expect.element(field("federationRuleId")).toHaveFocus();
   expect(client.saveClaude).not.toHaveBeenCalled();
 });
@@ -313,6 +325,23 @@ test("reloads the page's state when the test finds the saved row invalid", async
   await expect.element(testButton()).toBeDisabled();
   // Focus stays on the button the owner used.
   await expect.element(testButton()).toHaveFocus();
+  expect(client.claude).toHaveBeenCalledTimes(2);
+});
+
+test("keeps the page and what the owner typed when a refetch fails", async () => {
+  const client = mockClient(stateOf(ids));
+  client.testClaude.mockImplementation(async () => {
+    client.claude.mockRejectedValue(new ManageApiError("network"));
+    return { version: 1, result: { status: "stored_invalid" } };
+  });
+  await mount(client);
+  await field("workspaceId").fill("wrkspc_02Typed");
+  await testButton().click();
+  await expect
+    .element(page.getByText("Your sign-in may have expired. Reload the page to sign in again."))
+    .toBeVisible();
+  await expect.element(field("workspaceId")).toHaveValue("wrkspc_02Typed");
+  await expect.element(saveButton()).toBeVisible();
   expect(client.claude).toHaveBeenCalledTimes(2);
 });
 

@@ -2097,8 +2097,8 @@ field exclusions and custom-field review, which need the device's vault catalog
   the revision the page last read; a stale write changes nothing and returns the current
   state. The service copy of settings holds no `connections`: the extension uploads
   none, a web write must have none, and the page drops any that another client stored.
-  A web write also stays within the 120 KiB document size devices upload. An identity with no paired device has
-  no settings to edit and is told to pair one. Devices receive the change on their next
+  A web write also stays within the 120 KiB document size devices upload. An identity
+  with no paired device has no settings to edit and is told to pair one. Devices receive the change on their next
   settings or recipe sync. The device ID columns recording who wrote a settings or
   recipe revision are nullable; null means the web UI wrote it. The Claude identifiers
   are written whole by `PUT /manage/api/claude` without a revision, since only the owner
