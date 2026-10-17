@@ -378,15 +378,15 @@ is. The service is unchanged; it writes the answer into `afterOther`. The page a
 again once the chooser comes back and starts on the branch as `other-shown` above, with
 the same rules after a logout and for several matches. Only a form that asks for the
 account is sent: it has a text, email, phone or number field with no `autocomplete` or
-one for a username or an email, in the same form as the password field when one shows.
-The password form after the person's own click on a listed profile belongs to
-`afterAccount` and is never stored as `afterOther`, even beside a search box (logged
-`recipe.generate` `skipped` `no-account-field`). The page is not sent right after a
-submitted password form, nor while the document has stopped watching after a refusal
-such as `account-ambiguous`; it is sent once the document announces again, as after a
-pick in the popup or a reload. The log's `recipe.generate` names it `page` `other`, with
-the chooser's ID and revision once it is sent. A chooser whose `afterOther` starts on
-another path still gets nothing on such a form.
+one for a username, an email or a phone number, in the same form as the password field
+when one shows. The password form after the person's own click on a listed profile
+belongs to `afterAccount` and is never stored as `afterOther`, even beside a search box
+(logged `recipe.generate` `skipped` `no-account-field`). The page is not sent right
+after a submitted password form, nor while the document has stopped watching after a
+refusal such as `account-ambiguous`; it is sent once the document announces again, as
+after a pick in the popup or a reload. The log's `recipe.generate` names it `page`
+`other`, with the chooser's ID and revision once it is sent. A chooser whose
+`afterOther` starts on another path still gets nothing on such a form.
 
 Amended on 2026-10-13 by the owner's decision at 06:32 UTC
 ([ADR 0036](0036-passkey-after-the-identifier.md#account-lists)): an item without a

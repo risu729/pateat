@@ -17668,6 +17668,21 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
           expect(service.generate).not.toHaveBeenCalled();
         });
 
+        it("sends a form that asks for a phone number beside the password", async () => {
+          const service = generation();
+          const h = formOnly(service);
+          fake.state.extracted = {
+            login: describedPage("/signin", [
+              { id: "c1", role: "tel", target: target("phone"), autocomplete: "tel", group: "g1" },
+              { id: "c2", role: "password", target: target("password"), group: "g1" },
+              { id: "c3", role: "button", target: target("login"), group: "g1" },
+            ]),
+          };
+          expect(await h.hello({}, false)).toMatchObject({ generate: true });
+          expect(await h.signIn()).toEqual({ ok: false, reason: "generating" });
+          await vi.waitFor(() => expect(service.generate).toHaveBeenCalledTimes(1));
+        });
+
         it("never counts a field of another form beside a password-only form", async () => {
           // A search box in the page header, with no `type=search`, beside the password form.
           const reports: LoginReport[] = [];

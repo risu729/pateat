@@ -876,8 +876,11 @@ function acceptedObservation(
 
 /** Roles of a field that can take an account's email address, username or ID. */
 const accountRoles = new Set(["text", "email", "tel", "number"]);
-/** A field's `autocomplete` that leaves it free to take an account: none, or one for it. */
-const accountTokens = new Set([undefined, "off", "username", "email"]);
+/**
+ * A field's `autocomplete` that leaves it free to take an account: none, or one for a
+ * username, an email address or a phone number.
+ */
+const accountTokens = new Set([undefined, "off", "username", "email", "tel"]);
 /**
  * Whether a page asks for an account (ADR 0028): it holds a field that can take one, in the
  * same form as a password field when it shows one, so a search box or another form's
