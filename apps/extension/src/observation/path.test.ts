@@ -16,6 +16,11 @@ describe("observedPath (ADR 0039)", () => {
     expect(redactsPath("/oauth2/default/v1/authorize")).toBe(false);
   });
 
+  it("replaces a segment that holds an email address, percent-encoded or not", () => {
+    expect(observedPath("/u/taro.yamada@example.com/signin")).toBe("/u/[id]/signin");
+    expect(observedPath("/reset/taro%40example.com")).toBe("/reset/[id]");
+  });
+
   it("is unchanged when redacted again, so either side of a comparison may be redacted", () => {
     for (const path of ["/[id]/oauth2/authorize", "/s/[id]/login", "/app/[id]"])
       expect(observedPath(path)).toBe(path);

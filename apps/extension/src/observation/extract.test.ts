@@ -948,6 +948,16 @@ describe("extractLoginObservation", () => {
     expect(extractLoginObservation(detached)).toEqual({ ok: false, reason: "unsupported-page" });
   });
 
+  it("redacts a whole email address, whatever its local part or domain holds", () => {
+    // A local part may hold ' and #, as HTML's valid email address allows, and a domain may
+    // be internationalized.
+    page(
+      `<h1>o'brien@example.com</h1><h2>taro#1@example.com</h2><h3>taro@例え.jp でログイン</h3>
+      <form id="f"><input id="u"><input id="pw" type="password"><button id="go">Go</button></form>`,
+    );
+    expect(observe().headings).toEqual(["[email]", "[email]", "[email] でログイン"]);
+  });
+
   it("skips hidden inputs and other controls' labels when reading adjacent text", () => {
     page(
       `<form id="f"><table>
