@@ -460,8 +460,9 @@ export const executionResultSchema = v.strictObject({
    * page moved to another path, a field changed under the fill, the step threw; or, for a
    * failure, the form was replaced, the target is missing or not writable, the form
    * changed before a click, an `assert` did not hold, the step was sent values it does not
-   * fill, its fields are in different forms, an input refused its secret, the page's inputs
-   * have no value setter, or a code field's submission watch could not start.
+   * fill, two of its fields name the same input, its fields are in different forms, an
+   * input refused its secret, the page's inputs have no value setter, or a code field's
+   * submission watch could not start.
    */
   detail: v.optional(
     v.picklist([
@@ -477,6 +478,7 @@ export const executionResultSchema = v.strictObject({
       "form-changed",
       "assert-failed",
       "unexpected-values",
+      "fields-shared",
       "fields-split",
       "secret-refused",
       "unsupported-input",

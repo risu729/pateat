@@ -861,6 +861,10 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           )
         )
           return fail("structural-mismatch", "unexpected-values");
+        // Each field has its own input: two locators that name one input would leave only
+        // the second value in it, and the form would be sent with the wrong value.
+        if (new Set(inputs).size !== inputs.length)
+          return fail("structural-mismatch", "fields-shared");
         // One step fills one form (or only inputs outside any form), and secrets only fit their inputs.
         const writableInputs = inputs as HTMLInputElement[];
         const form = writableInputs[0]!.form;
