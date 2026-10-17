@@ -21,6 +21,7 @@ import {
   deviceFailureLabel,
   generationLabel,
   installLabel,
+  plural,
   problemCounts,
   serverLabel,
   syncSignIn,
@@ -115,7 +116,7 @@ function Version({ status, browser }: { status: DiagnosticsStatus; browser: Brow
         <Row term="Permissions">
           {[...status.permissions.permissions, ...status.permissions.origins].join(", ")}
           {status.permissions.otherOrigins > 0 &&
-            t(" + {{count}} granted sites", { count: status.permissions.otherOrigins })}
+            ` + ${plural(status.permissions.otherOrigins, "granted site", undefined, t)}`}
         </Row>
         <Row term="Toolbar icon">{diagnosticsCode(status.actionIcon, t)}</Row>
       </dl>
@@ -464,7 +465,7 @@ function Logs({
         />
         <span>
           {t(
-            "With site addresses included, a download names page paths and their parameters’ names, not values; a path or a page’s route can still hold a code or an ID. A site you had not set up when an entry was written stays pseudonymous, as {{origin}} or {{rp}}. Check the preview before sharing.",
+            "With site addresses included, a download names page paths and their parameters' names, not values; a path or a page's route can still hold a code or an ID. A site you had not set up when an entry was written stays pseudonymous, as {{origin}} or {{rp}}. Check the preview before sharing.",
             { origin: "origin:7d2b91aa", rp: "rp:7d2b91aa" },
           )}
         </span>

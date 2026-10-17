@@ -4,6 +4,7 @@ import {
   deviceFailureLabel,
   generationLabel,
   problemCounts,
+  plural,
   serverLabel,
   syncSignIn,
   type DiagnosticTranslator,
@@ -94,8 +95,8 @@ export function diagnosticsCheckLabel(
       const differences: string[] = [];
       if (service.recipes && !service.cacheFull && service.recipes.count !== record.recipes)
         differences.push(
-          t("service {{remote}} recipes, cached {{local}}", {
-            remote: record.recipes,
+          t("service {{recipes}}, cached {{local}}", {
+            recipes: plural(record.recipes, "recipe", undefined, t),
             local: service.recipes.count,
           }),
         );
