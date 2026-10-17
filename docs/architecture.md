@@ -1706,8 +1706,9 @@ that exact page URL and returns a value-free summary
   unlocked, the unlock KDF family (`PBKDF2` or `Argon2id`) and, on the page only, its
   parameters;
 - the Pateat service pairing state, `rejected` and `cacheFull`, site access to the
-  paired origin, its `/health` revision, the last recipe sync, next scheduled sync,
-  settings revision, settings hold and recipe cache size;
+  paired origin, its `/health` revision, the last recipe sync, next scheduled sync (now,
+  when the clock was set back before the last attempt, as sync treats it), settings
+  revision, settings hold and recipe cache size;
 - the service's own record from `GET /v1/device` with the device credential: when the
   device was paired, the owner's live recipe count and settings revision, and whether
   recipe generation would run now, in the order a generation call checks it
