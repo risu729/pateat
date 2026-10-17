@@ -289,8 +289,8 @@ export function createSettingsSync(options: {
     let catalog: Promise<VaultCatalog | undefined> | undefined;
     const serviceCopy = (state: SyncSettingsState) =>
       state.settings ? syncedSettings(state.settings) : emptySynced;
-    // Without a base, for a new pairing or a service restored to an older state, both
-    // sides' entries are kept and the service wins where they differ; nothing is removed.
+    // A matching profile base preserves local edits. A new pairing adopts existing
+    // service policy below; only an uninitialized profile starts from local policy.
     let base: SyncBase = { service: emptySynced, local: emptySynced };
     if (
       stored &&
@@ -358,8 +358,6 @@ export function createSettingsSync(options: {
         if (saved.kind === "failed") return saved.error;
         if (saved.kind === "conflict") {
           switchingProfile ||= service.profileId !== saved.current.profileId;
-          // Keep the old identity until the replacement is applied: a deferred or failed
-          // local write must still recognize the switch on the next worker run.
           service = saved.current;
           continue;
         }
