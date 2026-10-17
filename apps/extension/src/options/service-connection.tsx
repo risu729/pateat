@@ -239,7 +239,7 @@ export function ServiceConnection({
             if (!name.success) {
               setAddressError(
                 label.trim()
-                  ? "Use a device name of up to 64 characters without control characters."
+                  ? "Use a device name of up to 64 characters without control characters, line breaks or text-direction marks."
                   : "Enter a device name.",
               );
               return;
