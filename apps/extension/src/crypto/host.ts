@@ -189,6 +189,15 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
       if (boundPort) invalidate(boundPort);
     }
   }
+  /** Fails an open whose result the host refuses and retires the session its Worker holds. */
+  function refuseOpen(requestId: string, operation: HostOperation) {
+    finish(requestId, fail("crypto-failed"));
+    try {
+      boundPort?.postMessage(cancelMessage(requestId, operation));
+    } catch {
+      if (boundPort) invalidate(boundPort);
+    }
+  }
   function terminateRef(session: HostSessionRef) {
     try {
       boundPort?.postMessage(cancelMessage(random(), { kind: "lock", session }));
@@ -431,7 +440,7 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
           (opened.metadata.securityVersion !== 1 && opened.metadata.securityVersion !== 2) ||
           opened.metadata.securityVersion < job.operation.prepared.minimumSecurityVersion
         ) {
-          finish(parsed.output.requestId, fail("crypto-failed"));
+          refuseOpen(parsed.output.requestId, job.operation);
           return;
         }
       } else if (
@@ -463,7 +472,11 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
           sessions.set(opened.session.sessionId, structuredClone(opened.session));
         }
         finish(parsed.output.requestId, { ok: true, data: result.data });
-      })().catch(() => finish(parsed.output.requestId, fail("crypto-failed")));
+      })().catch(() => {
+        if (!pending.has(parsed.output.requestId)) return;
+        if (job.operation.kind === "open") refuseOpen(parsed.output.requestId, job.operation);
+        else finish(parsed.output.requestId, fail("crypto-failed"));
+      });
     });
     // Connect can race the initial hello; this secret-free reset is idempotent.
     port.postMessage({ version: 1, type: "crypto.reset", generation });

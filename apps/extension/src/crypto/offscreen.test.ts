@@ -131,7 +131,7 @@ describe("offscreen Worker supervision", () => {
     });
   });
 
-  it("admits up to eight open sessions and refuses a ninth", () => {
+  it("admits up to eight open sessions, refuses a ninth and still derives a sign-in's hash", () => {
     startCryptoOffscreen();
     port.deliver({ version: 1, type: "crypto.reset", generation });
     // Four connections each with a live session and a sync candidate.
@@ -167,5 +167,17 @@ describe("offscreen Worker supervision", () => {
       result: { ok: false, error: { code: "resource-limit" } },
     });
     expect(SilentWorker.created).toHaveLength(8);
+    // A password derivation opens no session, so the session cap leaves it alone.
+    const derive = "40000000-0000-4000-8000-0000000000d1";
+    port.deliver({
+      version: 1,
+      type: "crypto.command",
+      generation,
+      requestId: derive,
+      connectionId: "synthetic-connection-0",
+      operation: { kind: "derive-auth", input: {} },
+    });
+    expect(SilentWorker.created).toHaveLength(9);
+    expect(port.sent.at(-1)).toMatchObject({ type: "crypto.dispatched", requestId: derive });
   });
 });
