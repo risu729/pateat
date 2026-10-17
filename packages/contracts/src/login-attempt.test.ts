@@ -3053,6 +3053,25 @@ describe("a login that stops before a missing password (ADR 0036)", () => {
     ).toEqual(stopped);
   });
 
+  it("ends where it stopped when its tab leaves the origin while watched", () => {
+    // Nothing is in flight at the stop, yet the watched login submitted the steps before
+    // it: leaving the origin ends it `challenge`, as its watch's end does, not
+    // `interrupted`, so its first step showing again is no logout (ADR 0036, ADR 0027).
+    const watching = transitionLoginAttempt(
+      atStop(),
+      { type: "OBSERVED", result: "challenge", document: top },
+      1000,
+    );
+    const elsewhere = { ...top, origin: "https://elsewhere.example", documentId: "other" };
+    const left = transitionLoginAttempt(watching, { type: "NAVIGATED", document: elsewhere });
+    expect(left).toMatchObject({ state: "blocked", outcome: "challenge" });
+    expect(left).not.toHaveProperty("watch");
+    // A move the runtime found signed in completes it, as any watched login's does.
+    expect(
+      transitionLoginAttempt(watching, { type: "NAVIGATED", document: elsewhere, signedIn: true }),
+    ).toMatchObject({ state: "authenticated", outcome: "authenticated" });
+  });
+
   it("counts an answer at the stop as a submission and goes on no further", () => {
     const answered = transitionLoginAttempt(atStop(), answer);
     expect(answered).toMatchObject({
