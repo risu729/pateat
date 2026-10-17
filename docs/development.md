@@ -195,7 +195,10 @@ system dependencies. Server type checking and the artifact checks depend on the 
 build, whose generated files they read. Set `PATEAT_REVISION` before the build
 and artifact check to verify a particular source revision. Without it, local
 builds use `development`. The default extension build excludes the test probe;
-neither variant grants vault or real-site login capability.
+neither variant grants vault or real-site login capability. Both the extension and
+`/manage` set Vite's `build.cssTarget` to `chrome145`, matching their supported minimum,
+so production CSS preserves native `light-dark()` theme colors without fallback
+custom properties. The Worker's inline `PAGE_CSS` string is not transformed.
 
 Local success is scoped to the tested component. Worker tests and artifact
 checks have passed locally; they do not establish production deployment or

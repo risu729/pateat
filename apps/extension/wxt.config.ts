@@ -25,6 +25,7 @@ export default defineConfig({
   modules: ["@wxt-dev/module-react"],
   vite: () => ({
     plugins: [tailwindcss()],
+    build: { cssTarget: "chrome145" },
     define: {
       PATEAT_BUILD_REVISION: JSON.stringify(buildRevision()),
       PATEAT_BITWARDEN_SDK_VERSION: JSON.stringify(bitwardenSdkVersion()),

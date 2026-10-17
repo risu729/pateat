@@ -1088,12 +1088,14 @@ owner web UI take their colors, type, radii and focus ring from the
 [Pateat design system](https://claude.ai/artifact/WRXAnVi9RDw9cVWccy2fxJ) (owner,
 2026-10-12 20:53 UTC). `apps/extension/entrypoints/options/style.css` and
 `services/api/web/styles.css` each define its tokens as CSS custom properties and
-Tailwind colors, with the same values. The Worker's script-free pages
-(`services/api/src/pages.ts`: `/pair/signed-in`, the Access and error pages and
-`/manage/claude`) inline a small stylesheet, `services/api/src/page-styles.ts`, with the
-same tokens, the logo beside "Pateat" and the page in one panel.
-`tests/options/design-tokens.test.tsx` fails when any copy's light or dark token values
-differ.
+Tailwind colors, with each light/dark color pair written once using `light-dark()`.
+`color-scheme: light dark` follows the browser, and the explicit theme overrides set
+only `color-scheme`; shadow colors are paired separately from their shapes. The Worker's
+script-free pages (`services/api/src/pages.ts`: `/pair/signed-in`, the Access and error
+pages and `/manage/claude`) inline a small stylesheet,
+`services/api/src/page-styles.ts`, with the same tokens, the logo beside "Pateat" and
+the page in one panel. `tests/options/design-tokens.test.tsx` compares the three token
+copies and checks their resolved light and dark palettes, including shadows.
 
 Each page has light and dark themes. The extension's pages and the owner web UI have a
 Theme select (Browser setting, Light, Dark): at the foot of the extension settings
