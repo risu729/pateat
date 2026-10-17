@@ -2097,26 +2097,28 @@ these yet. Each says what a device does and how to recover.
   the device skips new recipe changes until the service's sequence numbers pass its
   cursor again, and keeps cached recipes that the restore removed. Settings then merge
   without a base and nothing is removed ([plan](plan.md#service-sync-progress)).
-  Recover by disconnecting and pairing each device again, which starts from an empty
-  cache.
+  Disconnecting and pairing each device again recovers recipes, since a new pairing
+  starts from an empty cache; it does not recover settings, because local settings stay
+  and the new pairing merges them without a base as well.
 - A stored recipe the service can no longer read, such as one written before a recipe
   contract change that came without a D1 migration
   ([compatibility before release](development.md#compatibility-before-release)). Every
   change page that holds it answers 500. Devices keep their cursor and ask for the same
   page again, so later changes, revocations included, never arrive.
   `/manage/api/recipes` answers 500 as well, so the web UI can neither list nor revoke
-  it. A contract change that refuses stored recipes needs a migration or a revocation of
-  those recipes first.
+  it, and generation and the completion judge fail for that recipe. Only a revocation
+  sent with its current revision still works. A contract change that refuses stored
+  recipes needs a migration or a revocation of those recipes first.
 - An extension built before the service, whose contracts reject a recipe or settings
   document the service sends. The page fails as an unexpected response, and recipe sync
   stops at it in the same way, revocations included, while login keeps using the cache;
   a settings document it cannot read stops settings sync. Updating the extension
   recovers.
 - Sync records that a new build cannot read after an extension update. The recipe cache
-  is discarded and synced again from the start, and no recipe is found until the first
+  is discarded and synced again from the start, and each recipe is found only once its
   page arrives. The settings base is discarded too, so the next merge has none: an entry
   that the service or another device removed since this device last synced comes back
-  from this device.
+  from this device, and one this device removed comes back from the service.
 - A device credential that could not be written after `POST /pair`. It is kept only in
   the worker's memory and saved on the next request; if the worker stops first, it is
   lost. The device stays active on the service until it is revoked on the management
