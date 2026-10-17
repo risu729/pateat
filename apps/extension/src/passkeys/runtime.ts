@@ -400,6 +400,9 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       detail.siteDefaultAccepted = accepted.filter((entry) => entry.preferred === true).length;
       if (candidates.siteDefault) detail.siteDefaultItem = candidates.siteDefault;
       detail.complete = candidates.complete;
+      // An unsearched item can change the account offered by this discoverable request.
+      if (immediate && !candidates.complete)
+        return { kind: "delegate", reason: "vault-incomplete" };
       const selection = selectPasskey(admission.request, candidates);
       step = "signed-before-lookup";
       // ADR 0021 D: a username-less request in a tab Pateat already signed in from may follow
