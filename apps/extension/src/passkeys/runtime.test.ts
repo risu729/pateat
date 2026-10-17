@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   chooserWaitMs,
   createPasskeyRuntime,
@@ -1562,5 +1562,99 @@ describe("a page's own conditional request through a login (ADR 0034)", () => {
       if (reported) expect(report.mock.lastCall![0]).toMatchObject({ mediation: reported });
       else expect(report.mock.lastCall![0]).not.toHaveProperty("mediation");
     }
+  });
+});
+
+describe("Immediate UI stored-passkey runtime", () => {
+  afterEach(() => vi.useRealTimers());
+  const immediate = (overrides: Record<string, unknown> = {}) => ({
+    ...get(),
+    request: { ...request, uiMode: "immediate" },
+    ...overrides,
+  });
+  it("answers a unique stored passkey without showing a chooser", async () => {
+    const backing = source();
+    const choose = vi.fn<PasskeyChooser["choose"]>();
+    const runtime = createPasskeyRuntime(backing, { extensionId, chooser: { choose } });
+    expect(await runtime.handle(immediate(), sender())).toMatchObject({ kind: "assertion" });
+    expect(backing.sign).toHaveBeenCalledOnce();
+    expect(choose).not.toHaveBeenCalled();
+  });
+  it.each([
+    ["without activation", { userActivation: false }, {}],
+    ["without focus", { focused: false }, {}],
+    ["in an inactive document", {}, { documentLifecycle: "cached" }],
+    ["in incognito", {}, { tab: { id: 7, incognito: true } }],
+  ])("delegates %s before reading the vault", async (_, message, context) => {
+    const backing = source();
+    const runtime = createPasskeyRuntime(backing, { extensionId });
+    expect(await runtime.handle(immediate(message), sender(context))).toMatchObject({
+      kind: "delegate",
+    });
+    expect(backing.candidates).not.toHaveBeenCalled();
+    expect(backing.sign).not.toHaveBeenCalled();
+  });
+  it("delegates ambiguous credentials without a chooser", async () => {
+    const backing = source({
+      candidates: vi.fn(async () => ({
+        candidates: [candidate, { ...candidate, credentialId: "BAUG" }],
+        complete: true,
+      })),
+    });
+    const choose = vi.fn<PasskeyChooser["choose"]>();
+    const runtime = createPasskeyRuntime(backing, { extensionId, chooser: { choose } });
+    expect(await runtime.handle(immediate(), sender())).toEqual({
+      kind: "delegate",
+      reason: "ambiguous-credential",
+    });
+    expect(choose).not.toHaveBeenCalled();
+    expect(backing.sign).not.toHaveBeenCalled();
+  });
+  it("delegates after an earlier sign-in even without a chooser", async () => {
+    const backing = source();
+    const signedTabs = { has: vi.fn(async () => true), add: vi.fn(async () => undefined) };
+    const runtime = createPasskeyRuntime(backing, {
+      extensionId,
+      signedTabs: signedTabs as unknown as SignedTabs,
+    });
+    expect(await runtime.handle(immediate(), sender())).toEqual({
+      kind: "delegate",
+      reason: "immediate-account-choice",
+    });
+    expect(backing.sign).not.toHaveBeenCalled();
+  });
+  it("bounds a pending login-account lookup to one second", async () => {
+    vi.useFakeTimers();
+    const backing = source();
+    const runtime = createPasskeyRuntime(backing, {
+      extensionId,
+      loginAccount: () => new Promise<PasskeyItem | undefined>(() => undefined),
+    });
+    const pending = runtime.handle(immediate(), sender());
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(await pending).toEqual({ kind: "delegate", reason: "timeout" });
+    expect(backing.candidates).not.toHaveBeenCalled();
+  });
+  it("discards a signature arriving after the one-second budget", async () => {
+    vi.useFakeTimers();
+    let finish!: (value: Uint8Array) => void;
+    const backing = source({
+      sign: vi.fn(
+        () =>
+          new Promise<Uint8Array>((resolve) => {
+            finish = resolve;
+          }),
+      ),
+    });
+    const answered = vi.fn();
+    const runtime = createPasskeyRuntime(backing, { extensionId, answered });
+    const pending = runtime.handle(immediate(), sender());
+    await vi.waitUntil(() => backing.sign.mock.calls.length === 1);
+    expect(backing.sign).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(await pending).toEqual({ kind: "delegate", reason: "timeout" });
+    finish(Uint8Array.of(0x30, 0x06, 0x02, 0x01, 0x01, 0x02, 0x01, 0x01));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(answered).not.toHaveBeenCalled();
   });
 });
