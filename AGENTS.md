@@ -3,7 +3,7 @@
 - Use English consistently for repository documentation, code comments, commit
   messages, and pull request titles and descriptions. Use English for issue text
   and other repository prose too. The exception is a Japanese translation of a
-  user-facing page, such as [README.ja.md](README.ja.md); update it with its English
+  user-facing page, such as [README.ja.md](README.ja.md); change it and its English
   page in the same PR.
 - Read [docs/README.md](docs/README.md) and the relevant design before editing.
 - Keep current behavior, proposed work, and dated evidence distinct. Update the
