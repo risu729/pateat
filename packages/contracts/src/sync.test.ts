@@ -61,7 +61,11 @@ describe("settings sync contract", () => {
   });
 
   it("syncs policy only, never device-local field policies or values", () => {
-    const write = { version: 1, expectedRevision: 0, settings: createDefaultSettings() };
+    const write = {
+      version: 1,
+      expectedRevision: 0,
+      settings: { ...createDefaultSettings(), connections: [] },
+    };
     expect(accepts(syncSettingsWriteSchema, write)).toBe(true);
     expect(accepts(syncSettingsWriteSchema, { ...write, fieldPolicies: [] })).toBe(false);
     expect(

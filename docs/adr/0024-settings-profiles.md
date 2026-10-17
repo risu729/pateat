@@ -4,9 +4,9 @@ Status: accepted by the owner on 2026-10-11 (12:15 UTC). Extends
 [ADR 0013](0013-service-held-recipes-and-settings.md) and
 [ADR 0023](0023-synced-vault-policy.md). Only the data split below applies now; profiles
 themselves were later work in the accepted decision. Implementation of the currently
-supported profile fields is proposed on 2026-10-17; see the delivery amendment below. Amended on 2026-10-12 by
-[ADR 0035](0035-page-kinds-per-site.md) (not implemented): `pagePermissionDefaults` and
-`sitePagePermissions` are profile parts.
+supported profile fields is proposed on 2026-10-17; see the delivery amendment below.
+Amended on 2026-10-12 by [ADR 0035](0035-page-kinds-per-site.md) (not implemented):
+`pagePermissionDefaults` and `sitePagePermissions` are profile parts.
 
 Date: 2026-10-11
 
@@ -73,7 +73,6 @@ are assigned now so that profiles can be added without moving data again:
 - ADR 0023's lists and `customFieldReviews` are profile data from the start.
 - Adding profiles later needs a migration of the service tables and a pairing choice,
   but no change to the settings document's entries.
-
 
 ## Delivery amendment — 2026-10-17
 

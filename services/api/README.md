@@ -23,7 +23,7 @@ framed. Contracts live in `packages/contracts/src/sync.ts`, `pairing.ts` and
 | `GET`/`HEAD /health` | Build revision probe; other methods return 405 |
 | `GET /.well-known/openid-configuration` | OIDC discovery for Claude Workload Identity Federation |
 | `GET /.well-known/jwks.json` | Public halves of the issuer's ES256 keys |
-| `GET /v1/settings` | Current synced settings; revision 0 with `settings: null` before the first write |
+| `GET /v1/settings` | Device-selected profile policy plus shared bindings and `profileId`; revision 0 with `settings: null` before the first write |
 | `PUT /v1/settings` | Replace settings when `expectedRevision` matches; otherwise 409 with the current state |
 | `GET /v1/recipes?after=&limit=` | Latest state of recipes changed after the cursor, at most 100 per page |
 | `PUT /v1/recipes/:recipeId` | Publish an active revision or a tombstone when `expectedRevision` matches |
@@ -31,14 +31,19 @@ framed. Contracts live in `packages/contracts/src/sync.ts`, `pairing.ts` and
 | `POST /v1/recipes/:recipeId/completion` | Judge the page after a recipe's final submission and learn its completion |
 | `GET /v1/device` | The calling device's paired time, the owner's live recipe count and settings revision, and whether recipe generation would run now, for the diagnostics page |
 | `DELETE /v1/device` | Revoke the calling device's own credential |
-| `POST /pair` | Create a device for the signed-in owner from an allowed extension; 201 with the credential, once |
+| `POST /pair` | Create a device for the signed-in owner from an allowed extension; `profileId` required when several profiles exist; 201 with the credential, once |
+| `GET /pair/profiles` | List profiles for the owner session from an allowlisted extension |
+| `GET`, `PUT /pair/profiles/:profileId/settings` | Edit another owned profile with the extension's local catalog; owner session and extension Origin required |
 | `GET /pair/signed-in` | The page the extension opens when pairing needs a sign-in; it asks the user to go back to Pateat's settings |
 | `GET /manage`, `/manage/sites`, `/manage/sites/:scheme/:host` | Owner web UI (React app): devices; the sites list with excluded sites, unreadable and revoked recipes; one origin's default account, recipes and bindings |
 | `GET /manage/assets/*` | The web UI's built script, styles and notices |
 | `GET /manage/api/devices` | The owner's devices with their last use, newest first |
 | `POST /manage/api/devices/:deviceId/revoke` | Revoke one of the owner's devices; 204 |
-| `GET /manage/api/settings` | The settings `/v1/settings` serves; revision 0 before the first write; 404 `not_paired` without a paired device |
-| `PUT /manage/api/settings` | Replace them like `PUT /v1/settings`; `connections` must be empty and the document at most 120 KiB |
+| `GET /manage/api/profiles` | The Access owner's profiles |
+| `POST /manage/api/profiles` | Copy an existing owned profile, with `name` and `copyFrom` |
+| `POST /manage/api/devices/:deviceId/profile` | Assign an owned profile to an owned active device; advances the settings revision |
+| `GET /manage/api/profiles/:profileId/settings` | Selected owned profile with shared bindings and owner revision; 404 for a foreign profile |
+| `PUT /manage/api/profiles/:profileId/settings` | Replace them like `PUT /v1/settings`; `connections` must be empty and the document at most 120 KiB |
 | `GET /manage/api/recipes` | Every recipe head with its document, most recently changed first; active heads whose document no longer validates are listed apart in `unreadable` |
 | `POST /manage/api/recipes/:recipeId/revoke` | Revoke one recipe if `expectedRevision` is its head; otherwise 409 with the current head |
 | `GET /manage/claude` | Access page showing the Console values and the owner's WIF identifiers |

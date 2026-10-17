@@ -1,8 +1,9 @@
 # ADR 0044: Settings profile delivery details
 
 Status: temporary proposal by the implementation agent, not accepted by the owner.
-Implements the already accepted profile behavior in [ADR 0024](0024-settings-profiles.md).
-No new provider, library, deployment, or real-account operation is authorized here.
+Implements the already accepted profile behavior in
+[ADR 0024](0024-settings-profiles.md). No new provider, library, deployment, or
+real-account operation is authorized here.
 
 Date: 2026-10-17
 

@@ -501,7 +501,8 @@ log reports,
 with the badge's lifetime: a top page of another origin or the tab's closing drops them,
 and `chrome.storage.session` keeps them across a worker restart. Item selection, field
 exclusions and custom-field review stay on the extension's settings page once synced
-([ADR 0023](adr/0023-synced-vault-policy.md)). The service stores excluded sites and site defaults per owner-scoped settings profile
+([ADR 0023](adr/0023-synced-vault-policy.md)). The service stores excluded sites and
+site defaults per owner-scoped settings profile
 ([ADR 0024](adr/0024-settings-profiles.md)), while bindings remain shared by the owner.
 Pairing chooses explicitly when several profiles exist; the owner devices page can
 reassign a device. The owner web UI selects which profile its site pages edit and
@@ -509,10 +510,10 @@ creates profiles by copying an existing profile. The extension settings page can
 another profile's sites using its own vault catalog, through owner-session-authorized
 `/pair/profiles` routes; this does not reassign its device. One owner revision covers
 profile parts and bindings. A device profile change replaces the previous profile's
-cached policy and merge base before syncing further local edits. Item policies and
-page permissions remain the independently tracked ADR 0023 and ADR 0035 work. Chrome use access
-to these pages is not assumed. Keep settings and execution operations independent of
-their UI.
+cached policy and merge base before syncing further local edits. Item policies and page
+permissions remain the independently tracked ADR 0023 and ADR 0035 work. Chrome use
+access to these pages is not assumed. Keep settings and execution operations independent
+of their UI.
 
 Each connection supports all items except exclusions or selected
 folders/collections/items only. Use existing Bitwarden metadata; independent
