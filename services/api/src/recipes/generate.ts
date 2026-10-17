@@ -238,7 +238,7 @@ export async function generateRecipe(
   scope: DeviceScope,
   request: RecipeGenerationRequest,
 ): Promise<RecipeGenerationResult | undefined> {
-  const { observation, slots, base, branch } = request;
+  const { observation, slots, base, branch, passkeyOnly } = request;
   const { origin, path } = observation;
   // A first page starts its own recipe; a later page continues the one in `base`.
   const recipeId = base?.recipeId ?? (await generatedRecipeId(origin, path));
@@ -333,6 +333,7 @@ export async function generateRecipe(
     request: {
       instructions: list ? accountListGenerationInstructions : generationInstructions,
       slots,
+      ...(passkeyOnly ? { passkeyOnly } : {}),
       observation,
     },
     ...attemptWindow(
@@ -349,7 +350,7 @@ export async function generateRecipe(
         return revisionOf(latest) !== baseRevision ? "recipe-conflict" : undefined;
       },
     ),
-    invoke: (model) => createRecipeGenerator({ model, ...roleConfig })({ observation, slots }),
+    invoke: (model) => createRecipeGenerator({ model, ...roleConfig })({ observation, slots, ...(passkeyOnly ? { passkeyOnly } : {}) }),
     logValue: (value) => {
       if ("accountList" in value)
         return {
@@ -470,6 +471,7 @@ export async function generateRecipe(
     ...(alternatives.length ? { alternatives: alternatives.map((entry) => entry.steps) } : {}),
     ...(value.switchTarget ? { accountSwitch: value.switchTarget } : {}),
     ...(passkey ? { passkey } : {}),
+    ...(value.passkeyOnly && !later ? { passkeyOnly: true } : {}),
   });
   // A page that fills one of the recipe's slots again, as its identifier form shown again
   // where it posted, is refused before anything is stored (ADR 0018).

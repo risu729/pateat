@@ -153,10 +153,14 @@ export const recipeGenerationRequestSchema = v.pipe(
   v.strictObject({
     version: v.literal(1),
     observation: loginObservationSchema,
-    slots: semanticSlotsSchema,
+    slots: v.union([semanticSlotsSchema, v.tuple([])]),
+    passkeyOnly: v.optional(v.literal(true)),
     base: v.optional(v.strictObject({ recipeId: syncRecipeIdSchema, revision: writtenRevision })),
     branch: v.optional(chooserBranchSchema),
   }),
+  v.check((request) => request.passkeyOnly
+    ? request.slots.length === 0 && !request.base && !request.branch && isEntryObservation(request.observation)
+    : request.slots.length > 0, "Only a passkey-only first page has no slots"),
   v.check((request) => !request.branch || request.base !== undefined, "A branch needs a base"),
 );
 

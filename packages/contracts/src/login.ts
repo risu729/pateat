@@ -270,7 +270,9 @@ export const loginRecipeSchema = v.pipe(
     revision,
     origin: loginOriginSchema,
     /** The slots of the password route's first variant (variant 0). */
-    slots: recipeSlotList,
+    slots: v.union([recipeSlotList, v.tuple([])]),
+    /** A button-only start page: no password route or fallback (ADR 0046, proposed). */
+    passkeyOnly: v.optional(v.literal(true)),
     /** The password route's first variant (variant 0): its steps. */
     steps: routeStepList,
     /**
@@ -365,6 +367,12 @@ export const loginRecipeSchema = v.pipe(
     // Counts route steps only; an entered handler adds its own effects to the attempt.
     maxSubmissions: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(8)),
   }),
+  v.check((recipe) => recipe.passkeyOnly
+    ? recipe.slots.length === 0 && recipe.alternatives === undefined && recipe.passkey !== undefined &&
+      recipe.steps.length === 1 && recipe.steps[0]!.kind === "click" &&
+      recipe.steps[0]!.purpose === "submit" && recipe.steps[0]!.path === recipe.passkey.path &&
+      sameLoginTarget(recipe.steps[0]!.target, recipe.passkey.target) && recipe.maxSubmissions === 1
+    : recipe.slots.length > 0, "A passkey-only recipe has only its passkey submit"),
   v.check(
     (recipe) =>
       variantsOf(recipe).every((variant) =>
@@ -908,7 +916,7 @@ export type LoginRouteChoice = { route: "password"; variant: number } | { route:
 export type PasswordVariant = { slots: string[]; steps: LoginStep[] };
 /** The password route's variants in order: the recipe's own, then its alternatives. */
 export function passwordVariants(recipe: LoginRecipe): PasswordVariant[] {
-  return variantsOf(recipe);
+  return recipe.passkeyOnly ? [] : variantsOf(recipe);
 }
 /**
  * Whether the recipe's `passkey` route answers the start page's own conditional passkey
