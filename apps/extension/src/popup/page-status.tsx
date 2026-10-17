@@ -194,7 +194,8 @@ function attemptLines(status: Status): StatusLine[] {
       },
     ];
   const outcome = login.outcome ?? "";
-  if (login.state === "watching")
+  // A result that settled as unknown is watched as after a `challenge` (ADR 0027).
+  if (login.state === "watching" || (login.state === "reconciling" && login.settled))
     return [
       {
         id: "login",
