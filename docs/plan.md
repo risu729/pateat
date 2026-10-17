@@ -713,13 +713,15 @@ Once the fixes have settled:
   in [ADR 0043](adr/0043-extension-language-preference.md) keeps the language preference
   local to the browser profile, outside service sync. The extension infrastructure,
   language selector, popup and passkey chooser are implemented in
-  [draft PR 661](https://github.com/risu729/pateat/pull/661);
-  options, diagnostics, toolbar background titles, manifest metadata and user docs
-  remain untranslated. This partial slice does not complete the preceding wording review
-  or this phase's translation gate. The owner chose (2026-10-12 14:14 UTC) that "the
-  docs" means the README and the user-facing pages, including those the docs website
-  below adds; ADRs, this plan and research notes stay in English. AGENTS.md's English
-  rule gets an exception for the Japanese pages when they land.
+  [draft PR 661](https://github.com/risu729/pateat/pull/661); The settings shell, shared
+  theme controls and site policies are translated on the follow-up draft branch;
+  Bitwarden/vault and service connection controls, diagnostics, toolbar background
+  titles, manifest metadata and user docs remain separate work. This partial slice does
+  not complete the preceding wording review or this phase's translation gate. The owner
+  chose (2026-10-12 14:14 UTC) that "the docs" means the README and the user-facing
+  pages, including those the docs website below adds; ADRs, this plan and research notes
+  stay in English. AGENTS.md's English rule gets an exception for the Japanese pages
+  when they land.
 - The docs website (VitePress 2, see
   [decisions still requiring evidence](#decisions-still-requiring-evidence)) with
   user-facing pages for installation, setup and permissions, plus the M6 operational

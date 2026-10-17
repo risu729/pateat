@@ -1,4 +1,6 @@
+import { settingsEn } from "./settings-en";
 export const en = {
+  ...settingsEn,
   Language: "Language",
   "Browser setting": "Browser setting",
   Pateat: "Pateat",
