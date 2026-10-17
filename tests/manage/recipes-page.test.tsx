@@ -57,6 +57,9 @@ function mockClient(initial: ManageRecipes) {
       };
       return { version: 1, change };
     }),
+    claude: vi.fn<ManageClient["claude"]>(),
+    saveClaude: vi.fn<ManageClient["saveClaude"]>(),
+    testClaude: vi.fn<ManageClient["testClaude"]>(),
     replace(next: ManageRecipes) {
       current = next;
     },
