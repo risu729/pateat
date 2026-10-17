@@ -1,4 +1,6 @@
+import { serviceEn } from "./service-en";
 export const en = {
+  ...serviceEn,
   Language: "Language",
   "Browser setting": "Browser setting",
   Pateat: "Pateat",

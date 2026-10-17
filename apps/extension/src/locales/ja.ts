@@ -1,6 +1,8 @@
+import { serviceJa } from "./service-ja";
 import type { en } from "./en";
 
 export const ja = {
+  ...serviceJa,
   Language: "言語",
   "Browser setting": "ブラウザーの設定に従う",
   Pateat: "Pateat",
