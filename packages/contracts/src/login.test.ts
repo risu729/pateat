@@ -225,12 +225,15 @@ describe("declarative login boundaries", () => {
     ).toThrow();
   });
 
-  it("refuses an account switch that is a step's button or the rejection", () => {
+  it("refuses an account switch that is a step's button, the rejection or a marker", () => {
     const other = { by: "text", value: "Use another account" } as const;
     expect(parseLoginRecipe({ ...recipe(), accountSwitch: other }).accountSwitch).toEqual(other);
     for (const target of [
       { by: "id", value: "login" },
       { by: "id", value: "rejected" },
+      // A marker proves the sign-in wherever it shows, so a login page that shows the
+      // switch would read as signed in (ADR 0029).
+      { by: "id", value: "authenticated" },
     ])
       expect(() => parseLoginRecipe({ ...recipe(), accountSwitch: target })).toThrow();
   });
