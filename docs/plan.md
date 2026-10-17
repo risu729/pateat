@@ -1143,9 +1143,8 @@ separately (owner, 2026-10-14 07:24 UTC), and the adopted
 be started from the issue alone (owner, 2026-10-14 08:40 UTC). The list below names
 items the owner mentioned and gates still open on 2026-10-11.
 
-- From the [external review](research/2026-10-13-external-review.md): decrypted item
-  copies in the crypto Worker that hold only the fields a request needs instead of the
-  whole item; a scheduled purge of the inference log, which since 2026-10-18 keeps
+- From the [external review](research/2026-10-13-external-review.md): a scheduled purge
+  of the inference log, which since 2026-10-18 keeps
   every row one year (a trigger is a deployment change the owner approves); and syncing
   which recipes exist and which are revoked separately from their bodies, if
   [#544](https://github.com/risu729/pateat/issues/544) and the recipe limits are not

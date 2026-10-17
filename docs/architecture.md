@@ -368,9 +368,12 @@ new alert. The executor runs both checks
 username's shape when every matching item agrees
 ([ADR 0016](adr/0016-recipe-generation-trigger.md#username-shape)).
 
-Local field snapshots detach supported decrypted items from caller mutation. Each crypto
-Worker caches at most 128 decrypted items per session, disposing the least recently used
-item on eviction; closing the session destroys the Worker and its remaining cache.
+Local field snapshots detach supported decrypted items from caller mutation. The crypto
+Worker keeps no decrypted item between requests: each field listing or field resolution
+decrypts that one item, answers from a snapshot made for the request, and disposes the
+snapshot before it replies, so a request returns only the listing or the one value
+asked for. JavaScript cannot wipe the disposed copies; they become unreachable. Between requests the session holds only the value-free catalog and the decrypted
+login URI rules from verification; closing the session destroys the Worker.
 References bind connection, user, item and snapshot identity; custom fields use
 snapshot-scoped positional IDs because Bitwarden does not supply a persistent field
 UUID. Resolution requires an explicit field allowlist. Linked aliases also require
