@@ -425,9 +425,9 @@ export function createServiceTransport(
         void response.body?.cancel().catch(() => undefined);
         return { failed: "unexpected-response" as const, timing: timing() };
       }
-      // An edge rate-limit page, such as Cloudflare's, is not JSON; it still asks Pateat
-      // to slow down, so each caller sees the 429 without its body.
-      if (response.status === 429 && !isJson(response)) {
+      // Every caller reads a 429 as "slow down" without its body, which may be an edge
+      // page that is not JSON, such as Cloudflare's rate-limit page.
+      if (response.status === 429) {
         void response.body?.cancel().catch(() => undefined);
         return { status: 429, body: undefined, timing: timing() };
       }
