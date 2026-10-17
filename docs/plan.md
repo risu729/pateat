@@ -839,8 +839,8 @@ Once the fixes have settled:
   owner: keep the recipe vocabulary closed (no control flow, expressions, selectors,
   URLs beyond exact same-origin paths, or values), explain recipes, their schema and
   how to test them in the submission, have the owner submit a Private trusted-tester
-  item early to get a review verdict, and consider an unminified store build. The mode
-  without the service, with recipes from a model API, reopens the question.
+  item early to get a review verdict, and consider an unminified store build. A mode
+  without the service that gets recipes from a model API directly reopens the question.
 - Proposed: the checks that matter once other people install Pateat: the install-time
   site-access warning and the prompt after site access was withheld, installed-Chrome
   dummy-account tests and measured limits.
