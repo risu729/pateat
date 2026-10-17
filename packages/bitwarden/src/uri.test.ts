@@ -270,9 +270,14 @@ describe("retained account URI context", () => {
   });
 
   it.each([
-    { equivalentDomains: [["https://example.com"]], globalEquivalentDomains: null },
+    { equivalentDomains: ["example.com"], globalEquivalentDomains: null },
+    { equivalentDomains: [[123]], globalEquivalentDomains: null },
+    { equivalentDomains: null, globalEquivalentDomains: [{ type: 1, domains: "example.com" }] },
     { equivalentDomains: "secret" },
     [],
+    userDomains(Array.from({ length: 1001 }, () => ["example.com", "example.net"])),
+    userDomains([Array.from({ length: 10_001 }, () => "example.com")]),
+    userDomains([["example.com", `${"x".repeat(254)}.com`]]),
   ])("marks malformed sync domains unavailable instead of guessing case %#", (domains) => {
     const context = createBitwardenUriMatchContext(domains, 0);
     expect(context).toEqual({ equivalentDomains: "unavailable", defaultMatch: 0 });
@@ -294,6 +299,73 @@ describe("retained account URI context", () => {
         unavailableUris: [{ uriIndex: 0, reason: "equivalent-domains-unavailable" }],
       },
     });
+  });
+
+  // Pinned clients compare each group entry as a raw string with the tldts domain, so an
+  // entry that is not a hostname never matches and the rest of the groups still apply.
+  it.each([
+    "https://example.net",
+    "example.com:8080",
+    "a.com b.com",
+    "foo..com",
+    "user@example.net",
+    "example.net/login",
+  ])("keeps the groups available when an entry %s is not a hostname", (entry) => {
+    const context = createBitwardenUriMatchContext(
+      {
+        equivalentDomains: [["example.com", "example.org", entry]],
+        globalEquivalentDomains: [
+          { type: 1, domains: ["example.com", "example.edu", entry], excluded: false },
+        ],
+      },
+      0,
+    );
+    expect(context.equivalentDomains).not.toBe("unavailable");
+    expect(admitBitwardenUriMatchContext(context)).toEqual(context);
+    for (const uri of ["https://example.com", "https://example.org", "https://example.edu"])
+      expect(matchBitwardenLoginUris(saved(uri), target, { context })).toEqual({
+        ok: true,
+        data: {
+          matched: true,
+          targetOrigin: "https://example.com",
+          matches: [{ uriIndex: 0, match: 0 }],
+          unavailableUris: [],
+        },
+      });
+  });
+
+  it("does not turn a URL entry into its hostname", () => {
+    const context = createBitwardenUriMatchContext(
+      {
+        equivalentDomains: [["example.com", "https://example.net"]],
+        globalEquivalentDomains: null,
+      },
+      0,
+    );
+    expect(context.equivalentDomains).not.toBe("unavailable");
+    expect(
+      matchBitwardenLoginUris(saved("https://example.com"), "https://example.com/", { context }),
+    ).toEqual({
+      ok: true,
+      data: {
+        matched: true,
+        targetOrigin: "https://example.com",
+        matches: [{ uriIndex: 0, match: 0 }],
+        unavailableUris: [],
+      },
+    });
+    // The group containing only the URL form of the target does not apply to it.
+    const urlOnly = createBitwardenUriMatchContext(
+      userDomains([["https://example.com", "example.net"]]),
+      0,
+    );
+    expect(urlOnly.equivalentDomains).not.toBe("unavailable");
+    expect(
+      matchBitwardenLoginUris(saved("https://example.net"), target, { context: urlOnly }),
+    ).toEqual(emptyResult());
+    expect(
+      matchBitwardenLoginUris(saved("https://example.com"), target, { context: urlOnly }),
+    ).toMatchObject({ ok: true, data: { matched: true, unavailableUris: [] } });
   });
 
   it("uses the retained default and never falls back from an unavailable one", () => {
@@ -420,19 +492,30 @@ describe("strict destination and unsupported rule admission", () => {
     },
   );
 
-  it.each(["foo..com", "foo.com..", ".example.com", "foo..com."])(
-    "rejects malformed equivalent-group hostname %s without returning candidates",
-    (hostname) => {
-      expect(
-        matchBitwardenLoginUris(saved(), target, {
-          domains: userDomains([["example.com", hostname]]),
-        }),
-      ).toEqual({
-        ok: false,
-        error: { code: "invalid-options" },
+  it.each([
+    "foo..com",
+    "foo.com..",
+    ".example.com",
+    "foo..com.",
+    "https://example.org",
+    "example.com:8080",
+    "a.com b.com",
+  ])("ignores malformed equivalent-group entry %s and keeps the rest of its group", (entry) => {
+    const domains = userDomains([["example.com", "example.net", entry]]);
+    for (const uri of ["https://example.com", "https://example.net"])
+      expect(matchBitwardenLoginUris(saved(uri), target, { domains })).toEqual({
+        ok: true,
+        data: {
+          matched: true,
+          targetOrigin: "https://example.com",
+          matches: [{ uriIndex: 0, match: 0 }],
+          unavailableUris: [],
+        },
       });
-    },
-  );
+    expect(matchBitwardenLoginUris(saved("https://example.org"), target, { domains })).toEqual(
+      emptyResult(),
+    );
+  });
 
   it.each([
     "example.com",
@@ -544,6 +627,8 @@ describe("strict destination and unsupported rule admission", () => {
     { domains: [] },
     { domains: { equivalentDomains: "secret" } },
     { domains: { equivalentDomains: [["https://example.com"]] } },
+    { domains: { equivalentDomains: ["example.com"], globalEquivalentDomains: null } },
+    { domains: { equivalentDomains: [["example.com", 1]], globalEquivalentDomains: null } },
     {
       domains: {
         globalEquivalentDomains: [{ type: 1, domains: ["example.com"], excluded: "false" }],
