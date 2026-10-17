@@ -342,6 +342,7 @@ export const LOG_EVENTS = {
       signedBefore: "flag",
       logoutClicked: "flag",
       mediation: "code",
+      uiMode: "code",
       duringLogin: "flag",
       answerFailed: "code",
       cause: "code",
