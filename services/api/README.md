@@ -73,7 +73,8 @@ subject, never by email. The
 ([ADR 0020](../../docs/adr/0020-direct-device-pairing.md)). The extension's background
 sends `{ "version": 1, "label": "…" }` with the browser's login session. The Worker
 checks, in this order, the Access token, the `Origin`, the rate limit and then the body;
-it creates the owner on an identity's first pairing, stores only the credential's
+it creates the owner on an identity's first pairing in the same transaction as the
+device, so a failed pairing leaves no owner, stores only the credential's
 SHA-256 and answers 201 `{ version: 1, deviceId, credential }`. `Origin` must equal
 `chrome-extension://<id>` exactly for an ID in `PAIRING_EXTENSION_IDS`, a JSON array
 committed in `cloudflare.config.ts` (Pateat's own production ID; a self-hosted extension

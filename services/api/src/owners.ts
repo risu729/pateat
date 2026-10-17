@@ -1,36 +1,38 @@
 import { and, eq, sql } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/d1";
+import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
 import type { AccessIdentity } from "./auth";
 import { ownerIdentities, owners } from "./db/schema";
 import { newId } from "@pateat/contracts/ids";
+
+/** Selects the identity's mapping row; its `ownerId` is the identity's owner. */
+export function identityIs(identity: AccessIdentity) {
+  return and(
+    eq(ownerIdentities.issuer, identity.issuer),
+    eq(ownerIdentities.subject, identity.subject),
+  );
+}
 
 export async function findOwner(db: D1Database, identity: AccessIdentity) {
   const [row] = await drizzle(db)
     .select({ ownerId: ownerIdentities.ownerId })
     .from(ownerIdentities)
-    .where(
-      and(
-        eq(ownerIdentities.issuer, identity.issuer),
-        eq(ownerIdentities.subject, identity.subject),
-      ),
-    )
+    .where(identityIs(identity))
     .limit(1);
   return row?.ownerId ?? null;
 }
 
 /**
- * Returns the identity's owner, creating both rows on first use. The batch runs as
- * one transaction, and each insert is guarded so a concurrent first sign-in cannot
- * leave an orphan owner or map one identity twice.
+ * The two statements that create the identity's owner on first use, for a batch whose
+ * later statements write the owner's rows, so a failed write leaves no owner behind.
+ * Each insert is guarded, so they change nothing for an identity that already has an
+ * owner, and a concurrent first sign-in cannot leave an orphan owner or map one
+ * identity twice.
  */
-export async function resolveOwner(db: D1Database, identity: AccessIdentity) {
-  const existing = await findOwner(db, identity);
-  if (existing) return existing;
-  const orm = drizzle(db);
+export function createOwnerOnFirstUse(orm: DrizzleD1Database, identity: AccessIdentity) {
   const ownerId = newId();
   const now = Date.now();
   // INSERT ... SELECT is positional: keep each SELECT in its table's column order.
-  await orm.batch([
+  return [
     orm
       .insert(owners)
       .select(
@@ -41,8 +43,5 @@ export async function resolveOwner(db: D1Database, identity: AccessIdentity) {
       .select(
         sql`SELECT ${identity.issuer}, ${identity.subject}, ${ownerId}, ${now} WHERE EXISTS (SELECT 1 FROM ${owners} WHERE ${owners.id} = ${ownerId})`,
       ),
-  ]);
-  const resolved = await findOwner(db, identity);
-  if (!resolved) throw new Error("Owner identity was not recorded");
-  return resolved;
+  ] as const;
 }
