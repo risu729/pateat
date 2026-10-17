@@ -75,7 +75,7 @@ test("pairs in one click with an exact HTTPS address and shows no code", async (
   await page.getByLabelText("Device name", { exact: true }).fill("  Work laptop  ");
   await page.getByRole("button", { name: "Pair this device", exact: true }).click();
   expect(client.requestSiteAccess).toHaveBeenCalledWith(ORIGIN);
-  expect(client.pair).toHaveBeenCalledExactlyOnceWith(ORIGIN, "Work laptop");
+  expect(client.pair).toHaveBeenCalledExactlyOnceWith(ORIGIN, "Work laptop", undefined);
   await expect.element(page.getByText("This device is paired.", { exact: true })).toBeVisible();
   await expect.element(page.getByText("pateat.example.com", { exact: true })).toBeVisible();
   await expect
