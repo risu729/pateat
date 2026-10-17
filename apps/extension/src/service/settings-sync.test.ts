@@ -214,6 +214,8 @@ describe("settings sync on a new pairing", () => {
     expect(service()).toEqual(state(4, { connections: [], ...merged }));
     expect(after()?.revision).toBe(8);
     expect(after()?.settings).toEqual({ connections: [localConnection], ...merged });
+    // A settings page save drafted before the merge names it (ADR 0025).
+    expect(after()?.changes).toEqual([{ revision: 8, cause: "service-sync" }]);
     expect(applied).toHaveBeenCalledOnce();
   });
 
