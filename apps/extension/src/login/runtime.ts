@@ -206,9 +206,10 @@ const CONFIG_KEY = "pateat.login-probe-origin.v1";
 const HOLD_MS = 5 * 60_000;
 /**
  * How often a login page offered for generation is read before it counts as one that
- * cannot be described, and how long apart: a form rendered in steps settles meanwhile.
+ * cannot be described, and how long apart: a form rendered in steps or fading in settles
+ * meanwhile, for about the 10 seconds a page has to show its sign-in input (ADR 0016).
  */
-const EXTRACT_READS = 3;
+const EXTRACT_READS = 10;
 const EXTRACT_RETRY_MS = 1000;
 /** How soon after a password submission the tab's next page counts as right after it (ADR 0028). */
 const AFTER_SIGN_IN_MS = 60_000;
@@ -6423,8 +6424,9 @@ export function createLoginRuntime(
     let sent = false;
     try {
       let observation: LoginObservation | undefined;
-      // A page that renders its form in steps may offer itself before the form is whole,
-      // so a page that cannot be described yet is read again (Vpass, 2026-10-12).
+      // A page that renders its form in steps or fades it in may offer itself before the
+      // form is whole or opaque, so a page that cannot be described yet is read again
+      // (Vpass, 2026-10-12; Microsoft Entra, 2026-10-17).
       for (let read = 1; ; read += 1) {
         const extracted = v.safeParse(
           extractResultSchema,

@@ -499,6 +499,20 @@ than in this repository.
   is inferred, not shown. Since 2026-10-17 an element that is fading in counts as
   opaque ([AI evaluation harness progress](#ai-evaluation-harness-progress); agent fix,
   local tests only). Check the page in the owner's Chrome.
+- The same page was logged `skipped` `incomplete-observation` with `unfillable-field`
+  again in the owner's Chrome on build `97ccbb8` (2026-10-17, 04:11:34 UTC, about 3 s
+  after the page started), while a later visit on that build (04:18 UTC) was sent about
+  2 s after the page started and logged in end to end. A timed read there showed the
+  form inside two fading layers: one whose fade had ended about 1.0 s after navigation,
+  and an inner one held at opacity 0, with no animation, until its fade began at 1.0 to
+  1.5 s, so the email field stayed transparent until about 1.5 s on a warm load. In a
+  cloud Chromium probe the content script offered the page, since its offer check
+  ignores opacity and counts the page's off-screen password input kept for the browser,
+  while its description still reported `unfillable-field`, so on a slow load the three
+  reads a second apart could all see the transparent form. Since 2026-10-17 such a page
+  is read a second apart, at most ten times
+  ([ADR 0016](adr/0016-recipe-generation-trigger.md); agent fix applying ADR 0016, local
+  tests only). Check the UNSW sign-in page in the owner's Chrome.
 - A login control that is a link whose `javascript:` URL alone submits never submitted:
   on 2026-10-17 (build `d29951d`, 01:55 UTC) the owner's Chrome filled SMBC Trust Bank's
   sign-on page and clicked サインオン, and Chrome refused the URL under the content

@@ -5846,6 +5846,8 @@ describe("production login document admission", () => {
     });
 
     it("clips a page's over-long refusal reason to the popup's limit", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout"], shouldAdvanceTime: true });
+      onTestFinished(() => void vi.useRealTimers());
       // The content script's refusal reason is any text it sent.
       const reason = `extract-${"x".repeat(300)}`;
       fake.state.extracted = { login: { ok: false, reason } };
@@ -5863,12 +5865,14 @@ describe("production login document admission", () => {
       h.recipes.starts.mockResolvedValue(startsOf([]));
       expect(await h.hello({}, false)).toMatchObject({ generate: true });
       await h.signIn();
-      await vi.waitFor(
-        () =>
-          expect(report).toHaveBeenCalledWith(
-            expect.objectContaining({ type: "generation", outcome: "skipped", reason }),
-          ),
-        { timeout: 6_000 },
+      await vi.waitFor(() =>
+        expect(fake.state.messages.map((entry) => entry.type)).toContain("login.extract"),
+      );
+      await vi.advanceTimersByTimeAsync(9_000);
+      await vi.waitFor(() =>
+        expect(report).toHaveBeenCalledWith(
+          expect.objectContaining({ type: "generation", outcome: "skipped", reason }),
+        ),
       );
       expect(service.generate).not.toHaveBeenCalled();
       const popup = {
@@ -6839,6 +6843,8 @@ describe("production login document admission", () => {
       });
 
       it("logs a complete description without accounts on a list as a mismatch (ADR 0019)", async () => {
+        vi.useFakeTimers({ toFake: ["setTimeout"], shouldAdvanceTime: true });
+        onTestFinished(() => void vi.useRealTimers());
         const { service, h, generations } = setup();
         fake.state.extracted = {
           accounts: {
@@ -6848,19 +6854,22 @@ describe("production login document admission", () => {
         };
         expect(await h.hello({}, false)).toMatchObject({ generate: true });
         expect(await listHello(h)).toEqual({ ok: false, reason: "generating" });
-        await vi.waitFor(
-          () =>
-            expect(generations()).toEqual([
-              {
-                type: "generation",
-                tabId: 1,
-                origin,
-                outcome: "skipped",
-                reason: "incomplete-observation",
-                detail: "list-mismatch",
-              },
-            ]),
-          { timeout: 4_000 },
+        await vi.waitFor(() =>
+          expect(fake.state.messages.map((entry) => entry.type)).toContain("login.extract"),
+        );
+        // Read up to ten times a second apart before it is logged.
+        await vi.advanceTimersByTimeAsync(9_000);
+        await vi.waitFor(() =>
+          expect(generations()).toEqual([
+            {
+              type: "generation",
+              tabId: 1,
+              origin,
+              outcome: "skipped",
+              reason: "incomplete-observation",
+              detail: "list-mismatch",
+            },
+          ]),
         );
         expect(service.generate).not.toHaveBeenCalled();
       });
@@ -8600,6 +8609,8 @@ describe("production login document admission", () => {
     ] as const)(
       "logs %s when the page cannot be described",
       async (_name, extracted, reason) => {
+        vi.useFakeTimers({ toFake: ["setTimeout"], shouldAdvanceTime: true });
+        onTestFinished(() => void vi.useRealTimers());
         fake.state.extracted = { login: extracted };
         const service = generation();
         const report = vi.fn<(report: LoginReport) => void>();
@@ -8613,21 +8624,26 @@ describe("production login document admission", () => {
         h.recipes.recipe.mockResolvedValue(undefined);
         h.recipes.starts.mockResolvedValue(startsOf([]));
         expect(await h.signIn()).toEqual({ ok: false, reason: "generating" });
-        // Read three times a second apart, as a form rendered in steps may still settle.
-        await vi.waitFor(
-          () =>
-            expect(report).toHaveBeenCalledWith({
-              type: "generation",
-              tabId: 1,
-              origin,
-              outcome: "skipped",
-              reason,
-            }),
-          { timeout: 4_000 },
+        await vi.waitFor(() =>
+          expect(fake.state.messages.map((entry) => entry.type)).toContain("login.extract"),
         );
+        // Read ten times a second apart, as a form rendered in steps or fading in may still
+        // settle, and logged once.
+        await vi.advanceTimersByTimeAsync(9_000);
+        await vi.waitFor(() =>
+          expect(report).toHaveBeenCalledWith({
+            type: "generation",
+            tabId: 1,
+            origin,
+            outcome: "skipped",
+            reason,
+          }),
+        );
+        await vi.advanceTimersByTimeAsync(2_000);
         expect(fake.state.messages.filter((entry) => entry.type === "login.extract")).toHaveLength(
-          3,
+          10,
         );
+        expect(report.mock.calls.filter(([value]) => value.type === "generation")).toHaveLength(1);
         expect(service.generate).not.toHaveBeenCalled();
       },
       10_000,
@@ -8673,6 +8689,46 @@ describe("production login document admission", () => {
       });
     }, 10_000);
 
+    it("sends a page whose form still fades in seconds after it offers itself", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout"], shouldAdvanceTime: true });
+      onTestFinished(() => void vi.useRealTimers());
+      // The form's fields are transparent while an ancestor waits to fade in.
+      fake.state.extracted = {
+        login: {
+          ...loginPage,
+          observation: { ...loginPage.observation, complete: false },
+          gap: "unfillable-field",
+        },
+      };
+      const service = generation();
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness(unsaved, {
+        allowedOrigins: [],
+        uris,
+        username: true,
+        generation: service,
+        report,
+      });
+      h.recipes.recipe.mockResolvedValue(undefined);
+      h.recipes.starts.mockResolvedValue(startsOf([]));
+      expect(await h.signIn()).toEqual({ ok: false, reason: "generating" });
+      await vi.waitFor(() =>
+        expect(fake.state.messages.map((entry) => entry.type)).toContain("login.extract"),
+      );
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(service.generate).not.toHaveBeenCalled();
+      // The form is opaque about five seconds after the offer.
+      fake.state.extracted = { login: loginPage };
+      await vi.advanceTimersByTimeAsync(1_000);
+      await vi.waitFor(() => expect(service.generate).toHaveBeenCalledTimes(1));
+      expect(service.generate.mock.calls[0]![0]).toMatchObject({
+        observation: loginPage.observation,
+      });
+      expect(report).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: "generation", outcome: "skipped" }),
+      );
+    }, 10_000);
+
     it("offers nothing for a page sent recently, a path a recipe starts on, a frame or an incomplete description", async () => {
       const service = generation({ available: async () => "sent" as const });
       const report = vi.fn<(report: LoginReport) => void>();
@@ -8712,21 +8768,22 @@ describe("production login document admission", () => {
           gap: "unlocated-button",
         },
       };
+      vi.useFakeTimers({ toFake: ["setTimeout"], shouldAdvanceTime: true });
+      onTestFinished(() => void vi.useRealTimers());
       expect(await h.signIn()).toEqual({ ok: false, reason: "generating" });
       await vi.waitFor(() =>
         expect(fake.state.messages.map((entry) => entry.type)).toContain("login.extract"),
       );
-      await vi.waitFor(
-        () =>
-          expect(generations().at(-1)).toEqual({
-            type: "generation",
-            tabId: 1,
-            origin,
-            outcome: "skipped",
-            reason: "incomplete-observation",
-            detail: "unlocated-button",
-          }),
-        { timeout: 4_000 },
+      await vi.advanceTimersByTimeAsync(9_000);
+      await vi.waitFor(() =>
+        expect(generations().at(-1)).toEqual({
+          type: "generation",
+          tabId: 1,
+          origin,
+          outcome: "skipped",
+          reason: "incomplete-observation",
+          detail: "unlocated-button",
+        }),
       );
       expect(service.generate).not.toHaveBeenCalled();
 
