@@ -3113,6 +3113,48 @@ cookie validation; only the transport unit tests' synthetic responses cover thos
 verification worked against the real Access application when the owner paired with
 the typed code on 2026-10-11. Credential idle expiry has local tests only so far.
 
+### Sync cases Pateat does not handle
+
+Status: current behavior, read from the code on 2026-10-17; no fix is planned for any of
+these yet. Each says what a device does and how to recover.
+
+- A service database restored to an earlier point. A device keeps its recipe cursor, and
+  the service answers a cursor past its newest change with an empty, complete page. So
+  the device skips new recipe changes until the service's sequence numbers pass its
+  cursor again, and keeps cached recipes that the restore removed. Settings then merge
+  without a base and nothing is removed ([plan](plan.md#service-sync-progress)).
+  Recover by disconnecting and pairing each device again, which starts from an empty
+  cache.
+- A stored recipe the service can no longer read, such as one written before a recipe
+  contract change that came without a D1 migration
+  ([compatibility before release](development.md#compatibility-before-release)). Every
+  change page that holds it answers 500. Devices keep their cursor and ask for the same
+  page again, so later changes, revocations included, never arrive.
+  `/manage/api/recipes` answers 500 as well, so the web UI can neither list nor revoke
+  it. A contract change that refuses stored recipes needs a migration or a revocation of
+  those recipes first.
+- An extension built before the service, whose contracts reject a recipe or settings
+  document the service sends. The page fails as an unexpected response, and recipe sync
+  stops at it in the same way, revocations included, while login keeps using the cache;
+  a settings document it cannot read stops settings sync. Updating the extension
+  recovers.
+- Sync records that a new build cannot read after an extension update. The recipe cache
+  is discarded and synced again from the start, and no recipe is found until the first
+  page arrives. The settings base is discarded too, so the next merge has none: an entry
+  that the service or another device removed since this device last synced comes back
+  from this device.
+- A device credential that could not be written after `POST /pair`. It is kept only in
+  the worker's memory and saved on the next request; if the worker stops first, it is
+  lost. The device stays active on the service until it is revoked on the management
+  page or goes 90 days unused, and pairing again creates a second device.
+- Failed syncs on the settings page. The page shows only a rejected device, recipes or
+  settings that no longer fit, and the time of the last complete sync. A sync that keeps
+  failing for another reason (no network, an unexpected answer, full extension storage,
+  a login that holds the settings write, a backlog over 50 pages, or site access to the
+  service withdrawn) still shows the last success. After the first complete sync the
+  page reads this state again only when it is reloaded. The diagnostics page warns once
+  the last complete sync is more than 24 hours old.
+
 ### Owner web UI
 
 Status: design approved by the owner on 2026-10-11, and its reorganisation into Sites
