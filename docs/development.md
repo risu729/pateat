@@ -464,14 +464,22 @@ holds:
   ID's site in the tab and still waits for the site's first step (at most 10 minutes,
   while the tab stays on the site), or, after such a click was used, the tab keeps a
   logout state for an origin of the site (ADR 0021 D). Such a request that cannot open
-  the window is delegated with `chooser-unavailable`;
+  the window is delegated with `chooser-unavailable`; Immediate UI never opens this
+  window and delegates with `immediate-account-choice`;
 - `cause`: for a `cancelled` outcome, who cancelled it (`page-cancelled` or
   `settings-changed`); for the `assertion-failed` reason, the step that threw
   (`login-wait`, `account-lookup`, `passkey-lookup`, `signed-before-lookup`, `chooser`
   or `signing`);
 - `mediation`: the request's mediation when it names one (`optional`, `conditional`,
-  `required`, `silent`, `immediate` or `other`), whatever the outcome; a request with
-  `uiMode: "immediate"` (Chrome's Immediate UI) is logged as `immediate`;
+  `required`, `silent`, `immediate` or `other`), whatever the outcome;
+- `uiMode`: `immediate` for Chrome's Immediate UI, separately from mediation
+  ([ADR 0045](adr/0045-immediate-ui-stored-passkeys.md)). Its admission requires
+  transient activation, an active, focused top document outside incognito and an
+  empty allowlist. Unsupported document state delegates as
+  `immediate-document-not-active`, a supplied allowlist as
+  `immediate-allow-credentials`, and lookup or signing past one second as `timeout`.
+  Requests with a supplied signal or mixed credential types delegate before the
+  background and do not produce an entry;
 - `answerFailed`: why the login's item could not answer a conditional request the login
   gave it (such as `login-item-no-credential`); the login then falls back to the
   password;
@@ -482,7 +490,7 @@ holds:
 - for the `invalid-request` reason, `invalid`: the request member that broke Pateat's
   bounds (`challenge`, `rp-id`, `allow-credentials`, `allow-credentials.id`,
   `allow-credentials.type`, `allow-credentials.transports`, `user-verification`,
-  `mediation`, `timeout`, `request` when the copied options are not an object, or
+  `mediation`, `ui-mode`, `timeout`, `request` when the copied options are not an object, or
   `other` for a member outside these), and `invalidLength`: its size, in bytes for
   `challenge` and `allow-credentials.id`, in entries for a list and in characters for
   other text. `invalidLength` is left out when the member is missing, is not text or a
