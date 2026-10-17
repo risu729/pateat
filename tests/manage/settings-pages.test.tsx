@@ -219,7 +219,6 @@ test("lists each site with its recipes, default account and bindings", async () 
       }),
     },
     [recipe],
-    "00000000-0000-4000-8000-000000000001",
   );
   await mount(client, "/manage/sites");
   const bank = page.getByRole("listitem").filter({ hasText: "https://bank.example" });
@@ -433,7 +432,6 @@ test("leaves a rule that also covers other sites to the Sites list", async () =>
     .element(toggle)
     .toHaveAccessibleDescription(
       "Excluded with example and subdomains; allow it on the Sites list",
-      "00000000-0000-4000-8000-000000000001",
     );
 });
 
