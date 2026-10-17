@@ -191,7 +191,7 @@ and no setting value:
 | `automatic-vault-sync` | A snapshot adopted by an automatic check |
 | `field-review` | A custom-field review ([ADR 0023](0023-synced-vault-policy.md)) |
 | `service-sync` | Settings merged from the Pateat service |
-| `account-choice` | An account chosen outside the settings page, saved as the site's default ([ADR 0021](0021-account-choice-outside-settings.md)) |
+| `account-choice` | An account used on a site, from a login or a passkey request, saved for that site ([ADR 0021](0021-account-choice-outside-settings.md)) |
 
 The store writes the entry itself, so a background mutation cannot drop or rewrite it. A
 `revision-conflict` answer lists the distinct causes of the revisions after the expected
