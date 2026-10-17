@@ -325,8 +325,8 @@ export async function rememberVaultPasskey(input: {
     handle(request: { version: 1; type: "settings.get" }): Promise<SettingsResponse>;
     update(
       expectedRevision: number | undefined,
-      mutate: (snapshot: SettingsSnapshot) => SettingsSnapshot,
       cause: SettingsChangeCause,
+      mutate: (snapshot: SettingsSnapshot) => SettingsSnapshot,
     ): Promise<SettingsSnapshot>;
   };
   origin: string;
@@ -367,7 +367,7 @@ export async function rememberVaultPasskey(input: {
   const others = settings.siteDefaults.filter((site) => site.origin !== origin);
   // The settings schema bounds the list; a full list keeps its entries.
   if (others.length >= 1000) return false;
-  await input.settings.update(saved.snapshot.revision, (snapshot) => ({
+  await input.settings.update(saved.snapshot.revision, "account-choice", (snapshot) => ({
     ...snapshot,
     settings: {
       ...snapshot.settings,
@@ -376,6 +376,6 @@ export async function rememberVaultPasskey(input: {
         entry,
       ],
     },
-  }), "account-choice");
+  }));
   return true;
 }

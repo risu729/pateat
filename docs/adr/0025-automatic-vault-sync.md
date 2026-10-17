@@ -8,11 +8,11 @@ later work at acceptance, are implemented as
 [After no item matches](#after-no-item-matches) and
 [Protected items after a sync](#protected-items-after-a-sync) describe. The settings
 page's reason for a save that met a revision conflict, also later work at acceptance, is
-implemented as [Settings saves after a sync](#settings-saves-after-a-sync) describes; its
-details were chosen by an agent and are not confirmed by the owner.
-Amended on 2026-10-12 by [ADR 0034](0034-answer-page-passkey-requests.md): a
-conditional passkey request waiting for a login is not a request being handled; the
-hold covers it only while it reads the vault and signs.
+implemented as [Settings saves after a sync](#settings-saves-after-a-sync) describes;
+its details were chosen by an agent and are not confirmed by the owner. Amended on
+2026-10-12 by [ADR 0034](0034-answer-page-passkey-requests.md): a conditional passkey
+request waiting for a login is not a request being handled; the hold covers it only
+while it reads the vault and signs.
 
 Date: 2026-10-11
 
@@ -175,12 +175,12 @@ device without the old snapshot open still relies on review.
 
 ### Settings saves after a sync
 
-Adopting a synced snapshot writes the field policy and so a new settings revision, and the
-settings page learns of it only when it saves: the page expects the revision it loaded,
-and the save fails as a revision conflict. The page used to say "Settings changed in
-another window" whatever wrote the revision. Each settings revision now records its
-cause in the snapshot's `changes` list, which keeps the latest 16 revisions and no
-setting value:
+Adopting a synced snapshot writes the field policy and so a new settings revision, and
+the settings page learns of it only when it saves: the page expects the revision it
+loaded, and the save fails as a revision conflict. The page used to say "Settings
+changed in another window" whatever wrote the revision. Each settings revision now
+records its cause in the snapshot's `changes` list, which keeps the latest 16 revisions
+and no setting value:
 
 | Cause | Written by |
 | --- | --- |

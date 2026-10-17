@@ -158,8 +158,8 @@ export default defineBackground(() => {
   // A saved account choice is uploaded at once instead of waiting for the next sync.
   const loginSettings: typeof settings = {
     ...settings,
-    update: (expectedRevision, mutate, cause) =>
-      settings.update(expectedRevision, mutate, cause).then((snapshot) => {
+    update: (expectedRevision, cause, mutate) =>
+      settings.update(expectedRevision, cause, mutate).then((snapshot) => {
         void recipeSync.sync();
         return snapshot;
       }),

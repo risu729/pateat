@@ -231,8 +231,8 @@ export function createSettingsSync(options: {
     read(): Promise<SettingsSnapshot>;
     update(
       expectedRevision: number | undefined,
-      mutate: (snapshot: SettingsSnapshot) => SettingsSnapshot,
       cause: SettingsChangeCause,
+      mutate: (snapshot: SettingsSnapshot) => SettingsSnapshot,
     ): Promise<SettingsSnapshot>;
   };
   storage: SettingsBaseStorage;
@@ -364,10 +364,10 @@ export function createSettingsSync(options: {
         if (stale()) return "busy";
         try {
           // oxlint-disable-next-line no-await-in-loop -- the write must follow the merge
-          await settings.update(local.revision, (snapshot) => ({
+          await settings.update(local.revision, "service-sync", (snapshot) => ({
             ...snapshot,
             settings: v.parse(localSettingsSchema, applySynced(snapshot.settings, merged)),
-          }), "service-sync");
+          }));
         } catch (error) {
           // Settings changed locally while merging; merge again with that change.
           if (error instanceof Error && error.message === "revision-conflict") continue;

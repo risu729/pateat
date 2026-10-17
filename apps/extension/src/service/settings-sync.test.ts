@@ -387,13 +387,13 @@ describe("settings sync after the first", () => {
     });
     transport.settings.mockImplementationOnce(async () => {
       // An automatic account choice saved while the service was being read.
-      await store.update(undefined, (snapshot) => ({
+      await store.update(undefined, "account-choice", (snapshot) => ({
         ...snapshot,
         settings: {
           ...snapshot.settings,
           siteDefaults: [...snapshot.settings.siteDefaults, account("https://shop.example")],
         },
-      }), "account-choice");
+      }));
       return { kind: "state", state: state(5, { ...agreed, excludedSites: [] }) };
     });
     expect(await sync.run(CONNECTION, never)).toBe("synced");
@@ -463,10 +463,10 @@ describe("settings sync after the first", () => {
     const read = store.read.bind(store);
     vi.spyOn(store, "read").mockImplementationOnce(async () => {
       const snapshot = await read();
-      await store.update(undefined, (current) => ({
+      await store.update(undefined, "settings-save", (current) => ({
         ...current,
         settings: { ...current.settings, siteDefaults: [] },
-      }), "settings-save");
+      }));
       return snapshot;
     });
     expect(await sync.run(CONNECTION, never)).toBe("synced");
@@ -490,10 +490,10 @@ describe("settings sync after the first", () => {
     transport.saveSettings.mockImplementationOnce(async (...args) => {
       const result = await save(...args);
       // An unrelated local edit after the upload makes the local write conflict.
-      await store.update(undefined, (current) => ({
+      await store.update(undefined, "settings-save", (current) => ({
         ...current,
         settings: { ...current.settings, bindings: [] },
-      }), "settings-save");
+      }));
       return result;
     });
     expect(await sync.run(CONNECTION, never)).toBe("synced");
@@ -518,13 +518,13 @@ describe("settings sync after the first", () => {
     const save = transport.saveSettings.getMockImplementation()!;
     transport.saveSettings.mockImplementationOnce(async (...args) => {
       const result = await save(...args);
-      await store.update(undefined, (current) => ({
+      await store.update(undefined, "settings-save", (current) => ({
         ...current,
         settings: {
           ...current.settings,
           siteDefaults: [account("https://bank.example", "item-c")],
         },
-      }), "settings-save");
+      }));
       return result;
     });
     expect(await sync.run(CONNECTION, never)).toBe("synced");
@@ -661,10 +661,10 @@ describe("settings sync after the first", () => {
       deferred: () => running,
     });
     expect(await sync.run(CONNECTION, never)).toBe("busy");
-    await store.update(undefined, (current) => ({
+    await store.update(undefined, "settings-save", (current) => ({
       ...current,
       settings: { ...current.settings, siteDefaults: [account("https://bank.example", "item-c")] },
-    }), "settings-save");
+    }));
     running = false;
     expect(await sync.run(CONNECTION, never)).toBe("synced");
     expect(after()?.settings.siteDefaults).toEqual([account("https://bank.example", "item-c")]);
@@ -689,10 +689,10 @@ describe("settings sync after the first", () => {
     expect(await sync.run(CONNECTION, never)).toBe("busy");
     expect(base()).toMatchObject({ revision: 6 });
     expect(service().settings?.siteDefaults).toEqual([account("https://bank.example", "item-s")]);
-    await store.update(undefined, (current) => ({
+    await store.update(undefined, "settings-save", (current) => ({
       ...current,
       settings: { ...current.settings, siteDefaults: [account("https://bank.example", "item-c")] },
-    }), "settings-save");
+    }));
     running = false;
     expect(await sync.run(CONNECTION, never)).toBe("synced");
     expect(after()?.settings.siteDefaults).toEqual([account("https://bank.example", "item-c")]);
