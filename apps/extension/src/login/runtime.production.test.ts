@@ -7149,6 +7149,107 @@ describe("production login document admission", () => {
         );
         expect(service.generate).not.toHaveBeenCalled();
       });
+
+      describe("while another tab's login of the origin authenticated (owner 2026-10-17)", () => {
+        /** Another tab's login that authenticated `age` ago, as a restarted worker finds it. */
+        const signedInTab = async (age: number) => {
+          fake.state.tabUrls[2] = fake.state.pageUrl;
+          const login = harness();
+          expect(await login.hello({ tab: { id: 2 }, documentId: "tab-2" })).toEqual({ ok: true });
+          await vi.waitFor(() =>
+            expect(fake.state.storage["pateat.login-attempts.v4"]).toMatchObject([
+              { state: "authenticated", document: { tabId: 2 } },
+            ]),
+          );
+          const [record] = fake.state.storage["pateat.login-attempts.v4"] as Record<
+            string,
+            unknown
+          >[];
+          fake.state.storage["pateat.login-attempts.v4"] = [
+            { ...record, changedAt: Date.now() - age },
+          ];
+          const query = fake.browser.tabs.query;
+          fake.browser.tabs.query = async () => [{ id: 1 }, { id: 2 }] as never;
+          onTestFinished(() => {
+            fake.browser.tabs.query = query;
+          });
+        };
+
+        it("never sends a list of accounts shown in another tab within the hour", async () => {
+          await signedInTab(59 * 60_000);
+          const { service, h, generations } = setup();
+          expect(await h.hello({ documentId: "dashboard" }, false)).toMatchObject({
+            generate: true,
+          });
+          expect(await listHello(h, undefined, { documentId: "dashboard" })).not.toEqual({
+            ok: false,
+            reason: "generating",
+          });
+          expect(generations()).toEqual([
+            {
+              type: "generation",
+              tabId: 1,
+              origin,
+              outcome: "skipped",
+              reason: "signed-in-elsewhere",
+            },
+          ]);
+          expect(service.generate).not.toHaveBeenCalled();
+        });
+
+        it.each([
+          ["an hour after it", 60 * 60_000],
+          ["after the clock went back", -1_000],
+        ])("sends the list %s", async (_, age) => {
+          await signedInTab(age);
+          const { service, h, generations } = setup();
+          expect(await h.hello({ documentId: "dashboard" }, false)).toMatchObject({
+            generate: true,
+          });
+          expect(await listHello(h, undefined, { documentId: "dashboard" })).toEqual({
+            ok: false,
+            reason: "generating",
+          });
+          await vi.waitFor(() => expect(service.generate).toHaveBeenCalledTimes(1));
+          expect(generations()).not.toContainEqual(
+            expect.objectContaining({ reason: "signed-in-elsewhere" }),
+          );
+        });
+
+        it("sends the list while a tab of the origin asks after a logout (ADR 0021 D)", async () => {
+          await signedInTab(60_000);
+          fake.state.session["pateat.login-logouts.v1"] = [{ tabId: 3, origin }];
+          const { service, h } = setup();
+          expect(await h.hello({ documentId: "chooser" }, false)).toMatchObject({
+            generate: true,
+          });
+          expect(await listHello(h, undefined, { documentId: "chooser" })).toEqual({
+            ok: false,
+            reason: "generating",
+          });
+          await vi.waitFor(() => expect(service.generate).toHaveBeenCalledTimes(1));
+        });
+
+        it("sends the list after a logout clicked in this tab (ADR 0021 D)", async () => {
+          await signedInTab(60_000);
+          const { service, h } = setup();
+          expect(await h.hello({ documentId: "dashboard" }, false)).toMatchObject({
+            generate: true,
+          });
+          await h.login.handle(
+            { version: 1, type: "login.document.logout-clicked", token: "synthetic-token" },
+            sender({ documentId: "dashboard" }),
+          );
+          expect(await h.hello({ documentId: "chooser" }, false)).toMatchObject({
+            generate: true,
+          });
+          expect(await listHello(h, undefined, { documentId: "chooser" })).toEqual({
+            ok: false,
+            reason: "generating",
+          });
+          await vi.waitFor(() => expect(service.generate).toHaveBeenCalledTimes(1));
+        });
+      });
     });
 
     describe("a site's sign-in entry (ADR 0031)", () => {

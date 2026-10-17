@@ -2,7 +2,8 @@
 
 Status: accepted by the owner on 2026-10-12 (04:36 to 04:45 UTC), and extended to a
 single shown account and to usernames that are not emails at 08:36 UTC. Amended on
-2026-10-16 and 2026-10-17 for a form shown on the list's path (below). Implemented
+2026-10-16 and 2026-10-17 for a form shown on the list's path, and on 2026-10-17 for a
+list shown while another tab is signed in (below). Implemented
 in the service and the extension, with local tests only: it is not yet checked in the
 owner's Chrome. It builds on the
 extension's `advance` continuation of [ADR 0018](0018-recipe-generation-route.md)
@@ -164,6 +165,23 @@ offered without the service is `not-connected` at debug level. An element with
 content, and any child element renders: Cloudflare's saved profiles wrap each address in
 one, and the list was not found before (2026-10-12). The service's check of the answer
 also refuses a control whose text holds `[account]`.
+
+Amended on 2026-10-17 by the owner's decision (02:15 UTC, decision card "A:
+1時間送らない"), after the owner's Chrome sent a signed-in Cloudflare dashboard opened
+in a new tab as a list, five minutes after Pateat's login in another tab: the dashboard
+lists the site's accounts with their email addresses, and the AI abstained
+(`no-login-form`). While another tab's login of the same origin authenticated less than
+an hour ago, a list of accounts is not sent (`signed-in-elsewhere`, logged as
+`after-sign-in` is). It is still sent once this tab clicked a control that logs out, or
+while any tab of the origin asks after a logout
+([ADR 0021](0021-account-choice-outside-settings.md) D). The hour bounds the skip
+because that other tab's record stays until its own page shows the recipe's first step
+again or the tab closes: a real list opened meanwhile, such as one to add or switch an
+account, is first generated up to an hour later, while a list with a stored chooser
+starts as before. A session Pateat did not sign in, or one older than the hour, still
+sends such a page at most once in the 10-minute window. A form, a sign-in entry and a
+page that asks for an identifier alone are unchanged. No site is named
+([ADR 0033](0033-no-site-specific-features.md)).
 
 ### What the AI answers
 
@@ -483,7 +501,8 @@ unchanged, since the entry route reads nothing of the vault.
   each), plus one more when the "another profile" branch is first taken.
 - Pages with an email in an entry outside the header and navigation, on vault-matched
   sites, can be sent once a day per path even when signed in in another tab; the AI
-  abstains on them. D1's generation log shows how often.
+  abstains on them. D1's generation log shows how often. Since 2026-10-17 such a page is
+  not sent within an hour of Pateat's login of the origin in another tab (above).
 - A profile that resumes SSO or social sign-in leads to the identity provider, where
   Pateat does not act before [ADR 0026](0026-sign-in-through-identity-providers.md) is
   delivered (phase 4).
