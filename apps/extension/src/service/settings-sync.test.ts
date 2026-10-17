@@ -393,7 +393,7 @@ describe("settings sync after the first", () => {
           ...snapshot.settings,
           siteDefaults: [...snapshot.settings.siteDefaults, account("https://shop.example")],
         },
-      }));
+      }), "account-choice");
       return { kind: "state", state: state(5, { ...agreed, excludedSites: [] }) };
     });
     expect(await sync.run(CONNECTION, never)).toBe("synced");
@@ -466,7 +466,7 @@ describe("settings sync after the first", () => {
       await store.update(undefined, (current) => ({
         ...current,
         settings: { ...current.settings, siteDefaults: [] },
-      }));
+      }), "settings-save");
       return snapshot;
     });
     expect(await sync.run(CONNECTION, never)).toBe("synced");
@@ -493,7 +493,7 @@ describe("settings sync after the first", () => {
       await store.update(undefined, (current) => ({
         ...current,
         settings: { ...current.settings, bindings: [] },
-      }));
+      }), "settings-save");
       return result;
     });
     expect(await sync.run(CONNECTION, never)).toBe("synced");
@@ -524,7 +524,7 @@ describe("settings sync after the first", () => {
           ...current.settings,
           siteDefaults: [account("https://bank.example", "item-c")],
         },
-      }));
+      }), "settings-save");
       return result;
     });
     expect(await sync.run(CONNECTION, never)).toBe("synced");
@@ -664,7 +664,7 @@ describe("settings sync after the first", () => {
     await store.update(undefined, (current) => ({
       ...current,
       settings: { ...current.settings, siteDefaults: [account("https://bank.example", "item-c")] },
-    }));
+    }), "settings-save");
     running = false;
     expect(await sync.run(CONNECTION, never)).toBe("synced");
     expect(after()?.settings.siteDefaults).toEqual([account("https://bank.example", "item-c")]);
@@ -692,7 +692,7 @@ describe("settings sync after the first", () => {
     await store.update(undefined, (current) => ({
       ...current,
       settings: { ...current.settings, siteDefaults: [account("https://bank.example", "item-c")] },
-    }));
+    }), "settings-save");
     running = false;
     expect(await sync.run(CONNECTION, never)).toBe("synced");
     expect(after()?.settings.siteDefaults).toEqual([account("https://bank.example", "item-c")]);

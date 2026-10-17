@@ -17222,7 +17222,7 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
       const service = generation(async () => {
         h.recipes.recipe.mockResolvedValue(next);
         // A settings save lands while the model answers.
-        await h.store.update(undefined, (snapshot) => snapshot);
+        await h.store.update(undefined, (snapshot) => snapshot, "settings-save");
         return { outcome: "recipe", recipe: next };
       });
       h = start(service);
