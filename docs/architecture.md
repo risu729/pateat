@@ -223,7 +223,10 @@ matches the page's URI. A waiting job gets a full budget once it is delivered, s
 take up to twice its budget in all. A job cancelled while it waits, or whose wait
 outlasts its budget (`resource-limit`), never reaches the Worker and leaves the session
 open. Locking or closing the session fails its waiting jobs with `crypto-locked`, and
-the pending limit still refuses extra jobs with `resource-limit`. The initial caller
+the pending limit still refuses extra jobs with `resource-limit`. The vault manager
+forgets a live session the host has ended (a timeout, cancellation, Worker failure or a
+lost offscreen document), so the next vault read restores it from the retained key
+instead of failing until the service worker restarts. The initial caller
 remains a synthetic compatibility probe. Durable cache, retained unlock material and
 production connection setup are separate gates. More than one staged session may exist
 for a connection. Opening a new snapshot does not itself accept it or retire older

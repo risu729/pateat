@@ -526,12 +526,12 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
       creation = undefined;
     }
   }
-  function validSession(input: HostSessionRef) {
+  function validSession(input: HostSessionRef): boolean {
     const parsed = v.safeParse(sessionSchema, input);
     if (!parsed.success || parsed.output.brokerGeneration !== generation) return false;
     const owned = sessions.get(parsed.output.sessionId);
     return (
-      owned &&
+      !!owned &&
       Object.entries(owned).every(
         ([key, value]) => parsed.output[key as keyof HostSessionRef] === value,
       )
@@ -797,6 +797,11 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
         },
         signal,
       );
+    },
+    /** Whether this host still holds the session: false once a lock, timeout,
+     * cancellation, Worker failure or lost offscreen document has ended it. */
+    isOpen(session: HostSessionRef): boolean {
+      return validSession(session);
     },
     async lock(session: HostSessionRef) {
       if (!validSession(session)) return fail("crypto-locked");
