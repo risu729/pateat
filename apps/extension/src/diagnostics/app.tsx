@@ -1,3 +1,6 @@
+import { useTranslation } from "react-i18next";
+import { i18n } from "../i18n";
+import { diagnosticsCheckLabel, diagnosticsCode } from "./presentation";
 import { useQuery } from "@tanstack/react-query";
 import {
   CircleCheck,
@@ -68,31 +71,37 @@ const NOTE = "m-0 text-[13px]/5 text-ink-muted";
 /** UTC first, as in the copied report, then the local time for reading. */
 function time(ms: number | undefined): string {
   if (ms === undefined) return "—";
-  return `${isoMinute(ms)} (${Temporal.Instant.fromEpochMilliseconds(ms).toLocaleString()})`;
+  return `${isoMinute(ms)} (${Temporal.Instant.fromEpochMilliseconds(ms).toLocaleString(i18n.resolvedLanguage)})`;
 }
 
 function Row({ term, children, id }: { term: string; children: React.ReactNode; id?: string }) {
+  const { t } = useTranslation(undefined, { i18n });
   return (
     <div>
-      <dt>{term}</dt>
+      <dt>{t(term)}</dt>
       <dd id={id}>{children}</dd>
     </div>
   );
 }
 
 function Version({ status, browser }: { status: DiagnosticsStatus; browser: BrowserInfo }) {
+  const { t } = useTranslation(undefined, { i18n });
   const { build } = status;
   return (
     <section aria-labelledby="version-heading" className={PANEL}>
       <h2 id="version-heading" className={HEADING}>
-        Version
+        {t("Version")}
       </h2>
       <dl className={FACTS}>
         <Row term="Pateat" id="diagnostics-version">
-          {build.version} ({shortRevision(build.revision)}) {build.mode} build
+          {t("{{version}} ({{revision}}) {{mode}} build", {
+            version: build.version,
+            revision: shortRevision(build.revision),
+            mode: build.mode,
+          })}
         </Row>
         <Row term="Install">
-          {installLabel(browser.installType)} ({browser.installType})
+          {installLabel(browser.installType, t)} ({browser.installType})
         </Row>
         <Row term="Browser" id="diagnostics-browser">
           {browser.name} {browser.version}
@@ -107,19 +116,21 @@ function Version({ status, browser }: { status: DiagnosticsStatus; browser: Brow
         <Row term="Permissions">
           {[...status.permissions.permissions, ...status.permissions.origins].join(", ")}
           {status.permissions.otherOrigins > 0 &&
-            ` + ${plural(status.permissions.otherOrigins, "granted site")}`}
+            ` + ${plural(status.permissions.otherOrigins, "granted site", undefined, t)}`}
         </Row>
-        <Row term="Toolbar icon">{status.actionIcon}</Row>
+        <Row term="Toolbar icon">{diagnosticsCode(status.actionIcon, t)}</Row>
       </dl>
     </section>
   );
 }
 
-function Checks({ checks }: { checks: readonly DiagnosticsCheck[] }) {
+function Checks({ status }: { status: DiagnosticsStatus }) {
+  const { t } = useTranslation(undefined, { i18n });
+  const checks = status.checks;
   return (
     <section aria-labelledby="checks-heading" className={PANEL}>
       <h2 id="checks-heading" className={HEADING}>
-        Checks
+        {t("Checks")}
       </h2>
       <ul id="diagnostics-checks" className="m-0 flex list-none flex-col gap-2 p-0">
         {checks.map((check) => {
@@ -138,8 +149,8 @@ function Checks({ checks }: { checks: readonly DiagnosticsCheck[] }) {
                 className={`mt-0.5 shrink-0 ${level.color}`}
               />
               <span>
-                <span className="visually-hidden">{level.name} </span>
-                {check.detail}
+                <span className="visually-hidden">{t(level.name)} </span>
+                {diagnosticsCheckLabel(check, status, t)}
               </span>
             </li>
           );
@@ -150,12 +161,13 @@ function Checks({ checks }: { checks: readonly DiagnosticsCheck[] }) {
 }
 
 function Connections({ status }: { status: DiagnosticsStatus }) {
+  const { t } = useTranslation(undefined, { i18n });
   return (
     <section aria-labelledby="bitwarden-heading" className={PANEL}>
       <h2 id="bitwarden-heading" className={HEADING}>
-        Bitwarden connections
+        {t("Bitwarden connections")}
       </h2>
-      {status.connections.length === 0 && <p className={NOTE}>No connections.</p>}
+      {status.connections.length === 0 && <p className={NOTE}>{t("No connections.")}</p>}
       {status.connections.map((entry, index) => (
         <dl
           key={entry.id}
@@ -163,19 +175,21 @@ function Connections({ status }: { status: DiagnosticsStatus }) {
           className={`${FACTS} ${index > 0 ? "border-t border-border pt-4" : ""}`}
         >
           <Row term="Connection">{entry.id}</Row>
-          <Row term="Environment">{entry.environment}</Row>
-          {entry.server && <Row term="Server">{serverLabel(entry.server)}</Row>}
+          <Row term="Environment">{diagnosticsCode(entry.environment, t)}</Row>
+          {entry.server && <Row term="Server">{serverLabel(entry.server, t)}</Row>}
           <Row term="State">
-            {entry.state}
+            {diagnosticsCode(entry.state, t)}
             {entry.storageError && ` (${entry.storageError})`}
           </Row>
-          <Row term="Automatic unlock">{entry.autoUnlock}</Row>
-          <Row term="Sync sign-in">{syncSignIn(entry.providerSession)}</Row>
+          <Row term="Automatic unlock">{diagnosticsCode(entry.autoUnlock, t)}</Row>
+          <Row term="Sync sign-in">{syncSignIn(entry.providerSession, t)}</Row>
           <Row term="Vault synced">{time(entry.acceptedAt)}</Row>
           {entry.items && (
             <Row term="Items">
-              {entry.items.total} (login {entry.items.login}, TOTP {entry.items.totp}, passkey{" "}
-              {entry.items.passkey}) + {entry.items.unsupported} unsupported
+              {t(
+                "{{total}} (login {{login}}, TOTP {{totp}}, passkey {{passkey}}) + {{unsupported}} unsupported",
+                entry.items,
+              )}
             </Row>
           )}
           {entry.unlockKdf && (
@@ -188,26 +202,29 @@ function Connections({ status }: { status: DiagnosticsStatus }) {
 }
 
 function Service({ status }: { status: DiagnosticsStatus }) {
+  const { t } = useTranslation(undefined, { i18n });
   const { service } = status;
   return (
     <section aria-labelledby="service-heading" className={PANEL}>
       <h2 id="service-heading" className={HEADING}>
-        Pateat service
+        {t("Pateat service")}
       </h2>
       <dl className={FACTS}>
         <Row term="Pairing" id="diagnostics-service">
-          {service.kind}
-          {service.rejected && " (rejected)"}
-          {service.cacheFull && " (recipe cache full)"}
+          {diagnosticsCode(service.kind, t)}
+          {service.rejected && t(" (rejected)")}
+          {service.cacheFull && t(" (recipe cache full)")}
         </Row>
         {service.siteAccess !== undefined && (
-          <Row term="Site access">{service.siteAccess ? "granted" : "withheld"}</Row>
+          <Row term="Site access">{t(service.siteAccess ? "granted" : "withheld")}</Row>
         )}
         {service.health && (
           <Row term="Service revision">
             {service.health.ok
               ? shortRevision(service.health.revision)
-              : `unavailable (${service.health.error}${service.health.status === undefined ? "" : ` ${service.health.status}`})`}
+              : t("unavailable ({{error}})", {
+                  error: `${service.health.error}${service.health.status === undefined ? "" : ` ${service.health.status}`}`,
+                })}
           </Row>
         )}
         {service.kind === "connected" && (
@@ -232,12 +249,12 @@ function Service({ status }: { status: DiagnosticsStatus }) {
               <Row term="Recipes on the service">{service.device.recipes}</Row>
               <Row term="Settings revision on the service">{service.device.settingsRevision}</Row>
               <Row term="Recipe generation" id="diagnostics-service-generation">
-                {generationLabel(service.device.generation)}
+                {generationLabel(service.device.generation, t)}
               </Row>
             </>
           ) : (
             <Row term="Service record" id="diagnostics-service-record">
-              {deviceFailureLabel(service.device.error)}
+              {deviceFailureLabel(service.device.error, t)}
             </Row>
           ))}
       </dl>
@@ -246,22 +263,25 @@ function Service({ status }: { status: DiagnosticsStatus }) {
 }
 
 function Local({ status }: { status: DiagnosticsStatus }) {
+  const { t } = useTranslation(undefined, { i18n });
   return (
     <section aria-labelledby="local-heading" className={PANEL}>
       <h2 id="local-heading" className={HEADING}>
-        Settings and storage
+        {t("Settings and storage")}
       </h2>
       <dl className={FACTS}>
         {status.settings && (
           <Row term="Settings">
-            excluded sites {status.settings.excludedSites}, site defaults{" "}
-            {status.settings.siteDefaults}, bindings {status.settings.bindings}
+            {t(
+              "excluded sites {{excludedSites}}, site defaults {{siteDefaults}}, bindings {{bindings}}",
+              status.settings,
+            )}
           </Row>
         )}
         <Row term="storage.local">
           {status.storage.localBytes === undefined
             ? "—"
-            : `${Math.ceil(status.storage.localBytes / 1024)} KB of 10 MB`}
+            : t("{{size}} KB of 10 MB", { size: Math.ceil(status.storage.localBytes / 1024) })}
         </Row>
         <Row term="Collected">{time(status.collectedAt)}</Row>
       </dl>
@@ -280,6 +300,8 @@ function exportedEntries(text: string): number {
   return Math.max(0, text.trimEnd().split("\n").length - 1);
 }
 
+type DiagnosticMessage = string | { key: string; values: Record<string, string | number> };
+
 function Logs({
   status,
   client,
@@ -291,9 +313,10 @@ function Logs({
   client: DiagnosticsClient;
   /** Reloads the summary; this section remounts after it, so its message lives above. */
   changed: () => void;
-  message: string;
-  setMessage: (message: string) => void;
+  message: DiagnosticMessage;
+  setMessage: (message: DiagnosticMessage) => void;
 }) {
+  const { t } = useTranslation(undefined, { i18n });
   // The text and the choice it was exported with, so the checkbox never disagrees with it.
   const [preview, setPreview] = useState<{ text: string; includeSites: boolean }>();
   // The choice being exported; Save waits for it.
@@ -328,7 +351,7 @@ function Logs({
     if (request !== latest.current) return;
     setMessage(
       copied
-        ? `Copied ${plural(exportedEntries(text), "entry", "entries")}.`
+        ? { key: "diagnostics.copiedEntries", values: { count: exportedEntries(text) } }
         : "Copy failed. Use Save file instead.",
     );
   }
@@ -337,7 +360,7 @@ function Logs({
     <section aria-labelledby="logs-heading" className={PANEL}>
       <div className="flex flex-wrap items-center justify-between gap-4">
         <h2 id="logs-heading" className={HEADING}>
-          Logs
+          {t("Logs")}
         </h2>
         <div className="flex flex-wrap items-center gap-2">
           {/* Sites and recipes are shown unless the person hides them (owner, 2026-10-12). */}
@@ -349,7 +372,7 @@ function Logs({
             onClick={() => void open(true)}
           >
             <Download aria-hidden size={16} strokeWidth={2} />
-            Download logs
+            {t("Download logs")}
           </Button>
           {confirmClear ? (
             <Button
@@ -373,7 +396,7 @@ function Logs({
               }
             >
               <Trash aria-hidden size={16} strokeWidth={2} />
-              Delete all log entries
+              {t("Delete all log entries")}
             </Button>
           ) : (
             <Button
@@ -384,25 +407,27 @@ function Logs({
               onClick={() => setConfirmClear(true)}
             >
               <Trash aria-hidden size={16} strokeWidth={2} />
-              Clear logs
+              {t("Clear logs")}
             </Button>
           )}
         </div>
       </div>
       <dl className={FACTS}>
         <Row term="Entries" id="diagnostics-logs">
-          {logs ? `${logs.entries} (${Math.ceil(logs.bytes / 1024)} KB)` : "unreadable"}
+          {logs ? `${logs.entries} (${Math.ceil(logs.bytes / 1024)} KB)` : t("unreadable")}
         </Row>
-        {logs && <Row term="Problems in the last 24 h">{problemCounts(logs)}</Row>}
+        {logs && <Row term="Problems in the last 24 h">{problemCounts(logs, t)}</Row>}
         <Row term="Kept on this device">
-          {Temporal.Duration.from({ milliseconds: LOG_RETENTION_MS }).total("days")} days
+          {t("{{count}} days", {
+            count: Temporal.Duration.from({ milliseconds: LOG_RETENTION_MS }).total("days"),
+          })}
         </Row>
       </dl>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <span id="diagnostics-debug">
-          Debug logging{" "}
+          {t("Debug logging")}{" "}
           <span className="text-[13px] text-ink-muted">
-            {debugOff ? "off" : `on until ${time(logs?.debugUntil)}`}
+            {debugOff ? t("off") : t("on until {{time}}", { time: time(logs?.debugUntil) })}
           </span>
         </span>
         <Button
@@ -428,7 +453,7 @@ function Logs({
               });
           }}
         >
-          {debugOff ? "Turn on debug logging for 24 hours" : "Turn off debug logging"}
+          {t(debugOff ? "Turn on debug logging for 24 hours" : "Turn off debug logging")}
         </Button>
       </div>
       <div className="flex items-start gap-2 rounded-xl bg-warning-tint px-3 py-2.5 text-sm/5">
@@ -439,17 +464,16 @@ function Logs({
           className="mt-0.5 shrink-0 text-warning"
         />
         <span>
-          With site addresses included, a download names page paths and their parameters&apos;
-          names, not values; a path or a page&apos;s route can still hold a code or an ID. A site
-          you had not set up when an entry was written stays pseudonymous, as{" "}
-          <code>origin:7d2b91aa</code> or <code>rp:7d2b91aa</code>. Check the preview before
-          sharing.
+          {t(
+            "With site addresses included, a download names page paths and their parameters' names, not values; a path or a page's route can still hold a code or an ID. A site you had not set up when an entry was written stays pseudonymous, as {{origin}} or {{rp}}. Check the preview before sharing.",
+            { origin: "origin:7d2b91aa", rp: "rp:7d2b91aa" },
+          )}
         </span>
       </div>
       {preview !== undefined && (
         <div className="flex flex-col gap-3">
           <p className={NOTE}>
-            This exact text is saved or copied. Check it before attaching it to a bug report.
+            {t("This exact text is saved or copied. Check it before attaching it to a bug report.")}
           </p>
           <label className="m-0 flex items-start gap-2">
             <input
@@ -458,7 +482,7 @@ function Logs({
               checked={!(pending ?? preview.includeSites)}
               onChange={(event) => void open(!event.target.checked)}
             />
-            Hide site addresses and recipe IDs
+            {t("Hide site addresses and recipe IDs")}
           </label>
           <pre id="logs-preview" className={`${PREVIEW} max-h-96`}>
             {preview.text}
@@ -475,7 +499,7 @@ function Logs({
               }}
             >
               <Download aria-hidden size={16} strokeWidth={2} />
-              Save file
+              {t("Save file")}
             </Button>
             <Button
               id="copy-logs"
@@ -486,7 +510,7 @@ function Logs({
               onClick={() => void copy(preview.text)}
             >
               <Copy aria-hidden size={16} strokeWidth={2} />
-              Copy all
+              {t("Copy all")}
             </Button>
             <Button
               type="button"
@@ -497,19 +521,20 @@ function Logs({
                 setPreview(undefined);
               }}
             >
-              Close
+              {t("Close")}
             </Button>
           </div>
         </div>
       )}
       <output id="logs-status" className="block empty:absolute" aria-live="polite">
-        {message}
+        {typeof message === "string" ? (message ? t(message) : "") : t(message.key, message.values)}
       </output>
     </section>
   );
 }
 
 export function DiagnosticsApp({ client }: { client: DiagnosticsClient }) {
+  const { t } = useTranslation(undefined, { i18n });
   const query = useQuery({
     queryKey: ["diagnostics"],
     queryFn: async () => {
@@ -523,8 +548,8 @@ export function DiagnosticsApp({ client }: { client: DiagnosticsClient }) {
     refetchOnReconnect: false,
   });
   const [preview, setPreview] = useState<string>();
-  const [message, setMessage] = useState("");
-  const [logsMessage, setLogsMessage] = useState("");
+  const [message, setMessage] = useState<DiagnosticMessage>("");
+  const [logsMessage, setLogsMessage] = useState<DiagnosticMessage>("");
   const state = query.isFetching
     ? ({ kind: "loading" } as const)
     : query.isError || !query.data
@@ -549,12 +574,12 @@ export function DiagnosticsApp({ client }: { client: DiagnosticsClient }) {
       <header className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center gap-3">
           <Logo className="size-7 shrink-0" />
-          <h1 className="m-0 flex-1">Diagnostics</h1>
+          <h1 className="m-0 flex-1">{t("Diagnostics")}</h1>
           <button
             id="refresh-diagnostics"
             type="button"
-            aria-label="Refresh"
-            title="Refresh"
+            aria-label={t("Refresh")}
+            title={t("Refresh")}
             disabled={state.kind === "loading"}
             className="inline-flex size-10 items-center justify-center rounded-lg text-ink-muted hover:bg-surface-sunken disabled:opacity-50 disabled:hover:bg-transparent"
             onClick={refresh}
@@ -571,29 +596,33 @@ export function DiagnosticsApp({ client }: { client: DiagnosticsClient }) {
             }}
           >
             <Copy aria-hidden size={16} strokeWidth={2} />
-            Copy for bug report
+            {t("Copy for bug report")}
           </Button>
         </div>
         <p className="m-0 flex items-center gap-1.5 text-[13px]/5 text-ink-muted">
           <Lock aria-hidden size={14} strokeWidth={2} className="shrink-0" />
-          No passwords, keys, field values, names or emails are shown, copied or saved
+          {t("No passwords, keys, field values, names or emails are shown, copied or saved")}
         </p>
       </header>
       <output id="diagnostics-status" className="block empty:absolute" aria-live="polite">
         {state.kind === "loading"
-          ? "Collecting diagnostics…"
+          ? t("Collecting diagnostics…")
           : state.kind === "failed"
-            ? "Unable to collect diagnostics. Reload the extension and try again."
+            ? t("Unable to collect diagnostics. Reload the extension and try again.")
             : ""}
       </output>
       {preview !== undefined && (
         <section aria-labelledby="preview-heading" className={PANEL}>
           <h2 id="preview-heading" className={HEADING}>
-            Bug report text
+            {t("Bug report text")}
           </h2>
           <p className={NOTE}>
-            This exact text is copied. Check it before posting. Sites are numbered here, separately
-            from a hidden <strong>Download logs</strong>, so <code>site-1</code> may differ.
+            {t(
+              "This exact text is copied. Check it before posting. Sites are numbered here, separately from a hidden Download logs, so site-1 may differ.",
+            )}{" "}
+            {t(
+              "Bug report text and exported log entries stay in English and keep their diagnostic codes.",
+            )}
           </p>
           <pre id="report-preview" className={PREVIEW}>
             {preview}
@@ -606,7 +635,7 @@ export function DiagnosticsApp({ client }: { client: DiagnosticsClient }) {
               onClick={() => void copy(preview)}
             >
               <Copy aria-hidden size={16} strokeWidth={2} />
-              Copy
+              {t("Copy")}
             </Button>
             <Button
               type="button"
@@ -616,17 +645,21 @@ export function DiagnosticsApp({ client }: { client: DiagnosticsClient }) {
                 setMessage("");
               }}
             >
-              Close
+              {t("Close")}
             </Button>
           </div>
           <output id="copy-status" className="block empty:absolute" aria-live="polite">
-            {message}
+            {typeof message === "string"
+              ? message
+                ? t(message)
+                : ""
+              : t(message.key, message.values)}
           </output>
         </section>
       )}
       {state.kind === "ready" && (
         <>
-          <Checks checks={state.status.checks} />
+          <Checks status={state.status} />
           <div className={TWO_PANELS}>
             <Version status={state.status} browser={state.browser} />
             <Local status={state.status} />
