@@ -15,6 +15,18 @@ export interface LocalTotpOptions {
 
 const steamAlphabet = "23456789BCDFGHJKMNPQRTVWXY";
 const algorithms = new Set(["SHA1", "SHA256", "SHA512"]);
+// `image`, `icon` and `color` only decorate an authenticator's list; Bitwarden ignores them.
+// Any other parameter, such as `counter` or `encoder`, may change the code and is refused.
+const knownParameters = new Set([
+  "secret",
+  "issuer",
+  "algorithm",
+  "digits",
+  "period",
+  "image",
+  "icon",
+  "color",
+]);
 
 /** Strict framing around the maintained OTP library; no clock or network discovery. */
 export function generateLocalTotp(
@@ -63,9 +75,7 @@ export function generateLocalTotp(
       for (const [key, value] of uri.searchParams) {
         const normalized = key.toLowerCase();
         if (parameters.has(normalized)) return failure("invalid-totp");
-        if (!["secret", "issuer", "algorithm", "digits", "period"].includes(normalized)) {
-          return failure("unsupported-totp");
-        }
+        if (!knownParameters.has(normalized)) return failure("unsupported-totp");
         parameters.set(normalized, value);
       }
       base32 = parameters.get("secret") ?? "";
@@ -89,17 +99,21 @@ export function generateLocalTotp(
     const normalized = base32.replaceAll(" ", "").toUpperCase();
     if (!/^[A-Z2-7]+={0,6}$/u.test(normalized)) return failure("invalid-totp");
     const unpadded = normalized.replace(/=+$/u, "");
-    const remainder = unpadded.length % 8;
-    if (![0, 2, 4, 5, 7].includes(remainder)) return failure("invalid-totp");
-    const expectedPadding = remainder === 0 ? 0 : 8 - remainder;
-    if (normalized.includes("=") && normalized.length - unpadded.length !== expectedPadding) {
-      return failure("invalid-totp");
+    // Padding, when present, must be the canonical padding of a canonical length.
+    if (normalized.includes("=")) {
+      const remainder = unpadded.length % 8;
+      if (
+        ![2, 4, 5, 7].includes(remainder) ||
+        normalized.length - unpadded.length !== 8 - remainder
+      )
+        return failure("invalid-totp");
     }
+    // Like Bitwarden, drop the bits left over after the last whole byte. Issuers that draw
+    // random Base32 characters, rather than encoding bytes, leave them non-zero.
     secret = Secret.fromBase32(unpadded);
-    // The library decoder is permissive about unused bits; a canonical round trip closes that gap.
-    if (!secret.bytes.length || secret.base32.replace(/=+$/u, "") !== unpadded) {
+    // The length check guards against a library change; a secret under one byte is refused.
+    if (secret.bytes.length !== Math.floor((unpadded.length * 5) / 8) || !secret.bytes.length)
       return failure("invalid-totp");
-    }
     let value: string;
     if (steam) {
       // Ten decimal digits preserve the library's entire 31-bit HOTP result. Only rendering differs.
