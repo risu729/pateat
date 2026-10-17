@@ -1306,9 +1306,11 @@ shows. A handler that already ran counts as shown again when its elements are pr
 all, hidden or disabled. The `passkey` handler clicks a button such as "Use security
 key" only for an item with a usable passkey. The `totp` handler fills a code from the
 item's built-in TOTP field into its code field under the TOTP fill rule and clicks its
-button once; it needs the TOTP fact and that field allowed for the account, and a
-binding that names another field for the code ends `challenge`, since Pateat cannot make
-a code from a custom field yet. The `password` handler
+button once; it needs the TOTP fact and that field allowed for the account. A saved
+binding that names a Text or Hidden custom field for the code makes the code from that
+field's seed instead, in the crypto Worker, and never types the field's value; a binding
+that names another kind of field ends `challenge`
+([ADR 0027 amendment](adr/0027-per-account-login-routes.md#amendment-a-totp-code-from-a-custom-field)). The `password` handler
 ([ADR 0048](adr/0048-password-method-button.md), owner 2026-10-18 01:38 UTC) clicks a
 button such as "Password" on a page that asks how to confirm the sign-in, as an
 `advance`, and the route's steps then type the password. It needs the `password` fact
