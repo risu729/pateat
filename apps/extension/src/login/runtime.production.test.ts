@@ -4011,6 +4011,7 @@ describe("production login document admission", () => {
         fieldId: "login.password",
       });
       expect(h.store.update.mock.calls[0]![0]).toBe(1);
+      expect(h.store.update.mock.calls[0]![1]).toBe("account-choice");
       // The saved default names the provider account, not this device's connection, and
       // keeps the connection's label for display.
       expect(h.settings.settings.siteDefaults).toEqual([

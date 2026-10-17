@@ -819,6 +819,7 @@ describe("saving a chosen passkey as the site default", () => {
       await rememberVaultPasskey({ settings: replaced.settings, origin, candidate: chosen() }),
     ).toBe(true);
     expect(replaced.update).toHaveBeenCalledOnce();
+    expect(replaced.update.mock.calls[0]?.[1]).toBe("account-choice");
   });
 
   it.each([
