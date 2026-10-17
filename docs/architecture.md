@@ -3023,7 +3023,9 @@ steady-state API calls carry no cookie.
   JWKS, allowing only RS256; Hono's JWK middleware reads only `Bearer` values, and a
   dedicated JWT library would need its own owner decision. Tokens without an expiry or a
   user subject, such as service tokens, are refused. The public keys are edge-cached for
-  five minutes, so a rotated key may be refused briefly.
+  five minutes, so a rotated key may be refused briefly. When they cannot be fetched
+  within five seconds, the request fails as an outage (owner pages 503, JSON routes 500
+  `internal_error`) rather than as a refused sign-in.
 - Pairing. **Pair this device** on the settings page asks for site access to the
   service, then the extension's background service worker sends one `POST /pair` with
   the device label, `credentials: "include"`, `redirect: "manual"` and

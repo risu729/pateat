@@ -77,7 +77,9 @@ application exempts `/v1/*`, `/health`, `/.well-known/openid-configuration` and
 `/.well-known/jwks.json`, which clients call without an Access login. For `/pair` and
 `/manage`, the Worker verifies the `Cf-Access-Jwt-Assertion` itself against the team's
 keys, the `ACCESS_TEAM_DOMAIN` issuer and the `ACCESS_AUD` audience. Without both
-secrets those routes answer 503. `POST /pair` and `GET /pair/signed-in` also accept the
+secrets those routes answer 503. When the team's signing keys cannot be fetched within
+five seconds, owner pages answer 503 and the JSON routes 500 `internal_error`, not a
+refused sign-in. `POST /pair` and `GET /pair/signed-in` also accept the
 `ACCESS_PAIR_AUD` audience of the "pateat pair" Access application, which admits
 browsers without WARP to pairing only
 ([ADR 0030](../../docs/adr/0030-pairing-without-warp.md)). An empty value turns it off
@@ -110,7 +112,7 @@ with host access skip CORS. Errors are `{ "error": code }`:
 | 413 | `payload_too_large` | The body exceeds 4 KiB |
 | 415 | `unsupported_media_type` | The body is not `application/json` |
 | 429 | `rate_limited` | Too many pairings by this identity, with `Retry-After: 60` |
-| 500 | `internal_error` | An unexpected failure |
+| 500 | `internal_error` | An unexpected failure, or Access's signing keys could not be fetched |
 | 503 | `access_unavailable` | The Access secrets are missing or invalid |
 | 503 | `pairing_unavailable` | `PAIRING_EXTENSION_IDS` is missing, empty or malformed |
 
