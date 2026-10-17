@@ -1387,6 +1387,15 @@ test("a password fills only a password input and one step stays inside one form"
       ).toBe(0);
       await moved.close();
       await expect.poll(status).not.toContain("cancelled");
+      // Two of the step's locators name one input: nothing is filled or submitted, since
+      // the second value would replace the first.
+      const shared = await context.newPage();
+      await shared.goto(`${fixture.origin}/shared-input`);
+      await expect.poll(status).toContain("retry-limit");
+      await expect(shared.locator("#account")).toHaveValue("");
+      expect(await clicks(shared)).toBe(0);
+      await shared.close();
+      await expect.poll(status).not.toContain("retry-limit");
       const declared = await context.newPage();
       await declared.goto(`${fixture.origin}/single?password-input=text-current-password`);
       await expect(declared.locator("#authenticated")).toBeVisible();

@@ -34,6 +34,7 @@ const PROBE_PATHS = [
   "/passkey",
   "/totp",
   "/identifier-first",
+  "/shared-input",
 ];
 /** Where every synthetic recipe starts, which a fixture document watches for. */
 export function probeStarts(origin: string): LoginRecipeStart[] {
@@ -117,8 +118,36 @@ function identifierFirstRecipe(origin: string, path: string): LoginRecipe {
     maxSubmissions: 2,
   });
 }
+/**
+ * Two fields of one step whose different locators name the same input: the step must
+ * fail before it fills anything, since the second value would replace the first.
+ */
+function sharedInputRecipe(origin: string, path: string): LoginRecipe {
+  return parseLoginRecipe({
+    version: 1,
+    id: "demo-shared-input",
+    revision: 1,
+    origin,
+    slots: ["account", "password"],
+    steps: [
+      {
+        kind: "fill",
+        path,
+        fields: [
+          { slot: "account", target: target("account") },
+          { slot: "password", target: { by: "name", value: "password" } },
+        ],
+      },
+      { kind: "click", path, target: target("login"), purpose: "submit" },
+    ],
+    completion: [{ target: target("authenticated") }],
+    rejection: target("rejected"),
+    maxSubmissions: 1,
+  });
+}
 export function probeRecipe(origin: string, path: string): LoginRecipe | undefined {
   if (!PROBE_PATHS.includes(path)) return undefined;
+  if (path === "/shared-input") return sharedInputRecipe(origin, path);
   if (path === "/variants") return variantsRecipe(origin, path);
   if (path === "/totp") return totpRecipe(origin, path);
   if (path === "/identifier-first") return identifierFirstRecipe(origin, path);
