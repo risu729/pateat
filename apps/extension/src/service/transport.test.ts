@@ -383,7 +383,12 @@ describe("recipe changes", () => {
 
 describe("settings", () => {
   const document = { connections: [], excludedSites: [], siteDefaults: [], bindings: [] };
-  const state = { version: 1, revision: 4, settings: document };
+  const state = {
+    version: 1,
+    profileId: "00000000-0000-4000-8000-000000000001",
+    revision: 4,
+    settings: document,
+  };
 
   it("reads and conditionally writes the settings document", async () => {
     const read = respond(200, state);

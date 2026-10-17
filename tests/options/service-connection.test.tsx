@@ -129,7 +129,7 @@ test("opens the sign-in page once and pairs on Try again", async () => {
 
   await page.getByRole("button", { name: "Try again", exact: true }).click();
   expect(client.pair).toHaveBeenCalledTimes(2);
-  expect(client.pair).toHaveBeenLastCalledWith(ORIGIN, "Chrome");
+  expect(client.pair).toHaveBeenLastCalledWith(ORIGIN, "Chrome", undefined);
   await expect.element(page.getByText("This device is paired.", { exact: true })).toBeVisible();
   expect(client.openSignIn).toHaveBeenCalledOnce();
 });

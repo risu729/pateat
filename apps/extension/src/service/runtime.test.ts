@@ -69,7 +69,7 @@ describe("pairing", () => {
       state: { kind: "disconnected" },
     });
     const response = await runtime.handle(pair);
-    expect(transport.pair).toHaveBeenCalledWith(ORIGIN, "Work laptop");
+    expect(transport.pair).toHaveBeenCalledWith(ORIGIN, "Work laptop", undefined);
     expect(response).toEqual({
       ok: true,
       state: {
