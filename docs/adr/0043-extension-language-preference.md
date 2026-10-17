@@ -1,9 +1,11 @@
 # Extension language preference
 
 Status: Proposed, provisional implementation choices by Codex under the owner's
-instruction to proceed autonomously. The owner may revise these choices; they are
-not individually confirmed or adopted. i18next with react-i18next was already chosen
-by the owner on 2026-10-12 at 14:31 UTC. The infrastructure, selector, popup and chooser are implemented; the wider translation gate remains open. Amends no ADR.
+instruction to proceed autonomously. The owner may revise these choices; they are not
+individually confirmed or adopted. i18next with react-i18next was already chosen by the
+owner on 2026-10-12 at 14:31 UTC. The infrastructure, selector, popup and chooser are
+implemented; the wider translation gate remains open. Amends no ADR.
+
 Date: 2026-10-17
 
 ## Context
