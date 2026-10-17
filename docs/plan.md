@@ -507,6 +507,16 @@ than in this repository.
   choice under the owner's 2026-10-11 decision that script links are clicked as buttons;
   local DOM tests, a standalone extension in Chromium 141 and the synthetic browser test
   in CI). Check that page in the owner's Chrome.
+- SMBC Trust Bank's sign-in page in the owner's Chrome on build `d29951d` (2026-10-17,
+  01:54 to 02:16 UTC): the submit click had no effect, so the login settled as unknown
+  in the same document and was watched
+  ([ADR 0027](adr/0027-per-account-login-routes.md#watching-after-a-challenge)). After
+  each worker restart (01:57, 01:58, 02:00 UTC) that document announced again and was
+  read again (`login.state` with `reshownMiss` `no-effect`, `recipe.judge` `not-sent`
+  with `watched`), and the popup said "Logging in…". Since 2026-10-17 a restarted worker
+  does not read the watch's own document again, and the popup shows such a login as
+  watched (agent fix applying ADR 0027, local tests only). Check the page in the owner's
+  Chrome after a worker restart.
 - Known faults moved from phase 1 (owner, 2026-10-12 20:35 UTC), fixed when a real site
   shows them again: the `reconciling` exception seen on SBI証券, and `generate` ignoring
   a failed sync after generation (both recorded under phase 1).

@@ -740,6 +740,14 @@ const advancingToStop = (metadata: LoginAttemptMetadata) =>
   metadata.operationId !== undefined &&
   metadata.operationEffect === "advance" &&
   metadata.stepIndex + 1 === metadata.stopAt;
+/**
+ * Whether a login whose result settled as unknown runs in the document its watch began in
+ * (ADR 0027), which was already read for that result.
+ */
+const settledHere = (run: Execution) =>
+  run.metadata.state === "reconciling" &&
+  run.metadata.settled === true &&
+  run.metadata.watch?.documentId === run.live.document.documentId;
 /** Whether a login's watch is over at `now`; a clock set back ends it too (ADR 0027). */
 const watchOver = (metadata: LoginAttemptMetadata, now: number) =>
   metadata.watch !== undefined &&
@@ -2342,8 +2350,18 @@ export function createLoginRuntime(
       ...starts.map((start) => start.path),
       ...entries.map((entry) => entry.entry.path),
     ];
+    await loaded;
     const status = badge.status(tabId);
     const known = status?.origin === pageOrigin ? status : undefined;
+    // A login whose result settled as unknown has nothing in flight; its next pages are
+    // checked (ADR 0027), so the popup does not show it as logging in. A login in a frame
+    // is recorded under the frame's origin.
+    const attempt = recordFor(tabId, pageOrigin) ?? tabAttempt(tabId);
+    const settled =
+      known?.login?.state === "reconciling" &&
+      attempt?.state === "reconciling" &&
+      attempt.settled === true &&
+      (attempt.pageOrigin ?? attempt.account.origin) === pageOrigin;
     // The worker's view of the page holds only while the tab still shows its path.
     const shown = live?.document.origin === pageOrigin && live.path === path ? live : undefined;
     const pageState = shown && {
@@ -2367,6 +2385,7 @@ export function createLoginRuntime(
                 cause: known.login.cause,
               }),
               ...(known.login.unconfirmed ? { unconfirmed: true as const } : {}),
+              ...(settled ? { settled: true as const } : {}),
             },
           }
         : {}),
@@ -5385,6 +5404,10 @@ export function createLoginRuntime(
       await watchPage(run);
       return;
     }
+    // A result that settled as unknown is watched from the next page on: the document the
+    // watch began in is not read again, as when a restarted worker resumes the login there
+    // (ADR 0027).
+    if (settledHere(run)) return;
     if (run.metadata.state === "reconciling" || run.metadata.state === "awaiting-result")
       await reconcileBounded(run);
     while (current(run) && run.metadata.state === "ready") {

@@ -17,7 +17,7 @@ afterEach(() => {
 });
 
 /** Renders `html` (or the element `render` returns), presses `#t` and reports what each world did. */
-function press(html: string | (() => Element), { listener = true } = {}) {
+async function press(html: string | (() => Element), { listener = true } = {}) {
   if (listener) removals.push(installMainWorldClicks());
   if (typeof html === "string") document.body.innerHTML = html;
   const target = typeof html === "string" ? document.getElementById("t")! : html();
@@ -31,7 +31,7 @@ function press(html: string | (() => Element), { listener = true } = {}) {
   target.addEventListener("click", count);
   addEventListener(MAIN_WORLD_CLICK, record, true);
   try {
-    pressElement(target as HTMLElement);
+    await pressElement(target as HTMLElement);
   } finally {
     removeEventListener(MAIN_WORLD_CLICK, record, true);
     target.removeEventListener("click", count);
@@ -56,7 +56,7 @@ describe("runsScriptUrl", () => {
 
 describe("pressElement", () => {
   it("has the main world click a `javascript:` link once, and runs its URL once", async () => {
-    const result = press(
+    const result = await press(
       `<a id="t" href="javascript:void (window.ran = (window.ran ?? 0) + 1)">Go</a>`,
     );
     expect(result).toMatchObject({ clicks: 1, isolated: 0 });
@@ -72,17 +72,17 @@ describe("pressElement", () => {
     expect((window as { ran?: number }).ran).toBe(1);
   });
 
-  it("reaches a `javascript:` link inside an open shadow root", () => {
+  it("reaches a `javascript:` link inside an open shadow root", async () => {
     const shadowLink = () => {
       document.body.innerHTML = "<div></div>";
       const link = Object.assign(document.createElement("a"), { href: "javascript:void 0" });
       document.querySelector("div")!.attachShadow({ mode: "open" }).append(link);
       return link;
     };
-    expect(press(shadowLink)).toMatchObject({ clicks: 1, isolated: 0 });
+    expect(await press(shadowLink)).toMatchObject({ clicks: 1, isolated: 0 });
   });
 
-  it("clicks other links, buttons and script links without a `javascript:` URL as before", () => {
+  it("clicks other links, buttons and script links without a `javascript:` URL as before", async () => {
     for (const html of [
       `<a id="t" href="#next">Next</a>`,
       `<a id="t" href="#" onclick="return false">Log in</a>`,
@@ -91,13 +91,14 @@ describe("pressElement", () => {
       `<input id="t" type="button" value="Log in">`,
     ]) {
       for (const remove of removals.splice(0)) remove();
-      const result = press(html);
+      // eslint-disable-next-line no-await-in-loop
+      const result = await press(html);
       expect(result, html).toMatchObject({ clicks: 1, isolated: 1, events: [] });
     }
   });
 
-  it("clicks a `javascript:` link itself when no main-world listener answers", () => {
-    const result = press(`<a id="t" href="javascript:void 0">Go</a>`, { listener: false });
+  it("clicks a `javascript:` link itself when no main-world listener answers", async () => {
+    const result = await press(`<a id="t" href="javascript:void 0">Go</a>`, { listener: false });
     expect(result).toMatchObject({ clicks: 1, isolated: 1 });
     expect(result.events).toHaveLength(1);
     expect(result.events[0]!.defaultPrevented).toBe(false);
@@ -125,9 +126,9 @@ describe("installMainWorldClicks", () => {
     expect(clicks).toBe(1);
   });
 
-  it("stops clicking once removed", () => {
+  it("stops clicking once removed", async () => {
     installMainWorldClicks()();
-    const result = press(`<a id="t" href="javascript:void 0">Go</a>`, { listener: false });
+    const result = await press(`<a id="t" href="javascript:void 0">Go</a>`, { listener: false });
     expect(result).toMatchObject({ clicks: 1, isolated: 1 });
   });
 });
