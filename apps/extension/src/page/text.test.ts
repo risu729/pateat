@@ -1,5 +1,16 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { collapseText, isScriptButton, renderedText, shown } from "./text";
+
+/** Closed shadow roots, which a content script reaches through `dom.openOrClosedShadowRoot`. */
+const closedRoots = vi.hoisted(() => new WeakMap<Element, ShadowRoot>());
+vi.mock("wxt/browser", () => ({
+  browser: {
+    dom: {
+      openOrClosedShadowRoot: (element: HTMLElement) =>
+        closedRoots.get(element) ?? element.shadowRoot,
+    },
+  },
+}));
 
 afterEach(() => {
   document.body.innerHTML = "";
@@ -63,6 +74,72 @@ describe("shown", () => {
     expect(shown(by("skipped"))).toBe(false);
     expect(shown(by("none"))).toBe(false);
     expect(shown(by("open"))).toBe(true);
+  });
+
+  it("counts an element as opaque while every transparent ancestor fades in", () => {
+    document.body.innerHTML = `
+      <div id="outer" style="opacity: 0"><div id="inner" style="opacity: 0">
+        <b id="text">Sign in</b></div></div>
+      <div id="host"><span id="slotted">Next</span></div>
+    `;
+    const by = (id: string) => document.getElementById(id)!;
+    const fade = (element: HTMLElement) =>
+      element.animate([{ opacity: 0 }, { opacity: 1 }], 5000).pause();
+    fade(by("inner"));
+    // An outer ancestor at opacity 0 without an animation still hides it.
+    expect(shown(by("text"))).toBe(false);
+    expect(shown(by("text"), false)).toBe(true);
+    fade(by("outer"));
+    expect(shown(by("text"))).toBe(true);
+    expect(collapseText(renderedText(by("outer"), 100) ?? "")).toBe("Sign in");
+    // The walk follows the flat tree, from a slotted element through the shadow root.
+    const root = by("host").attachShadow({ mode: "open" });
+    root.innerHTML = `<div style="opacity: 0"><slot></slot></div>`;
+    expect(shown(by("slotted"))).toBe(false);
+    fade(root.querySelector("div")!);
+    expect(shown(by("slotted"))).toBe(true);
+  });
+
+  it("walks a closed shadow root to the slot that renders an element", () => {
+    document.body.innerHTML = `<div id="outer"><div id="host"><b id="text">Next</b></div></div>`;
+    const by = (id: string) => document.getElementById(id)!;
+    const root = by("host").attachShadow({ mode: "closed" });
+    closedRoots.set(by("host"), root);
+    root.innerHTML = `<div style="opacity: 0"><slot></slot></div>`;
+    by("outer").style.opacity = "0";
+    by("outer")
+      .animate([{ opacity: 0 }, { opacity: 1 }], 5000)
+      .pause();
+    // The shadow root's transparent container does not fade.
+    expect(shown(by("text"))).toBe(false);
+    root
+      .querySelector("div")!
+      .animate([{ opacity: 0 }, { opacity: 1 }], 5000)
+      .pause();
+    expect(shown(by("text"))).toBe(true);
+  });
+
+  it("counts an animation only while its current iteration still raises the opacity", () => {
+    document.body.innerHTML = `<style>
+        @keyframes out { to { opacity: 0 } }
+        @keyframes half { 0% { opacity: 1 } 50%, 100% { opacity: 0 } }
+      </style>
+      <div id="fade"><b id="text">Sign in</b></div>`;
+    const fade = document.getElementById("fade")!;
+    const text = document.getElementById("text")!;
+    for (const [animation, expected] of [
+      // A fade-out played in reverse fades in.
+      ["out 5s reverse paused", true],
+      // Halfway through the first iteration, heading to opacity 0 for the rest of it.
+      ["half 10s -5s alternate infinite paused", false],
+      // Halfway through the second iteration, which plays back toward opacity 1.
+      ["half 10s -15s alternate infinite paused", true],
+      ["half 10s -15s alternate-reverse infinite paused", false],
+    ] as const) {
+      fade.style.animation = animation;
+      expect(getComputedStyle(fade).opacity, animation).toBe("0");
+      expect(shown(text), animation).toBe(expected);
+    }
   });
 });
 

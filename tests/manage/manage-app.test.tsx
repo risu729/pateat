@@ -55,14 +55,14 @@ function mockClient(initial = devices()) {
       settings: null,
     })),
     saveSettings: vi.fn<ManageClient["saveSettings"]>(),
-    recipes: vi.fn<ManageClient["recipes"]>(),
+    recipes: vi.fn<ManageClient["recipes"]>(async () => ({ version: 1, recipes: [] })),
     revokeRecipe: vi.fn<ManageClient["revokeRecipe"]>(),
   } satisfies ManageClient;
 }
 
 async function mount(client: ManageClient, path = "/manage") {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  await render(
+  return render(
     <QueryClientProvider client={queryClient}>
       <ManageApp client={client} path={path} />
     </QueryClientProvider>,
@@ -71,6 +71,52 @@ async function mount(client: ManageClient, path = "/manage") {
 
 afterEach(async () => {
   await cleanup();
+});
+
+test.each([
+  ["/manage", "Devices – Pateat"],
+  ["/manage/sites", "Sites – Pateat"],
+  ["/manage/sites/https/bank.example", "https://bank.example – Pateat"],
+  ["/manage/sites/http/bank.example:8080", "http://bank.example:8080 – Pateat"],
+  ["/manage/sites/https/BANK.example", "Pateat"],
+])("sets the document title for %s", async (path, title) => {
+  await mount(mockClient(), path);
+  expect(document.title).toBe(title);
+});
+
+test("updates the hoisted title on path changes and restores the static title on unmount", async () => {
+  // Match the title retained in manage/index.html before the app renders.
+  const staticTitle = document.createElement("title");
+  staticTitle.textContent = "Pateat";
+  document.head.prepend(staticTitle);
+  const client = mockClient();
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const app = (path: string) => (
+    <QueryClientProvider client={queryClient}>
+      <ManageApp client={client} path={path} />
+    </QueryClientProvider>
+  );
+  try {
+    expect(document.title).toBe("Pateat");
+    const view = await render(app("/manage"));
+    expect(document.title).toBe("Devices – Pateat");
+    expect(document.head.querySelector("title")?.textContent).toBe("Devices – Pateat");
+    expect(staticTitle.textContent).toBe("Pateat");
+
+    await view.rerender(app("/manage/sites"));
+    expect(document.title).toBe("Sites – Pateat");
+    await view.rerender(app("/manage/sites/https/bank.example"));
+    expect(document.title).toBe("https://bank.example – Pateat");
+    await view.rerender(app("/manage"));
+    expect(document.title).toBe("Devices – Pateat");
+
+    await view.unmount();
+    expect(document.title).toBe("Pateat");
+    expect(document.head.querySelector("title")).toBe(staticTitle);
+  } finally {
+    await cleanup();
+    staticTitle.remove();
+  }
 });
 
 test("lists devices and revokes one", async () => {

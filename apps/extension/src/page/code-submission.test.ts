@@ -35,6 +35,34 @@ function codePage(
 }
 
 describe("watchCodeSubmission (ADR 0027)", () => {
+  it.each(["submit", "beforeunload", "pagehide", "navigate"])(
+    "stops watching %s without stopping another watcher",
+    (event) => {
+      const { watch, type, form } = codePage('<button id="verify" type="button">Verify</button>');
+      type();
+      const active = watchCodeSubmission(
+        document.querySelector<HTMLInputElement>("#code")!,
+        code,
+        verify,
+        location.pathname,
+        () => 0,
+      );
+      active.typed();
+      expect(watch.submitted()).toBe(false);
+      expect(active.submitted()).toBe(false);
+      watch.stop();
+      watch.stop();
+      // A submit stopped during bubbling must still reach the active capture listener.
+      form.addEventListener("submit", (submitted) => submitted.stopPropagation(), { once: true });
+      const navigation = (window as unknown as { navigation: EventTarget }).navigation;
+      const target = event === "submit" ? form : event === "navigate" ? navigation : window;
+      target.dispatchEvent(new Event(event, { bubbles: true }));
+      expect(watch.submitted()).toBe(false);
+      expect(active.submitted()).toBe(true);
+      active.stop();
+    },
+  );
+
   it("counts a Verify button enabled in a microtask as enabled in time, however late the poll", async () => {
     const { watch, clock, type } = codePage(
       '<button id="verify" type="button" disabled>Verify</button>',

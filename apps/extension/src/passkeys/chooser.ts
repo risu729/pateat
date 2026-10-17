@@ -33,6 +33,8 @@ export const chooserViewSchema = v.strictObject({
   replacesDefault: v.boolean(),
   /** Pateat signed in from this tab before; the person may have signed out to switch. */
   again: v.boolean(),
+  /** With `again`: the person logged out of the site in this tab instead (ADR 0021 D). */
+  loggedOut: v.optional(v.literal(true)),
 });
 export type ChooserView = v.InferOutput<typeof chooserViewSchema>;
 
@@ -151,11 +153,13 @@ export function createPasskeyChooser(browser: ChooserBrowser): PasskeyChooser & 
         })) satisfies PasskeyDisplay[],
         replacesDefault: input.replacesDefault,
         again: input.again,
+        ...(input.again && input.loggedOut ? { loggedOut: true } : {}),
       });
       if (!view.success) return { kind: "unavailable" };
       const token = newId();
-      let resolveOpened!: (windowId: number | undefined) => void;
-      const opened = new Promise<number | undefined>((resolve) => (resolveOpened = resolve));
+      const { promise: opened, resolve: resolveOpened } = Promise.withResolvers<
+        number | undefined
+      >();
       const answer = new Promise<PasskeyChoice>((resolve) => {
         const entry: Open = {
           token,
@@ -217,12 +221,8 @@ export function createPasskeyChooser(browser: ChooserBrowser): PasskeyChooser & 
     },
 
     handle(message, sender) {
-      let url: URL;
-      try {
-        url = new URL(sender.url ?? "");
-      } catch {
-        return undefined;
-      }
+      const url = URL.parse(sender.url ?? "");
+      if (!url) return undefined;
       if (url.origin !== page.origin || url.pathname !== page.pathname) return undefined;
       return (async (): Promise<ChooserResponse> => {
         const parsed = v.safeParse(chooserMessageSchema, message);

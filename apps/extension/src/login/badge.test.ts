@@ -116,6 +116,14 @@ describe("badgeResult", () => {
     });
   });
 
+  it("shows an unconfirmed completion as unsettled for four seconds", () => {
+    expect(badgeResult(attempt({ state: "authenticated", unconfirmed: true }), now)).toEqual({
+      kind: "unsettled",
+      reason: "unconfirmed",
+      until: now + NOTICE_MS,
+    });
+  });
+
   it.each([
     "credential-rejected",
     "structural-mismatch",
@@ -994,6 +1002,11 @@ describe("page status", () => {
     ["a list of accounts", { page: "accounts" as const }, "accounts"],
     ["a sign-in entry", { page: "entry" as const }, "entry"],
     ["a continuation", { recipeId: "recipe", baseRevision: 1 }, "continuation"],
+    [
+      "a chooser's other branch page",
+      { page: "other" as const, recipeId: "r", baseRevision: 1 },
+      "continuation",
+    ],
     ["a list of accounts after a recipe", { page: "accounts" as const, recipeId: "r" }, "accounts"],
     ["a sign-in page", {}, undefined],
   ])("tells %s apart", (_name, fields, page) => {
@@ -1465,5 +1478,20 @@ describe("page status", () => {
     await h.flush();
     expect(h.view()).toMatchObject(FAILED);
     expect(h.badge.status(tabId)).toEqual(kept);
+  });
+});
+
+it("retains unconfirmed popup details across a worker restart after the notice expires", async () => {
+  const h = harness();
+  h.badge.observe(attempt({ state: "authenticated", outcome: "authenticated", unconfirmed: true }));
+  await h.flush();
+  expect(h.view()).toMatchObject(UNSETTLED);
+  await vi.advanceTimersByTimeAsync(NOTICE_MS);
+  expect(h.view().text).toBe("");
+  const restarted = harness({ stored: await h.storage.getValue() });
+  await restarted.badge.restore();
+  expect(restarted.badge.status(tabId)).toEqual({
+    origin,
+    login: { state: "authenticated", outcome: "authenticated", unconfirmed: true },
   });
 });

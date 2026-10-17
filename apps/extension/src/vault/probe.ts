@@ -70,10 +70,10 @@ export function createVaultProbe(host: CryptoHost) {
     checkpoint: async (stage) => {
       if (stage !== armed) return;
       reached = true;
-      await new Promise<void>((resolve) => {
-        release = resolve;
-        timer = setTimeout(unpause, 30_000);
-      });
+      const { promise, resolve } = Promise.withResolvers<void>();
+      release = resolve;
+      timer = setTimeout(unpause, 30_000);
+      await promise;
     },
   });
   let handle: LocalVaultHandle | undefined;
@@ -141,24 +141,21 @@ export function createVaultProbe(host: CryptoHost) {
           const mac = parts[2];
           if (!mac) return vaultFailure("invalid-request");
           parts[2] = `${mac[0] === "A" ? "B" : "A"}${mac.slice(1)}`;
-          last.id = crypto.randomUUID() as unknown as typeof last.id;
-          last.name = parts.join("|") as unknown as typeof last.name;
+          last.id = crypto.randomUUID() as unknown as NonNullable<typeof last.id>;
+          last.name = parts.join("|") as NonNullable<typeof last.name>;
           prepared.ciphers.push(last);
         }
         if (action.kind === "uri" || action.kind === "uri-without-context") {
           // Fixed SDK-encrypted synthetic URI; the second rule uses the retained default.
           const rule = { uri: uriCiphertexts.uri, uriChecksum: uriCiphertexts.checksum };
           const login = prepared.ciphers[0]!.login!;
-          login.uris = [
-            { ...rule, match: 3 },
-            { ...rule, match: undefined },
-          ] as unknown as typeof login.uris;
+          login.uris = [{ ...rule, match: 3 }, rule] as unknown as NonNullable<typeof login.uris>;
           if (action.kind === "uri-without-context") delete prepared.uriMatchContext;
           // Same URI rules in trash and archive must never become page candidates.
           for (const state of ["deletedDate", "archivedDate"] as const) {
             const hidden = structuredClone(prepared.ciphers[0]!);
-            hidden.id = crypto.randomUUID() as unknown as typeof hidden.id;
-            hidden[state] = "2024-02-01T00:00:00.000Z" as unknown as (typeof hidden)[typeof state];
+            hidden.id = crypto.randomUUID() as unknown as NonNullable<typeof hidden.id>;
+            hidden[state] = "2024-02-01T00:00:00.000Z";
             prepared.ciphers.push(hidden);
           }
         }

@@ -110,6 +110,8 @@ export function SitesPage({ client }: { client: ManageClient }) {
       ...(current?.bindings ?? []).map((entry) => entry.origin),
     ]),
   ].toSorted();
+  const recipesByOrigin = Map.groupBy(active, (entry) => entry.change.recipe.origin);
+  const bindingsByOrigin = Map.groupBy(current?.bindings ?? [], (entry) => entry.origin);
   const excludedSites = current?.excludedSites ?? [];
 
   return (
@@ -131,13 +133,9 @@ export function SitesPage({ client }: { client: ManageClient }) {
       ) : (
         <RowList id="sites">
           {origins.map((origin) => {
-            const recipeCount = active.filter(
-              (entry) => entry.change.recipe.origin === origin,
-            ).length;
+            const recipeCount = recipesByOrigin.get(origin)?.length ?? 0;
             const siteDefault = current?.siteDefaults.find((entry) => entry.origin === origin);
-            const bindingCount = (current?.bindings ?? []).filter(
-              (entry) => entry.origin === origin,
-            ).length;
+            const bindingCount = bindingsByOrigin.get(origin)?.length ?? 0;
             const excluded = exclusionsCovering(current, siteHostname(origin)).length > 0;
             return (
               // The whole row opens the site; the link is its only control.

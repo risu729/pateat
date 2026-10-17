@@ -589,6 +589,41 @@ describe("submission and failure reconciliation", () => {
     expect(nextLoginOperation(authenticated, recipe, document, "click-again")).toBeUndefined();
   });
 
+  it("keeps unconfirmed completion through storage and recovery, without permitting resubmission", () => {
+    const awaiting = transitionLoginAttempt(submitting(), {
+      type: "SUBMITTED",
+      operationId: "click-one",
+    });
+    const ended = transitionLoginAttempt(awaiting, {
+      type: "OBSERVED",
+      result: "authenticated",
+      document,
+      unconfirmed: true,
+    });
+    const restored = recoverLoginAttempt(parseAttemptMetadata(JSON.parse(JSON.stringify(ended))));
+    expect(restored).toMatchObject({
+      state: "authenticated",
+      outcome: "authenticated",
+      unconfirmed: true,
+    });
+    expect(nextLoginOperation(restored, recipe, document, "click-again")).toBeUndefined();
+    expect(() => parseAttemptMetadata({ ...awaiting, unconfirmed: true })).toThrow();
+    expect(() =>
+      transitionLoginAttempt(awaiting, {
+        type: "OBSERVED",
+        result: "unknown",
+        unconfirmed: true,
+      }),
+    ).toThrow();
+    const otherTab = transitionLoginAttempt(awaiting, {
+      type: "OBSERVED",
+      result: "authenticated",
+      document: { ...document, tabId: 8 },
+      unconfirmed: true,
+    });
+    expect(otherTab).toEqual(awaiting);
+  });
+
   it("credential rejection is terminal while structural failure has a finite retry budget", () => {
     const awaiting = transitionLoginAttempt(submitting(), {
       type: "SUBMITTED",

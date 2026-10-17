@@ -28,6 +28,15 @@ package. The Drizzle schema in `services/api/src/db/schema.ts` owns the D1 schem
 `mise run //services/api:generate:migrations` writes SQL to `services/api/migrations/`
 without contacting a database, and the check graph fails if committed migrations drift.
 
+The ordinary judged-page completion rule of
+[ADR 0029](adr/0029-local-sign-in-state.md#implementation-notes) lives in
+`apps/extension/src/login/completion-policy.ts`: pure functions select an undecided
+candidate, settle it from the fresh reading and disabled-field omission, and choose the
+judged outcome. `runtime.ts` retains the asynchronous page re-read, current-run checks,
+handler takeover and reporting. Its `judgeMove` and `judgeStop` keep their distinct
+completion rules. The policy's table tests pin the existing behavior; extracting it
+does not change what an undecided answer means.
+
 `mise.toml` owns exact tool versions and installation. Tool lockfiles use format
 version 3 and `lockfile_mode = "generate"`, rebuilding them from current requests
 while reusing unchanged artifacts. The repository-wide tasks live in the root
@@ -179,14 +188,17 @@ Focused tasks are available for diagnosis:
 | `mise run //apps/extension:test:dom` | Extract observations, resolve element locators, collect diagnostics and run the vault, provider-session and diagnostics stores on native IndexedDB in Chromium |
 | `mise run //tests/options:typecheck` | Check component-test and browser-provider types |
 | `mise run check:docs` | Check local documentation links |
-| `mise run check:sdk-source` | Fail when [the SDK source records](sdk-source.md#pinned-upstream-source) name a different SDK version or source revision from `bun.lock` and the installed package |
+| `mise run check:sdk-source` | Validate installed SDK metadata against its pin and render [exact source notices](sdk-source.md#pinned-upstream-source) without writing files |
 
 On Linux, `mise run browser:install --with-deps` also installs the browser's
 system dependencies. Server type checking and the artifact checks depend on the server
 build, whose generated files they read. Set `PATEAT_REVISION` before the build
 and artifact check to verify a particular source revision. Without it, local
 builds use `development`. The default extension build excludes the test probe;
-neither variant grants vault or real-site login capability.
+neither variant grants vault or real-site login capability. Both the extension and
+`/manage` set Vite's `build.cssTarget` to `chrome145`, matching their supported minimum,
+so production CSS preserves native `light-dark()` theme colors without fallback
+custom properties. The Worker's inline `PAGE_CSS` string is not transformed.
 
 Local success is scoped to the tested component. Worker tests and artifact
 checks have passed locally; they do not establish production deployment or
@@ -460,8 +472,11 @@ holds:
   looked up again delegates with `settings-changed`, or `vault-incomplete` when the
   vault could not be searched in full;
 - `signedBefore` when Pateat had signed for this RP ID in the tab, so the request asks
-  again. Such a request that cannot open the window is delegated with
-  `chooser-unavailable`;
+  again, or `logoutClicked` when instead a control that logs out was clicked on the RP
+  ID's site in the tab and still waits for the site's first step (at most 10 minutes,
+  while the tab stays on the site), or, after such a click was used, the tab keeps a
+  logout state for an origin of the site (ADR 0021 D). Such a request that cannot open
+  the window is delegated with `chooser-unavailable`;
 - `cause`: for a `cancelled` outcome, who cancelled it (`page-cancelled` or
   `settings-changed`); for the `assertion-failed` reason, the step that threw
   (`login-wait`, `account-lookup`, `passkey-lookup`, `signed-before-lookup`, `chooser`
@@ -655,6 +670,14 @@ Pateat uses:
 
 [integration]: #integration-conditions-pending-candidates-remain-conditional
 
+DOM listeners that share an installation or effect lifetime use one locally owned
+`AbortController` and register with its `signal`: the code-submission watcher, passkey
+relay and service-pairing return listeners. Stopping the watcher or relay, or unmounting
+the effect, aborts that controller to remove only its listeners; capture flags and
+request cancellation behavior stay unchanged. Mutation observers still disconnect
+separately. Single-listener cleanup and Chrome extension events retain their existing
+removal APIs.
+
 ## Dependency policy
 
 Renovate inherits the pinned `risu729/renovate-config` preset, matching the other owner
@@ -704,11 +727,11 @@ On 2026-10-13 the owner first chose temporal-polyfill-lite for dates and times; 
 a ponyfill, it added about 18 kB gzip to each extension context's bundle. At 16:12 UTC
 the same day the owner asked to enable the native Temporal where it can be enabled and
 otherwise to use `Date` on the server and the native Temporal in the extension. The
-extension uses Chrome's global `Temporal` and requires Chrome 144, the first version
-that ships it. The service keeps `Date`: workerd 1.20261006.1 does not expose Temporal,
-and no compatibility flag enables it (its V8 `harmony_temporal` flag cannot be set for a
-deployed Worker). Lint forbids the global `Temporal` in `services/` and in the packages
-the service imports.
+extension uses Chrome's global `Temporal`, which first ships in Chrome 144; the
+extension now requires Chrome 145 for `Map.prototype.getOrInsertComputed`. The service
+keeps `Date`: workerd 1.20261006.1 does not expose Temporal, and no compatibility flag
+enables it (its V8 `harmony_temporal` flag cannot be set for a deployed Worker). Lint
+forbids the global `Temporal` in `services/` and in the packages the service imports.
 The current manifests and lockfile describe what is installed. WXT + TypeScript +
 Valibot remain confirmed choices; existing Vitest, Playwright and build tools remain in
 use. WXT drives Vite 8 (Rolldown) for the extension build
@@ -718,7 +741,7 @@ use. WXT drives Vite 8 (Rolldown) for the extension build
 | --- | --- | --- |
 | Extension UI | **Implemented:** React through `@wxt-dev/module-react`, Tailwind CSS through its Vite plugin, Base UI with the selected shadcn/ui Button | M2 settings UI migration |
 | Service web UI | **Implemented for the devices page:** React, Tailwind through its Vite plugin, Base UI with the selected shadcn/ui Button and TanStack Query, built by Vite into Worker static assets; **approved:** TanStack Form | M4 owner web UI |
-| Form state | **Implemented:** TanStack Form with Valibot through Standard Schema | M2 settings validation, dirty drafts and field errors |
+| Form state | **Implemented:** TanStack Form with Valibot through Standard Schema; options-page drafts subscribe through `useSelector`, re-exported by `@tanstack/react-form` | M2 settings validation, dirty drafts and field errors |
 | Async UI state | **Implemented for settings:** TanStack Query for metadata reads and mutations | M2 extension-message queries; M4 sync integration |
 | Attempt lifecycle | **Implemented:** XState for each login attempt (`loginAttemptMachine`), applied with its pure `transition()`; the runtime around it stays application code | M2 declarative executor |
 | Transport | **Implemented for messages to the background:** `@webext-core/messaging` around validated contracts ([architecture](architecture.md#components-and-trust-boundaries)); the background's tab sends addressed by `documentId`, Ports and `window.postMessage` stay raw, because the library's tab send takes only a tab and frame and it carries no Ports | M2 message transport |
@@ -733,13 +756,30 @@ use. WXT drives Vite 8 (Rolldown) for the extension build
 | Static checks | Existing Oxlint/Oxfmt and TypeScript with applicable React/JSX accessibility rules; **approved:** Knip | M2 React migration |
 | UI icons | **Approved (2026-10-12); implemented for the diagnostics page and `/manage`:** `lucide-react`, imported per icon, in each workspace that uses it | Phase 1 UI polish |
 | UI translation | **Approved (2026-10-12):** i18next with react-i18next, the language chosen in Pateat's settings; the manifest's `description` through a hand-written `_locales` file | Phase 3 Japanese for the extension |
-| Byte encoding | **Approved (2026-10-13) and implemented:** the standard `Uint8Array` `toBase64()`, `fromBase64()` and `toHex()` and `RegExp.escape()`, no library; they need Chrome 140, and the extension's `minimum_chrome_version` is now 144 for Temporal (dates and times). `@scure/base` was the alternative that keeps older Chrome | Phase 1 |
+| Byte encoding | **Approved (2026-10-13) and implemented:** the standard `Uint8Array` `toBase64()`, `fromBase64()` and `toHex()` and `RegExp.escape()`, no library; they need Chrome 140, and the extension's `minimum_chrome_version` is now 145 for `Map.prototype.getOrInsertComputed` (Temporal needs 144). `@scure/base` was the alternative that keeps older Chrome | Phase 1 |
 | Identifiers | **Approved (2026-10-12) and implemented:** `uuid` for UUIDv7, since Web Crypto has only `randomUUID()` (v4) ([identifiers](architecture.md#identifiers)) | Phase 1 |
 | IndexedDB access | **Approved (2026-10-13) and implemented:** `idb` (Jake Archibald, ISC), a promise wrapper over the native API with the same transaction semantics, replacing the hand-written request and transaction wrappers in the vault, provider-session and diagnostics stores; a transaction still awaits only its own requests, because any other await lets it auto-commit; `idb` opens only the global `indexedDB`, so tests stub that global | Phase 1 |
 | DER signatures | **Approved (2026-10-13) and implemented:** `@noble/curves`, importing only the `DER` helper from `@noble/curves/abstract/der.js` (not `p256`), for the P1363/DER conversion of passkey assertion signatures; signing stays WebCrypto ([ADR 0007](adr/0007-existing-passkey-assertions.md)). Low value (about 50 lines removed): revert if bundle size matters | Phase 1 passkeys |
 | CBOR decoding | **Approved (2026-10-13) and implemented:** `cbor2` reads the version from a Bitwarden signed security state after the SDK has verified it; Pateat no longer pre-checks COSE structure and relies on Worker termination when the SDK's initialization cannot parse its input ([vault adapter](architecture.md#vault-adapter)); `@pateat/bitwarden` declares `"sideEffects": false`, so only the crypto Worker bundles it | M3 Bitwarden adapter |
-| Dates and times | **Approved (2026-10-13) and implemented:** the native `Temporal` in the extension (minimum Chrome 144) for formatting, parsing and calendar arithmetic; the service keeps `Date`, because workerd (1.20261006.1) does not expose Temporal and has no compatibility flag for it; `temporal-polyfill-lite` was tried and dropped (bundle +18 kB gzip per context); stored times stay epoch milliseconds and the clock stays `Date.now()` ([times](architecture.md#times)) | Phase 1 |
+| Dates and times | **Approved (2026-10-13) and implemented:** the native `Temporal` in the extension (first shipped in Chrome 144; current minimum 145) for formatting, parsing and calendar arithmetic; the service keeps `Date`, because workerd (1.20261006.1) does not expose Temporal and has no compatibility flag for it; `temporal-polyfill-lite` was tried and dropped (bundle +18 kB gzip per context); stored times stay epoch milliseconds and the clock stays `Date.now()` ([times](architecture.md#times)) | Phase 1 |
 | Server configuration | Existing cf with cloudflare.config.ts and Vite | Retain verified build path |
+
+The extension and `/manage` require Chrome 145 for `Map.prototype.getOrInsertComputed`.
+Promises settled from outside use `Promise.withResolvers()`, input grouping uses
+`Map.groupBy()`, and maps that lazily create an entry use `getOrInsertComputed()` when
+these make the existing behavior clearer. `Promise.withResolvers()` and `Map.groupBy()`
+also run in the Worker. Narrower TypeScript projects add `ES2024.Promise`,
+`ES2024.Collection` and `ESNext.Collection` as needed for the production code they
+import. Collection predicates and maps consumed by a spread use Iterator Helpers instead
+of copying the collection into an array. Callbacks that can change the collection keep
+a snapshot; array results stay arrays. The narrower projects importing this code add
+`ESNext.Iterator`, the Iterator Helpers lib in the pinned TypeScript.
+The passkey relay, conditional login decision, login-account report lookup and
+diagnostics install-type lookup use `Promise.try()` to turn synchronous throws and
+promise rejections into the same failure path. These callbacks start immediately;
+the login runtime's `quietly` helper keeps its deferred invocation so session snapshots
+retain their existing timing. Projects importing these wrappers add `ES2025.Promise`,
+the corresponding lib in the pinned TypeScript.
 
 ### Integration conditions (pending candidates remain conditional)
 
@@ -780,16 +820,20 @@ before any read or write can access sensitive settings. Preserve
 single-writer revision checks, corruption handling and fail-closed policy;
 storage helpers do not provide compare-and-swap by themselves.
 
-Parse destinations with `new URL()` and pass the normalized hostname to tldts;
-explicitly include private suffix rules where appropriate. PSL information is
-not permission to fill or sign, and does not replace HTTPS, origin, ancestor or
-Permissions Policy checks. OTPAuth covers standard OTP mechanics; test Bitwarden
-Steam compatibility separately and do not advertise HOTP merely because parsing
-supports it. Base64, base64url and hex use the standard `Uint8Array` methods;
+Parse untrusted destinations with `URL.parse()` and explicitly handle its `null` result
+with the caller's existing failure value. Relative inputs still require the same
+explicit base; admission code retains its scheme, credential, exact-origin and hostname
+checks in the same order. Keep `try` blocks around operations that can fail for reasons
+beyond URL parsing, including the login runtime's domain matching. Pass the normalized
+hostname to tldts and explicitly include private suffix rules where appropriate. PSL
+information is not permission to fill or sign, and does not replace HTTPS, origin,
+ancestor or Permissions Policy checks. OTPAuth covers standard OTP mechanics; test
+Bitwarden Steam compatibility separately and do not advertise HOTP merely because
+parsing supports it. Base64, base64url and hex use the standard `Uint8Array` methods;
 strict decoding (`lastChunkHandling: "strict"`) still needs the input checked for
 whitespace and, when unpadded, padded first. Evaluate `@noble/hashes` for actual
-protocol gaps; CBOR is read with the approved `cbor2`, only from data the Bitwarden
-SDK has already verified. Do not write crypto/CBOR primitives ourselves, assume all
+protocol gaps; CBOR is read with the approved `cbor2`, only from data the Bitwarden SDK
+has already verified. Do not write crypto/CBOR primitives ourselves, assume all
 primitives in a package are audited, or substitute a different KDF for Bitwarden
 Argon2id.
 

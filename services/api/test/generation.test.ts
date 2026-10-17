@@ -1,5 +1,6 @@
 import {
   isLoginRouteRecipe,
+  MAX_ACTIVE_RECIPE_BYTES,
   type EntryGenerationResult,
   type LoginObservation,
   type LoginRecipe,
@@ -25,7 +26,13 @@ import { createDeviceToken, hashDeviceToken } from "../src/auth";
 import { saveWifCredential } from "../src/claude/credentials";
 import { MAX_ACTIVE_RECIPES } from "../src/limits";
 import { writeRecipe } from "../src/recipe-store";
-import { ATTEMPT_WINDOW_MS, generatedRecipeId, staleHead } from "../src/recipes/generate";
+import { documentBytes, seedRecipeBytes, storedRecipeBytes } from "./recipe-byte-helpers";
+import {
+  ATTEMPT_WINDOW_MS,
+  generatedRecipeId,
+  MIN_GENERATION_RECIPE_ROOM_BYTES,
+  staleHead,
+} from "../src/recipes/generate";
 
 // Synthetic owners, devices, federation identifiers and pages only. Anthropic's token
 // endpoint and the Messages API are answered locally; no request leaves the test.
@@ -217,6 +224,16 @@ const rows = (sql: string, ...values: unknown[]) =>
     .then((result) => result.results);
 const month = () => new Date().toISOString().slice(0, 7);
 const day = () => new Date().toISOString().slice(0, 10);
+
+/** Only the retention delete fails; inserts, spend corrections and recipe reads use D1. */
+function failLogPurge() {
+  const prepare = env.DB.prepare.bind(env.DB);
+  return vi.spyOn(env.DB, "prepare").mockImplementation((query) => {
+    if (/^delete from "inference_log"/iu.test(query))
+      throw new Error("synthetic private log values");
+    return prepare(query);
+  });
+}
 
 /** Generates the two-page recipe and returns its last change. */
 async function twoPageRecipe(device: Device) {
@@ -559,15 +576,90 @@ describe("recipe generation", () => {
       (row) => row.id,
     );
     expect(ids).toEqual([kept]);
+  });
 
-    // Reading recipes deletes them too, without any new call.
-    const later = `log-${crypto.randomUUID()}`;
-    await insert(later, 91 * DAY_MS).run();
+  it("deletes expired logs and keeps 89-day logs when recipes are read without a call", async () => {
+    const device = await owner({ claude: false });
+    const insert = (id: string, age: number) =>
+      env.DB.prepare(
+        "INSERT INTO inference_log (id, owner_id, role, provider, model_id, origin, path, request, outcome, cost_micro_usd, created_at) VALUES (?, ?, 'generate', 'anthropic', 'm', ?, '/', '{}', 'ok', 0, ?)",
+      ).bind(id, device.ownerId, ORIGIN, Date.now() - age);
+    const expired = `log-${crypto.randomUUID()}`;
+    const kept = `log-${crypto.randomUUID()}`;
+    await env.DB.batch([insert(expired, 91 * DAY_MS), insert(kept, 89 * DAY_MS)]);
     const feed = await exports.default.fetch("https://pateat.invalid/v1/recipes", {
       headers: { Authorization: `Bearer ${device.token}` },
     });
     expect(feed.status).toBe(200);
-    expect(await rows("SELECT id FROM inference_log WHERE id = ?", later)).toEqual([]);
+    expect(await feed.json()).toEqual({ version: 1, changes: [], cursor: 0, complete: true });
+    expect(await rows("SELECT id FROM inference_log WHERE id IN (?, ?)", expired, kept)).toEqual([
+      { id: kept },
+    ]);
+    expect(sent).toHaveLength(0);
+  });
+
+  it("serves the recipe feed when the retention delete fails and logs no error values", async () => {
+    const device = await owner();
+    replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    const generated = await generate(device, emailPage);
+    if (generated.status !== "recipe") throw new Error(generated.status);
+    const purge = failLogPurge();
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const feed = await exports.default.fetch("https://pateat.invalid/v1/recipes", {
+        headers: { Authorization: `Bearer ${device.token}` },
+      });
+      expect(feed.status).toBe(200);
+      expect(await feed.json()).toEqual({
+        version: 1,
+        changes: [generated.change],
+        cursor: 1,
+        complete: true,
+      });
+      expect(purge).toHaveBeenCalledWith(expect.stringMatching(/^delete from "inference_log"/iu));
+      expect(error.mock.calls).toEqual([["Inference log purge failed"]]);
+    } finally {
+      purge.mockRestore();
+      error.mockRestore();
+    }
+  });
+
+  it("records a paid call and its corrected spend when the retention delete fails", async () => {
+    const device = await owner();
+    replies.push({
+      text: plan([["email", "email"]], "next", "advance"),
+      usage: { input_tokens: 3_000, output_tokens: 900 },
+    });
+    const purge = failLogPurge();
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(await generate(device, emailPage)).toMatchObject({ status: "recipe" });
+      expect(
+        await rows(
+          "SELECT outcome, input_tokens, output_tokens, cost_micro_usd FROM inference_log WHERE owner_id = ?",
+          device.ownerId,
+        ),
+      ).toEqual([
+        { outcome: "ok", input_tokens: 3_000, output_tokens: 900, cost_micro_usd: 30_000 },
+      ]);
+      expect(
+        await rows(
+          "SELECT period, calls, cost_micro_usd FROM inference_spend WHERE owner_id = ? ORDER BY period",
+          device.ownerId,
+        ),
+      ).toEqual([
+        { period: month(), calls: 1, cost_micro_usd: 30_000 },
+        { period: day(), calls: 1, cost_micro_usd: 30_000 },
+      ]);
+      expect(
+        await rows("SELECT lock_id FROM inference_locks WHERE owner_id = ?", device.ownerId),
+      ).toEqual([]);
+      expect(purge).toHaveBeenCalledWith(expect.stringMatching(/^delete from "inference_log"/iu));
+      expect(error.mock.calls).toEqual([["Inference log purge failed"]]);
+    } finally {
+      purge.mockRestore();
+      error.mockRestore();
+    }
   });
 
   it("generates the next form of a login that stays on one path", async () => {
@@ -1010,6 +1102,29 @@ describe("recipe generation", () => {
     expect(sent).toHaveLength(5);
   });
 
+  it("stores a recipe under a path with [id] and answers every tenant's page with it (ADR 0039)", async () => {
+    const device = await owner();
+    const tenantPage = { ...passwordPage, path: "/[id]/oauth2/authorize" };
+    replies.push({ text: plan([["password", "password"]], "sign-in", "submit") });
+    const first = await generate(device, tenantPage);
+    if (first.status !== "recipe") throw new Error(first.status);
+    expect(first.change).toMatchObject({
+      recipeId: await generatedRecipeId(ORIGIN, "/[id]/oauth2/authorize"),
+      recipe: {
+        steps: [{ path: "/[id]/oauth2/authorize" }, { path: "/[id]/oauth2/authorize" }],
+      },
+    });
+    expect(
+      await rows("SELECT path FROM generation_attempts WHERE owner_id = ?", device.ownerId),
+    ).toEqual([{ path: "/[id]/oauth2/authorize" }]);
+    // The same page, from another tenant, is answered with that recipe without a call.
+    expect(await generate(device, tenantPage)).toMatchObject({
+      status: "recipe",
+      change: { recipeId: first.change.recipeId },
+    });
+    expect(sent).toHaveLength(1);
+  });
+
   it("stores the account switch the model names", async () => {
     const device = await owner();
     const remembered = observation("/password", [
@@ -1085,6 +1200,83 @@ describe("recipe generation", () => {
     expect(
       await generate(device, passwordPage, { recipeId: first.change.recipeId, revision: 3 }),
     ).toMatchObject({ status: "recipe", change: { revision: 4 } });
+  });
+
+  it("refuses new pages and continuations before the model call with less than 32 KiB left", async () => {
+    const device = await owner();
+    replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    const first = await generate(device, emailPage);
+    if (first.status !== "recipe") throw new Error(first.status);
+    await seedRecipeBytes(
+      device.ownerId,
+      MAX_ACTIVE_RECIPE_BYTES -
+        documentBytes(first.change.recipe) -
+        MIN_GENERATION_RECIPE_ROOM_BYTES +
+        1,
+    );
+    const limited = { version: 1, status: "unavailable", reason: "recipe-limit" };
+    expect(await generate(device, observation("/other", emailPage.candidates))).toEqual(limited);
+    expect(
+      await generate(device, passwordPage, { recipeId: first.change.recipeId, revision: 1 }),
+    ).toEqual(limited);
+    expect(sent).toHaveLength(1);
+    expect(
+      await rows("SELECT path FROM generation_attempts WHERE owner_id = ?", device.ownerId),
+    ).toEqual([{ path: "/login" }]);
+    // A cached active answer costs no call and remains available at the limit.
+    expect(await generate(device, emailPage)).toMatchObject({ status: "recipe" });
+  });
+
+  it("admits exactly 32 KiB of preflight room and maps a racing continuation's byte refusal", async () => {
+    const device = await owner();
+    replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    const first = await generate(device, emailPage);
+    if (first.status !== "recipe") throw new Error(first.status);
+    await seedRecipeBytes(
+      device.ownerId,
+      MAX_ACTIVE_RECIPE_BYTES -
+        documentBytes(first.change.recipe) -
+        MIN_GENERATION_RECIPE_ROOM_BYTES,
+    );
+    during = async () => {
+      await env.DB.prepare(
+        "UPDATE recipe_revisions SET document = document || ? WHERE owner_id = ? AND recipe_id = 'byte-seed'",
+      )
+        .bind(" ".repeat(MIN_GENERATION_RECIPE_ROOM_BYTES), device.ownerId)
+        .run();
+    };
+    replies.push({ text: plan([["password", "password"]], "sign-in", "submit") });
+    expect(
+      await generate(device, passwordPage, { recipeId: first.change.recipeId, revision: 1 }),
+    ).toEqual({ version: 1, status: "unavailable", reason: "recipe-limit" });
+    expect(sent).toHaveLength(2);
+    expect(
+      await rows(
+        "SELECT revision FROM recipe_heads WHERE owner_id = ? AND recipe_id = ?",
+        device.ownerId,
+        first.change.recipeId,
+      ),
+    ).toEqual([{ revision: 1 }]);
+    expect(await storedRecipeBytes(device.ownerId)).toBe(MAX_ACTIVE_RECIPE_BYTES);
+  });
+
+  it("maps a new recipe's byte refusal after the model call", async () => {
+    const device = await owner();
+    during = () => seedRecipeBytes(device.ownerId, MAX_ACTIVE_RECIPE_BYTES);
+    replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    expect(await generate(device, emailPage)).toEqual({
+      version: 1,
+      status: "unavailable",
+      reason: "recipe-limit",
+    });
+    expect(sent).toHaveLength(1);
+    expect(
+      await rows(
+        "SELECT revision FROM recipe_heads WHERE owner_id = ? AND recipe_id = ?",
+        device.ownerId,
+        await generatedRecipeId(ORIGIN, emailPage.path),
+      ),
+    ).toEqual([]);
   });
 
   it("needs room for one more active recipe before a first page's call", async () => {
@@ -1714,6 +1906,48 @@ describe("page judgement (ADR 0027)", () => {
     expect(sent).toHaveLength(calls);
     expect(await spend(device)).toEqual(before);
     expect(await judgements(device)).toEqual(stored);
+  });
+
+  it("maps a first marker write refused for bytes to recipe-limit", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    await seedRecipeBytes(device.ownerId, MAX_ACTIVE_RECIPE_BYTES - documentBytes(change.recipe));
+    replies.push(judgeReply({ decision: "signed-in", marker: "logout" }));
+    const answer = await complete(device, change.recipeId, 2, homePage);
+    expect(answer.body).toEqual({ version: 1, status: "unavailable", reason: "recipe-limit" });
+    expect(await head(device, change.recipeId)).toBe(2);
+    expect(sent).toHaveLength(3);
+  });
+
+  it("answers signed-in when a later marker is refused for bytes", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    replies.push(judgeReply({ decision: "signed-in", marker: "logout" }));
+    const first = await complete(device, change.recipeId, 2, homePage);
+    if (!("change" in first.body) || !first.body.change) throw new Error("no change");
+    await seedRecipeBytes(
+      device.ownerId,
+      MAX_ACTIVE_RECIPE_BYTES - documentBytes(first.body.change.recipe),
+    );
+    const account = observation("/account", [element("account", "button", "Account")]);
+    replies.push(judgeReply({ decision: "signed-in", marker: "account" }));
+    expect((await complete(device, change.recipeId, 3, account)).body).toEqual({
+      version: 1,
+      status: "signed-in",
+    });
+    expect(await head(device, change.recipeId)).toBe(3);
+    expect(sent).toHaveLength(4);
+  });
+
+  it("answers challenge when its handler is refused for bytes", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    await seedRecipeBytes(device.ownerId, MAX_ACTIVE_RECIPE_BYTES - documentBytes(change.recipe));
+    replies.push(judgeReply({ decision: "challenge", passkeyButton: "key" }));
+    const answer = await complete(device, change.recipeId, 2, webauthnPage);
+    expect(answer.body).toEqual({ version: 1, status: "challenge" });
+    expect(await head(device, change.recipeId)).toBe(2);
+    expect(sent).toHaveLength(3);
   });
 
   it("judges each revision and path once", async () => {
@@ -3678,6 +3912,42 @@ describe("sign-in entry pages (ADR 0031)", () => {
     expect(response.status).toBe(200);
     return (await response.json()) as EntryGenerationResult;
   }
+
+  it("refuses entry generation before the model call when less than 32 KiB remains", async () => {
+    const device = await owner();
+    await seedRecipeBytes(
+      device.ownerId,
+      MAX_ACTIVE_RECIPE_BYTES - MIN_GENERATION_RECIPE_ROOM_BYTES + 1,
+    );
+    expect(await generateEntry(device, topPage)).toEqual({
+      version: 1,
+      status: "unavailable",
+      reason: "recipe-limit",
+    });
+    expect(sent).toHaveLength(0);
+    expect(
+      await rows("SELECT * FROM generation_attempts WHERE owner_id = ?", device.ownerId),
+    ).toEqual([]);
+  });
+
+  it("maps entry generation's byte refusal after the model call", async () => {
+    const device = await owner();
+    during = () => seedRecipeBytes(device.ownerId, MAX_ACTIVE_RECIPE_BYTES);
+    replies.push({ text: entryAnswer("c2") });
+    expect(await generateEntry(device, topPage)).toEqual({
+      version: 1,
+      status: "unavailable",
+      reason: "recipe-limit",
+    });
+    expect(sent).toHaveLength(1);
+    expect(
+      await rows(
+        "SELECT revision FROM recipe_heads WHERE owner_id = ? AND recipe_id = ?",
+        device.ownerId,
+        await generatedRecipeId(ORIGIN, topPage.path),
+      ),
+    ).toEqual([]);
+  });
 
   it("stores the named link as the entry recipe of the page's origin and path", async () => {
     const device = await owner();

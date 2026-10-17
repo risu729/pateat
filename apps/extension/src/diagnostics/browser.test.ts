@@ -2,6 +2,20 @@ import { describe, expect, it } from "vitest";
 import { pickBrowser, readBrowserInfo } from "./browser";
 
 describe("browser info", () => {
+  it("keeps the receiver when reading the install type", async () => {
+    const deps = {
+      installType: "development",
+      async getSelf() {
+        return { installType: this.installType };
+      },
+    };
+    await expect(readBrowserInfo(deps)).resolves.toEqual({
+      name: "Unknown browser",
+      version: "",
+      installType: "development",
+    });
+  });
+
   it("picks Chrome, then Chromium, and skips GREASE brands", () => {
     expect(
       pickBrowser([

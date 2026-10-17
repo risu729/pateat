@@ -91,6 +91,53 @@ const signInPages = (service: SyncService) =>
 const pairRequests = (service: SyncService) =>
   service.requests.filter((request) => request.method === "POST" && request.path === "/pair");
 
+test("built management and script-free Worker pages preserve both browser palettes", async () => {
+  const service = await startSyncService({ access: true });
+  try {
+    await withProduction(async (context) => {
+      await signIn(context, service);
+      const page = await context.newPage();
+      for (const scheme of ["light", "dark"] as const) {
+        // oxlint-disable-next-line no-await-in-loop
+        await page.emulateMedia({ colorScheme: scheme });
+        // oxlint-disable-next-line no-await-in-loop
+        await page.goto(`${service.origin}/manage`);
+        const themeSelect = page.getByRole("combobox", { name: "Theme", exact: true });
+        for (const choice of ["system", "light", "dark"] as const) {
+          // oxlint-disable-next-line no-await-in-loop
+          await themeSelect.selectOption(choice);
+          const dark = choice === "dark" || (choice === "system" && scheme === "dark");
+          // oxlint-disable-next-line no-await-in-loop
+          await expect(page.locator("html")).toHaveCSS(
+            "background-color",
+            dark ? "rgb(14, 19, 22)" : "rgb(241, 245, 249)",
+          );
+          // oxlint-disable-next-line no-await-in-loop
+          await expect(page.locator("html")).toHaveCSS(
+            "color",
+            dark ? "rgb(228, 235, 240)" : "rgb(30, 41, 59)",
+          );
+        }
+        // Script-free pages always use the browser setting, even after /manage saved dark.
+        // oxlint-disable-next-line no-await-in-loop
+        await page.goto(`${service.origin}/pair/signed-in`);
+        // oxlint-disable-next-line no-await-in-loop
+        await expect(page.locator("body")).toHaveCSS(
+          "background-color",
+          scheme === "dark" ? "rgb(14, 19, 22)" : "rgb(241, 245, 249)",
+        );
+        // oxlint-disable-next-line no-await-in-loop
+        await expect(page.locator("body")).toHaveCSS(
+          "color",
+          scheme === "dark" ? "rgb(228, 235, 240)" : "rgb(30, 41, 59)",
+        );
+      }
+    });
+  } finally {
+    await service.close();
+  }
+});
+
 test("pairs in one click from the background with the browser's session", async () => {
   const service = await startSyncService({ access: true });
   try {

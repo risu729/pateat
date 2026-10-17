@@ -9,8 +9,9 @@ import {
 import { AxeBuilder } from "@axe-core/playwright";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PATEAT_EXTENSION_ID, type SettingsResponse } from "../../packages/contracts/src/index";
 import { ACTION_ICON_PATHS } from "../../apps/extension/src/connections/action-icon";
@@ -88,6 +89,38 @@ async function startFixture(): Promise<{ server: Server; url: string }> {
   return { server, url: `http://127.0.0.1:${address.port}/fixture` };
 }
 
+test("built options and popup preserve light, dark and browser-setting colors", async () => {
+  await withExtension(extensionDirectory, async (context, _worker, id) => {
+    const page = await context.newPage();
+    for (const scheme of ["light", "dark"] as const) {
+      // oxlint-disable-next-line no-await-in-loop
+      await page.emulateMedia({ colorScheme: scheme });
+      for (const entrypoint of ["options.html", "popup.html"]) {
+        // oxlint-disable-next-line no-await-in-loop
+        await page.goto(`chrome-extension://${id}/${entrypoint}`);
+        for (const theme of ["system", "light", "dark"] as const) {
+          // The page's startup module applies the stored choice before rendering.
+          // oxlint-disable-next-line no-await-in-loop
+          await page.evaluate((choice) => localStorage.setItem("pateat.theme", choice), theme);
+          // oxlint-disable-next-line no-await-in-loop
+          await page.reload();
+          const dark = theme === "dark" || (theme === "system" && scheme === "dark");
+          // oxlint-disable-next-line no-await-in-loop
+          await expect(page.locator("html")).toHaveCSS(
+            "background-color",
+            dark ? "rgb(14, 19, 22)" : "rgb(241, 245, 249)",
+          );
+          // oxlint-disable-next-line no-await-in-loop
+          await expect(page.locator("html")).toHaveCSS(
+            "color",
+            dark ? "rgb(228, 235, 240)" : "rgb(30, 41, 59)",
+          );
+        }
+      }
+    }
+  });
+});
+
 test("production package permits local storage, the crypto host and the HTTPS login and passkey scripts", async () => {
   const manifest = JSON.parse(await readFile(resolve(extensionDirectory, "manifest.json"), "utf8"));
   expect(manifest.manifest_version).toBe(3);
@@ -106,13 +139,21 @@ test("production package permits local storage, the crypto host and the HTTPS lo
     32: "icon-locked/32.png",
   });
   // Owner-approved install-time HTTPS access (ADR 0009); the login script also runs in
-  // frames, which need the tab's page admitted too (ADR 0017). The ADR 0007
-  // passkey bridge is the only MAIN-world script.
+  // frames, which need the tab's page admitted too (ADR 0017). The MAIN-world scripts are
+  // the ADR 0007 passkey bridge and, wherever the login script runs, the click on
+  // `javascript:` links.
   expect(
     [...manifest.content_scripts].sort((a: { js: string[] }, b: { js: string[] }) =>
       a.js[0]!.localeCompare(b.js[0]!),
     ),
   ).toEqual([
+    {
+      matches: ["https://*/*"],
+      run_at: "document_start",
+      all_frames: true,
+      world: "MAIN",
+      js: ["content-scripts/login-main.js"],
+    },
     {
       matches: ["https://*/*"],
       run_at: "document_idle",
@@ -157,12 +198,62 @@ test("production package permits local storage, the crypto host and the HTTPS lo
   // The production HTTPS login and passkey scripts are shared with the probe build.
   for (const script of probeManifest.content_scripts as Array<{ matches: string[]; js: string[] }>)
     expect(script.matches).toEqual(
-      /^content-scripts\/(?:login|passkey-main|passkey-isolated)\.js$/u.test(script.js.join())
+      /^content-scripts\/(?:login|login-main|passkey-main|passkey-isolated)\.js$/u.test(
+        script.js.join(),
+      )
         ? ["https://*/*"]
         : script.js.some((file) => /\/passkey-probe-(?:main|isolated)\.js$/u.test(file))
           ? ["http://localhost/*"]
           : ["http://127.0.0.1/*"],
     );
+});
+
+test("production and probe notices identify the bundled SDK's exact corresponding source", async () => {
+  const lock = await readFile(resolve(repository, "bun.lock"), "utf8");
+  const version = /"@bitwarden\/sdk-internal": \["@bitwarden\/sdk-internal@([^"]+)"/u.exec(
+    lock,
+  )?.[1];
+  expect(version).toBeTruthy();
+  const installed = dirname(
+    createRequire(resolve(repository, "packages/bitwarden/package.json")).resolve(
+      "@bitwarden/sdk-internal/package.json",
+    ),
+  );
+  const installedPackage = JSON.parse(await readFile(resolve(installed, "package.json"), "utf8"));
+  expect(installedPackage.version).toBe(version);
+  const revision = (await readFile(resolve(installed, "VERSION"), "utf8")).trim();
+  expect(revision).toMatch(/^[0-9a-f]{40}$/u);
+  await Promise.all(
+    [extensionDirectory, probeDirectory].map(async (directory) => {
+      const [legal, notices, license] = await Promise.all([
+        readFile(resolve(directory, "legal.html"), "utf8"),
+        readFile(resolve(directory, "THIRD-PARTY-NOTICES.md"), "utf8"),
+        readFile(resolve(directory, "LICENSE-GPL-3.0.txt"), "utf8"),
+      ]);
+      expect(license).toContain("GNU GENERAL PUBLIC LICENSE");
+      expect(legal).toContain(`@bitwarden/sdk-internal ${version}`);
+      expect(notices).toContain(`@bitwarden/sdk-internal@${version}`);
+      for (const record of [legal, notices]) {
+        expect(record).toContain(revision);
+        expect(record).not.toContain("__PATEAT_BITWARDEN_SDK_");
+        expect(record).toContain(
+          `https://github.com/bitwarden/sdk-internal/archive/${revision}.tar.gz`,
+        );
+        expect(record).toContain(
+          `https://github.com/bitwarden/sdk-internal/blob/${revision}/crates/bitwarden-wasm-internal/README.md`,
+        );
+        // Every SDK source link must identify the installed revision, including license links.
+        const sourceLinks = [
+          ...record.matchAll(
+            /https:\/\/github\.com\/bitwarden\/sdk-internal\/(?:blob|archive)\/([^/"\s)]+)/gu,
+          ),
+        ];
+        expect(sourceLinks.length).toBeGreaterThanOrEqual(2);
+        for (const [, source] of sourceLinks)
+          expect(source?.replace(/\.tar\.gz$/u, "")).toBe(revision);
+      }
+    }),
+  );
 });
 
 test("probe options support keyboard policy validation and pass accessibility checks", async () => {

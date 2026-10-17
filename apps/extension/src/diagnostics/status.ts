@@ -12,6 +12,7 @@ import type { Pseudonyms } from "./pseudonym";
 import {
   age,
   deviceFailureLabel,
+  formatHours,
   generationLabel,
   plural,
   problemCounts,
@@ -470,7 +471,7 @@ function serviceChecks(value: DiagnosticsStatus["service"], now: number): Diagno
     checks.push({
       id: "recipe-sync",
       level: "warn",
-      detail: `recipe sync overdue by ${Math.floor(Temporal.Duration.from({ milliseconds: now - value.syncedAt - RECIPE_SYNC_OVERDUE_MS }).total("hours"))} h`,
+      detail: `recipe sync overdue by ${formatHours(Math.floor(Temporal.Duration.from({ milliseconds: now - value.syncedAt - RECIPE_SYNC_OVERDUE_MS }).total("hours")))}`,
     });
   else checks.push({ id: "recipe-sync", level: "ok", detail: "recipes synced in the last 24 h" });
   return checks;

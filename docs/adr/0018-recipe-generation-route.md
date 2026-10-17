@@ -22,6 +22,8 @@ Amended on 2026-10-12 by the owner's decision on a sign-in form's lone `new-pass
 field ([Decision](#decision)), which the plan check implements.
 Amended on 2026-10-12: every number on the page shown after sign-in becomes `[number]`
 ([Architecture](../architecture.md#declarative-recipes-and-ai)).
+Amended on 2026-10-14: [retention purge failures](#retention-purge-failures)
+are isolated from sync and call logging (implemented).
 
 Date: 2026-10-11
 
@@ -202,15 +204,17 @@ Implementation choices for the page after a recipe's final `advance` step, made 
   Visible means visible as the page's description reads it (2026-10-12): an input hidden
   from assistive technology (also by an ancestor, as behind a dialog), transparent, tiny
   or moved before the page's start never counts, as a password input an email form keeps
-  for the browser to fill; a page that shows no other is judged. On the Grok Bot
-  computer (19:51 UTC), the page after Microsoft's Next was sent with only its email
-  form described; such an input making that form qualify is the inferred cause, not
-  checked on the live page. An input marked `new-password` or `one-time-code`, and every
-  input of a form that holds one, never counts: a sign-up, password change or code form
-  is not continued, and a code page is judged, which may add a `totp` handler (ADR
-  0027). Any other page is judged as before. The email input and the `email` token widen
-  ADR 0016's third input condition for this page only, since email-first sign-in pages
-  often mark their field only as an email address.
+  for the browser to fill; a page that shows no other is judged. Since 2026-10-17 (agent
+  fix, not an owner decision), an input that is transparent only because it or an
+  ancestor is fading in from opacity 0 counts as visible, as everywhere the page is
+  read. On the Grok Bot computer (19:51 UTC), the page after Microsoft's Next was sent
+  with only its email form described; such an input making that form qualify is the
+  inferred cause, not checked on the live page. An input marked `new-password` or
+  `one-time-code`, and every input of a form that holds one, never counts: a sign-up,
+  password change or code form is not continued, and a code page is judged, which may
+  add a `totp` handler (ADR 0027). Any other page is judged as before. The email input
+  and the `email` token widen ADR 0016's third input condition for this page only, since
+  email-first sign-in pages often mark their field only as an email address.
 - **One request per step.** The page is described by `extractLoginObservation` and sent
   only when the description is complete, on the login's origin and on the path that
   qualified, and shows an input of the kind the page qualified with: a password input
@@ -282,6 +286,12 @@ Implementation choices for the page after a recipe's final `advance` step, made 
   page is sent to be continued rather than judged. A sign-in form whose only password
   field is marked `new-password`, which a first page may fill since 2026-10-12, is not
   continued after an `advance` step: such a page is judged.
+
+### Retention purge failures
+
+The owner chose this amendment on 2026-10-14 at 07:24 UTC
+([issue #543](https://github.com/risu729/pateat/issues/543)): a failed purge is logged
+without request or error values and never fails recipe sync or the call log.
 
 ## Consequences
 

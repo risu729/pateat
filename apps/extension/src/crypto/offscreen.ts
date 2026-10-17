@@ -75,6 +75,7 @@ export function startCryptoOffscreen() {
   function start(command: HostCommand) {
     const op = command.operation;
     if (op.kind === "close") {
+      // Termination deletes sessions and jobs; keep each cleanup pass on its starting entries.
       for (const session of [...sessions.values()])
         if (session.ref.connectionId === command.connectionId) terminate(session.worker);
       for (const job of [...jobs.values()])
@@ -85,7 +86,7 @@ export function startCryptoOffscreen() {
     let worker: Worker;
     const ephemeral = op.kind === "derive-auth" || op.kind === "open";
     if (ephemeral) {
-      if (sessions.size >= 4 || jobs.size >= 8 || [...jobs.values()].some((job) => job.ephemeral)) {
+      if (sessions.size >= 4 || jobs.size >= 8 || jobs.values().some((job) => job.ephemeral)) {
         post(command, failure("resource-limit"));
         return;
       }
@@ -150,7 +151,7 @@ export function startCryptoOffscreen() {
         post(command, { ok: true, data: null });
         return;
       }
-      if (jobs.size >= 8 || [...jobs.values()].some((job) => job.worker === worker)) {
+      if (jobs.size >= 8 || jobs.values().some((job) => job.worker === worker)) {
         post(command, failure("resource-limit"));
         return;
       }
@@ -201,7 +202,7 @@ export function startCryptoOffscreen() {
         else {
           const session = ref
             ? sessions.get(ref.sessionId)
-            : [...sessions.values()].find((candidate) => candidate.openedBy === requestId);
+            : sessions.values().find((candidate) => candidate.openedBy === requestId);
           if (
             session &&
             (!ref ||

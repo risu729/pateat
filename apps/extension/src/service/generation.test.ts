@@ -220,11 +220,17 @@ describe("recipe generation requests", () => {
     // A continuation pulls recipes alone, so its login is not stopped by settings.
     expect(h.refresh).toHaveBeenCalledTimes(1);
     expect(h.sync).not.toHaveBeenCalled();
-    // The same page of the other branch is a request of its own.
+    // The same page of the other branch is a request of its own, and so is its hold.
     expect(await h.generation.generate(account)).toEqual({ outcome: "skipped", reason: "sent" });
+    expect(await h.generation.available(observation.origin, "/login", base, "account")).toBe(
+      "sent",
+    );
+    expect(await h.generation.available(observation.origin, "/login", base, "other")).toBe(true);
+    expect(await h.generation.available(observation.origin, "/login")).toBe(true);
     expect(await h.generation.generate({ ...account, branch: "other" })).toMatchObject({
       outcome: "recipe",
     });
+    expect(await h.generation.available(observation.origin, "/login", base, "other")).toBe("sent");
     // A route recipe never answers a branch's page.
     const route = setup();
     expect(await route.generation.generate(account)).toEqual({
