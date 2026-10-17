@@ -852,6 +852,136 @@ test("a failed delete keeps the connection listed and shows the error", async ()
     .toBeEnabled();
 });
 
+// The background keeps a new connection registered when its first sign-in fails.
+const registered = {
+  connectionId: "registered",
+  label: "Synthetic vault",
+  email: "test@example.test",
+  environment: { kind: "cloud" as const, region: "us" as const },
+  state: "configured" as const,
+  autoUnlock: "unknown" as const,
+  providerSession: "none" as const,
+};
+function addForm() {
+  return document.querySelector("#bitwarden details > summary")?.textContent;
+}
+
+test("a failed first sign-in lists its connection to sign in again and clears the add form", async () => {
+  const client = mockClient();
+  client.list
+    .mockResolvedValueOnce(status())
+    .mockResolvedValue({ ...status(), connections: [registered] });
+  client.begin.mockResolvedValue({ ok: false, error: { code: "authentication-rejected" } });
+  await mount(client);
+  await fillNew();
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  await expect
+    .element(page.getByRole("button", { name: "Synthetic vault: Sign in again", exact: true }))
+    .toBeVisible();
+  await expect.element(page.getByText(/The provider rejected this sign-in/)).toBeVisible();
+  // Connect again cannot register a second connection from the same draft.
+  await expect.element(page.getByLabelText("Name", { exact: true })).toHaveValue("");
+  await expect.element(page.getByLabelText("Email", { exact: true })).toHaveValue("");
+  expect(client.begin).toHaveBeenCalledTimes(1);
+});
+
+test("cancelling a first sign-in's verification lists its connection", async () => {
+  const client = mockClient();
+  client.list
+    .mockResolvedValueOnce(status())
+    .mockResolvedValue({ ...status(), connections: [registered] });
+  client.begin.mockResolvedValue({ ok: true, kind: "mfa-required", flowId, providers: [0] });
+  const { changed } = await mount(client);
+  await fillNew();
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  await expect.element(page.getByLabelText("Verification code", { exact: true })).toBeVisible();
+  const changes = changed.mock.calls.length;
+  await page.getByRole("button", { name: "Cancel setup", exact: true }).click();
+  expect(client.close).toHaveBeenCalledTimes(1);
+  expect(changed).toHaveBeenCalledTimes(changes + 1);
+  await expect
+    .element(page.getByRole("button", { name: "Synthetic vault: Sign in again", exact: true }))
+    .toBeVisible();
+  await expect.element(page.getByLabelText("Name", { exact: true })).toHaveValue("");
+  await expect.element(page.getByLabelText("Email", { exact: true })).toHaveValue("");
+});
+
+test("a connection added from the opened form leaves the form empty", async () => {
+  const client = mockClient();
+  const other = {
+    ...registered,
+    connectionId: "other",
+    label: "Other vault",
+    state: "ready" as const,
+  };
+  client.list.mockResolvedValueOnce({ ...status(), connections: [other] }).mockResolvedValue({
+    ...status(),
+    connections: [other, { ...registered, state: "ready", providerSession: "active" }],
+  });
+  await mount(client);
+  await page.getByText("Add a connection", { exact: true }).first().click();
+  await fillNew();
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  await expect
+    .element(page.getByRole("button", { name: "Synthetic vault: Sync", exact: true }))
+    .toBeVisible();
+  await expect.element(page.getByLabelText("Name", { exact: true })).toHaveValue("");
+  await expect.element(page.getByLabelText("Email", { exact: true })).toHaveValue("");
+});
+
+test("a failed sync re-reads the rows", async () => {
+  const client = mockClient();
+  const saved = { ...registered, state: "ready" as const, providerSession: "active" as const };
+  client.list
+    .mockResolvedValueOnce({ ...status(), connections: [saved] })
+    .mockResolvedValue({ ...status(), connections: [{ ...saved, providerSession: "none" }] });
+  client.sync.mockResolvedValue({ ok: false, error: { code: "setup-reauthentication-required" } });
+  await mount(client);
+  await page.getByRole("button", { name: "Synthetic vault: Sync", exact: true }).click();
+  await expect
+    .element(page.getByRole("button", { name: "Synthetic vault: Sign in again", exact: true }))
+    .toBeVisible();
+  await expect.element(page.getByText(/^Sign in again to sync\./)).toBeVisible();
+});
+
+test("Cancel setup leaves sign-in-again mode and touches nothing when nothing runs", async () => {
+  const client = mockClient();
+  client.list.mockResolvedValue({ ...status(), connections: [registered] });
+  const { changed } = await mount(client);
+  await page.getByRole("button", { name: "Synthetic vault: Sign in again", exact: true }).click();
+  await vi.waitFor(() => expect(addForm()).toBe("Sign in to Synthetic vault again"));
+  await page.getByRole("button", { name: "Cancel setup", exact: true }).click();
+  await vi.waitFor(() => expect(addForm()).toBe("Add a connection"));
+  await expect
+    .element(page.getByRole("button", { name: "Cancel setup", exact: true }))
+    .toBeDisabled();
+  expect(client.close).not.toHaveBeenCalled();
+  expect(changed).not.toHaveBeenCalled();
+  expect(client.list).toHaveBeenCalledTimes(1);
+});
+
+test("stopping the first load still reports the listed connections once they are read", async () => {
+  const client = mockClient();
+  const first = held<SetupReply>();
+  client.list
+    .mockReturnValueOnce(first.promise)
+    .mockResolvedValue({ ...status(), connections: [registered] });
+  await render(
+    <QueryClientProvider client={createMetadataQueryClient()}>
+      <BitwardenSetup
+        client={client}
+        onCatalogChanged={vi.fn()}
+        renderOthers={(listed) => <p>{listed ? `Listed: ${listed.join(", ")}` : "Not listed"}</p>}
+      />
+    </QueryClientProvider>,
+  );
+  await expect.element(page.getByText("Not listed", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Cancel setup", exact: true }).click();
+  first.resolve(status());
+  await page.getByRole("button", { name: "Refresh connections", exact: true }).click();
+  await expect.element(page.getByText("Listed: registered", { exact: true })).toBeVisible();
+});
+
 test("sync after automatic unlock was disabled explains how to restore it", async () => {
   const client = mockClient();
   client.list.mockResolvedValue({
