@@ -23,17 +23,32 @@ export type TargetState = v.InferOutput<typeof targetStateSchema>;
  * What a target's one element must be to count as `unique`: a shown writable input, a
  * shown enabled button, any shown element, an input of a kind Pateat fills (`input`, shown
  * or not) or such an input shown (`shown-input`), so another page's element with the same
- * locator is never taken for a sign-in field; `present` takes any element.
+ * locator is never taken for a sign-in field; `present` takes any element. With
+ * `described-writable` and `described-clickable`, the writable input or the clickable button
+ * must also be visible as the page's description reads it: not hidden from assistive
+ * technology, transparent unless it fades in, tiny or moved before the page's start
+ * (ADR 0018), as an advance's next step on its own path is measured (ADR 0013).
  */
 export const targetRequirementSchema = v.picklist([
   "writable",
   "clickable",
+  "described-writable",
+  "described-clickable",
   "shown",
   "present",
   "input",
   "shown-input",
 ]);
 export type TargetRequirement = v.InferOutput<typeof targetRequirementSchema>;
+/**
+ * What confirms an advance whose next step is on its own path (ADR 0013): that step's
+ * elements, each measured with `require` just before the advance and after it.
+ */
+export const inPlaceNextSchema = v.strictObject({
+  require: targetRequirementSchema,
+  targets: v.pipe(v.array(loginTargetSchema), v.maxLength(20)),
+});
+export type InPlaceNext = v.InferOutput<typeof inPlaceNextSchema>;
 /**
  * Elements a step needs before it can run: each target matches exactly one element that
  * is a writable input (`fill`), an enabled visible button (`click`) or simply present.
@@ -307,7 +322,7 @@ export const commandSchema = v.variant("type", [
      * measured in the same task as the click or the fill's first input, just before it. The
      * answer reports them as `before`.
      */
-    next: v.optional(loginReadinessSchema),
+    next: v.optional(inPlaceNextSchema),
   }),
   v.strictObject({
     version: v.literal(1),

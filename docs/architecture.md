@@ -878,11 +878,17 @@ continues when its next step's elements are unique on that step's path, if that 
 another one. An `advance` whose next route step is on its own path, as an
 identifier-first form that swaps in its password form in place, continues only once that
 step's elements are ready as the step waits for them (each fill field a shown writable
-input, a click's button shown and enabled, an `assert`-present step's element present),
-none of them was ready or matched several elements when the content script measured them
-in the same task as the click or the fill's first input, just before it, and none is one
-of the advance's own elements
-([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). This holds in the same
+input, a click's button shown and enabled, an `assert`-present step's element present)
+and each fill field and button is also visible as the page's description reads it (not
+hidden from assistive technology, transparent unless it fades in, tiny or moved before
+the page's start, as [ADR 0018](adr/0018-recipe-generation-route.md) reads a page to
+continue), none of them was ready that way or matched several elements when the content
+script measured them in the same task as the click or the fill's first input, just
+before it, and none is one of the advance's own elements
+([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). So a password input an
+email form keeps off-screen for the browser to fill, as Microsoft Entra's does, neither
+keeps the advance from being confirmed once the password form shows nor confirms it
+while the email form still shows (2026-10-17, agent fix). This holds in the same
 document, after a `history.pushState` that keeps the path, and in a new document the
 form posts back to that path once the advance's answer arrived. So a page that still
 shows only the account form, or showed the password form from the start, never
@@ -892,8 +898,9 @@ so after a worker restart such an advance settles that way too. As on another pa
 next step comes before the recipe's handlers: a page that shows the password form beside
 a handler's elements on that path gets the password, not the handler. "Shown" is the
 content script's visibility check, which ignores occlusion, opacity, off-screen
-position, `aria-hidden` and `inert`, so a password form revealed under a captcha or
-consent overlay counts as ready: a known limitation. A click that submits never
+position, `aria-hidden` and `inert`; the description's visibility still ignores
+occlusion, so a password form revealed under a captcha or consent overlay counts as
+ready: a known limitation. A click that submits never
 continues on its own path, and handler steps keep their own rules. A handler that has
 not run is entered once per login when all its elements are unique and usable: its code
 field a shown writable input, its button shown, enabled or not, since many code pages

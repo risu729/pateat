@@ -120,6 +120,7 @@ import {
   START_TRIES,
   START_TRY_WINDOW_MS,
   type ExecutionDetail,
+  type InPlaceNext,
   type LoginReadiness,
   type TargetRequirement,
   type TargetState,
@@ -1151,15 +1152,18 @@ function markerProof(recipe: LoginRecipe, pageOrigin = recipe.origin) {
 /**
  * What confirms the route step at `index` when it is an advance whose next route step is
  * on the same path, as an identifier-first form that swaps in its password form in place
- * (ADR 0013): the next step's elements, as that step waits for them. Undefined when no
- * element could confirm it: a next step that needs none, one that shares an element with
- * the advance, or a handler's step, which keeps its own rules (ADR 0027).
+ * (ADR 0013): the next step's elements, as that step waits for them and also visible as
+ * the page's description reads them (ADR 0018), so a password input an email form keeps
+ * off-screen or hidden from assistive technology for the browser is not taken for the
+ * password form before or after the advance. Undefined when no element could confirm it: a
+ * next step that needs none, one that shares an element with the advance, or a handler's
+ * step, which keeps its own rules (ADR 0027).
  */
 function inPlaceNext(
   recipe: LoginRecipe,
   metadata: LoginAttemptMetadata,
   index: number,
-): LoginReadiness | undefined {
+): InPlaceNext | undefined {
   const plan = attemptPlan(recipe, metadata);
   const done = plan?.[index];
   const next = plan?.[index + 1];
@@ -1179,7 +1183,15 @@ function inPlaceNext(
     readiness.targets.some((target) => own.some((other) => sameLoginTarget(other, target)))
   )
     return undefined;
-  return readiness;
+  return {
+    require:
+      readiness.require === "writable"
+        ? "described-writable"
+        : readiness.require === "clickable"
+          ? "described-clickable"
+          : "present",
+    targets: readiness.targets,
+  };
 }
 const probeMode = import.meta.env.MODE === "probe";
 /** The order in which handlers shown together are tried: a passkey types nothing. */
@@ -3634,7 +3646,8 @@ export function createLoginRuntime(
     // A login with a stop never goes on past it (ADR 0036).
     const next = pastStop(run.metadata, nextIndex) ? undefined : plan[nextIndex]?.step;
     // An advance on the next step's own path is confirmed only by that step's elements
-    // being ready, as it waits for them, and only if they were not ready before it ran.
+    // being ready, as it waits for them and as the page's description sees them, and only
+    // if they were not ready that way before it ran.
     const inPlace =
       run.metadata.operationEffect === "advance"
         ? inPlaceNext(run.recipe, run.metadata, run.metadata.stepIndex)
@@ -3650,7 +3663,7 @@ export function createLoginRuntime(
       [
         ...proof.shown,
         ...(rejection ? ["present" as const] : []),
-        ...nextTargets.map(() => inPlace?.require ?? ("present" as const)),
+        ...nextTargets.map(() => inPlace?.require ?? "present"),
       ],
       proof.links.length > 0 ? proof.links : undefined,
     );
