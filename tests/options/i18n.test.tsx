@@ -97,3 +97,50 @@ test("the language control persists the choice and immediately translates its ac
   window.dispatchEvent(new StorageEvent("storage", { key: LANGUAGE_STORAGE_KEY, newValue: "en" }));
   await expect.element(english).toHaveValue("en");
 });
+
+test("Japanese passkey chooser keeps interpolated account markup as literal text", async () => {
+  saveLanguagePreference("ja");
+  const { ChooserApp } = await import("../../apps/extension/src/passkeys/chooser-app");
+  const send = vi.fn(async (message: unknown) =>
+    (message as { type: string }).type === "passkey-chooser.load"
+      ? {
+          ok: true,
+          view: {
+            origin: "https://login.example.test",
+            rpId: "example.test",
+            entries: [
+              {
+                item: "<img src=x onerror=alert(1)>",
+                userName: "Synthetic user",
+                account: "Synthetic account",
+              },
+            ],
+            replacesDefault: false,
+            again: true,
+            loggedOut: true,
+          },
+        }
+      : { ok: true },
+  );
+  await render(
+    <ChooserApp
+      client={{ request: "6f1c1f0e-8a52-4c2e-9d4b-0b7e3f1a2c3d", send, close: vi.fn() }}
+    />,
+  );
+  await expect
+    .element(page.getByRole("heading", { name: "login.example.test にログイン" }))
+    .toBeVisible();
+  await expect.element(page.getByText("このタブでこのサイトからログアウトしました")).toBeVisible();
+  const list = page.getByRole("list", { name: "利用できるパスキー" });
+  await expect
+    .element(list)
+    .toHaveTextContent("Synthetic userSynthetic account の <img src=x onerror=alert(1)>");
+  expect(list.element().querySelector("img")).toBeNull();
+  await page.getByRole("button", { name: "ブラウザーまたは別の拡張機能を使う" }).click();
+  expect(send).toHaveBeenLastCalledWith({
+    version: 1,
+    type: "passkey-chooser.answer",
+    request: "6f1c1f0e-8a52-4c2e-9d4b-0b7e3f1a2c3d",
+    answer: { kind: "browser" },
+  });
+});
