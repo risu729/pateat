@@ -1,4 +1,8 @@
-import { wifIdentifiersSchema, type ManageClaudeTest, type WifIdentifiers } from "@pateat/contracts";
+import {
+  wifIdentifiersSchema,
+  type ManageClaudeTest,
+  type WifIdentifiers,
+} from "@pateat/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Archive, KeyRound } from "lucide-react";
 import { useId, useRef, useState, type FormEvent } from "react";
@@ -282,15 +286,13 @@ function TestPanel({ client, canTest }: { client: ManageClient; canTest: boolean
         id="claude-test-result"
         message={result?.status === "ready" && describeTestResult(result)}
       />
-      {test.isError && <ErrorNotice id="claude-test-error">{describeError(test.error)}</ErrorNotice>}
+      {test.isError && (
+        <ErrorNotice id="claude-test-error">{describeError(test.error)}</ErrorNotice>
+      )}
       {result && result.status !== "ready" && (
         <ErrorNotice id="claude-test-error">{describeTestResult(result)}</ErrorNotice>
       )}
-      <Button
-        variant="outline"
-        disabled={!canTest || test.isPending}
-        onClick={() => test.mutate()}
-      >
+      <Button variant="outline" disabled={!canTest || test.isPending} onClick={() => test.mutate()}>
         {test.isPending ? "Testing…" : "Test the token exchange"}
       </Button>
     </Panel>
