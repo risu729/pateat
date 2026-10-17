@@ -612,6 +612,21 @@ describe("fixed operations, session scope and reply fencing", () => {
     expect(await deriving).toEqual({ ok: true, data: derived });
   });
 
+  it("rechecks a waiting open against the session caps when its turn comes", async () => {
+    const h = harness();
+    await h.open();
+    // A sync's candidate open and a second one for the same connection race.
+    const candidate = h.host.open(openInput());
+    const extra = h.host.open(openInput());
+    const candidateCommand = await h.command(1);
+    expect(await within(extra, 20)).toBe("waiting");
+    h.answerOpen(candidateCommand);
+    expect(await candidate).toMatchObject({ ok: true });
+    expect(await extra).toEqual({ ok: false, error: { code: "resource-limit" } });
+    expect(h.commands).toHaveLength(2);
+    expect(h.host.status()).toMatchObject({ pending: 0, sessions: 2 });
+  });
+
   it("refuses a waiting open whose wait outlasts its budget without delivering it", async () => {
     const h = harness({ timeoutMs: 300 });
     const first = h.host.open(openInput());
@@ -943,6 +958,8 @@ describe("cancellation, deadlines and host loss", () => {
   it("opens a sync candidate for a connection while four connections have vaults open", async () => {
     const h = harness();
     const connections = [connectionId, "connection-2", "connection-3", "connection-4"];
+    // Each open answers its own delivered command, so they run one after another.
+    // eslint-disable-next-line no-await-in-loop
     for (const owned of connections) await h.open(owned);
     // A sync opens its candidate while the connection's live session is still open.
     const candidate = await h.open("connection-2");
@@ -953,6 +970,8 @@ describe("cancellation, deadlines and host loss", () => {
   it("refuses a fifth connection's vault and a third session of one connection", async () => {
     const h = harness();
     const connections = [connectionId, "connection-2", "connection-3", "connection-4"];
+    // Each open answers its own delivered command, so they run one after another.
+    // eslint-disable-next-line no-await-in-loop
     for (const owned of connections) await h.open(owned);
     await h.open("connection-2");
     const sent = h.commands.length;
@@ -969,19 +988,26 @@ describe("cancellation, deadlines and host loss", () => {
     expect(h.host.status()).toMatchObject({ sessions: 5 });
   });
 
-  it("bounds native initialization work before the handshake instead of admitting concurrent KDF jobs", async () => {
-    const h = harness({ automaticReady: false, timeoutMs: 100 });
+  it("bounds native initialization work before the handshake by running one KDF job at a time", async () => {
+    const h = harness({ automaticReady: false, timeoutMs: 300 });
     const controller = new AbortController();
     const first = h.host.deriveAuthentication(auth(), controller.signal);
-    expect(
-      await h.host.deriveAuthentication({ ...auth(), connectionId: "second-connection" }),
-    ).toEqual({
-      ok: false,
-      error: { code: "resource-limit" },
-    });
+    const second = h.host.deriveAuthentication({ ...auth(), connectionId: "second-connection" });
+    expect(await within(second, 20)).toBe("waiting");
     controller.abort();
     expect(await first).toEqual({ ok: false, error: { code: "cancelled" } });
-    expect(h.commands).toEqual([]);
+    await vi.waitFor(() =>
+      expect(h.posted).toContainEqual(expect.objectContaining({ type: "crypto.reset" })),
+    );
+    h.onMessage.emit({ version: 1, type: "crypto.ready", generation: h.host.generation });
+    // The cancelled first never reached the Worker; the second runs alone.
+    const deriveCommand = await h.command(0);
+    expect(deriveCommand.connectionId).toBe("second-connection");
+    expect(h.host.status()).toMatchObject({ pending: 1 });
+    const derived = { connectionId: "second-connection", masterPasswordHash: "synthetic-hash" };
+    h.reply(deriveCommand, { ok: true, data: derived });
+    expect(await second).toEqual({ ok: true, data: derived });
+    expect(h.commands).toHaveLength(1);
   });
 
   it("cancellation at the dispatch barrier prevents any secret command delivery", async () => {
