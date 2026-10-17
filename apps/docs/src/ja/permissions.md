@@ -1,4 +1,4 @@
-# 権限
+# 権限 {#permissions}
 
 Pateat は、機能に必要な範囲の権限を Chrome に求めます。
 マニフェストにある各権限と、その用途を説明します。
@@ -13,7 +13,7 @@ Pateat は、機能に必要な範囲の権限を Chrome に求めます。
 `tabs`、`scripting`、`activeTab`、`cookies`、`webRequest`、`history`、 `nativeMessaging`
 など、それ以外の権限は要求しません。通常の HTTP ページでは動作しません。
 
-## すべての HTTPS サイトへのアクセス
+## すべての HTTPS サイトへのアクセス {#access-to-all-https-sites}
 
 サイトごとに後から権限を求める方式ではなく、インストール時にすべての HTTPS サイトへの
 アクセスを宣言します
@@ -46,7 +46,7 @@ Pateat のスクリプトは、すべての HTTPS ページに読み込まれま
 同じアクセス権で Bitwarden サーバーと Pateat サービスにも接続します。 Bitwarden
 には、選んだサーバー上の、機能に必要な決まったエンドポイントだけを呼び出します。
 
-## サイトアクセスを制限する
+## サイトアクセスを制限する {#limiting-site-access}
 
 Chrome では、拡張機能のサイトアクセスを制限できます。 `chrome://extensions` の Pateat
 のカードから **詳細** → **サイトへのアクセス** を開きます。 Pateat
@@ -59,7 +59,7 @@ Bitwarden サーバーや Pateat サービスに接続できない場合は、�
 を無効にします。その除外設定は、同じサービスとペアリングした
 すべての端末に反映されます。
 
-## ストレージ
+## ストレージ {#storage}
 
 データは、Chrome の拡張機能専用ストレージ（`chrome.storage` と IndexedDB）に保存します。
 ウェブサイトからは読み取れません。Chrome

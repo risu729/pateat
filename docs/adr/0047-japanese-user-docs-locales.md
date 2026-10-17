@@ -25,6 +25,8 @@ language switch. Keep English as the root/default; do not redirect based on brow
 language. Each locale has its own navigation, sidebar, document controls and search
 labels, with `lang="en"` or `lang="ja"` on the generated HTML. Japanese content links
 to Japanese sibling pages; links to developer material explicitly identify English.
+Japanese headings use explicit IDs matching their English counterparts, so the
+language switch preserves a section fragment without pointing to a missing heading.
 
 Keep the current English Pateat UI control labels in the Japanese setup instructions,
 with Japanese explanations, so readers can find the actual controls in the site's

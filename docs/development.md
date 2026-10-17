@@ -216,12 +216,12 @@ root/default, and the language switch selects Japanese under `/ja/`; no browser-
 redirect is installed. Both locales have their own navigation, accessible theme labels
 and local-search labels ([proposed ADR 0047](adr/0047-japanese-user-docs-locales.md)).
 The Japanese setup guide retains current English Pateat control labels until the
-independent UI translations land. The site
-serves the extension's own `apps/extension/icons/icon.svg` through a small Vite plugin
-in `.vitepress/config.ts` instead of keeping a copy, and `.vitepress/theme/brand.css`
-sets VitePress's default theme to the icon's green, darkened where text needs 4.5:1
-contrast. The pages link to this `docs/` directory, which the site does not include, by
-absolute GitHub URLs.
+independent UI translations land. Heading IDs match the English pages so that the
+language switch preserves section links. The site serves the extension's own
+`apps/extension/icons/icon.svg` through a small Vite plugin in `.vitepress/config.ts`
+instead of keeping a copy, and `.vitepress/theme/brand.css` sets VitePress's default
+theme to the icon's green, darkened where text needs 4.5:1 contrast. The pages link to
+this `docs/` directory, which the site does not include, by absolute GitHub URLs.
 
 VitePress fails the build on a dead link between pages. `//apps/docs:test` builds the
 site and then checks, with `apps/docs/check-links.mjs`, that every local link, asset
