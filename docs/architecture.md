@@ -964,7 +964,14 @@ verdict that added a handler hands back the newer revision: the attempt takes it
 (`REVISED`) when it only adds handlers or signed-in markers, and runs the handler on the
 page it is on. A resumed attempt accepts a newer cached revision on the same terms only
 while the worker still holds its recorded revision; after a worker restart only the
-recorded revision resumes. What the judge answers settles the login on the `password`
+recorded revision resumes. A resumed attempt that its cached recipe no longer runs (a
+revision that replaced or withdrew its own, or any other one after a restart) ends on
+the page that resumes it, `blocked` `policy-changed` with cause `recipe-changed`; that
+page is refused `recipe-not-found` and nothing is filled there. Later pages of the tab
+treat it as any login stopped `policy-changed`: one that submitted is resumed while it
+holds the site (ADR 0022), and then the tab's next page that shows a recipe's first
+step asks and only fills (ADR 0021 D); one that submitted nothing lets the tab's next
+page log in. What the judge answers settles the login on the `password`
 route as the ADR's outcome table says: `signed-in` completes it, `rejected` ends it
 `credential-rejected`, and `challenge` ends it `challenge`. An `unclear` answer
 completes it, as a warning marked `completed`, only when the page confirmed no sign and
@@ -1320,7 +1327,8 @@ takes it over instead), `settings-unavailable`,
 `plan` (the settings or vault no longer allow the login's account on this page, with the
 plan's refusal reason such as `connection-disabled`, or `account-changed`),
 `vault-replaced` (a vault sync replaced the snapshot that authorized a value before it
-was delivered) and `field-unavailable` (a vault field could not be read).
+was delivered), `field-unavailable` (a vault field could not be read) and
+`recipe-changed` (a page resumed the login after its cached recipe stopped running it).
 
 Other login events, judgement, handler, recipe generation and passkey events are limited
 to 30 per minute per tab and origin, since one login writes 6 to 8 of them, and
