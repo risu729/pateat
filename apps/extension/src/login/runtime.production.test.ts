@@ -17668,6 +17668,44 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
           expect(service.generate).not.toHaveBeenCalled();
         });
 
+        it("never counts a field of another form beside a password-only form", async () => {
+          // A search box in the page header, with no `type=search`, beside the password form.
+          const reports: LoginReport[] = [];
+          const service = generation();
+          const h = formOnly(service, reports);
+          fake.state.extracted = {
+            login: describedPage("/signin", [
+              { id: "c1", role: "text", target: target("search"), label: "Search", group: "g1" },
+              { id: "c2", role: "password", target: target("password"), group: "g2" },
+              { id: "c3", role: "button", target: target("login"), group: "g2" },
+            ]),
+          };
+          expect(await h.hello({}, false)).toMatchObject({ generate: true });
+          expect(await h.signIn()).toEqual({ ok: false, reason: "generating" });
+          await vi.waitFor(() =>
+            expect(reports.find((entry) => entry.type === "generation")).toMatchObject({
+              reason: "no-account-field",
+            }),
+          );
+          expect(service.generate).not.toHaveBeenCalled();
+        });
+
+        it("sends nothing once the list shows", async () => {
+          const reports: LoginReport[] = [];
+          const service = generation();
+          const h = formOnly(service, reports);
+          expect(await h.hello({}, false)).toMatchObject({ generate: true });
+          // The list renders after the form announced itself.
+          fake.state.awaitReply = () => ({ ok: true });
+          expect(await h.signIn()).not.toEqual({ ok: false, reason: "generating" });
+          expect(reports.find((entry) => entry.type === "generation")).toMatchObject({
+            outcome: "skipped",
+            reason: "list-shown",
+            page: "other",
+          });
+          expect(service.generate).not.toHaveBeenCalled();
+        });
+
         it.each([
           ["the page was sent already", "sent" as const, true],
           ["the chooser has no button for another account", true as const, false],

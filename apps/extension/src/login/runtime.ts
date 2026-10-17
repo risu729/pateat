@@ -876,17 +876,22 @@ function acceptedObservation(
 
 /** Roles of a field that can take an account's email address, username or ID. */
 const accountRoles = new Set(["text", "email", "tel", "number"]);
+/** A field's `autocomplete` that leaves it free to take an account: none, or one for it. */
+const accountTokens = new Set([undefined, "off", "username", "email"]);
 /**
- * Whether a page asks for an account: it holds a field for one, not only a password or a
- * one-time code (ADR 0028).
+ * Whether a page asks for an account (ADR 0028): it holds a field that can take one, in the
+ * same form as a password field when it shows one, so a search box or another form's
+ * field beside a password-only form does not count.
  */
-const asksAccount = (observation: LoginObservation) =>
-  observation.candidates.some(
+const asksAccount = (observation: LoginObservation) => {
+  const passwords = observation.candidates.filter((candidate) => candidate.role === "password");
+  return observation.candidates.some(
     (candidate) =>
       accountRoles.has(candidate.role) &&
-      candidate.autocomplete !== "one-time-code" &&
-      candidate.autocomplete !== "new-password",
+      accountTokens.has(candidate.autocomplete) &&
+      (!passwords.length || passwords.some((password) => password.group === candidate.group)),
   );
+};
 
 /** The service's recipe generation routes (ADR 0016, ADR 0018). */
 export interface LoginGeneration {
@@ -6517,8 +6522,8 @@ export function createLoginRuntime(
       // (ADR 0019).
       if (!sent && documents.get(key) === live)
         if (error instanceof DocumentGone)
-          skipGeneration(live, "unreachable", undefined, error.reason);
-        else skipGeneration(live, "exception");
+          skipGeneration(live, "unreachable", otherless && "other", error.reason);
+        else skipGeneration(live, "exception", otherless && "other");
     }
   }
   /**
@@ -7581,13 +7586,22 @@ export function createLoginRuntime(
         chooser?.chooser.other && !chooser.chooser.afterOther && !previous ? chooser : undefined;
       const otherOffer = otherless && (await offersOther(live, otherless));
       if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
-      if (otherOffer === "sending" || otherOffer === "sent" || otherOffer === "not-connected")
+      const otherShown = otherless && signIn?.path === live.path ? otherless : undefined;
+      // Logged only for a shown form: the list may still show on this path.
+      if (
+        otherShown &&
+        (otherOffer === "sending" || otherOffer === "sent" || otherOffer === "not-connected")
+      )
         skipGeneration(live, otherOffer, "other");
-      if (otherless && otherOffer === true && signIn?.path === live.path) {
+      if (otherShown && otherOffer === true) {
         // Nor is the page right after a sign-in.
         if (afterSignIn.get(document.tabId) === document.documentId)
           skipGeneration(live, "after-sign-in", "other");
-        else {
+        // Nor a page whose list shows meanwhile: the login clicks there (ADR 0028).
+        else if (await showsNow(live, listReadiness(otherShown))) {
+          if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+          skipGeneration(live, "list-shown", "other");
+        } else {
           let missed: [GenerationMiss, (string | undefined)?] = ["vault-unavailable", "error"];
           const scope = await generationSlotsFor(live, (...reason) => {
             missed = reason;
@@ -7597,7 +7611,7 @@ export function createLoginRuntime(
             live.state = "generating";
             delete live.reason;
             await publish(live);
-            void generateFor(live, scope, undefined, otherless);
+            void generateFor(live, scope, undefined, otherShown);
             return { ok: false, reason: "generating" };
           }
           skipGeneration(live, missed[0], "other", missed[1]);

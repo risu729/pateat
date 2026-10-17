@@ -363,28 +363,30 @@ first step does:
   by itself and the item holds one ([ADR 0034](0034-answer-page-passkey-requests.md)),
   while a click on `other` from the list stops before the password.
 
-Amended on 2026-10-17 by the owner's decision (00:11 UTC, decision card "A:
-生成に送る"), after the owner's Chrome on Cloudflare still started nothing on that form
-with the build above: the stored chooser had `other` but no `afterOther`, since no login
-had clicked `other` there yet (read from the service's database on 2026-10-16 15:36
-UTC). The form was no start (`login.refused` `not-started` `first-step-missing`) and,
-with a chooser on its path, was never sent for generation. Now, when a chooser has
-`other` and no `afterOther`, and its path in a top-level document shows a sign-in form
-while the list does not show, the extension sends that page as the `other` branch's
-first page: the request a login sends after its own click on `other` (`base` the
-chooser, `"branch": "other"`), held per chooser revision and branch as such a page is.
-The service is unchanged; it writes the answer into `afterOther`. The page announces
+Amended on 2026-10-17 by the owner's decision (00:11 UTC, decision card "A: 生成に送る",
+send it for generation), after the owner's Chrome on Cloudflare still started nothing on
+that form with the build above: the stored chooser had `other` but no `afterOther`,
+since no login had clicked `other` there yet (read from the service's database on
+2026-10-16 15:36 UTC). The form was no start (`login.refused` `not-started`
+`first-step-missing`) and, with a chooser on its path, was never sent for generation.
+Now, when a chooser has `other` and no `afterOther`, and its path in a top-level
+document shows a sign-in form while the list does not show (checked again just before
+sending, else logged `list-shown`), the extension sends that page as the `other`
+branch's first page: the request a login sends after its own click on `other` (`base`
+the chooser, `"branch": "other"`), held per chooser revision and branch as such a page
+is. The service is unchanged; it writes the answer into `afterOther`. The page announces
 again once the chooser comes back and starts on the branch as `other-shown` above, with
-the same rules after a logout and for several matches. Only a form with a field that can
-take the account (a text, email, phone or number field that is not marked for a one-time
-code or a new password) is sent: the password form after the person's own click on a
-listed profile belongs to `afterAccount` and is never stored as `afterOther` (logged
+the same rules after a logout and for several matches. Only a form that asks for the
+account is sent: it has a text, email, phone or number field with no `autocomplete` or
+one for a username or an email, in the same form as the password field when one shows.
+The password form after the person's own click on a listed profile belongs to
+`afterAccount` and is never stored as `afterOther`, even beside a search box (logged
 `recipe.generate` `skipped` `no-account-field`). The page is not sent right after a
 submitted password form, nor while the document has stopped watching after a refusal
 such as `account-ambiguous`; it is sent once the document announces again, as after a
-pick in the popup or a reload. The log's `recipe.generate` names it `page` `other` with
-the chooser's ID and revision. A chooser whose `afterOther` starts on another path still
-gets nothing on such a form.
+pick in the popup or a reload. The log's `recipe.generate` names it `page` `other`, with
+the chooser's ID and revision once it is sent. A chooser whose `afterOther` starts on
+another path still gets nothing on such a form.
 
 Amended on 2026-10-13 by the owner's decision at 06:32 UTC
 ([ADR 0036](0036-passkey-after-the-identifier.md#account-lists)): an item without a
