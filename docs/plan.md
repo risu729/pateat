@@ -486,6 +486,19 @@ than in this repository.
   there ([ADR 0039](adr/0039-redacted-token-path-segments.md), owner, 14:10 UTC; local
   tests only, and a synthetic browser test not yet run). Check both sites in the owner's
   Chrome.
+- UNSW's single sign-on page on Microsoft Entra
+  (`login.microsoftonline.com/<tenant>/oauth2/authorize`) was logged `recipe.generate`
+  `skipped` `incomplete-observation` with `unfillable-field` in the owner's Chrome on
+  build `d29951d` (2026-10-17, about 01:40 UTC). In cloud Chromium 141 the extractor,
+  run every 20 ms from the page's start, found no candidates at 459 ms, an incomplete
+  page with 3 candidates from about 1,120 to 1,315 ms, and a complete one with 9 from
+  about 1,400 ms: the email field sat under a container whose opacity faded in from 0,
+  so it counted as transparent. The page's hidden password input for the browser
+  (`aria-hidden`) was already skipped. That the fade stayed at 0 through the runtime's
+  three reads a second apart because the tab was not rendered, as in a background tab,
+  is inferred, not shown. Since 2026-10-17 an element that is fading in counts as
+  opaque ([AI evaluation harness progress](#ai-evaluation-harness-progress); agent fix,
+  local tests only). Check the page in the owner's Chrome.
 - Known faults moved from phase 1 (owner, 2026-10-12 20:35 UTC), fixed when a real site
   shows them again: the `reconciling` exception seen on SBI証券, and `generate` ignoring
   a failed sync after generation (both recorded under phase 1).
@@ -2432,8 +2445,15 @@ page action. On the 954 Formasaurus pages of the real-page corpus (2026-10-11) t
 turned 371 candidates on 121 pages, 32 of them login pages, into buttons, mostly from
 links; no page's completeness changed, and five pages that are not login pages lost some
 context links to the 48-candidate limit or to shared text. Hidden, collapsed,
-`aria-hidden` and before-the-page-start inputs are skipped as likely traps. Labels come
-from `aria-labelledby`, `aria-label`, `<label>`, the text next to a field (the preceding
+`aria-hidden` and before-the-page-start inputs are skipped as likely traps; a
+transparent (opacity 0, also through an ancestor) or tiny field makes the form
+incomplete. Since 2026-10-17 an element transparent only because it or each transparent
+ancestor has a running or paused CSS animation, CSS transition or script animation that
+takes its opacity above 0 counts as opaque, wherever the content script reads whether an
+element is shown (fields, buttons and their text, lists of accounts, sign-in entries and
+the signed-in page). An input at opacity 0 with no such animation, or under one that
+holds the opacity at 0 or finished at 0, stays transparent. Labels come from
+`aria-labelledby`, `aria-label`, `<label>`, the text next to a field (the preceding
 table cell, `<dt>` or sibling, at most three levels up, never across another control or
 its label), then `title`; image `alt` names buttons, including `<input type="image">`. A
 text, email, tel, number or password field also gets a `description`: the rendered text

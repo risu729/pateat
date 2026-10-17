@@ -87,8 +87,62 @@ function hiddenByAttribute(element: Element): boolean {
   return false;
 }
 
+/** The parent of `element` in the flat tree, as `checkVisibility` walks it. */
+function flatParent(element: Element): Element | null {
+  if (element.assignedSlot) return element.assignedSlot;
+  const parent = element.parentNode;
+  return parent instanceof ShadowRoot ? parent.host : element.parentElement;
+}
+
 /**
- * Rendered: not hidden by CSS, a closed `<details>` or an attribute (opacity optional).
+ * Whether an animation of `element` that has not finished, running or paused, takes its
+ * opacity above 0 at some point: a CSS animation, a CSS transition or a script's
+ * `animate()`. One that holds the opacity at 0 throughout does not count.
+ */
+function fades(element: Element): boolean {
+  return element
+    .getAnimations()
+    .some(
+      (animation) =>
+        (animation.playState === "running" || animation.playState === "paused") &&
+        animation.effect instanceof KeyframeEffect &&
+        animation.effect.getKeyframes().some((frame) => Number(frame["opacity"] ?? 0) > 0),
+    );
+}
+
+/**
+ * Whether `element` is transparent only while it fades in: each of it and its flat-tree
+ * ancestors whose opacity is 0, which `checkVisibility` counts as hidden, has an
+ * animation of its opacity under way ({@link fades}). A sign-in form often fades in, as
+ * Microsoft Entra's did: its email field stayed under a container at opacity 0 until
+ * about 1.3 seconds after the page started in cloud Chromium (2026-10-17). An animation
+ * does not advance while the tab is not rendered (inferred for the owner's Chrome), so
+ * one held at its start counts, paused ones too. An input at opacity 0 with no such
+ * animation, as a trap, is not fading.
+ */
+function fadingIn(element: Element): boolean {
+  const view = element.ownerDocument.defaultView;
+  if (!view) return false;
+  let transparent = false;
+  for (let node: Element | null = element; node; node = flatParent(node)) {
+    if (Number(view.getComputedStyle(node).opacity) !== 0) continue;
+    if (!fades(node)) return false;
+    transparent = true;
+  }
+  return transparent;
+}
+
+/** `checkVisibility`, with an element that is fading in counted as opaque. */
+function rendered(element: Element, opacity: boolean): boolean {
+  return (
+    element.checkVisibility(visibility(opacity)) ||
+    (opacity && element.checkVisibility(visibility(false)) && fadingIn(element))
+  );
+}
+
+/**
+ * Rendered: not hidden by CSS, a closed `<details>` or an attribute (opacity optional; an
+ * element still fading in from opacity 0 counts as opaque, {@link fadingIn}).
  * An element with `display: contents` has no box of its own, so `checkVisibility` is
  * false for it although its children render in its place; it counts as shown when its
  * parent is, the parent renders its content (not a closed `<details>` or
@@ -103,7 +157,7 @@ export function shown(element: Element, opacity = true): element is HTMLElement 
     hiddenByAttribute(element)
   )
     return false;
-  if (element.checkVisibility(visibility(opacity))) return true;
+  if (rendered(element, opacity)) return true;
   const parent = element.parentElement;
   const view = element.ownerDocument.defaultView;
   const style = view?.getComputedStyle(element);
@@ -123,9 +177,7 @@ export function shown(element: Element, opacity = true): element is HTMLElement 
   return (
     !children.length ||
     children.some(
-      (child) =>
-        child.checkVisibility(visibility(opacity)) ||
-        view.getComputedStyle(child).display === "contents",
+      (child) => rendered(child, opacity) || view.getComputedStyle(child).display === "contents",
     )
   );
 }

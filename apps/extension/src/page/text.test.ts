@@ -64,6 +64,30 @@ describe("shown", () => {
     expect(shown(by("none"))).toBe(false);
     expect(shown(by("open"))).toBe(true);
   });
+
+  it("counts an element as opaque while every transparent ancestor fades in", () => {
+    document.body.innerHTML = `
+      <div id="outer" style="opacity: 0"><div id="inner" style="opacity: 0">
+        <b id="text">Sign in</b></div></div>
+      <div id="host"><span id="slotted">Next</span></div>
+    `;
+    const by = (id: string) => document.getElementById(id)!;
+    const fade = (element: HTMLElement) =>
+      element.animate([{ opacity: 0 }, { opacity: 1 }], 5000).pause();
+    fade(by("inner"));
+    // An outer ancestor at opacity 0 without an animation still hides it.
+    expect(shown(by("text"))).toBe(false);
+    expect(shown(by("text"), false)).toBe(true);
+    fade(by("outer"));
+    expect(shown(by("text"))).toBe(true);
+    expect(collapseText(renderedText(by("outer"), 100) ?? "")).toBe("Sign in");
+    // The walk follows the flat tree, from a slotted element through the shadow root.
+    const root = by("host").attachShadow({ mode: "open" });
+    root.innerHTML = `<div style="opacity: 0"><slot></slot></div>`;
+    expect(shown(by("slotted"))).toBe(false);
+    fade(root.querySelector("div")!);
+    expect(shown(by("slotted"))).toBe(true);
+  });
 });
 
 describe("isScriptButton", () => {
