@@ -41,8 +41,10 @@ const maxUris = 1000;
 const maxUrlLength = 8192;
 const maxGroups = 1000;
 const maxDomainMembers = 10_000;
-const hostText = v.pipe(v.string(), v.minLength(1), v.maxLength(253));
-const groupSchema = v.array(hostText);
+const maxHostLength = 253;
+const hostText = v.pipe(v.string(), v.minLength(1), v.maxLength(maxHostLength));
+// Entries are checked one by one later, so one bad entry does not void its groups.
+const groupSchema = v.array(v.string());
 const domainsSchema = v.object({
   equivalentDomains: v.nullable(v.array(groupSchema)),
   globalEquivalentDomains: v.nullable(
@@ -168,9 +170,11 @@ function equivalentGroups(input: unknown): string[][] | undefined {
   for (const group of groups) {
     const values: string[] = [];
     for (const value of group) {
+      // As in the official clients, which compare raw strings, an entry that is not a
+      // hostname can never match, so it is ignored instead of voiding every group.
+      if (value.length === 0 || value.length > maxHostLength) continue;
       const hostname = equivalentHostname(value);
-      if (!hostname) return undefined;
-      values.push(hostname);
+      if (hostname && hostname.length <= maxHostLength) values.push(hostname);
     }
     normalized.push(values);
   }
