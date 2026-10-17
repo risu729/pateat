@@ -1,22 +1,22 @@
-# インストール
+# インストール {#installation}
 
 ::: warning まだリリースされていません
 Pateat のリリースはまだ公開されておらず、配布形式も決まっていません。
 以下は、[GitHub Releases](https://github.com/risu729/pateat/releases) で配布する
 ZIP ファイルを展開し、Chrome に読み込むことを想定した手順です。
-それまでは[ソースからビルド](#ソースからビルドする)してください。
+それまでは[ソースからビルド](#build-from-source)してください。
 :::
 
-## 必要なもの
+## 必要なもの {#requirements}
 
 - デスクトップ版 Google Chrome 144 以降。自分のコンピューターにインストールした Chrome
   を対象としています。他の Chromium ブラウザーやホスト型ブラウザーでは未確認です。
 - Bitwarden Cloud（US または EU）、または HTTPS で接続できるセルフホスト版 Bitwarden の
   アカウント。これまでに確認したのは、Bitwarden Cloud US の 1 アカウントのみです。
 - 設定とレシピを保存する、ペアリング先の Pateat サービス。
-  インストール前に[サービスについて](./setup.md#pateat-サービスについて)を確認してください。
+  インストール前に[サービスについて](./setup.md#the-pateat-service)を確認してください。
 
-## リリースをインストールする
+## リリースをインストールする {#install-a-release}
 
 1. [GitHub Releases](https://github.com/risu729/pateat/releases) から Chrome 用の
    ZIP ファイルをダウンロードします。
@@ -36,7 +36,7 @@ ZIP ファイルを展開し、Chrome に読み込むことを想定した手順
 拡張機能 ID はマニフェスト内のキーで固定されるため、この形式でのリリース間では同じ ID と
 Chrome 内のデータを引き継ぎます。
 
-## 新しいリリースに更新する
+## 新しいリリースに更新する {#update-to-a-new-release}
 
 1. 読み込んだフォルダーの中身を削除し、新しいリリースの ZIP
    を同じフォルダーに展開します。
@@ -46,7 +46,7 @@ Chrome 内のデータを引き継ぎます。
 ペアリングを含め、Chrome に保存したデータが消えます。[初期設定](./setup.md)をやり直す
 必要があります。
 
-## ソースからビルドする
+## ソースからビルドする {#build-from-source}
 
 ビルドには [mise](https://mise.jdx.dev/) と Git が必要です。
 [リポジトリ](https://github.com/risu729/pateat)をクローンし、その中で実行します。
@@ -57,20 +57,20 @@ mise run install
 mise run //apps/extension:build
 ```
 
-出力先は `apps/extension/.output/chrome-mv3/` です。 上記の
+出力先は `apps/extension/.output/chrome-mv3/` です。上記の
 **パッケージ化されていない拡張機能を読み込む** で、このフォルダーを選びます。
 その他の開発ツールについては、[開発ガイド（英語）](https://github.com/risu729/pateat/blob/main/docs/development.md)をご覧ください。
 
-## ソースコードとライセンス
+## ソースコードとライセンス {#source-code-and-license}
 
 Pateat 拡張機能は、GNU General Public License バージョン 3
-のみを適用する自由ソフトウェアです。 公式 Bitwarden SDK を GPLv3
+のみを適用する自由ソフトウェアです。公式 Bitwarden SDK を GPLv3
 の選択肢で使用しています。リリースには、そのコミットの Pateat
 ソースと、ビルドに使った正確な Bitwarden SDK のソースを含む
 [対応するソース（英語）](https://github.com/risu729/pateat/blob/main/docs/sdk-source.md)が付属します。
 [ライセンスの説明（英語）](https://github.com/risu729/pateat/blob/main/LICENSING.md)もご覧ください。
 
-## Chrome ウェブストア
+## Chrome ウェブストア {#chrome-web-store}
 
 ストアのポリシーで認められれば、Chrome ウェブストアでも公開する予定です。
 ストア版にはストアが割り当てる拡張機能 ID
