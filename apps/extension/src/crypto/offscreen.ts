@@ -12,6 +12,9 @@ import {
   type HostSessionRef,
 } from "./wire";
 
+/** Backstop for the host's caps: four connections, each with a live and a sync session. */
+const MAX_SESSIONS = 8;
+
 /** One bundled offscreen document supervises local Workers; it does not persist credentials. */
 export function startCryptoOffscreen() {
   const port = browser.runtime.connect({ name: CRYPTO_PORT });
@@ -86,7 +89,11 @@ export function startCryptoOffscreen() {
     let worker: Worker;
     const ephemeral = op.kind === "derive-auth" || op.kind === "open";
     if (ephemeral) {
-      if (sessions.size >= 4 || jobs.size >= 8 || jobs.values().some((job) => job.ephemeral)) {
+      if (
+        sessions.size >= MAX_SESSIONS ||
+        jobs.size >= 8 ||
+        jobs.values().some((job) => job.ephemeral)
+      ) {
         post(command, failure("resource-limit"));
         return;
       }
