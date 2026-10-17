@@ -69,4 +69,24 @@ describe("identifierInput", () => {
       asks('<details open><summary>Sign in</summary><input type="email" name="email"></details>'),
     ).toBe("sole");
   });
+
+  // Chromium's `autocomplete` property reads "" for a token list that is not a valid
+  // autofill detail, so the rule reads the attribute's tokens.
+  it("takes an email input among several autocomplete tokens", () => {
+    expect(asks('<input name="company"><input autocomplete="username email" name="x">')).toBe(
+      "email",
+    );
+  });
+
+  it("leaves out an input marked for something else among several tokens", () => {
+    expect(asks('<input name="login" autocomplete="off given-name">')).toBeUndefined();
+  });
+
+  it("leaves out a sign-up form whose new password has several tokens", () => {
+    expect(
+      asks(
+        '<form><input type="email"><input type="password" autocomplete="off new-password"></form>',
+      ),
+    ).toBeUndefined();
+  });
 });
