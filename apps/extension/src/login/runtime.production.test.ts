@@ -5504,6 +5504,56 @@ describe("production login document admission", () => {
     expect(await h.hello({ documentId: "synthetic-document-2" })).toEqual(expected);
     expect(h.recipes.recipe).toHaveBeenLastCalledWith(origin, "/signin", recipe.id);
   });
+  it("ends a submitted login whose recipe revision was replaced, so its tab asks again", async () => {
+    // The record used to stay running: every later page of the tab resumed it and was
+    // refused, the recipe's first step included, until the tab closed. It now stops as a
+    // login stopped after a submission does (ADR 0021 D, 2026-10-12).
+    fake.state.onExecute = (message) =>
+      (message["operation"] as { step: { kind: string } }).step.kind === "click"
+        ? new Promise(() => undefined)
+        : Promise.resolve();
+    const report = vi.fn<(report: LoginReport) => void>();
+    const h = harness({}, { report });
+    const executes = () => fake.state.messages.filter((entry) => entry.type === "login.execute");
+    const record = () =>
+      (
+        fake.state.storage["pateat.login-attempts.v4"] as Record<string, unknown>[] | undefined
+      )?.[0];
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(executes()).toHaveLength(2));
+    const id = record()?.["id"];
+    h.recipes.recipe.mockResolvedValue({ ...recipe, revision: 2, maxSubmissions: 2 });
+    expect(await h.hello({ documentId: "synthetic-document-2" })).toEqual({
+      ok: false,
+      reason: "recipe-not-found",
+    });
+    expect(record()).toMatchObject({ id, state: "blocked", outcome: "policy-changed" });
+    expect(await h.login.active()).toBe(false);
+    expect(
+      report.mock.calls
+        .map(([entry]) => entry)
+        .filter((entry) => entry.type === "attempt")
+        .at(-1),
+    ).toMatchObject({ state: "blocked", outcome: "policy-changed", cause: "recipe-changed" });
+    // The refused page itself is never filled, also when it announces again.
+    expect(await h.hello({ documentId: "synthetic-document-2" })).toMatchObject({ ok: false });
+    expect(executes()).toHaveLength(2);
+    // The click may have reached the site, so the login holds it for 5 minutes (ADR 0022);
+    // after that, the tab's next page that shows the first step asks and only fills.
+    const now = Date.now();
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now + 6 * 60_000);
+    try {
+      expect(await h.hello({ documentId: "synthetic-document-3" })).toEqual({ ok: true });
+      await vi.waitFor(() => expect(executes()).toHaveLength(3));
+      expect(
+        (executes()[2] as unknown as { operation: { step: LoginStep } }).operation.step.kind,
+      ).toBe("fill");
+      await vi.waitFor(async () => expect(await h.login.active()).toBe(false));
+      expect(fake.state.session["pateat.login-stopped-asks.v1"]).toEqual([{ tabId: 1, origin }]);
+    } finally {
+      clock.mockRestore();
+    }
+  });
   describe("on a page without a recipe", () => {
     const unsaved = { siteDefaults: [], bindings: [] };
     const generated = parseLoginRecipe({
