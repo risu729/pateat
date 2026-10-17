@@ -117,6 +117,20 @@ export const siteDefaultSchema = v.strictObject({
   accountName: v.optional(vaultNameSchema),
 });
 
+/** A hostname, and optionally its subdomains; an exclusion or allowlist entry. */
+export const siteRuleSchema = v.strictObject({
+  hostname: hostnameSchema,
+  includeSubdomains: v.boolean(),
+});
+const siteRulesSchema = v.pipe(
+  v.array(siteRuleSchema),
+  v.maxLength(1000),
+  v.check(
+    (sites) => new Set(sites.map((site) => site.hostname)).size === sites.length,
+    "Duplicate sites",
+  ),
+);
+
 export const connectionSettingsSchema = v.strictObject({
   connectionId: identifier,
   enabled: v.boolean(),
@@ -148,14 +162,13 @@ export const localSettingsSchema = v.pipe(
         "Duplicate connections",
       ),
     ),
-    excludedSites: v.pipe(
-      v.array(v.strictObject({ hostname: hostnameSchema, includeSubdomains: v.boolean() })),
-      v.maxLength(1000),
-      v.check(
-        (sites) => new Set(sites.map((site) => site.hostname)).size === sites.length,
-        "Duplicate sites",
-      ),
-    ),
+    excludedSites: siteRulesSchema,
+    /**
+     * The allowlist: while present, Pateat acts only on sites one of these rules covers,
+     * and exclusions still win. Absent, Pateat acts on every site no exclusion covers.
+     * Synced like the exclusions (ADR 0013).
+     */
+    allowedSites: v.optional(siteRulesSchema),
     siteDefaults: v.pipe(
       v.array(siteDefaultSchema),
       v.maxLength(1000),
@@ -287,6 +300,7 @@ export const settingsResponseSchema = v.variant("ok", [
 export type LocalSettings = v.InferOutput<typeof localSettingsSchema>;
 export type ConnectionSettings = v.InferOutput<typeof connectionSettingsSchema>;
 export type SiteDefault = v.InferOutput<typeof siteDefaultSchema>;
+export type SiteRule = v.InferOutput<typeof siteRuleSchema>;
 export type SettingsSnapshot = v.InferOutput<typeof settingsSnapshotSchema>;
 export type SettingsRequest = v.InferOutput<typeof settingsRequestSchema>;
 export type SettingsResponse = v.InferOutput<typeof settingsResponseSchema>;
@@ -416,16 +430,44 @@ export function getItemEligibility(
   return { eligible: true, item, fieldIds };
 }
 
-export function isSiteExcluded(settings: LocalSettings, value: string): boolean {
+/** Whether a site rule covers a canonical hostname. */
+export function siteRuleCovers(rule: SiteRule, hostname: string): boolean {
+  return (
+    hostname === rule.hostname || (rule.includeSubdomains && hostname.endsWith(`.${rule.hostname}`))
+  );
+}
+
+/**
+ * How the site rules treat a URL: `excluded` when an exclusion covers it, which wins over
+ * the allowlist; `not-allowed` while the allowlist is on and none of its rules covers it;
+ * `invalid` for a URL that is no policy input.
+ */
+export function siteAccess(
+  settings: Pick<LocalSettings, "excludedSites" | "allowedSites">,
+  value: string,
+): "allowed" | "excluded" | "not-allowed" | "invalid" {
   const url = parseSiteUrl(value);
   const hostname = url && normalizeHostname(url.hostname);
   // Invalid destinations are blocked, never treated as a permission grant.
-  if (!hostname) return true;
-  return settings.excludedSites.some(
-    (site) =>
-      hostname === site.hostname ||
-      (site.includeSubdomains && hostname.endsWith(`.${site.hostname}`)),
-  );
+  if (!hostname) return "invalid";
+  if (settings.excludedSites.some((site) => siteRuleCovers(site, hostname))) return "excluded";
+  if (
+    settings.allowedSites &&
+    !settings.allowedSites.some((site) => siteRuleCovers(site, hostname))
+  )
+    return "not-allowed";
+  return "allowed";
+}
+
+/**
+ * Whether Pateat must not act on a URL: it is invalid, an exclusion covers it, or the
+ * allowlist is on and leaves it out. Every login, passkey and vault match checks this.
+ */
+export function isSiteExcluded(
+  settings: Pick<LocalSettings, "excludedSites" | "allowedSites">,
+  value: string,
+): boolean {
+  return siteAccess(settings, value) !== "allowed";
 }
 
 export type SiteAccountResolution =
@@ -435,6 +477,7 @@ export type SiteAccountResolution =
       reason:
         | "invalid-url"
         | "site-excluded"
+        | "site-not-allowed"
         | "default-not-set"
         | "item-origin-mismatch"
         | "account-ambiguous"
@@ -475,7 +518,9 @@ export function resolveSiteAccount(
 ): SiteAccountResolution {
   const url = parseSiteUrl(value);
   if (!url || !normalizeHostname(url.hostname)) return { ok: false, reason: "invalid-url" };
-  if (isSiteExcluded(settings, value)) return { ok: false, reason: "site-excluded" };
+  const access = siteAccess(settings, value);
+  if (access !== "allowed")
+    return { ok: false, reason: access === "not-allowed" ? "site-not-allowed" : "site-excluded" };
   const selected = settings.siteDefaults.find((entry) => entry.origin === url.origin);
   if (!selected) return { ok: false, reason: "default-not-set" };
   const connection = siteDefaultConnection(selected, catalog);

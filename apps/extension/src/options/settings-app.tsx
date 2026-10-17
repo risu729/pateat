@@ -6,13 +6,25 @@ import {
 } from "@pateat/contracts";
 import { useForm, useSelector } from "@tanstack/react-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bug, Globe, Info, Link, Shield, Vault, type LucideIcon } from "lucide-react";
+import {
+  Bug,
+  Globe,
+  Info,
+  Link,
+  ListChecks,
+  Shield,
+  TimerReset,
+  Vault,
+  type LucideIcon,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Logo } from "../logo";
 import { Button } from "./button";
 import { SETTINGS_QUERY_KEY, type SettingsClient } from "./client";
 import { VaultAccess, VaultRows } from "./connections";
 import { SitePolicy } from "./site-policy";
+import { AllowedSites } from "./allowed-sites";
+import { VaultTimeoutPanel, type VaultTimeoutClient } from "./vault-timeout";
 import { BitwardenSetup } from "./bitwarden-setup";
 import type { ConnectionClient } from "./connection-client";
 import type { ServiceClient } from "./service-client";
@@ -32,10 +44,13 @@ export function SettingsApp({
   client,
   connectionClient,
   serviceClient,
+  vaultTimeoutClient,
 }: {
   client: SettingsClient;
   connectionClient?: ConnectionClient;
   serviceClient?: ServiceClient;
+  /** This device's vault timeout; absent in the demo preview. */
+  vaultTimeoutClient?: VaultTimeoutClient;
 }) {
   const queryClient = useQueryClient();
   const [accepted, setAccepted] = useState<AcceptedSettings>();
@@ -179,6 +194,7 @@ export function SettingsApp({
     update(next);
     form.setFieldValue("connections", next.connections);
     form.setFieldValue("excludedSites", next.excludedSites);
+    form.setFieldValue("allowedSites", next.allowedSites);
     form.setFieldValue("siteDefaults", next.siteDefaults);
     edits.current += 1;
     setDirty(true);
@@ -292,7 +308,11 @@ export function SettingsApp({
     connectionClient
       ? { id: "bitwarden", label: "Bitwarden", icon: Shield }
       : { id: "demo-vaults", label: "Demo vaults", icon: Vault },
+    ...(vaultTimeoutClient
+      ? [{ id: "vault-timeout", label: "Vault timeout", icon: TimerReset }]
+      : []),
     { id: "sites", label: "Sites", icon: Globe },
+    { id: "allowed-sites", label: "Allowed sites", icon: ListChecks },
     ...(serviceClient ? [{ id: "sync", label: "Sync service", icon: Link }] : []),
   ];
   return (
@@ -387,6 +407,7 @@ export function SettingsApp({
               )}
             />
           )}
+          {vaultTimeoutClient && <VaultTimeoutPanel client={vaultTimeoutClient} />}
           <fieldset
             id="settings-controls"
             className="m-0 flex min-w-0 flex-col gap-6 border-0 p-0"
@@ -419,6 +440,13 @@ export function SettingsApp({
             ) : (
               <Panel id="sites" headingId="sites-heading" title="Sites">
                 <ul id="site-list" className="hidden" />
+              </Panel>
+            )}
+            {accepted ? (
+              <AllowedSites key={`allowed-${generation}`} draft={draft} edit={edit} />
+            ) : (
+              <Panel id="allowed-sites" headingId="allowed-sites-heading" title="Allowed sites">
+                <ul id="allowed-site-list" className="hidden" />
               </Panel>
             )}
           </fieldset>

@@ -14,6 +14,11 @@ import type { DiagnosticsConnection, DiagnosticsStatus } from "./wire";
 
 export type BrowserInfo = { name: string; version: string; installType: string };
 
+/** The allowlist in the settings line: off, or how many sites it allows. */
+export function allowlistText(allowedSites: number | undefined): string {
+  return allowedSites === undefined ? "allowlist off" : `allowed sites ${allowedSites}`;
+}
+
 export function shortRevision(revision: string): string {
   return /^[0-9a-f]{40}$/u.test(revision) ? revision.slice(0, 7) : revision;
 }
@@ -73,7 +78,7 @@ export function formatReport(status: DiagnosticsStatus, browser: BrowserInfo): s
   ];
   if (status.settings)
     lines.push(
-      `Settings: excluded sites ${status.settings.excludedSites} · site defaults ${status.settings.siteDefaults} · bindings ${status.settings.bindings}`,
+      `Settings: excluded sites ${status.settings.excludedSites} · ${allowlistText(status.settings.allowedSites)} · site defaults ${status.settings.siteDefaults} · bindings ${status.settings.bindings}`,
     );
   lines.push(`Toolbar icon: ${status.actionIcon}`);
   const counts = { ok: 0, info: 0, warn: 0, error: 0 };

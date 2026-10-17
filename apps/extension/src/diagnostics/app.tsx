@@ -24,7 +24,7 @@ import {
   syncSignIn,
 } from "./labels";
 import { LOG_RETENTION_MS } from "./log";
-import { formatReport, shortRevision, type BrowserInfo } from "./report";
+import { allowlistText, formatReport, shortRevision, type BrowserInfo } from "./report";
 import type {
   DiagnosticsCheck,
   DiagnosticsResponse,
@@ -254,7 +254,8 @@ function Local({ status }: { status: DiagnosticsStatus }) {
       <dl className={FACTS}>
         {status.settings && (
           <Row term="Settings">
-            excluded sites {status.settings.excludedSites}, site defaults{" "}
+            excluded sites {status.settings.excludedSites},{" "}
+            {allowlistText(status.settings.allowedSites)}, site defaults{" "}
             {status.settings.siteDefaults}, bindings {status.settings.bindings}
           </Row>
         )}

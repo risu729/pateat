@@ -25,7 +25,7 @@ export const MAX_SETTINGS_SYNC_ATTEMPTS = 3;
 export const MAX_SETTINGS_DEFER_MS = 2 * 60 * 1000;
 
 type SiteDefault = LocalSettings["siteDefaults"][number];
-type ExcludedSite = LocalSettings["excludedSites"][number];
+type SiteRule = LocalSettings["excludedSites"][number];
 type Binding = LocalSettings["bindings"][number];
 
 /**
@@ -33,7 +33,9 @@ type Binding = LocalSettings["bindings"][number];
  * connections, item selection and field exclusions stay on this device.
  */
 export type SyncedSettings = {
-  excludedSites: ExcludedSite[];
+  excludedSites: SiteRule[];
+  /** Absent while the allowlist is off. */
+  allowedSites?: SiteRule[];
   siteDefaults: SiteDefault[];
   bindings: Binding[];
 };
@@ -41,6 +43,7 @@ export type SyncedSettings = {
 export function syncedSettings(settings: LocalSettings): SyncedSettings {
   return {
     excludedSites: settings.excludedSites,
+    ...(settings.allowedSites ? { allowedSites: settings.allowedSites } : {}),
     siteDefaults: settings.siteDefaults,
     bindings: settings.bindings,
   };
@@ -104,7 +107,7 @@ export type SettingsSyncOutcome =
   | "storage-unavailable"
   | TransportFailure;
 
-const siteKey = (entry: ExcludedSite) => entry.hostname;
+const siteKey = (entry: SiteRule) => entry.hostname;
 const defaultKey = (entry: SiteDefault) => entry.origin;
 const bindingKey = (entry: Binding) =>
   JSON.stringify([entry.recipeId, entry.origin, entry.provider, entry.userId, entry.itemId]);
@@ -136,15 +139,41 @@ function mergeEntries<T>(
   return merged;
 }
 
+/**
+ * The allowlist merges like a list, and whether it is on like an entry: the service's
+ * change since the base wins, then a local one; turning it off drops its rules.
+ */
+function mergeAllowlist(
+  base: { service: SiteRule[] | undefined; local: SiteRule[] | undefined },
+  local: SiteRule[] | undefined,
+  service: SiteRule[] | undefined,
+): SiteRule[] | undefined {
+  const on = (rules: SiteRule[] | undefined) => rules !== undefined;
+  let enabled = on(service);
+  if (on(service) === on(base.service) && on(local) !== on(base.local)) enabled = on(local);
+  if (!enabled) return undefined;
+  return mergeEntries(
+    { service: base.service ?? [], local: base.local ?? [] },
+    local ?? [],
+    service ?? [],
+    siteKey,
+  );
+}
+
 export function mergeSyncedSettings(
   base: SyncBase,
   local: SyncedSettings,
   service: SyncedSettings,
 ): SyncedSettings {
-  const part = <K extends keyof SyncedSettings>(name: K) => ({
+  const part = <K extends "excludedSites" | "siteDefaults" | "bindings">(name: K) => ({
     service: base.service[name],
     local: base.local[name],
   });
+  const allowedSites = mergeAllowlist(
+    { service: base.service.allowedSites, local: base.local.allowedSites },
+    local.allowedSites,
+    service.allowedSites,
+  );
   return {
     excludedSites: mergeEntries(
       part("excludedSites"),
@@ -152,6 +181,7 @@ export function mergeSyncedSettings(
       service.excludedSites,
       siteKey,
     ),
+    ...(allowedSites ? { allowedSites } : {}),
     siteDefaults: mergeEntries(
       part("siteDefaults"),
       local.siteDefaults,
@@ -192,7 +222,7 @@ export function refreshDisplayNames(synced: SyncedSettings, catalog: VaultCatalo
     return next.success ? next.output : entry;
   }
   return {
-    excludedSites: synced.excludedSites,
+    ...synced,
     siteDefaults: synced.siteDefaults.map((entry) => refresh(entry, siteDefaultSchema)),
     bindings: synced.bindings.map((entry) => refresh(entry, savedLoginBindingSchema)),
   };
@@ -210,14 +240,17 @@ function equalSynced(left: SyncedSettings, right: SyncedSettings): boolean {
     entries.map((entry) => [key(entry), entry] as const).sort(([a], [b]) => (a < b ? -1 : 1));
   return (
     same(sorted(left.excludedSites, siteKey), sorted(right.excludedSites, siteKey)) &&
+    (left.allowedSites === undefined) === (right.allowedSites === undefined) &&
+    same(sorted(left.allowedSites ?? [], siteKey), sorted(right.allowedSites ?? [], siteKey)) &&
     same(sorted(left.siteDefaults, defaultKey), sorted(right.siteDefaults, defaultKey)) &&
     same(sorted(left.bindings, bindingKey), sorted(right.bindings, bindingKey))
   );
 }
 
-/** Local settings with the synced part replaced. */
+/** Local settings with the synced part replaced, so an allowlist turned off goes too. */
 function applySynced(settings: LocalSettings, synced: SyncedSettings): LocalSettings {
-  return { ...settings, ...synced };
+  const { allowedSites: _allowedSites, ...local } = settings;
+  return { ...local, ...synced };
 }
 
 /** The service holds only the synced part; it never stores device-local connections. */

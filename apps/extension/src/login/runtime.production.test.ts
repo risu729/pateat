@@ -866,6 +866,11 @@ describe("production login document admission", () => {
       "https://login.example/signin",
       { excludedSites: [{ hostname: "login.example", includeSubdomains: false }] },
     ],
+    [
+      "a site the allowlist leaves out",
+      "https://login.example/signin",
+      { allowedSites: [{ hostname: "sub.login.example", includeSubdomains: true }] },
+    ],
   ])("ignores %s before any policy, vault or page access", async (_name, url, overrides) => {
     fake.state.pageUrl = url;
     const h = harness(overrides as Partial<LocalSettings>);
@@ -874,6 +879,13 @@ describe("production login document admission", () => {
     expect(h.recipes.recipe).not.toHaveBeenCalled();
     expect(h.fields).not.toHaveBeenCalled();
     expect(fake.state.messages).toEqual([]);
+  });
+  it.each([
+    ["an exact allow rule", { hostname: "login.example", includeSubdomains: false }],
+    ["an allow rule for its parent domain", { hostname: "example", includeSubdomains: true }],
+  ])("admits a site the allowlist covers with %s", async (_name, rule) => {
+    const h = harness({ allowedSites: [rule] });
+    expect(await h.hello()).toEqual({ ok: true });
   });
   it.each([
     // Chrome withholds the tab's URL without host access to the tab's page.
@@ -1030,6 +1042,20 @@ describe("production login document admission", () => {
     [
       "an excluded site",
       { excludedSites: [{ hostname: "login.example", includeSubdomains: false }] },
+      "site-excluded",
+    ],
+    [
+      "a site the allowlist leaves out",
+      { allowedSites: [{ hostname: "other.example", includeSubdomains: true }] },
+      "site-not-allowed",
+    ],
+    ["a site the empty allowlist leaves out", { allowedSites: [] }, "site-not-allowed"],
+    [
+      "an excluded site the allowlist covers",
+      {
+        excludedSites: [{ hostname: "login.example", includeSubdomains: false }],
+        allowedSites: [{ hostname: "login.example", includeSubdomains: false }],
+      },
       "site-excluded",
     ],
     ["a site whose access the user withheld", undefined, "no-site-access"],

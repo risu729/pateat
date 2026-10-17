@@ -14,7 +14,9 @@ script runs in every HTTPS frame, and a frame is admitted only when the tab's pa
 admitted too. Amended on 2026-10-13 by ADR 0021's
 [site count badge](0021-account-choice-outside-settings.md#site-count-badge) (not
 implemented): a tab's origin is matched against the open vault locally for the count
-even without a recipe.
+even without a recipe. Amended by the proposed
+[ADR 0042](0042-allowlist-and-vault-timeout.md) (implemented, pending the owner's
+approval): while the allowlist is on, a site must also be allowed to be admitted.
 
 Date: 2026-10-10
 

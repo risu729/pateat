@@ -23,7 +23,13 @@ import { createProbePasskeySource } from "../src/passkeys/probe";
 import { createPasskeyRuntime } from "../src/passkeys/runtime";
 import { createSignIns, SIGN_INS_KEY } from "../src/passkeys/sign-ins";
 import { createSignedTabs, SIGNED_TABS_KEY } from "../src/passkeys/signed-tabs";
-import { sessionValue } from "../src/storage";
+import { sessionValue, trustedRecord } from "../src/storage";
+import {
+  createVaultTimeout,
+  VAULT_ACTIVITY_KEY,
+  VAULT_TIMEOUT_ALARM,
+  VAULT_TIMEOUT_KEY,
+} from "../src/vault/timeout";
 import { createLoginBadge, LOGIN_BADGE_KEY, setActionBadge } from "../src/login/badge";
 import {
   createVaultPasskeyFinder,
@@ -94,6 +100,28 @@ export default defineBackground(() => {
     },
     onSync: diagnosticsLog.vaultSync,
     onRefresh: diagnosticsLog.vaultRefresh,
+    vaultTimeout: {
+      check: () => vaultTimeout.check(),
+      used: () => vaultTimeout.used().catch(() => undefined),
+    },
+  });
+  // The vault timeout (plan phase 4), a device setting the settings page writes.
+  const vaultTimeout = createVaultTimeout({
+    setting: trustedRecord(VAULT_TIMEOUT_KEY),
+    activity: sessionValue(VAULT_ACTIVITY_KEY),
+    lock: () => connections.lockVaults(),
+    unlocked: async () => (await connections.vaultStates()).includes("active"),
+    schedule: async (when) => {
+      if (when === undefined) await browser.alarms.clear(VAULT_TIMEOUT_ALARM);
+      else await browser.alarms.create(VAULT_TIMEOUT_ALARM, { when });
+    },
+  });
+  // Each worker start checks, so a restart locks before anything uses a vault.
+  void vaultTimeout.check().catch(() => undefined);
+  browser.storage.onChanged.addListener((changes, area) => {
+    // A new timeout counts from now, not from the last use.
+    if (area === "local" && VAULT_TIMEOUT_KEY in changes)
+      void vaultTimeout.used().catch(() => undefined);
   });
   // The manifest default is the locked icon; a running worker switches it.
   const actionIcon = createActionIcon({
@@ -189,7 +217,12 @@ export default defineBackground(() => {
         );
     },
     // A stopped worker would leave a refresh claimed and require password sign-in (ADR 0008).
-    run: (connectionId, hold) => keepAlive(connections.service.autoSync(connectionId, hold)),
+    // A sync uses the retained key, so it waits for the vault timeout's check.
+    run: (connectionId, hold) =>
+      vaultTimeout.check().then(
+        () => keepAlive(connections.service.autoSync(connectionId, hold)),
+        () => "skipped" as const,
+      ),
     loginActive: () => login.active(),
     report: diagnosticsLog.vaultCheck,
   });
@@ -413,6 +446,7 @@ export default defineBackground(() => {
     .catch(() => undefined);
   browser.alarms.onAlarm.addListener((alarm) => {
     if (alarm.name === VAULT_SYNC_ALARM) vaultSync.refreshIfStale();
+    if (alarm.name === VAULT_TIMEOUT_ALARM) void vaultTimeout.check().catch(() => undefined);
   });
   // Wakes the worker at browser start so automatic unlock shows the unlocked icon.
   browser.runtime.onStartup.addListener(() => {

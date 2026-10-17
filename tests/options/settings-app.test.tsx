@@ -9,6 +9,7 @@ import {
   type SettingsClient,
 } from "../../apps/extension/src/options/client";
 import { SettingsApp } from "../../apps/extension/src/options/settings-app";
+import type { VaultTimeout } from "../../apps/extension/src/vault/timeout";
 import {
   createDefaultSettings,
   DUMMY_VAULT_CATALOG,
@@ -671,4 +672,208 @@ test("malformed save responses are rejected at the runtime boundary and keep the
   expect(
     send.mock.calls.filter(([request]) => (request as { type: string }).type === "settings.save"),
   ).toHaveLength(1);
+});
+
+test("the allowlist is off until turned on, and turning it off removes its list", async () => {
+  const client = mockClient();
+  await mount(client);
+  const toggle = control("allowlist-on");
+  await expect.element(toggle).not.toBeChecked();
+  await expect
+    .element(page.getByText("Pateat runs on every HTTPS site that is not excluded"))
+    .toBeVisible();
+  await expect.element(control("allowed-site")).not.toBeInTheDocument();
+  await toggle.click();
+  await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 1");
+  expect(client.saveSettings.mock.calls[0]?.[0].settings.allowedSites).toEqual([]);
+  await expect.element(toggle).toBeChecked();
+  // An empty allowlist logs in nowhere, and says so.
+  await expect
+    .element(page.getByText("No site is allowed, so Pateat logs in nowhere until you allow one"))
+    .toBeVisible();
+  await control("allowed-site").fill("https://bank.example");
+  await control("add-allowed-site").click();
+  await expect.element(control("allowed-site-list")).toMatchTextContent("bank.example");
+  await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 2");
+  expect(client.saveSettings.mock.calls[1]?.[0].settings.allowedSites).toEqual([
+    { hostname: "bank.example", includeSubdomains: false },
+  ]);
+  await toggle.click();
+  await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 3");
+  // Off: the list is gone (the runtime message drops an undefined property).
+  expect(client.saveSettings.mock.calls[2]?.[0].settings.allowedSites).toBeUndefined();
+  await expect.element(control("allowed-site-list")).not.toBeInTheDocument();
+});
+
+test("the allowlist adds hostnames and origins, with subdomains when asked, and removes them", async () => {
+  const client = mockClient();
+  const response = saved(1);
+  response.snapshot.settings.allowedSites = [];
+  client.getSettings.mockResolvedValue(response);
+  await mount(client);
+  await control("allowed-site").fill("  BÜCHER.example.  ");
+  await control("add-allowed-site").click();
+  await expect.element(control("allowed-site-list")).toMatchTextContent("xn--bcher-kva.example");
+  await expect.element(control("allowed-site")).toHaveValue("");
+  await expect.element(control("allowed-site")).toHaveFocus();
+  await control("allowed-site").fill("https://mail.example:8443");
+  await control("allowed-site-subdomains").click();
+  await control("allowed-site").click();
+  await userEvent.keyboard("{Enter}");
+  await expect
+    .element(control("allowed-site-list"))
+    .toMatchTextContent("mail.example and subdomains");
+  // The subdomains box is cleared for the next entry.
+  await expect.element(control("allowed-site-subdomains")).not.toBeChecked();
+  // Allowing a listed hostname again replaces its rule.
+  await control("allowed-site").fill("xn--bcher-kva.example");
+  await control("allowed-site-subdomains").click();
+  await control("add-allowed-site").click();
+  await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 4");
+  expect(client.saveSettings.mock.calls[2]?.[0].settings.allowedSites).toEqual([
+    { hostname: "mail.example", includeSubdomains: true },
+    { hostname: "xn--bcher-kva.example", includeSubdomains: true },
+  ]);
+  await page
+    .getByRole("button", { name: "Remove mail.example and subdomains from the allowed sites" })
+    .click();
+  await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 5");
+  expect(client.saveSettings.mock.calls[3]?.[0].settings.allowedSites).toEqual([
+    { hostname: "xn--bcher-kva.example", includeSubdomains: true },
+  ]);
+  await expect.element(control("allowed-site")).toHaveFocus();
+  await expect.element(control("allowed-site-list")).not.toMatchTextContent("mail.example");
+});
+
+test("the allowlist rejects an entry that names no site, without saving", async () => {
+  const client = mockClient();
+  const response = saved(1);
+  response.snapshot.settings.allowedSites = [];
+  client.getSettings.mockResolvedValue(response);
+  await mount(client);
+  for (const entry of [
+    "",
+    "https://bank.example/path",
+    "bank.example:443",
+    "*.bank.example",
+    "https://user@bank.example",
+    "bank..example",
+  ]) {
+    // oxlint-disable-next-line no-await-in-loop -- one entry at a time
+    await control("allowed-site").fill(entry);
+    // oxlint-disable-next-line no-await-in-loop -- one entry at a time
+    await control("add-allowed-site").click();
+    // oxlint-disable-next-line no-await-in-loop -- one entry at a time
+    await expect.element(control("allowed-site")).toHaveAttribute("aria-invalid", "true");
+    // oxlint-disable-next-line no-await-in-loop -- one entry at a time
+    await expect
+      .element(control("allowed-site-error"))
+      .toHaveTextContent("Enter a site such as https://bank.example or bank.example.");
+    // oxlint-disable-next-line no-await-in-loop -- one entry at a time
+    await expect.element(control("allowed-site")).toHaveFocus();
+  }
+  expect(client.saveSettings).not.toHaveBeenCalled();
+  // Typing clears the error.
+  await control("allowed-site").fill("bank.example");
+  await expect.element(control("allowed-site-error")).not.toBeInTheDocument();
+  await expect.element(control("allowed-site")).toHaveAttribute("aria-invalid", "false");
+});
+
+test("a default on a site the allowlist leaves out is listed and says it is unused", async () => {
+  const client = mockClient();
+  const response = saved(1);
+  response.snapshot.settings.allowedSites = [
+    { hostname: "mail.example", includeSubdomains: false },
+  ];
+  response.snapshot.settings.siteDefaults.push({
+    origin: "https://bank.example",
+    provider: "dummy",
+    userId: "demo-personal-account",
+    itemId: "primary",
+  });
+  client.getSettings.mockResolvedValue(response);
+  await mount(client);
+  await expect
+    .element(control("site-list"))
+    .toMatchTextContent("This site is not on the allowed sites, so this default is unused.");
+  // Allowing the site makes the default usable.
+  await control("allowed-site").fill("bank.example");
+  await control("add-allowed-site").click();
+  await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 2");
+  await expect
+    .element(control("site-list"))
+    .not.toMatchTextContent("This site is not on the allowed sites");
+});
+
+function vaultTimeoutClient(initial: VaultTimeout = "never") {
+  let stored = initial;
+  return {
+    read: vi.fn(async () => stored),
+    write: vi.fn(async (value: VaultTimeout) => {
+      stored = value;
+    }),
+    stored: () => stored,
+  };
+}
+
+async function mountWithTimeout(timeout: ReturnType<typeof vaultTimeoutClient>) {
+  await render(
+    <QueryClientProvider client={createMetadataQueryClient()}>
+      <SettingsApp client={mockClient()} vaultTimeoutClient={timeout} />
+    </QueryClientProvider>,
+  );
+  await expect.element(control("settings-status")).toMatchTextContent("Saved settings loaded");
+}
+
+test("the vault timeout shows the device's setting and saves a new one on this device", async () => {
+  const timeout = vaultTimeoutClient(15);
+  await mountWithTimeout(timeout);
+  const select = control("vault-timeout-select");
+  await expect.element(select).toBeEnabled();
+  await expect.element(select).toHaveDisplayValue("15 minutes unused, or on browser restart");
+  expect(
+    [...(select.element() as HTMLSelectElement).options].map((option) => option.textContent),
+  ).toEqual([
+    "Never",
+    "On browser restart",
+    "1 minute unused, or on browser restart",
+    "5 minutes unused, or on browser restart",
+    "15 minutes unused, or on browser restart",
+    "30 minutes unused, or on browser restart",
+    "1 hour unused, or on browser restart",
+    "4 hours unused, or on browser restart",
+  ]);
+  await select.selectOptions("restart");
+  await expect.element(control("vault-timeout-message")).toHaveTextContent("Saved on this device");
+  expect(timeout.write).toHaveBeenCalledExactlyOnceWith("restart");
+  await select.selectOptions("240");
+  await expect.element(select).toHaveDisplayValue("4 hours unused, or on browser restart");
+  expect(timeout.write).toHaveBeenLastCalledWith(240);
+  expect(timeout.stored()).toBe(240);
+  await expect.element(page.getByRole("link", { name: "Vault timeout" })).toBeVisible();
+});
+
+test("the vault timeout says when it cannot be read or saved", async () => {
+  const failing = vaultTimeoutClient();
+  failing.read.mockRejectedValue(new Error("storage"));
+  await mountWithTimeout(failing);
+  const select = control("vault-timeout-select");
+  await expect.element(select).toBeDisabled();
+  await expect.element(select).toHaveDisplayValue("Unavailable");
+  await cleanup();
+
+  const unsaved = vaultTimeoutClient("never");
+  unsaved.write.mockRejectedValueOnce(new Error("storage"));
+  await mountWithTimeout(unsaved);
+  await expect.element(control("vault-timeout-select")).toHaveDisplayValue("Never");
+  await control("vault-timeout-select").selectOptions("5");
+  await expect
+    .element(control("vault-timeout-message"))
+    .toHaveTextContent("The vault timeout could not be saved");
+  await expect.element(control("vault-timeout-select")).toHaveDisplayValue("Never");
+});
+
+test("the vault timeout is not offered without a device client", async () => {
+  await mount();
+  await expect.element(control("vault-timeout")).not.toBeInTheDocument();
 });

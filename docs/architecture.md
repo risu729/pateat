@@ -285,6 +285,17 @@ extension-only design cannot claim native OS-keystore protection it does not use
 Initial setup and server-side session/MFA expiry remain distinct from unlocking
 a local cache. Authentication failure must not erase a usable cache silently.
 
+A vault timeout, a device setting that is never synced, can end automatic unlock
+(proposed [ADR 0042](adr/0042-allowlist-and-vault-timeout.md), implemented pending the
+owner's approval; `apps/extension/src/vault/timeout.ts`). Its choices are never (the
+default), on browser restart, and 1, 5, 15 or 30 minutes or 1 or 4 hours unused, each of
+which also locks on browser restart. Unused means no field read for a login and no
+passkey signed since the last use or sign-in. Locking turns automatic unlock off for
+every vault on the device, as "Disable automatic unlock" does, so unlocking is a sign-in
+with the master password. The worker checks at start, on an alarm and before each vault
+use, and keeps the vault closed when the check fails; a restart shows as a missing
+`chrome.storage.session` record, which an extension reload or update also clears.
+
 Use native IndexedDB revision transactions for the vault cache, as specified in
 [ADR 0006](adr/0006-atomic-local-vault-cache.md). Account verification and strict
 decryption of every supported received cipher precede durable acceptance.
@@ -377,19 +388,22 @@ active tab's site default account and exclusion, through the same worker-owned s
 ([ADR 0021](adr/0021-account-choice-outside-settings.md)). Its "Pateat on this site"
 switch adds or removes only an exclusion rule for the exact hostname without subdomains;
 when a parent-domain rule or one with subdomains covers the site, the switch is disabled
-and the popup links each such rule to the settings page. While the tab's page waits for
-an account choice, the choice is the popup's only list (the owner asked for one list on
-2026-10-13 at 03:54 UTC): its cards mark the saved default, its "Make it the default"
-checkbox makes the picked account the default once that login succeeds, and a saved
-default can still be removed there. The default-account list, where a default is chosen
-without logging in, returns once the page no longer waits. An open popup reads the
-settings again from the worker whenever the stored settings change, so a default saved
-by a picked login that succeeds while it is open shows without reopening it. The popup
-waits up to 45 seconds for the site's matching vault items. When the search has not
-answered by then, as while the vault is busy right after the extension restarts, the
-popup stops waiting and says to reopen it a little later, while the worker finishes the
-search, and the saved default shows by its saved labels. Under the header, a "This page"
-section ([ADR 0038](adr/0038-login-status-badge.md#popup);
+and the popup links each such rule to the settings page. While the allowlist is on
+([ADR 0042](adr/0042-allowlist-and-vault-timeout.md), proposed), the switch adds or
+removes the hostname's exact allow rule instead, and excludes the hostname when a
+broader allow rule covers it. While the tab's page waits for an account choice, the
+choice is the popup's only list (the owner asked for one list on 2026-10-13 at 03:54
+UTC): its cards mark the saved default, its "Make it the default" checkbox makes the
+picked account the default once that login succeeds, and a saved default can still be
+removed there. The default-account list, where a default is chosen without logging in,
+returns once the page no longer waits. An open popup reads the settings again from the
+worker whenever the stored settings change, so a default saved by a picked login that
+succeeds while it is open shows without reopening it. The popup waits up to 45 seconds
+for the site's matching vault items. When the search has not answered by then, as while
+the vault is busy right after the extension restarts, the popup stops waiting and says
+to reopen it a little later, while the worker finishes the search, and the saved default
+shows by its saved labels. Under the header, a "This page" section
+([ADR 0038](adr/0038-login-status-badge.md#popup);
 `apps/extension/src/popup/page-status.tsx`) asks the worker every second with
 `login.status.get` and says whether the site has a recipe that starts on the page, one
 on other paths only, or none; the AI's last answer for the tab (making a recipe, made
@@ -399,10 +413,10 @@ second step, or why it did not start, stopped or did not succeed, with a note th
 broken recipe is not made again automatically), and a refusal the badge shows, such as
 "the vault item has neither a password nor a passkey". Known codes get a plain sentence
 and others show their log name; a link opens the diagnostics page. The worker answers
-from the recipe cache, its own record of the top page, the badge's spin for a request
-in flight, and the last login and model request the badge keeps from the log reports,
-with the badge's lifetime: a top page of another origin or the tab's closing drops them,
-and `chrome.storage.session` keeps them across a worker restart. Item selection, field
+from the recipe cache, its own record of the top page, the badge's spin for a request in
+flight, and the last login and model request the badge keeps from the log reports, with
+the badge's lifetime: a top page of another origin or the tab's closing drops them, and
+`chrome.storage.session` keeps them across a worker restart. Item selection, field
 exclusions and custom-field review stay on the extension's settings page once synced
 ([ADR 0023](adr/0023-synced-vault-policy.md)). The service keeps one settings document
 per owner; [ADR 0024](adr/0024-settings-profiles.md) assigns its parts either to a
@@ -420,7 +434,12 @@ Provider URL matching plus eligibility makes a site automatically in scope,
 without first-visit approval. Site exclusions use host matching with an explicit
 subdomain option and stop Pateat analysis, inference, filling, submission and
 passkey handling while preserving ordinary browser authentication. Apply them
-before collecting observations; policy changes cancel stale work.
+before collecting observations; policy changes cancel stale work. The synced
+`allowedSites` list, while present, is an allowlist with the same rule shape: a site no
+allow rule covers is treated as excluded everywhere, and exclusions still win
+([ADR 0042](adr/0042-allowlist-and-vault-timeout.md), proposed, implemented pending the
+owner's approval). The settings page edits it in its "Allowed sites" panel; turning the
+allowlist off removes its rules.
 
 The account choice is a saved site default applied on the next login. A default names
 the provider account and item, not this device's connection. Without one, a single
@@ -473,23 +492,24 @@ only the one recorded document that was refused for several matches, through
 check after a page with a recipe found no matching item likewise reconnects only that
 refused document, once the check applied a new snapshot within ten seconds
 ([ADR 0025](adr/0025-automatic-vault-sync.md#after-no-item-matches)). A static content
-script runs on every HTTPS page and frame; the background admits non-excluded sites with
-host access and needs a cached recipe for the exact origin before any policy or vault
-access ([ADR 0009](adr/0009-install-time-https-site-access.md)). A frame also needs the
-tab's page admitted, and its account must match the tab's URL as well as the frame's
+script runs on every HTTPS page and frame; the background admits non-excluded sites
+(allowed ones, while the allowlist is on) with host access and needs a cached recipe for
+the exact origin before any policy or vault access
+([ADR 0009](adr/0009-install-time-https-site-access.md)). A frame also needs the tab's
+page admitted, and its account must match the tab's URL as well as the frame's
 ([ADR 0017](adr/0017-login-forms-in-frames.md)). The exception is recipe generation: a
 tab's own page on whose path no recipe starts that shows a login field within 10 seconds
 and has a vault URI match is observed and sent, and not again within 10 minutes per
-origin and path once a request for it reached the model,
-unless the tab holds an attempt record other than an account switch on that origin
+origin and path once a request for it reached the model, unless the tab holds an attempt
+record other than an account switch on that origin
 ([ADR 0016](adr/0016-recipe-generation-trigger.md)). A page that shows no login field
 within 10 seconds is sent instead, without slots, only when its URL names another path
 of its site in a query value, and a cached entry recipe on a page's path is pressed: one
 click on a same-site link in the top document, then the tab's next page is checked
 ([ADR 0031](adr/0031-sign-in-entry-pages.md); see
-[Declarative recipes and AI](#declarative-recipes-and-ai)). The request also offers
-one slot per custom field a matching item allows (Text, Hidden, or Linked with an
-allowed source), named by field name and position, under an opaque ID such as `custom-1`
+[Declarative recipes and AI](#declarative-recipes-and-ai)). The request also offers one
+slot per custom field a matching item allows (Text, Hidden, or Linked with an allowed
+source), named by field name and position, under an opaque ID such as `custom-1`
 ([ADR 0027](adr/0027-per-account-login-routes.md)). Just before sending, it reads the
 matching items' usernames and the values of Text fields and of Linked fields that read
 the username or a Text field for their shape, each sent only when all items agree. The
@@ -497,11 +517,11 @@ returned recipe enters the recipe cache and starts at once: `login.reconnect` as
 tab's page still tracked on that origin and path that holds no login to announce again.
 That covers the page that was sent and a page refused for want of a recipe while the
 request was in flight, such as one that replaced it in its tab or the same page in
-another tab. After a recipe's final
-`advance` step, a page that has loaded and shows a password, username or email input for
-a slot the recipe does not fill yet, on one path for a second, is sent once per step
-with the revision it continues; the running login takes the continued revision over when
-it only appends steps and still resolves to the login's account, and runs the new steps
+another tab. After a recipe's final `advance` step, a page that has loaded and shows a
+password, username or email input for a slot the recipe does not fill yet, on one path
+for a second, is sent once per step with the revision it continues; the running login
+takes the continued revision over when it only appends steps and still resolves to the
+login's account, and runs the new steps
 ([ADR 0018](adr/0018-recipe-generation-route.md#continuing-after-an-advance)). Any other
 page that an effect step leads to and no check explains is sent to be judged, which can
 learn a signed-in marker or a second-factor handler
@@ -1244,8 +1264,8 @@ has the same shape as a name. The diagnostics page says so above the download.
 report's recent lines never carry it.
 
 Connection and item IDs become HMAC pseudonyms. An origin or RP ID is kept in full only
-when a site default, binding, excluded site or cached recipe names it; any other
-becomes `origin:7d2b91aa` or `rp:7d2b91aa`. The rule applies when the entry is
+when a site default, binding, excluded or allowed site or cached recipe names it; any
+other becomes `origin:7d2b91aa` or `rp:7d2b91aa`. The rule applies when the entry is
 written, so a site set up later keeps its earlier pseudonymous entries, also in a
 download with site addresses included.
 
@@ -2050,7 +2070,9 @@ field exclusions and custom-field review, which need the device's vault catalog
     `siteDefaults` entry or a `bindings` entry for, each with badges for its recipe
     count, its default account ("<item> in <account>") and its binding count, and
     opening the site's page; then each `excludedSites` rule (a hostname, optionally with
-    its subdomains) with Allow, which deletes it, and a form to add one. Below them,
+    its subdomains) with Allow, which deletes it, and a form to add one. The allowlist
+    ([ADR 0042](adr/0042-allowlist-and-vault-timeout.md), proposed) is not shown there
+    yet; a save keeps it as it is. Below them,
     Revoked recipes lists each tombstone with its revision and time; a tombstone keeps
     no origin, so it belongs to no site.
   - A site (`/manage/sites/<scheme>/<host>`, one exact origin, the key of defaults,
