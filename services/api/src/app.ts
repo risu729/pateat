@@ -62,24 +62,25 @@ export const app = new Hono<ApiEnv>()
     }),
   )
   .route("/manage/api", manageApiRoutes)
+  .route("/manage/api/claude", manageClaudeRoutes)
   .all("/manage/api/devices", methodNotAllowed("GET"))
   .all("/manage/api/settings", methodNotAllowed("GET, PUT"))
   .all("/manage/api/devices/:deviceId/revoke", methodNotAllowed("POST"))
   .all("/manage/api/recipes", methodNotAllowed("GET"))
   .all("/manage/api/recipes/:recipeId/revoke", methodNotAllowed("POST"))
+  .all("/manage/api/claude", methodNotAllowed("GET, PUT"))
+  .all("/manage/api/claude/test", methodNotAllowed("POST"))
   .get("/manage/assets/*", requireAccess, appAsset)
   // Each page the app renders; any other path under /manage is not found.
   .get("/manage", requireAccess, appPage)
-  // The temporary WIF page guards itself (Access, same-origin forms, body limit).
-  .route("/manage/claude", manageClaudeRoutes)
-  .all("/manage/claude", methodNotAllowed("GET, POST"))
-  .all("/manage/claude/test", methodNotAllowed("POST"))
   .all("/manage", methodNotAllowed("GET"))
   .get("/manage/sites", requireAccess, appPage)
   .all("/manage/sites", methodNotAllowed("GET"))
   // One site's page, for the origin `<scheme>://<host>`; the app checks the host.
   .get("/manage/sites/:scheme{https?}/:host", requireAccess, appPage)
   .all("/manage/sites/:scheme{https?}/:host", methodNotAllowed("GET"))
+  .get("/manage/claude", requireAccess, appPage)
+  .all("/manage/claude", methodNotAllowed("GET"))
   // Direct pairing from an allowed extension with the owner's login session (ADR 0020).
   // Access and the Origin check run before the per-identity limit and any body read.
   // No CORS headers: extension contexts with host access skip CORS; pages cannot read it.
@@ -132,9 +133,6 @@ export const app = new Hono<ApiEnv>()
       return ownerPage
         ? message(c, 400, "Invalid request", "The request was malformed.")
         : apiError(c, 400, { error: "bad_request" });
-    // CSRF rejections from owner pages.
-    if (ownerPage && error instanceof HTTPException && error.status === 403)
-      return message(c, 403, "Request refused", "Submit this form from its own page.");
     console.error("Unhandled API error", error instanceof Error ? error.name : "unknown");
     return ownerPage
       ? message(c, 500, "Something went wrong", "Try again later.")

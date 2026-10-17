@@ -1,6 +1,7 @@
 // The toolbar icon, emitted beside the bundle as the favicon is.
 import logo from "../../../apps/extension/icons/icon.svg?url";
 import type { ManageClient } from "./api";
+import { ClaudePage } from "./claude";
 import { DevicesPage } from "./devices";
 import { SitePage } from "./site";
 import { siteOrigin, SitesPage } from "./sites";
@@ -20,6 +21,7 @@ const licenseUrl = `https://github.com/risu729/pateat/blob/${sourceRef}/LICENSE-
 const PAGES = [
   { path: "/manage/sites", title: "Sites", Page: SitesPage },
   { path: "/manage", title: "Devices", Page: DevicesPage },
+  { path: "/manage/claude", title: "Claude", Page: ClaudePage },
 ] as const;
 
 const linkClasses = "text-accent-ink underline hover:text-accent-hover";

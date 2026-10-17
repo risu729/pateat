@@ -55,6 +55,9 @@ function mockClient(initial: SyncSettingsState, recipes: ManageRecipes["recipes"
     }),
     recipes: vi.fn<ManageClient["recipes"]>(async () => ({ version: 1, recipes })),
     revokeRecipe: vi.fn<ManageClient["revokeRecipe"]>(),
+    claude: vi.fn<ManageClient["claude"]>(),
+    saveClaude: vi.fn<ManageClient["saveClaude"]>(),
+    testClaude: vi.fn<ManageClient["testClaude"]>(),
     replace(next: SyncSettingsState) {
       state = next;
     },

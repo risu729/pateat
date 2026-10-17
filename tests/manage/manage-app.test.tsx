@@ -57,6 +57,9 @@ function mockClient(initial = devices()) {
     saveSettings: vi.fn<ManageClient["saveSettings"]>(),
     recipes: vi.fn<ManageClient["recipes"]>(async () => ({ version: 1, recipes: [] })),
     revokeRecipe: vi.fn<ManageClient["revokeRecipe"]>(),
+    claude: vi.fn<ManageClient["claude"]>(),
+    saveClaude: vi.fn<ManageClient["saveClaude"]>(),
+    testClaude: vi.fn<ManageClient["testClaude"]>(),
   } satisfies ManageClient;
 }
 

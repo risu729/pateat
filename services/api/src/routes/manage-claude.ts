@@ -1,211 +1,91 @@
-import { Hono } from "hono";
-import { bodyLimit } from "hono/body-limit";
-import { csrf } from "hono/csrf";
-import { html } from "hono/html";
-import { requireAccess } from "../access";
+import {
+  manageClaudeWriteSchema,
+  type ManageClaude,
+  type ManageClaudeTest,
+} from "@pateat/contracts";
+import { Hono, type Context } from "hono";
 import * as v from "valibot";
 import type { ApiEnv } from "../auth";
 import {
   readWifCredential,
   resolveClaudeCredential,
   saveWifCredential,
-  wifIdentifiersSchema,
-  type WifIdentifiers,
 } from "../claude/credentials";
 import { ASSERTION_AUDIENCE, ownerSubject, readIssuerConfig } from "../claude/issuer";
+import { apiError } from "../http";
 import { findOwner } from "../owners";
-import { message, page } from "../pages";
-import { requireFormBody } from "../validation";
+import { jsonBody, requireJsonBody } from "../validation";
 
-// A temporary script-free page for entering the owner's Workload Identity Federation
-// identifiers (ADR 0015). The owner chose it so WIF can be tried before the React web UI
-// exists; that UI replaces it.
-
-const FIELDS = [
-  ["federationRuleId", "Federation rule ID", "fdrl_…"],
-  ["organizationId", "Organization ID", "00000000-0000-0000-0000-000000000000"],
-  ["serviceAccountId", "Service account ID", "svac_…"],
-  ["workspaceId", "Workspace ID", "wrkspc_…"],
-] as const satisfies readonly (readonly [keyof WifIdentifiers, string, string])[];
-
-const formField = v.optional(v.pipe(v.string(), v.maxLength(200), v.trim()), "");
-const formSchema = v.object({
-  federationRuleId: formField,
-  organizationId: formField,
-  serviceAccountId: formField,
-  workspaceId: formField,
-});
-
-type FormValues = Record<keyof WifIdentifiers, string>;
-
-const STATUS_TEXT = {
-  not_configured: "Save the identifiers first.",
-  issuer_unavailable: "This server's OIDC issuer is not configured, so nothing can be signed.",
-  rejected:
-    "Anthropic refused the assertion. Check the identifiers and the rule, then look at the authentication history in the Claude Console for the reason.",
-  failed: "The token exchange did not complete. Try again later.",
-} as const;
-
-const INVALID_ROW = "The stored identifiers are no longer valid. Enter them again.";
-
-function validFor(milliseconds: number) {
-  const seconds = Math.max(0, Math.round(milliseconds / 1000));
-  return seconds < 120
-    ? `${seconds} second${seconds === 1 ? "" : "s"}`
-    : `${Math.round(seconds / 60)} minutes`;
-}
-
-function settingsPage(
-  c: Parameters<typeof page>[0],
-  status: 200 | 400,
-  ownerId: string,
-  saved: WifIdentifiers | null,
-  options: { notice?: string; form?: FormValues } = {},
-) {
-  const { notice, form } = options;
-  const values = form ?? saved;
-  const issuer = readIssuerConfig(c.env)?.issuer;
-  return page(
-    c,
-    status,
-    "Claude",
-    html`${notice ? html`<p role="status"><strong>${notice}</strong></p>` : ""}
-      <p>
-        Pateat signs in to Claude with Workload Identity Federation in your own Anthropic
-        organization. In the Claude Console, open Settings, Workload identity, Connect workload,
-        Custom OIDC, and use these values:
-      </p>
-      <table>
-        <tbody>
-          <tr>
-            <th scope="row">Issuer URL</th>
-            <td><code>${issuer ?? "Not configured on this server"}</code></td>
-          </tr>
-          <tr>
-            <th scope="row">Subject (exact match)</th>
-            <td><code>${ownerSubject(ownerId)}</code></td>
-          </tr>
-          <tr>
-            <th scope="row">Audience (optional match)</th>
-            <td><code>${ASSERTION_AUDIENCE}</code></td>
-          </tr>
-          <tr>
-            <th scope="row">Scope</th>
-            <td>
-              <code>workspace:inference</code> if the Console offers it, otherwise
-              <code>workspace:developer</code>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-      <h2>Saved identifiers</h2>
-      ${
-        saved
-          ? html`<table>
-              <tbody>
-                ${FIELDS.map(
-                  ([name, label]) =>
-                    html`<tr>
-                      <th scope="row">${label}</th>
-                      <td><code>${saved[name]}</code></td>
-                    </tr>`,
-                )}
-              </tbody>
-            </table>`
-          : html`<p>None yet.</p>`
-      }
-      <h2>Update identifiers</h2>
-      <p>Copy the identifiers the Console shows for that rule. None of them is a secret.</p>
-      <form method="post" action="/manage/claude">
-        ${FIELDS.map(
-          ([name, label, placeholder]) =>
-            html`<p>
-              <label
-                >${label}<br /><input
-                  name="${name}"
-                  value="${values?.[name] ?? ""}"
-                  placeholder="${placeholder}"
-                  required
-                  autocomplete="off"
-                  spellcheck="false"
-                  size="44"
-              /></label>
-            </p>`,
-        )}
-        <p><button type="submit">Save</button></p>
-      </form>
-      <form method="post" action="/manage/claude/test">
-        <p>
-          <button type="submit">Test the token exchange</button> Asks Anthropic for a token without
-          calling Claude, so it costs nothing.
-        </p>
-      </form>`,
-  );
-}
-
-/** The stored identifiers, or null when none are stored or the row no longer validates. */
-async function readSaved(db: D1Database, ownerId: string) {
+/** The stored identifiers; a row the schema no longer accepts reads as invalid. */
+async function readStored(db: D1Database, ownerId: string) {
   try {
-    return await readWifCredential(db, ownerId);
+    return { identifiers: await readWifCredential(db, ownerId), storedInvalid: false };
   } catch (error) {
     if (!v.isValiError(error)) throw error;
-    return null;
+    return { identifiers: null, storedInvalid: true };
   }
 }
 
+async function claudeState(c: Context<ApiEnv>, ownerId: string): Promise<ManageClaude> {
+  return {
+    version: 1,
+    console: {
+      issuer: readIssuerConfig(c.env)?.issuer ?? null,
+      subject: ownerSubject(ownerId),
+      audience: ASSERTION_AUDIENCE,
+    },
+    ...(await readStored(c.env.DB, ownerId)),
+  };
+}
+
 /**
- * Guards its own routes: no app-wide `/manage` middleware applies, so it alone keeps
- * the page Access-only, same-origin and body-limited.
+ * The web UI's Claude credentials (ADR 0015) under `/manage/api/claude`, behind the same
+ * Access, same-origin, rate and body checks as the rest of `/manage/api`. Identifiers
+ * belong to an owner, who exists once a device was paired.
  */
 export const manageClaudeRoutes = new Hono<ApiEnv>()
-  .use(
-    requireAccess,
-    csrf(),
-    bodyLimit({
-      maxSize: 4 * 1024,
-      onError: (c) => message(c, 413, "Too large", "The form was too large."),
-    }),
-  )
   .get("/", async (c) => {
     const ownerId = await findOwner(c.env.DB, c.get("identity"));
-    if (!ownerId) return message(c, 404, "Not found", "Pair a device with this account first.");
+    if (!ownerId) return apiError(c, 404, { error: "not_paired" });
+    return c.json(await claudeState(c, ownerId));
+  })
+  .put("/", requireJsonBody, jsonBody(manageClaudeWriteSchema), async (c) => {
+    const ownerId = await findOwner(c.env.DB, c.get("identity"));
+    if (!ownerId) return apiError(c, 404, { error: "not_paired" });
+    await saveWifCredential(c.env.DB, ownerId, c.req.valid("json").identifiers);
+    return c.json(await claudeState(c, ownerId));
+  })
+  // Exchanges one assertion without calling Claude, so it costs nothing. The token is
+  // discarded; only the outcome is returned.
+  .post("/test", async (c) => {
+    const ownerId = await findOwner(c.env.DB, c.get("identity"));
+    if (!ownerId) return apiError(c, 404, { error: "not_paired" });
+    let result: ManageClaudeTest["result"];
     try {
-      return settingsPage(c, 200, ownerId, await readWifCredential(c.env.DB, ownerId));
+      const outcome = await resolveClaudeCredential(c.env, ownerId);
+      // Built field by field, so nothing else in the outcome can reach the page.
+      switch (outcome.status) {
+        case "ready":
+          result = {
+            status: "ready",
+            expiresInSeconds: Math.max(0, Math.round((outcome.expiresAt - Date.now()) / 1000)),
+          };
+          break;
+        case "rejected":
+          result = { status: "rejected", httpStatus: outcome.httpStatus };
+          break;
+        case "failed":
+          result =
+            outcome.httpStatus === undefined
+              ? { status: "failed" }
+              : { status: "failed", httpStatus: outcome.httpStatus };
+          break;
+        default:
+          result = { status: outcome.status };
+      }
     } catch (error) {
       if (!v.isValiError(error)) throw error;
-      // Keep the form reachable so the owner can replace a row the schema no longer accepts.
-      return settingsPage(c, 200, ownerId, null, { notice: INVALID_ROW });
+      result = { status: "stored_invalid" };
     }
-  })
-  .post("/", requireFormBody, async (c) => {
-    const ownerId = await findOwner(c.env.DB, c.get("identity"));
-    if (!ownerId) return message(c, 404, "Not found", "Pair a device with this account first.");
-    const form = v.safeParse(formSchema, await c.req.parseBody());
-    if (!form.success) return message(c, 400, "Invalid request", "The form was malformed.");
-    const ids = v.safeParse(wifIdentifiersSchema, form.output);
-    if (!ids.success)
-      return settingsPage(c, 400, ownerId, await readSaved(c.env.DB, ownerId), {
-        form: form.output,
-        notice: "Check the identifiers: fdrl_…, an organization UUID, svac_… and wrkspc_….",
-      });
-    await saveWifCredential(c.env.DB, ownerId, ids.output);
-    return c.redirect("/manage/claude", 303);
-  })
-  .post("/test", requireFormBody, async (c) => {
-    const ownerId = await findOwner(c.env.DB, c.get("identity"));
-    if (!ownerId) return message(c, 404, "Not found", "Pair a device with this account first.");
-    let result;
-    try {
-      result = await resolveClaudeCredential(c.env, ownerId);
-    } catch (error) {
-      if (!v.isValiError(error)) throw error;
-      return settingsPage(c, 200, ownerId, null, { notice: INVALID_ROW });
-    }
-    // The token itself is discarded; only the outcome is shown.
-    const notice =
-      result.status === "ready"
-        ? `Anthropic issued a token valid for ${validFor(result.expiresAt - Date.now())}.`
-        : STATUS_TEXT[result.status] +
-          ("httpStatus" in result && result.httpStatus ? ` (HTTP ${result.httpStatus})` : "");
-    return settingsPage(c, 200, ownerId, await readSaved(c.env.DB, ownerId), { notice });
+    return c.json({ version: 1, result } satisfies ManageClaudeTest);
   });
