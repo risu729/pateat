@@ -403,11 +403,12 @@ recipe judged 20 times since the start of the UTC day answers `judgement-limit`.
 of another judge prompt version does not answer a repeat, so a changed prompt judges the
 page again, as one that can now name a handler an earlier prompt could not. A change to
 the local checks that keep a handler alone does not; it needs a prompt change to reach
-pages already judged. The row is written before the first model call, so a request the
-role then refuses locally still uses it. A stop's row is kept as `challenge` or
-undecided, so it answers only later stops' pages, and a stop's judgement counts toward
-the 20 a day. Rows of older revisions or of judge prompt versions other than the two
-current ones are deleted once their UTC day is over.
+pages already judged. The row is written just before the first model request, so a
+request the role refuses locally (`input-too-large`) gives the page back
+([ADR 0027](../../docs/adr/0027-per-account-login-routes.md)). A stop's row is kept as
+`challenge` or undecided, so it answers only later stops' pages, and a stop's judgement
+counts toward the 20 a day. Rows of older revisions or of judge prompt versions other
+than the two current ones are deleted once their UTC day is over.
 
 `src/claude/calls.ts` wraps every model call. Per owner it takes a 90-second lock
 (`busy` otherwise), refuses past $100 of estimated spend a month or $5 a day (UTC, both
@@ -419,8 +420,9 @@ page tried in the previous 10 minutes (ADR 0016), abstentions and failures inclu
 attempt key is the generated recipe ID, the path and the revision being continued (0 for
 a first page, the tombstone's revision for a revoked recipe generated again), so two
 recipes of one origin that lead to the same page do not block each other. A request that
-passes every check is an attempt, including one the role then refuses locally for its
-size, which would be refused again. Each role asks the owner's model choices in order
+reaches the model is an attempt; one the role refuses locally for its size writes no
+attempt row, so its resend is refused for its size again, not `recently-tried`. Each
+role asks the owner's model choices in order
 (`src/claude/models.ts`, saved in `inference_model_configs` from `/manage/claude`, ADR
 0014; by default Claude Opus 5.5 then Claude Sonnet 5.5, both at effort `low`): a
 refusal asks the next choice, a fast mode call that fails `rate-limited`,

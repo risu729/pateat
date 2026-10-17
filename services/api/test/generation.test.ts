@@ -347,6 +347,14 @@ async function twoPageRecipe(device: Device) {
   return second.change;
 }
 
+/** Eight offers, each naming a different vault field, at their bounds. */
+const bigSlots = Array.from({ length: 8 }, (_, index) => ({
+  id: `${"s".repeat(62)}${index}`,
+  kind: "identifier" as const,
+  description: WIDE,
+  fieldName: `${"\u3042".repeat(119)}${index}`,
+}));
+
 describe("recipe generation", () => {
   it("stores the first page's kind, which a continuation keeps (ADR 0035)", async () => {
     const device = await owner();
@@ -1330,13 +1338,6 @@ describe("recipe generation", () => {
   it("refuses an oversized page locally: no call and no charge, and logs it unsent", async () => {
     const device = await owner();
     const big = bigPage();
-    const bigSlots = Array.from({ length: 8 }, (_, index) => ({
-      id: `${"s".repeat(62)}${index}`,
-      kind: "identifier" as const,
-      description: WIDE,
-      // Each offer names a different vault field.
-      fieldName: `${"\u3042".repeat(119)}${index}`,
-    }));
     const response = await post(device, "/v1/recipes/generate", {
       version: 1,
       observation: big,
@@ -1394,10 +1395,21 @@ describe("recipe generation", () => {
         device.ownerId,
       ),
     ).toEqual([]);
-    // The refusal is deterministic, so it counts toward the retry window.
+    // Nothing reached the model, so the page is not held for the retry window (ADR 0016).
     expect(
       await rows("SELECT path FROM generation_attempts WHERE owner_id = ?", device.ownerId),
-    ).toEqual([{ path: big.path }]);
+    ).toEqual([]);
+  });
+
+  it("gives an oversized page back: a resend is refused again, not recently-tried", async () => {
+    const device = await owner();
+    const request = { version: 1, observation: bigPage(), slots: bigSlots, signedIn: false };
+    const refused = { version: 1, status: "failed", error: "input-too-large" };
+    expect(await (await post(device, "/v1/recipes/generate", request)).json()).toEqual(refused);
+    // No model call was made, so the extension frees the page for its next visit (ADR
+    // 0016); `recently-tried` would tell it the model was called.
+    expect(await (await post(device, "/v1/recipes/generate", request)).json()).toEqual(refused);
+    expect(sent).toEqual([]);
   });
 
   it("answers a conflict when this origin's recipe ID holds another origin", async () => {
@@ -3234,6 +3246,22 @@ describe("page judgement (ADR 0027)", () => {
       reason: "judged-challenge",
     });
     expect(sent).toHaveLength(calls + 1);
+  });
+
+  it("gives an oversized page back without a verdict row or a judgement of the day", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    const calls = sent.length;
+    const big = bigPage();
+    const refused = { version: 1, status: "failed", error: "input-too-large" };
+    expect(await complete(device, change.recipeId, 2, big)).toEqual({ status: 200, body: refused });
+    expect(sent).toHaveLength(calls);
+    // Nothing reached the model, so the page gives the judgement back (ADR 0027): its
+    // resend is refused locally again, not `judgement-unanswered`, and no row holds the
+    // path without a verdict or counts toward the recipe's 20 a day.
+    expect((await complete(device, change.recipeId, 2, big)).body).toEqual(refused);
+    expect(sent).toHaveLength(calls);
+    expect(await judgements(device)).toEqual([]);
   });
 
   it("judges a recipe at most 20 times a UTC day, whatever the path", async () => {
