@@ -99,6 +99,8 @@ function harness(
       opened.delete(session.sessionId);
       return { ok: true as const, data: null };
     }),
+    // The host forgets a session on lock, a timed-out job or a lost offscreen document.
+    isOpen: vi.fn((session: HostSessionRef) => opened.has(session.sessionId)),
     catalog: vi.fn<VaultCryptoHost["catalog"]>(async (session) => ({
       ok: true as const,
       data: {
@@ -1040,5 +1042,38 @@ describe("durable authority across independent managers", () => {
     expect(await h.manager.listFields(first.data.handle, itemId)).toEqual(
       vaultFailure("stale-vault-handle"),
     );
+  });
+});
+
+describe("sessions the crypto host has ended", () => {
+  it("forgets a live session the crypto host has ended", async () => {
+    const h = harness({ initial: activeEntry() });
+    const first = await h.manager.restore();
+    if (!first.ok) throw new Error("Synthetic restore failed");
+    expect(h.manager.status().ready).toBe(true);
+    // A Worker timeout or a lost offscreen document ends the session without a lock.
+    h.opened.clear();
+    const status = h.manager.status();
+    expect(status.ready).toBe(false);
+    expect(status.handle).toBeUndefined();
+    expect(await h.manager.catalog(first.data.handle)).toEqual(vaultFailure("stale-vault-handle"));
+    expect(h.host.catalog).not.toHaveBeenCalled();
+    const next = await h.manager.restore();
+    if (!next.ok) throw new Error("Synthetic second restore failed");
+    expect(next.data.handle.handleId).not.toBe(first.data.handle.handleId);
+    expect(h.manager.status()).toMatchObject({ ready: true, handle: next.data.handle });
+    expect(h.opened.size).toBe(1);
+    expect((await h.manager.catalog(next.data.handle)).ok).toBe(true);
+  });
+  it("compares no custom fields with a live session the crypto host has ended", async () => {
+    const h = harness();
+    await accepted(h);
+    h.opened.clear();
+    const result = await h.manager.accept({
+      ...candidate("preserve"),
+      compareCustomFields: [itemId],
+    });
+    expect(result.ok && result.data.sameCustomFields).toEqual([]);
+    expect(h.host.customFieldDigests).not.toHaveBeenCalled();
   });
 });
