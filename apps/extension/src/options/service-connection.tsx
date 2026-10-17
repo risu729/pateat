@@ -71,6 +71,7 @@ export function ServiceConnection({
   const [address, setAddress] = useState("");
   const [label, setLabel] = useState("Chrome");
   const [addressError, setAddressError] = useState("");
+  const [labelError, setLabelError] = useState("");
   const [corrupt, setCorrupt] = useState(false);
   const [attempt, setAttempt] = useState<Attempt | undefined>();
   const mounted = useRef(true);
@@ -79,6 +80,14 @@ export function ServiceConnection({
   const acting = useRef(false);
   // A one-shot retry for when the user comes back from the sign-in tab.
   const retryOnReturn = useRef<{ origin: string; label: string } | undefined>(undefined);
+  const addressInput = useRef<HTMLInputElement>(null);
+  const labelInput = useRef<HTMLInputElement>(null);
+
+  /** An edited address or device name is a new request: drop the old one's retry. */
+  function edited() {
+    retryOnReturn.current = undefined;
+    setAttempt(undefined);
+  }
 
   function receive(response: ServiceResponse, success?: string) {
     if (!mounted.current) return;
@@ -231,20 +240,20 @@ export function ServiceConnection({
           onSubmit={(event) => {
             event.preventDefault();
             const origin = normalizeServiceOrigin(address);
-            if (!origin) {
-              setAddressError("Enter an HTTPS address such as https://pateat.example.com.");
-              return;
-            }
             const name = v.safeParse(deviceLabelSchema, label);
-            if (!name.success) {
-              setAddressError(
-                label.trim()
+            setAddressError(
+              origin ? "" : "Enter an HTTPS address such as https://pateat.example.com.",
+            );
+            setLabelError(
+              name.success
+                ? ""
+                : label.trim()
                   ? "Use a device name of up to 64 characters without control characters."
                   : "Enter a device name.",
-              );
-              return;
-            }
-            setAddressError("");
+            );
+            if (!origin) addressInput.current?.focus();
+            else if (!name.success) labelInput.current?.focus();
+            if (!origin || !name.success) return;
             void act(async () => {
               // Requested before any other await so Chrome still sees the click.
               if (!(await client.requestSiteAccess(origin))) {
@@ -260,6 +269,7 @@ export function ServiceConnection({
               Service address
               <input
                 id="sync-service-address"
+                ref={addressInput}
                 className={controlClass}
                 type="url"
                 inputMode="url"
@@ -268,26 +278,40 @@ export function ServiceConnection({
                 placeholder="https://pateat.example.com"
                 value={address}
                 aria-invalid={addressError ? true : undefined}
-                aria-describedby={addressError ? "sync-service-error" : undefined}
-                onChange={(event) => setAddress(event.target.value)}
+                aria-describedby={addressError ? "sync-service-address-error" : undefined}
+                onChange={(event) => {
+                  setAddress(event.target.value);
+                  edited();
+                }}
               />
             </label>
             <label className={fieldClass}>
               Device name
               <input
                 id="sync-service-label"
+                ref={labelInput}
                 className={controlClass}
                 type="text"
                 maxLength={64}
                 autoComplete="off"
                 value={label}
-                onChange={(event) => setLabel(event.target.value)}
+                aria-invalid={labelError ? true : undefined}
+                aria-describedby={labelError ? "sync-service-label-error" : undefined}
+                onChange={(event) => {
+                  setLabel(event.target.value);
+                  edited();
+                }}
               />
             </label>
           </div>
           {addressError && (
-            <p id="sync-service-error" className="validation-error m-0" role="alert">
+            <p id="sync-service-address-error" className="validation-error m-0" role="alert">
               {addressError}
+            </p>
+          )}
+          {labelError && (
+            <p id="sync-service-label-error" className="validation-error m-0" role="alert">
+              {labelError}
             </p>
           )}
           <StatusLines
