@@ -1012,7 +1012,8 @@ vault item must also hold a usable discoverable passkey. The value-free request 
 `passkeyOnly: true` and empty `slots`; the generated declarative recipe exposes only
 its passkey route, preserving ordinary account choice and refusing password fallback.
 A conditional request by itself never offers generation, and no-recipe requests still
-delegate. Existing retry, spending, path redaction and document bounds apply. These
+delegate. The inherited post-submission guard covers observed password forms; a
+manual passkey exchange without a password form does not trigger that guard. Existing retry, spending, path redaction and document bounds apply. These
 implementation choices are proposed, not recorded owner acceptance; local synthetic
 verification does not establish real-site compatibility.
 

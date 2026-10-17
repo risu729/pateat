@@ -22,7 +22,8 @@ Proposed recommended choice, unconfirmed by the owner: after the existing ten-se
 observation window, offer a top-level HTTPS page showing a locatable, enabled button
 that names a passkey or security key, with no visible fill fields. Exclude buttons
 whose labels or locators name registration, setup or management. Do not offer the
-page immediately following submission. Require both the existing eligible URI match
+page immediately following an observed password-form submission, using the existing
+post-submission guard. Require both the existing eligible URI match
 and a usable discoverable passkey belonging to one of those items.
 
 Send a value-free observation with `passkeyOnly: true` and empty `slots`, through
@@ -41,7 +42,9 @@ these recommendations under the owner's autonomous-work instruction.
 
 No new permissions, provider capability, site rules, or account operations are added.
 A conditional request alone does not qualify a page or authorize a signature. Pages
-without a recipe still delegate their requests. A generated recipe starts through
+without a recipe still delegate their requests. The inherited post-submission guard
+observes password forms only; a manual passkey exchange without a password form is
+not detected as a preceding submission. A generated recipe starts through
 normal document/account checks; no direct signing is added to generation.
 
 Local fake-provider and synthetic checks are required. No paid inference, deployment
