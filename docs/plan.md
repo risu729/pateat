@@ -717,13 +717,13 @@ Once the fixes have settled:
   connection, vault-access, setup, MFA and field-review flows have a further EN/JA
   implementation using that infrastructure in
   [draft PR 722](https://github.com/risu729/pateat/pull/722) (48 synthetic browser cases
-  pass; independent review pending). Other options sections, diagnostics, toolbar
-  background titles, manifest metadata and user docs remain untranslated. These partial
-  slices do not complete the preceding wording review or this phase's translation gate.
-  The owner chose (2026-10-12 14:14 UTC) that "the docs" means the README and the
-  user-facing pages, including those the docs website below adds; ADRs, this plan and
-  research notes stay in English. AGENTS.md's English rule gets an exception for the
-  Japanese pages when they land.
+  pass; independent review completed without findings). Other options sections,
+  diagnostics, toolbar background titles, manifest metadata and user docs remain
+  untranslated. These partial slices do not complete the preceding wording review or
+  this phase's translation gate. The owner chose (2026-10-12 14:14 UTC) that "the docs"
+  means the README and the user-facing pages, including those the docs website below
+  adds; ADRs, this plan and research notes stay in English. AGENTS.md's English rule
+  gets an exception for the Japanese pages when they land.
 - The docs website (VitePress 2, see
   [decisions still requiring evidence](#decisions-still-requiring-evidence)) with
   user-facing pages for installation, setup and permissions, plus the M6 operational
