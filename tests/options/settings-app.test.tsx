@@ -689,7 +689,7 @@ test("a save conflict names each cause in one sentence", async () => {
   await expect
     .element(control("settings-status"))
     .toMatchTextContent(
-      "Saved settings changed before this save: settings changed elsewhere, a Bitwarden vault was synced automatically and settings from your other devices arrived from the sync service.",
+      "Saved settings changed before this save: settings changed for a reason no longer recorded, a Bitwarden vault was synced automatically and settings were merged with the Pateat sync service.",
     );
   await expect.element(control("site-list")).toMatchTextContent("draft.example");
 });
