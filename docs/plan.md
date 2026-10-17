@@ -793,7 +793,9 @@ Once the fixes have settled:
 - The docs website (VitePress 2, see
   [decisions still requiring evidence](#decisions-still-requiring-evidence)) with
   user-facing pages for installation, setup and permissions, plus the M6 operational
-  docs.
+  docs. The [operations runbook](operations.md) now documents current retry/revert
+  procedures and the unverified D1 restore and rollback-automation boundaries; this
+  does not complete installed-Chrome or disaster-recovery acceptance.
 - A mode without the service. Where recipes, settings and AI calls come from without the
   service, which [ADR 0013](adr/0013-service-held-recipes-and-settings.md) makes their
   source of truth, needs a design the owner approves before implementation.
