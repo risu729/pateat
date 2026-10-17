@@ -504,7 +504,10 @@ holds:
 For example, `siteDefault: 1` with `siteDefaultAccepted: 0` means the default item's
 passkey is not one the request accepts. No entry at all means the request never reached
 Pateat's background: the page's options were not ones the bridge copies, another
-provider's wrapper did not call Pateat's, or the request came from a subframe. Entries
+provider's wrapper did not call Pateat's, the request came from a subframe, or the relay
+refused the document on its own (an insecure context, a permissions policy that refuses
+`publickey-credentials-get`, a document without `document.featurePolicy`, or copied
+options longer than 131,072 characters). Entries
 never hold credential IDs, user handles or item IDs, and the page is never told the
 reason. The origin and RP ID are named only for sites your settings or recipes name;
 other sites appear as `origin:7d2b91aa` and `rp:7d2b91aa`.

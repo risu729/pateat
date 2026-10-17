@@ -1892,6 +1892,58 @@ origin to the same item until the tab closes. When that item holds no single sig
 match, or its search is incomplete, the request is delegated, so Pateat never signs in
 as another account.
 
+### Passkey requests Pateat hands on or answers differently
+
+These follow from the rules above and are not planned work. Each one either hands the
+request to the browser, and so to any other passkey provider, or answers it where the
+browser's own handling would differ.
+
+- **Where the bridge runs.** The production build wraps `navigator.credentials` only in
+  top-level `https:` documents. Requests from frames, from `http://localhost` (only the
+  probe build covers it) and calls made straight to
+  `CredentialsContainer.prototype.get` or `create` never reach Pateat.
+- **Requests handed on before any vault search.** Besides the
+  [admission](adr/0007-existing-passkey-assertions.md#admission) bounds, the whole
+  request goes to the browser when an allowed credential ID is longer than 1,023 bytes,
+  when the origin's host has a character outside a canonical domain (such as `_`), when
+  `rpId: "localhost"` comes from a subdomain of `localhost`, when the options also name
+  another credential type, even as `password: false`, or when one document already has
+  4 requests in flight or all documents 32 (logged as `busy`). An allow list whose
+  entries name only `hybrid` among their transports is still answered.
+- **Vault items that block a single match.** For one RP ID, an item whose stored
+  passkeys include one for that RP ID that Pateat cannot read is unavailable: an item
+  with more than one passkey, a key other than ECDSA P-256, a discoverable passkey
+  without a user handle, or a credential ID, user handle or counter in a form Bitwarden
+  does not write. Its presence makes the search incomplete, so only the site default
+  answers for that RP ID and every other request is handed on as `vault-incomplete`,
+  even one whose allow list does not name that item. A passkey stored with an RP ID in
+  uppercase, Unicode or with a trailing dot never matches a request and is skipped.
+- **Nonzero counters.** A passkey with a nonzero counter is never offered or signed. If
+  the site default's passkey has one, the request is handed on even when another match
+  could sign; two matches of which only one can sign are handed on as
+  `ambiguous-credential` rather than signed with that one.
+- **Extensions and timing.** Client extension results are always empty, so a site that
+  asks for `prf` or `largeBlob` gets no output, and one that asks for `appid` gets no
+  `appid` result. The page's `timeout` only bounds the chooser window; the lookup and
+  signing keep Pateat's own 10-second budget, so an answer can come after the point
+  where the browser's own request would have timed out.
+- **Concurrency.** The browser refuses a second modal request while one is pending;
+  Pateat can answer several at once, up to the per-document limit.
+- **Visibility to the page.** The bridge carries the request and the assertion as
+  `window` messages of the page, so every `message` listener in the top document,
+  including third-party scripts, can read the challenge, the listed credential IDs and
+  the returned assertion. The browser returns a credential only to the caller.
+- **Back/forward cache.** Leaving the page cancels Pateat's work on its pending
+  requests. When the page is restored from the cache, a request that was waiting falls
+  back to the browser's own `get`, which may show the browser's prompt.
+- **Chooser window.** Ticking "make default" saves nothing while any Pateat login runs,
+  and the window does not say so. If the service worker restarts while the window is
+  open, the window shows that the request ended and the page's request goes to the
+  browser.
+- **Registration refusal.** A Pateat login on `https://example.com` does not count as a
+  sign-in for a registration whose RP ID is `login.example.com`, because that RP ID does
+  not cover the login's origin; such a registration is handed on.
+
 ## Minimal service
 
 Use one optional Cloudflare Worker and D1 for private settings/recipe revisions
