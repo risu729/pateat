@@ -2146,8 +2146,14 @@ A third kind is a chooser recipe
 besides its identity, revision and origin is `chooser`: the path where a list of
 accounts shows, the optional `other` and `continue` buttons, and the optional
 `afterAccount` and `afterOther` branches, each a login recipe under the chooser's own
-ID, revision and origin. The entry to click is never stored. Like an entry recipe, it is
-validated, stored, synced, listed and revoked, and the extension never starts it yet.
+ID, revision and origin. A chooser holds a branch only while `chooserRoute`, which puts
+the click on the list in front of it, makes a login recipe of it for every click that
+leads there: the branch has at most 31 steps, at most 7 of them clicks or submitting
+fills, and no signed-in marker or account switch on a button the login clicks on the
+list. A generated page that would break this answers `recipe-invalid`, and a judged
+marker or handler that would is not learned. The entry to click is never stored. Like an
+entry recipe, it is validated, stored, synced, listed and revoked, and the extension
+never starts it yet.
 The service writes one when the model answers that a page with `accounts` is an account
 list, naming the list's `other` and `continue` controls by reference; the controls must
 be buttons or links of the page whose text holds no `[email]`, `[masked]`, `[number]`,
