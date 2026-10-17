@@ -1,5 +1,7 @@
+import { diagnosticsEn } from "./diagnostics-en";
 import { serviceEn } from "./service-en";
 export const en = {
+  ...diagnosticsEn,
   ...serviceEn,
   Language: "Language",
   "Browser setting": "Browser setting",

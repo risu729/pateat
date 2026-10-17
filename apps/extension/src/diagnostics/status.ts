@@ -25,10 +25,9 @@ import type {
   DiagnosticsStatus,
 } from "./wire";
 
-/** A clock further off than one TOTP step makes generated codes fail. */
-export const CLOCK_SKEW_WARNING_MS = 30_000;
-/** Recipe sync normally runs every few minutes while the browser is in use. */
-export const RECIPE_SYNC_OVERDUE_MS = 24 * 60 * 60 * 1000;
+import { CLOCK_SKEW_WARNING_MS, RECIPE_SYNC_OVERDUE_MS } from "./limits";
+export { CLOCK_SKEW_WARNING_MS, RECIPE_SYNC_OVERDUE_MS } from "./limits";
+
 export const HEALTH_TIMEOUT_MS = 5_000;
 /** A stalled store read must not leave the page collecting forever. */
 export const DIAGNOSTICS_TIMEOUT_MS = 15_000;

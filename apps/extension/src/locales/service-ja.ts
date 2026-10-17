@@ -2,7 +2,7 @@ import type { serviceEn } from "./service-en";
 
 export const serviceJa = {
   "the service": "サービス",
-  "at an unknown time": "時刻不明",
+  "at an unknown time": "日時不明",
   "Sync service": "同期サービス",
   "Pateat could not read or save its service connection on this device.":
     "この端末でサービスへの接続情報を読み取るか保存できませんでした。",

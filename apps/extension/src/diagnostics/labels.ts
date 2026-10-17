@@ -1,6 +1,10 @@
 // Plain-language labels shared by the diagnostics page, its checks and the copied report.
 // Each label that rewords a raw code keeps that code in parentheses.
+import type { TFunction } from "i18next";
 import type { DiagnosticsConnection, DiagnosticsStatus } from "./wire";
+
+/** Only presentation callers supply a translator; background checks/reports stay English. */
+export type DiagnosticTranslator = TFunction;
 
 const INSTALL_LABELS: Record<string, string> = {
   development: "unpacked install",
@@ -10,86 +14,159 @@ const INSTALL_LABELS: Record<string, string> = {
 };
 
 /** Chrome's `installType`: `development` means loaded unpacked. */
-export function installLabel(installType: string): string {
+export function installLabel(installType: string, t?: DiagnosticTranslator): string {
   const label = Object.hasOwn(INSTALL_LABELS, installType)
     ? INSTALL_LABELS[installType]
     : undefined;
-  return label ?? `${installType} install`;
+  return t
+    ? label
+      ? t(label)
+      : t("{{type}} install", { type: installType })
+    : (label ?? `${installType} install`);
 }
 
 /** What the provider session means for the next Sync. */
-export function syncSignIn(state: DiagnosticsConnection["providerSession"]): string {
+export function syncSignIn(
+  state: DiagnosticsConnection["providerSession"],
+  t?: DiagnosticTranslator,
+): string {
   switch (state) {
     case "active":
-      return "sync sign-in active";
+      return t ? t("sync sign-in active") : "sync sign-in active";
     case "refresh-required":
       // A Sync renews it without the password unless Bitwarden rejects the refresh token.
-      return "sync sign-in kept, next Sync tries to renew it (refresh-required)";
+      return t
+        ? t("sync sign-in kept, next Sync tries to renew it (refresh-required)")
+        : "sync sign-in kept, next Sync tries to renew it (refresh-required)";
     case "reauthentication-required":
-      return "sync sign-in needs the password (reauthentication-required)";
+      return t
+        ? t("sync sign-in needs the password (reauthentication-required)")
+        : "sync sign-in needs the password (reauthentication-required)";
     case "none":
-      return "no sync sign-in (none)";
+      return t ? t("no sync sign-in (none)") : "no sync sign-in (none)";
     default:
-      return `sync sign-in unreadable (${state})`;
+      return t
+        ? t("sync sign-in unreadable ({{state}})", { state })
+        : `sync sign-in unreadable (${state})`;
   }
 }
 
 /** `0 errors, 3 warnings`: the log's problems in its last 24 hours. */
-export function problemCounts(logs: { recentErrors: number; recentWarnings: number }): string {
-  return `${plural(logs.recentErrors, "error")}, ${plural(logs.recentWarnings, "warning")}`;
+export function problemCounts(
+  logs: { recentErrors: number; recentWarnings: number },
+  t?: DiagnosticTranslator,
+): string {
+  return t
+    ? t("{{errors}}, {{warnings}}", {
+        errors: plural(logs.recentErrors, "error", "errors", t),
+        warnings: plural(logs.recentWarnings, "warning", "warnings", t),
+      })
+    : `${plural(logs.recentErrors, "error")}, ${plural(logs.recentWarnings, "warning")}`;
 }
 
 /** `1 recipe`, `2 recipes`: a count with its English noun. */
-export function plural(value: number, noun: string, nouns = `${noun}s`): string {
-  return `${value} ${value === 1 ? noun : nouns}`;
+export function plural(
+  value: number,
+  noun: string,
+  nouns = `${noun}s`,
+  t?: DiagnosticTranslator,
+): string {
+  return t
+    ? t("diagnostics.count." + noun, { count: value })
+    : `${value} ${value === 1 ? noun : nouns}`;
 }
 
 /** `25 min`, `4 h` or `3 d`; a time in the future counts as `0 min`. */
-export function age(ms: number): string {
+export function age(ms: number, t?: DiagnosticTranslator): string {
   const elapsed = Temporal.Duration.from({ milliseconds: Math.max(0, ms) });
   const hours = elapsed.total("hours");
-  if (hours < 1) return `${Math.floor(elapsed.total("minutes"))} min`;
-  if (hours < 48) return `${Math.floor(hours)} h`;
-  return `${Math.floor(elapsed.total("days"))} d`;
+  if (hours < 1)
+    return t
+      ? t("{{count}} min", { count: Math.floor(elapsed.total("minutes")) })
+      : `${Math.floor(elapsed.total("minutes"))} min`;
+  if (hours < 48)
+    return t ? t("{{count}} h", { count: Math.floor(hours) }) : `${Math.floor(hours)} h`;
+  return t
+    ? t("{{count}} d", { count: Math.floor(elapsed.total("days")) })
+    : `${Math.floor(elapsed.total("days"))} d`;
 }
 
 /** The Bitwarden server line: its kind and version, or why it could not be read. */
-export function serverLabel(server: NonNullable<DiagnosticsConnection["server"]>): string {
+export function serverLabel(
+  server: NonNullable<DiagnosticsConnection["server"]>,
+  t?: DiagnosticTranslator,
+): string {
   if (!server.ok)
     return server.error === "no-site-access"
-      ? "server not checked (no-site-access)"
-      : `server config failed (${server.error}${server.status === undefined ? "" : ` ${server.status}`})`;
+      ? t
+        ? t("server not checked (no-site-access)")
+        : "server not checked (no-site-access)"
+      : t
+        ? t("server config failed ({{error}})", {
+            error: `${server.error}${server.status === undefined ? "" : ` ${server.status}`}`,
+          })
+        : `server config failed (${server.error}${server.status === undefined ? "" : ` ${server.status}`})`;
   switch (server.kind) {
     case "bitwarden":
-      return `Bitwarden server ${server.version}`;
+      return t
+        ? t("Bitwarden server {{version}}", { version: server.version })
+        : `Bitwarden server ${server.version}`;
     case "vaultwarden":
-      return `Vaultwarden, compatible with Bitwarden ${server.version}`;
+      return t
+        ? t("Vaultwarden, compatible with Bitwarden {{version}}", { version: server.version })
+        : `Vaultwarden, compatible with Bitwarden ${server.version}`;
     default:
-      return `third-party server, compatible with Bitwarden ${server.version}`;
+      return t
+        ? t("third-party server, compatible with Bitwarden {{version}}", {
+            version: server.version,
+          })
+        : `third-party server, compatible with Bitwarden ${server.version}`;
   }
 }
 
 type ServiceDevice = NonNullable<DiagnosticsStatus["service"]["device"]>;
 
 /** Whether the service would try recipe generation now; no request reached Claude. */
-export function generationLabel(state: Extract<ServiceDevice, { ok: true }>["generation"]): string {
+export function generationLabel(
+  state: Extract<ServiceDevice, { ok: true }>["generation"],
+  t?: DiagnosticTranslator,
+): string {
   switch (state) {
     case "ok":
-      return "recipe generation available (ok)";
+      return t ? t("recipe generation available (ok)") : "recipe generation available (ok)";
     case "credentials-not-configured":
-      return "recipe generation off, no Claude credentials on the service (credentials-not-configured)";
+      return t
+        ? t(
+            "recipe generation off, no Claude credentials on the service (credentials-not-configured)",
+          )
+        : "recipe generation off, no Claude credentials on the service (credentials-not-configured)";
     case "issuer-unavailable":
-      return "recipe generation unavailable, the service cannot sign in to Claude (issuer-unavailable)";
+      return t
+        ? t(
+            "recipe generation unavailable, the service cannot sign in to Claude (issuer-unavailable)",
+          )
+        : "recipe generation unavailable, the service cannot sign in to Claude (issuer-unavailable)";
     case "monthly-limit":
-      return "recipe generation stopped for this month (monthly-limit)";
+      return t
+        ? t("recipe generation stopped for this month (monthly-limit)")
+        : "recipe generation stopped for this month (monthly-limit)";
     case "daily-limit":
-      return "recipe generation stopped for today (daily-limit)";
+      return t
+        ? t("recipe generation stopped for today (daily-limit)")
+        : "recipe generation stopped for today (daily-limit)";
   }
 }
 
 /** Why the service's own record for this device could not be read. */
-export function deviceFailureLabel(error: Extract<ServiceDevice, { ok: false }>["error"]): string {
+export function deviceFailureLabel(
+  error: Extract<ServiceDevice, { ok: false }>["error"],
+  t?: DiagnosticTranslator,
+): string {
   return error === "rejected"
-    ? "service rejected this device (rejected)"
-    : `service record not read (${error})`;
+    ? t
+      ? t("service rejected this device (rejected)")
+      : "service rejected this device (rejected)"
+    : t
+      ? t("service record not read ({{error}})", { error })
+      : `service record not read (${error})`;
 }
