@@ -1155,11 +1155,11 @@ function offersGenerationField(
   );
 }
 /**
- * The field a `totp` handler fills for the login's item (ADR 0027): its built-in TOTP
- * field, or the synthetic probe item's `totp` field. Undefined when the item has none, or
- * when the item's saved binding for the recipe names another field for `totp`: Pateat
- * cannot make a code from a custom field yet, so it never types such a field's raw value,
- * which could be a TOTP seed.
+ * The field a `totp` handler makes its code from for the login's item (ADR 0027): the
+ * Text or Hidden custom field that the item's saved binding for the recipe names for
+ * `totp`, else its built-in TOTP field, or the synthetic probe item's `totp` field. The
+ * code is always generated from the field's seed; its raw value is never typed. Undefined
+ * when the item has no such field, or when the binding names any other field for `totp`.
  */
 function codeFieldOf(
   connection: VaultConnectionMetadata,
@@ -1177,8 +1177,15 @@ function codeFieldOf(
     userId: connection.userId,
     itemId,
   });
-  if (saved?.slots.some((entry) => entry.slot === TOTP_HANDLER_SLOT && entry.field !== "totp"))
-    return undefined;
+  const named = saved?.slots.find((entry) => entry.slot === TOTP_HANDLER_SLOT);
+  if (saved && named && named.field !== "totp") {
+    const resolved = resolveBindingFields(saved, [TOTP_HANDLER_SLOT], item.fields);
+    const fieldId = resolved.ok ? resolved.slots[0]!.fieldId : undefined;
+    const field = item.fields.find((entry) => entry.id === fieldId);
+    return field?.id.startsWith("custom.") && (field.kind === "text" || field.kind === "hidden")
+      ? field.id
+      : undefined;
+  }
   return item.fields.some((field) => field.id === "login.totp-code")
     ? "login.totp-code"
     : undefined;
@@ -1799,7 +1806,7 @@ export type LoginReport = (
       kind: string;
       /**
        * `entered`; `shown-again` after this login already ran it; `missing-fact` when the
-       * item lacks what the handler needs, including a `totp` handler's built-in field;
+       * item lacks what the handler needs, including a `totp` handler's code field;
        * `code-used` when the login already types a TOTP code; `no-room` when the attempt's
        * budget is spent, or the login is at its stop before a missing password (ADR 0036).
        */
@@ -3664,7 +3671,7 @@ export function createLoginRuntime(
       /** While asking after a logout, the single account to use may fill the page. */
       fill?: boolean;
       route?: LoginRouteChoice;
-      /** Slots of the handlers a running login entered; `totp` reads the built-in field. */
+      /** Slots of the handlers a running login entered; `totp` reads the code field. */
       handlerSlots?: readonly string[];
       /** The document asked for a passkey by itself, with conditional mediation (ADR 0034). */
       pageRequest?: boolean;
@@ -3777,8 +3784,9 @@ export function createLoginRuntime(
             ...(chosen.pick?.makeDefault ? { replace: true } : {}),
           };
       }
-      // An entered `totp` handler reads the item's built-in TOTP field (ADR 0027), for this
-      // login only: the binding saved after it authenticates covers the route's slots.
+      // An entered `totp` handler makes its code from the item's code field (`codeFieldOf`,
+      // ADR 0027), for this login only: the binding saved after it authenticates covers the
+      // route's slots.
       let planSlots = slots;
       if (request.handlerSlots?.includes(TOTP_HANDLER_SLOT)) {
         const owner = catalog.connections.find((entry) => entry.id === binding.connectionId);
@@ -3828,8 +3836,26 @@ export function createLoginRuntime(
     // A running or resumed login checks its recorded route alone.
     if (request.route) return resolveRoute(request.route);
     let facts: LoginItemFacts | undefined;
-    const factsOf = (resolved: Extract<Awaited<ReturnType<typeof resolveRoute>>, { ok: true }>) =>
-      itemFacts(resolved.connection, { ...resolved.account, origin: live.document.origin });
+    const factsOf = async (
+      resolved: Extract<Awaited<ReturnType<typeof resolveRoute>>, { ok: true }>,
+    ): Promise<LoginItemFacts> => {
+      const read = await itemFacts(resolved.connection, {
+        ...resolved.account,
+        origin: live.document.origin,
+      });
+      // The `totp` fact describes the field a `totp` handler makes its code from: a custom
+      // field the saved binding names counts when the account may read it, and the built-in
+      // TOTP then does not.
+      const code = codeFieldOf(
+        resolved.connection,
+        resolved.account.itemId,
+        snapshot.snapshot.settings.bindings,
+        recipe,
+      );
+      return code?.startsWith("custom.")
+        ? { ...read, totp: resolved.account.fieldIds.includes(code) }
+        : read;
+    };
     const pageRequest =
       request.pageRequest === true && !chosen?.fillOnly && passkeyAnswersRequest(recipe);
     const { passkey: _button, ...buttonless } = recipe;
@@ -4780,7 +4806,7 @@ export function createLoginRuntime(
    * Several shown: the first not yet entered whose fact the item has, a `passkey` handler
    * before a `totp` handler, as the routes put the passkey first and it types nothing. A
    * `totp` handler is never entered by a login that already types a code, and needs the
-   * item's built-in TOTP field. Returns whether the attempt moved on: to the handler's
+   * item's code field (`codeFieldOf`). Returns whether the attempt moved on: to the handler's
    * steps, or to `challenge` when no shown handler qualifies or the attempt's budget has
    * no room for it. At a login's stop before its item's missing password (`stop`, ADR
    * 0036), only a `passkey` handler is entered, before the stop step, and the login ends
@@ -4959,7 +4985,8 @@ export function createLoginRuntime(
       return true;
     }
     if (fresh.handler.kind === "totp") {
-      // The code comes from the item's built-in TOTP field, which the account must allow.
+      // The code is made from the item's code field: its built-in TOTP, or the Text or
+      // Hidden custom field its saved binding names, which the account must allow.
       const authorized = await allowed(run);
       if (!authorized) return true;
       const code = codeFieldOf(
@@ -6340,12 +6367,15 @@ export function createLoginRuntime(
               return;
             }
             // Vault reads are serial so a denial stops before any later field is released.
+            // The `totp` slot always fills a code made from its field, never the raw value.
+            const code = field.slot === TOTP_HANDLER_SLOT;
             let value: string | undefined;
             try {
               value = await fields({
                 account: run.metadata.account,
                 connection: authorized.connection,
                 fieldId: reference.fieldId,
+                ...(code ? { code: true as const } : {}),
               });
             } catch {
               // A failed read is not a page mutation; never reclassify it as uncertain.
@@ -6357,10 +6387,11 @@ export function createLoginRuntime(
               await change(run, { type: "POLICY_CHANGED" }, { cause: "field-unavailable" });
               return;
             }
-            // A `totp` handler's code fills only a code input, whatever field it reads.
+            // A code, as any `totp` handler's fill, fills only a code input.
             const secret: LoginSecretKind | undefined =
-              codeStep(run.recipe, run.metadata, operation.stepIndex) === "fill" &&
-              attemptPlan(run.recipe, run.metadata)?.[operation.stepIndex]?.handler !== undefined
+              code ||
+              (codeStep(run.recipe, run.metadata, operation.stepIndex) === "fill" &&
+                attemptPlan(run.recipe, run.metadata)?.[operation.stepIndex]?.handler !== undefined)
                 ? "otp"
                 : loginSecretKind(
                     authorized.connection,

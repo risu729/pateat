@@ -34,6 +34,11 @@ export type LocalFieldValue =
 export interface LocalFieldGrant {
   readonly allowedFieldIds: readonly string[];
   readonly nowMs?: () => number;
+  /**
+   * Resolve the field as a TOTP code: the login TOTP, or a Text or Hidden custom field
+   * holding a seed in a format the login TOTP accepts. The raw value is never returned.
+   */
+  readonly code?: true;
 }
 
 export interface LocalFieldSnapshot {
@@ -272,12 +277,15 @@ export function createLocalFieldSnapshot(input: unknown): BitwardenResult<LocalF
             ) {
               return failure("stale-field-reference");
             }
+            // Read once: the decision below must match what was validated.
+            const code: unknown = grant?.code;
             if (
               !grant ||
               !Array.isArray(grant.allowedFieldIds) ||
               grant.allowedFieldIds.length > 2000 ||
               grant.allowedFieldIds.some((id) => typeof id !== "string" || id.length > 120) ||
-              (grant.nowMs !== undefined && typeof grant.nowMs !== "function")
+              (grant.nowMs !== undefined && typeof grant.nowMs !== "function") ||
+              (code !== undefined && code !== true)
             )
               return failure("invalid-field-input");
             const allowed = new Set(grant.allowedFieldIds);
@@ -292,6 +300,15 @@ export function createLocalFieldSnapshot(input: unknown): BitwardenResult<LocalF
                 grant.nowMs ? { nowMs: grant.nowMs } : {},
               );
               return item ? generated : failure("crypto-locked");
+            }
+            if (code === true) {
+              // Only a Text or Hidden custom field may hold a seed; its value never leaves raw.
+              if (!custom.has(fieldId)) return failure("unsupported-field");
+              const field = item.fields?.[custom.get(fieldId)!];
+              if (!field) return failure("field-missing");
+              if (field.type !== 0 && field.type !== 1) return failure("unsupported-field");
+              if (!field.value) return failure("field-missing");
+              return generateLocalTotp(field.value, grant.nowMs ? { nowMs: grant.nowMs } : {});
             }
             let value: string | null | undefined;
             if (custom.has(fieldId)) {

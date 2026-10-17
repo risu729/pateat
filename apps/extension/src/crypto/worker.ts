@@ -363,6 +363,7 @@ async function execute(command: HostCommand) {
     return snapshot.data.resolve(op.ref, {
       allowedFieldIds: op.allowedFieldIds,
       ...(op.nowMs === undefined ? {} : { nowMs: () => op.nowMs! }),
+      ...(op.code ? { code: true as const } : {}),
     });
   } finally {
     snapshot.data.dispose();
