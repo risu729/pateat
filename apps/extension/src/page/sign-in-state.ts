@@ -327,7 +327,8 @@ export function showsCaptcha(document: Document): boolean {
 /**
  * E2: the username, ignoring case, as a whole word of the header or navigation text,
  * read behind an open modal dialog too, as the signed-in page's description is. As in
- * ADR 0028, a Latin letter or digit at its edge may touch kana or kanji (`taro_yさん`).
+ * ADR 0028, a username with a Latin letter whose edge is a Latin letter or digit may
+ * touch kana or kanji there (`taro_yさん`); an all-digit one may touch no letter.
  */
 function showsUsername(document: Document, username: string): boolean {
   // Page text is read without format characters, so the username is compared without them.
@@ -343,12 +344,12 @@ function showsUsername(document: Document, username: string): boolean {
     ),
   );
   // `risu` is not shown by `risu729` nor by `x.risu@example.com`.
-  const blockedBefore = latinWord.test(name[0]!)
-    ? /[\p{Script=Latin}\p{N}_.@-]/u
-    : /[\p{L}\p{N}_.@-]/u;
-  const blockedAfter = latinWord.test(name.at(-1)!)
-    ? /[\p{Script=Latin}\p{N}_@-]/u
-    : /[\p{L}\p{N}_@-]/u;
+  // An all-digit username, such as a member number, keeps the strict rule (`2026年`).
+  const latin = /\p{Script=Latin}/u.test(name);
+  const blockedBefore =
+    latin && latinWord.test(name[0]!) ? /[\p{Script=Latin}\p{N}_.@-]/u : /[\p{L}\p{N}_.@-]/u;
+  const blockedAfter =
+    latin && latinWord.test(name.at(-1)!) ? /[\p{Script=Latin}\p{N}_@-]/u : /[\p{L}\p{N}_@-]/u;
   return texts.some((raw) => {
     const text = raw.normalize("NFKC").toLowerCase();
     for (let at = text.indexOf(name); at >= 0; at = text.indexOf(name, at + 1)) {

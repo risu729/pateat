@@ -443,6 +443,12 @@ describe("pageSigns", () => {
     expect(shows("<nav>xtaro_y</nav>", "taro_y")).toBe(false);
     expect(shows("<nav>taro_yx</nav>", "taro_y")).toBe(false);
     expect(shows("<nav>taro12</nav>", "taro1")).toBe(false);
+    expect(shows("<nav>taro_yさん</nav>", "taro")).toBe(false);
+    expect(shows("<nav>ｔａｒｏ＿ｙさん</nav>", "taro_y")).toBe(true);
+    // An all-digit username, such as a member number, may not touch any letter.
+    expect(shows("<nav>2026年10月</nav>", "2026")).toBe(false);
+    expect(shows("<nav>残り123件</nav>", "123")).toBe(false);
+    expect(shows("<nav>会員番号 12345</nav>", "12345")).toBe(true);
     // A non-Latin username inside a longer non-Latin word still does not count.
     expect(shows("<nav>山田花子</nav>", "山田花")).toBe(false);
   });
