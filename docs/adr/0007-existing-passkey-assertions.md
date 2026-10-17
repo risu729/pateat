@@ -67,6 +67,11 @@ amendment below.
 
 Date: 2026-10-10
 
+Provisional follow-up, 2026-10-17: [ADR 0045](0045-immediate-ui-stored-passkeys.md)
+records the narrow `uiMode: "immediate"` stored-passkey implementation and an open
+question with its suggested choice. It is not confirmed by the owner and does not
+record acceptance of a change to this ADR's earlier Immediate UI decision.
+
 ## Context
 
 [ADR 0001](0001-local-login-boundary.md) puts existing zero-counter software
