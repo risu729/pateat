@@ -79,8 +79,8 @@ export const diagnosticsEn = {
   "Copied. Paste it into the bug report.": "Copied. Paste it into the bug report.",
   "Copy failed. Select the text above and copy it manually.":
     "Copy failed. Select the text above and copy it manually.",
-  "With site addresses included, a download names page paths and their parameters’ names, not values; a path or a page’s route can still hold a code or an ID. A site you had not set up when an entry was written stays pseudonymous, as {{origin}} or {{rp}}. Check the preview before sharing.":
-    "With site addresses included, a download names page paths and their parameters’ names, not values; a path or a page’s route can still hold a code or an ID. A site you had not set up when an entry was written stays pseudonymous, as {{origin}} or {{rp}}. Check the preview before sharing.",
+  "With site addresses included, a download names page paths and their parameters' names, not values; a path or a page's route can still hold a code or an ID. A site you had not set up when an entry was written stays pseudonymous, as {{origin}} or {{rp}}. Check the preview before sharing.":
+    "With site addresses included, a download names page paths and their parameters' names, not values; a path or a page's route can still hold a code or an ID. A site you had not set up when an entry was written stays pseudonymous, as {{origin}} or {{rp}}. Check the preview before sharing.",
   "This exact text is saved or copied. Check it before attaching it to a bug report.":
     "This exact text is saved or copied. Check it before attaching it to a bug report.",
   "This exact text is copied. Check it before posting. Sites are numbered here, separately from a hidden Download logs, so site-1 may differ.":
@@ -88,7 +88,6 @@ export const diagnosticsEn = {
   "Bug report text and exported log entries stay in English and keep their diagnostic codes.":
     "Bug report text and exported log entries stay in English and keep their diagnostic codes.",
   "{{version}} ({{revision}}) {{mode}} build": "{{version}} ({{revision}}) {{mode}} build",
-  " + {{count}} granted sites": " + {{count}} granted sites",
   "{{total}} (login {{login}}, TOTP {{totp}}, passkey {{passkey}}) + {{unsupported}} unsupported":
     "{{total}} (login {{login}}, TOTP {{totp}}, passkey {{passkey}}) + {{unsupported}} unsupported",
   " (rejected)": " (rejected)",
@@ -146,7 +145,7 @@ export const diagnosticsEn = {
   "logs unreadable": "logs unreadable",
   "{{problems}} logged in the last 24 h": "{{problems}} logged in the last 24 h",
   "no errors or warnings logged in the last 24 h": "no errors or warnings logged in the last 24 h",
-  "service {{remote}} recipes, cached {{local}}": "service {{remote}} recipes, cached {{local}}",
+  "service {{recipes}}, cached {{local}}": "service {{recipes}}, cached {{local}}",
   "settings revision service {{remote}}, here {{local}}":
     "settings revision service {{remote}}, here {{local}}",
   "recipes and settings match the service": "recipes and settings match the service",

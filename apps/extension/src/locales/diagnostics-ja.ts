@@ -85,7 +85,7 @@ export const diagnosticsJa = {
   "Copied. Paste it into the bug report.": "コピーしました。不具合報告に貼り付けてください。",
   "Copy failed. Select the text above and copy it manually.":
     "コピーできませんでした。上のテキストを選択して手動でコピーしてください。",
-  "With site addresses included, a download names page paths and their parameters’ names, not values; a path or a page’s route can still hold a code or an ID. A site you had not set up when an entry was written stays pseudonymous, as {{origin}} or {{rp}}. Check the preview before sharing.":
+  "With site addresses included, a download names page paths and their parameters' names, not values; a path or a page's route can still hold a code or an ID. A site you had not set up when an entry was written stays pseudonymous, as {{origin}} or {{rp}}. Check the preview before sharing.":
     "サイトのアドレスを含めると、ページのパスとパラメーター名が出力されます。パラメーターの値は含みませんが、パスやルートにはコードや ID が含まれることがあります。記録時に未設定だったサイトは {{origin}} や {{rp}} のような仮名のままです。共有前にプレビューを確認してください。",
   "This exact text is saved or copied. Check it before attaching it to a bug report.":
     "このテキストがそのまま保存またはコピーされます。不具合報告に添付する前に確認してください。",
@@ -94,7 +94,6 @@ export const diagnosticsJa = {
   "Bug report text and exported log entries stay in English and keep their diagnostic codes.":
     "不具合報告用のテキストと出力したログは英語のままで、診断コードも変わりません。",
   "{{version}} ({{revision}}) {{mode}} build": "{{version}} ({{revision}}) {{mode}} ビルド",
-  " + {{count}} granted sites": " + 許可済みサイト {{count}} 件",
   "{{total}} (login {{login}}, TOTP {{totp}}, passkey {{passkey}}) + {{unsupported}} unsupported":
     "{{total}} 件（ログイン {{login}}、TOTP {{totp}}、パスキー {{passkey}}）+ 未対応 {{unsupported}} 件",
   " (rejected)": "（拒否）",
