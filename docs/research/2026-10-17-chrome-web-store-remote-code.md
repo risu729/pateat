@@ -128,8 +128,10 @@ Checked against `packages/contracts/src/login.ts`, `recipes.ts`, `sync.ts` and
   recipe ([ADR 0031](../adr/0031-sign-in-entry-pages.md)) or a chooser recipe
   ([ADR 0028](../adr/0028-account-chooser-login-pages.md)). The extension parses each
   sync response (`syncRecipeChangesSchema` in `service/transport.ts`) and its cache
-  (`service/recipes.ts`) with the packaged schema, and unknown members fail. Nothing
-  starts an entry or chooser recipe yet.
+  (`service/recipes.ts`) with the packaged schema, and unknown members fail. Both other
+  kinds already run: an entry recipe presses one link to the page's own site, and a
+  chooser recipe clicks an account in a list or a button beside it, then runs one of its
+  login branches.
 - A login recipe's steps are `fill`, `click`, `wait` and `assert`, at most 32 per
   route variant. It may add up to three alternative variants of the password route, a
   `passkey` route, up to 16 `passkey` or `totp` second-factor handlers, up to four
@@ -160,7 +162,7 @@ Checked against `packages/contracts/src/login.ts`, `recipes.ts`, `sync.ts` and
   ([ADR 0013](../adr/0013-service-held-recipes-and-settings.md)). The service "is not
   opened to other people", so for a store user recipes would come from a service they
   run, or from the planned mode without the service and with direct AI calls, which is
-  not designed yet.
+  not designed yet and might get recipes from a model API directly.
 
 ## Assessment
 
@@ -187,9 +189,10 @@ Against it:
   named by remote data, with remote parameters, as remote logic.
 - Recipes written by an AI on a server can read as the server steering the extension,
   and the malicious extensions Palant describes make instruction-like data suspect.
-- The mode without the service would fetch recipes from a model API instead of the
-  user's own service, which weakens the "user account data" argument. Designing that
-  mode reopens this question, and so does starting entry recipes, which press links.
+- If the mode without the service gets recipes from a model API instead of the user's
+  own service, the "user account data" argument weakens, so designing that mode reopens
+  this question. Entry and chooser recipes, which press links and list entries, need
+  the same explanation as login recipes.
 - A reviewer without a Pateat service sees an extension that does nothing, which
   invites "Functionality not working" unless the submission explains how to test it.
 
