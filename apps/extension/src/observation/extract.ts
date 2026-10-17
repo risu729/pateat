@@ -1,5 +1,7 @@
 import {
   isCodeField,
+  namesPasskey,
+  registersPasskey,
   loginAutocompleteTokens,
   loginObservationSchema,
   loginLinkTargetSchema,
@@ -1642,6 +1644,28 @@ export function extractEntryObservation(
   const chosen = byLandmark(shownControls).slice(0, maxCandidates);
   if (chosen.length === 0) return { ok: false, reason: "no-candidates" };
   return observe(document, chosen, true);
+}
+
+/** A button-only passkey start, using the same bounded, value-free observation as login. */
+export function extractPasskeyObservation(document: Document = globalThis.document): ObservationResult {
+  if (!document.location) return { ok: false, reason: "unsupported-page" };
+  const found = describeAll(document);
+  // Any fillable or unsupported field prevents a button-only start. Shadow fields do too.
+  if (found.some((entry) => entry.kind === "unsupported" ? entry.field !== undefined : fillTypes[entry.draft.role]) ||
+    [...document.querySelectorAll("*")].some((host) => host.shadowRoot && inShadow(host.shadowRoot, shadowFields)))
+    return { ok: false, reason: "no-candidates" };
+  const tokens = redactsPath(document.location.pathname);
+  const index = locatorIndex(document);
+  const buttons = found.flatMap((entry) => {
+    if (entry.kind !== "candidate" || entry.draft.role !== "button" || !enabled(entry.draft.element)) return [];
+    const target = locate(entry.draft.element, index, { tokens, lasting: true });
+    if (!target) return [];
+    const button = { target, label: entry.draft.label };
+    if (!namesPasskey(button) || registersPasskey(button)) return [];
+    return [{ form: entry.form, draft: entry.draft, target }];
+  });
+  if (!buttons.length || buttons.length > maxCandidates) return { ok: false, reason: "no-candidates" };
+  return observe(document, buttons, true);
 }
 
 /**

@@ -122,7 +122,7 @@ export const helloSchema = v.strictObject({
    * without a recipe may be sent for generation (ADR 0016); `identifier` when the page,
    * ten seconds after loading, asks for an account identifier alone instead.
    */
-  signIn: v.optional(v.strictObject({ path, identifier: v.optional(v.literal(true)) })),
+  signIn: v.optional(v.strictObject({ path, identifier: v.optional(v.literal(true)), passkey: v.optional(v.literal(true)) })),
   /**
    * Such an input shows on this path but no first step is ready; sent once per path, only
    * for the log of a login that did not start.
@@ -366,7 +366,7 @@ export const commandSchema = v.variant("type", [
     version: v.literal(1),
     type: v.literal("login.extract"),
     token: id,
-    page: v.picklist(["login", "signed-in", "accounts", "entry"]),
+    page: v.picklist(["login", "signed-in", "accounts", "entry", "passkey"]),
     /**
      * For a list of accounts (ADR 0028): the shown texts that equal a matching item's
      * username that is not an email, hidden from the observation as `[account]`.

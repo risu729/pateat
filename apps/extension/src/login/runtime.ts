@@ -6011,6 +6011,7 @@ export function createLoginRuntime(
   async function generationSlotsFor(
     live: LiveDocument,
     miss: (reason: GenerationMiss, detail?: string) => void = () => undefined,
+    passkeyOnly = false,
   ): Promise<GenerationScope | undefined> {
     if (!uris) return undefined;
     const snapshot = await settings.handle({ version: 1, type: "settings.get" });
@@ -6074,7 +6075,20 @@ export function createLoginRuntime(
           : [];
       }),
     );
-    if (!slots.length && !offers.length) {
+    // A passkey-only page needs a usable discoverable key on an eligible URI match;
+    // passwords and unrelated RP matches never authorize generation.
+    if (passkeyOnly) {
+      const leave = await options.vault?.enter(false).catch(() => undefined);
+      let held: readonly PasskeyItem[] = [];
+      try { held = await options.passkeyItems?.(live.document.origin) ?? []; }
+      catch { held = []; }
+      finally { leave?.(); }
+      if (!items.some(({ connection, item }) => held.some((key) => key.connectionId === connection.id && key.itemId === item.id))) {
+        miss("no-vault-match", "no-passkey");
+        return undefined;
+      }
+    }
+    if (!slots.length && !offers.length && !passkeyOnly) {
       const enabled = snapshot.catalog.connections.some(
         (connection) =>
           snapshot.snapshot.settings.connections.find(
@@ -6485,6 +6499,7 @@ export function createLoginRuntime(
      * page is sent as that branch's first page (ADR 0028).
      */
     otherless?: LoginChooserRecipe,
+    passkeyOnly = false,
   ): Promise<void> {
     if (!generation) return;
     const base = otherless && { recipeId: otherless.id, revision: otherless.revision };
@@ -6512,7 +6527,7 @@ export function createLoginRuntime(
                   page: "accounts",
                   ...(list.names.length ? { names: list.names } : {}),
                 }
-              : { type: "login.extract", page: "login" },
+              : { type: "login.extract", page: passkeyOnly ? "passkey" : "login" },
           ),
         );
         if (documents.get(key) !== live) return;
@@ -6569,7 +6584,8 @@ export function createLoginRuntime(
           {
             version: 1,
             observation: hidden.observation,
-            slots: [
+            ...(passkeyOnly ? { passkeyOnly: true } : {}),
+            slots: passkeyOnly ? [] : [
               ...scope.slots.map((slot) =>
                 slot.id === "username" && shape ? { ...slot, valueShape: shape } : slot,
               ),
@@ -7835,7 +7851,7 @@ export function createLoginRuntime(
       }
       // Nor as a page that asks for an identifier alone (ADR 0016), such as a profile page
       // with an email field.
-      if (offer && signIn?.identifier && afterSignIn.get(document.tabId) === document.documentId) {
+      if (offer && (signIn?.identifier || signIn?.passkey) && afterSignIn.get(document.tabId) === document.documentId) {
         skipGeneration(live, "after-sign-in");
         offer = false;
       }
@@ -7843,7 +7859,7 @@ export function createLoginRuntime(
         let missed: [GenerationMiss, (string | undefined)?] = ["vault-unavailable", "error"];
         const scope = await generationSlotsFor(live, (...reason) => {
           missed = reason;
-        }).catch(() => undefined);
+        }, signIn?.passkey === true).catch(() => undefined);
         if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
         // Without an email listed, a shown text must name a matching item's username. A
         // list on a page whose path holds one is not sent: the page would be refused as
@@ -7872,7 +7888,7 @@ export function createLoginRuntime(
           live.state = "generating";
           delete live.reason;
           await publish(live);
-          void generateFor(live, scope, listing ? { names: otherOnly ?? names ?? [] } : undefined);
+          void generateFor(live, scope, listing ? { names: otherOnly ?? names ?? [] } : undefined, undefined, signIn?.passkey === true);
           return { ok: false, reason: "generating" };
         }
         // No vault item matches this page, the vault could not tell, or no shown text names
