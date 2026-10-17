@@ -28,7 +28,7 @@ checks reports `token` alone. Parse it by metric name, as Cloudflare may add ent
 | `GET`/`HEAD /health` | Build revision probe; other methods return 405 |
 | `GET /.well-known/openid-configuration` | OIDC discovery for Claude Workload Identity Federation |
 | `GET /.well-known/jwks.json` | Public halves of the issuer's ES256 keys |
-| `GET /v1/settings` | Current synced settings; revision 0 with `settings: null` before the first write |
+| `GET /v1/settings` | Device-selected profile policy plus shared bindings and `profileId`; revision 0 with `settings: null` before the first write |
 | `PUT /v1/settings` | Replace settings when `expectedRevision` matches; otherwise 409 with the current state |
 | `GET /v1/recipes?after=&limit=` | Latest state of recipes changed after the cursor, at most 100 per page |
 | `PUT /v1/recipes/:recipeId` | Publish an active revision or a tombstone when `expectedRevision` matches |
@@ -40,15 +40,20 @@ checks reports `token` alone. Parse it by metric name, as Cloudflare may add ent
 | `POST /v1/recipes/:recipeId/page-sample` | Log a repeat login's signed-in page for evaluation, without a model call; 201 when kept, 204 when a sample of the recipe and branch is from the last 30 days |
 | `GET /v1/device` | The calling device's paired time, the owner's live recipe count and settings revision, and whether recipe generation would run now, for the diagnostics page |
 | `DELETE /v1/device` | Revoke the calling device's own credential |
-| `POST /pair` | Create a device for the signed-in owner from an allowed extension; 201 with the credential, once |
+| `POST /pair` | Create a device for the signed-in owner from an allowed extension; `profileId` required when several profiles exist; 201 with the credential, once |
+| `GET /pair/profiles` | List profiles for the owner session from an allowlisted extension |
+| `GET`, `PUT /pair/profiles/:profileId/settings` | Edit another owned profile with the extension's local catalog; owner session and extension Origin required |
 | `GET /pair/signed-in` | The page the extension opens when pairing needs a sign-in; it asks the user to go back to Pateat's settings |
 | `GET /manage/dashboard`, `/manage`, `/manage/sites`, `/manage/sites/:scheme/:host`, `/manage/models`, `/manage/request-log` | Owner web UI (React app): the dashboard of login and request speed, counts, spend and failures; devices; the sites list with excluded sites, unreadable and revoked recipes; one origin's default account, recipes and bindings; each role's models; the request log with Delete all |
 | `GET /manage/assets/*` | The web UI's built script, styles and notices |
 | `GET /manage/api/dashboard?range=24h\|7d\|30d` | The dashboard's aggregates over the range ending now (default `7d`; another value is 400 `bad_request`), computed in the Worker from only the owner's rows: login time (total less the person's) of the signed-in login records, apart for those that waited on the service, with the median of each part (network, the rest of the service, waiting for the site, the rest, and the person apart) and per site and extension build; model, token, pre-model and server times per role, site and build (of requests that called the model; a request answered without a call counts only as a request and, unless its outcome is `recipe`, a failure; a signed-in page sample, outcome `sampled`, is left out), the median login and model time per UTC day (null on a day without one), the 10 slowest requests, counts, every login's result with how many signed in (in total and per day), the first-login result codes apart, tokens, this UTC day's and month's spend with the limits, active recipes, recipes generated, and failures by code with their latest 20; every set of durations has `n`, and below 20 its values instead of a p90 |
 | `GET /manage/api/devices` | The owner's devices with their last use, newest first |
 | `POST /manage/api/devices/:deviceId/revoke` | Revoke one of the owner's devices; 204 |
-| `GET /manage/api/settings` | The settings `/v1/settings` serves; revision 0 before the first write; 404 `not_paired` without a paired device |
-| `PUT /manage/api/settings` | Replace them like `PUT /v1/settings`; `connections` must be empty and the document at most 120 KiB |
+| `GET /manage/api/profiles` | The Access owner's profiles |
+| `POST /manage/api/profiles` | Copy an existing owned profile, with `name` and `copyFrom` |
+| `POST /manage/api/devices/:deviceId/profile` | Assign an owned profile to an owned active device; advances the settings revision |
+| `GET /manage/api/profiles/:profileId/settings` | Selected owned profile with shared bindings and owner revision; 404 for a foreign profile |
+| `PUT /manage/api/profiles/:profileId/settings` | Replace them like `PUT /v1/settings`; `connections` must be empty and the document at most 120 KiB |
 | `GET /manage/api/recipes` | Every recipe head with its document, most recently changed first; active heads whose document no longer validates are listed apart in `unreadable` |
 | `POST /manage/api/recipes/:recipeId/revoke` | Revoke one recipe if `expectedRevision` is its head; otherwise 409 with the current head |
 | `GET /manage/api/models` | The owner's model choices per role (`config`, the defaults while `saved` is false) and the models they may name (`models`): from the Models API with the owner's credential (`catalog: "models-api"`), else the pricing page (`"pricing"`), each with its efforts, rates and fast mode state (`none`, `available`, `failing`) |

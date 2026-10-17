@@ -513,6 +513,9 @@ test("says when there are no recipes", async () => {
 test("says when a recipe to revoke no longer exists", async () => {
   const client = mockClient({ version: 1, recipes: [active("bank-signin")] });
   await mount(client);
+  await expect
+    .element(page.getByRole("button", { name: "Revoke recipe bank-signin" }))
+    .toBeVisible();
   client.revokeRecipe.mockRejectedValueOnce(new ManageApiError("not_found"));
   // The refresh is held so the page can be seen between the answer and the new list.
   let release = () => {};

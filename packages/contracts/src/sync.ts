@@ -61,11 +61,18 @@ export const MAX_RECIPE_CACHE_BYTES = 2 * 1024 * 1024;
 export const settingsDocumentBytes = (settings: unknown) =>
   new TextEncoder().encode(JSON.stringify(settings)).byteLength;
 
-export const syncSettingsWriteSchema = v.strictObject({
-  version: v.literal(1),
-  expectedRevision: revision,
-  settings: localSettingsSchema,
-});
+export const syncSettingsWriteSchema = v.pipe(
+  v.strictObject({
+    version: v.literal(1),
+    expectedRevision: revision,
+    settings: localSettingsSchema,
+  }),
+  v.check((write) => write.settings.connections.length === 0, "Connections stay on devices"),
+  v.check(
+    (write) => settingsDocumentBytes(write.settings) <= MAX_SETTINGS_DOCUMENT_BYTES,
+    "The settings document is too large",
+  ),
+);
 
 /**
  * The stored recipe carries the sync identity, so a cached copy cannot drift from it. It is
