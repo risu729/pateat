@@ -1568,8 +1568,10 @@ Disposing a snapshot prevents later resolution. The host must still enforce
 destination policy and invalidate stale operations.
 
 OTPAuth supplies local standard TOTP and Steam generation. Supported inputs are
-canonical Base32 and explicit TOTP URI parameters; unsupported algorithms and
-HOTP are explicit errors. OTP seeds are not field values or inference inputs.
+Base32 secrets and explicit TOTP URI parameters; unsupported algorithms, HOTP and
+unknown URI parameters are explicit errors. As in Bitwarden, the unused bits of a
+secret's last character are dropped, and the display-only `image`, `icon` and `color`
+URI parameters are ignored. OTP seeds are not field values or inference inputs.
 Independent RFC 6238 and pinned upstream answers, clock boundaries and the
 packaged MV3 probe are the verification gates for this slice.
 
