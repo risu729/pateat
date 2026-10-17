@@ -491,27 +491,24 @@ describe("fixed operations, session scope and reply fencing", () => {
     expect(await pending).toEqual({ ok: true, data: otp });
   });
 
-  it.each([false, 1, "true", null])(
-    "rejects a code grant of %j before dispatch",
-    async (code) => {
-      const h = harness();
-      const session = await h.open();
-      const ref = {
-        connectionId,
-        userId: accountUserId,
-        itemId,
-        snapshotId,
-        fieldId: "login.totp-code",
-      };
-      expect(
-        await h.host.resolveField(session, ref, {
-          allowedFieldIds: ["login.totp-code"],
-          code,
-        } as never),
-      ).toEqual({ ok: false, error: { code: "invalid-request" } });
-      expect(h.commands).toHaveLength(1);
-    },
-  );
+  it.each([false, 1, "true", null])("rejects a code grant of %j before dispatch", async (code) => {
+    const h = harness();
+    const session = await h.open();
+    const ref = {
+      connectionId,
+      userId: accountUserId,
+      itemId,
+      snapshotId,
+      fieldId: "login.totp-code",
+    };
+    expect(
+      await h.host.resolveField(session, ref, {
+        allowedFieldIds: ["login.totp-code"],
+        code,
+      } as never),
+    ).toEqual({ ok: false, error: { code: "invalid-request" } });
+    expect(h.commands).toHaveLength(1);
+  });
 
   const uriCandidates = {
     connectionId,

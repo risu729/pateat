@@ -726,9 +726,9 @@ describe("TOTP codes from custom fields (code grant)", () => {
       ok: true,
       data: { kind: "otp", value: "287082", period: 30, validUntilMs: 60_000 },
     });
-    expect(active.resolve(fieldRef("login.totp-code"), codeGrant(59_000, "login.totp-code"))).toEqual(
-      plain,
-    );
+    expect(
+      active.resolve(fieldRef("login.totp-code"), codeGrant(59_000, "login.totp-code")),
+    ).toEqual(plain);
     expectNoSeed(plain);
   });
 
