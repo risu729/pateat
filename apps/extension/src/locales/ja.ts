@@ -202,4 +202,6 @@ export const ja = {
   matchingAccounts_one: "{{count}} 件のアカウントがこのページに一致します",
   matchingAccounts_other: "{{count}} 件のアカウントがこのページに一致します",
   matchingAccounts: "{{count}} 件のアカウントがこのページに一致します",
+  "{{title}}, {{sub}}, default": "{{title}}、{{sub}}（既定）",
+  "{{title}}, {{sub}}": "{{title}}、{{sub}}",
 } satisfies Record<keyof typeof en, string>;
