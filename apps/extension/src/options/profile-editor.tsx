@@ -91,6 +91,7 @@ export function ProfileEditor({
       {draft && catalog && (
         <fieldset disabled={busy} className="border-0 p-0">
           <SitePolicy
+            idPrefix="profile-"
             key={profileId}
             draft={draft}
             catalog={catalog}
