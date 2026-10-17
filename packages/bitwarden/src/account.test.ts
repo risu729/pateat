@@ -15,6 +15,7 @@ import {
   syntheticJwt,
 } from "./__fixtures__/account";
 import {
+  fidoCredential,
   TEST_ORGANIZATION_ID,
   TEST_ORGANIZATION_KEY,
   v1Email,
@@ -432,6 +433,62 @@ describe("raw provider account through native local crypto", () => {
     expect(mapRaw(raw).ok).toBe(true);
     (cipher["attachments"] as Record<string, unknown>[])[0]!["object"] = "cipher";
     expect(mapRaw(raw).ok).toBe(false);
+  });
+
+  /** Vaultwarden returns each passkey as the client sent it. Official clients serialize
+   * `Fido2CredentialApi`, a `BaseResponse`, so every entry carries its `response` member;
+   * Vaultwarden strips that member only from the login root, its URIs and the fields, and
+   * its sync carries no `data` copy. */
+  function vaultwardenPasskeyAccount(member?: [string, unknown]) {
+    const raw = rawV1Account();
+    const cipher = raw.sync.ciphers[0]! as Record<string, unknown>;
+    delete cipher["data"];
+    const credential: Record<string, unknown> = { ...fidoCredential };
+    if (member) credential[member[0]] = member[1];
+    cipher["login"] = { ...rawLoginCipher().login, fido2Credentials: [credential] };
+    return raw;
+  }
+
+  it("maps and decrypts a passkey entry without a response member", async () => {
+    const { prepared, session } = await received(vaultwardenPasskeyAccount());
+    const metadata = await session.decryptFido2Credentials({
+      connectionId: accountProfile.connectionId,
+      cipher: prepared.ciphers[0],
+    });
+    expect(metadata).toMatchObject({ ok: true, data: [{ rpId: "synthetic.example.test" }] });
+  });
+
+  it.each(["response", "Response"])(
+    "maps and decrypts a passkey whose entry carries a null %s member",
+    async (key) => {
+      const raw = vaultwardenPasskeyAccount([key, null]);
+      const mapped = mapRaw(raw);
+      expect(mapped.ok ? null : mapped.error).toBeNull();
+      const { prepared, session } = await received(raw);
+      const credential = prepared.ciphers[0]!.login?.fido2Credentials?.[0];
+      expect(credential).toBeDefined();
+      expect(credential).not.toHaveProperty("response");
+      expect(credential).not.toHaveProperty("Response");
+      const metadata = await session.decryptFido2Credentials({
+        connectionId: accountProfile.connectionId,
+        cipher: prepared.ciphers[0],
+      });
+      expect(metadata).toMatchObject({
+        ok: true,
+        data: [{ rpId: "synthetic.example.test", userName: "synthetic-user" }],
+      });
+    },
+  );
+
+  it.each([
+    ["response", {}],
+    ["response", "synthetic"],
+    ["Response", {}],
+  ])("still refuses a passkey entry whose %s member is %j", (key, value) => {
+    expect(mapRaw(vaultwardenPasskeyAccount([key, value]))).toEqual({
+      ok: false,
+      error: { code: "invalid-response" },
+    });
   });
 
   it("ignores unsigned advertised securityVersion when determining verified local state", async () => {
