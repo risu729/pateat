@@ -509,10 +509,15 @@ than in this repository.
   cloud Chromium probe the content script offered the page, since its offer check
   ignores opacity and counts the page's off-screen password input kept for the browser,
   while its description still reported `unfillable-field`, so on a slow load the three
-  reads a second apart could all see the transparent form. Since 2026-10-17 such a page
-  is read a second apart, at most ten times
-  ([ADR 0016](adr/0016-recipe-generation-trigger.md); agent fix applying ADR 0016, local
-  tests only). Check the UNSW sign-in page in the owner's Chrome.
+  reads a second apart could all see the transparent form (inferred from the 04:11 log;
+  not reproduced). Since 2026-10-17 such a page is read a second apart, at most ten
+  times ([ADR 0016](adr/0016-recipe-generation-trigger.md); agent fix applying ADR 0016,
+  local tests only; that ten reads cover the slow load is not shown). A known cost of
+  the longer window: a form whose description stays incomplete while the person moves
+  on to its next step on the same path may have that step sent as the first page.
+  Making the offer check ignore inputs the description does not count as visible would
+  remove the early offer itself; it changes when pages are offered and is not done.
+  Check the UNSW sign-in page in the owner's Chrome.
 - A login control that is a link whose `javascript:` URL alone submits never submitted:
   on 2026-10-17 (build `d29951d`, 01:55 UTC) the owner's Chrome filled SMBC Trust Bank's
   sign-on page and clicked サインオン, and Chrome refused the URL under the content

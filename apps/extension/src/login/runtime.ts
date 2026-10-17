@@ -207,7 +207,7 @@ const HOLD_MS = 5 * 60_000;
 /**
  * How often a login page offered for generation is read before it counts as one that
  * cannot be described, and how long apart: a form rendered in steps or fading in settles
- * meanwhile, for about the 10 seconds a page has to show its sign-in input (ADR 0016).
+ * meanwhile, for about nine seconds after the page offers itself (ADR 0016).
  */
 const EXTRACT_READS = 10;
 const EXTRACT_RETRY_MS = 1000;
