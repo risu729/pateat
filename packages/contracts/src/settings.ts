@@ -17,13 +17,10 @@ const revision = v.pipe(
 export function parseSiteUrl(value: string): URL | undefined {
   if (/\s|\\/.test(value) || !/^https?:\/\/[^/]/i.test(value)) return undefined;
   if (value.split("//")[1]?.split(/[/?#]/)[0]?.includes("@")) return undefined;
-  try {
-    const url = new URL(value);
-    if (!/^https?:$/.test(url.protocol) || url.username || url.password) return undefined;
-    return url;
-  } catch {
-    return undefined;
-  }
+  const url = URL.parse(value);
+  if (!url) return undefined;
+  if (!/^https?:$/.test(url.protocol) || url.username || url.password) return undefined;
+  return url;
 }
 
 export function normalizeHostname(value: string): string | undefined {

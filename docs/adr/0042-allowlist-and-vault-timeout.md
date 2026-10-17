@@ -1,4 +1,4 @@
-# ADR 0039: An allowlist of sites, and a vault timeout
+# ADR 0042: An allowlist of sites, and a vault timeout
 
 Status: proposed, implemented pending the owner's approval. The plan's phase 4 item
 "Settings to limit Pateat as an extension that handles personal data: only allowed sites

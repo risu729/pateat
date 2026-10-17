@@ -252,6 +252,7 @@ export const LOG_EVENTS = {
       recipe: "recipe",
       recipeRevision: "count",
       rejected: "flag",
+      clicked: "flag",
       url: "url",
     },
   },
@@ -339,6 +340,7 @@ export const LOG_EVENTS = {
       complete: "flag",
       chooser: "code",
       signedBefore: "flag",
+      logoutClicked: "flag",
       mediation: "code",
       duringLogin: "flag",
       answerFailed: "code",
@@ -965,12 +967,8 @@ function fragmentShape(hash: string): string {
  */
 function pagePath(raw: FieldValue, origin: FieldValue | undefined): string | undefined {
   if (typeof raw !== "string" || typeof origin !== "string") return undefined;
-  let url: URL;
-  try {
-    url = new URL(raw);
-  } catch {
-    return undefined;
-  }
+  const url = URL.parse(raw);
+  if (!url) return undefined;
   // A `blob:` or similar URL reports its inner origin but no path of its own.
   if (url.origin !== origin || !url.pathname.startsWith("/")) return undefined;
   const query = url.search === "" ? "" : `?${parameterNames(url.search.slice(1))}`;

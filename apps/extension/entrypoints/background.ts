@@ -292,6 +292,7 @@ export default defineBackground(() => {
   const signedTabs = createSignedTabs(sessionValue(SIGNED_TABS_KEY), (listener) =>
     browser.tabs.onRemoved.addListener(listener),
   );
+
   // A tab Chrome discards to save memory gets a new ID; its sign-ins and badge stay with it.
   browser.tabs.onReplaced.addListener((added, removed) => {
     loginBadge.replaced(added, removed);
@@ -336,6 +337,8 @@ export default defineBackground(() => {
         requested: login.passkeyRequested,
         answered: passkeyAnswered,
         signedTabs,
+        // ADR 0021 D: so does one after a control that logs out was clicked in the tab.
+        logoutClicked: login.logoutClicked,
         conditional: login.conditionalRequest,
         hold: () => vaultSync.enter(false),
       })
@@ -352,6 +355,8 @@ export default defineBackground(() => {
         // ADR 0022: a login that moves on to the passkey's site after an answer completes.
         answered: passkeyAnswered,
         signedTabs,
+        // ADR 0021 D: so does one after a control that logs out was clicked in the tab.
+        logoutClicked: login.logoutClicked,
         // ADR 0034: the page's own conditional request waits for the login of its page.
         conditional: login.conditionalRequest,
         // The open vault is not replaced while a passkey request is looked up or signed.

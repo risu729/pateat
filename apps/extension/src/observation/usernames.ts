@@ -107,11 +107,14 @@ export function pathShowsUsername(path: string, usernames: readonly string[]): b
  * control that names one. The page is refused instead when that would leave it
  * incomplete: for a field, and for a button or link of a field's form (its `group`), or a
  * button outside every form beside a field outside every form, which may be the
- * submit. A page with a path segment that holds a username is refused too.
+ * submit. A page with a path segment that holds a username is refused too, read in
+ * `rawPath`, the page's path before its token-like segments were replaced (ADR 0039), as
+ * well as in the observation's own path.
  */
 export function withoutUsernames(
   observation: LoginObservation,
   usernames: readonly string[],
+  rawPath: string = observation.path,
 ): HiddenUsernames {
   const forms = usernames.filter(lookedFor).flatMap(shownForms);
   const source = namePattern(forms);
@@ -128,7 +131,8 @@ export function withoutUsernames(
       hidden = hidden.replace(cut, "[account]");
     return hidden === text ? text : (bounded(hidden, limit) ?? "[account]");
   };
-  if (pathShowsUsername(observation.path, usernames)) return refused;
+  if (pathShowsUsername(rawPath, usernames) || pathShowsUsername(observation.path, usernames))
+    return refused;
   const isField = (role: string) => (fillRoles as readonly string[]).includes(role);
   const fieldGroups = new Set(
     observation.candidates

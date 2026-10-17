@@ -50,6 +50,7 @@ describe("pageSigns", () => {
       frame("https://www.google.com/recaptcha/api2/anchor?k=x&size=invisible"),
       frame("https://www.google.com/recaptcha/api2/anchor?k=x", 'width="10" height="10"'),
       frame("https://www.google.com/maps/embed?pb=x"),
+      frame("https://["),
     ]) {
       document.body.innerHTML = html;
       expect(pageSigns(document), html).toEqual(none);

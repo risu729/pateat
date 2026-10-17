@@ -18,6 +18,15 @@ describe("loginMoveFits", () => {
     expect(loginMoveFits("https://a.example.co.uk", "https://b.co.uk", false)).toBe(false);
   });
 
+  it.each(["https://[", "https://example.com:99999", "/signin"])(
+    "refuses an unparsable or relative destination %s",
+    (value) => {
+      expect(loginMoveFits(value, "https://example.com", false)).toBe(false);
+      expect(loginMoveFits("https://example.com", value, false)).toBe(false);
+      expect(loginMoveFits("https://example.com", value, true)).toBe(false);
+    },
+  );
+
   it("keeps each name under a private suffix its own site", () => {
     expect(loginMoveFits("https://one.github.io", "https://two.github.io", false)).toBe(false);
   });

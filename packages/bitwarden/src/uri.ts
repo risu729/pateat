@@ -101,14 +101,11 @@ function webUrl(value: string, allowBareHost: boolean): URL | undefined {
   if (!/^https?:\/\/[^/]/iu.test(candidate)) return undefined;
   const authority = /^https?:\/\/([^/?#]*)/iu.exec(candidate)?.[1];
   if (!authority || authority.includes("@")) return undefined;
-  try {
-    const url = new URL(candidate);
-    if (url.username || url.password || !url.hostname || !hasHostnameLabels(url.hostname))
-      return undefined;
-    return url;
-  } catch {
+  const url = URL.parse(candidate);
+  if (!url) return undefined;
+  if (url.username || url.password || !url.hostname || !hasHostnameLabels(url.hostname))
     return undefined;
-  }
+  return url;
 }
 
 /**
@@ -126,23 +123,20 @@ export function domainKey(url: URL): string | undefined {
 
 function equivalentHostname(value: string): string | undefined {
   if (value !== value.trim() || ambiguous(value) || /[/@?#]/u.test(value)) return undefined;
-  try {
-    const url = new URL(`https://${value}`);
-    if (
-      !url.hostname ||
-      !hasHostnameLabels(url.hostname) ||
-      url.port ||
-      url.username ||
-      url.password ||
-      url.pathname !== "/"
-    )
-      return undefined;
-    // Equivalent groups contain domain names, not service ports or URLs.
-    if (!value.startsWith("[") && value.includes(":")) return undefined;
-    return url.hostname.replace(/\.$/u, "");
-  } catch {
+  const url = URL.parse(`https://${value}`);
+  if (!url) return undefined;
+  if (
+    !url.hostname ||
+    !hasHostnameLabels(url.hostname) ||
+    url.port ||
+    url.username ||
+    url.password ||
+    url.pathname !== "/"
+  )
     return undefined;
-  }
+  // Equivalent groups contain domain names, not service ports or URLs.
+  if (!value.startsWith("[") && value.includes(":")) return undefined;
+  return url.hostname.replace(/\.$/u, "");
 }
 
 function equivalentGroups(input: unknown): string[][] | undefined {

@@ -48,6 +48,9 @@ describe("RP ID admission", () => {
     "https://example.com.",
     "https://example.com/path",
     "null",
+    "https://[",
+    "https://example.com:99999",
+    "/signin",
     "chrome-extension://abcdefghijklmnopabcdefghijklmnop",
   ])("rejects origin %s unless canonical, secure and a domain", (origin) => {
     expect(resolveRpId(origin)).toEqual({ ok: false, reason: "invalid-origin" });

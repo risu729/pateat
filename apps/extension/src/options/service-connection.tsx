@@ -166,12 +166,11 @@ export function ServiceConnection({
   });
   useEffect(() => {
     const returned = () => retryAfterSignIn();
-    document.addEventListener("visibilitychange", returned);
-    window.addEventListener("focus", returned);
-    return () => {
-      document.removeEventListener("visibilitychange", returned);
-      window.removeEventListener("focus", returned);
-    };
+    const controller = new AbortController();
+    const { signal } = controller;
+    document.addEventListener("visibilitychange", returned, { signal });
+    window.addEventListener("focus", returned, { signal });
+    return () => controller.abort();
   }, []);
 
   // The first sync runs in the background after pairing; show when it finishes.

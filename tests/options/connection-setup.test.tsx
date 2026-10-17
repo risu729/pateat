@@ -1,6 +1,8 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, test, vi } from "vitest";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
+// oxlint-disable-next-line import/no-unassigned-import -- Exercise real modal positioning and transitions.
+import "../../apps/extension/entrypoints/options/style.css";
 import { cleanup, render } from "vitest-browser-react";
 import { BitwardenSetup } from "../../apps/extension/src/options/bitwarden-setup";
 import {
@@ -620,19 +622,25 @@ test("deleting a connection needs an explicit confirmation and then removes it f
   await more.click();
   await remove.click();
   expect(client.deleteConnection).not.toHaveBeenCalled();
-  await expect.element(page.getByText(/^Delete Leftover vault\? This removes/)).toBeVisible();
-  // The confirmation takes focus, and Keep returns it to the row's menu button.
+  const dialog = page.getByRole("alertdialog", { name: "Delete Leftover vault?", exact: true });
+  await expect.element(dialog).toHaveAccessibleName("Delete Leftover vault?");
   await expect
-    .element(page.getByRole("button", { name: "Leftover vault: Confirm delete connection" }))
-    .toHaveFocus();
-  await page.getByRole("button", { name: "Leftover vault: Keep connection", exact: true }).click();
+    .element(dialog)
+    .toHaveAccessibleDescription(
+      "This removes the connection, its local vault cache, unlock key and sync sign-in from this device. It does not sign out other sessions, and saved settings that refer to it will show it as unavailable.",
+    );
+  // Close composes the repo's Button, including its ref and keyboard focus.
+  const keep = dialog.getByRole("button", { name: "Keep connection", exact: true });
+  await expect.element(keep).toHaveFocus();
+  await keep.click();
   await expect.element(page.getByText("Connection kept.")).toBeVisible();
   await expect.element(more).toHaveFocus();
   expect(client.deleteConnection).not.toHaveBeenCalled();
   await more.click();
   await remove.click();
   await page
-    .getByRole("button", { name: "Leftover vault: Confirm delete connection", exact: true })
+    .getByRole("alertdialog", { name: "Delete Leftover vault?", exact: true })
+    .getByRole("button", { name: "Delete connection", exact: true })
     .click();
   await vi.waitFor(() => expect(client.deleteConnection).toHaveBeenCalledWith("leftover"));
   expect(client.deleteConnection).toHaveBeenCalledTimes(1);
@@ -644,6 +652,174 @@ test("deleting a connection needs an explicit confirmation and then removes it f
   await expect.element(page.getByText("Kept vault", { exact: true })).toBeVisible();
   expect(client.list).toHaveBeenCalledTimes(2);
   expect(changed).toHaveBeenCalled();
+});
+
+test("the delete dialog traps focus, ignores its backdrop and keeps its payload through closing", async () => {
+  const client = mockClient();
+  const saved = (connectionId: string, label: string) => ({
+    connectionId,
+    label,
+    email: "saved@example.test",
+    environment: { kind: "cloud" as const, region: "us" as const },
+    state: "configured" as const,
+    autoUnlock: "unknown" as const,
+    providerSession: "none" as const,
+  });
+  client.list.mockResolvedValue({
+    ...status(),
+    connections: [saved("first", "First vault"), saved("second", "Second vault")],
+  });
+  await mount(client);
+  const more = page.getByRole("button", { name: "More for Second vault", exact: true });
+  await more.click();
+  await page
+    .getByRole("menuitem", { name: "Second vault: Delete connection", exact: true })
+    .click();
+  const dialog = page.getByRole("alertdialog", { name: "Delete Second vault?", exact: true });
+  const keep = dialog.getByRole("button", { name: "Keep connection", exact: true });
+  const remove = dialog.getByRole("button", { name: "Delete connection", exact: true });
+  await expect.element(keep).toHaveFocus();
+  await userEvent.keyboard("{Shift>}{Tab}{/Shift}");
+  await expect.element(remove).toHaveFocus();
+  await userEvent.keyboard("{Tab}");
+  await expect.element(keep).toHaveFocus();
+  // A real pointer press on the backdrop leaves the modal and its safe action intact.
+  const backdrop = document.querySelector<HTMLElement>("#bitwarden-delete-backdrop")!;
+  await page.elementLocator(backdrop).click({ position: { x: 8, y: 8 } });
+  await expect.element(dialog).toBeVisible();
+  expect(client.begin).not.toHaveBeenCalled();
+  expect(client.deleteConnection).not.toHaveBeenCalled();
+  await expect
+    .element(page.getByText("Connections loaded. Add a vault or sign in again below."))
+    .toBeVisible();
+  await keep.click();
+  await expect.element(more).toHaveFocus();
+  await more.click();
+  await page
+    .getByRole("menuitem", { name: "Second vault: Delete connection", exact: true })
+    .click();
+  await expect.element(keep).toHaveFocus();
+  const popup = dialog.element();
+  await vi.waitFor(() => expect(getComputedStyle(popup).opacity).toBe("1"));
+  // Hold a real CSS closing transition long enough to inspect the rendered payload.
+  popup.style.transitionDuration = "1s";
+  const title = popup.querySelector("h2")!;
+  let lostPayload = false;
+  const observer = new MutationObserver(() => {
+    if (popup.isConnected && title.textContent !== "Delete Second vault?") lostPayload = true;
+  });
+  observer.observe(popup, { childList: true, characterData: true, subtree: true });
+  try {
+    await userEvent.keyboard("{Escape}");
+    await vi.waitFor(() => expect(popup).toHaveAttribute("data-ending-style"));
+    expect(popup.isConnected).toBe(true);
+    expect(title.textContent).toBe("Delete Second vault?");
+    await expect.element(more).toHaveFocus();
+    await vi.waitFor(() => expect(popup.isConnected).toBe(false), { timeout: 2500 });
+    expect(lostPayload).toBe(false);
+  } finally {
+    observer.disconnect();
+  }
+  await expect.element(page.getByText("Connection kept.", { exact: true })).toBeVisible();
+  expect(client.deleteConnection).not.toHaveBeenCalled();
+});
+
+test.each(["keep", "escape", "delete"] as const)(
+  "the closing dialog cannot activate its retained buttons after %s",
+  async (action) => {
+    const client = mockClient();
+    const saved = {
+      connectionId: "closing",
+      label: "Closing vault",
+      email: "saved@example.test",
+      environment: { kind: "cloud" as const, region: "us" as const },
+      state: "configured" as const,
+      autoUnlock: "unknown" as const,
+      providerSession: "none" as const,
+    };
+    client.list.mockResolvedValue({ ...status(), connections: [saved] });
+    await mount(client);
+    await page.getByRole("button", { name: "More for Closing vault", exact: true }).click();
+    await page
+      .getByRole("menuitem", { name: "Closing vault: Delete connection", exact: true })
+      .click();
+    const dialog = page.getByRole("alertdialog", { name: "Delete Closing vault?", exact: true });
+    const popup = dialog.element();
+    const keep = dialog.getByRole("button", { name: "Keep connection", exact: true });
+    const remove = dialog.getByRole("button", { name: "Delete connection", exact: true });
+    const keepButton = keep.element();
+    const deleteButton = remove.element();
+    await expect.element(keep).toHaveFocus();
+    await vi.waitFor(() => expect(getComputedStyle(popup).opacity).toBe("1"));
+    // The buttons remain rendered during an actual CSS exit; use pointer clicks on them.
+    popup.style.transitionDuration = "5s";
+    try {
+      if (action === "delete") {
+        client.list.mockResolvedValue(status());
+        await remove.click();
+        await expect.element(page.getByText(/^Connection deleted from this device/)).toBeVisible();
+        // A fast result has already cleared busy, so that guard cannot mask this regression.
+        await vi.waitFor(() => expect(deleteButton).not.toBeDisabled());
+      } else if (action === "keep") await keep.click();
+      else await userEvent.keyboard("{Escape}");
+      await vi.waitFor(() => expect(popup).toHaveAttribute("data-ending-style"));
+      expect(popup.isConnected).toBe(true);
+      await page.elementLocator(deleteButton).click();
+      expect(client.deleteConnection).toHaveBeenCalledTimes(action === "delete" ? 1 : 0);
+      if (action === "delete") {
+        await page.elementLocator(keepButton).click();
+        await expect.element(page.getByText(/^Connection deleted from this device/)).toBeVisible();
+        await expect
+          .element(page.getByText("Connection kept.", { exact: true }))
+          .not.toBeInTheDocument();
+      } else {
+        await expect.element(page.getByText("Connection kept.", { exact: true })).toBeVisible();
+        await expect.element(page.getByText("Closing vault", { exact: true })).toBeVisible();
+      }
+    } finally {
+      for (const animation of popup.getAnimations()) animation.finish();
+    }
+    await vi.waitFor(() => expect(popup.isConnected).toBe(false));
+  },
+);
+
+test("the delete dialog fits a phone viewport with a long connection name", async () => {
+  await page.viewport(320, 640);
+  try {
+    const client = mockClient();
+    const label = "Synthetic".repeat(30);
+    client.list.mockResolvedValue({
+      ...status(),
+      connections: [
+        {
+          connectionId: "phone",
+          label,
+          email: "saved@example.test",
+          environment: { kind: "cloud", region: "us" },
+          state: "configured",
+          autoUnlock: "unknown",
+          providerSession: "none",
+        },
+      ],
+    });
+    await mount(client);
+    await page.getByRole("button", { name: `More for ${label}`, exact: true }).click();
+    await page.getByRole("menuitem", { name: `${label}: Delete connection`, exact: true }).click();
+    const dialog = page.getByRole("alertdialog", { name: `Delete ${label}?`, exact: true });
+    await expect
+      .element(dialog.getByRole("button", { name: "Keep connection", exact: true }))
+      .toHaveFocus();
+    const popup = dialog.element();
+    const bounds = popup.getBoundingClientRect();
+    expect(bounds.left).toBeGreaterThanOrEqual(16);
+    expect(bounds.right).toBeLessThanOrEqual(304);
+    expect(bounds.top).toBeGreaterThanOrEqual(16);
+    expect(bounds.bottom).toBeLessThanOrEqual(624);
+    expect(popup.scrollWidth).toBeLessThanOrEqual(popup.clientWidth);
+    await userEvent.keyboard("{Escape}");
+  } finally {
+    await page.viewport(1280, 720);
+  }
 });
 
 test("a failed delete keeps the connection listed and shows the error", async () => {
@@ -665,7 +841,8 @@ test("a failed delete keeps the connection listed and shows the error", async ()
     .getByRole("menuitem", { name: "Leftover vault: Delete connection", exact: true })
     .click();
   await page
-    .getByRole("button", { name: "Leftover vault: Confirm delete connection", exact: true })
+    .getByRole("alertdialog", { name: "Delete Leftover vault?", exact: true })
+    .getByRole("button", { name: "Delete connection", exact: true })
     .click();
   await expect.element(page.getByText(/reached a resource limit/)).toBeVisible();
   await expect.element(page.getByText("Leftover vault", { exact: true })).toBeVisible();

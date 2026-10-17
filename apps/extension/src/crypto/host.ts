@@ -91,11 +91,7 @@ function unique(itemIds: readonly string[]): boolean {
 }
 
 function sameOrigin(targetUrl: string, origin: string): boolean {
-  try {
-    return new URL(targetUrl).origin === origin;
-  } catch {
-    return false;
-  }
+  return URL.parse(targetUrl)?.origin === origin;
 }
 
 /** Background-internal API. Neither the options page nor content scripts get these operations. */

@@ -91,7 +91,8 @@ another also updates the other's `Status:`. Number a new ADR after the highest o
 - [0036: Items without a password go on to a passkey after the identifier](adr/0036-passkey-after-the-identifier.md)
 - [0037: Fields located by their visible name](adr/0037-fields-by-visible-name.md)
 - [0038: The toolbar badge and popup show what a login did](adr/0038-login-status-badge.md)
-- [0039: An allowlist of sites, and a vault timeout](adr/0039-allowlist-and-vault-timeout.md)
+- [0039: Token-like path segments are sent as `[id]` on every page](adr/0039-redacted-token-path-segments.md)
+- [0042: An allowlist of sites, and a vault timeout](adr/0042-allowlist-and-vault-timeout.md)
   (proposed)
 
 This layout follows the useful separation in

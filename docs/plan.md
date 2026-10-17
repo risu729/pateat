@@ -472,6 +472,16 @@ than in this repository.
   located by their visible name ([ADR 0037](adr/0037-fields-by-visible-name.md), owner,
   2026-10-13 04:50 UTC; synthetic tests only). Check in the owner's Chrome that the
   second visit logs in with the saved recipe and no generation call.
+- Sign-in pages whose path carries a tenant or authorization server ID were never sent
+  (2026-10-16): UNSW's single sign-on at
+  `login.microsoftonline.com/<tenant UUID>/oauth2/authorize` on build `747d237` (03:35
+  UTC), and UniSuper's `member.id.unisuper.com.au/oauth2/<auth server ID>/v1/authorize`
+  entry page on `d4faf03` (14:12 UTC), both logged `recipe.generate` `skipped`
+  `unsupported-page`. Since 2026-10-16 every observed page sends such a segment as
+  `[id]`, a recipe is stored and matched under that path, and a handler may be learned
+  there ([ADR 0039](adr/0039-redacted-token-path-segments.md), owner, 14:10 UTC; local
+  tests only, and a synthetic browser test not yet run). Check both sites in the owner's
+  Chrome.
 - Known faults moved from phase 1 (owner, 2026-10-12 20:35 UTC), fixed when a real site
   shows them again: the `reconciling` exception seen on SBI証券, and `generate` ignoring
   a failed sync after generation (both recorded under phase 1).
@@ -758,6 +768,26 @@ Once the fixes have settled:
   own. Each scan writes them to a `CLAUDE-SECURITY-<timestamp>/` directory in the
   repository. Which scans run and when is decided when it is adopted. Not started
   without the owner's confirmation (owner, 2026-10-13 15:10 UTC).
+  - Started (owner, 2026-10-15 11:09 UTC): the owner added the plugin to their claude.ai
+    account from the plugin directory, which loads it into this project's cloud threads.
+    A repository `.claude/settings.json` does not, because cloud sessions do not install
+    the plugins a repository enables
+    ([cloud environments](https://code.claude.com/docs/en/cloud-environments)). The
+    plugin's license forbids distributing it, so it is not copied into the repository.
+  - First scan (2026-10-16, owner's go-ahead 13:24 UTC): the whole repository on main
+    [8883745](https://github.com/risu729/pateat/commit/8883745)
+    at `medium` effort, verification status `verified`. Six findings survived the
+    panel, four distinct problems, each filed as an issue at the owner's request; none
+    is fixed without the owner's word (owner, 13:25 UTC):
+    [#636](https://github.com/risu729/pateat/issues/636) form destination not checked
+    before filling and submitting (medium),
+    [#637](https://github.com/risu729/pateat/issues/637) sandboxed documents treated as
+    their URL's origin (medium),
+    [#638](https://github.com/risu729/pateat/issues/638) passkey assertions signed with
+    UP and UV and no gesture, the [ADR 0007](adr/0007-existing-passkey-assertions.md)
+    deviation (medium), and [#639](https://github.com/risu729/pateat/issues/639) a
+    quadratic padding regex in the Bitwarden passkey decoder (low). Which scans run
+    later, and when, is still open.
 
 ### Phase 4: issues and work as needed
 
@@ -811,7 +841,7 @@ items the owner mentioned and gates still open on 2026-10-11.
 - Settings to limit Pateat as an extension that handles personal data: only allowed
   sites (an allowlist), and a choice of how long the vault stays unlocked, as the
   official Bitwarden extension offers. Implemented as proposed in
-  [ADR 0039](adr/0039-allowlist-and-vault-timeout.md), pending the owner's approval of
+  [ADR 0042](adr/0042-allowlist-and-vault-timeout.md), pending the owner's approval of
   its choices; tested with unit, settings-page, popup and packaged-extension tests on
   synthetic vaults. Open: an installed-Chrome check of both settings with the owner's
   real vault, the allowlist on the service's web UI, and a local unlock with the master
@@ -2356,25 +2386,27 @@ added the rule below, and the `e48b4e7` regeneration above reflects it and #211.
 locators, labels, placeholders, descriptions, `autocomplete` (the sign-in tokens, `off`,
 and the personal-data tokens that mark a sign-up form) and declared input constraints,
 plus the title and visible `h1`-`h3`. It never reads input values, hidden inputs or
-query strings, and refuses a path that may carry a session ID or another token: a
-segment, percent-decoded, with a matrix parameter such as `;jsessionid=`, an ASP.NET
-part such as `(S(...))`, a query (`?`, `&` or `=`, as in Magento's base64-encoded
-`/referer/<URL with ?SID=...>/`), a UUID, a run of 16 or more letters and digits that
-contains a digit, or a base64url-like run of 16 or more letters, digits, `-` and `_`
-that contains a digit and switches case or between letters and digits often. Each
-segment is checked as it is and percent-decoded up to three times.
-`extractSignedInObservation` refuses the same paths. The rule is a heuristic: it misses
-tokens shorter than 16 characters and some plain-looking ones, and it also refuses paths
-that carry no session, such as Microsoft Entra tenant IDs
+query strings. Since 2026-10-16 it sends a path that may carry a session ID or another
+token with each such segment as `[id]`, as every observed page does
+([ADR 0039](adr/0039-redacted-token-path-segments.md)); until then it refused it. Such a
+segment is one, percent-decoded, with a matrix parameter such as `;jsessionid=`, an
+ASP.NET part such as `(S(...))`, a query (`?`, `&` or `=`, as in Magento's
+base64-encoded `/referer/<URL with ?SID=...>/`), a UUID, a run of 16 or more letters and
+digits that contains a digit, or a base64url-like run of 16 or more letters, digits, `-`
+and `_` that contains a digit and switches case or between letters and digits often.
+Each segment is checked as it is and percent-decoded up to three times.
+`extractSignedInObservation` replaces the same segments. The rule is a heuristic: it
+misses tokens shorter than 16 characters and some plain-looking ones, and it also
+replaces segments that carry no session, such as Microsoft Entra tenant IDs
 (`/<tenant UUID>/oauth2/v2.0/authorize`), mixed-case Azure AD B2C policy names such as
-`B2C_1A_SignUpOrSignIn`, Okta authorization server IDs and long numeric IDs, so
-generation is not offered there. On the Formasaurus pages of the real-page corpus it
-refused 10 of 954 paths (2026-10-11). Label text is rendered text only: scripts, styles,
-`<noscript>`, SVG, hidden elements and select or text area contents never contribute.
-Only forms that hold a field count, or every control outside a form when a field is
-outside one. In those forms the candidates are visible text, email, tel, number and
-password inputs, checkboxes, buttons (disabled ones too, since many enable after
-typing), script links (an `<a>` without `href` that has an `onclick` attribute or
+`B2C_1A_SignUpOrSignIn`, Okta authorization server IDs and long numeric IDs; until
+2026-10-16 generation was not offered there. On the Formasaurus pages of the real-page
+corpus it refused 10 of 954 paths (2026-10-11). Label text is rendered text only:
+scripts, styles, `<noscript>`, SVG, hidden elements and select or text area contents
+never contribute. Only forms that hold a field count, or every control outside a form
+when a field is outside one. In those forms the candidates are visible text, email, tel,
+number and password inputs, checkboxes, buttons (disabled ones too, since many enable
+after typing), script links (an `<a>` without `href` that has an `onclick` attribute or
 `role="button"`, or an `<a href>` with a `javascript:` URL or with an empty or
 fragment-only `href` and an `onclick` attribute or `role="button"`) as buttons, other
 elements with `role="button"` that have an `id`, `name` or `data-testid`, or in a login
@@ -2421,56 +2453,55 @@ holding a random-looking run or Mantine's `mantine-` prefix (2026-10-13) last, a
 an input without one, its first `autocomplete` token that is `username`, `email`,
 `current-password`, `one-time-code` or `webauthn` and that no other input carries, then
 its visible name when no other shown fillable input has it, before such an `id`
-([ADR 0037](adr/0037-fields-by-visible-name.md)); a
-button without one gets a text locator when its text matches exactly one button and
-redaction leaves it unchanged, and a script link when its text matches no button and
-exactly one script link. In a login form, a field, button or
-checkbox without a target, a control the executor cannot act on (a select, radio, text
-area, another input type, or a read-only, disabled, transparent or tiny field) or a
-control in a shadow root makes the observation incomplete, as do more than 48
-candidates, so inference rejects it; a page without a field, or where nothing in a login
-form can be located or acted on, is refused. The login forms are those with one password
-field that is not `new-password`, or with a `username` or `one-time-code` field, as ADR
-0016 detects a login; failing that, any with a password field; otherwise every form that
-holds a field. Any other form with such a control, such as a search form with a category
-select or a sign-up form with a birth-date select, is left out entirely, so every form
-the observation describes is complete. On the 233 observed Formasaurus login pages of
-the real-page corpus (2026-10-11), this cut the incomplete ones from 108 to 52: 55
-became complete, each still showing the form Formasaurus labels as the login form, and
-one whose login form has no locatable control now gives no observation. A field in any
-open shadow root marks it incomplete too, as it may be the real login. Links are context
-only: the plan check accepts only a button as the page action. Known limits: a read-only
-username shown again on a password step makes that step incomplete, and honeypot inputs
-moved to the right or clipped by `overflow: hidden` stay candidates.
-`extractSignedInObservation` describes the page after a generated recipe's final
-submission the same way, but over the whole page: every field, then buttons and links up
-to 48 candidates, listed in document order. A field it cannot describe marks it
-incomplete, except a read-only, transparent or tiny field that does not look like a
-sign-in field, which is left out since 2026-10-12: the page after アパホテル's login was
-logged as `unfillable-field` and never judged, and a read-only date picker of its hotel
-search is the inferred cause. In the owner's Chrome on 2026-10-12 (06:17 UTC) the page
-after the login was then judged `signed-in` with the ログアウト button as its marker.
-A disabled field that does not look like a sign-in field is left out too since
-2026-10-12 (22:03 UTC), but such a page completes only on `signed-in`
-([ADR 0029](adr/0029-local-sign-in-state.md)): Q-move's signed-in page was logged
-`disabled-field` and never judged.
-Buttons and links past the limit or without a locator are left out, since they are only
-possible sign-in markers. Links are located by their text too, and those in a page
-header or navigation, where account menus usually sit, are kept first; the rank reads
-only the page's structure, never words of one language. A text locator with a digit,
-such as a points balance or an unread count, never names a marker there, and the judge
-is told that the marker must show on every signed-in visit of every account, and that a
-marker located by its text keeps that text in the recipe, so it must read the same
-everywhere, never the person's name, a count or a balance. A marker located by `id`
-stores no text: on リクルートID (2026-10-12, 08:07 UTC) the judge named the points
-balance `{"by":"id","value":"total-point1"}`, which the earlier wording forbade although
-nothing private is stored, so the rule now names text targets only. On ポイントインカム
-(2026-10-12) the page after sign-in gave 21 candidates, all carousel controls, news tabs
-and an ad's close button, because its header links have no `id`; the judge answered
-`unclear`. A synthetic page of that shape now keeps the header's links. There, an
-attribute locator that redaction would change counts as no locator, so an account number
-in an `id` is never sent. `mise run //apps/extension:test:dom` covers these cases in
-Chromium with synthetic pages.
+([ADR 0037](adr/0037-fields-by-visible-name.md)); a button without one gets a text
+locator when its text matches exactly one button and redaction leaves it unchanged, and
+a script link when its text matches no button and exactly one script link. In a login
+form, a field, button or checkbox without a target, a control the executor cannot act on
+(a select, radio, text area, another input type, or a read-only, disabled, transparent
+or tiny field) or a control in a shadow root makes the observation incomplete, as do
+more than 48 candidates, so inference rejects it; a page without a field, or where
+nothing in a login form can be located or acted on, is refused. The login forms are
+those with one password field that is not `new-password`, or with a `username` or
+`one-time-code` field, as ADR 0016 detects a login; failing that, any with a password
+field; otherwise every form that holds a field. Any other form with such a control, such
+as a search form with a category select or a sign-up form with a birth-date select, is
+left out entirely, so every form the observation describes is complete. On the 233
+observed Formasaurus login pages of the real-page corpus (2026-10-11), this cut the
+incomplete ones from 108 to 52: 55 became complete, each still showing the form
+Formasaurus labels as the login form, and one whose login form has no locatable control
+now gives no observation. A field in any open shadow root marks it incomplete too, as it
+may be the real login. Links are context only: the plan check accepts only a button as
+the page action. Known limits: a read-only username shown again on a password step makes
+that step incomplete, and honeypot inputs moved to the right or clipped by
+`overflow: hidden` stay candidates. `extractSignedInObservation` describes the page
+after a generated recipe's final submission the same way, but over the whole page: every
+field, then buttons and links up to 48 candidates, listed in document order. A field it
+cannot describe marks it incomplete, except a read-only, transparent or tiny field that
+does not look like a sign-in field, which is left out since 2026-10-12: the page after
+アパホテル's login was logged as `unfillable-field` and never judged, and a read-only
+date picker of its hotel search is the inferred cause. In the owner's Chrome on
+2026-10-12 (06:17 UTC) the page after the login was then judged `signed-in` with the
+ログアウト button as its marker. A disabled field that does not look like a sign-in
+field is left out too since 2026-10-12 (22:03 UTC), but such a page completes only on
+`signed-in` ([ADR 0029](adr/0029-local-sign-in-state.md)): Q-move's signed-in page was
+logged `disabled-field` and never judged. Buttons and links past the limit or without a
+locator are left out, since they are only possible sign-in markers. Links are located by
+their text too, and those in a page header or navigation, where account menus usually
+sit, are kept first; the rank reads only the page's structure, never words of one
+language. A text locator with a digit, such as a points balance or an unread count,
+never names a marker there, and the judge is told that the marker must show on every
+signed-in visit of every account, and that a marker located by its text keeps that text
+in the recipe, so it must read the same everywhere, never the person's name, a count or
+a balance. A marker located by `id` stores no text: on リクルートID (2026-10-12, 08:07
+UTC) the judge named the points balance `{"by":"id","value":"total-point1"}`, which the
+earlier wording forbade although nothing private is stored, so the rule now names text
+targets only. On ポイントインカム (2026-10-12) the page after sign-in gave 21
+candidates, all carousel controls, news tabs and an ad's close button, because its
+header links have no `id`; the judge answered `unclear`. A synthetic page of that shape
+now keeps the header's links. There, an attribute locator that redaction would change
+counts as no locator, so an account number in an `id` is never sent.
+`mise run //apps/extension:test:dom` covers these cases in Chromium with synthetic
+pages.
 
 Evaluation data candidates, checked 2026-10-10 (terms are as published by each
 source; confirm before use):
@@ -2574,7 +2605,10 @@ popup say the site did not accept the login (`pateat.login-rejected-asks.v1`). F
 logins and sites whose logout page shows only a password step are not detected. By the
 owner's constraint (2026-10-12) a session that only expired never needs a manual press,
 so a logout of a session carried over from another tab's login or an earlier browser
-session is not detected either: Pateat logs in again there.
+session is not detected by the form alone. Since 2026-10-16 (owner, after
+dash.cloudflare.com) a click on a control whose name or nearby text says log out makes
+the tab's next first step of that site within 10 minutes ask the same way
+(`pateat.login-logout-clicks.v1`, ADR 0021 D); otherwise Pateat logs in again there.
 
 Later work includes independently permitted vault create/update operations, nonzero
 passkey counter writeback and passkey creation; Bitwarden provider login with passkeys,

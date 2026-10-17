@@ -309,12 +309,8 @@ export function passedCaptcha(document: Document): boolean {
 /** S4: a shown frame of a CAPTCHA service large enough to be solved. */
 export function showsCaptcha(document: Document): boolean {
   return [...document.querySelectorAll("iframe")].some((frame) => {
-    let url: URL;
-    try {
-      url = new URL(frame.src);
-    } catch {
-      return false;
-    }
+    const url = URL.parse(frame.src);
+    if (!url) return false;
     if (
       !captchaFrames.some(
         ({ host, path }) => host.test(url.hostname) && url.pathname.startsWith(path),

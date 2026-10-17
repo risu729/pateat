@@ -441,12 +441,7 @@ export function createLoginBadge(deps: {
      * the top page's, absent for a page Pateat cannot read, which counts as another origin.
      */
     loaded(tabId: number, url?: string): void {
-      let origin = "unreadable";
-      try {
-        if (url) origin = new URL(url).origin;
-      } catch {
-        origin = "unreadable";
-      }
+      const origin = (url ? URL.parse(url)?.origin : undefined) ?? "unreadable";
       const before = tops.get(tabId);
       tops.set(tabId, origin);
       if (before !== undefined && before !== origin) {

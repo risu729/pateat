@@ -290,6 +290,9 @@ vi.mock("wxt/browser", () => ({ browser: fake.browser }));
 vi.stubEnv("MODE", "production");
 const { createLoginRuntime } = await import("./runtime");
 const { createLoginSites } = await import("./sites");
+const { observedPath } = await import("../observation/path");
+/** A URL's path as the content script reports it, token-like segments as `[id]` (ADR 0039). */
+const reportedPath = (url: string) => observedPath(new URL(url).pathname);
 
 const origin = "https://login.example";
 const connectionId = "50000000-0000-4000-8000-000000000001";
@@ -569,7 +572,7 @@ function harness(
         type: "login.document.ready",
         token: "synthetic-token",
         ...(start
-          ? { start: { path: new URL(String(from["url"] ?? fake.state.pageUrl)).pathname } }
+          ? { start: { path: reportedPath(String(from["url"] ?? fake.state.pageUrl)) } }
           : {}),
       },
       sender(from),
@@ -581,7 +584,7 @@ function harness(
         version: 1,
         type: "login.document.ready",
         token: "synthetic-token",
-        signIn: { path: new URL(fake.state.pageUrl).pathname },
+        signIn: { path: reportedPath(fake.state.pageUrl) },
       },
       sender(),
     );
@@ -597,7 +600,7 @@ const shownHello = (
       version: 1,
       type: "login.document.ready",
       token: "synthetic-token",
-      shown: { path: new URL(fake.state.pageUrl).pathname },
+      shown: { path: reportedPath(fake.state.pageUrl) },
     },
     sender(from),
   );
@@ -4655,6 +4658,7 @@ describe("production login document admission", () => {
           "pateat.login-rejected-asks.v1": [],
           "pateat.login-entry-presses.v1": [],
           "pateat.login-noted.v1": [["1 synthetic-document /signin", ["account-ambiguous "]]],
+          "pateat.login-logout-clicks.v1": [],
         });
         for (const listener of fake.state.removed) listener(1);
         await vi.waitFor(() =>
@@ -4667,6 +4671,7 @@ describe("production login document admission", () => {
             "pateat.login-stopped-asks.v1": [],
             "pateat.login-rejected-asks.v1": [],
             "pateat.login-entry-presses.v1": [],
+            "pateat.login-logout-clicks.v1": [],
           }),
         );
       });
@@ -4797,6 +4802,158 @@ describe("production login document admission", () => {
           fake.state.onReconnect = () => h.hello({ documentId: "signed-out" });
           return h;
         };
+        describe("clicked in the tab after a login it does not know (owner 2026-10-16)", () => {
+          const clicks = () => fake.state.session["pateat.login-logout-clicks.v1"];
+          const clickLogout = (h: ReturnType<typeof harness>, from: Record<string, unknown> = {}) =>
+            h.login.handle(
+              { version: 1, type: "login.document.logout-clicked", token: "synthetic-token" },
+              sender({ documentId: "home", ...from }),
+            );
+          const setup = (report?: (entry: LoginReport) => void) =>
+            harness(
+              {},
+              {
+                allowedOrigins: [],
+                uris: async () => ({ ok: true, data: both }),
+                ...(report ? { report } : {}),
+              },
+            );
+          it("asks and only fills when the first step shows after the click", async () => {
+            const report = vi.fn<(entry: LoginReport) => void>();
+            const h = setup(report);
+            // A page signed in by a login in another tab or an earlier browser session.
+            expect(await h.hello({ documentId: "home" }, false)).toMatchObject({ ok: false });
+            expect(await clickLogout(h)).toBeUndefined();
+            expect(clicks()).toEqual([
+              { tabId: 1, site: "login.example", clickedAt: expect.any(String) },
+            ]);
+            await filledOnly(h, { documentId: "signed-out" });
+            expect(logouts()).toEqual([{ tabId: 1, origin }]);
+            // Used: kept only so the site's passkey requests in the tab ask while it asks.
+            expect(clicks()).toEqual([
+              { tabId: 1, site: "login.example", clickedAt: expect.any(String), used: true },
+            ]);
+            expect(await h.login.logoutClicked(1, "login.example")).toBe(true);
+            expect(steps().map((step) => step.kind)).toEqual(["fill"]);
+            expect(report).toHaveBeenCalledWith({
+              type: "logout",
+              tabId: 1,
+              origin,
+              clicked: true,
+            });
+            // Cookies are shared, so the site's other tabs ask too.
+            fake.state.tabUrls[2] = fake.state.pageUrl;
+            await filledOnly(h, { tab: { id: 2 }, documentId: "other-tab" });
+          });
+          it("reads the next page only once a click sent before it is kept", async () => {
+            const h = setup();
+            // The click's message and the next page's announcement arrive back to back.
+            const clicked = clickLogout(h);
+            await filledOnly(h, { documentId: "signed-out" });
+            await clicked;
+            expect(logouts()).toEqual([{ tabId: 1, origin }]);
+          });
+          it("keeps waiting on a page without the first step, or in a frame", async () => {
+            const h = setup();
+            await clickLogout(h);
+            expect(await h.hello({ documentId: "home" }, false)).toMatchObject({ ok: false });
+            await h.hello({
+              frameId: 3,
+              documentId: "frame",
+              tab: { id: 1, url: fake.state.pageUrl },
+            });
+            // A login form in a frame is no logout (ADR 0021 D's known gap); the click waits.
+            expect(clicks()).toEqual([
+              { tabId: 1, site: "login.example", clickedAt: expect.any(String) },
+            ]);
+          });
+          it("takes a click on another origin of the site", async () => {
+            const h = setup();
+            const www = "https://www.login.example/account";
+            fake.state.tabUrls[1] = www;
+            await clickLogout(h, { url: www });
+            fake.state.tabUrls[1] = fake.state.pageUrl;
+            await filledOnly(h, { documentId: "signed-out" });
+            expect(logouts()).toEqual([{ tabId: 1, origin }]);
+          });
+          it("logs one logout of the tab's own login when it also clicked", async () => {
+            const report = vi.fn<(entry: LoginReport) => void>();
+            const h = setup(report);
+            expect(await h.hello()).toEqual({ ok: true });
+            await vi.waitFor(() => expect(attempts()).toMatchObject([{ state: "authenticated" }]));
+            await clickLogout(h);
+            await filledOnly(h, { documentId: "signed-out" });
+            const logoutReports = report.mock.calls
+              .map(([entry]) => entry)
+              .filter((entry) => entry.type === "logout");
+            expect(logoutReports).toEqual([
+              { type: "logout", tabId: 1, origin, recipeId: recipe.id, recipeRevision: 1 },
+            ]);
+            expect(clicks()).toEqual([expect.objectContaining({ used: true })]);
+          });
+          it("keeps the click across a worker restart", async () => {
+            const h = setup();
+            await clickLogout(h);
+            const restarted = setup();
+            await filledOnly(restarted, { documentId: "signed-out" });
+            expect(steps().map((step) => step.kind)).toEqual(["fill"]);
+          });
+          it("logs in as before without a click in this tab", async () => {
+            const h = setup();
+            // A click in another tab is that tab's.
+            fake.state.tabUrls[2] = fake.state.pageUrl;
+            await clickLogout(h, { tab: { id: 2 } });
+            expect(await h.hello({ documentId: "signed-out" })).toEqual({ ok: true });
+            await vi.waitFor(() => expect(attempts()).toMatchObject([{ state: "authenticated" }]));
+            expect(logouts() ?? []).toEqual([]);
+          });
+          it("forgets the click after 10 minutes", async () => {
+            const h = setup();
+            await clickLogout(h);
+            const now = Date.now();
+            const clock = vi.spyOn(Date, "now").mockImplementation(() => now + 10 * 60_000);
+            try {
+              expect(await h.hello({ documentId: "signed-out" })).toEqual({ ok: true });
+              await vi.waitFor(() =>
+                expect(attempts()).toMatchObject([{ state: "authenticated" }]),
+              );
+            } finally {
+              clock.mockRestore();
+            }
+            expect(clicks()).toEqual([]);
+          });
+          it("forgets the click once the tab leaves the site", async () => {
+            const h = setup();
+            await clickLogout(h);
+            const away = "https://elsewhere.example/";
+            fake.state.tabUrls[1] = away;
+            await h.hello({ documentId: "away", url: away }, false);
+            expect(clicks()).toEqual([]);
+            fake.state.tabUrls[1] = fake.state.pageUrl;
+            expect(await h.hello({ documentId: "signed-out" })).toEqual({ ok: true });
+            await vi.waitFor(() => expect(attempts()).toMatchObject([{ state: "authenticated" }]));
+          });
+          it("moves the click with a tab Chrome replaced, and forgets it when the tab closes", async () => {
+            const h = setup();
+            await clickLogout(h);
+            for (const listener of fake.state.replaced) listener(5, 1);
+            await vi.waitFor(() =>
+              expect(clicks()).toEqual([
+                { tabId: 5, site: "login.example", clickedAt: expect.any(String) },
+              ]),
+            );
+            for (const listener of fake.state.removed) listener(5);
+            await vi.waitFor(() => expect(clicks()).toEqual([]));
+          });
+          it("tells a passkey request of the site in the tab to ask", async () => {
+            const h = setup();
+            expect(await h.login.logoutClicked(1, "login.example")).toBe(false);
+            await clickLogout(h);
+            expect(await h.login.logoutClicked(1, "login.example")).toBe(true);
+            expect(await h.login.logoutClicked(1, "other.example")).toBe(false);
+            expect(await h.login.logoutClicked(2, "login.example")).toBe(false);
+          });
+        });
         it("never clicks the account switch while it only fills, and asks", async () => {
           const h = harness(
             {},
@@ -5388,6 +5545,81 @@ describe("production login document admission", () => {
         { slot: "username", value: "synthetic-secret" },
         { slot: "password", value: "synthetic-secret", secret: "password" },
       ]);
+    });
+
+    it("generates a tenant's page under its [id] path and runs it on another tenant's page (ADR 0039)", async () => {
+      const tenantPath = "/[id]/oauth2/authorize";
+      const tenantPage = page(tenantPath, loginPage.observation.candidates);
+      const tenantRecipe = parseLoginRecipe({
+        ...generated,
+        id: "gen-tenant",
+        steps: generated.steps.map((step) => ({ ...step, path: tenantPath })),
+      });
+      fake.state.pageUrl =
+        "https://login.example/123e4567-e89b-12d3-a456-426614174000/oauth2/authorize";
+      fake.state.observedPath = tenantPath;
+      fake.state.extracted = { login: tenantPage };
+      const service = generation();
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness(unsaved, {
+        allowedOrigins: [],
+        uris,
+        username: true,
+        custom: [],
+        generation: service,
+        report,
+        urls: true,
+      });
+      let stored = false;
+      // The cache selects a recipe by the path as observations carry it.
+      h.recipes.recipe.mockImplementation(async (_origin, path) =>
+        stored && path === tenantPath ? tenantRecipe : undefined,
+      );
+      h.recipes.starts.mockResolvedValue(startsOf([]));
+      expect(await h.hello({}, false)).toMatchObject({ generate: true });
+      service.generate.mockImplementation(async () => {
+        stored = true;
+        h.recipes.starts.mockResolvedValue(startsOf([tenantRecipe.steps[0]!]));
+        return { outcome: "recipe", recipe: tenantRecipe };
+      });
+      expect(await h.signIn()).toEqual({ ok: false, reason: "generating" });
+      await vi.waitFor(() =>
+        expect(fake.state.messages.map((entry) => entry.type)).toContain("login.reconnect"),
+      );
+      // The retry window and the request carry the replaced path, never the tenant's ID.
+      expect(service.available).toHaveBeenCalledWith(origin, tenantPath);
+      expect(service.generate).toHaveBeenCalledWith(
+        expect.objectContaining({ observation: tenantPage.observation }),
+        expect.any(Function),
+      );
+      expect(JSON.stringify(service.generate.mock.calls)).not.toContain("123e4567");
+      // The local log keeps the page's own URL (owner decision 2026-10-13).
+      expect(
+        report.mock.calls.some(([entry]) => entry.url?.includes("123e4567-e89b") === true),
+      ).toBe(true);
+
+      // Another tenant's page starts the same recipe at once, and is not offered again.
+      const offered = service.available.mock.calls.length;
+      fake.state.pageUrl =
+        "https://login.example/89abcdef-0123-4567-89ab-cdef01234567/oauth2/authorize";
+      const announced = await h.hello({ documentId: "other-tenant" }, false);
+      expect(announced).toMatchObject({ starts: [expect.objectContaining({ path: tenantPath })] });
+      expect(announced).not.toHaveProperty("generate");
+      expect(await h.hello({ documentId: "other-tenant" })).toEqual({ ok: true });
+      await vi.waitFor(() =>
+        expect(fake.state.messages.filter((entry) => entry.type === "login.execute")).toHaveLength(
+          2,
+        ),
+      );
+      expect(
+        fake.state.messages
+          .filter((entry) => entry.type === "login.execute")
+          .map(
+            (entry) => (entry as { operation?: { step: { path: string } } }).operation?.step.path,
+          ),
+      ).toEqual([tenantPath, tenantPath]);
+      expect(service.available).toHaveBeenCalledTimes(offered);
+      expect(service.generate).toHaveBeenCalledTimes(1);
     });
 
     it("logs a page sent for generation, then the answer", async () => {
@@ -7359,6 +7591,11 @@ describe("production login document admission", () => {
             "logged-out",
           ],
           [
+            "a logout clicked on the site in this tab",
+            { click: { tabId: 1, site: "login.example", clickedAt: new Date().toISOString() } },
+            "logout-clicked",
+          ],
+          [
             "a blocked revision",
             {
               block: {
@@ -7428,6 +7665,7 @@ describe("production login document admission", () => {
             overrides?: Partial<LocalSettings>;
             uris?: LiveUriMatcher;
             logout?: { tabId: number; origin: string };
+            click?: { tabId: number; site: string; clickedAt: string };
             block?: Record<string, unknown>;
             press?: unknown;
           };
@@ -7435,6 +7673,7 @@ describe("production login document admission", () => {
           fake.state.entry.inspect = inspected(option.inspect);
           if (option.press) fake.state.entry.press = option.press;
           if (option.logout) fake.state.session["pateat.login-logouts.v1"] = [option.logout];
+          if (option.click) fake.state.session["pateat.login-logout-clicks.v1"] = [option.click];
           if (option.block) fake.state.storage["pateat.login-entry-blocks.v1"] = [option.block];
           const { h, reports } = setup({
             entries: [entryRecipe],
@@ -17074,9 +17313,10 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
       service: ReturnType<typeof generation>,
       reports?: LoginReport[],
       live: Parameters<typeof harness>[1] = {},
+      overrides: Partial<LocalSettings> = {},
     ) => {
       const h = harness(
-        { siteDefaults: [], bindings: [] },
+        { siteDefaults: [], bindings: [], ...overrides },
         {
           allowedOrigins: [],
           uris,
@@ -17205,6 +17445,161 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
       const h = onList(generation());
       expect(await h.hello()).toEqual({ ok: false, reason: "stale-document" });
       expect(status()).toBeUndefined();
+    });
+
+    describe("on the other branch's form shown on the list's path", () => {
+      afterEach(() => {
+        fake.state.awaitReply = undefined;
+      });
+      /** The form after "Sign in with another profile", on the list's own path. */
+      const afterOther = parseLoginRecipe({
+        version: 1,
+        id: listed.id,
+        revision: 2,
+        origin,
+        slots: ["username", "password"],
+        steps: [
+          {
+            kind: "fill",
+            path: "/signin",
+            fields: [
+              { slot: "username", target: target("email") },
+              { slot: "password", target: target("password") },
+            ],
+          },
+          { kind: "click", path: "/signin", target: target("login"), purpose: "submit" },
+        ],
+        maxSubmissions: 1,
+      });
+      const withOther: LoginChooserRecipe = {
+        ...listed,
+        revision: 2,
+        chooser: { ...listed.chooser, afterOther },
+      };
+      /**
+       * The page shows the branch's form, or with `list` the list of accounts, or with
+       * `both` the form beside the list.
+       */
+      const shows = (h: ReturnType<typeof onList>, list: boolean | "both" = false) => {
+        h.recipes.chooser.mockResolvedValue(withOther);
+        h.recipes.starts.mockResolvedValue([
+          { path: "/signin", steps: [afterOther.steps[0]!], list: [other] },
+        ]);
+        fake.state.present = list === true ? new Set() : new Set(["email", "password", "login"]);
+        fake.state.awaitReply = (readiness) =>
+          list === "both" || (readiness.accounts === true) === list
+            ? { ok: true }
+            : { ok: false, reason: "timeout" };
+      };
+
+      it("logs in on that branch without a click on the list", async () => {
+        const reports: LoginReport[] = [];
+        const service = generation();
+        const h = onList(service, reports);
+        shows(h);
+        fake.state.signIn = true;
+        // The signed-in page replaces the form once it is submitted.
+        fake.state.onExecute = async (message) => {
+          const step = (message["operation"] as { step: LoginStep }).step;
+          if (step.kind !== "click") return;
+          fake.state.observedPath = "/home";
+          fake.state.present = new Set();
+          fake.state.extracted = { "signed-in": homePage };
+        };
+        expect(await h.hello()).toEqual({ ok: true });
+        await until(settled("authenticated"));
+        expect(executed()).toEqual(["fill:email,password", "click:login"]);
+        expect(fake.state.messages.some((entry) => entry.type === "login.choose")).toBe(false);
+        expect(clicks().every((entry) => entry.list === undefined)).toBe(true);
+        expect(status()![0]).toMatchObject({
+          recipeRevision: 2,
+          chooser: { click: "other-shown" },
+          stepCount: 2,
+          maxSubmissions: 1,
+        });
+        expect(reports.find((entry) => entry.type === "start")).toMatchObject({
+          click: "other-shown",
+        });
+        // The page after the sign-in is judged on the other branch.
+        expect(service.judge.mock.calls[0]![5]).toBe("other");
+      });
+
+      it.each([
+        ["the list shows", true],
+        ["the list shows beside the form", "both"],
+      ] as const)("still clicks on the list while %s", async (_name, list) => {
+        fake.state.chosen = { ok: true, click: "other" };
+        const h = onList(generation());
+        shows(h, list);
+        expect(await h.hello()).toEqual({ ok: true });
+        await until(() => clicks().length > 0);
+        expect(clicks()[0]!.operation.step.target).toEqual(other);
+        expect(status()![0]).toMatchObject({ chooser: { click: "other" } });
+      });
+
+      it("only fills the form for the default after a logout", async () => {
+        // This tab logged out of the site (ADR 0021 D); the item is the site default.
+        fake.state.session["pateat.login-logouts.v1"] = [{ tabId: 1, origin }];
+        const reports: LoginReport[] = [];
+        const h = onList(
+          generation(),
+          reports,
+          {},
+          { siteDefaults: [{ origin, provider: "bitwarden", userId, itemId }] },
+        );
+        shows(h);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.advanceTimersByTimeAsync(5_000);
+        expect(executed()).toEqual(["fill:email,password"]);
+        expect(reports.find((entry) => entry.type === "start")).toMatchObject({
+          fillOnly: true,
+          click: "other-shown",
+        });
+        expect(reports.at(-1)).toMatchObject({ type: "refused", reason: "logged-out" });
+      });
+
+      it("logs in with the account picked after a logout", async () => {
+        // This tab logged out of the site (ADR 0021 D), and two items match without a
+        // default; the person then pressed the button for another account on the list.
+        fake.state.session["pateat.login-logouts.v1"] = [{ tabId: 1, origin }];
+        const both = uriMatch({
+          candidates: [
+            { itemId, matches: [{ uriIndex: 0, match: 0 }] },
+            { itemId: otherItemId, matches: [{ uriIndex: 0, match: 0 }] },
+          ],
+        });
+        const h = onList(generation(), undefined, {
+          uris: async () => ({ ok: true, data: both }),
+          otherUsername: true,
+        });
+        shows(h);
+        expect(await h.hello()).toEqual({ ok: false, reason: "logged-out" });
+        expect(executed()).toEqual([]);
+        fake.state.onReconnect = () => h.hello();
+        expect(
+          await h.login.handle(
+            {
+              version: 1,
+              type: "login.choice.pick",
+              tabId: 1,
+              documentId: "synthetic-document",
+              connectionId,
+              itemId: otherItemId,
+              makeDefault: false,
+            },
+            {
+              id: "synthetic-extension",
+              url: "chrome-extension://synthetic-extension/popup.html",
+            } as never,
+          ),
+        ).toEqual({ ok: true });
+        await until(() => executed().length >= 2);
+        expect(executed()).toEqual(["fill:email,password", "click:login"]);
+        expect(status()![0]).toMatchObject({
+          account: { itemId: otherItemId },
+          chooser: { click: "other-shown" },
+        });
+      });
     });
 
     const named = { username: "name", entries: 1, beside: 0, named: 0, other: "none" };

@@ -4,7 +4,7 @@ import {
   type LocalSettings,
   type SettingsResponse,
 } from "@pateat/contracts";
-import { useForm, useStore } from "@tanstack/react-form";
+import { useForm, useSelector } from "@tanstack/react-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Bug,
@@ -144,7 +144,7 @@ export function SettingsApp({
       }
     },
   });
-  const draft = useStore(form.store, (state) => state.values);
+  const draft = useSelector(form.store, (state) => state.values);
   function accept(result: AcceptedSettings, statusMessage: string, resetAddForms: boolean) {
     // Accepted metadata and editable values are separate copies. Cache writes never own the draft.
     const next = structuredClone(result);

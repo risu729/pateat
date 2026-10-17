@@ -460,8 +460,11 @@ holds:
   looked up again delegates with `settings-changed`, or `vault-incomplete` when the
   vault could not be searched in full;
 - `signedBefore` when Pateat had signed for this RP ID in the tab, so the request asks
-  again. Such a request that cannot open the window is delegated with
-  `chooser-unavailable`;
+  again, or `logoutClicked` when instead a control that logs out was clicked on the RP
+  ID's site in the tab and still waits for the site's first step (at most 10 minutes,
+  while the tab stays on the site), or, after such a click was used, the tab keeps a
+  logout state for an origin of the site (ADR 0021 D). Such a request that cannot open
+  the window is delegated with `chooser-unavailable`;
 - `cause`: for a `cancelled` outcome, who cancelled it (`page-cancelled` or
   `settings-changed`); for the `assertion-failed` reason, the step that threw
   (`login-wait`, `account-lookup`, `passkey-lookup`, `signed-before-lookup`, `chooser`
@@ -655,6 +658,14 @@ Pateat uses:
 
 [integration]: #integration-conditions-pending-candidates-remain-conditional
 
+DOM listeners that share an installation or effect lifetime use one locally owned
+`AbortController` and register with its `signal`: the code-submission watcher, passkey
+relay and service-pairing return listeners. Stopping the watcher or relay, or unmounting
+the effect, aborts that controller to remove only its listeners; capture flags and
+request cancellation behavior stay unchanged. Mutation observers still disconnect
+separately. Single-listener cleanup and Chrome extension events retain their existing
+removal APIs.
+
 ## Dependency policy
 
 Renovate inherits the pinned `risu729/renovate-config` preset, matching the other owner
@@ -718,7 +729,7 @@ use. WXT drives Vite 8 (Rolldown) for the extension build
 | --- | --- | --- |
 | Extension UI | **Implemented:** React through `@wxt-dev/module-react`, Tailwind CSS through its Vite plugin, Base UI with the selected shadcn/ui Button | M2 settings UI migration |
 | Service web UI | **Implemented for the devices page:** React, Tailwind through its Vite plugin, Base UI with the selected shadcn/ui Button and TanStack Query, built by Vite into Worker static assets; **approved:** TanStack Form | M4 owner web UI |
-| Form state | **Implemented:** TanStack Form with Valibot through Standard Schema | M2 settings validation, dirty drafts and field errors |
+| Form state | **Implemented:** TanStack Form with Valibot through Standard Schema; options-page drafts subscribe through `useSelector`, re-exported by `@tanstack/react-form` | M2 settings validation, dirty drafts and field errors |
 | Async UI state | **Implemented for settings:** TanStack Query for metadata reads and mutations | M2 extension-message queries; M4 sync integration |
 | Attempt lifecycle | **Implemented:** XState for each login attempt (`loginAttemptMachine`), applied with its pure `transition()`; the runtime around it stays application code | M2 declarative executor |
 | Transport | **Implemented for messages to the background:** `@webext-core/messaging` around validated contracts ([architecture](architecture.md#components-and-trust-boundaries)); the background's tab sends addressed by `documentId`, Ports and `window.postMessage` stay raw, because the library's tab send takes only a tab and frame and it carries no Ports | M2 message transport |
@@ -780,16 +791,20 @@ before any read or write can access sensitive settings. Preserve
 single-writer revision checks, corruption handling and fail-closed policy;
 storage helpers do not provide compare-and-swap by themselves.
 
-Parse destinations with `new URL()` and pass the normalized hostname to tldts;
-explicitly include private suffix rules where appropriate. PSL information is
-not permission to fill or sign, and does not replace HTTPS, origin, ancestor or
-Permissions Policy checks. OTPAuth covers standard OTP mechanics; test Bitwarden
-Steam compatibility separately and do not advertise HOTP merely because parsing
-supports it. Base64, base64url and hex use the standard `Uint8Array` methods;
+Parse untrusted destinations with `URL.parse()` and explicitly handle its `null` result
+with the caller's existing failure value. Relative inputs still require the same
+explicit base; admission code retains its scheme, credential, exact-origin and hostname
+checks in the same order. Keep `try` blocks around operations that can fail for reasons
+beyond URL parsing, including the login runtime's domain matching. Pass the normalized
+hostname to tldts and explicitly include private suffix rules where appropriate. PSL
+information is not permission to fill or sign, and does not replace HTTPS, origin,
+ancestor or Permissions Policy checks. OTPAuth covers standard OTP mechanics; test
+Bitwarden Steam compatibility separately and do not advertise HOTP merely because
+parsing supports it. Base64, base64url and hex use the standard `Uint8Array` methods;
 strict decoding (`lastChunkHandling: "strict"`) still needs the input checked for
 whitespace and, when unpadded, padded first. Evaluate `@noble/hashes` for actual
-protocol gaps; CBOR is read with the approved `cbor2`, only from data the Bitwarden
-SDK has already verified. Do not write crypto/CBOR primitives ourselves, assume all
+protocol gaps; CBOR is read with the approved `cbor2`, only from data the Bitwarden SDK
+has already verified. Do not write crypto/CBOR primitives ourselves, assume all
 primitives in a package are audited, or substitute a different KDF for Bitwarden
 Argon2id.
 

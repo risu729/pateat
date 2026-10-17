@@ -813,11 +813,18 @@ export function withChooserBranch(
  * What a login clicks on a chooser's list (ADR 0028): the entry of the chosen account, the
  * `continue` button beside the one shown account, or the `other` button.
  */
-export const chooserClickSchema = v.picklist(["entry", "continue", "other"]);
+export const listClickSchema = v.picklist(["entry", "continue", "other"]);
+export type ListClick = v.InferOutput<typeof listClickSchema>;
+/**
+ * How a chooser login (ADR 0028) entered its branch: by its click on the list, or
+ * `other-shown` when its path already showed the `other` branch's form instead of the
+ * list, as after the person pressed the button for another account, so it clicked nothing.
+ */
+export const chooserClickSchema = v.picklist([...listClickSchema.options, "other-shown"]);
 export type ChooserClick = v.InferOutput<typeof chooserClickSchema>;
-/** The branch a click on the list leads to. */
+/** The branch a click on the list leads to, or the branch already shown. */
 export const chooserClickBranch = (click: ChooserClick): ChooserBranch =>
-  click === "other" ? "other" : "account";
+  click === "other" || click === "other-shown" ? "other" : "account";
 /**
  * The locator a chooser login's click on an account entry carries. It names no element:
  * the content script finds the entry of the account the worker chose, by the rule of ADR
@@ -829,13 +836,27 @@ export const CHOOSER_ENTRY_TARGET = { by: "text", value: "[account]" } as const;
  * `advance` step on the chooser's path, then the steps of the branch it leads to, once
  * generated. It has the chooser's ID, revision and origin, the branch's completion,
  * handlers and account switch, and one submission more than the branch for the click. It
- * always has the `username` slot, which picks the account's entry. `undefined` when the
- * chooser has no button for the click, or the result is no valid recipe.
+ * always has the `username` slot, which picks the account's entry. For `other-shown` it is
+ * the `other` branch alone, without a click, and only once that branch starts on the
+ * chooser's path. `undefined` when the chooser has no button for the click, or the result
+ * is no valid recipe.
  */
 export function chooserRoute(
   recipe: LoginChooserRecipe,
   click: ChooserClick,
 ): LoginRecipe | undefined {
+  if (click === "other-shown") {
+    const shown = recipe.chooser.afterOther;
+    if (!shown || shown.steps[0]!.path !== recipe.chooser.path) return undefined;
+    const { alternatives: _alternatives, passkey: _passkey, ...rest } = shown;
+    const parsed = v.safeParse(loginRecipeSchema, {
+      ...rest,
+      id: recipe.id,
+      revision: recipe.revision,
+      origin: recipe.origin,
+    });
+    return parsed.success ? parsed.output : undefined;
+  }
   const target =
     click === "entry"
       ? CHOOSER_ENTRY_TARGET

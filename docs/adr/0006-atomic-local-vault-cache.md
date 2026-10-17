@@ -3,7 +3,7 @@
 Status: accepted and implemented in
 [PR #19](https://github.com/risu729/pateat/pull/19). Native browser acceptance uses
 synthetic accounts; production connection integration remains separate. Amended by the
-proposed [ADR 0039](0039-allowlist-and-vault-timeout.md) (implemented, pending the
+proposed [ADR 0042](0042-allowlist-and-vault-timeout.md) (implemented, pending the
 owner's approval): a vault timeout the person chooses can turn automatic unlock off;
 its default, never, keeps the key across restarts as decided here.
 

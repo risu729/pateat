@@ -60,6 +60,21 @@ describe("reachedReturnTarget", () => {
       ),
     ).toBe(true);
   });
+  it("refuses malformed current URLs and skips malformed return values", () => {
+    for (const current of ["https://[", "/settings"])
+      expect(reachedReturnTarget(`${start}?r=/settings`, current, [])).toBe(false);
+    const invalid = encodeURIComponent("https://[");
+    expect(reachedReturnTarget(`${start}?r=${invalid}`, "https://login.example/settings", [])).toBe(
+      false,
+    );
+    expect(
+      reachedReturnTarget(
+        `${start}?r=${invalid}&next=/settings`,
+        "https://login.example/settings",
+        [],
+      ),
+    ).toBe(true);
+  });
   it("refuses other origins, the top page, sign-in paths and the start page", () => {
     expect(
       reachedReturnTarget(`${start}?r=//evil.example/home`, "https://login.example/home", []),
@@ -80,5 +95,32 @@ describe("reachedReturnTarget", () => {
     );
     expect(reachedReturnTarget(start, "https://login.example/home", [])).toBe(false);
     expect(reachedReturnTarget("not a url", "https://login.example/home", [])).toBe(false);
+  });
+  it("compares paths as observations carry them, token-like segments as [id] (ADR 0039)", () => {
+    const tenant = "123e4567-e89b-12d3-a456-426614174000";
+    const tenantStart = `https://login.example/${tenant}/signin`;
+    // The current path comes from the content script, already with `[id]`.
+    expect(
+      reachedReturnTarget(
+        `${tenantStart}?return_to=${encodeURIComponent(`/${tenant}/settings`)}`,
+        "https://login.example/[id]/settings",
+        [],
+      ),
+    ).toBe(true);
+    // The sign-in page itself, and a recipe's sign-in path, still do not count.
+    expect(
+      reachedReturnTarget(
+        `${tenantStart}?r=${encodeURIComponent(`/${tenant}/signin`)}`,
+        "https://login.example/[id]/signin",
+        [],
+      ),
+    ).toBe(false);
+    expect(
+      reachedReturnTarget(
+        `${tenantStart}?r=${encodeURIComponent(`/${tenant}/password`)}`,
+        "https://login.example/[id]/password",
+        ["/[id]/password"],
+      ),
+    ).toBe(false);
   });
 });

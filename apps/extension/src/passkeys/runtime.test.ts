@@ -1016,6 +1016,34 @@ describe("asking again after Pateat signed in a tab", () => {
   ];
   const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
+  it("asks for a single match after a logout clicked on the site in the tab", async () => {
+    const choose = chosen();
+    const report = vi.fn();
+    const logoutClicked = vi.fn(
+      async (tabId: number, rpId: string) => tabId === 7 && rpId === "example.com",
+    );
+    const runtime = createPasskeyRuntime(source(), {
+      extensionId,
+      chooser: choose,
+      signedTabs: signedTabs(),
+      logoutClicked,
+      report,
+    });
+    expect(await runtime.handle(get(), sender())).toMatchObject({ kind: "assertion" });
+    expect(choose.choose).toHaveBeenCalledWith(
+      expect.objectContaining({ tabId: 7, again: true, loggedOut: true }),
+    );
+    expect(report).toHaveBeenLastCalledWith(
+      expect.objectContaining({ logoutClicked: true, chooser: "chosen" }),
+    );
+    expect(report.mock.lastCall?.[0]).not.toHaveProperty("signedBefore");
+    // Another tab did not log out.
+    expect(await runtime.handle(get(), sender({ tab: { id: 8 } }))).toMatchObject({
+      kind: "assertion",
+    });
+    expect(choose.choose).toHaveBeenCalledOnce();
+  });
+
   it("records the RP ID of each assertion, then asks for a single match in that tab", async () => {
     const signed = signedTabs();
     const choose = chosen();
