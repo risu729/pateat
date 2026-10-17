@@ -482,8 +482,8 @@ than in this repository.
   there ([ADR 0039](adr/0039-redacted-token-path-segments.md), owner, 14:10 UTC; local
   tests only; the synthetic browser test now also covers an opaque authorization-server
   ID in a middle path segment and verifies recipe reuse without another model call.
-  This added browser coverage has not yet been run). Check both sites in the owner's
-  Chrome.
+  Both cases passed in isolated cloud Chromium on 2026-10-17). Check both sites in the
+  owner's Chrome.
 - Known faults moved from phase 1 (owner, 2026-10-12 20:35 UTC), fixed when a real site
   shows them again: the `reconciling` exception seen on SBI証券, and `generate` ignoring
   a failed sync after generation (both recorded under phase 1).
