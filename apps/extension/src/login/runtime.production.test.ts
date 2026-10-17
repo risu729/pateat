@@ -11411,7 +11411,12 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
           transport: {
             settings: async () => ({
               kind: "state",
-              state: { version: 1, revision: 5, settings: settings([]) },
+              state: {
+                version: 1,
+                profileId: "00000000-0000-4000-8000-000000000010",
+                revision: 5,
+                settings: settings([]),
+              },
             }),
             saveSettings: vi.fn(),
           },
@@ -11421,6 +11426,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
               version: 1,
               origin: serviceOrigin,
               deviceId,
+              profileId: "00000000-0000-4000-8000-000000000010",
               revision: 4,
               settings: agreed,
               local: agreed,
