@@ -1494,7 +1494,7 @@ extension sends a page no check explains to be judged, which settles such attemp
 
 A login in progress keeps off the writes that would stop it. A passkey chosen in the
 chooser as a site default is not saved, nor is an account choice from another tab's
-login while this worker runs a login.
+login while a login is in progress.
 The vault replacement waits ([ADR 0025](adr/0025-automatic-vault-sync.md)), and so does
 the settings sync's local write, for at most two minutes, counted from the first
 deferred write until a sync runs with no login in progress. An attempt counts until it
