@@ -4,8 +4,9 @@ Status: accepted by the owner on 2026-10-11 (13:47 UTC). Deliveries 1 (custom-fi
 names and Text shapes in generation) and 2 (handlers with the `passkey` handler) are
 implemented, and so are delivery 3: part A (`password` route variants and start
 detection over them) and part B (the start page's `passkey` route), and delivery 4 (the
-`totp` handler) except a binding that names another field for its code, which is
-deferred and ends `challenge` ([Implementation choices](#implementation-choices));
+`totp` handler), whose deferred part, a binding that names a custom field for its code,
+is implemented by the 2026-10-17 amendment
+([A TOTP code from a custom field](#amendment-a-totp-code-from-a-custom-field));
 delivery 5 (the `sso` route) is not implemented. Amends
 [ADR 0007](0007-existing-passkey-assertions.md) and
 [ADR 0021](0021-account-choice-outside-settings.md) (which item answers a passkey
@@ -931,3 +932,38 @@ npmjs.com or MyJCB where it applies:
    several routes.
 4. The `totp` handler.
 5. The `sso` route, implementing ADR 0026.
+
+## Amendment: a TOTP code from a custom field
+
+Date: 2026-10-17. Proposed by Claude and not yet confirmed by the owner; implemented. It
+delivers the part of delivery 4 that "Which TOTP field" in
+[Implementation choices](#implementation-choices) deferred until Pateat can make a code
+from a custom field, which the owner moved to phase 4 on 2026-10-12 (14:26 UTC). The
+accepted text above is unchanged; where it says such a binding ends `challenge`, this
+section applies instead.
+
+- **The code from a custom field.** A `totp` handler whose item's saved binding names a
+  custom field for `totp` reads that field and makes the code from it in the crypto
+  Worker, with the generator the built-in TOTP field uses: a base32 secret, an
+  `otpauth://totp/` URI with a secret and optionally an issuer, algorithm, digits and
+  period, or a `steam://` secret. The field's raw value never leaves the Worker for a
+  code: a value that is no such seed is refused (`invalid-totp` or `unsupported-totp`),
+  as an empty field is, and the login then stops as a policy change
+  (`field-unavailable`) without typing anything into the page.
+- **Which custom fields.** Only a Text or Hidden custom field may hold a seed (Claude's
+  default, not confirmed by the owner). A binding that names a Boolean or Linked custom
+  field, or the item's username or password, for `totp` still ends `challenge`
+  (`missing-fact`) without reading it.
+- **The `totp` fact.** For such a binding the fact recorded when the login starts says
+  whether the account allows that field (not excluded); the built-in TOTP field does not
+  count then. A custom field has no value-free empty flag in the catalog, so an empty
+  one is found only when the code is read, and stops the login as above.
+- **Every `totp` fill asks for a code.** A fill of the `totp` slot always asks the Worker
+  for a code and fills it under the TOTP fill rule, a route step's as well as a
+  handler's, so a binding that names a custom field for a start page's code field types
+  a code made from it, never the field's value. A fill of any other slot is unchanged.
+- "One code per login", "Code fill rule" and the rest of "Which TOTP field" still hold:
+  the field is added to the plan for that login only, and a field excluded or removed
+  after the handler was entered stops the login as a policy change.
+- Not verified against a real Bitwarden vault or a real site: the change is covered by
+  synthetic tests only.

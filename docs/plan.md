@@ -817,10 +817,13 @@ items the owner mentioned and gates still open on 2026-10-11.
   enough.
 - Signing in through an identity provider
   ([ADR 0026](adr/0026-sign-in-through-identity-providers.md), ADR 0027 delivery 5).
-- [ADR 0027](adr/0027-per-account-login-routes.md) delivery 4's deferred part: a `totp`
-  handler that reads a custom field a saved binding names for the code, once Pateat can
-  make a code from one. Until then such a binding ends `challenge`. The owner moved it
-  from phase 1 on 2026-10-12 (14:26 UTC).
+- [ADR 0027](adr/0027-per-account-login-routes.md) delivery 4's deferred part, which the
+  owner moved from phase 1 on 2026-10-12 (14:26 UTC): a `totp` handler that reads a
+  custom field a saved binding names for the code. Implemented on 2026-10-17 by the
+  [amendment](adr/0027-per-account-login-routes.md#amendment-a-totp-code-from-a-custom-field)
+  (a Text or Hidden field's seed makes the code; the owner has not confirmed that
+  choice yet), with synthetic tests only. Still open: a login in the owner's Chrome
+  with a vault item that keeps its seed in a custom field.
 - Signing in with a code or link sent by email, which
   [ADR 0027](adr/0027-per-account-login-routes.md) does not handle today (such a code
   page ends `challenge`). It has the same priority as signing in through an identity
