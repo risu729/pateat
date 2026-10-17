@@ -148,6 +148,74 @@ test.each(["http://vault.example", "https://vault.example/path", "https://user@v
   },
 );
 
+test.each(["o'brien@example.com", "a&b@example.com", "first..last@example.com", "a@b.c"])(
+  "email %s that the setup wire rejects gets the local message and no permission prompt",
+  async (address) => {
+    const { client, changed } = await mount();
+    await fillNew();
+    await page.getByLabelText("Email", { exact: true }).fill(address);
+    await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+    await expect.element(page.getByText(/Enter a connection name, valid email/)).toBeVisible();
+    expect(client.requestProviderPermission).not.toHaveBeenCalled();
+    expect(client.begin).not.toHaveBeenCalled();
+    expect(changed).not.toHaveBeenCalled();
+  },
+);
+
+test("pasted name, email and server address are trimmed before they are checked and sent", async () => {
+  const { client } = await mount();
+  await fillNew();
+  await page.getByLabelText("Name", { exact: true }).fill("  Synthetic vault ");
+  await page.getByLabelText("Email", { exact: true }).fill(" test@example.test ");
+  await page.getByRole("combobox", { name: "Server", exact: true }).selectOptions("self-hosted");
+  await page.getByLabelText("Server address", { exact: true }).fill(" https://vault.example.test ");
+  await expect
+    .element(page.getByText(/Chrome asks for access to vault\.example\.test/))
+    .toBeVisible();
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  await vi.waitFor(() => expect(client.begin).toHaveBeenCalledTimes(1));
+  expect(client.requestProviderPermission.mock.calls[0]![0]).toMatchObject({
+    kind: "self-hosted",
+    baseUrl: expect.stringMatching(/^https:\/\/vault\.example\.test\/?$/),
+  });
+  expect(client.begin.mock.calls[0]![0]).toMatchObject({
+    kind: "new",
+    label: "Synthetic vault",
+    email: "test@example.test",
+  });
+});
+
+test("verification codes are sent without spaces and a blank code sends nothing", async () => {
+  const client = mockClient();
+  client.begin.mockResolvedValue({ ok: true, kind: "mfa-required", flowId, providers: [0] });
+  client.continue.mockResolvedValue({
+    ok: true,
+    kind: "new-device-verification-required",
+    flowId,
+    invalidOtp: false,
+  });
+  await mount(client);
+  await fillNew();
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  const mfaCode = page.getByLabelText("Verification code", { exact: true });
+  await mfaCode.fill("   ");
+  await expect
+    .element(page.getByRole("button", { name: "Verify code", exact: true }))
+    .toBeDisabled();
+  await userEvent.keyboard("{Enter}");
+  await mfaCode.fill(" 123 456\t");
+  await page.getByRole("button", { name: "Verify code", exact: true }).click();
+  await vi.waitFor(() => expect(client.continue).toHaveBeenCalledTimes(1));
+  expect(client.continue).toHaveBeenCalledWith({
+    flowId,
+    twoFactor: { provider: 0, code: "123456" },
+  });
+  await page.getByLabelText("New-device verification code", { exact: true }).fill("98 76 54 ");
+  await page.getByRole("button", { name: "Verify code", exact: true }).click();
+  await vi.waitFor(() => expect(client.continue).toHaveBeenCalledTimes(2));
+  expect(client.continue).toHaveBeenLastCalledWith({ flowId, newDeviceOtp: "987654" });
+});
+
 test("manual MFA clears the code on submission and never resends without another user action", async () => {
   const client = mockClient();
   client.begin.mockResolvedValue({ ok: true, kind: "mfa-required", flowId, providers: [0, 1] });

@@ -3,7 +3,8 @@ import type { SetupReply } from "./types";
 
 export const SETUP_PORT = "pateat.bitwarden-setup.v1";
 const id = v.pipe(v.string(), v.minLength(1), v.maxLength(200));
-const email = v.pipe(v.string(), v.minLength(1), v.maxLength(320), v.email());
+/** The options page checks addresses with this schema so the Port never rejects one. */
+export const emailSchema = v.pipe(v.string(), v.minLength(1), v.maxLength(320), v.email());
 const password = v.pipe(v.string(), v.minLength(1));
 const environment = v.variant("kind", [
   v.strictObject({ kind: v.literal("cloud"), region: v.picklist(["us", "eu"]) }),
@@ -17,7 +18,7 @@ export const setupBeginSchema = v.variant("kind", [
     kind: v.literal("new"),
     environment,
     label: v.pipe(id, v.maxLength(200)),
-    email,
+    email: emailSchema,
     password,
     enabled: v.boolean(),
   }),
@@ -125,7 +126,7 @@ const replySchema = v.union([
         v.strictObject({
           connectionId: id,
           label: id,
-          email,
+          email: emailSchema,
           environment,
           autoUnlock: v.picklist(["enabled", "disabled", "unknown"]),
           state: v.picklist(["configured", "ready", "disabled", "review-required", "unavailable"]),
