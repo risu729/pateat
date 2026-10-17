@@ -2069,3 +2069,57 @@ test("Add another connection moves focus into the form it opens", async () => {
   await page.getByRole("button", { name: "Add another connection", exact: true }).click();
   await expect.element(page.getByRole("combobox", { name: "Server", exact: true })).toHaveFocus();
 });
+
+/** Focuses a button and presses Enter, as a keyboard or screen reader user does. */
+async function pressWithKeyboard(name: string) {
+  const button = page.getByRole("button", { name, exact: true });
+  (button.element() as HTMLElement).focus();
+  await userEvent.keyboard("{Enter}");
+  return button;
+}
+
+test("a failed connect keeps keyboard focus on Connect", async () => {
+  const client = mockClient();
+  const pending = held<SetupReply>();
+  client.begin.mockReturnValue(pending.promise);
+  await mount(client);
+  await fillNew();
+  const connect = await pressWithKeyboard("Connect Bitwarden");
+  await vi.waitFor(() => expect(client.begin).toHaveBeenCalledTimes(1));
+  // While it runs the button is unavailable but keeps focus.
+  await expect.element(connect).toHaveFocus();
+  await expect.element(connect).toHaveAttribute("aria-disabled", "true");
+  pending.resolve({ ok: false, error: { code: "resource-limit" } });
+  await expect.element(page.getByText(/reached a resource limit/)).toBeVisible();
+  await expect.element(connect).toBeEnabled();
+  await expect.element(connect).toHaveFocus();
+});
+
+test("a failed sync or refresh keeps keyboard focus on its button", async () => {
+  const client = mockClient();
+  client.list.mockResolvedValue({
+    ...status(),
+    connections: [
+      {
+        connectionId: "saved-a",
+        label: "Saved vault",
+        email: "saved@example.test",
+        environment: { kind: "cloud", region: "us" },
+        state: "ready",
+        autoUnlock: "enabled",
+        providerSession: "active",
+      },
+    ],
+  });
+  client.sync.mockResolvedValue({ ok: false, error: { code: "resource-limit" } });
+  await mount(client);
+  const sync = await pressWithKeyboard("Saved vault: Sync");
+  await expect.element(page.getByText(/reached a resource limit/)).toBeVisible();
+  await expect.element(sync).toBeEnabled();
+  await expect.element(sync).toHaveFocus();
+  client.list.mockRejectedValue(new Error("synthetic failure"));
+  const refresh = await pressWithKeyboard("Refresh connections");
+  await expect.element(page.getByText(/^The operation could not be confirmed/)).toBeVisible();
+  await expect.element(refresh).toBeEnabled();
+  await expect.element(refresh).toHaveFocus();
+});
