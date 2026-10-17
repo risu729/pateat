@@ -3053,6 +3053,46 @@ describe("a login that stops before a missing password (ADR 0036)", () => {
     ).toEqual(stopped);
   });
 
+  // A move to another origin of the site after the stop: ADR 0027 (2026-10-13) ends a
+  // watched login where it stopped, and ADR 0036 rule 5 completes a move after an answer.
+  describe("a stop the tab leaves for another origin", () => {
+    const moved = { ...top, origin: "https://www.bank.example", documentId: "x" };
+    const watchingAtStop = () =>
+      transitionLoginAttempt(
+        atStop(),
+        { type: "OBSERVED", result: "challenge", document: top },
+        1000,
+      );
+
+    it("ends a watched stop where it stopped, not interrupted", () => {
+      const watching = watchingAtStop();
+      expect(watching).toMatchObject({ state: "watching", submissions: 1 });
+      expect(watching.operationKind).toBeUndefined();
+      expect(
+        transitionLoginAttempt(watching, { type: "NAVIGATED", document: moved }),
+      ).toMatchObject({ state: "blocked", outcome: "challenge" });
+    });
+
+    it("completes a watched stop whose move shows a sign-in", () => {
+      expect(
+        transitionLoginAttempt(watchingAtStop(), {
+          type: "NAVIGATED",
+          document: moved,
+          signedIn: true,
+        }),
+      ).toMatchObject({ state: "authenticated", outcome: "authenticated" });
+    });
+
+    // The bridge's answer can reach the page before STOP_ANSWERED is recorded.
+    it("completes a ready stop whose move shows a sign-in", () => {
+      const stopped = atStop();
+      expect(stopped).toMatchObject({ state: "ready", submissions: 1 });
+      expect(
+        transitionLoginAttempt(stopped, { type: "NAVIGATED", document: moved, signedIn: true }),
+      ).toMatchObject({ state: "authenticated", outcome: "authenticated" });
+    });
+  });
+
   it("counts an answer at the stop as a submission and goes on no further", () => {
     const answered = transitionLoginAttempt(atStop(), answer);
     expect(answered).toMatchObject({
