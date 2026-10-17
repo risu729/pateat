@@ -122,6 +122,18 @@ const laterProviderScript = `<script>
 }
 </script>`;
 
+/** A page wrapper clones WebAuthn options while preserving the caller's AbortSignal. */
+const pageWrapperScript = `<script>
+{
+  const saved = navigator.credentials.get.bind(navigator.credentials);
+  window.pageWrapperCalls = 0;
+  navigator.credentials.get = (options) => {
+    window.pageWrapperCalls++;
+    return saved({ ...options, publicKey: { ...options.publicKey } });
+  };
+}
+</script>`;
+
 export async function startPasskeyRelyingParty(
   port = 0,
 ): Promise<{ server: Server; origin: string; close(): Promise<void> }> {
@@ -130,12 +142,14 @@ export async function startPasskeyRelyingParty(
     if (request.url === "/denied") headers["permissions-policy"] = "publickey-credentials-get=()";
     response.writeHead(200, headers);
     // The provider's script runs before the page's own, after Pateat's document-start wrapper.
-    const provider = new URL(request.url ?? "/", "http://localhost").pathname === "/provider";
-    response.end(
-      provider
-        ? passkeyPageHtml.replace("<script>", `${laterProviderScript}<script>`)
-        : passkeyPageHtml,
-    );
+    const path = new URL(request.url ?? "/", "http://localhost").pathname;
+    const wrapper =
+      path === "/provider"
+        ? laterProviderScript
+        : path === "/page-wrapper"
+          ? pageWrapperScript
+          : "";
+    response.end(passkeyPageHtml.replace("<script>", `${wrapper}<script>`));
   });
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);

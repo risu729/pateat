@@ -600,6 +600,52 @@ test("Pateat answers first when another provider wraps get later or restores it"
   }
 });
 
+test("a page wrapper cloning request options preserves native fallback and caller cancellation", async () => {
+  const { server, origin } = await startRelyingParty();
+  try {
+    await withLoginExtension(async (context, _worker, extensionId) => {
+      const probe = await probeControls(context, extensionId);
+      await probe.configure();
+      const page = await openRelyingParty(context, origin, "/page-wrapper");
+      const calls = () =>
+        page.evaluate(() => (window as unknown as { pageWrapperCalls: number }).pageWrapperCalls);
+      const claimed = challengeHex();
+      expectPateatAssertion(await clickRequest(page, { challenge: claimed }), origin, claimed);
+      expect(await probe.signatures()).toBe(1);
+      expect(await calls()).toBe(0);
+
+      await probe.configure({ enabled: false });
+      const fallback = challengeHex();
+      expectNativeAssertion(await clickRequest(page, { challenge: fallback }), origin, fallback);
+      expect(await calls()).toBe(1);
+
+      // No authenticator can answer this allowlist. Wait until the page's wrapper has
+      // forwarded its copy before aborting, proving cancellation survives delegation.
+      await page.evaluate((challenge) => {
+        (window as unknown as { nextSpec: Spec }).nextSpec = {
+          challenge,
+          allow: ["aa".repeat(32)],
+          timeout: 30_000,
+        };
+      }, challengeHex());
+      await page.getByRole("button", { name: "Sign in with a passkey" }).click();
+      await expect.poll(calls).toBe(2);
+      await page.evaluate(() => {
+        const state = window as unknown as { controller: AbortController; abortReason: object };
+        state.abortReason = { source: "synthetic caller" };
+        state.controller.abort(state.abortReason);
+      });
+      expect(
+        await page.evaluate(() => (window as unknown as { pending: Promise<Serialized> }).pending),
+      ).toEqual({ error: "caller-reason" });
+      expect(await calls()).toBe(2);
+      expect(await probe.signatures()).toBe(1);
+    });
+  } finally {
+    server.close();
+  }
+});
+
 test("a locked provider holding an unclaimed request does not divert later requests", async () => {
   const { server, origin } = await startRelyingParty();
   try {
