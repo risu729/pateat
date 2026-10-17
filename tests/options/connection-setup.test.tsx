@@ -956,6 +956,31 @@ test("a connection added from the opened form leaves the form empty", async () =
   await expect.element(page.getByLabelText("Email", { exact: true })).toHaveValue("");
 });
 
+test("a later refresh keeps the draft after an add refused before registering", async () => {
+  const client = mockClient();
+  const other = { ...registered, connectionId: "other", label: "Other vault" };
+  client.list
+    .mockResolvedValueOnce(status())
+    .mockResolvedValueOnce(status())
+    .mockResolvedValue({ ...status(), connections: [other] });
+  client.begin.mockResolvedValue({ ok: false, error: { code: "resource-limit" } });
+  await mount(client);
+  await fillNew();
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  await expect.element(page.getByText(/reached a resource limit/)).toBeVisible();
+  await vi.waitFor(() => expect(client.list).toHaveBeenCalledTimes(2));
+  await page.getByLabelText("Name", { exact: true }).fill("Edited vault");
+  // Another page adds a connection; only the re-read after this page's own add may clear.
+  await page.getByRole("button", { name: "Refresh connections", exact: true }).click();
+  await expect
+    .element(page.getByRole("button", { name: "Other vault: Sign in again", exact: true }))
+    .toBeVisible();
+  await expect.element(page.getByLabelText("Name", { exact: true })).toHaveValue("Edited vault");
+  await expect
+    .element(page.getByLabelText("Email", { exact: true }))
+    .toHaveValue("test@example.test");
+});
+
 test("a failed sync re-reads the rows", async () => {
   const client = mockClient();
   const saved = { ...registered, state: "ready" as const, providerSession: "active" as const };
