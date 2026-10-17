@@ -127,6 +127,7 @@ describe("settings profile isolation", () => {
     const { by, device, settings } = await setup();
     const oldSettings = {
       ...createDefaultSettings(),
+      connections: [],
       excludedSites: [{ hostname: "old-profile.example", includeSubdomains: true }],
     };
     const written = await save(device.credential, settings.revision, oldSettings);
@@ -157,6 +158,7 @@ describe("settings profile isolation", () => {
     const { by, device, settings } = await setup();
     const initial = {
       ...createDefaultSettings(),
+      connections: [],
       excludedSites: [{ hostname: "copied.example", includeSubdomains: false }],
     };
     expect((await save(device.credential, settings.revision, initial)).status).toBe(200);
