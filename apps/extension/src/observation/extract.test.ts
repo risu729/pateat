@@ -1,5 +1,6 @@
-import type { LoginObservation } from "@pateat/contracts";
+import { isCodeField, type LoginObservation } from "@pateat/contracts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { acceptsSecret } from "../login/inputs";
 import { listControls, otherAccountMiss } from "../page/account-list";
 import { findTargets } from "../page/targets";
 import {
@@ -293,6 +294,37 @@ describe("extractLoginObservation", () => {
       { role: "text", target: { by: "id", value: "swap" } },
       { role: "number", target: { by: "id", value: "num" }, inputMode: "numeric" },
       { role: "text", target: { by: "id", value: "mode" } },
+    ]);
+  });
+
+  it("reads a code field's hints as the executor does", () => {
+    // Chrome ignores an autocomplete value that is not a valid token list and an input
+    // mode that is not a keyword, and so does the executor's fill rule.
+    page(
+      `<form>
+        <input id="extra" maxlength="6" autocomplete="one-time-code nope">
+        <input id="off" maxlength="6" autocomplete="off one-time-code">
+        <input id="two" maxlength="6" autocomplete="username one-time-code">
+        <input id="spaced" maxlength="6" inputmode=" numeric ">
+        <input id="code" maxlength="6" autocomplete=" ONE-TIME-CODE ">
+        <input id="numeric" maxlength="6" inputmode="NUMERIC">
+        <button id="go">Verify</button></form>`,
+    );
+    const fields = observe().candidates.filter((candidate) => candidate.role === "text");
+    const executor = fields.map((candidate) => [
+      candidate.target.value,
+      acceptsSecret(document.getElementById(candidate.target.value) as HTMLInputElement, "otp"),
+    ]);
+    expect(fields.map((candidate) => [candidate.target.value, isCodeField(candidate)])).toEqual(
+      executor,
+    );
+    expect(executor).toEqual([
+      ["extra", false],
+      ["off", false],
+      ["two", false],
+      ["spaced", false],
+      ["code", true],
+      ["numeric", true],
     ]);
   });
 

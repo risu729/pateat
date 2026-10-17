@@ -11,7 +11,7 @@ import {
   type ObservedCandidate,
 } from "@pateat/contracts";
 import * as v from "valibot";
-import { shortNumericInput } from "../login/inputs";
+import { autofillTokens, shortNumericInput } from "../login/inputs";
 import type { observationGaps } from "../login/wire";
 import { autocompleteTokens, linkPath } from "../page/targets";
 import { observedPath, redactsPath, tokenSegment } from "./path";
@@ -897,8 +897,12 @@ function actionLabel(element: HTMLElement): string | undefined {
   );
 }
 
+/**
+ * The input's autofill hint as the executor's fill rule reads it ({@link autofillTokens}),
+ * so a value the browser ignores gives none. Locators keep the attribute's own tokens.
+ */
 function autocomplete(input: HTMLInputElement): ObservedCandidate["autocomplete"] {
-  const tokens = autocompleteTokens(input);
+  const tokens = autofillTokens(input);
   if (tokens.length === 1 && tokens[0] === "off") return "off";
   return observedAutocompleteTokens.find((token) => tokens.includes(token));
 }
@@ -914,8 +918,8 @@ function constraints(input: HTMLInputElement, role: ObservedCandidate["role"]) {
           ...(inRange(max) ? { maxLength: max } : {}),
           ...(inRange(min) ? { minLength: min } : {}),
         };
-  const mode = input.getAttribute("inputmode")?.trim().toLowerCase();
-  const inputMode = inputModes.find((entry) => entry === mode);
+  // The browser's reading of `inputmode`, as the executor's `shortNumericInput` reads it.
+  const inputMode = inputModes.find((entry) => entry === input.inputMode);
   return { ...lengths, ...(inputMode ? { inputMode } : {}) };
 }
 

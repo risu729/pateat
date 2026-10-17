@@ -1,3 +1,4 @@
+import { acceptsSecret } from "../login/inputs";
 import { visible } from "./code-submission";
 import { collapseText, readBehindModal, renderedText } from "./text";
 
@@ -281,14 +282,9 @@ function showsPassword(document: Document): boolean {
 
 /** S3: a shown input that the executor would type a one-time code into. */
 function showsCode(document: Document): boolean {
-  // As the executor's `acceptsSecret` for a code; the attributes first, as they cost less.
+  // The executor's own rule; the attributes first, as they cost less.
   return [...document.querySelectorAll("input")].some(
-    (input) =>
-      (tokens(input).includes("one-time-code") ||
-        ((input.inputMode === "numeric" || input.type === "tel" || input.type === "number") &&
-          input.maxLength >= 1 &&
-          input.maxLength <= 10)) &&
-      writableInput(input),
+    (input) => acceptsSecret(input, "otp") && writableInput(input),
   );
 }
 

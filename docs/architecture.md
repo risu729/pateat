@@ -647,7 +647,11 @@ since a late click could submit an expired code; its failure ends the attempt
 counted, not proven server requests: one page handler can itself issue more than one
 request. Each fill step writes only inputs inside one form (or only inputs outside any
 form). A provider password goes only into a password input, and a TOTP code only into a
-one-time-code or short numeric input, so a recipe cannot place them in a search box. A
+one-time-code or short numeric input, so a recipe cannot place them in a search box.
+This rule and the page description read an input's `autocomplete` and `inputmode` as
+Chrome does (the `autocomplete` and `inputMode` properties), so a value Chrome ignores,
+such as `autocomplete="one-time-code nope"` or `inputmode=" numeric "`, marks no code
+field; `autocomplete` locators still match the attribute's tokens. A
 Hidden custom field goes only into a password or short numeric input, and a Linked
 custom field follows the field it reads. Before a fill step that writes a secret but not
 the username (a site that remembers the account and asks only for the password), the
