@@ -182,3 +182,50 @@ test("changing diagnostics language leaves exported JSONL bytes and download con
   expect(value.download).toHaveBeenCalledExactlyOnceWith(raw, expect.stringMatching(/\.jsonl$/u));
   expect(value.exportLogs).toHaveBeenCalledExactlyOnceWith(true);
 });
+
+test.each([1, 2])(
+  "diagnostics counts keep English singular/plural and localize %s in Japanese",
+  async (count) => {
+    const value = diagnostics();
+    value.load.mockResolvedValue({
+      ok: true,
+      status: {
+        ...structuredClone(status),
+        permissions: { ...status.permissions, otherOrigins: count },
+        service: {
+          kind: "connected",
+          settingsRevision: 0,
+          recipes: { count: 0, bytes: 0 },
+          device: {
+            ok: true,
+            pairedAt: status.collectedAt,
+            recipes: count,
+            settingsRevision: 0,
+            generation: "ok",
+          },
+        },
+        checks: [{ id: "service-copy", level: "warn", detail: "Synthetic recipe mismatch" }],
+      },
+    });
+    await render(
+      <QueryClientProvider client={new QueryClient()}>
+        <DiagnosticsApp client={value} />
+      </QueryClientProvider>,
+    );
+    const suffix = count === 1 ? "" : "s";
+    await expect
+      .element(page.getByText(new RegExp(` \\+ ${count} granted site${suffix}$`, "u")))
+      .toBeVisible();
+    await expect
+      .element(page.getByText(`service ${count} recipe${suffix}, cached 0`, { exact: false }))
+      .toBeVisible();
+    await i18n.changeLanguage("ja");
+    const translated = i18n.t("service {{recipes}}, cached {{local}}", {
+      recipes: i18n.t("diagnostics.count.recipe", { count }),
+      local: 0,
+    });
+    expect(translated).not.toContain("recipe");
+    await expect.element(page.getByText(translated, { exact: false })).toBeVisible();
+    expect(value.load).toHaveBeenCalledOnce();
+  },
+);
