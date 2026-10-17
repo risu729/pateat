@@ -8,6 +8,7 @@ import {
   SETTINGS_QUERY_KEY,
   type SettingsClient,
 } from "../../apps/extension/src/options/client";
+import type { ServiceClient } from "../../apps/extension/src/options/service-client";
 import { SettingsApp } from "../../apps/extension/src/options/settings-app";
 import {
   createDefaultSettings,
@@ -76,11 +77,11 @@ function control(id: string) {
   return page.getById(id);
 }
 
-async function mount(client: SettingsClient = mockClient()) {
+async function mount(client: SettingsClient = mockClient(), serviceClient?: ServiceClient) {
   const queryClient = createMetadataQueryClient();
   await render(
     <QueryClientProvider client={queryClient}>
-      <SettingsApp client={client} />
+      <SettingsApp client={client} {...(serviceClient && { serviceClient })} />
     </QueryClientProvider>,
   );
   await expect.element(control("settings-status")).toMatchTextContent("Saved settings loaded");
@@ -673,12 +674,30 @@ test("malformed save responses are rejected at the runtime boundary and keep the
   ).toHaveLength(1);
 });
 
+function navLink(name: string) {
+  return page
+    .getByRole("navigation", { name: "Sections" })
+    .getByRole("link", { name, exact: true });
+}
+
+/** A disconnected sync service adds the page's last, short section. */
+function disconnectedService(): ServiceClient {
+  const disconnected = { ok: true as const, state: { kind: "disconnected" as const } };
+  return {
+    get: vi.fn<ServiceClient["get"]>().mockResolvedValue(disconnected),
+    requestSiteAccess: vi.fn<ServiceClient["requestSiteAccess"]>().mockResolvedValue(true),
+    forget: vi.fn<ServiceClient["forget"]>().mockResolvedValue(disconnected),
+    pair: vi.fn<ServiceClient["pair"]>(),
+    disconnect: vi.fn<ServiceClient["disconnect"]>().mockResolvedValue(disconnected),
+    openSignIn: vi.fn<ServiceClient["openSignIn"]>().mockResolvedValue(undefined),
+  };
+}
+
 test("the section nav marks the section scrolled into view after settings load", async () => {
   await page.viewport(400, 300);
   try {
     await mount();
-    const nav = page.getByRole("navigation", { name: "Sections" });
-    const link = (name: string) => nav.getByRole("link", { name, exact: true });
+    const link = navLink;
     await expect.element(link("Demo vaults")).toHaveAttribute("aria-current", "location");
     // Loading replaced the placeholder Sites section; the nav must follow the new one.
     document.getElementById("sites")?.scrollIntoView({ block: "start" });
@@ -686,6 +705,41 @@ test("the section nav marks the section scrolled into view after settings load",
     await expect.element(link("Demo vaults")).not.toHaveAttribute("aria-current");
     document.getElementById("demo-vaults")?.scrollIntoView({ block: "start" });
     await expect.element(link("Demo vaults")).toHaveAttribute("aria-current", "location");
+  } finally {
+    await page.viewport(414, 896);
+  }
+});
+
+test("at the bottom of the page the section nav marks the last section shown", async () => {
+  await page.viewport(800, 600);
+  try {
+    await mount(mockClient(), disconnectedService());
+    await expect.element(control("sync")).toBeInTheDocument();
+    window.scrollTo(0, document.documentElement.scrollHeight);
+    await expect.element(navLink("Sync service")).toHaveAttribute("aria-current", "location");
+  } finally {
+    await page.viewport(414, 896);
+  }
+});
+
+test("a clicked section link stays current until the user scrolls", async () => {
+  await page.viewport(800, 600);
+  try {
+    await mount(mockClient(), disconnectedService());
+    await expect.element(control("sync")).toBeInTheDocument();
+    for (const name of ["Sites", "Sync service"]) {
+      window.scrollTo(0, 0);
+      // oxlint-disable-next-line no-await-in-loop
+      await navLink(name).click();
+      // The page cannot scroll the section to the top; the jump must not move the mark.
+      // oxlint-disable-next-line no-await-in-loop
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      // oxlint-disable-next-line no-await-in-loop
+      await expect.element(navLink(name)).toHaveAttribute("aria-current", "location");
+    }
+    document.dispatchEvent(new WheelEvent("wheel", { bubbles: true }));
+    window.scrollTo(0, 0);
+    await expect.element(navLink("Demo vaults")).toHaveAttribute("aria-current", "location");
   } finally {
     await page.viewport(414, 896);
   }
