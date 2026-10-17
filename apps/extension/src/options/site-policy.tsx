@@ -29,13 +29,19 @@ import {
 } from "./ui";
 
 type ExcludedSite = LocalSettings["excludedSites"][number];
+/**
+ * An HTTP(S) origin with nothing after the host and port, as its canonical `URL.origin`:
+ * the scheme and host in lowercase, a Unicode host in punycode, and no default port.
+ */
 const originSchema = v.pipe(
   v.string(),
+  v.trim(),
   v.check((value) => {
-    const origin = value.trim();
-    const url = parseSiteUrl(origin);
-    return Boolean(url && url.origin === origin && normalizeHostname(url.hostname));
+    const url = parseSiteUrl(value);
+    const rest = value.slice(value.indexOf("//") + 2);
+    return Boolean(url && !/[/?#]/.test(rest) && normalizeHostname(url.hostname));
   }, "Enter an exact HTTP(S) origin without a path or trailing slash."),
+  v.transform((value) => new URL(value).origin),
 );
 
 function unavailableReason(reason: string): string {
@@ -315,7 +321,9 @@ export function SitePolicy({
   findSiteAccounts: (origin: string, settings: LocalSettings) => Promise<SiteAccountsResponse>;
 }) {
   const originInput = useRef<HTMLInputElement>(null);
+  const accountSelect = useRef<HTMLSelectElement>(null);
   const [siteError, setSiteError] = useState("");
+  const [accountError, setAccountError] = useState("");
   const [showAllAccounts, setShowAllAccounts] = useState(false);
   const siteForm = useForm({
     defaultValues: { origin: "", account: "", includeSubdomains: false },
@@ -329,7 +337,7 @@ export function SitePolicy({
         setSiteError(WAIT_FOR_ACCOUNTS);
         return;
       }
-      const origin = validated.output.trim();
+      const origin = validated.output;
       // Only an item listed for the origin entered can be chosen.
       const selected =
         found?.origin === origin
@@ -337,17 +345,25 @@ export function SitePolicy({
           : undefined;
       const next = defaultFor(origin, selected, catalog);
       if (!next.ok) {
-        fail(next.message);
+        // The origin is valid; the error belongs to the account select.
+        setSiteError("");
+        setAccountError(next.message);
+        const select = accountSelect.current;
+        if (select && !select.disabled) select.focus();
+        else originInput.current?.focus();
         return;
       }
       if (!edit((settings) => replaceDefault(settings, origin, next.value))) return;
       siteForm.setFieldValue("origin", "");
+      siteForm.setFieldValue("account", "");
       setSiteError("");
+      setAccountError("");
       originInput.current?.focus();
     },
   });
   function fail(message: string) {
     setSiteError(message);
+    setAccountError("");
     originInput.current?.focus();
   }
   function excludeEntered() {
@@ -369,11 +385,13 @@ export function SitePolicy({
     if (!added) return;
     siteForm.reset();
     setSiteError("");
+    setAccountError("");
     originInput.current?.focus();
   }
 
   const enteredOrigin = useSelector(siteForm.store, (state) => state.values.origin.trim());
-  const accountOrigin = v.is(originSchema, enteredOrigin) ? enteredOrigin : undefined;
+  const parsedOrigin = v.safeParse(originSchema, enteredOrigin);
+  const accountOrigin = parsedOrigin.success ? parsedOrigin.output : undefined;
   // Each search queries every live vault, so wait until typing pauses.
   const [queriedOrigin, setQueriedOrigin] = useState<string>();
   useEffect(() => {
@@ -666,6 +684,7 @@ export function SitePolicy({
                   onChange={(event) => {
                     field.handleChange(event.target.value);
                     setSiteError("");
+                    setAccountError("");
                   }}
                 />
               </label>
@@ -677,13 +696,22 @@ export function SitePolicy({
                 <label className={fieldClass}>
                   Default account
                   <select
+                    ref={accountSelect}
                     id="default-account"
                     className={controlClass}
-                    aria-describedby="default-account-note"
+                    aria-describedby={
+                      accountError
+                        ? "default-account-error default-account-note"
+                        : "default-account-note"
+                    }
+                    aria-invalid={Boolean(accountError)}
                     disabled={!accountOptions.length}
                     value={shownAccount}
                     onBlur={field.handleBlur}
-                    onChange={(event) => field.handleChange(event.target.value)}
+                    onChange={(event) => {
+                      field.handleChange(event.target.value);
+                      setAccountError("");
+                    }}
                   >
                     {catalog.connections.map((connection) => {
                       const options = accountOptions.filter(
@@ -739,6 +767,11 @@ export function SitePolicy({
         {siteMessage && (
           <p id="site-error" className="validation-error m-0" role="alert">
             {siteMessage}
+          </p>
+        )}
+        {accountError && (
+          <p id="default-account-error" className="validation-error m-0" role="alert">
+            {accountError}
           </p>
         )}
         <div className="flex flex-wrap gap-2">

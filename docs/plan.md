@@ -328,7 +328,9 @@ than in this repository.
     shown as unused under the most specific such rule, since exclusion is checked first,
     and its Remove default button deletes only the default. A default that cannot be
     used shows the reason. One add form takes an origin (or a hostname, to exclude), a
-    default account and Exclude subdomains too.
+    default account and Exclude subdomains too. It saves an origin in its canonical
+    spelling (lowercase, punycode host, no default port) and rejects one with a path,
+    query, fragment, trailing slash or credentials.
   - Done: vault access inside each Bitwarden connection. Its row holds the Use this
     vault switch, Items for Pateat and the collapsed lists of included groups and items
     and of excluded items and fields; the separate vault access panel is gone. Saved
