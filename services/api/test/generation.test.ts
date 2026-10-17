@@ -92,7 +92,14 @@ const plan = (fields: [string, string][], action: string, purpose: "advance" | "
     },
   });
 
-type Reply = { text: string; usage?: { input_tokens: number; output_tokens: number } } | number;
+type Reply =
+  | {
+      text: string;
+      usage?: { input_tokens: number; output_tokens: number };
+      /** Ends the message as a refusal with this `stop_details.category`. */
+      refusal?: string;
+    }
+  | number;
 let replies: Reply[] = [];
 /** Runs while a model call is in flight, before its answer. */
 let during: (() => Promise<void>) | undefined;
@@ -133,7 +140,10 @@ beforeAll(() => {
         role: "assistant",
         model: "claude-opus-5-5",
         content: [{ type: "text", text: reply.text }],
-        stop_reason: "end_turn",
+        stop_reason: reply.refusal === undefined ? "end_turn" : "refusal",
+        ...(reply.refusal === undefined
+          ? {}
+          : { stop_details: { type: "refusal", category: reply.refusal } }),
         stop_sequence: null,
         usage: reply.usage ?? { input_tokens: 3_000, output_tokens: 900 },
       });
@@ -452,6 +462,23 @@ describe("recipe generation", () => {
         device.ownerId,
       ),
     ).toEqual([{ outcome: "provider-error", input_tokens: null }]);
+  });
+
+  it("logs the provider's refusal category code with a refused call (ADR 0014)", async () => {
+    const device = await owner();
+    replies.push({ text: "", refusal: "cyber", usage: { input_tokens: 2_900, output_tokens: 3 } });
+    expect(await generate(device, emailPage)).toEqual({
+      version: 1,
+      status: "failed",
+      error: "refused",
+    });
+    // The owner approved recording the category code, never the provider's explanation.
+    const [row] = await rows(
+      "SELECT outcome, result FROM inference_log WHERE owner_id = ?",
+      device.ownerId,
+    );
+    expect(row?.outcome).toBe("refused");
+    expect(JSON.parse(String(row?.result))).toMatchObject({ refusalCategory: "cyber" });
   });
 
   it("names the check that refused the output and logs the refused plan by reference", async () => {
