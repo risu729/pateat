@@ -82,9 +82,12 @@ export function ServiceConnection({
   const retryOnReturn = useRef<{ origin: string; label: string } | undefined>(undefined);
   const addressInput = useRef<HTMLInputElement>(null);
   const labelInput = useRef<HTMLInputElement>(null);
+  // Counts edits so a request that answers after one does not leave a retry behind.
+  const edits = useRef(0);
 
   /** An edited address or device name is a new request: drop the old one's retry. */
   function edited() {
+    edits.current += 1;
     retryOnReturn.current = undefined;
     setAttempt(undefined);
   }
@@ -125,8 +128,9 @@ export function ServiceConnection({
   /**
    * Sends one pairing request. Only the Pair click itself opens the sign-in page;
    * a retry that still needs a sign-in leaves that to the "Open sign-in page" button.
+   * `edit` is the edit count when the user asked; an edit since then drops the retry.
    */
-  async function pair(origin: string, name: string, signInTab: boolean) {
+  async function pair(origin: string, name: string, signInTab: boolean, edit = edits.current) {
     retryOnReturn.current = undefined;
     const response = await client.pair(origin, name);
     if (!mounted.current) return;
@@ -136,7 +140,7 @@ export function ServiceConnection({
       return;
     }
     receive(response);
-    if (response.state && response.state.kind !== "disconnected") {
+    if (edit !== edits.current || (response.state && response.state.kind !== "disconnected")) {
       setAttempt(undefined);
       return;
     }
@@ -254,13 +258,14 @@ export function ServiceConnection({
             if (!origin) addressInput.current?.focus();
             else if (!name.success) labelInput.current?.focus();
             if (!origin || !name.success) return;
+            const edit = edits.current;
             void act(async () => {
               // Requested before any other await so Chrome still sees the click.
               if (!(await client.requestSiteAccess(origin))) {
                 if (mounted.current) setMessage(errorMessage("site-access-needed"));
                 return;
               }
-              await pair(origin, name.output, true);
+              await pair(origin, name.output, true, edit);
             });
           }}
         >
@@ -334,16 +339,17 @@ export function ServiceConnection({
                 type="button"
                 variant="outline"
                 disabled={busy}
-                onClick={() =>
+                onClick={() => {
+                  const edit = edits.current;
                   void act(async () => {
                     // Requested before any other await so Chrome still sees the click.
                     if (!(await client.requestSiteAccess(attempt.origin))) {
                       if (mounted.current) setMessage(errorMessage("site-access-needed"));
                       return;
                     }
-                    await pair(attempt.origin, attempt.label, false);
-                  })
-                }
+                    await pair(attempt.origin, attempt.label, false, edit);
+                  });
+                }}
               >
                 Try again
               </Button>
