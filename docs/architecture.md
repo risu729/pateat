@@ -388,8 +388,10 @@ and the popup links each such rule to the settings page. While the tab's page wa
 an account choice, the choice is the popup's only list (the owner asked for one list on
 2026-10-13 at 03:54 UTC): its cards mark the saved default, its "Make it the default"
 checkbox makes the picked account the default once that login succeeds, and a saved
-default can still be removed there. The default-account list, where a default is chosen
-without logging in, returns once the page no longer waits. An open popup reads the
+default can still be removed there. An excluded site offers no choice, even one the
+worker still keeps from before the exclusion, since it would start no login. The
+default-account list, where a default is chosen without logging in, returns once the
+page no longer waits. An open popup reads the
 settings again from the worker whenever the stored settings change, so a default saved
 by a picked login that succeeds while it is open shows without reopening it. The popup
 waits up to 45 seconds for the site's matching vault items. When the search has not
