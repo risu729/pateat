@@ -59,7 +59,8 @@ export default defineConfig({
       label: "日本語",
       lang: "ja",
       link: "/ja/",
-      description: "この端末に保存した Bitwarden の保管庫で、ウェブサイトへのログインとパスキー署名を行います。",
+      description:
+        "この端末に保存した Bitwarden の保管庫で、ウェブサイトへのログインとパスキー署名を行います。",
       themeConfig: {
         nav: [
           { text: "使い方", link: "/ja/installation" },
