@@ -64,6 +64,23 @@ function prepared() {
   return mapped.data;
 }
 
+/** An open request for an account prepared under `ownedConnectionId`. */
+function openInput(ownedConnectionId: string = connectionId) {
+  const mapped = prepared();
+  return {
+    connectionId: ownedConnectionId,
+    prepared: {
+      ...mapped,
+      binding: {
+        ...mapped.binding,
+        profile: { ...mapped.binding.profile, connectionId: ownedConnectionId },
+      },
+    },
+    snapshotId,
+    unlock: { kind: "password" as const, password: v1Password },
+  };
+}
+
 function auth() {
   return {
     connectionId: String(connectionId),
@@ -145,20 +162,10 @@ function harness(
   };
   const open = async (ownedConnectionId: string = connectionId) => {
     const index = commands.length;
-    const mapped = prepared();
-    const pending = host.open({
-      connectionId: ownedConnectionId,
-      prepared: {
-        ...mapped,
-        binding: {
-          ...mapped.binding,
-          profile: { ...mapped.binding.profile, connectionId: ownedConnectionId },
-        },
-      },
-      snapshotId,
-      unlock: { kind: "password", password: v1Password },
-    });
-    const request = await command(index);
+    const pending = host.open(openInput(ownedConnectionId));
+    // An open the host refuses settles without being delivered; show its result.
+    expect(await Promise.race([pending, command(index).then(() => undefined)])).toBeUndefined();
+    const request = commands[index]!;
     const session: HostSessionRef = {
       brokerGeneration: host.generation,
       connectionId: ownedConnectionId,
@@ -861,6 +868,35 @@ describe("cancellation, deadlines and host loss", () => {
     expect(await Promise.all(pending)).toEqual(
       Array.from({ length: 8 }, () => ({ ok: false, error: { code: "crypto-failed" } })),
     );
+  });
+
+  it("opens a sync candidate for a connection while four connections have vaults open", async () => {
+    const h = harness();
+    const connections = [connectionId, "connection-2", "connection-3", "connection-4"];
+    for (const owned of connections) await h.open(owned);
+    // A sync opens its candidate while the connection's live session is still open.
+    const candidate = await h.open("connection-2");
+    expect(candidate.connectionId).toBe("connection-2");
+    expect(h.host.status()).toMatchObject({ sessions: 5 });
+  });
+
+  it("refuses a fifth connection's vault and a third session of one connection", async () => {
+    const h = harness();
+    const connections = [connectionId, "connection-2", "connection-3", "connection-4"];
+    for (const owned of connections) await h.open(owned);
+    await h.open("connection-2");
+    const sent = h.commands.length;
+    expect(await h.host.open(openInput("connection-5"))).toEqual({
+      ok: false,
+      error: { code: "resource-limit" },
+    });
+    // The live session and one sync candidate are a connection's whole share.
+    expect(await h.host.open(openInput("connection-2"))).toEqual({
+      ok: false,
+      error: { code: "resource-limit" },
+    });
+    expect(h.commands).toHaveLength(sent);
+    expect(h.host.status()).toMatchObject({ sessions: 5 });
   });
 
   it("bounds native initialization work before the handshake instead of admitting concurrent KDF jobs", async () => {
