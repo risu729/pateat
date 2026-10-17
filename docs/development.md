@@ -519,12 +519,12 @@ holds:
 - for the `invalid-request` reason, `invalid`: the request member that broke Pateat's
   bounds (`challenge`, `rp-id`, `allow-credentials`, `allow-credentials.id`,
   `allow-credentials.type`, `allow-credentials.transports`, `user-verification`,
-  `mediation`, `ui-mode`, `timeout`, `request` when the copied options are not an object, or
-  `other` for a member outside these), and `invalidLength`: its size, in bytes for
-  `challenge` and `allow-credentials.id`, in entries for a list and in characters for
-  other text. `invalidLength` is left out when the member is missing, is not text or a
-  list, or is `other`, and for an allow list none of whose entries is a `public-key`
-  one (`allow-credentials.type`). The value itself is never logged.
+  `mediation`, `ui-mode`, `timeout`, `request` when the copied options are not an
+  object, or `other` for a member outside these), and `invalidLength`: its size, in
+  bytes for `challenge` and `allow-credentials.id`, in entries for a list and in
+  characters for other text. `invalidLength` is left out when the member is missing, is
+  not text or a list, or is `other`, and for an allow list none of whose entries is a
+  `public-key` one (`allow-credentials.type`). The value itself is never logged.
 
 For example, `siteDefault: 1` with `siteDefaultAccepted: 0` means the default item's
 passkey is not one the request accepts. No entry at all means the request never reached
