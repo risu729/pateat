@@ -24,6 +24,11 @@ recipe is reused by name
 Amended on 2026-10-14: the implemented cache-overflow behavior below applies
 revocations without advancing past skipped active changes.
 
+Amended on 2026-10-14 by
+[ADR 0029](0029-local-sign-in-state.md#amendment-unconfirmed-completion-2026-10-14):
+a binding and an automatic or popup account choice are saved only after a confirmed
+`authenticated` login, never after an unconfirmed completion (implemented).
+
 Date: 2026-10-10
 
 ## Context
