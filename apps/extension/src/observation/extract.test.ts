@@ -1,5 +1,5 @@
 import type { LoginObservation } from "@pateat/contracts";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { listControls, otherAccountMiss } from "../page/account-list";
 import { findTargets } from "../page/targets";
 import {
@@ -10,6 +10,24 @@ import {
 } from "./extract";
 
 // Runs in Chromium (vitest browser mode) so layout, visibility and labels are real.
+/** Closed shadow roots, which a content script reaches through `dom.openOrClosedShadowRoot`. */
+const closedRoots = vi.hoisted(() => new WeakMap<Element, ShadowRoot>());
+vi.mock("wxt/browser", () => ({
+  browser: {
+    dom: {
+      openOrClosedShadowRoot: (element: HTMLElement) =>
+        closedRoots.get(element) ?? element.shadowRoot,
+    },
+  },
+}));
+/** Attaches a closed shadow root to `#host` and fills it, as a page's own component does. */
+const closedShadow = (html: string) => {
+  const host = document.querySelector("#host")!;
+  const root = host.attachShadow({ mode: "closed" });
+  closedRoots.set(host, root);
+  root.innerHTML = html;
+};
+
 const page = (html: string, title = "") => {
   document.title = title;
   document.body.innerHTML = html;
@@ -1440,6 +1458,24 @@ describe("extractLoginObservation", () => {
       mode: "open",
     }).innerHTML = `<label>Analytics <input type="checkbox"></label>`;
     expect(observe().complete).toBe(true);
+  });
+
+  it("marks a field in a closed shadow root incomplete, as in an open one", () => {
+    const gap = () => {
+      const result = extractLoginObservation();
+      if (!result.ok) throw new Error(`no observation: ${result.reason}`);
+      return [result.observation.complete, result.gap];
+    };
+    // The password field of an identifier form sits in a page component's closed root.
+    page(
+      `<form id="f"><input id="u" autocomplete="username"><div id="host"></div><button id="go">Next</button></form>`,
+    );
+    closedShadow(`<input id="p" type="password">`);
+    expect(gap()).toEqual([false, "shadow-field"]);
+    // A shadow host outside every form counts too.
+    page(`<input id="user"><div id="host"></div>`);
+    closedShadow(`<input id="pw" type="password">`);
+    expect(gap()).toEqual([false, "shadow-field"]);
   });
 
   it("sends each path segment that may carry a session ID or token as [id] on every page (ADR 0039)", () => {
@@ -2929,6 +2965,15 @@ describe("extractSignedInObservation", () => {
     expect(gap()).toEqual([false, "shadow-field"]);
     page(`<button id="logout">Sign out</button><input id="q">`);
     expect(gap()).toEqual([true, undefined]);
+  });
+
+  it("marks a sign-in field in a closed shadow root incomplete, as in an open one", () => {
+    // A closed shadow root hides its sign-in field from the page, not from the content script.
+    page(`<button id="logout">Sign out</button><div id="host"></div>`);
+    closedShadow(`<input id="pw" type="password"><button>Sign in</button>`);
+    const result = extractSignedInObservation();
+    if (!result.ok) throw new Error(`no observation: ${result.reason}`);
+    expect([result.observation.complete, result.gap]).toEqual([false, "shadow-field"]);
   });
 
   it("reports a still-visible sign-in field so the service can refuse the page", () => {
