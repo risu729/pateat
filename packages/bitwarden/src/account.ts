@@ -273,6 +273,10 @@ function requiredText(input: unknown, max = 1_048_576): string {
     reject();
   return input;
 }
+/** Opaque collection metadata Pateat never reads; the web admin console saves a blank as "". */
+function optionalCollectionText(input: unknown): string | undefined {
+  return input == null || input === "" ? undefined : requiredText(input);
+}
 function identifier(input: unknown): string {
   const parsed = v.safeParse(uuid, input);
   if (!parsed.success) reject();
@@ -344,7 +348,9 @@ function kdf(input: unknown): Sdk.Kdf {
     };
   reject("unsupported-crypto");
 }
+/** Bitwarden before 2025.7.0 and Vaultwarden before 1.37.0 send no type: a shared collection. */
 function collectionType(input: unknown): 0 | 1 {
+  if (input == null) return 0;
   if (input !== 0 && input !== 1) reject();
   return input;
 }
@@ -893,10 +899,7 @@ export function createBitwardenAccountMapper(
                 id: identifier(read(collection, "id")),
                 organizationId,
                 name: encrypted(read(collection, "name")),
-                externalId:
-                  read(collection, "externalId") == null
-                    ? undefined
-                    : requiredText(read(collection, "externalId")),
+                externalId: optionalCollectionText(read(collection, "externalId")),
                 hidePasswords:
                   read(collection, "hidePasswords") == null
                     ? false
@@ -907,10 +910,9 @@ export function createBitwardenAccountMapper(
                     : boolean(read(collection, "readOnly")),
                 manage:
                   read(collection, "manage") == null ? false : boolean(read(collection, "manage")),
-                defaultUserCollectionEmail:
-                  read(collection, "defaultUserCollectionEmail") == null
-                    ? undefined
-                    : requiredText(read(collection, "defaultUserCollectionEmail")),
+                defaultUserCollectionEmail: optionalCollectionText(
+                  read(collection, "defaultUserCollectionEmail"),
+                ),
                 // SharedCollection is 0 and DefaultUserCollection is 1.
                 type: collectionType(read(collection, "type")),
               };

@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as sdk from "@bitwarden/sdk-internal/node/bitwarden_wasm_internal.js";
-import { createBitwardenAccountMapper, type PreparedBitwardenAccount } from "./account";
+import {
+  admitPreparedBitwardenAccount,
+  createBitwardenAccountMapper,
+  type PreparedBitwardenAccount,
+} from "./account";
 import { createBitwardenTransport } from "./transport";
 import { createLocalCryptoSession } from "./local-crypto";
 import {
@@ -413,6 +417,88 @@ describe("raw provider account through native local crypto", () => {
       object: "collectionDetails",
     });
     expect(mapRaw(raw).ok).toBe(true);
+  });
+
+  function rawWithCollection(fields: Record<string, unknown>) {
+    const raw = rawOrganizationAccount();
+    (raw.sync.collections as unknown[]).push({
+      id: "2bc9ac1e-f5aa-45f2-94bf-b181009709b8",
+      organizationId: "1bc9ac1e-f5aa-45f2-94bf-b181009709b8",
+      name: rawLoginCipher().login.username,
+      externalId: null,
+      readOnly: false,
+      hidePasswords: false,
+      manage: false,
+      type: 0,
+      object: "collectionDetails",
+      ...fields,
+    });
+    return raw;
+  }
+
+  // The web admin console saves a blank External ID input as "". Pateat never
+  // reads either field, so an empty value is the same as an absent one.
+  it.each([
+    ["externalId", { externalId: "" }],
+    ["defaultUserCollectionEmail", { defaultUserCollectionEmail: "" }],
+    [
+      "externalId and defaultUserCollectionEmail",
+      { externalId: "", defaultUserCollectionEmail: "" },
+    ],
+  ])("treats an empty collection %s like an absent one", (_name, fields) => {
+    const result = mapRaw(rawWithCollection(fields));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const collection = result.data.encryptedMetadata.collections.find(
+      ({ id }) => id === "2bc9ac1e-f5aa-45f2-94bf-b181009709b8",
+    );
+    expect(collection).toBeDefined();
+    expect(collection?.externalId).toBeUndefined();
+    expect(collection?.defaultUserCollectionEmail).toBeUndefined();
+    const admitted = admitPreparedBitwardenAccount(structuredClone(result.data), accountProfile);
+    expect(admitted.ok).toBe(true);
+    if (!admitted.ok) return;
+    expect(admitted.data.encryptedMetadata).toEqual(result.data.encryptedMetadata);
+  });
+
+  it.each([
+    ["externalId", { externalId: 5 }],
+    ["defaultUserCollectionEmail", { defaultUserCollectionEmail: 5 }],
+  ])("refuses a non-string collection %s", (_name, fields) => {
+    expect(mapRaw(rawWithCollection(fields))).toMatchObject({
+      ok: false,
+      error: { code: "invalid-response" },
+    });
+  });
+
+  // Bitwarden server before v2025.7.0 and Vaultwarden 1.35.x–1.36.0 send no
+  // collection type; such a collection is a SharedCollection (0).
+  it.each([
+    ["missing", "absent"],
+    ["null", null],
+  ])("maps a collection with a %s type as a shared collection", (_name, type) => {
+    const raw = rawWithCollection({});
+    const collections = raw.sync.collections as Record<string, unknown>[];
+    const pushed = collections.at(-1)!;
+    if (type === "absent") delete pushed["type"];
+    else pushed["type"] = type;
+    expect(Object.hasOwn(pushed, "type")).toBe(type !== "absent");
+    const result = mapRaw(raw);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const collection = result.data.encryptedMetadata.collections.find(
+      ({ id }) => id === "2bc9ac1e-f5aa-45f2-94bf-b181009709b8",
+    );
+    expect(collection?.type).toBe(0);
+    const admitted = admitPreparedBitwardenAccount(structuredClone(result.data), accountProfile);
+    expect(admitted.ok).toBe(true);
+  });
+
+  it.each([2, -1, "0", "1", true])("refuses a collection of type %j", (type) => {
+    expect(mapRaw(rawWithCollection({ type }))).toMatchObject({
+      ok: false,
+      error: { code: "invalid-response" },
+    });
   });
 
   it("accepts attachments carrying the response model type tag", () => {
