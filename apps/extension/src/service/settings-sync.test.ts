@@ -21,6 +21,8 @@ import type { ServiceTransport, SettingsResult } from "./transport";
 
 const SERVICE = "https://pateat.example.com";
 const DEVICE = "6f1d3c1e-5d0b-4a52-9d55-3d7a8f0e2b41";
+const PROFILE = "00000000-0000-4000-8000-000000000010";
+const OTHER_PROFILE = "00000000-0000-4000-8000-000000000011";
 const OTHER_DEVICE = "7a2e4d2f-6e1c-4b63-8e66-4e8b9f1f3c52";
 const CREDENTIAL = `pateat_device_${"C".repeat(43)}`;
 const CONNECTION: ServiceConnection = {
@@ -63,6 +65,7 @@ const settingsOf = (parts: Partial<LocalSettings> = {}): LocalSettings => ({
 });
 const state = (revision: number, settings: LocalSettings | null): SyncSettingsState => ({
   version: 1,
+  profileId: PROFILE,
   revision,
   settings,
 });
@@ -98,7 +101,7 @@ function setup(
     saveSettings: vi.fn<ServiceTransport["saveSettings"]>(async (_, __, write) => {
       if (write.expectedRevision !== service.revision)
         return { kind: "conflict", current: structuredClone(service) };
-      service = state(service.revision + 1, write.settings);
+      service = { ...state(service.revision + 1, write.settings), profileId: service.profileId };
       return { kind: "state", state: structuredClone(service) };
     }),
   };
@@ -157,7 +160,7 @@ const baseOf = (
   settings: LocalSettings,
   deviceId = DEVICE,
   local: LocalSettings = settings,
-) => ({ version: 1, origin: SERVICE, deviceId, revision, settings, local });
+) => ({ version: 1, origin: SERVICE, deviceId, profileId: PROFILE, revision, settings, local });
 
 describe("settings sync on a new pairing", () => {
   it("seeds a service that has never stored settings from this device", async () => {
@@ -190,7 +193,7 @@ describe("settings sync on a new pairing", () => {
     expect(base()).toMatchObject({ revision: 0 });
   });
 
-  it("keeps both sides' entries and lets the service win where they differ", async () => {
+  it("adopts an initialized selected profile without importing prior local policy", async () => {
     const local = settingsOf({
       connections: [localConnection],
       excludedSites: [site("local-only.example")],
@@ -207,11 +210,11 @@ describe("settings sync on a new pairing", () => {
     const { sync, service, local: after, applied } = setup({ local, service: state(3, remote) });
     expect(await sync.run(CONNECTION, never)).toBe("synced");
     const merged = {
-      excludedSites: [site("intranet.example"), site("local-only.example")],
+      excludedSites: [site("intranet.example")],
       siteDefaults: [account("https://bank.example"), account("https://shop.example")],
       bindings: [binding("https://bank.example")],
     };
-    expect(service()).toEqual(state(4, { connections: [], ...merged }));
+    expect(service()).toEqual(state(3, { connections: [], ...merged }));
     expect(after()?.revision).toBe(8);
     expect(after()?.settings).toEqual({ connections: [localConnection], ...merged });
     // A settings page save drafted before the merge names it (ADR 0025).
@@ -227,10 +230,7 @@ describe("settings sync on a new pairing", () => {
       base: baseOf(3, settingsOf({ excludedSites: [site("local-only.example")] }), OTHER_DEVICE),
     });
     await sync.run(CONNECTION, never);
-    expect(after()?.settings.excludedSites).toEqual([
-      site("intranet.example"),
-      site("local-only.example"),
-    ]);
+    expect(after()?.settings.excludedSites).toEqual([site("intranet.example")]);
   });
 
   it("removes nothing when the service went back to an older revision", async () => {
@@ -587,6 +587,7 @@ describe("settings sync after the first", () => {
     } = setup({
       local: settingsOf({ excludedSites: sites("local") }),
       service: state(4, settingsOf({ excludedSites: sites("service") })),
+      base: baseOf(3, settingsOf()),
     });
     expect(await sync.run(CONNECTION, never)).toBe("too-large");
     expect(transport.saveSettings).not.toHaveBeenCalled();
@@ -1017,5 +1018,82 @@ describe("display names from this device's catalog", () => {
     expect(
       refreshDisplayNames(refreshed, catalogOf(vault("connection-1", USER))).siteDefaults[0],
     ).toBe(refreshed.siteDefaults[0]);
+  });
+});
+
+describe("device profile switches", () => {
+  it("never uploads the old profile cache after a deferred switch or a worker restart", async () => {
+    let running = true;
+    const old = settingsOf({
+      excludedSites: [site("old-profile.example")],
+      siteDefaults: [account("https://old.example")],
+    });
+    const next = settingsOf({ excludedSites: [site("new-profile.example")] });
+    const h = setup({
+      local: { ...old, connections: [localConnection] },
+      service: { ...state(8, next), profileId: OTHER_PROFILE },
+      base: baseOf(7, old),
+      deferred: () => running,
+    });
+    expect(await h.sync.run(CONNECTION, never)).toBe("busy");
+    expect(h.transport.saveSettings).not.toHaveBeenCalled();
+    expect(h.local()?.settings.excludedSites).toEqual(old.excludedSites);
+    // Keeping the prior identity prevents this cache becoming a new profile's edits.
+    expect(h.base()).toMatchObject({ profileId: PROFILE });
+    expect(await h.restart().run(CONNECTION, never)).toBe("busy");
+    expect(h.transport.saveSettings).not.toHaveBeenCalled();
+    running = false;
+    expect(await h.restart().run(CONNECTION, never)).toBe("synced");
+    expect(h.transport.saveSettings).not.toHaveBeenCalled();
+    expect(h.local()?.settings).toEqual({ ...next, connections: [localConnection] });
+    expect(h.base()).toMatchObject({ profileId: OTHER_PROFILE });
+  });
+});
+
+describe("profile switch with refreshed account names", () => {
+  it("retains the old profile marker through an upload and deferred local replacement", async () => {
+    let running = true;
+    const old = settingsOf({ excludedSites: [site("old-profile.example")] });
+    const remote = settingsOf({ siteDefaults: [account("https://bank.example")] });
+    const h = setup({
+      local: old,
+      service: { ...state(8, remote), profileId: OTHER_PROFILE },
+      base: baseOf(7, old),
+      deferred: () => running,
+      catalog: async () => ({
+        connections: [
+          {
+            id: "connection-1",
+            label: "Synthetic account",
+            provider: "bitwarden",
+            userId: USER,
+            state: "ready",
+            groups: [],
+            items: [
+              {
+                id: "item-1",
+                label: "Synthetic bank",
+                allowedOrigins: [],
+                groupIds: [],
+                fields: [],
+              },
+            ],
+          },
+        ],
+      }),
+    });
+    expect(await h.sync.run(CONNECTION, never)).toBe("busy");
+    expect(h.transport.saveSettings).toHaveBeenCalledOnce();
+    expect(h.base()).toMatchObject({ profileId: PROFILE });
+    expect(h.service().settings?.excludedSites).toEqual([]);
+    expect(await h.restart().run(CONNECTION, never)).toBe("busy");
+    expect(h.service().settings?.excludedSites).toEqual([]);
+    running = false;
+    expect(await h.restart().run(CONNECTION, never)).toBe("synced");
+    expect(h.local()?.settings.excludedSites).toEqual([]);
+    expect(h.local()?.settings.siteDefaults).toEqual([
+      expect.objectContaining({ itemName: "Synthetic bank" }),
+    ]);
+    expect(h.base()).toMatchObject({ profileId: OTHER_PROFILE });
   });
 });
