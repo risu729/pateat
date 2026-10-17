@@ -134,6 +134,34 @@ describe("direct pairing", () => {
     ).first<{ count: number }>();
     expect(orphans?.count).toBe(0);
   });
+
+  it("creates no owner when the first pairing's device insert fails", async () => {
+    const by = await owner();
+    // A real SQLite failure on this request's device insert only, keyed to its label.
+    const label = `Failing device ${crypto.randomUUID()}`;
+    await env.DB.exec(
+      `CREATE TRIGGER fail_device_insert BEFORE INSERT ON devices WHEN NEW.label = '${label}' BEGIN SELECT RAISE(ABORT, 'synthetic device insert failure'); END`,
+    );
+    const owners = async () =>
+      (await env.DB.prepare("SELECT COUNT(*) AS count FROM owners").first<{ count: number }>())
+        ?.count;
+    const before = await owners();
+    let failed: Response;
+    try {
+      failed = await pair(by, { body: JSON.stringify({ version: 1, label }) });
+    } finally {
+      await env.DB.exec("DROP TRIGGER fail_device_insert");
+    }
+    expect(failed.status).toBe(500);
+    expect(await failed.json()).toEqual({ error: "internal_error" });
+    expect(await ownerIdFor(by.subject)).toBeNull();
+    expect(await owners()).toBe(before);
+
+    expect((await pair(by)).status).toBe(201);
+    expect(await ownerIdFor(by.subject)).not.toBeNull();
+    expect(await owners()).toBe((before ?? 0) + 1);
+    expect(await devicesOf(by.subject)).toHaveLength(1);
+  });
 });
 
 /** The rejected tokens carry subjects the test never sees, so count every row instead. */
