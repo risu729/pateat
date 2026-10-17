@@ -5,7 +5,7 @@ import type { Context } from "hono";
 import { createDeviceToken, hashDeviceToken, type ApiEnv } from "../auth";
 import { devices, ownerIdentities } from "../db/schema";
 import { limitBy } from "../limits";
-import { createOwnerOnFirstUse, identityIs } from "../owners";
+import { ownerCreationStatements, identityIs } from "../owners";
 import { newId } from "@pateat/contracts/ids";
 
 /** Bounds pairing per verified identity; runs after Access and the Origin check. */
@@ -32,9 +32,9 @@ export async function createPairedDevice(
   const tokenHash = await hashDeviceToken(credential);
   const now = Date.now();
   const orm = drizzle(c.env.DB);
-  const [createOwner, mapIdentity] = createOwnerOnFirstUse(orm, identity);
+  const [createOwner, mapIdentity] = ownerCreationStatements(orm, identity);
   // The device takes the owner the identity maps to after the first two statements.
-  // INSERT ... SELECT is positional: keep these fields in the devices column order.
+  // Drizzle requires these fields in the schema's column order and names the columns.
   const device = orm.insert(devices).select(
     orm
       .select({

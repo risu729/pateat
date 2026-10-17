@@ -28,7 +28,7 @@ export async function findOwner(db: D1Database, identity: AccessIdentity) {
  * owner, and a concurrent first sign-in cannot leave an orphan owner or map one
  * identity twice.
  */
-export function createOwnerOnFirstUse(orm: DrizzleD1Database, identity: AccessIdentity) {
+export function ownerCreationStatements(orm: DrizzleD1Database, identity: AccessIdentity) {
   const ownerId = newId();
   const now = Date.now();
   // INSERT ... SELECT is positional: keep each SELECT in its table's column order.
