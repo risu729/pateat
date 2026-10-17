@@ -480,7 +480,9 @@ than in this repository.
   `unsupported-page`. Since 2026-10-16 every observed page sends such a segment as
   `[id]`, a recipe is stored and matched under that path, and a handler may be learned
   there ([ADR 0039](adr/0039-redacted-token-path-segments.md), owner, 14:10 UTC; local
-  tests only, and a synthetic browser test not yet run). Check both sites in the owner's
+  tests only; the synthetic browser test now also covers an opaque authorization-server
+  ID in a middle path segment and verifies recipe reuse without another model call.
+  This added browser coverage has not yet been run). Check both sites in the owner's
   Chrome.
 - Known faults moved from phase 1 (owner, 2026-10-12 20:35 UTC), fixed when a real site
   shows them again: the `reconciling` exception seen on SBI証券, and `generate` ignoring
