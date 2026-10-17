@@ -359,6 +359,29 @@ describe("pageSigns", () => {
     expect(pageSigns(document)).not.toHaveProperty("username");
   });
 
+  it("finds a Latin username beside Japanese text, as ADR 0028 names do", () => {
+    const shows = (html: string, username: string) => {
+      document.body.innerHTML = html;
+      return pageSigns(document, { username }).username;
+    };
+    // A Latin-edged username may touch kana or kanji.
+    expect(shows("<nav>ようこそ taro_yさん</nav>", "taro_y")).toBe(true);
+    expect(shows("<nav>taro@example.comでログイン中</nav>", "taro@example.com")).toBe(true);
+    expect(shows("<nav>会員taro_y</nav>", "taro_y")).toBe(true);
+    // But not another Latin letter or digit.
+    expect(shows("<nav>xtaro_y</nav>", "taro_y")).toBe(false);
+    expect(shows("<nav>taro_yx</nav>", "taro_y")).toBe(false);
+    expect(shows("<nav>taro12</nav>", "taro1")).toBe(false);
+    expect(shows("<nav>taro_yさん</nav>", "taro")).toBe(false);
+    expect(shows("<nav>ｔａｒｏ＿ｙさん</nav>", "taro_y")).toBe(true);
+    // An all-digit username, such as a member number, may not touch any letter.
+    expect(shows("<nav>2026年10月</nav>", "2026")).toBe(false);
+    expect(shows("<nav>残り123件</nav>", "123")).toBe(false);
+    expect(shows("<nav>会員番号 12345</nav>", "12345")).toBe(true);
+    // A non-Latin username inside a longer non-Latin word still does not count.
+    expect(shows("<nav>山田花子</nav>", "山田花")).toBe(false);
+  });
+
   it("finds the username behind an open modal dialog that hid the page (2026-10-13)", () => {
     const header = (hider: string) =>
       `<div id="app" ${hider}><header><a href="/me">risu729</a></header></div>`;

@@ -1,3 +1,4 @@
+import { latinWord } from "./account-list";
 import { visible } from "./code-submission";
 import { collapseText, readBehindModal, renderedText } from "./text";
 
@@ -325,7 +326,9 @@ export function showsCaptcha(document: Document): boolean {
 
 /**
  * E2: the username, ignoring case, as a whole word of the header or navigation text,
- * read behind an open modal dialog too, as the signed-in page's description is.
+ * read behind an open modal dialog too, as the signed-in page's description is. As in
+ * ADR 0028, a username with a Latin letter whose edge is a Latin letter or digit may
+ * touch kana or kanji there (`taro_yさん`); an all-digit one may touch no letter.
  */
 function showsUsername(document: Document, username: string): boolean {
   const name = username.normalize("NFKC").trim().toLowerCase();
@@ -335,13 +338,19 @@ function showsUsername(document: Document, username: string): boolean {
       (landmark) => renderedText(landmark, landmarkReadLimit, { everyElement: true }) ?? "",
     ),
   );
+  // `risu` is not shown by `risu729` nor by `x.risu@example.com`.
+  // An all-digit username, such as a member number, keeps the strict rule (`2026年`).
+  const latin = /\p{Script=Latin}/u.test(name);
+  const blockedBefore =
+    latin && latinWord.test(name[0]!) ? /[\p{Script=Latin}\p{N}_.@-]/u : /[\p{L}\p{N}_.@-]/u;
+  const blockedAfter =
+    latin && latinWord.test(name.at(-1)!) ? /[\p{Script=Latin}\p{N}_@-]/u : /[\p{L}\p{N}_@-]/u;
   return texts.some((raw) => {
     const text = raw.normalize("NFKC").toLowerCase();
     for (let at = text.indexOf(name); at >= 0; at = text.indexOf(name, at + 1)) {
       const before = text.slice(0, at).at(-1) ?? " ";
       const after = text[at + name.length] ?? " ";
-      // `risu` is not shown by `risu729` nor by `x.risu@example.com`.
-      if (!/[\p{L}\p{N}_.@-]/u.test(before) && !/[\p{L}\p{N}_@-]/u.test(after)) return true;
+      if (!blockedBefore.test(before) && !blockedAfter.test(after)) return true;
     }
     return false;
   });
