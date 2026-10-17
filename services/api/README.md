@@ -61,11 +61,11 @@ application exempts `/v1/*`, `/health`, `/.well-known/openid-configuration` and
 `/.well-known/jwks.json`, which clients call without an Access login. For `/pair` and
 `/manage`, the Worker verifies the `Cf-Access-Jwt-Assertion` itself against the team's
 keys, the `ACCESS_TEAM_DOMAIN` issuer and the `ACCESS_AUD` audience. Without both
-secrets those routes answer 503. When the team's signing keys cannot be fetched within
-five seconds, owner pages answer 503 and the JSON routes 500 `internal_error`, not a
-refused sign-in. `POST /pair` and `GET /pair/signed-in` also accept the
-`ACCESS_PAIR_AUD` audience of the "pateat pair" Access application, which admits
-browsers without WARP to pairing only
+secrets those routes answer 503. When the team's signing keys cannot be fetched (an
+error, an answer that is not a key set, or no answer within five seconds), owner pages
+answer 503 and the JSON routes 500 `internal_error`, not a refused sign-in. `POST /pair`
+and `GET /pair/signed-in` also accept the `ACCESS_PAIR_AUD` audience of the "pateat
+pair" Access application, which admits browsers without WARP to pairing only
 ([ADR 0030](../../docs/adr/0030-pairing-without-warp.md)). An empty value turns it off
 only while that application does not exist. The owner is found by token issuer and
 subject, never by email. The

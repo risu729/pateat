@@ -31,11 +31,18 @@ async function accessKeys(issuer: string): Promise<HonoJsonWebKey[] | null> {
     });
     if (!response.ok) {
       await response.body?.cancel();
+      console.warn("Access signing keys unavailable", response.status);
       return null;
     }
     const parsed = v.safeParse(keySetSchema, await response.json());
-    return parsed.success ? (parsed.output.keys as HonoJsonWebKey[]) : null;
-  } catch {
+    if (parsed.success) return parsed.output.keys as HonoJsonWebKey[];
+    console.warn("Access signing keys unavailable", "malformed");
+    return null;
+  } catch (error) {
+    console.warn(
+      "Access signing keys unavailable",
+      error instanceof Error ? error.name : "unknown",
+    );
     return null;
   }
 }
@@ -65,10 +72,7 @@ function accessGuard(
 
     const issuer = `https://${teamDomain}`;
     const keys = await accessKeys(issuer);
-    if (!keys) {
-      console.warn("Access signing keys unavailable");
-      return refuse(c, "keys-unavailable");
-    }
+    if (!keys) return refuse(c, "keys-unavailable");
     let subject: unknown;
     try {
       const payload = await Jwt.verifyWithJwks(token, {
