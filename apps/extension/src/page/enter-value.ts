@@ -20,17 +20,48 @@ const valueProperty = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype
 /** Characters typed with Shift on a US layout. */
 const shifted = /^[A-Z~!@#$%^&*()_+{}|:"<>?]$/u;
 
+/**
+ * The physical key and Chrome's `keyCode` of each digit and symbol on a US layout, unshifted and
+ * shifted: `@` is Shift and the 2 key (`Digit2`, 50), `;` and `:` are `Semicolon` (186).
+ */
+const symbolKeys: ReadonlyMap<string, readonly [code: string, keyCode: number]> = new Map(
+  (
+    [
+      ["`~", "Backquote", 192],
+      ["-_", "Minus", 189],
+      ["=+", "Equal", 187],
+      ["[{", "BracketLeft", 219],
+      ["]}", "BracketRight", 221],
+      ["\\|", "Backslash", 220],
+      [";:", "Semicolon", 186],
+      ["'\"", "Quote", 222],
+      [",<", "Comma", 188],
+      [".>", "Period", 190],
+      ["/?", "Slash", 191],
+      ["1!", "Digit1", 49],
+      ["2@", "Digit2", 50],
+      ["3#", "Digit3", 51],
+      ["4$", "Digit4", 52],
+      ["5%", "Digit5", 53],
+      ["6^", "Digit6", 54],
+      ["7&", "Digit7", 55],
+      ["8*", "Digit8", 56],
+      ["9(", "Digit9", 57],
+      ["0)", "Digit0", 48],
+    ] as const
+  ).flatMap(([pair, code, keyCode]) =>
+    [...pair].map((character) => [character, [code, keyCode]] as const),
+  ),
+);
+
 /** The key a keyboard reports for `character`, as far as a US layout names one. */
 function keyOf(character: string): KeyboardEventInit {
   const upper = character.toUpperCase();
-  const code = /^[A-Za-z]$/u.test(character)
-    ? `Key${upper}`
-    : /^\d$/u.test(character)
-      ? `Digit${character}`
-      : character === " "
-        ? "Space"
-        : "";
-  const keyCode = code ? upper.charCodeAt(0) : 0;
+  const [code, keyCode] = /^[A-Za-z]$/u.test(character)
+    ? [`Key${upper}`, upper.charCodeAt(0)]
+    : character === " "
+      ? ["Space", 32]
+      : (symbolKeys.get(character) ?? ["", 0]);
   return {
     key: character,
     code,

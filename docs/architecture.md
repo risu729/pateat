@@ -585,29 +585,32 @@ the last field. A fill that advances or submits through the page's own event set
 value and sends that one `input` or `change` event alone, with no focus, keys or blur
 that could run its effect again. Known limits: the events are not trusted (`isTrusted`
 is false), so a page that checks that, or opens a software keyboard on focus, can still
-refuse a fill; only letters, digits and space get a `code` and `keyCode`, after a US
-layout; Chrome sends no focus or blur events to a page whose window is not focused, so a
-page that reads a field only on blur may still miss it there; a hidden tab's timers are
-throttled, so the waits between fields and between the digits of a split code may
-stretch; a page that writes the field from its own timer after each key may drop
-characters, and its fill then stops at the check after typing, while one that keeps its
-own copy of the value from such a timer may hold another value while the field passes
-that check, and the copy is submitted (a page's zero-delay timer runs before the next
-character only when Chrome queues it first, which it does not once it clamps nested
-timers to 4 ms); and a page that submits on its own from a key or blur handler of a
-preparing fill is not watched for, so the click after the 500 ms check still runs if its
-button stays clickable. Before 2026-10-13 a preparing fill sent only `input` and
-`change` after the setter, in one task; that day a bank page showed its required-field
-error under its filled fields. Until later that day it then set the whole value at once
-between bare key events, as Bitwarden's autofill does; the same page's React inputs kept
-their state empty after that (a dummy-value probe in the owner's Chrome), and took each
-value when it was typed a character at a time. Characters were 25 ms apart, about 0.5 s
-for a username and a password, until the owner chose one task apart that day
-(2026-10-13), for speed: a character the page drops from the field still stops the fill
-before the click. Fields are not typed at the same time: only one input has focus, and
-typing two at once would move focus, and run the page's blur and focus checks, at every
-character; one task apart, a field's characters take a few milliseconds, so typing the
-fields in turn costs little (owner, 2026-10-13).
+refuse a fill; key events name the key and Chrome's `keyCode` that a US layout types the
+character with, as `{ key: "@", code: "Digit2", keyCode: 50, shiftKey: true }`, whatever
+the person's own layout, and a character no US key types, such as `é`, gets an empty
+`code` and `keyCode` 0 (owner, 2026-10-17 04:41 UTC, which added the symbols); Chrome
+sends no focus or blur events to a page whose window is not focused, so a page that
+reads a field only on blur may still miss it there; a hidden tab's timers are throttled,
+so the waits between fields and between the digits of a split code may stretch; a page
+that writes the field from its own timer after each key may drop characters, and its
+fill then stops at the check after typing, while one that keeps its own copy of the
+value from such a timer may hold another value while the field passes that check, and
+the copy is submitted (a page's zero-delay timer runs before the next character only
+when Chrome queues it first, which it does not once it clamps nested timers to 4 ms);
+and a page that submits on its own from a key or blur handler of a preparing fill is not
+watched for, so the click after the 500 ms check still runs if its button stays
+clickable. Before 2026-10-13 a preparing fill sent only `input` and `change` after the
+setter, in one task; that day a bank page showed its required-field error under its
+filled fields. Until later that day it then set the whole value at once between bare key
+events, as Bitwarden's autofill does; the same page's React inputs kept their state
+empty after that (a dummy-value probe in the owner's Chrome), and took each value when
+it was typed a character at a time. Characters were 25 ms apart, about 0.5 s for a
+username and a password, until the owner chose one task apart that day (2026-10-13), for
+speed: a character the page drops from the field still stops the fill before the click.
+Fields are not typed at the same time: only one input has focus, and typing two at once
+would move focus, and run the page's blur and focus checks, at every character; one task
+apart, a field's characters take a few milliseconds, so typing the fields in turn costs
+little (owner, 2026-10-13).
 
 MV3 workers can stop. Persist only resumable metadata, never an instruction to blindly
 replay a submit. Input and change handlers can submit without a click. Declare whether a
