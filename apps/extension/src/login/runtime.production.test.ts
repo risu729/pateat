@@ -7,6 +7,7 @@ import {
   type LocalSettings,
   type SavedLoginBinding,
   type SettingsResponse,
+  type SettingsChangeCause,
   type SettingsSnapshot,
   type LoginChooserRecipe,
   type LoginEntryRecipe,
@@ -427,6 +428,7 @@ function harness(
     update: vi.fn(
       async (
         expected: number | undefined,
+        _cause: SettingsChangeCause,
         mutate: (value: SettingsSnapshot) => SettingsSnapshot,
       ) => {
         if (expected !== undefined && expected !== snapshot.revision)
@@ -3579,6 +3581,7 @@ describe("production login document admission", () => {
         fieldId: "login.password",
       });
       expect(h.store.update.mock.calls[0]![0]).toBe(1);
+      expect(h.store.update.mock.calls[0]![1]).toBe("account-choice");
       // The saved default names the provider account, not this device's connection, and
       // keeps the connection's label for display.
       expect(h.settings.settings.siteDefaults).toEqual([
@@ -17222,7 +17225,7 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
       const service = generation(async () => {
         h.recipes.recipe.mockResolvedValue(next);
         // A settings save lands while the model answers.
-        await h.store.update(undefined, (snapshot) => snapshot);
+        await h.store.update(undefined, "settings-save", (snapshot) => snapshot);
         return { outcome: "recipe", recipe: next };
       });
       h = start(service);

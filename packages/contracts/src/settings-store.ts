@@ -2,8 +2,11 @@ import * as v from "valibot";
 import {
   createDefaultSettings,
   DUMMY_VAULT_CATALOG,
+  SETTINGS_CHANGE_HISTORY,
   settingsRequestSchema,
   settingsSnapshotSchema,
+  type SettingsChangeCause,
+  type SettingsConflictCause,
   type SettingsError,
   type SettingsResponse,
   type SettingsRequest,
@@ -18,6 +21,28 @@ export interface SettingsStorage {
 
 function failure(code: SettingsError["code"], message: string): SettingsResponse {
   return { version: 1, ok: false, error: { code, message } };
+}
+
+/** `snapshot`'s change history with the cause of `revision` added, keeping the latest. */
+function recordChange(
+  snapshot: SettingsSnapshot,
+  revision: number,
+  cause: SettingsChangeCause,
+): NonNullable<SettingsSnapshot["changes"]> {
+  return [...(snapshot.changes ?? []), { revision, cause }].slice(-SETTINGS_CHANGE_HISTORY);
+}
+
+/** Why `current` is no longer the revision a save expected, oldest cause first. */
+function conflictCauses(current: SettingsSnapshot, expected: number): SettingsConflictCause[] {
+  const recorded = (current.changes ?? []).filter(
+    (entry) => entry.revision > expected && entry.revision <= current.revision,
+  );
+  const causes = [...new Set(recorded.map((entry) => entry.cause))];
+  // Revisions older than the kept history, or a store behind the expected revision, as
+  // after storage was cleared, have no recorded cause.
+  return current.revision - expected > recorded.length || expected > current.revision
+    ? ["unknown", ...causes]
+    : causes;
 }
 
 /** One worker-owned queue serializes read/check/write; no other context writes storage. */
@@ -56,10 +81,15 @@ export function createSettingsStore(
       }
       if (request.type === "settings.save") {
         if (request.expectedRevision !== snapshot.revision)
-          return failure(
-            "revision-conflict",
-            "Settings changed in another window. Reload before saving.",
-          );
+          return {
+            version: 1,
+            ok: false,
+            error: {
+              code: "revision-conflict",
+              message: "Saved settings changed. Reload before saving.",
+              causes: conflictCauses(snapshot, request.expectedRevision),
+            },
+          };
         if (snapshot.revision >= Number.MAX_SAFE_INTEGER - 1)
           return failure("storage-corrupt", "The settings revision cannot be advanced.");
         const nextSettings = request.settings;
@@ -137,6 +167,7 @@ export function createSettingsStore(
           revision: snapshot.revision + 1,
           settings: nextSettings,
           ...(policies.length ? { fieldPolicies: policies } : {}),
+          changes: recordChange(snapshot, snapshot.revision + 1, "settings-save"),
         };
         const finalSnapshot = v.safeParse(settingsSnapshotSchema, snapshot);
         if (!finalSnapshot.success)
@@ -154,6 +185,7 @@ export function createSettingsStore(
   }
   async function executeUpdate(
     expectedRevision: number | undefined,
+    cause: SettingsChangeCause,
     mutate: (snapshot: SettingsSnapshot) => SettingsSnapshot,
   ) {
     const current = await readSnapshot();
@@ -162,6 +194,8 @@ export function createSettingsStore(
     if (current.revision >= Number.MAX_SAFE_INTEGER - 1) throw new Error("storage-corrupt");
     const next = v.parse(settingsSnapshotSchema, mutate(structuredClone(current)));
     next.revision = current.revision + 1;
+    // The store owns the history; a mutation cannot rewrite or drop it.
+    next.changes = recordChange(current, next.revision, cause);
     await storage.write(next);
     return next;
   }
@@ -175,12 +209,16 @@ export function createSettingsStore(
       );
       return pending;
     },
-    /** Trusted background-only mutation; the options save contract cannot change field policies. */
+    /**
+     * Trusted background-only mutation; the options save contract cannot change field
+     * policies. `cause` is recorded for a later save's revision conflict.
+     */
     update(
       expectedRevision: number | undefined,
+      cause: SettingsChangeCause,
       mutate: (snapshot: SettingsSnapshot) => SettingsSnapshot,
     ): Promise<SettingsSnapshot> {
-      const pending = queue.then(() => executeUpdate(expectedRevision, mutate));
+      const pending = queue.then(() => executeUpdate(expectedRevision, cause, mutate));
       queue = pending.then(
         () => undefined,
         () => undefined,

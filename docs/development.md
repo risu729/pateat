@@ -856,7 +856,9 @@ saved change applies at once, so it also cancels logins and passkey requests sta
 under the previous settings. Queries never refetch on focus/reconnect and neither reads
 nor saves automatically retry: after an invalid draft the next change saves again, and
 after a blocking failure later edits stay in the unsaved draft. Only an explicit
-successful reload replaces edits after a failed save or revision conflict. A failed or
+successful reload replaces edits after a failed save or revision conflict; a conflict's
+status line names what wrote the newer revisions, such as an automatic vault sync
+([ADR 0025](adr/0025-automatic-vault-sync.md#settings-saves-after-a-sync)). A failed or
 ambiguous save retains the draft, and an unknown outcome blocks saving until reload. The
 background worker remains the settings authority and validates both messages and
 senders; the UI migration does not change storage permissions. Component tests use a
