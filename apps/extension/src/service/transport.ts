@@ -1,5 +1,6 @@
 import {
   devicePairResultSchema,
+  profileSchema,
   recipeCompletionResultSchema,
   entryGenerationResultSchema,
   recipeGenerationResultSchema,
@@ -115,6 +116,7 @@ export function addTimings(
 /** `POST /pair`'s answer (ADR 0020). */
 export type PairResult =
   | { kind: "issued"; result: DevicePairResult }
+  | { kind: "profile-required"; profiles: {id: string; name: string}[] }
   /**
    * No login session reached the service: a redirect, a `401`, or a body that is not
    * JSON, such as the Access login page, with any status below 500 except 429.
@@ -208,7 +210,7 @@ export interface ServiceTransport {
    * `POST /pair` with the browser's login session to the service. The only call that
    * sends cookies; it sends no device credential.
    */
-  pair(origin: string, label: string): Promise<PairResult>;
+  pair(origin: string, label: string, profileId?: string): Promise<PairResult>;
   revoke(origin: string, credential: string): Promise<RevokeResult>;
   /** `GET /v1/device`: what the service holds for this device's owner. */
   device(origin: string, credential: string): Promise<DeviceStateResult>;
@@ -460,7 +462,7 @@ export function createServiceTransport(
   }
 
   return {
-    async pair(origin, label) {
+    async pair(origin, label, profileId) {
       const response = await call(
         origin,
         "/pair",
@@ -471,7 +473,7 @@ export function createServiceTransport(
             // Asks Access to answer an expired session with a 401 instead of a redirect.
             "X-Requested-With": "XMLHttpRequest",
           },
-          body: JSON.stringify({ version: 1, label }),
+          body: JSON.stringify({ version: 1, label, ...(profileId ? { profileId } : {}) }),
         },
         { session: true },
       );
@@ -484,6 +486,10 @@ export function createServiceTransport(
           : { kind: "failed", error: "unexpected-response" };
       }
       const code = errorCode(response.body);
+      if (response.status === 409 && code === "profile_required") {
+        const parsed = v.safeParse(v.object({ profiles: v.array(profileSchema) }), response.body);
+        if (parsed.success) return { kind: "profile-required", profiles: parsed.output.profiles };
+      }
       if (response.status === 401) return { kind: "sign-in-needed" };
       if (response.status === 403 && code === "forbidden")
         return { kind: "failed", error: "sign-in-rejected" };

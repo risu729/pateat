@@ -1,5 +1,6 @@
 import {
   deviceIdSchema,
+  profileIdSchema,
   localSettingsSchema,
   MAX_SETTINGS_DOCUMENT_BYTES,
   savedLoginBindingSchema,
@@ -56,6 +57,7 @@ const baseSchema = v.strictObject({
   version: v.literal(1),
   origin: serviceOriginSchema,
   deviceId: deviceIdSchema,
+  profileId: profileIdSchema,
   revision: v.pipe(v.number(), v.integer(), v.minValue(0)),
   /** The service document at `revision`, which has no connections. */
   settings: localSettingsSchema,
@@ -296,7 +298,7 @@ export function createSettingsSync(options: {
     // sides' entries are kept and the service wins where they differ; nothing is removed.
     let base: SyncBase = { service: emptySynced, local: emptySynced };
     if (
-      stored &&
+      stored && stored.profileId === service.profileId &&
       (service.revision > stored.revision ||
         (service.revision === stored.revision &&
           equalSynced(serviceCopy(service), syncedSettings(stored.settings))))
@@ -311,12 +313,16 @@ export function createSettingsSync(options: {
           version: 1,
           origin,
           deviceId,
+          profileId: service.profileId,
           revision: service.revision,
           settings: serviceDocument(next.service),
           local: serviceDocument(next.local),
         })
         .catch(() => undefined);
     }
+    // A profile switch must never reinterpret the previous profile cache as edits.
+    let switchingProfile = stored !== undefined && stored.profileId !== service.profileId;
+    if (switchingProfile) await storage.clear();
     for (let attempt = 0; attempt < MAX_SETTINGS_SYNC_ATTEMPTS; attempt += 1) {
       let local: SettingsSnapshot;
       try {
@@ -327,7 +333,7 @@ export function createSettingsSync(options: {
       }
       const localSynced = syncedSettings(local.settings);
       const serviceSynced = serviceCopy(service);
-      const mergedEntries = mergeSyncedSettings(base, localSynced, serviceSynced);
+      const mergedEntries = switchingProfile ? serviceSynced : mergeSyncedSettings(base, localSynced, serviceSynced);
       // Named after the merge, so the names are uploaded and written like any change.
       if (unnamed(mergedEntries)) catalog ??= options.catalog?.().catch(() => undefined);
       // oxlint-disable-next-line no-await-in-loop -- read once, on the first attempt that needs it
@@ -351,6 +357,8 @@ export function createSettingsSync(options: {
         if (saved.kind === "rejected") return "rejected";
         if (saved.kind === "failed") return saved.error;
         if (saved.kind === "conflict") {
+          switchingProfile ||= service.profileId !== saved.current.profileId;
+          if (switchingProfile) await storage.clear();
           service = saved.current;
           continue;
         }

@@ -1,5 +1,5 @@
 import * as v from "valibot";
-import { deviceIdSchema } from "./pairing";
+import { deviceIdSchema, profileIdSchema } from "./pairing";
 import {
   MAX_SETTINGS_DOCUMENT_BYTES,
   settingsDocumentBytes,
@@ -23,6 +23,7 @@ const headRevision = v.pipe(
 
 export const manageDeviceSchema = v.strictObject({
   id: deviceIdSchema,
+  profileId: profileIdSchema,
   /** Empty for a device paired without a label. */
   label: v.pipe(v.string(), v.maxLength(64)),
   createdAt: timestamp,

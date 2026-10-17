@@ -31,6 +31,8 @@ type ServiceMessage = string | { key: string; values?: Record<string, string | n
 
 function errorMessage(error: ServiceErrorCode, origin?: string): ServiceMessage {
   switch (error) {
+    case "profile-required":
+      return "Choose the settings profile for this device, then pair again.";
     case "storage-unavailable":
       return "Pateat could not read or save its service connection on this device.";
     case "storage-corrupt":
@@ -92,6 +94,8 @@ export function ServiceConnection({
   const [message, setMessage] = useState<ServiceMessage>("");
   const [busy, setBusy] = useState(false);
   const [address, setAddress] = useState("");
+  const [profiles, setProfiles] = useState<{id: string; name: string}[]>([]);
+  const [profileId, setProfileId] = useState("");
   const [label, setLabel] = useState("Chrome");
   const [addressError, setAddressError] = useState("");
   const [corrupt, setCorrupt] = useState(false);
@@ -113,6 +117,7 @@ export function ServiceConnection({
       if (success !== undefined) setMessage(success);
     } else {
       if (response.state) setState(response.state);
+      if (response.profiles) { setProfiles(response.profiles); setProfileId(""); }
       setMessage(errorMessage(response.error));
     }
   }
@@ -142,7 +147,7 @@ export function ServiceConnection({
    */
   async function pair(origin: string, name: string, signInTab: boolean) {
     retryOnReturn.current = undefined;
-    const response = await client.pair(origin, name);
+    const response = await client.pair(origin, name, profileId || undefined);
     if (!mounted.current) return;
     if (response.ok) {
       setAttempt(undefined);
@@ -309,6 +314,14 @@ export function ServiceConnection({
               />
             </label>
           </div>
+          {profiles.length > 0 && (
+            <label className={fieldClass}>Settings profile
+              <select className={controlClass} value={profileId} onChange={(event) => setProfileId(event.target.value)}>
+                <option value="">Choose a profile</option>
+                {profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
+              </select>
+            </label>
+          )}
           {addressError && (
             <p id="sync-service-error" className="validation-error m-0" role="alert">
               {addressError ? t(addressError) : ""}
@@ -327,7 +340,11 @@ export function ServiceConnection({
             ]}
           />
           <div className="flex flex-wrap gap-2">
-            <Button id="sync-service-pair" type="submit" disabled={busy}>
+            <Button
+              id="sync-service-pair"
+              type="submit"
+              disabled={busy || (profiles.length > 0 && !profileId)}
+            >
               {t("Pair this device")}
             </Button>
             {attempt && (

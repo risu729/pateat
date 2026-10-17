@@ -5,6 +5,7 @@ import {
   loginOutcomeSchema,
   storedLoginRecipeSchema,
 } from "./login";
+import { profileIdSchema } from "./pairing";
 import { localSettingsSchema } from "./settings";
 
 // Contracts for the optional private settings/recipe service. Synced documents are
@@ -39,6 +40,7 @@ export function isGeneratedRecipeId(recipeId: string): boolean {
 export const syncSettingsStateSchema = v.pipe(
   v.strictObject({
     version: v.literal(1),
+    profileId: profileIdSchema,
     revision,
     settings: v.nullable(localSettingsSchema),
   }),

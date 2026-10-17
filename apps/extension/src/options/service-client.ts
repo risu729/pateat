@@ -9,7 +9,7 @@ export interface ServiceClient {
    */
   requestSiteAccess(origin: string): Promise<boolean>;
   /** Pairs in one request from the background with the browser's login session (ADR 0020). */
-  pair(origin: string, label: string): Promise<ServiceResponse>;
+  pair(origin: string, label: string, profileId?: string): Promise<ServiceResponse>;
   disconnect(): Promise<ServiceResponse>;
   /** Forgets an unreadable local connection without contacting the service. */
   forget(): Promise<ServiceResponse>;
@@ -31,7 +31,7 @@ export function createServiceClient(deps: {
   return {
     get: () => call({ type: "service.get" }),
     requestSiteAccess: (origin) => deps.requestSiteAccess(origin).catch(() => false),
-    pair: (origin, label) => call({ type: "service.pair", origin, label }),
+    pair: (origin, label, profileId) => call({ type: "service.pair", origin, label, ...(profileId ? { profileId } : {}) }),
     disconnect: () => call({ type: "service.disconnect" }),
     forget: () => call({ type: "service.forget" }),
     openSignIn: async (origin) => {
