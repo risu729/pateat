@@ -509,6 +509,12 @@ const maySubmit = (context: LoginAttemptMetadata) =>
   context.mutationIntent === true ||
   context.operationKind === "fill" ||
   (context.operationKind === "click" && context.submissions > 0);
+/**
+ * The login may have submitted on its origin: its current operation may have, or it is
+ * watched, which a login is only after its submission's result, also at a stop with
+ * nothing in flight (ADR 0027, ADR 0036).
+ */
+const submittedHere = (context: LoginAttemptMetadata) => maySubmit(context) || watched(context);
 const operationMatches = (context: LoginAttemptMetadata, event: LoginAttemptEvent) =>
   "operationId" in event && event.operationId === context.operationId;
 /**
@@ -617,9 +623,10 @@ function record(
         // The result of a submission on the previous origin cannot be observed here, unless
         // the runtime confirmed the sign-in. A watched login ends where it stopped, as when
         // its watch ends: it never signed in, so its first step showing again is no logout
-        // (ADR 0027, 2026-10-13).
+        // (ADR 0027, 2026-10-13). That holds too for one watched at its stop, which has
+        // nothing in flight (ADR 0036).
         return {
-          outcome: !maySubmit(context)
+          outcome: !submittedHere(context)
             ? "interrupted"
             : event.signedIn
               ? "authenticated"
@@ -932,7 +939,7 @@ function createLoginAttemptMachine() {
         event.type === "NAVIGATED" &&
         event.signedIn === true &&
         leftOrigin(context.document, event.document) &&
-        maySubmit(context),
+        submittedHere(context),
       observedAuthenticated: ({ context, event }) =>
         event.type === "OBSERVED" &&
         event.result === "authenticated" &&

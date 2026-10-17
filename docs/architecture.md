@@ -1046,7 +1046,8 @@ page or one after the watch's 10 minutes is handled as before (agent fix applyin
 submitted document after each worker restart). Leaving the
 origin without a confirmed sign-in ends it the same way where it stopped, not
 `left-origin`, so its first step showing again later in the tab is no logout either
-(2026-10-13). Newer settings end it
+(2026-10-13), also one watched at its stop with nothing in flight (ADR 0036; agent fix,
+2026-10-17: it ended `interrupted`). Newer settings end it
 `policy-changed` only when they no longer allow its account on the page; otherwise the
 watch takes over their revision, since it only reads, so another site's saved account
 choice does not end it. A login in a frame and the `passkey` route still end `challenge`
