@@ -74,7 +74,7 @@ const NOT_SENT: Record<string, string> = {
 };
 
 const plain = (table: Record<string, string>, code: string, t: TFunction) =>
-  table[code] ? t(table[code]) : code;
+  Object.hasOwn(table, code) ? t(table[code] ?? code) : code;
 
 /** Why a vault item without a password has no way in (ADR 0036), in plain words. */
 const NO_PASSWORD: Record<string, string> = {
@@ -87,7 +87,9 @@ function refusalText(refused: NonNullable<Status["refused"]>, t: TFunction): str
   const { reason, detail } = refused;
   if (reason === "no-route" && detail?.startsWith("password-empty"))
     return t(
-      NO_PASSWORD[detail.slice("password-empty:".length)] ?? "the vault item has no password",
+      Object.hasOwn(NO_PASSWORD, detail.slice("password-empty:".length))
+        ? (NO_PASSWORD[detail.slice("password-empty:".length)] ?? "the vault item has no password")
+        : "the vault item has no password",
     );
   if (reason === "no-route")
     return `${t("the recipe has no way to log in with this vault item")}${detail ? ` (${detail})` : ""}`;

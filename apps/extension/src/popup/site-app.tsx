@@ -1,3 +1,4 @@
+import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import { i18n } from "../i18n";
 import {
@@ -61,6 +62,7 @@ export interface PopupHost {
 type Saved = Extract<SettingsResponse, { ok: true }>;
 type ExcludedSite = LocalSettings["excludedSites"][number];
 type Tone = "progress" | "success" | "error";
+type NoticeText = (translate: TFunction) => string;
 
 /** The tab's origin when Pateat can run there: an HTTPS page with a valid hostname. */
 export function popupOrigin(url: string | undefined): string | undefined {
@@ -293,13 +295,13 @@ export function SiteApp({
   const { t } = useTranslation(undefined, { i18n });
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState<{ text: string; tone: Tone }>({ text: "", tone: "success" });
+  const [notice, setNotice] = useState<{ text?: NoticeText; tone: Tone }>({ tone: "success" });
   const [chosen, setChosen] = useState("");
   const [picked, setPicked] = useState("");
   const [makeDefault, setMakeDefault] = useState<boolean>();
   // The switch shows its new position while that change is saved.
   const [switching, setSwitching] = useState<boolean>();
-  const say = (text: string, tone: Tone) => setNotice({ text, tone });
+  const say = (text: NoticeText, tone: Tone) => setNotice({ text, tone });
   const tab = useQuery({
     queryKey: ["popup", "tab"],
     queryFn: async () => (await host.currentTab()) ?? null,
@@ -376,7 +378,7 @@ export function SiteApp({
     gcTime: 0,
   });
 
-  async function change(update: (value: LocalSettings) => void, done: string) {
+  async function change(update: (value: LocalSettings) => void, done: NoticeText) {
     if (!saved || busy) {
       setSwitching(undefined);
       return;
@@ -384,7 +386,7 @@ export function SiteApp({
     const next = structuredClone(saved.snapshot.settings);
     update(next);
     setBusy(true);
-    say(t("Saving…"), "progress");
+    say((translate) => translate("Saving…"), "progress");
     try {
       const response = await client.saveSettings({
         version: 1,
@@ -399,12 +401,18 @@ export function SiteApp({
         if (choice.isEnabled) void choice.refetch();
       } else if (response.error.code === "revision-conflict") {
         await settings.refetch();
-        say(t("Changed elsewhere and reloaded. Nothing was changed."), "error");
-      } else say(t("The change could not be saved"), "error");
+        say(
+          (translate) => translate("Changed elsewhere and reloaded. Nothing was changed."),
+          "error",
+        );
+      } else say((translate) => translate("The change could not be saved"), "error");
     } catch {
       // The store may still have saved it; reopening shows the saved settings.
       say(
-        t("The change may not have been saved. Reopen this popup to see the saved settings."),
+        (translate) =>
+          translate(
+            "The change may not have been saved. Reopen this popup to see the saved settings.",
+          ),
         "error",
       );
     } finally {
@@ -420,7 +428,7 @@ export function SiteApp({
   ) {
     if (tabId === undefined || busy) return;
     setBusy(true);
-    say(t("Starting the login…"), "progress");
+    say((translate) => translate("Starting the login…"), "progress");
     try {
       const response = await choices.pick({
         tabId,
@@ -431,37 +439,51 @@ export function SiteApp({
       });
       if (response.ok) {
         say(
-          asDefault
-            ? t("Logging in with {{name}}. It becomes the default once the login succeeds.", {
-                name: selected.name,
-              })
-            : t("Logging in with {{name}}", { name: selected.name }),
+          (translate) =>
+            asDefault
+              ? translate(
+                  "Logging in with {{name}}. It becomes the default once the login succeeds.",
+                  {
+                    name: selected.name,
+                  },
+                )
+              : translate("Logging in with {{name}}", { name: selected.name }),
           "success",
         );
         // The login runs in the page from here; the popup has nothing left to show.
         host.close();
         return;
       } else if (response.reason === "document-gone")
-        say(t("The page changed, so nothing was started. Reload it to choose again."), "error");
+        say(
+          (translate) =>
+            translate("The page changed, so nothing was started. Reload it to choose again."),
+          "error",
+        );
       else if (response.reason === "origin-busy")
         say(
-          t(
-            "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. Close that tab or wait up to 5 minutes, then choose again.",
-          ),
+          (translate) =>
+            translate(
+              "Another tab's login to this site is running or did not succeed, so Pateat did not log in here. Close that tab or wait up to 5 minutes, then choose again.",
+            ),
           "error",
         );
       else if (response.reason === "not-started")
         say(
-          t(
-            "Pateat could not log in with {{name}} on this page. Reload the page to choose again.",
-            { name: selected.name },
-          ),
+          (translate) =>
+            translate(
+              "Pateat could not log in with {{name}} on this page. Reload the page to choose again.",
+              { name: selected.name },
+            ),
           "error",
         );
-      else say(t("This page is no longer waiting for a choice"), "error");
+      else say((translate) => translate("This page is no longer waiting for a choice"), "error");
       await choice.refetch();
     } catch {
-      say(t("The login could not be started. Reopen this popup and try again."), "error");
+      say(
+        (translate) =>
+          translate("The login could not be started. Reopen this popup and try again."),
+        "error",
+      );
     } finally {
       setBusy(false);
     }
@@ -503,9 +525,10 @@ export function SiteApp({
           setSwitching(on);
           void change(
             (value) => site.set(value, on),
-            on
-              ? t("{{hostname}} is no longer excluded", { hostname })
-              : t("{{hostname}} is now excluded", { hostname }),
+            (translate) =>
+              on
+                ? translate("{{hostname}} is no longer excluded", { hostname })
+                : translate("{{hostname}} is now excluded", { hostname }),
           );
         }}
       />
@@ -604,7 +627,8 @@ export function SiteApp({
       const selected = options.find((entry) => entry.value === shown);
       if (!selected?.userId) {
         say(
-          t("This account is unavailable. Choose another one or use the settings page."),
+          (translate) =>
+            translate("This account is unavailable. Choose another one or use the settings page."),
           "error",
         );
         return;
@@ -621,9 +645,10 @@ export function SiteApp({
       const target = siteDefaultConnection(entry, catalog);
       if (!target.ok || target.connectionId !== selected.connectionId) {
         say(
-          t(
-            "This vault account is connected more than once. Choose the default in the settings page.",
-          ),
+          (translate) =>
+            translate(
+              "This vault account is connected more than once. Choose the default in the settings page.",
+            ),
           "error",
         );
         return;
@@ -633,16 +658,20 @@ export function SiteApp({
           value.siteDefaults = value.siteDefaults.filter((item) => item.origin !== origin);
           value.siteDefaults.push(entry);
         },
-        t("{{name}} is now the default for this site", {
-          name: accountName(selected, found?.accounts),
-        }),
+        (translate) =>
+          translate("{{name}} is now the default for this site", {
+            name: accountName(selected, found?.accounts),
+          }),
       );
     };
 
     const removeDefault = () =>
-      void change((value) => {
-        value.siteDefaults = value.siteDefaults.filter((item) => item.origin !== origin);
-      }, t("The default account for this site was removed"));
+      void change(
+        (value) => {
+          value.siteDefaults = value.siteDefaults.filter((item) => item.origin !== origin);
+        },
+        (translate) => translate("The default account for this site was removed"),
+      );
     const removeDefaultButton = current && (
       <Button
         id="popup-remove-default"
@@ -890,7 +919,7 @@ export function SiteApp({
         {notice.text && (
           <span className={`popup-notice popup-notice--${notice.tone}`}>
             <NoticeIcon size={16} strokeWidth={2} aria-hidden="true" />
-            <span>{notice.text}</span>
+            <span>{notice.text(t)}</span>
           </span>
         )}
       </output>

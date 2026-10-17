@@ -49,7 +49,10 @@ export function resolveLanguage(
   return "en";
 }
 
+let activePreference: LanguagePreference = "system";
+
 function applyLanguagePreference(preference: LanguagePreference): void {
+  activePreference = preference;
   void i18n.changeLanguage(resolveLanguage(preference));
 }
 
@@ -75,12 +78,17 @@ export function followLanguagePreference(
   const storageChanged = (event: StorageEvent) => {
     if (event.key === null || event.key === LANGUAGE_STORAGE_KEY) update();
   };
+  const browserChanged = () => {
+    // An explicit choice still applies when localStorage rejected the write.
+    applyLanguagePreference(activePreference);
+    onChange?.(activePreference);
+  };
   update();
   window.addEventListener("storage", storageChanged);
-  window.addEventListener("languagechange", update);
+  window.addEventListener("languagechange", browserChanged);
   return () => {
     window.removeEventListener("storage", storageChanged);
-    window.removeEventListener("languagechange", update);
+    window.removeEventListener("languagechange", browserChanged);
   };
 }
 
