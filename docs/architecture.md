@@ -1919,6 +1919,48 @@ people.
   request log is kept 90 days and bounded by the $5 daily spend limit. Devices are not
   counted: each pairing needs an interactive Access login.
 
+### Unsupported service edge cases
+
+Status: recorded on 2026-10-17 from a reading of the Worker code; none of these is a
+planned change. Each is current behavior that the service does not handle.
+
+- Access team change. Owners are keyed by `https://<ACCESS_TEAM_DOMAIN>` and the token
+  subject. Moving to another team domain or Zero Trust account maps no identity to the
+  old owners: `/manage` shows no devices, the next pairing creates a new empty owner,
+  and the old device credentials keep working on `/v1`. Nothing migrates identities.
+- Clock skew. Access tokens get no leeway: a token whose `iat` or `nbf` is ahead of
+  the Worker's clock, or one forwarded in the second before its `exp`, is refused with
+  403 rather than "sign in first".
+- Device labels. A label refuses every `\p{C}` character, which includes format
+  characters such as the zero-width joiner of emoji sequences and bidirectional marks,
+  and counts 64 UTF-16 code units, so an emoji takes two.
+- Upper-case IDs. Device IDs in management paths are compared exactly, so
+  `/manage/api/devices/<ID in upper case>/revoke` answers 404 for an existing device.
+- Unaddressable recipe IDs. The recipe ID contract accepts `.`, `..` and `generate`,
+  but none can be written or revoked: URL normalization turns `/v1/recipes/.` and
+  `/v1/recipes/..` (also percent-encoded) into other paths, and
+  `PUT /v1/recipes/generate` is the generation route's 405.
+- Tombstones. Revoked recipes keep their head and tombstone forever. A device can
+  create and revoke recipes in a loop within the request limit, and every new device
+  downloads all tombstones on its first sync; `GET /manage/api/recipes` returns every
+  head in one unpaginated answer.
+- One invalid stored row. Stored documents fail closed, so a recipe head that no longer
+  validates makes its change-feed page answer 500 on every retry: devices cannot move
+  their cursor past it, and the web UI's recipe list fails as a whole. A contract that
+  tightens without a migration that rewrites or removes affected rows stops recipe sync
+  for their owners.
+- Requests without limits. `OWNER_LIMITER` runs after authentication, so `/v1`
+  requests with unknown credentials are not limited by the Worker; owner pages, their
+  assets, `/pair/signed-in` and `/manage/claude` (whose test button makes one token
+  exchange with Anthropic per post) have no per-identity limit either.
+- Strict request shapes. Paths match exactly: a trailing slash, another letter case or
+  an unknown path under `/manage` answers the JSON 404 `not_found`, not an HTML page.
+  The change feed refuses any query parameter but `after` and `limit` with 400, and a
+  cursor above the owner's newest change answers an empty, complete page.
+  `Authorization` must be `Bearer`, one space and the credential. A misconfigured
+  `ACCESS_AUD` or `ACCESS_PAIR_AUD` (for example with stray whitespace) refuses every
+  token with 403.
+
 ### Device enrollment
 
 Status: direct pairing ([ADR 0020](adr/0020-direct-device-pairing.md)) is implemented
