@@ -703,15 +703,19 @@ Once the fixes have settled:
   is not decided yet. The owner chose (2026-10-12 14:14 UTC) that "the docs" means the
   README and the user-facing pages, including those the docs website below adds; ADRs,
   this plan and research notes stay in English. AGENTS.md's English rule gets an
-  exception for the Japanese pages when they land.
+  exception for the Japanese pages when they land. The docs website now has complete
+  Japanese counterparts for its five user pages under `/ja/`, with localized navigation
+  and controls ([proposed ADR 0047](adr/0047-japanese-user-docs-locales.md)); the README
+  and extension UI remain independent translation work.
 - The docs website (VitePress 2, see
   [decisions still requiring evidence](#decisions-still-requiring-evidence)) with
   user-facing pages for installation, setup and permissions, plus the M6 operational
   docs. Started: [`apps/docs`](development.md#docs-website) builds in CI with English
   pages for installation, setup, permissions and a draft privacy policy with the Chrome
   Web Store Limited Use statement. Still to do: deploying it (biwa's assets-only Worker
-  and per-PR previews), the M6 operational docs, the Japanese pages, and updating the
-  installation page once releases exist.
+  and per-PR previews), the M6 operational docs, and updating the installation page
+  once releases exist. Japanese counterparts of all five user pages are implemented;
+  this does not complete deployment or real-account acceptance.
 - A mode without the service. Where recipes, settings and AI calls come from without the
   service, which [ADR 0013](adr/0013-service-held-recipes-and-settings.md) makes their
   source of truth, needs a design the owner approves before implementation.

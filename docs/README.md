@@ -24,7 +24,7 @@ from a synced cache ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)).
 | [CI and server delivery](delivery.md)          | Required checks, repository settings and server release process | Update with executable workflows                                   |
 | [ADRs](adr/0001-local-login-boundary.md)       | Decision rationale and alternatives                             | Amend explicitly or supersede; preserve history                    |
 | [Research](research/2026-10-10-feasibility.md) | Dated observations and primary sources                          | Append new evidence or supersede; never imply current verification |
-| [Docs website](../apps/docs/src/index.md) | User-facing pages: installation, setup, permissions, privacy | Derived: update with the document or ADR that owns each fact; owns the privacy policy draft |
+| [Docs website](../apps/docs/src/index.md) | User-facing pages: installation, setup, permissions, privacy | Derived: English and Japanese user pages; update with the document or ADR that owns each fact; owns the privacy policy draft |
 
 The initial ADRs were accepted by merging PR #1.
 Acceptance does not mean implementation. A later replacement links the old and
@@ -92,6 +92,7 @@ another also updates the other's `Status:`. Number a new ADR after the highest o
 - [0036: Items without a password go on to a passkey after the identifier](adr/0036-passkey-after-the-identifier.md)
 - [0037: Fields located by their visible name](adr/0037-fields-by-visible-name.md)
 - [0038: The toolbar badge and popup show what a login did](adr/0038-login-status-badge.md)
+- [0047: Japanese user documentation routes](adr/0047-japanese-user-docs-locales.md)
 
 This layout follows the useful separation in
 [Kogane ADR 0041](https://github.com/risu729/kogane/blob/main/docs/adr/0041-documentation-scope.md),

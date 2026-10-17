@@ -209,13 +209,19 @@ runtime graph, use `mise exec -- hk check --all --no-fail-fast --skip-step runti
 chose on 2026-10-11 before its stable release
 ([decisions still requiring evidence](plan.md#decisions-still-requiring-evidence)).
 `vitepress` is pinned exactly to `2.0.0-alpha.20`, the npm `next` tag on 2026-10-15. Its
-English pages are in `apps/docs/src`: an introduction, installation, setup, permissions
-and a draft privacy policy with the Chrome Web Store Limited Use statement. The site
-serves the extension's own `apps/extension/icons/icon.svg` through a small Vite plugin
-in `.vitepress/config.ts` instead of keeping a copy, and `.vitepress/theme/brand.css`
-sets VitePress's default theme to the icon's green, darkened where text needs 4.5:1
-contrast. The pages link to this `docs/` directory, which the site does not include, by
-absolute GitHub URLs.
+English pages are in `apps/docs/src`, with complete Japanese counterparts in
+`apps/docs/src/ja`: an introduction, installation, setup, permissions and a draft
+privacy policy with the Chrome Web Store Limited Use statement. English remains the
+root/default, and the language switch selects Japanese under `/ja/`; no browser-language
+redirect is installed. Both locales have their own navigation, accessible theme labels
+and local-search labels ([proposed ADR 0047](adr/0047-japanese-user-docs-locales.md)).
+The Japanese setup guide retains current English Pateat control labels until the
+independent UI translations land. Heading IDs match the English pages so that the
+language switch preserves section links. The site serves the extension's own
+`apps/extension/icons/icon.svg` through a small Vite plugin in `.vitepress/config.ts`
+instead of keeping a copy, and `.vitepress/theme/brand.css` sets VitePress's default
+theme to the icon's green, darkened where text needs 4.5:1 contrast. The pages link to
+this `docs/` directory, which the site does not include, by absolute GitHub URLs.
 
 VitePress fails the build on a dead link between pages. `//apps/docs:test` builds the
 site and then checks, with `apps/docs/check-links.mjs`, that every local link, asset
