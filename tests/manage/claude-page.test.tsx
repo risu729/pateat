@@ -229,6 +229,8 @@ test("asks for the identifiers again when the saved row is no longer valid", asy
   await expect.element(page.getByText("Identifiers saved")).toBeVisible();
   await expect.element(page.getByText(STORED_INVALID)).not.toBeInTheDocument();
   await expect.element(testButton()).toBeEnabled();
+  // The form is not rebuilt, so focus stays where the owner left it.
+  await expect.element(saveButton()).toHaveFocus();
 });
 
 test.each([
@@ -306,8 +308,11 @@ test("reloads the page's state when the test finds the saved row invalid", async
   await mount(client);
   await testButton().click();
   await expect.element(identifiersPanel().getByRole("alert")).toHaveTextContent(STORED_INVALID);
-  await expect.element(field("workspaceId")).toHaveValue("");
+  // The form keeps its values, so the owner can save them again.
+  await expect.element(field("workspaceId")).toHaveValue(ids.workspaceId);
   await expect.element(testButton()).toBeDisabled();
+  // Focus stays on the button the owner used.
+  await expect.element(testButton()).toHaveFocus();
   expect(client.claude).toHaveBeenCalledTimes(2);
 });
 

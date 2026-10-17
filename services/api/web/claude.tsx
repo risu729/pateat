@@ -95,11 +95,21 @@ export function ClaudePage({ client }: { client: ManageClient }) {
   const queryClient = useQueryClient();
   const claude = useQuery({ queryKey: CLAUDE_QUERY_KEY, queryFn: () => client.claude() });
   const [notice, setNotice] = useState("");
+  const test = useMutation({
+    mutationFn: () => client.testClaude(),
+    onSuccess: ({ result }) => {
+      // The page's copy predates a row that stopped validating; show the current state.
+      if (result.status === "stored_invalid" || result.status === "not_configured")
+        void queryClient.invalidateQueries({ queryKey: CLAUDE_QUERY_KEY });
+    },
+  });
   const save = useMutation({
     mutationFn: (identifiers: WifIdentifiers) => client.saveClaude(identifiers),
     onSuccess: (state) => {
       queryClient.setQueryData(CLAUDE_QUERY_KEY, state);
       setNotice("Identifiers saved");
+      // A result for the identifiers this save replaced no longer applies.
+      test.reset();
     },
   });
 
@@ -117,10 +127,14 @@ export function ClaudePage({ client }: { client: ManageClient }) {
         <output id="claude-status" className="block">
           Loading Claude settings…
         </output>
-      ) : claude.isError ? (
+      ) : !claude.data ? (
         <ErrorNotice id="claude-status">{describeError(claude.error)}</ErrorNotice>
       ) : (
         <>
+          {/* A failed refetch keeps the page and what the owner typed. */}
+          {claude.isError && (
+            <ErrorNotice id="claude-status">{describeError(claude.error)}</ErrorNotice>
+          )}
           <Panel id="claude-console-heading" title="Claude Console">
             <p>
               In the Claude Console, open Settings, Workload identity, Connect workload, Custom
@@ -133,28 +147,31 @@ export function ClaudePage({ client }: { client: ManageClient }) {
                 ["Audience (optional match)", claude.data.console.audience],
                 [
                   "Scope",
-                  "workspace:inference if the Console offers it, otherwise workspace:developer",
+                  <span key="scope" className="font-sans text-sm">
+                    <code className="font-mono text-[13px]">workspace:inference</code> if the
+                    Console offers it, otherwise{" "}
+                    <code className="font-mono text-[13px]">workspace:developer</code>
+                  </span>,
                 ],
               ]}
             />
           </Panel>
           <IdentifiersPanel
-            // Saving replaces the form with what the service stored.
-            key={`identifiers-${JSON.stringify(claude.data.identifiers)}`}
             saved={claude.data.identifiers}
             storedInvalid={claude.data.storedInvalid}
             busy={save.isPending}
             error={save.isError ? save.error : undefined}
-            onSave={(identifiers) => {
+            onSave={(identifiers, saved) => {
               setNotice("");
-              save.mutate(identifiers);
+              save.mutate(identifiers, { onSuccess: saved });
             }}
           />
           <TestPanel
-            // A result for identifiers that were since replaced is not shown.
-            key={`test-${JSON.stringify(claude.data.identifiers)}`}
-            client={client}
             canTest={claude.data.identifiers !== null}
+            pending={test.isPending}
+            result={test.data?.result}
+            error={test.isError ? test.error : undefined}
+            onTest={() => test.mutate()}
           />
         </>
       )}
@@ -170,6 +187,10 @@ export function ClaudePage({ client }: { client: ManageClient }) {
   );
 }
 
+/**
+ * The identifiers form. It starts from the saved identifiers and keeps what the owner
+ * types across refetches; a successful save shows the values that were stored.
+ */
 function IdentifiersPanel({
   saved,
   storedInvalid,
@@ -181,7 +202,7 @@ function IdentifiersPanel({
   storedInvalid: boolean;
   busy: boolean;
   error: Error | undefined;
-  onSave: (identifiers: WifIdentifiers) => void;
+  onSave: (identifiers: WifIdentifiers, saved: () => void) => void;
 }) {
   const [values, setValues] = useState<Record<FieldName, string>>(saved ?? EMPTY);
   const [errors, setErrors] = useState<Partial<Record<FieldName, string>>>({});
@@ -204,7 +225,7 @@ function IdentifiersPanel({
       inputs.current[first.name]?.focus();
       return;
     }
-    onSave(trimmed);
+    onSave(trimmed, () => setValues(trimmed));
   }
 
   return (
@@ -223,7 +244,7 @@ function IdentifiersPanel({
           : "None are saved yet. Copy them from the federation rule the Console created."}
       </p>
       <form noValidate onSubmit={submit} className="grid gap-4 sm:grid-cols-2">
-        {FIELDS.map(({ name, label, placeholder }) => {
+        {FIELDS.map(({ name, label, placeholder, hint }) => {
           const id = `${baseId}-${name}`;
           const error = errors[name];
           return (
@@ -242,20 +263,25 @@ function IdentifiersPanel({
                 placeholder={placeholder}
                 value={values[name]}
                 onChange={(event) => setValues({ ...values, [name]: event.target.value })}
+                aria-required
                 aria-invalid={error ? true : undefined}
-                aria-describedby={error ? `${id}-error` : undefined}
+                aria-describedby={`${id}-hint`}
                 className="min-h-10 rounded-lg border border-border-strong bg-surface px-3 font-mono text-[13px] placeholder:text-ink-muted"
               />
-              {error && (
-                <p id={`${id}-error`} className="text-sm text-danger">
-                  {error}
-                </p>
-              )}
+              {/* The hint turns into the error, announced even when the field kept focus. */}
+              <p
+                id={`${id}-hint`}
+                role={error ? "alert" : undefined}
+                className={`text-[13px]/5 ${error ? "text-danger" : "text-ink-muted"}`}
+              >
+                {hint}
+              </p>
             </div>
           );
         })}
         <div className="sm:col-span-2">
-          <Button type="submit" disabled={busy}>
+          {/* Focus stays on the button while the save runs. */}
+          <Button type="submit" focusableWhenDisabled disabled={busy}>
             Save
           </Button>
         </div>
@@ -264,18 +290,19 @@ function IdentifiersPanel({
   );
 }
 
-function TestPanel({ client, canTest }: { client: ManageClient; canTest: boolean }) {
-  const queryClient = useQueryClient();
-  const test = useMutation({
-    mutationFn: () => client.testClaude(),
-    onSuccess: ({ result }) => {
-      // The page's copy predates a row that stopped validating; show the current state.
-      if (result.status === "stored_invalid" || result.status === "not_configured")
-        void queryClient.invalidateQueries({ queryKey: CLAUDE_QUERY_KEY });
-    },
-  });
-  const result = test.data?.result;
-
+function TestPanel({
+  canTest,
+  pending,
+  result,
+  error,
+  onTest,
+}: {
+  canTest: boolean;
+  pending: boolean;
+  result: ManageClaudeTest["result"] | undefined;
+  error: Error | undefined;
+  onTest: () => void;
+}) {
   return (
     <Panel id="claude-test-heading" title="Test the connection">
       <p>
@@ -286,14 +313,18 @@ function TestPanel({ client, canTest }: { client: ManageClient; canTest: boolean
         id="claude-test-result"
         message={result?.status === "ready" && describeTestResult(result)}
       />
-      {test.isError && (
-        <ErrorNotice id="claude-test-error">{describeError(test.error)}</ErrorNotice>
-      )}
+      {error && <ErrorNotice id="claude-test-error">{describeError(error)}</ErrorNotice>}
       {result && result.status !== "ready" && (
         <ErrorNotice id="claude-test-error">{describeTestResult(result)}</ErrorNotice>
       )}
-      <Button variant="outline" disabled={!canTest || test.isPending} onClick={() => test.mutate()}>
-        {test.isPending ? "Testing…" : "Test the token exchange"}
+      <Button
+        variant="outline"
+        // Focus stays on the button while a test runs and when nothing is left to test.
+        focusableWhenDisabled
+        disabled={!canTest || pending}
+        onClick={onTest}
+      >
+        {pending ? "Testing…" : "Test the token exchange"}
       </Button>
     </Panel>
   );

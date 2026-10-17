@@ -2031,8 +2031,9 @@ Status: design approved by the owner on 2026-10-11, and its reorganisation into 
 and Devices tabs with a page per site on 2026-10-12 (21:08 UTC). The Claude tab, which
 replaces the temporary `/manage/claude` form page, is proposed in its implementation PR
 and its layout is not confirmed by the owner yet. The app, its Access-checked assets and
-API, and the devices, sites, site and Claude pages are implemented and tested locally; the deployed service still has the earlier sites, account bindings and
-recipes pages until the next deployment. It replaces the extension's settings page
+API, and the devices, sites, site and Claude pages are implemented and tested locally;
+the deployed service still has the earlier sites, account bindings and recipes pages
+until the next deployment. It replaces the extension's settings page
 for the data the service holds
 ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)), except item selection,
 field exclusions and custom-field review, which need the device's vault catalog
@@ -2041,11 +2042,11 @@ field exclusions and custom-field review, which need the device's vault catalog
 - Pages. A React app under `/manage`, built with the same approved stack as the
   extension's pages ([ADR 0004](adr/0004-library-composition.md)) and served by the
   Worker as static assets. Its header shows the logo and three tabs, Sites, Devices
-  and Claude, and its footer the version, links to the source and the GPL text at the built commit
-  and to the third-party notices, and the Theme select. React's rendered `<title>` sets
-  the tab title to `Devices – Pateat`, `Sites – Pateat`, `Claude – Pateat` or
-  `<origin> – Pateat`; the
-  static HTML keeps `Pateat` before the app renders. Each page is its own path, a full
+  and Claude, and its footer the version, links to the source and the GPL text at the
+  built commit and to the third-party notices, and the Theme select. React's rendered
+  `<title>` sets the tab title to `Devices – Pateat`, `Sites – Pateat`,
+  `Claude – Pateat` or `<origin> – Pateat`; the static HTML keeps `Pateat` before the
+  app renders. Each page is its own path, a full
   page load that the Worker serves only for these paths:
   - Devices (`/manage`): the current list and revocation, moved into the app.
   - Sites (`/manage/sites`): one list of every origin the service holds a recipe, a
@@ -2079,23 +2080,24 @@ field exclusions and custom-field review, which need the device's vault catalog
 - Claude (`/manage/claude`): the owner's Workload Identity Federation credentials
   ([ADR 0015](adr/0015-per-owner-claude-credentials.md)), in three panels. Claude
   Console lists the values to enter there (the issuer URL, or that the service has
-  none configured; the exact subject `owner:<ownerId>`; the audience; the scope). Federation
-  identifiers is a form of the four identifiers, filled with the saved ones, which
-  checks each against its pattern before saving, and says when a saved row no longer
-  validates. Test the connection exchanges one token with the saved identifiers, which
-  calls no model and costs nothing, and shows how long the token is valid for or why
-  the exchange failed; the token never reaches the page. The page notes that none of
-  the values is a secret and that archiving the federation rule in the Console stops
-  Pateat's access. This replaces the temporary script-free form the owner chose on
-  2026-10-11 to try WIF before the web UI existed; its layout is proposed and not
-  confirmed by the owner.
+  none configured; the exact subject `owner:<ownerId>`; the audience; the scope).
+  Federation identifiers is a form of the four identifiers, starting from the saved
+  ones and keeping what the owner typed across refetches, which shows each field's
+  expected shape, checks each against its pattern before saving, and says when a saved
+  row no longer validates. Test the connection exchanges one token with the saved
+  identifiers, which calls no model and costs nothing, and shows how long the token is
+  valid for or why the exchange failed; the token never reaches the page. The page
+  notes that none of the values is a secret and that archiving the federation rule in
+  the Console stops Pateat's access. This replaces the temporary script-free form the
+  owner chose on 2026-10-11 to try WIF before the web UI existed; its layout is
+  proposed and not confirmed by the owner.
 - Data. The app calls a JSON API under `/manage/api/*`. It does not call `/v1`, whose
   routes accept only device credentials. The API shares the owner-scoped read and write
-  code of `/v1/settings` and `/v1/recipes/:recipeId`. Writes carry the revision the page
-  last read; a stale write changes nothing and returns the current state. The service
-  copy of settings holds no `connections`: the extension uploads none, a web write must
-  have none, and the page drops any that another client stored. A web write also stays
-  within the 120 KiB document size devices upload. An identity with no paired device has
+  code of `/v1/settings` and `/v1/recipes/:recipeId`. Settings and recipe writes carry
+  the revision the page last read; a stale write changes nothing and returns the current
+  state. The service copy of settings holds no `connections`: the extension uploads
+  none, a web write must have none, and the page drops any that another client stored.
+  A web write also stays within the 120 KiB document size devices upload. An identity with no paired device has
   no settings to edit and is told to pair one. Devices receive the change on their next
   settings or recipe sync. The device ID columns recording who wrote a settings or
   recipe revision are nullable; null means the web UI wrote it. The Claude identifiers

@@ -388,8 +388,9 @@ than in this repository.
     page with a "Pateat on this site" switch, its default account, recipes and bindings
     ([owner web UI](architecture.md#owner-web-ui)).
   - Done: the Worker's script-free pages (`/pair/signed-in`, the Access and error pages
-    and `/manage/claude`) use the same tokens, light or dark as the browser prefers,
-    with the logo beside "Pateat" and the page in one panel. With this, every screen of
+    and the `/manage/claude` form, since moved into the owner web UI) use the same
+    tokens, light or dark as the browser prefers, with the logo beside "Pateat" and the
+    page in one panel. With this, every screen of
     the extension and the service has had its polish pass.
   - Done: the toolbar badge spins (braille frames) in a tab while a model request for
     that tab's page is in flight, and shows how the tab's last login ended: a red `!`

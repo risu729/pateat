@@ -63,13 +63,26 @@ export const manageClaudeRoutes = new Hono<ApiEnv>()
     let result: ManageClaudeTest["result"];
     try {
       const outcome = await resolveClaudeCredential(c.env, ownerId);
-      result =
-        outcome.status === "ready"
-          ? {
-              status: "ready",
-              expiresInSeconds: Math.max(0, Math.round((outcome.expiresAt - Date.now()) / 1000)),
-            }
-          : outcome;
+      // Built field by field, so nothing else in the outcome can reach the page.
+      switch (outcome.status) {
+        case "ready":
+          result = {
+            status: "ready",
+            expiresInSeconds: Math.max(0, Math.round((outcome.expiresAt - Date.now()) / 1000)),
+          };
+          break;
+        case "rejected":
+          result = { status: "rejected", httpStatus: outcome.httpStatus };
+          break;
+        case "failed":
+          result =
+            outcome.httpStatus === undefined
+              ? { status: "failed" }
+              : { status: "failed", httpStatus: outcome.httpStatus };
+          break;
+        default:
+          result = { status: outcome.status };
+      }
     } catch (error) {
       if (!v.isValiError(error)) throw error;
       result = { status: "stored_invalid" };
