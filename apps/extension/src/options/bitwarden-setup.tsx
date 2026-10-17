@@ -1,3 +1,6 @@
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
+import { i18n } from "../i18n";
 import { normalizeBitwardenProfile, type BitwardenProfile } from "@pateat/bitwarden";
 import type { SettingsResponse, VaultItemMetadata } from "@pateat/contracts";
 import { AlertDialog } from "@base-ui/react/alert-dialog";
@@ -41,10 +44,15 @@ import {
 type StatusReply = Extract<SetupReply, { kind: "status" }>;
 type Challenge = Extract<SetupReply, { kind: "mfa-required" | "new-device-verification-required" }>;
 type Connection = StatusReply["connections"][number];
+type Message = string | ((translate: TFunction) => string);
 const deleteDialog = AlertDialog.createHandle<Connection>();
-function errorMessage(code: string, check?: string): string {
+function errorMessage(code: string, check?: string): Message {
   if (code === "account-mismatch")
-    return `The provider's sign-in and vault data did not agree${check ? ` (check: ${check})` : ""}. Setup is incomplete; report this check name.`;
+    return (translate) =>
+      translate(
+        "The provider's sign-in and vault data did not agree{{check}}. Setup is incomplete; report this check name.",
+        { check: check ? translate(" (check: {{check}})", { check }) : "" },
+      );
   const messages: Record<string, string> = {
     "provider-permission-required":
       "Provider access was not granted. Use the connection button to grant access.",
@@ -68,31 +76,38 @@ function errorMessage(code: string, check?: string): string {
     "revision-conflict":
       "Saved settings changed. Reload saved settings and review the current field list before trying again.",
   };
-  return (
-    messages[code] ?? `Connection operation unavailable (${code}). Refresh before trying again.`
-  );
+  return Object.hasOwn(messages, code)
+    ? messages[code]!
+    : (translate) =>
+        translate("Connection operation unavailable ({{code}}). Refresh before trying again.", {
+          code,
+        });
 }
 type Line = { tone: Tone; icon: typeof Info; text: string };
 
 /** The vault, the sync sign-in, the last sync and automatic unlock, one line each. */
-function statusLines(connection: Connection): Line[] {
+function statusLines(connection: Connection, t: TFunction, language: string): Line[] {
   const lines: Line[] = [];
   switch (connection.state) {
     case "ready":
-      lines.push({ tone: "ok", icon: CircleCheck, text: "Local vault ready" });
+      lines.push({ tone: "ok", icon: CircleCheck, text: t("Local vault ready") });
       break;
     case "review-required":
       lines.push({
         tone: "warn",
         icon: TriangleAlert,
-        text: "Some items need their field settings reviewed before use",
+        text: t("Some items need their field settings reviewed before use"),
       });
       break;
     case "configured":
-      lines.push({ tone: "warn", icon: TriangleAlert, text: "Setup incomplete or vault locked" });
+      lines.push({
+        tone: "warn",
+        icon: TriangleAlert,
+        text: t("Setup incomplete or vault locked"),
+      });
       break;
     case "unavailable":
-      lines.push({ tone: "err", icon: CircleX, text: "Vault unavailable" });
+      lines.push({ tone: "err", icon: CircleX, text: t("Vault unavailable") });
       break;
     case "disabled":
       // The automatic-unlock line below says it.
@@ -100,36 +115,40 @@ function statusLines(connection: Connection): Line[] {
   }
   switch (connection.providerSession) {
     case "active":
-      lines.push({ tone: "ok", icon: CircleCheck, text: "Sync sign-in saved on this device" });
+      lines.push({ tone: "ok", icon: CircleCheck, text: t("Sync sign-in saved on this device") });
       break;
     case "refresh-required":
       lines.push({
         tone: "ok",
         icon: CircleCheck,
-        text: "Sync sign-in saved, renewed on the next sync",
+        text: t("Sync sign-in saved, renewed on the next sync"),
       });
       break;
     case "reauthentication-required":
-      lines.push({ tone: "warn", icon: TriangleAlert, text: "Sign in again to sync" });
+      lines.push({ tone: "warn", icon: TriangleAlert, text: t("Sign in again to sync") });
       break;
     case "none":
-      lines.push({ tone: "idle", icon: Pause, text: "Not signed in for sync" });
+      lines.push({ tone: "idle", icon: Pause, text: t("Not signed in for sync") });
       break;
     case "unavailable":
-      lines.push({ tone: "warn", icon: TriangleAlert, text: "Sync sign-in unavailable" });
+      lines.push({ tone: "warn", icon: TriangleAlert, text: t("Sync sign-in unavailable") });
       break;
   }
-  if (connection.syncedAt !== undefined)
+  if (connection.syncedAt !== undefined) {
+    const formatted = localSyncTime(connection.syncedAt, language);
     lines.push({
       tone: "idle",
       icon: Clock,
-      text: `Vault synced ${localSyncTime(connection.syncedAt)}`,
+      text: t("Vault synced {{time}}", {
+        time: formatted === "at an unknown time" ? t("at an unknown time") : formatted,
+      }),
     });
+  }
   if (connection.autoUnlock === "enabled")
-    lines.push({ tone: "ok", icon: CircleCheck, text: "Automatic unlock on" });
+    lines.push({ tone: "ok", icon: CircleCheck, text: t("Automatic unlock on") });
   else if (connection.autoUnlock === "disabled")
-    lines.push({ tone: "idle", icon: Pause, text: "Automatic unlock off" });
-  else lines.push({ tone: "idle", icon: Info, text: "Automatic unlock unknown" });
+    lines.push({ tone: "idle", icon: Pause, text: t("Automatic unlock off") });
+  else lines.push({ tone: "idle", icon: Info, text: t("Automatic unlock unknown") });
   return lines;
 }
 
@@ -142,6 +161,7 @@ function FieldReview({
   disabled: boolean;
   onReview: (excludedFieldIds: string[]) => void;
 }) {
+  const { t } = useTranslation(undefined, { i18n });
   const fields = item.fields.filter((field) => field.id.startsWith("custom."));
   const [excluded, setExcluded] = useState(() => fields.map((field) => field.id));
   return (
@@ -149,16 +169,23 @@ function FieldReview({
       className="m-0 flex min-w-0 flex-col gap-2 rounded-lg border border-border bg-surface p-4"
       disabled={disabled}
     >
-      <legend className="px-1 font-semibold">Review changed fields in {item.label}</legend>
+      <legend className="px-1 font-semibold">
+        {t("Review changed fields in {{item}}", { item: item.label })}
+      </legend>
       <p className="m-0 text-sm text-ink-muted">
-        All current custom fields start excluded. Save this review before the item can be used;
-        other saved exclusions stay in place.
+        {t(
+          "All current custom fields start excluded. Save this review before the item can be used; other saved exclusions stay in place.",
+        )}
       </p>
       {fields.map((field, index) => (
         <label className={checkClass} key={field.id}>
           <input
             type="checkbox"
-            aria-label={`${item.label}: Review exclude ${field.label} (field ${index + 1})`}
+            aria-label={t("{{item}}: Review exclude {{field}} (field {{index}})", {
+              item: item.label,
+              field: field.label,
+              index: index + 1,
+            })}
             checked={excluded.includes(field.id)}
             onChange={(event) =>
               setExcluded((previous) =>
@@ -168,22 +195,23 @@ function FieldReview({
               )
             }
           />
-          Exclude {field.label} (field {index + 1})
+          {t("Exclude {{field}} (field {{index}})", { field: field.label, index: index + 1 })}
         </label>
       ))}
       {!fields.length && (
         <p className="m-0 text-sm">
-          This item has no current custom fields. Saving this review explicitly removes its old
-          custom-field exclusions.
+          {t(
+            "This item has no current custom fields. Saving this review explicitly removes its old custom-field exclusions.",
+          )}
         </p>
       )}
       <Button
         type="button"
         className="self-start"
-        aria-label={`${item.label}: Save reviewed field exclusions`}
+        aria-label={t("{{item}}: Save reviewed field exclusions", { item: item.label })}
         onClick={() => onReview(excluded)}
       >
-        Save reviewed field exclusions
+        {t("Save reviewed field exclusions")}
       </Button>
     </fieldset>
   );
@@ -206,6 +234,7 @@ export function BitwardenSetup({
   /** What goes under the rows, given the listed connections once their status was read. */
   renderOthers?: (listed: string[] | undefined) => ReactNode;
 }) {
+  const { t } = useTranslation(undefined, { i18n });
   const [connections, setConnections] = useState<Connection[]>([]);
   const [existing, setExisting] = useState<Connection>();
   const [region, setRegion] = useState("us");
@@ -225,7 +254,8 @@ export function BitwardenSetup({
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(true);
   const [statusKnown, setStatusKnown] = useState(false);
-  const [message, setMessage] = useState("Loading Bitwarden connections…");
+  const [message, setMessage] = useState<Message>("Loading Bitwarden connections…");
+  const say = (next: Message) => setMessage(() => next);
   const operation = useRef(false);
   const generation = useRef(0);
   const passwordInput = useRef<HTMLInputElement>(null);
@@ -250,12 +280,12 @@ export function BitwardenSetup({
     void readConnections(epoch)
       .then(() => {
         if (epoch === generation.current)
-          setMessage("Connections loaded. Add a vault or sign in again below.");
+          say("Connections loaded. Add a vault or sign in again below.");
         return undefined;
       })
       .catch(() => {
         if (epoch === generation.current)
-          setMessage("Unable to read connection status. Refresh to retry.");
+          say("Unable to read connection status. Refresh to retry.");
       })
       .finally(() => {
         if (epoch === generation.current) {
@@ -277,7 +307,7 @@ export function BitwardenSetup({
     if (epoch !== generation.current) return;
     if (!result.ok) {
       setChallenge(undefined);
-      setMessage(errorMessage(result.error.code, result.error.check));
+      say(errorMessage(result.error.code, result.error.check));
       // A resolved error may follow a durable cache/configuration change.
       // Preserve the draft and require a fresh catalog before another settings save.
       onCatalogChanged();
@@ -287,9 +317,9 @@ export function BitwardenSetup({
       setChallenge(result);
       if (result.kind === "mfa-required") {
         setProvider(result.providers[0] ?? 0);
-        setMessage("Enter a manual two-step verification code. No code is sent automatically.");
+        say("Enter a manual two-step verification code. No code is sent automatically.");
       } else
-        setMessage(
+        say(
           result.invalidOtp
             ? "The new-device code was rejected. Enter a new code manually."
             : "Enter the new-device verification code from your email.",
@@ -300,25 +330,33 @@ export function BitwardenSetup({
     }
     setChallenge(undefined);
     if (result.kind === "ready") {
-      setMessage(
+      say(
         result.policyReviewItemIds.length
-          ? `Vault accepted. ${result.policyReviewItemIds.length} item(s) need their field settings reviewed before use.`
+          ? (translate) =>
+              translate(
+                "Vault accepted. {{count}} item needs its field settings reviewed before use.",
+                { count: result.policyReviewItemIds.length },
+              )
           : "Vault verified and local cache accepted. Check automatic-unlock status below.",
       );
       setExisting(undefined);
       catalogChanged.current();
       await readConnections(epoch);
     } else if (result.kind === "interaction-required")
-      setMessage(`Setup is incomplete: ${result.reason}. This interaction is not supported here.`);
-    else if (result.kind === "cancelled") setMessage("Setup cancelled.");
+      say((translate) =>
+        translate("Setup is incomplete: {{reason}}. This interaction is not supported here.", {
+          reason: result.reason,
+        }),
+      );
+    else if (result.kind === "cancelled") say("Setup cancelled.");
     else if (result.kind === "status") setConnections(result.connections);
     else if (result.kind === "forgotten") {
-      setMessage(
+      say(
         "Sync sign-in removed from this device. This does not sign out other sessions; the local vault still unlocks as before.",
       );
       await readConnections(epoch);
     } else if (result.kind === "deleted") {
-      setMessage(
+      say(
         "Connection deleted from this device, with its local vault cache, unlock key and sync sign-in. This does not sign out other sessions. Saved settings that referred to it now show it as unavailable.",
       );
       const deleted = result.connectionId;
@@ -326,9 +364,7 @@ export function BitwardenSetup({
       catalogChanged.current();
       await readConnections(epoch);
     } else if (result.kind === "disabled") {
-      setMessage(
-        "Automatic unlock disabled. Sign in again with Enable automatic unlock to restore it.",
-      );
+      say("Automatic unlock disabled. Sign in again with Enable automatic unlock to restore it.");
       catalogChanged.current();
       await readConnections(epoch);
     }
@@ -343,7 +379,7 @@ export function BitwardenSetup({
       .catch(() => {
         if (epoch !== generation.current) return;
         setChallenge(undefined);
-        setMessage(
+        say(
           "The operation could not be confirmed. Refresh and reload saved settings. Your previous draft is preserved.",
         );
         catalogChanged.current();
@@ -367,7 +403,7 @@ export function BitwardenSetup({
       (!existing && (!name.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) ||
       !password
     ) {
-      setMessage(
+      say(
         "Enter a connection name, valid email and master password. Self-hosted addresses must be ordinary HTTPS roots without a path, credentials, query or fragment.",
       );
       return;
@@ -388,12 +424,12 @@ export function BitwardenSetup({
           enabled,
         };
     clearSecrets();
-    setMessage("Requesting provider access and connecting…");
+    say("Requesting provider access and connecting…");
     start(async (epoch) => {
       const granted = await client.requestProviderPermission(profile.data.environment);
       if (epoch !== generation.current) return;
       if (!granted) {
-        setMessage("Provider access was not granted. No sign-in request was sent.");
+        say("Provider access was not granted. No sign-in request was sent.");
         return;
       }
       await receive(await client.begin(input), epoch);
@@ -410,25 +446,25 @@ export function BitwardenSetup({
       await receive(await client.continue(input), epoch);
     });
   }
-  function cancel(stopped = "Setup stopped. Refresh to confirm the latest state.") {
+  function cancel(stopped: Message = "Setup stopped. Refresh to confirm the latest state.") {
     ++generation.current;
     operation.current = false;
     client.close();
     clearSecrets();
     setChallenge(undefined);
     setBusy(false);
-    setMessage(stopped);
+    say(stopped);
     catalogChanged.current();
   }
   function syncConnection(connection: Connection) {
     if (operation.current) return;
     // Until the reply, the line says what runs instead of keeping the last load's text.
-    setMessage(`Syncing ${connection.label}…`);
+    say((translate) => translate("Syncing {{name}}…", { name: connection.label }));
     start(async (epoch) => {
       const granted = await client.requestProviderPermission(connection.environment);
       if (epoch !== generation.current) return;
       if (!granted) {
-        setMessage("Provider access was not granted. No sync request was sent.");
+        say("Provider access was not granted. No sync request was sent.");
         return;
       }
       await receive(await client.sync(connection.connectionId), epoch);
@@ -440,7 +476,7 @@ export function BitwardenSetup({
     setEnableUnlock(false);
     setAddOpen(true);
     focusPassword.current = true;
-    setMessage(
+    say(
       "Enter the master password to sign in again. Automatic unlock stays unchanged unless explicitly enabled.",
     );
   }
@@ -460,14 +496,14 @@ export function BitwardenSetup({
   const cancelable = busy || !!challenge || !!password || !!code || !!existing;
   const cancelButton = (id?: string) => (
     <Button id={id} type="button" variant="outline" disabled={!cancelable} onClick={() => cancel()}>
-      Cancel setup
+      {t("Cancel setup")}
     </Button>
   );
   return (
     <Panel
       id="bitwarden"
       headingId="bitwarden-setup-heading"
-      title="Bitwarden"
+      title={t("Bitwarden")}
       actions={
         <div className="flex flex-wrap gap-2">
           {/* While a row's operation runs with the form closed, it can still be stopped. */}
@@ -477,24 +513,24 @@ export function BitwardenSetup({
               variant="outline"
               onClick={() => cancel("Stopped. Refresh to confirm the latest state.")}
             >
-              Cancel
+              {t("Cancel")}
             </Button>
           )}
           <Button
             id="bitwarden-refresh-connections"
             type="button"
             variant="ghost"
-            aria-label="Refresh connections"
+            aria-label={t("Refresh connections")}
             disabled={busy || !!challenge}
             onClick={() =>
               start(async (epoch) => {
                 await readConnections(epoch);
-                if (epoch === generation.current) setMessage("Connection status refreshed.");
+                if (epoch === generation.current) say("Connection status refreshed.");
               })
             }
           >
             <RefreshCw aria-hidden size={16} strokeWidth={2} />
-            Refresh
+            {t("Refresh")}
           </Button>
         </div>
       }
@@ -505,7 +541,7 @@ export function BitwardenSetup({
         aria-live="polite"
         aria-atomic="true"
       >
-        {message}
+        {typeof message === "function" ? message(t) : t(message)}
       </output>
       <RowList id="bitwarden-connections">
         {connections.map((connection) => {
@@ -519,9 +555,12 @@ export function BitwardenSetup({
                 <>
                   <RowTitle>{connection.label}</RowTitle>
                   <RowSub>
-                    {connection.email} on {serverName(connection.environment)}
+                    {t("{{email}} on {{server}}", {
+                      email: connection.email,
+                      server: serverName(connection.environment, t),
+                    })}
                   </RowSub>
-                  <StatusLines lines={statusLines(connection)} />
+                  <StatusLines lines={statusLines(connection, t, i18n.resolvedLanguage ?? "en")} />
                 </>
               }
               actions={
@@ -530,7 +569,10 @@ export function BitwardenSetup({
                     type="button"
                     variant="outline"
                     disabled={blocked}
-                    aria-label={`${connection.label}: ${signInFirst ? "Sign in again" : "Sync"}`}
+                    aria-label={t("{{name}}: {{action}}", {
+                      name: connection.label,
+                      action: t(signInFirst ? "Sign in again" : "Sync"),
+                    })}
                     onClick={() =>
                       signInFirst ? signInAgain(connection) : syncConnection(connection)
                     }
@@ -540,7 +582,7 @@ export function BitwardenSetup({
                     ) : (
                       <RefreshCw aria-hidden size={16} strokeWidth={2} />
                     )}
-                    {signInFirst ? "Sign in again" : "Sync"}
+                    {t(signInFirst ? "Sign in again" : "Sync")}
                   </Button>
                   <Menu.Root>
                     <Menu.Trigger
@@ -549,7 +591,7 @@ export function BitwardenSetup({
                         else menuTriggers.current.delete(connection.connectionId);
                       }}
                       className={iconButtonClass}
-                      aria-label={`More for ${connection.label}`}
+                      aria-label={t("More for {{name}}", { name: connection.label })}
                       disabled={blocked}
                     >
                       <Ellipsis aria-hidden size={16} strokeWidth={2} />
@@ -560,25 +602,27 @@ export function BitwardenSetup({
                           {signInFirst ? (
                             <Menu.Item
                               className={menuItemClass}
-                              aria-label={`${connection.label}: Sync`}
+                              aria-label={t("{{name}}: Sync", { name: connection.label })}
                               onClick={() => syncConnection(connection)}
                             >
                               <RefreshCw aria-hidden size={16} strokeWidth={2} />
-                              Sync
+                              {t("Sync")}
                             </Menu.Item>
                           ) : (
                             <Menu.Item
                               className={menuItemClass}
-                              aria-label={`${connection.label}: Sign in again`}
+                              aria-label={t("{{name}}: Sign in again", { name: connection.label })}
                               onClick={() => signInAgain(connection)}
                             >
                               <LogIn aria-hidden size={16} strokeWidth={2} />
-                              Sign in again
+                              {t("Sign in again")}
                             </Menu.Item>
                           )}
                           <Menu.Item
                             className={menuItemClass}
-                            aria-label={`${connection.label}: Disable automatic unlock`}
+                            aria-label={t("{{name}}: Disable automatic unlock", {
+                              name: connection.label,
+                            })}
                             disabled={connection.autoUnlock === "disabled"}
                             onClick={() =>
                               start(async (epoch) => {
@@ -590,11 +634,13 @@ export function BitwardenSetup({
                             }
                           >
                             <Pause aria-hidden size={16} strokeWidth={2} />
-                            Disable automatic unlock
+                            {t("Disable automatic unlock")}
                           </Menu.Item>
                           <Menu.Item
                             className={menuItemClass}
-                            aria-label={`${connection.label}: Forget sync sign-in`}
+                            aria-label={t("{{name}}: Forget sync sign-in", {
+                              name: connection.label,
+                            })}
                             disabled={connection.providerSession === "none"}
                             onClick={() =>
                               start(async (epoch) => {
@@ -606,15 +652,17 @@ export function BitwardenSetup({
                             }
                           >
                             <LogOut aria-hidden size={16} strokeWidth={2} />
-                            Forget sync sign-in
+                            {t("Forget sync sign-in")}
                           </Menu.Item>
                           <Menu.Item
                             className={`${menuItemClass} text-danger`}
-                            aria-label={`${connection.label}: Delete connection`}
+                            aria-label={t("{{name}}: Delete connection", {
+                              name: connection.label,
+                            })}
                             onClick={() => deleteDialog.openWithPayload(connection)}
                           >
                             <Trash2 aria-hidden size={16} strokeWidth={2} />
-                            Delete connection
+                            {t("Delete connection")}
                           </Menu.Item>
                         </Menu.Popup>
                       </Menu.Positioner>
@@ -631,7 +679,7 @@ export function BitwardenSetup({
       <AlertDialog.Root
         handle={deleteDialog}
         onOpenChange={(open, details) => {
-          if (!open && details.reason === "escape-key") setMessage("Connection kept.");
+          if (!open && details.reason === "escape-key") say("Connection kept.");
         }}
       >
         {({ payload }) => (
@@ -646,22 +694,22 @@ export function BitwardenSetup({
               finalFocus={() => (payload && menuTriggers.current.get(payload.connectionId)) ?? true}
             >
               <AlertDialog.Title className="m-0 text-lg font-semibold wrap-anywhere">
-                Delete {payload?.label}?
+                {t("Delete {{name}}?", { name: payload?.label })}
               </AlertDialog.Title>
               <AlertDialog.Description className="my-4 text-sm leading-6">
-                This removes the connection, its local vault cache, unlock key and sync sign-in from
-                this device. It does not sign out other sessions, and saved settings that refer to
-                it will show it as unavailable.
+                {t(
+                  "This removes the connection, its local vault cache, unlock key and sync sign-in from this device. It does not sign out other sessions, and saved settings that refer to it will show it as unavailable.",
+                )}
               </AlertDialog.Description>
               <div className="flex flex-wrap justify-end gap-2">
                 <AlertDialog.Close
                   ref={keepConnectionButton}
                   render={<Button variant="outline" />}
                   onClick={() => {
-                    if (deleteDialog.isOpen) setMessage("Connection kept.");
+                    if (deleteDialog.isOpen) say("Connection kept.");
                   }}
                 >
-                  Keep connection
+                  {t("Keep connection")}
                 </AlertDialog.Close>
                 <AlertDialog.Close
                   render={<Button variant="danger" />}
@@ -674,7 +722,7 @@ export function BitwardenSetup({
                     });
                   }}
                 >
-                  Delete connection
+                  {t("Delete connection")}
                 </AlertDialog.Close>
               </div>
             </AlertDialog.Popup>
@@ -691,7 +739,7 @@ export function BitwardenSetup({
           <div key={connection.id} className={groupClass}>
             <h3 className="m-0 flex items-center gap-2 text-base">
               <TriangleAlert aria-hidden size={16} strokeWidth={2} className="text-warning" />
-              Review changed custom fields in {connection.label}
+              {t("Review changed custom fields in {{name}}", { name: connection.label })}
             </h3>
             <StatusLines
               muted
@@ -699,14 +747,18 @@ export function BitwardenSetup({
                 {
                   tone: "idle",
                   icon: Info,
-                  text: "Affected items stay unavailable until their field settings are reviewed; refreshing does not approve them.",
+                  text: t(
+                    "Affected items stay unavailable until their field settings are reviewed; refreshing does not approve them.",
+                  ),
                 },
                 ...(reviewBlocked
                   ? [
                       {
                         tone: "warn" as const,
                         icon: TriangleAlert,
-                        text: "Reload saved settings to review the current field list. Your unsaved policy draft is preserved until you choose Reload.",
+                        text: t(
+                          "Reload saved settings to review the current field list. Your unsaved policy draft is preserved until you choose Reload.",
+                        ),
                       },
                     ]
                   : []),
@@ -740,11 +792,11 @@ export function BitwardenSetup({
       {challenge ? (
         <div className={groupClass}>
           <fieldset className="m-0 flex min-w-0 flex-col gap-3 border-0 p-0" disabled={busy}>
-            <legend className="mb-3 p-0 font-semibold">Manual verification</legend>
+            <legend className="mb-3 p-0 font-semibold">{t("Manual verification")}</legend>
             {challenge.kind === "mfa-required" ? (
               <div className="grid gap-x-4 gap-y-3 sm:grid-cols-2">
                 <label className={fieldClass}>
-                  Verification method
+                  {t("Verification method")}
                   <select
                     id="bitwarden-mfa-provider"
                     className={controlClass}
@@ -753,13 +805,13 @@ export function BitwardenSetup({
                   >
                     {challenge.providers.map((id) => (
                       <option key={id} value={id}>
-                        {id === 0 ? "Authenticator code" : "Email code"}
+                        {t(id === 0 ? "Authenticator code" : "Email code")}
                       </option>
                     ))}
                   </select>
                 </label>
                 <label className={fieldClass}>
-                  Verification code
+                  {t("Verification code")}
                   <input
                     id="bitwarden-code"
                     ref={codeInput}
@@ -774,7 +826,7 @@ export function BitwardenSetup({
               </div>
             ) : (
               <label className={fieldClass}>
-                New-device verification code
+                {t("New-device verification code")}
                 <input
                   id="bitwarden-new-device-otp"
                   ref={codeInput}
@@ -794,7 +846,9 @@ export function BitwardenSetup({
                   {
                     tone: "idle",
                     icon: Info,
-                    text: "Enter an email code you already received. Sending an email verification code is not available here.",
+                    text: t(
+                      "Enter an email code you already received. Sending an email verification code is not available here.",
+                    ),
                   },
                 ]}
               />
@@ -809,7 +863,7 @@ export function BitwardenSetup({
               }
               onClick={continueSetup}
             >
-              Verify code
+              {t("Verify code")}
             </Button>
             {cancelButton("bitwarden-cancel")}
           </div>
@@ -825,31 +879,35 @@ export function BitwardenSetup({
           }}
         >
           <summary className="cursor-pointer font-semibold">
-            {existing ? `Sign in to ${existing.label} again` : "Add a connection"}
+            {existing
+              ? t("Sign in to {{name}} again", { name: existing.label })
+              : t("Add a connection")}
           </summary>
           <fieldset className="m-0 flex min-w-0 flex-col gap-3 border-0 p-0" disabled={busy}>
             <legend className="visually-hidden">
-              {existing ? `Sign in to ${existing.label} again` : "Add a connection"}
+              {existing
+                ? t("Sign in to {{name}} again", { name: existing.label })
+                : t("Add a connection")}
             </legend>
             <div className="grid gap-x-4 gap-y-3 sm:grid-cols-2">
               {!existing && (
                 <>
                   <label className={fieldClass}>
-                    Server
+                    {t("Server")}
                     <select
                       id="bitwarden-region"
                       className={controlClass}
                       value={region}
                       onChange={(event) => setRegion(event.target.value)}
                     >
-                      <option value="us">Bitwarden Cloud US</option>
-                      <option value="eu">Bitwarden Cloud EU</option>
-                      <option value="self-hosted">Self-hosted HTTPS</option>
+                      <option value="us">{t("Bitwarden Cloud US")}</option>
+                      <option value="eu">{t("Bitwarden Cloud EU")}</option>
+                      <option value="self-hosted">{t("Self-hosted HTTPS")}</option>
                     </select>
                   </label>
                   {region === "self-hosted" && (
                     <label className={fieldClass}>
-                      Server address
+                      {t("Server address")}
                       <input
                         id="bitwarden-base-url"
                         className={controlClass}
@@ -862,19 +920,19 @@ export function BitwardenSetup({
                     </label>
                   )}
                   <label className={fieldClass}>
-                    Name
+                    {t("Name")}
                     <input
                       id="bitwarden-name"
                       className={controlClass}
                       type="text"
                       maxLength={200}
-                      placeholder="Personal"
+                      placeholder={t("Personal")}
                       value={name}
                       onChange={(event) => setName(event.target.value)}
                     />
                   </label>
                   <label className={fieldClass}>
-                    Email
+                    {t("Email")}
                     <input
                       id="bitwarden-email"
                       className={controlClass}
@@ -889,12 +947,12 @@ export function BitwardenSetup({
               )}
               {existing && (
                 <div className={fieldClass}>
-                  Email
+                  {t("Email")}
                   <span className="flex min-h-10 items-center font-normal">{existing.email}</span>
                 </div>
               )}
               <label className={fieldClass}>
-                Master password
+                {t("Master password")}
                 <input
                   id="bitwarden-password"
                   ref={passwordInput}
@@ -914,7 +972,7 @@ export function BitwardenSetup({
                   checked={enableUnlock}
                   onChange={(event) => setEnableUnlock(event.target.checked)}
                 />
-                Enable automatic unlock on this device
+                {t("Enable automatic unlock on this device")}
               </label>
             ) : (
               <label className={checkClass}>
@@ -924,7 +982,7 @@ export function BitwardenSetup({
                   checked={enabled}
                   onChange={(event) => setEnabled(event.target.checked)}
                 />
-                Use this connection
+                {t("Use this connection")}
               </label>
             )}
             <StatusLines
@@ -933,25 +991,29 @@ export function BitwardenSetup({
                 {
                   tone: "idle",
                   icon: Lock,
-                  text: "The master password and verification codes are not saved. An unlock key, an encrypted vault copy and a sync sign-in stay on this device.",
+                  text: t(
+                    "The master password and verification codes are not saved. An unlock key, an encrypted vault copy and a sync sign-in stay on this device.",
+                  ),
                 },
                 origins.ok
                   ? {
                       tone: "idle",
                       icon: Globe,
-                      text: `Chrome asks for access to ${listHosts(origins.data)}`,
+                      text: t("Chrome asks for access to {{hosts}}", {
+                        hosts: listHosts(origins.data, i18n.resolvedLanguage ?? "en"),
+                      }),
                     }
                   : {
                       tone: "warn",
                       icon: TriangleAlert,
-                      text: "Enter a valid HTTPS server address.",
+                      text: t("Enter a valid HTTPS server address."),
                     },
               ]}
             />
           </fieldset>
           <div className="flex flex-wrap gap-2">
             <Button id="bitwarden-connect" type="button" disabled={busy} onClick={connect}>
-              {existing ? "Sign in and sync" : "Connect Bitwarden"}
+              {t(existing ? "Sign in and sync" : "Connect Bitwarden")}
             </Button>
             {existing && (
               <Button
@@ -964,7 +1026,7 @@ export function BitwardenSetup({
                   setExisting(undefined);
                 }}
               >
-                Add another connection
+                {t("Add another connection")}
               </Button>
             )}
             {cancelButton("bitwarden-cancel")}
@@ -981,17 +1043,15 @@ const menuItemClass =
   "flex min-h-9 cursor-default items-center gap-2 rounded-md px-3 text-sm outline-none select-none data-[disabled]:opacity-50 data-[highlighted]:bg-accent-tint data-[highlighted]:outline-solid data-[highlighted]:outline-2 data-[highlighted]:-outline-offset-2 data-[highlighted]:outline-focus";
 
 /** Where a connection's vault lives, as the Server choice names it. */
-function serverName(environment: BitwardenProfile["environment"]): string {
+function serverName(environment: BitwardenProfile["environment"], t: TFunction): string {
   if (environment.kind === "self-hosted") return new URL(environment.baseUrl).host;
-  return environment.region === "eu" ? "Bitwarden Cloud EU" : "Bitwarden Cloud US";
+  return environment.region === "eu" ? t("Bitwarden Cloud EU") : t("Bitwarden Cloud US");
 }
 
 /** "a", "a and b", "a, b and c" of the hosts in Chrome match patterns. */
-function listHosts(patterns: string[]): string {
+function listHosts(patterns: string[], language: string): string {
   const hosts = patterns.map((pattern) => new URL(pattern.replace(/\/\*$/, "/")).host);
-  return hosts.length > 1
-    ? `${hosts.slice(0, -1).join(", ")} and ${hosts.at(-1)}`
-    : (hosts[0] ?? "");
+  return new Intl.ListFormat(language, { style: "long", type: "conjunction" }).format(hosts);
 }
 
 /** A connection that cannot sync until its owner signs in again. */
