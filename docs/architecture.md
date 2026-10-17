@@ -367,6 +367,33 @@ TOTP URIs and Bitwarden's Steam variant. Unsupported OTP formats must not be
 silently interpreted as TOTP. Bitwarden setup's manually entered verification
 codes are distinct from future automatic email/SMS challenge retrieval.
 
+### Unsupported vault session cases
+
+These cases of the crypto host and the vault manager are known and not handled; each
+fails as stated rather than retrying:
+
+- A crypto job has 30 seconds. A vault whose open, or whose check of every received
+  item, takes longer (a very large vault on a slow device) cannot be opened or synced.
+- The host measures that budget on the wall clock. A job still running when the
+  computer sleeps, or when the system clock jumps forward past the budget, ends with
+  `timeout`, and a job on an open vault ends that vault's session with it.
+- Cancelling a job the Worker has already received ends the whole session, because
+  terminating the Worker is the only way to stop it. Only the settings page's sync
+  passes such a cancellation for an open vault today.
+- A Worker that fails while it has no job is noticed only by its next job, which
+  fails `crypto-locked`.
+- One vault manager runs one open at a time. A restore or sync of a connection that
+  starts while another restore or sync of the same connection runs fails
+  `resource-limit`: the page sees the vault as unavailable, or the sync reports the
+  limit and is not retried by itself.
+- When the offscreen document's creation outlasts its 30-second budget, the host
+  creates no other document until Chrome settles that call; if it never settles,
+  vault work fails until the service worker restarts.
+- Work in flight when the service worker stops (an idle stop, a browser restart or an
+  extension update) is lost and its page request fails. The next service worker opens
+  each vault again from the retained key on its first use, so that first use waits
+  for the open.
+
 ## Settings, eligibility and operation grants
 
 Settings, exclusions, account defaults and inference settings are edited on the
