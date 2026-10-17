@@ -486,8 +486,8 @@ than in this repository.
   there ([ADR 0039](adr/0039-redacted-token-path-segments.md), owner, 14:10 UTC; local
   tests only; the synthetic browser test now also covers an opaque authorization-server
   ID in a middle path segment and verifies recipe reuse without another model call.
-  This added browser coverage has not yet been run). Check both sites in the owner's
-  Chrome.
+  Both cases passed in isolated cloud Chromium on 2026-10-17). Check both sites in the
+  owner's Chrome.
 - UNSW's single sign-on page on Microsoft Entra
   (`login.microsoftonline.com/<tenant>/oauth2/authorize`) was logged `recipe.generate`
   `skipped` `incomplete-observation` with `unfillable-field` in the owner's Chrome on

@@ -297,8 +297,12 @@ for (const { name, prefix, tenants } of [
           await page.goto(`${site}${paths[0]}?runId=${runId}`);
           await expect(page.locator("#signed-in")).toBeVisible();
           expect(fixture.evidence(runId)).toMatchObject({ posts: 1, allMatched: true });
+          // Reconciliation waits three seconds and compares readings a second apart.
+          // Allow its bounded loading/judging work to finish on a busy cloud worker.
           await expect
-            .poll(() => send(options, { version: 1, type: "login.probe.status" }))
+            .poll(() => send(options, { version: 1, type: "login.probe.status" }), {
+              timeout: 15_000,
+            })
             .toMatchObject({ attempts: [{ state: "authenticated", outcome: "authenticated" }] });
           // The tenant's ID never leaves the device: the page goes with `[id]` in its place.
           expect(claude.prompts.map((prompt) => [prompt.task, prompt.observation.path])).toEqual([
