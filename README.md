@@ -1,5 +1,7 @@
 # Pateat
 
+English | [日本語](README.ja.md)
+
 Auto Login for Chrome.
 
 A Chrome extension that completes configured login flows using the user's own
