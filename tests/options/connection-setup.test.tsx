@@ -1040,3 +1040,164 @@ test("each connection's row holds its vault access, which waits for saved settin
   await expect.element(use).toBeEnabled();
   await expect.element(use).not.toBeChecked();
 });
+
+const statusOutput = () => page.elementLocator(document.getElementById("bitwarden-setup-status")!);
+
+test.each(["ready", "error", "cancel"] as const)(
+  "a verification challenge takes keyboard focus and hands it to the status after %s",
+  async (end) => {
+    const client = mockClient();
+    client.begin.mockResolvedValue({ ok: true, kind: "mfa-required", flowId, providers: [0] });
+    if (end === "error")
+      client.continue.mockResolvedValue({ ok: false, error: { code: "resource-limit" } });
+    await mount(client);
+    await fillNew();
+    await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+    const code = page.getByLabelText("Verification code", { exact: true });
+    await expect.element(code).toHaveFocus();
+    if (end === "cancel") {
+      await page.getByRole("button", { name: "Cancel setup", exact: true }).click();
+      await expect
+        .element(page.getByText("Setup stopped. Refresh to confirm the latest state."))
+        .toBeVisible();
+    } else {
+      await code.fill("000123");
+      await page.getByRole("button", { name: "Verify code", exact: true }).click();
+      await vi.waitFor(() => expect(client.continue).toHaveBeenCalledTimes(1));
+    }
+    await expect.element(code).not.toBeInTheDocument();
+    await expect.element(statusOutput()).toHaveFocus();
+  },
+);
+
+test("a new-device challenge, and a rejected code asking again, focus the code field", async () => {
+  const client = mockClient();
+  client.begin.mockResolvedValue({
+    ok: true,
+    kind: "new-device-verification-required",
+    flowId,
+    invalidOtp: false,
+  });
+  client.continue.mockResolvedValue({
+    ok: true,
+    kind: "new-device-verification-required",
+    flowId,
+    invalidOtp: true,
+  });
+  await mount(client);
+  await fillNew();
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  const code = page.getByLabelText("New-device verification code", { exact: true });
+  await expect.element(code).toHaveFocus();
+  await code.fill("000987");
+  await page.getByRole("button", { name: "Verify code", exact: true }).click();
+  await expect
+    .element(page.getByText("The new-device code was rejected. Enter a new code manually."))
+    .toBeVisible();
+  await expect.element(code).toHaveFocus();
+});
+
+test("deleting a connection leaves keyboard focus on the status instead of the page", async () => {
+  const client = mockClient();
+  const leftover = {
+    connectionId: "leftover",
+    label: "Leftover vault",
+    email: "saved@example.test",
+    environment: { kind: "cloud" as const, region: "us" as const },
+    state: "configured" as const,
+    autoUnlock: "unknown" as const,
+    providerSession: "none" as const,
+  };
+  client.list
+    .mockResolvedValueOnce({ ...status(), connections: [leftover] })
+    .mockResolvedValue(status());
+  await mount(client);
+  await page.getByRole("button", { name: "More for Leftover vault", exact: true }).click();
+  await page
+    .getByRole("menuitem", { name: "Leftover vault: Delete connection", exact: true })
+    .click();
+  await page
+    .getByRole("alertdialog", { name: "Delete Leftover vault?", exact: true })
+    .getByRole("button", { name: "Delete connection", exact: true })
+    .click();
+  await expect.element(page.getByText(/^Connection deleted from this device/)).toBeVisible();
+  await expect.element(page.getByText("Leftover vault", { exact: true })).not.toBeInTheDocument();
+  await expect.element(statusOutput()).toHaveFocus();
+});
+
+test("Add another connection moves focus into the form it opens", async () => {
+  const client = mockClient();
+  client.list.mockResolvedValue({
+    ...status(),
+    connections: [
+      {
+        connectionId: "saved-a",
+        label: "Saved vault",
+        email: "saved@example.test",
+        environment: { kind: "cloud", region: "eu" },
+        state: "configured",
+        autoUnlock: "unknown",
+        providerSession: "none",
+      },
+    ],
+  });
+  await mount(client);
+  await page.getByRole("button", { name: "Saved vault: Sign in again", exact: true }).click();
+  await expect.element(page.getByLabelText("Master password", { exact: true })).toHaveFocus();
+  await page.getByRole("button", { name: "Add another connection", exact: true }).click();
+  await expect.element(page.getByRole("combobox", { name: "Server", exact: true })).toHaveFocus();
+});
+
+/** Focuses a button and presses Enter, as a keyboard or screen reader user does. */
+async function pressWithKeyboard(name: string) {
+  const button = page.getByRole("button", { name, exact: true });
+  (button.element() as HTMLElement).focus();
+  await userEvent.keyboard("{Enter}");
+  return button;
+}
+
+test("a failed connect keeps keyboard focus on Connect", async () => {
+  const client = mockClient();
+  const pending = held<SetupReply>();
+  client.begin.mockReturnValue(pending.promise);
+  await mount(client);
+  await fillNew();
+  const connect = await pressWithKeyboard("Connect Bitwarden");
+  await vi.waitFor(() => expect(client.begin).toHaveBeenCalledTimes(1));
+  // While it runs the button is unavailable but keeps focus.
+  await expect.element(connect).toHaveFocus();
+  await expect.element(connect).toHaveAttribute("aria-disabled", "true");
+  pending.resolve({ ok: false, error: { code: "resource-limit" } });
+  await expect.element(page.getByText(/reached a resource limit/)).toBeVisible();
+  await expect.element(connect).toBeEnabled();
+  await expect.element(connect).toHaveFocus();
+});
+
+test("a failed sync or refresh keeps keyboard focus on its button", async () => {
+  const client = mockClient();
+  client.list.mockResolvedValue({
+    ...status(),
+    connections: [
+      {
+        connectionId: "saved-a",
+        label: "Saved vault",
+        email: "saved@example.test",
+        environment: { kind: "cloud", region: "us" },
+        state: "ready",
+        autoUnlock: "enabled",
+        providerSession: "active",
+      },
+    ],
+  });
+  client.sync.mockResolvedValue({ ok: false, error: { code: "resource-limit" } });
+  await mount(client);
+  const sync = await pressWithKeyboard("Saved vault: Sync");
+  await expect.element(page.getByText(/reached a resource limit/)).toBeVisible();
+  await expect.element(sync).toBeEnabled();
+  await expect.element(sync).toHaveFocus();
+  client.list.mockRejectedValue(new Error("synthetic failure"));
+  const refresh = await pressWithKeyboard("Refresh connections");
+  await expect.element(page.getByText(/^The operation could not be confirmed/)).toBeVisible();
+  await expect.element(refresh).toBeEnabled();
+  await expect.element(refresh).toHaveFocus();
+});
