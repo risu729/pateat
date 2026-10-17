@@ -489,6 +489,16 @@ function login(input: unknown): unknown {
     if (!uris.length) result["uris"] = [{ uri, match: null, uriChecksum: null }];
   }
   delete result["uri"];
+  // Vaultwarden stores each passkey entry as the client sent it, and the official clients'
+  // request model carries a `response` member that is always null. Only that null is dropped;
+  // any other value still fails strict admission.
+  const passkeys = result["fido2Credentials"];
+  if (Array.isArray(passkeys))
+    result["fido2Credentials"] = passkeys.map((entry) => {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) return entry;
+      const { response, ...rest } = entry as RecordValue;
+      return response === null ? rest : entry;
+    });
   return result;
 }
 const kinds = ["login", "secureNote", "card", "identity"] as const;

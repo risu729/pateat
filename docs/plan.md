@@ -2781,7 +2781,10 @@ and clock boundaries. Do not imply HOTP support from URI parsing alone.
 Vaultwarden support is later work (owner request, 2026-10-11). A self-hosted
 connection to a Vaultwarden URL is accepted, but Pateat is tested only against
 official Bitwarden server response shapes, so Vaultwarden compatibility is
-unverified until its own response shapes and sign-in flow are tested.
+unverified until its own response shapes and sign-in flow are tested. One shape read
+from Vaultwarden's source is already admitted (2026-10-17): the always-null `response`
+member Vaultwarden keeps on each stored passkey entry is dropped, and any other value
+there is still refused.
 
 ## Mandatory acceptance matrix
 
