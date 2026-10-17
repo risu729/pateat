@@ -211,6 +211,10 @@ test("trims the identifiers, saves them and shows what was stored", async () => 
   await expect.element(page.getByText("Identifiers saved")).toBeVisible();
   expect(client.saveClaude).toHaveBeenCalledTimes(1);
   expect(client.saveClaude).toHaveBeenCalledWith(ids);
+  await expect.element(identifiersPanel()).toMatchTextContent("These identifiers are saved.");
+  await expect.element(field("federationRuleId")).toHaveValue(ids.federationRuleId);
+  await expect.element(field("serviceAccountId")).toHaveValue(ids.serviceAccountId);
+  await expect.element(testButton()).toBeEnabled();
 });
 
 test("asks for the identifiers again when the saved row is no longer valid", async () => {
@@ -219,6 +223,12 @@ test("asks for the identifiers again when the saved row is no longer valid", asy
   await expect.element(identifiersPanel().getByRole("alert")).toHaveTextContent(STORED_INVALID);
   await expect.element(field("workspaceId")).toHaveValue("");
   await expect.element(testButton()).toBeDisabled();
+
+  await fillForm(ids);
+  await saveButton().click();
+  await expect.element(page.getByText("Identifiers saved")).toBeVisible();
+  await expect.element(page.getByText(STORED_INVALID)).not.toBeInTheDocument();
+  await expect.element(testButton()).toBeEnabled();
 });
 
 test.each([
@@ -285,6 +295,20 @@ test.each<[ManageClaudeTest["result"], string]>([
   await expect.element(testPanel().getByRole("alert")).toHaveTextContent(message);
   await expect.element(page.getByText(/Anthropic issued a token/)).not.toBeInTheDocument();
   await expect.element(testButton()).toBeEnabled();
+});
+
+test("reloads the page's state when the test finds the saved row invalid", async () => {
+  const client = mockClient(stateOf(ids));
+  client.testClaude.mockImplementation(async () => {
+    client.replace(stateOf(null, { storedInvalid: true }));
+    return { version: 1, result: { status: "stored_invalid" } };
+  });
+  await mount(client);
+  await testButton().click();
+  await expect.element(identifiersPanel().getByRole("alert")).toHaveTextContent(STORED_INVALID);
+  await expect.element(field("workspaceId")).toHaveValue("");
+  await expect.element(testButton()).toBeDisabled();
+  expect(client.claude).toHaveBeenCalledTimes(2);
 });
 
 test("reports a test request that got no answer", async () => {

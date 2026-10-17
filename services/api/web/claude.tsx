@@ -140,7 +140,7 @@ export function ClaudePage({ client }: { client: ManageClient }) {
           </Panel>
           <IdentifiersPanel
             // Saving replaces the form with what the service stored.
-            key={JSON.stringify(claude.data.identifiers)}
+            key={`identifiers-${JSON.stringify(claude.data.identifiers)}`}
             saved={claude.data.identifiers}
             storedInvalid={claude.data.storedInvalid}
             busy={save.isPending}
@@ -152,7 +152,7 @@ export function ClaudePage({ client }: { client: ManageClient }) {
           />
           <TestPanel
             // A result for identifiers that were since replaced is not shown.
-            key={JSON.stringify(claude.data.identifiers)}
+            key={`test-${JSON.stringify(claude.data.identifiers)}`}
             client={client}
             canTest={claude.data.identifiers !== null}
           />
