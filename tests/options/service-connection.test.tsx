@@ -124,7 +124,7 @@ test("opens the sign-in page once and pairs on Try again", async () => {
 
   await page.getByRole("button", { name: "Try again", exact: true }).click();
   expect(client.pair).toHaveBeenCalledTimes(2);
-  expect(client.pair).toHaveBeenLastCalledWith(ORIGIN, "Chrome");
+  expect(client.pair).toHaveBeenLastCalledWith(ORIGIN, "Chrome", undefined);
   await expect.element(page.getByText("This device is paired.", { exact: true })).toBeVisible();
   expect(client.openSignIn).toHaveBeenCalledOnce();
 });
@@ -315,4 +315,35 @@ test("tells the owner when the service could not confirm a disconnect", async ()
     )
     .toBeVisible();
   expect(client.pair).not.toHaveBeenCalled();
+});
+
+test("requires an explicit profile choice before retrying a multi-profile pairing", async () => {
+  const client = mockClient();
+  const local = "00000000-0000-4000-8000-000000000010";
+  const agent = "00000000-0000-4000-8000-000000000011";
+  client.pair.mockResolvedValueOnce({
+    ok: false,
+    error: "profile-required",
+    state: { kind: "disconnected" },
+    profiles: [
+      { id: local, name: "Local browser" },
+      { id: agent, name: "Agent browser" },
+    ],
+  });
+  await render(<ServiceConnection client={client} pollMs={60_000} />);
+  await submitPair();
+  const choices = page.getByRole("combobox", { name: "Settings profile", exact: true });
+  await expect.element(choices).toHaveValue("");
+  const retry = page.getByRole("button", { name: "Pair this device", exact: true });
+  await expect.element(retry).toBeDisabled();
+  expect(client.pair).toHaveBeenCalledOnce();
+  window.dispatchEvent(new Event("focus"));
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  expect(client.pair).toHaveBeenCalledOnce();
+  await choices.selectOptions(agent);
+  await expect.element(retry).toBeEnabled();
+  await retry.click();
+  expect(client.pair).toHaveBeenLastCalledWith(ORIGIN, "Chrome", agent);
+  await expect.element(page.getByText("This device is paired.", { exact: true })).toBeVisible();
+  expect(client.openSignIn).not.toHaveBeenCalled();
 });

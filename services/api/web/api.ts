@@ -1,5 +1,7 @@
 import {
   manageDevicesSchema,
+  profilesSchema,
+  profileSchema,
   manageErrorSchema,
   manageRecipeConflictSchema,
   manageRecipesSchema,
@@ -61,22 +63,59 @@ async function read<TSchema extends v.GenericSchema>(response: Response, schema:
 }
 
 export function createManageClient(fetcher: ManageFetch = (input, init) => fetch(input, init)) {
+  let selectedProfile: string | undefined;
+  async function profilePath(profileId?: string) {
+    let id = profileId ?? selectedProfile;
+    if (!id) {
+      const result = await read(await call(fetcher, "/profiles"), profilesSchema);
+      if (result.profiles.length !== 1) throw new ManageApiError("bad_request");
+      id = result.profiles[0]!.id;
+    }
+    return `/profiles/${encodeURIComponent(id)}/settings`;
+  }
   return {
+    get profileId() {
+      return selectedProfile;
+    },
+    selectProfile(profileId: string) {
+      selectedProfile = profileId;
+    },
+    async profiles() {
+      return read(await call(fetcher, "/profiles"), profilesSchema);
+    },
+    async copyProfile(name: string, copyFrom: string) {
+      return read(
+        await call(fetcher, "/profiles", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ version: 1, name, copyFrom }),
+        }),
+        profileSchema,
+      );
+    },
+    async assignProfile(deviceId: string, profileId: string) {
+      await call(fetcher, `/devices/${encodeURIComponent(deviceId)}/profile`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ version: 1, profileId }),
+      });
+    },
     async devices() {
       return read(await call(fetcher, "/devices"), manageDevicesSchema);
     },
     async revokeDevice(deviceId: string) {
       await call(fetcher, `/devices/${encodeURIComponent(deviceId)}/revoke`, { method: "POST" });
     },
-    async settings() {
-      return read(await call(fetcher, "/settings"), syncSettingsStateSchema);
+    async settings(profileId?: string) {
+      return read(await call(fetcher, await profilePath(profileId)), syncSettingsStateSchema);
     },
     /** Replaces the settings only if nobody wrote since `expectedRevision`. */
     async saveSettings(
       expectedRevision: number,
       settings: LocalSettings,
+      profileId?: string,
     ): Promise<SyncSettingsState> {
-      const response = await call(fetcher, "/settings", {
+      const response = await call(fetcher, await profilePath(profileId), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ version: 1, expectedRevision, settings }),

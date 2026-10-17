@@ -1,5 +1,6 @@
 import * as v from "valibot";
 import { loginIdentifierSchema, storedLoginRecipeSchema } from "./login";
+import { profileIdSchema } from "./pairing";
 import { localSettingsSchema } from "./settings";
 
 // Contracts for the optional private settings/recipe service. Synced documents are
@@ -27,6 +28,7 @@ export const syncRecipeIdSchema = loginIdentifierSchema;
 export const syncSettingsStateSchema = v.pipe(
   v.strictObject({
     version: v.literal(1),
+    profileId: profileIdSchema,
     revision,
     settings: v.nullable(localSettingsSchema),
   }),
@@ -43,11 +45,18 @@ export const MAX_SETTINGS_DOCUMENT_BYTES = 120 * 1024;
 export const settingsDocumentBytes = (settings: unknown) =>
   new TextEncoder().encode(JSON.stringify(settings)).byteLength;
 
-export const syncSettingsWriteSchema = v.strictObject({
-  version: v.literal(1),
-  expectedRevision: revision,
-  settings: localSettingsSchema,
-});
+export const syncSettingsWriteSchema = v.pipe(
+  v.strictObject({
+    version: v.literal(1),
+    expectedRevision: revision,
+    settings: localSettingsSchema,
+  }),
+  v.check((write) => write.settings.connections.length === 0, "Connections stay on devices"),
+  v.check(
+    (write) => settingsDocumentBytes(write.settings) <= MAX_SETTINGS_DOCUMENT_BYTES,
+    "The settings document is too large",
+  ),
+);
 
 /**
  * The stored recipe carries the sync identity, so a cached copy cannot drift from it. It is

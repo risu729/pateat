@@ -3,9 +3,10 @@
 Status: accepted by the owner on 2026-10-11 (12:15 UTC). Extends
 [ADR 0013](0013-service-held-recipes-and-settings.md) and
 [ADR 0023](0023-synced-vault-policy.md). Only the data split below applies now; profiles
-themselves are later work. Amended on 2026-10-12 by
-[ADR 0035](0035-page-kinds-per-site.md) (not implemented): `pagePermissionDefaults` and
-`sitePagePermissions` are profile parts.
+themselves were later work in the accepted decision. Implementation of the currently
+supported profile fields is proposed on 2026-10-17; see the delivery amendment below.
+Amended on 2026-10-12 by [ADR 0035](0035-page-kinds-per-site.md) (not implemented):
+`pagePermissionDefaults` and `sitePagePermissions` are profile parts.
 
 Date: 2026-10-11
 
@@ -72,3 +73,19 @@ are assigned now so that profiles can be added without moving data again:
 - ADR 0023's lists and `customFieldReviews` are profile data from the start.
 - Adding profiles later needs a migration of the service tables and a pairing choice,
   but no change to the settings document's entries.
+
+## Delivery amendment — 2026-10-17
+
+The implementation adds owner-scoped profile storage for `excludedSites` and
+`siteDefaults`, owner-shared `bindings`, copy creation, explicit pairing selection
+when multiple profiles exist, owner device reassignment, and profile editing in both
+the management UI and extension settings. Settings responses carry `profileId`;
+a switched device replaces its old cached profile settings and merge base. One
+owner-wide revision prevents stale writes after reassignment.
+
+The ADR 0023 lists and ADR 0035 permission fields remain independent, unmerged
+work and are not claimed as delivered here. Their implementations must add their
+fields to the explicit service profile projection and extension merge logic.
+[ADR 0044](0044-settings-profile-delivery.md) records temporary implementation
+proposals that have not been accepted by the owner. This amendment records
+implementation scope and does not change the accepted owner decisions above.

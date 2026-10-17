@@ -146,9 +146,11 @@ export function createServiceRuntime(options: {
         if (record) return fail("wrong-state", record);
         // Without site access the request would be an ordinary CORS request; none is sent.
         if (!(await hasSiteAccess(request.origin))) return fail("site-access-needed", record);
-        const result = await transport.pair(request.origin, request.label);
+        const result = await transport.pair(request.origin, request.label, request.profileId);
         // Nothing is stored until the service has created the device.
         if (result.kind === "sign-in-needed") return fail("sign-in-needed", record);
+        if (result.kind === "profile-required")
+          return { ok: false, error: "profile-required", profiles: result.profiles };
         if (result.kind === "failed") return fail(result.error, record);
         // The credential is shown nowhere and goes straight into trusted storage.
         const connected: ServiceRecord = {

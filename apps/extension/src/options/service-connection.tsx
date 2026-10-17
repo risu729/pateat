@@ -10,6 +10,8 @@ import * as v from "valibot";
 import { CircleCheck, CircleX, Clock, Link, Lock, TriangleAlert } from "lucide-react";
 import { localSyncTime } from "../time";
 import { Button } from "./button";
+import { ProfileEditor } from "./profile-editor";
+import type { SettingsClient } from "./client";
 import type { ServiceClient } from "./service-client";
 import {
   Badge,
@@ -28,6 +30,8 @@ export const SYNC_POLL_MS = 10_000;
 
 function errorMessage(error: ServiceErrorCode, origin = "the service"): string {
   switch (error) {
+    case "profile-required":
+      return "Choose the settings profile for this device, then pair again.";
     case "storage-unavailable":
       return "Pateat could not read or save its service connection on this device.";
     case "storage-corrupt":
@@ -61,14 +65,18 @@ type Attempt = { origin: string; label: string; error: ServiceErrorCode };
 export function ServiceConnection({
   client,
   pollMs = SYNC_POLL_MS,
+  settingsClient,
 }: {
   client: ServiceClient;
   pollMs?: number;
+  settingsClient?: SettingsClient;
 }) {
   const [state, setState] = useState<ServiceState | undefined>();
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [address, setAddress] = useState("");
+  const [profiles, setProfiles] = useState<{ id: string; name: string }[]>([]);
+  const [profileId, setProfileId] = useState("");
   const [label, setLabel] = useState("Chrome");
   const [addressError, setAddressError] = useState("");
   const [corrupt, setCorrupt] = useState(false);
@@ -90,6 +98,10 @@ export function ServiceConnection({
       if (success !== undefined) setMessage(success);
     } else {
       if (response.state) setState(response.state);
+      if (response.profiles) {
+        setProfiles(response.profiles);
+        setProfileId("");
+      }
       setMessage(errorMessage(response.error));
     }
   }
@@ -119,7 +131,7 @@ export function ServiceConnection({
    */
   async function pair(origin: string, name: string, signInTab: boolean) {
     retryOnReturn.current = undefined;
-    const response = await client.pair(origin, name);
+    const response = await client.pair(origin, name, profileId || undefined);
     if (!mounted.current) return;
     if (response.ok) {
       setAttempt(undefined);
@@ -285,6 +297,23 @@ export function ServiceConnection({
               />
             </label>
           </div>
+          {profiles.length > 0 && (
+            <label className={fieldClass}>
+              Settings profile
+              <select
+                className={controlClass}
+                value={profileId}
+                onChange={(event) => setProfileId(event.target.value)}
+              >
+                <option value="">Choose a profile</option>
+                {profiles.map((profile) => (
+                  <option key={profile.id} value={profile.id}>
+                    {profile.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           {addressError && (
             <p id="sync-service-error" className="validation-error m-0" role="alert">
               {addressError}
@@ -301,7 +330,11 @@ export function ServiceConnection({
             ]}
           />
           <div className="flex flex-wrap gap-2">
-            <Button id="sync-service-pair" type="submit" disabled={busy}>
+            <Button
+              id="sync-service-pair"
+              type="submit"
+              disabled={busy || (profiles.length > 0 && !profileId)}
+            >
               Pair this device
             </Button>
             {attempt && (
@@ -402,6 +435,14 @@ export function ServiceConnection({
             }
           />
         </RowList>
+      )}
+      {state?.kind === "connected" && client.profileEditor && settingsClient && (
+        <ProfileEditor
+          key={state.origin}
+          origin={state.origin}
+          service={client.profileEditor}
+          local={settingsClient}
+        />
       )}
     </Panel>
   );

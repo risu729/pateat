@@ -25,9 +25,26 @@ export const deviceLabelSchema = v.pipe(
 /** A Chrome extension ID: the first 128 bits of the key's SHA-256 as letters `a`-`p`. */
 export const extensionIdSchema = v.pipe(v.string(), v.regex(/^[a-p]{32}$/));
 
+export const profileIdSchema = deviceIdSchema;
+export const profileSchema = v.strictObject({ id: profileIdSchema, name: deviceLabelSchema });
+export const profilesSchema = v.strictObject({
+  version: v.literal(1),
+  profiles: v.array(profileSchema),
+});
+export const profileCreateSchema = v.strictObject({
+  version: v.literal(1),
+  name: deviceLabelSchema,
+  copyFrom: profileIdSchema,
+});
+export const deviceProfileSchema = v.strictObject({
+  version: v.literal(1),
+  profileId: profileIdSchema,
+});
+
 export const devicePairRequestSchema = v.strictObject({
   version: v.literal(1),
   label: deviceLabelSchema,
+  profileId: v.optional(profileIdSchema),
 });
 /** The credential is returned exactly once; the service keeps only its hash. */
 export const devicePairResultSchema = v.strictObject({
@@ -38,6 +55,8 @@ export const devicePairResultSchema = v.strictObject({
 
 export const pairErrorCodeSchema = v.picklist([
   "bad_request",
+  "profile_required",
+  "profile_not_found",
   /** No login token: the user must sign in to the service first. */
   "unauthorized",
   /** The login token failed verification. */

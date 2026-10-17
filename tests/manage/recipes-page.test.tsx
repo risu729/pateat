@@ -38,10 +38,19 @@ function recipe(id: string, revision: number): LoginRecipe {
 function mockClient(initial: ManageRecipes) {
   let current = initial;
   return {
+    profileId: "00000000-0000-4000-8000-000000000001",
+    selectProfile: vi.fn<ManageClient["selectProfile"]>(),
+    profiles: vi.fn<ManageClient["profiles"]>(async () => ({
+      version: 1,
+      profiles: [{ id: "00000000-0000-4000-8000-000000000001", name: "Default" }],
+    })),
+    copyProfile: vi.fn<ManageClient["copyProfile"]>(),
+    assignProfile: vi.fn<ManageClient["assignProfile"]>(),
     devices: vi.fn<ManageClient["devices"]>(),
     revokeDevice: vi.fn<ManageClient["revokeDevice"]>(),
     settings: vi.fn<ManageClient["settings"]>(async () => ({
       version: 1,
+      profileId: "00000000-0000-4000-8000-000000000001",
       revision: 0,
       settings: null,
     })),
@@ -400,6 +409,9 @@ test("says when there are no recipes", async () => {
 test("says when a recipe to revoke no longer exists", async () => {
   const client = mockClient({ version: 1, recipes: [active("bank-signin")] });
   await mount(client);
+  await expect
+    .element(page.getByRole("button", { name: "Revoke recipe bank-signin" }))
+    .toBeVisible();
   client.revokeRecipe.mockRejectedValueOnce(new ManageApiError("not_found"));
   // The refresh is held so the page can be seen between the answer and the new list.
   let release = () => {};

@@ -1,5 +1,6 @@
 import {
   deviceIdSchema,
+  profileIdSchema,
   localSettingsSchema,
   MAX_SETTINGS_DOCUMENT_BYTES,
   savedLoginBindingSchema,
@@ -55,6 +56,7 @@ const baseSchema = v.strictObject({
   version: v.literal(1),
   origin: serviceOriginSchema,
   deviceId: deviceIdSchema,
+  profileId: profileIdSchema,
   revision: v.pipe(v.number(), v.integer(), v.minValue(0)),
   /** The service document at `revision`, which has no connections. */
   settings: localSettingsSchema,
@@ -287,11 +289,12 @@ export function createSettingsSync(options: {
     let catalog: Promise<VaultCatalog | undefined> | undefined;
     const serviceCopy = (state: SyncSettingsState) =>
       state.settings ? syncedSettings(state.settings) : emptySynced;
-    // Without a base, for a new pairing or a service restored to an older state, both
-    // sides' entries are kept and the service wins where they differ; nothing is removed.
+    // A matching profile base preserves local edits. A new pairing adopts existing
+    // service policy below; only an uninitialized profile starts from local policy.
     let base: SyncBase = { service: emptySynced, local: emptySynced };
     if (
       stored &&
+      stored.profileId === service.profileId &&
       (service.revision > stored.revision ||
         (service.revision === stored.revision &&
           equalSynced(serviceCopy(service), syncedSettings(stored.settings))))
@@ -306,12 +309,19 @@ export function createSettingsSync(options: {
           version: 1,
           origin,
           deviceId,
+          profileId: service.profileId,
           revision: service.revision,
           settings: serviceDocument(next.service),
           local: serviceDocument(next.local),
         })
         .catch(() => undefined);
     }
+    // A profile switch must never reinterpret the previous profile cache as edits.
+    let switchingProfile = stored
+      ? stored.profileId !== service.profileId
+      : service.settings !== null;
+    // Keep the old identity until the replacement is applied: a deferred or failed
+    // local write must still recognize the switch on the next worker run.
     for (let attempt = 0; attempt < MAX_SETTINGS_SYNC_ATTEMPTS; attempt += 1) {
       let local: SettingsSnapshot;
       try {
@@ -322,7 +332,9 @@ export function createSettingsSync(options: {
       }
       const localSynced = syncedSettings(local.settings);
       const serviceSynced = serviceCopy(service);
-      const mergedEntries = mergeSyncedSettings(base, localSynced, serviceSynced);
+      const mergedEntries = switchingProfile
+        ? serviceSynced
+        : mergeSyncedSettings(base, localSynced, serviceSynced);
       // Named after the merge, so the names are uploaded and written like any change.
       if (unnamed(mergedEntries)) catalog ??= options.catalog?.().catch(() => undefined);
       // oxlint-disable-next-line no-await-in-loop -- read once, on the first attempt that needs it
@@ -345,6 +357,7 @@ export function createSettingsSync(options: {
         if (saved.kind === "rejected") return "rejected";
         if (saved.kind === "failed") return saved.error;
         if (saved.kind === "conflict") {
+          switchingProfile ||= service.profileId !== saved.current.profileId;
           service = saved.current;
           continue;
         }
@@ -352,7 +365,7 @@ export function createSettingsSync(options: {
         // The service holds the merge; local settings still hold `localSynced`.
         base = { service: merged, local: localSynced };
         // oxlint-disable-next-line no-await-in-loop -- recorded before the local write
-        await record(base);
+        if (!switchingProfile) await record(base);
       }
       if (stale()) return "busy";
       if (!equalSynced(merged, localSynced)) {
