@@ -45,7 +45,7 @@ once it is confirmed unknown; the tab asks for an account at once (implemented).
 Amended on 2026-10-14 (07:24 UTC, owner's decision in
 [issue #546](https://github.com/risu729/pateat/issues/546)): an undecided page still
 ends the login, but only a confirmed completion counts as success (implemented); see the
-amendment below. This also amends ADR 0021, ADR 0038 and ADR 0007.
+amendment below. This also amends ADR 0013, ADR 0021, ADR 0038 and ADR 0007.
 
 Date: 2026-10-12
 
