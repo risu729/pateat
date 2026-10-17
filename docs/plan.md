@@ -712,8 +712,10 @@ Once the fixes have settled:
   [dependency policy](development.md#dependency-policy)); where that setting is stored
   is not decided yet. The owner chose (2026-10-12 14:14 UTC) that "the docs" means the
   README and the user-facing pages, including those the docs website below adds; ADRs,
-  this plan and research notes stay in English. AGENTS.md's English rule gets an
-  exception for the Japanese pages when they land.
+  this plan and research notes stay in English. The README part is done:
+  [README.ja.md](../README.ja.md), linked both ways with README.md. AGENTS.md's English
+  rule has an exception for Japanese translations of user-facing pages, which change
+  with their English page in the same PR.
 - The docs website (VitePress 2, see
   [decisions still requiring evidence](#decisions-still-requiring-evidence)) with
   user-facing pages for installation, setup and permissions, plus the M6 operational
