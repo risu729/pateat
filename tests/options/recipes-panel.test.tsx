@@ -9,7 +9,7 @@ import type {
   RecipeFile,
 } from "../../apps/extension/src/service/local-recipes";
 
-// Synthetic recipe summaries only (ADR 0039); no request leaves the page.
+// Synthetic recipe summaries only (ADR 0040); no request leaves the page.
 
 const SITE = "https://bank.example";
 const deviceState = (ids: string[] = []): LocalRecipeState => ({

@@ -15,7 +15,7 @@ export interface BackgroundProtocol {
   settings(request: unknown): unknown;
   /** `service.*`, from the settings page. */
   service(request: unknown): unknown;
-  /** `recipes.*`, from the settings page: recipes kept without a service (ADR 0039). */
+  /** `recipes.*`, from the settings page: recipes kept without a service (ADR 0040). */
   recipes(request: unknown): unknown;
   /** `diagnostics.*`, from the diagnostics page. */
   diagnostics(request: unknown): unknown;

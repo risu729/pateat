@@ -17,12 +17,8 @@ const ipv4 = /^(?:\d{1,3}\.){3}\d{1,3}$/u;
  * WebAuthn rejects IP addresses; trailing-dot hosts are left to the browser.
  */
 function effectiveDomain(origin: string): string | undefined {
-  let url: URL;
-  try {
-    url = new URL(origin);
-  } catch {
-    return undefined;
-  }
+  const url = URL.parse(origin);
+  if (!url) return undefined;
   if (url.origin !== origin) return undefined;
   if (url.protocol !== "https:" && !(url.protocol === "http:" && url.hostname === "localhost"))
     return undefined;

@@ -7,7 +7,7 @@ import * as v from "valibot";
 import type { ServiceConnection } from "./runtime";
 import type { ServiceTransport } from "./transport";
 
-// Recipes kept on a device that has no paired service (ADR 0039). They come from a recipe
+// Recipes kept on a device that has no paired service (ADR 0040). They come from a recipe
 // file the user imports on the settings page, are looked up only while no device is
 // paired, and are uploaded once to a service the device pairs with later.
 

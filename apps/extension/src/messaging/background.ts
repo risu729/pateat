@@ -17,7 +17,7 @@ export interface BackgroundAreas {
   /** `settings.site-accounts`. */
   siteAccounts(request: unknown): Promise<unknown>;
   service(request: unknown): Promise<unknown>;
-  /** `recipes.*`: recipes kept on the device without a service (ADR 0039). */
+  /** `recipes.*`: recipes kept on the device without a service (ADR 0040). */
   recipes(request: unknown): Promise<unknown>;
   diagnostics(request: DiagnosticsRequest): Promise<unknown>;
   /** `undefined` when the sender is not the chooser window. */

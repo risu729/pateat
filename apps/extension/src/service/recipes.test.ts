@@ -511,6 +511,36 @@ describe("recipe sync", () => {
       list: [other],
     });
   });
+
+  it("starts a chooser (ADR 0028) also on its other branch's first step on the list's path", async () => {
+    const other = { by: "text" as const, value: "Use another profile" };
+    const branch = (path: string) => ({ ...recipe("bank-chooser", path), revision: 2 });
+    const chooser = (path: string) => ({
+      version: 1 as const,
+      id: "bank-chooser",
+      revision: 2,
+      origin: SITE,
+      chooser: { path: "/profiles", other, afterOther: branch(path) },
+    });
+    for (const [path, steps] of [
+      ["/profiles", [branch("/profiles").steps[0]]],
+      // A branch that starts elsewhere is reached only through the click.
+      ["/email", []],
+    ] as const) {
+      const stored = {
+        version: 1,
+        origin: SERVICE,
+        deviceId: DEVICE,
+        cursor: 1,
+        recipes: [chooser(path)],
+      };
+      const { sync } = setup({ stored, scheduled: { version: 1, startedAt: 0, retryAt: 9e9 } });
+      // eslint-disable-next-line no-await-in-loop
+      expect(await sync.recipes.starts(SITE)).toEqual([
+        { path: "/profiles", steps, list: [other] },
+      ]);
+    }
+  });
 });
 
 describe("settings in the same sync", () => {
@@ -849,7 +879,7 @@ describe("cached recipe lookup", () => {
   });
 });
 
-describe("recipes kept without a service (ADR 0039)", () => {
+describe("recipes kept without a service (ADR 0040)", () => {
   const kept = recipe("kept-signin", "/login");
   const cached = recipe("synced-signin", "/login");
   const stored = { version: 1, origin: SERVICE, deviceId: DEVICE, cursor: 1, recipes: [cached] };

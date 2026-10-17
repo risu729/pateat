@@ -1,4 +1,4 @@
-# ADR 0039: Running without the service
+# ADR 0040: Running without the service
 
 Status: proposed — Claude's design, pending the owner's approval. Implemented in the PR
 that adds this record, before approval, because the owner asked on 2026-10-15 at 11:06

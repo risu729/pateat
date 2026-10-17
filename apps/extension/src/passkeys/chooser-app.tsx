@@ -111,7 +111,9 @@ export function ChooserApp({ client }: { client: ChooserClient }) {
       {view.again && (
         <p className="m-0 flex items-center gap-1.5 text-[13px]/5 text-ink-muted">
           <Info aria-hidden size={14} strokeWidth={2} className="shrink-0" />
-          Pateat signed in here from this tab before
+          {view.loggedOut
+            ? "You logged out of this site in this tab"
+            : "Pateat signed in here from this tab before"}
         </p>
       )}
       {/* Above the list, so it is seen before a choice is made. */}

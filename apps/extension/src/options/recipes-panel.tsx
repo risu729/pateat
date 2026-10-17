@@ -47,7 +47,7 @@ const plural = (count: number, one: string, many = `${one}s`) =>
   `${count} ${count === 1 ? one : many}`;
 
 /**
- * Recipes without a sync service (ADR 0039): with no service paired, logins use the
+ * Recipes without a sync service (ADR 0040): with no service paired, logins use the
  * recipes kept on this device, which come from a recipe file. Export works in both modes.
  */
 export function RecipesPanel({

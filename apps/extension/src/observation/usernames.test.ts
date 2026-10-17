@@ -369,6 +369,21 @@ describe("withoutUsernames", () => {
     ).toBe(true);
   });
 
+  it("reads the raw path for a username that the sent path carries as [id] (ADR 0039)", () => {
+    const username = "member0123456789abcdef";
+    const page = observation({ path: "/u/[id]/login" });
+    expect(withoutUsernames(page, [username], `/u/${username}/login`)).toEqual({
+      ok: false,
+      reason: "username-shown",
+    });
+    // Another tenant's ID in the same segment names no account.
+    expect(withoutUsernames(page, [username], "/u/0123456789abcdef0123/login").ok).toBe(true);
+    // The sent path is still read too.
+    expect(
+      withoutUsernames(observation({ path: "/users/taro/login" }), ["taro"], "/elsewhere"),
+    ).toEqual({ ok: false, reason: "username-shown" });
+  });
+
   it("refuses a page whose dropped button or link may belong to a field's form", () => {
     const grouped = (role: "button" | "link", group?: string) =>
       observation({

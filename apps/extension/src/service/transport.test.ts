@@ -527,7 +527,7 @@ describe("recipe generation", () => {
   });
 });
 
-describe("recipe upload (ADR 0039)", () => {
+describe("recipe upload (ADR 0040)", () => {
   const target = (value: string) => ({ by: "id" as const, value });
   const recipe = parseLoginRecipe({
     version: 1,

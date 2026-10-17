@@ -99,7 +99,7 @@ export function createRecipeSync(options: {
     clear(): Promise<void>;
   };
   /**
-   * The recipes kept on this device without a service (ADR 0039): looked up while no
+   * The recipes kept on this device without a service (ADR 0040): looked up while no
    * device is paired, and uploaded once by the first syncs after pairing.
    */
   local?: {
@@ -342,7 +342,7 @@ export function createRecipeSync(options: {
 
   /**
    * The recipes a login may use: a paired device's synced cache, or, with no device
-   * paired, the recipes kept on this device (ADR 0039). A pairing that cannot be read
+   * paired, the recipes kept on this device (ADR 0040). A pairing that cannot be read
    * serves neither.
    */
   async function inUse(starting: boolean): Promise<readonly StoredLoginRecipe[] | undefined> {

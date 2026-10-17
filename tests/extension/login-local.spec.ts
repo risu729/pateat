@@ -5,7 +5,7 @@ import { startSyncService } from "./sync-service";
 import { withVaultProfile } from "./vault-fixture";
 import { sendToBackground as send } from "./background-message";
 
-// Pateat without a sync service (ADR 0039): recipes come from a file imported on the
+// Pateat without a sync service (ADR 0040): recipes come from a file imported on the
 // settings page and stay on the device until a service is paired. The synthetic Bitwarden
 // item stores the URI https://synthetic.example.test/login; its custom fields share the
 // name "duplicate" and its password is "test_password", as the fixture site expects.

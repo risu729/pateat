@@ -5,7 +5,7 @@ import { MAX_RECIPE_CACHE_BYTES } from "./recipes";
 import type { ServiceConnection } from "./runtime";
 import type { RecipeWriteResult, ServiceTransport } from "./transport";
 
-// Synthetic recipes, service and credential only (ADR 0039).
+// Synthetic recipes, service and credential only (ADR 0040).
 
 const SITE = "https://bank.example";
 const CONNECTION: ServiceConnection = {

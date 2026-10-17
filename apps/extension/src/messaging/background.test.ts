@@ -153,7 +153,7 @@ describe("background messages", () => {
     expect(worker.areas.service).toHaveBeenCalledTimes(1);
   });
 
-  it("answers recipe requests (ADR 0039) from the settings page only", async () => {
+  it("answers recipe requests (ADR 0040) from the settings page only", async () => {
     const get = { version: 1, type: "recipes.get" };
     expect(await worker.send(options, "recipes", get)).toEqual({ area: "recipes", request: get });
     for (const sender of [popup, diagnosticsPage, chooserPage, content, otherExtension])

@@ -8,10 +8,11 @@ import {
   type StoredLoginRecipe,
 } from "@pateat/contracts";
 import type { LoginRecipes } from "../login/runtime";
+import { loginReadiness } from "../login/wire";
 
 /**
  * The executor's lookups over one list of stored recipes: the synced cache of a paired
- * device, or the recipes kept on a device without a service (ADR 0039). `read` answers
+ * device, or the recipes kept on a device without a service (ADR 0040). `read` answers
  * the list in use, or undefined when none may be served. `starting` is true for the
  * lookups that start or resume a login, which may start a background sync.
  */
@@ -50,8 +51,9 @@ export function recipeLookups(
       if (!recipes) return [];
       // Every variant starts on the recipe's start path (ADR 0027). A chooser recipe (ADR
       // 0028) starts where its list shows, once one of its buttons or a listed account
-      // does; an entry recipe (ADR 0031) is left out: the runtime counts its path as a
-      // start for generation through `entries` instead.
+      // does, or its `other` branch's first step on that path, as when the person pressed
+      // the button for another account; an entry recipe (ADR 0031) is left out: the runtime
+      // counts its path as a start for generation through `entries` instead.
       return [
         ...loginRecipesForOrigin(recipes, origin).map((recipe) => ({
           path: recipe.steps[0]!.path,
@@ -62,7 +64,16 @@ export function recipeLookups(
             ? [
                 {
                   path: recipe.chooser.path,
-                  steps: [],
+                  steps:
+                    recipe.chooser.afterOther?.steps
+                      .slice(0, 1)
+                      // Only a step that waits for an element: one that needs none would
+                      // show on the list as well.
+                      .filter(
+                        (step) =>
+                          step.path === recipe.chooser.path &&
+                          loginReadiness(step).targets.length > 0,
+                      ) ?? [],
                   list: [recipe.chooser.other, recipe.chooser.continue].filter(
                     (target) => target !== undefined,
                   ),

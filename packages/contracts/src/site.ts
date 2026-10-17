@@ -7,12 +7,9 @@ import { parse } from "tldts";
  * `undefined` for a bare public suffix or a value that is no URL.
  */
 function siteKey(value: string): string | undefined {
-  let hostname: string;
-  try {
-    hostname = new URL(value).hostname.replace(/\.$/u, "");
-  } catch {
-    return undefined;
-  }
+  const url = URL.parse(value);
+  if (!url) return undefined;
+  const hostname = url.hostname.replace(/\.$/u, "");
   if (hostname === "localhost" || hostname.startsWith("[")) return hostname;
   const result = parse(hostname, { extractHostname: false, allowPrivateDomains: true });
   return result.isIp ? hostname : (result.domain ?? undefined);

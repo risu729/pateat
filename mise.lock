@@ -99,18 +99,18 @@ url = "https://github.com/suzuki-shunsuke/ghalint/releases/download/v1.5.6/ghali
 url_api = "https://api.github.com/repos/suzuki-shunsuke/ghalint/releases/assets/409631234"
 
 [[tools.hk]]
-version = "2.6.0"
+version = "2.7.0"
 backend = "packslip:github.com/jdx/hk"
-specifiers = ["2.6.0"]
+specifiers = ["2.7.0"]
 
 [tools.hk."platforms.linux-x64"]
-checksum = "sha256:dfc2e1140a114c28f42fa6d1b958fac7008de3b96b19bbf74d693c0f86bcff60"
-url = "https://github.com/jdx/hk/releases/download/v2.6.0/hk-x86_64-unknown-linux-gnu.tar.gz"
+checksum = "sha256:2d5819ee2bc3e5b424d90fb05928c05297bfa4d36490628b075b8f8afe14b7b1"
+url = "https://github.com/jdx/hk/releases/download/v2.7.0/hk-x86_64-unknown-linux-gnu.tar.gz"
 signer = "sigstore-oidc:https://github.com/jdx/hk/.github/workflows/release.yml"
 
 [tools.hk."platforms.windows-x64"]
-checksum = "sha256:5afd28127f09f6b5a5d246413611b4494ad38d30930dd0cd009a8d6aff0f4c3d"
-url = "https://github.com/jdx/hk/releases/download/v2.6.0/hk-x86_64-pc-windows-msvc.zip"
+checksum = "sha256:69fa61c4ef0ea7d25ccb2804b52c31e91be8f7c9cc1176aabe8ea780f3c5b0bb"
+url = "https://github.com/jdx/hk/releases/download/v2.7.0/hk-x86_64-pc-windows-msvc.zip"
 signer = "sigstore-oidc:https://github.com/jdx/hk/.github/workflows/release.yml"
 
 [[tools.jactionlint]]
@@ -144,10 +144,10 @@ checksum = "sha256:50efaf01a08c520b4bbe499c09a8c5a5c370002c419c0d9da2c6815d3066a
 url = "https://nodejs.org/dist/v26.12.0/node-v26.12.0-win-x64.zip"
 
 [[tools."npm:oxlint"]]
-version = "1.87.0"
-aube = { path = ".mise/locks/npm-oxlint/1.87.0", digest = "sha256:fa3fe0a7d1858a740522115c9608e956f0759c35d487a1eb3822b98033a19d38" }
+version = "1.88.0"
+aube = { path = ".mise/locks/npm-oxlint/1.88.0", digest = "sha256:da938263654f36e92d19dadbc615929b882a7ce7bdaf895805fe949131e8f690" }
 backend = "npm:oxlint"
-specifiers = ["1.87.0"]
+specifiers = ["1.88.0"]
 
 [[tools."npm:typescript"]]
 version = "7.0.2"
@@ -156,10 +156,10 @@ backend = "npm:typescript"
 specifiers = ["7.0.2"]
 
 [[tools.oxfmt]]
-version = "0.72.0"
-aube = { path = ".mise/locks/oxfmt/0.72.0", digest = "sha256:8cff19be82a82e83efe243f08fd8bf1a2a2f635f10384d070d7956209ddd9b44" }
+version = "0.73.0"
+aube = { path = ".mise/locks/oxfmt/0.73.0", digest = "sha256:e42eeebedd060ec6393c40caa35362b541991453b9aab2de3d33d41a0c245a62" }
 backend = "npm:oxfmt"
-specifiers = ["0.72.0"]
+specifiers = ["0.73.0"]
 
 [[tools.pinact]]
 version = "5.0.0"
@@ -309,20 +309,20 @@ url = "https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellche
 url_api = "https://api.github.com/repos/koalaman/shellcheck/releases/assets/279056944"
 
 [[tools.tombi]]
-version = "1.8.4"
+version = "1.8.5"
 backend = "aqua:tombi-toml/tombi"
-specifiers = ["1.8.4"]
+specifiers = ["1.8.5"]
 
 [tools.tombi."platforms.linux-x64"]
-checksum = "sha256:597e08f9fa336b365c011c94387997dd3d2dadd904cde5b7dc55033d29680e5e"
-url = "https://github.com/tombi-toml/tombi/releases/download/v1.8.4/tombi-cli-1.8.4-x86_64-unknown-linux-musl.tar.gz"
-url_api = "https://api.github.com/repos/tombi-toml/tombi/releases/assets/633726039"
+checksum = "sha256:3663f6e90fb2c4026594867c651e040c6000c48406747215ad6e71c6066891c1"
+url = "https://github.com/tombi-toml/tombi/releases/download/v1.8.5/tombi-cli-1.8.5-x86_64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/tombi-toml/tombi/releases/assets/645790776"
 provenance = "github-attestations"
 
 [tools.tombi."platforms.windows-x64"]
-checksum = "sha256:11809d18477d7ac952110dc3e8423533ff480915f780add1e589e1d27493b61e"
-url = "https://github.com/tombi-toml/tombi/releases/download/v1.8.4/tombi-cli-1.8.4-x86_64-pc-windows-msvc.zip"
-url_api = "https://api.github.com/repos/tombi-toml/tombi/releases/assets/633726019"
+checksum = "sha256:0f4e2f3c14b076d69a3a836593ef9bad8fae3295676ca21bb1279d0045e194f7"
+url = "https://github.com/tombi-toml/tombi/releases/download/v1.8.5/tombi-cli-1.8.5-x86_64-pc-windows-msvc.zip"
+url_api = "https://api.github.com/repos/tombi-toml/tombi/releases/assets/645790772"
 provenance = "github-attestations"
 
 [[tools.typos]]
@@ -419,18 +419,18 @@ specifiers = ["1.38.0"]
 uv = { path = ".mise/locks/yamllint/1.38.0", digest = "sha256:ae0200a1087635b05e4cbda42b2a78904597e168c12b1f7c588bbafc0a56195b" }
 
 [[tools.zizmor]]
-version = "1.31.0"
+version = "1.31.1"
 backend = "aqua:zizmorcore/zizmor"
-specifiers = ["1.31.0"]
+specifiers = ["1.31.1"]
 
 [tools.zizmor."platforms.linux-x64"]
-checksum = "sha256:95776c59c2d4c0d6e10560647b4830762b8dbcca8d7d9b7469ff227c73a6fee6"
-url = "https://github.com/zizmorcore/zizmor/releases/download/v1.31.0/zizmor-x86_64-unknown-linux-gnu.tar.gz"
-url_api = "https://api.github.com/repos/zizmorcore/zizmor/releases/assets/642609258"
+checksum = "sha256:d185f726bdaf92df78273217dfdd24ebcd6b0ef48cf3ce776ff5762b6e138c99"
+url = "https://github.com/zizmorcore/zizmor/releases/download/v1.31.1/zizmor-x86_64-unknown-linux-gnu.tar.gz"
+url_api = "https://api.github.com/repos/zizmorcore/zizmor/releases/assets/645467284"
 provenance = "github-attestations"
 
 [tools.zizmor."platforms.windows-x64"]
-checksum = "sha256:746d82a338981515ffedd049e249349b6d1456f92afcf6cfdd1ea6f958ef9c59"
-url = "https://github.com/zizmorcore/zizmor/releases/download/v1.31.0/zizmor-x86_64-pc-windows-msvc.zip"
-url_api = "https://api.github.com/repos/zizmorcore/zizmor/releases/assets/642609255"
+checksum = "sha256:4de30371c8a3b483aecbcf0dec1fd6a2b6aae65051ca226b4f6527baac6a8c7a"
+url = "https://github.com/zizmorcore/zizmor/releases/download/v1.31.1/zizmor-x86_64-pc-windows-msvc.zip"
+url_api = "https://api.github.com/repos/zizmorcore/zizmor/releases/assets/645467286"
 provenance = "github-attestations"

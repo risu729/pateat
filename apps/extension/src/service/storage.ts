@@ -16,7 +16,7 @@ export function createBrowserRecipeCacheStorage(): RecipeCacheStorage {
   return trustedRecord("pateat.sync-recipes.v1");
 }
 
-/** Recipes kept on a device without a paired service (ADR 0039); login policy too. */
+/** Recipes kept on a device without a paired service (ADR 0040); login policy too. */
 export function createBrowserLocalRecipeStorage(): LocalRecipeStorage {
   return trustedRecord("pateat.local-recipes.v1");
 }

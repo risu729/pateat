@@ -1,7 +1,7 @@
 import * as v from "valibot";
 import { localRecipeResponseSchema, type LocalRecipeResponse } from "../service/local-recipes";
 
-/** The settings page's view of the recipes kept without a service (ADR 0039). */
+/** The settings page's view of the recipes kept without a service (ADR 0040). */
 export interface RecipeClient {
   get(): Promise<LocalRecipeResponse>;
   /** Adds a parsed recipe file's recipes; the background validates it. */
