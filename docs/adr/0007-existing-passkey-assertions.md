@@ -47,6 +47,13 @@ Bitwarden's master password re-prompt (`reprompt: 1`), as filling does
 ([vault adapter](../architecture.md#vault-adapter)). Settings for UP/UV and for
 re-prompt are planned for [phase 3](../plan.md#phase-3-public-release) (owner,
 2026-10-13 21:57 UTC); until then both stay as they are.
+Amended on 2026-10-17 to match the code since
+[ADR 0021](0021-account-choice-outside-settings.md), which cancels a page's pending
+requests when it is left: navigation does cancel a request, because the relay sends a
+cancel on `pagehide`, so the [Bridge topology](#bridge-topology) sentence that it does
+not no longer holds. Chrome dropping a response to a replaced document now matters only
+when signing finishes before that cancel arrives
+([plan](../plan.md#passkey-progress)).
 
 Amended on 2026-10-12 under the owner's passkey-first policy of 13:58 UTC
 ([ADR 0034](0034-answer-page-passkey-requests.md)), after a log from the Grok Bot's
