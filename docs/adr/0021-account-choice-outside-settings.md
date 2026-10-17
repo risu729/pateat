@@ -12,7 +12,9 @@ or of another tab of the site (implemented). Amended on 2026-10-13 by ADR 0027 (
 asks (implemented, see the end of D). Amended on 2026-10-13 by the owner's
 [site count badge](#site-count-badge) decision (part B, not implemented). Amended on
 2026-10-16 by the owner: in D, a click on a control that logs out also makes the tab ask
-(implemented, see [logout clicks](#logout-clicks)).
+(implemented, see [logout clicks](#logout-clicks)). Amended on 2026-10-17 by Claude as a
+fix, not confirmed by the owner: in D, a login its recipe no longer runs ends as a
+stopped one (implemented, see the end of the 2026-10-12 stopped-login amendment).
 
 Amended on 2026-10-11 by [ADR 0023](0023-synced-vault-policy.md): the popup also repairs
 a binding that names a missing custom field (not implemented yet). Amended on 2026-10-11
@@ -289,6 +291,14 @@ A record stopped before any submission is released as ADR 0022 describes; one st
 `reconciling` (its result not known yet) is resumed as before. The log shows the
 watching page as `login.refused` `not-started` with `stopped-login` and the asking as
 `logged-out` with `stopped-login`.
+
+Amended on 2026-10-17 by Claude as a fix, not confirmed by the owner: a record still
+running or `reconciling` whose recipe no longer runs it, because the cached revision was
+replaced or withdrawn, or is any other one after a worker restart, was refused
+`recipe-not-found` on each later page and never ended, so the tab was stuck as on APA
+Hotel above, and vault syncs waited for it as for a running login. The page that resumes
+it now ends it `policy-changed` (cause `recipe-changed`) without filling anything there,
+and the rules above for a stopped record apply from the tab's next page on.
 
 Constraint, set by the owner on 2026-10-12 (07:41 UTC): beyond the cases above, where
 this tab's own Pateat login of the site is known, a site session that only expired must
