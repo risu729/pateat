@@ -81,7 +81,8 @@ terms. Operators must check the terms for their actual accounts.
 
 ## Limited Use statement
 
-Pateat's use of information received from Google APIs will adhere to the
+Pateat's use and transfer to any other app of information received from Google APIs
+will adhere to the
 [Chrome Web Store User Data Policy](https://developer.chrome.com/docs/webstore/program-policies/user-data),
 including its Limited Use requirements. Pateat uses browsing/page information only
 to provide the described sign-in features, local diagnostics and settings/recipe
