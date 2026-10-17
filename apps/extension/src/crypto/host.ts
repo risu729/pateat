@@ -94,6 +94,13 @@ function sameOrigin(targetUrl: string, origin: string): boolean {
   return URL.parse(targetUrl)?.origin === origin;
 }
 
+/** At most this many connections have open sessions at once. */
+const MAX_SESSION_CONNECTIONS = 4;
+/** A connection's live session plus the candidate a sync opens before retiring it. */
+const MAX_SESSIONS_PER_CONNECTION = 2;
+/** Opens and password derivations share this turn lane; session IDs are UUIDs, never this. */
+const KDF_LANE = "kdf";
+
 /** Background-internal API. Neither the options page nor content scripts get these operations. */
 export function createCryptoHost(deps: CryptoHostDependencies) {
   const random = deps.randomId ?? newId;
@@ -178,6 +185,15 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
     finish(requestId, fail(code));
     try {
       boundPort?.postMessage(cancelMessage(requestId, job.operation));
+    } catch {
+      if (boundPort) invalidate(boundPort);
+    }
+  }
+  /** Fails an open whose result the host refuses and retires the session its Worker holds. */
+  function refuseOpen(requestId: string, operation: HostOperation) {
+    finish(requestId, fail("crypto-failed"));
+    try {
+      boundPort?.postMessage(cancelMessage(requestId, operation));
     } catch {
       if (boundPort) invalidate(boundPort);
     }
@@ -424,7 +440,7 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
           (opened.metadata.securityVersion !== 1 && opened.metadata.securityVersion !== 2) ||
           opened.metadata.securityVersion < job.operation.prepared.minimumSecurityVersion
         ) {
-          finish(parsed.output.requestId, fail("crypto-failed"));
+          refuseOpen(parsed.output.requestId, job.operation);
           return;
         }
       } else if (
@@ -456,7 +472,11 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
           sessions.set(opened.session.sessionId, structuredClone(opened.session));
         }
         finish(parsed.output.requestId, { ok: true, data: result.data });
-      })().catch(() => finish(parsed.output.requestId, fail("crypto-failed")));
+      })().catch(() => {
+        if (!pending.has(parsed.output.requestId)) return;
+        if (job.operation.kind === "open") refuseOpen(parsed.output.requestId, job.operation);
+        else finish(parsed.output.requestId, fail("crypto-failed"));
+      });
     });
     // Connect can race the initial hello; this secret-free reset is idempotent.
     port.postMessage({ version: 1, type: "crypto.reset", generation });
@@ -526,6 +546,17 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
       creation = undefined;
     }
   }
+  /** Whether another session for this connection would exceed the session caps. */
+  function sessionLimitReached(connectionId: string) {
+    const owners = new Map<string, number>();
+    for (const ref of sessions.values())
+      owners.set(ref.connectionId, (owners.get(ref.connectionId) ?? 0) + 1);
+    const owned = owners.get(connectionId) ?? 0;
+    return (
+      owned >= MAX_SESSIONS_PER_CONNECTION ||
+      (owned === 0 && owners.size >= MAX_SESSION_CONNECTIONS)
+    );
+  }
   function validSession(input: HostSessionRef) {
     const parsed = v.safeParse(sessionSchema, input);
     if (!parsed.success || parsed.output.brokerGeneration !== generation) return false;
@@ -586,17 +617,19 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
     const destructive = operation.kind === "lock" || operation.kind === "close";
     if (
       pending.size >= (destructive ? 16 : 8) ||
-      (operation.kind === "open" && sessions.size >= 4) ||
-      ((operation.kind === "open" || operation.kind === "derive-auth") &&
-        pending
-          .values()
-          .some((job) => job.operation.kind === "open" || job.operation.kind === "derive-auth"))
+      (operation.kind === "open" && sessionLimitReached(connectionId))
     )
       return fail("resource-limit");
     // A session's Worker runs one job at a time, so a job for a busy session waits for its
     // turn here instead of being refused as `resource-limit`, as when a passkey is signed
-    // while a login matches the page's URI.
-    const lane = "session" in operation && !destructive ? operation.session.sessionId : undefined;
+    // while a login matches the page's URI. Opens and password derivations each run a KDF
+    // in a new Worker, so they share one lane and likewise wait for each other.
+    const lane =
+      operation.kind === "open" || operation.kind === "derive-auth"
+        ? KDF_LANE
+        : "session" in operation && !destructive
+          ? operation.session.sessionId
+          : undefined;
     const before = lane ? turns.get(lane) : undefined;
     let ended: (() => void) | undefined;
     // While it waits for its turn the job has reached no Worker, so cancelling it leaves the
@@ -667,6 +700,11 @@ export function createCryptoHost(deps: CryptoHostDependencies) {
           !validSession(operation.session)
         ) {
           finish(command.requestId, fail("crypto-locked"));
+          return;
+        }
+        // Sessions may have opened while this open waited for its turn.
+        if (operation.kind === "open" && sessionLimitReached(connectionId)) {
+          finish(command.requestId, fail("resource-limit"));
           return;
         }
         boundPort.postMessage(command);
