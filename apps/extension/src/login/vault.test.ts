@@ -129,11 +129,12 @@ describe("live vault login field source", () => {
     await expect(
       dummyFieldSource({ account, connection: dummy, fieldId: "totp", code: true }),
     ).resolves.toBe("012345");
-    for (const fieldId of ["username", "password", "branch", "unknown"]) {
-      await expect(
+    const others = await Promise.all(
+      ["username", "password", "branch", "unknown"].map((fieldId) =>
         dummyFieldSource({ account, connection: dummy, fieldId, code: true }),
-      ).resolves.toBeUndefined();
-    }
+      ),
+    );
+    expect(others).toEqual([undefined, undefined, undefined, undefined]);
     await expect(
       dummyFieldSource({ account, connection: dummy, fieldId: "password" }),
     ).resolves.toBe("Pateat-synthetic-only!");

@@ -11807,6 +11807,8 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
           await vi.waitFor(() =>
             expect(status()).toMatchObject([{ state: "watching", outcome: "challenge" }]),
           );
+          // The built-in TOTP does not count when the binding names another field.
+          expect(status()![0]).toMatchObject({ facts: { totp: false } });
           expect(codeFills()).toEqual([]);
           // Nothing is read for the code: no code request, and neither code field.
           expect(reads(h).filter((read) => read.code)).toEqual([]);
@@ -11902,7 +11904,11 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
         expect(reads(h)).toEqual([{ fieldId: "login.password" }, { fieldId: seedId, code: true }]);
         expect(
           report.mock.calls.flatMap(([entry]) => (entry.type === "attempt" ? [entry] : [])).at(-1),
-        ).toMatchObject({ state: "blocked", outcome: "policy-changed", cause: "field-unavailable" });
+        ).toMatchObject({
+          state: "blocked",
+          outcome: "policy-changed",
+          cause: "field-unavailable",
+        });
       }, 10_000);
     });
 
@@ -14613,7 +14619,7 @@ describe("the start page's passkey route (ADR 0027)", () => {
         await vi.waitFor(() =>
           expect(status()).toMatchObject([{ state: "blocked", outcome: "challenge" }]),
         );
-        expect(status()![0]).toMatchObject({ route: "passkey" });
+        expect(status()![0]).toMatchObject({ route: "passkey", facts: { totp: false } });
         expect(h.fields).not.toHaveBeenCalled();
         expect(codeFills()).toEqual([]);
         expect(handlerOutcomes(report)).toEqual([[0, "totp", "missing-fact"]]);
