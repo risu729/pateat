@@ -1955,6 +1955,11 @@ people.
   request log is kept 90 days and bounded by the $5 daily spend limit. Devices are not
   counted: each pairing needs an interactive Access login.
 
+The [offline synthetic measurement report](research/2026-10-17-synthetic-limits.md)
+provides a reproducible UTF-8 serialization check against these configured limits,
+including a valid wide-marker shape that reaches the device cap before 1,000 recipes.
+It is not hosted enforcement, storage-quota or performance evidence.
+
 ### Device enrollment
 
 Status: direct pairing ([ADR 0020](adr/0020-direct-device-pairing.md)) is implemented

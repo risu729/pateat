@@ -1,0 +1,78 @@
+{
+  "scope": "Offline synthetic JSON UTF-8 serialization; no accounts, network, model or browser storage writes",
+  "node": "v26.12.0",
+  "sources": [
+    {
+      "file": "apps/extension/src/service/recipes.ts",
+      "sha256": "ba92ea3e6c32361933abe8afa65bf231f2ef58273fa0f51bf6d8875c6cc92197"
+    },
+    {
+      "file": "services/api/src/limits.ts",
+      "sha256": "b18bf1b0faf2c61e3aef07cc9520ca0918dc633cd62379694d963ae2ff25c23d"
+    },
+    {
+      "file": "packages/contracts/src/sync.ts",
+      "sha256": "bb75e60a6a3e42f8f6c60a1b0e28c775ae69e8082a32abbdc46b17e87a1b8206"
+    },
+    {
+      "file": "services/api/src/app.ts",
+      "sha256": "5b28f4bd37d7a2f057b7f59d9dfa7c74a49f2aa65c2ca4223b5ed560dd41a83f"
+    }
+  ],
+  "limits": {
+    "recipeCacheBytes": 2097152,
+    "activeRecipes": 1000,
+    "keptRecipeRevisions": 10,
+    "settingsDocumentBytes": 122880,
+    "apiBodyBytes": 131072,
+    "pairingBodyBytes": 4096
+  },
+  "settingsEnvelope": {
+    "expectedRevision": 9007199254740990,
+    "wrapperBytes": 61,
+    "maximumDocumentWithWrapperBytes": 122941,
+    "bodyHeadroomBytes": 8131
+  },
+  "samples": [
+    {
+      "kind": "password",
+      "recipeDocumentBytes": 420,
+      "cacheAtActiveRecipeLimitBytes": 421128,
+      "fitsAtActiveRecipeLimit": true,
+      "largestFittingCount": 4981,
+      "fittingCacheBytes": 2097129,
+      "nextCount": 4982,
+      "nextCacheBytes": 2097550
+    },
+    {
+      "kind": "two-page-english",
+      "recipeDocumentBytes": 654,
+      "cacheAtActiveRecipeLimitBytes": 655128,
+      "fitsAtActiveRecipeLimit": true,
+      "largestFittingCount": 3201,
+      "fittingCacheBytes": 2096783,
+      "nextCount": 3202,
+      "nextCacheBytes": 2097438
+    },
+    {
+      "kind": "two-page-japanese",
+      "recipeDocumentBytes": 677,
+      "cacheAtActiveRecipeLimitBytes": 678128,
+      "fitsAtActiveRecipeLimit": true,
+      "largestFittingCount": 3092,
+      "fittingCacheBytes": 2096504,
+      "nextCount": 3093,
+      "nextCacheBytes": 2097182
+    },
+    {
+      "kind": "wide-japanese-markers",
+      "recipeDocumentBytes": 2193,
+      "cacheAtActiveRecipeLimitBytes": 2194128,
+      "fitsAtActiveRecipeLimit": false,
+      "largestFittingCount": 955,
+      "fittingCacheBytes": 2095397,
+      "nextCount": 956,
+      "nextCacheBytes": 2097591
+    }
+  ]
+}
