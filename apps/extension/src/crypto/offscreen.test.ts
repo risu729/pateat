@@ -130,4 +130,42 @@ describe("offscreen Worker supervision", () => {
       result: { ok: false, error: { code: "timeout" } },
     });
   });
+
+  it("admits up to eight open sessions and refuses a ninth", () => {
+    startCryptoOffscreen();
+    port.deliver({ version: 1, type: "crypto.reset", generation });
+    // Four connections each with a live session and a sync candidate.
+    const openSession = (index: number) => {
+      const owner = `synthetic-connection-${index % 4}`;
+      const request = `40000000-0000-4000-8000-00000000000${index}`;
+      port.deliver({ ...open, requestId: request, connectionId: owner });
+      const worker = SilentWorker.created[index];
+      if (!worker) return port.sent.at(-1);
+      const session = {
+        brokerGeneration: generation,
+        connectionId: owner,
+        userId: "40000000-0000-4000-8000-0000000000aa",
+        sessionId: `40000000-0000-4000-8000-0000000001${index}0`,
+        snapshotId: open.operation.snapshotId,
+      };
+      const result = { ok: true, data: { session } };
+      worker.onmessage?.({
+        data: {
+          version: 1,
+          type: "crypto.result",
+          generation,
+          requestId: request,
+          connectionId: owner,
+          result,
+        },
+      } as MessageEvent<unknown>);
+      return port.sent.at(-1);
+    };
+    for (let index = 0; index < 8; index += 1)
+      expect(openSession(index), `open ${index + 1}`).toMatchObject({ result: { ok: true } });
+    expect(openSession(8)).toMatchObject({
+      result: { ok: false, error: { code: "resource-limit" } },
+    });
+    expect(SilentWorker.created).toHaveLength(8);
+  });
 });
