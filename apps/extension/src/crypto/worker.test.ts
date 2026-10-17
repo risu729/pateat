@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { LocalFieldSnapshot } from "@pateat/bitwarden";
+import { rfcTotpSecrets } from "../../../../packages/bitwarden/src/__fixtures__/totp";
 import type { HostCommand, HostSessionRef } from "./wire";
 
 type CapturedSnapshot = LocalFieldSnapshot & { dispose: ReturnType<typeof vi.fn> };
@@ -52,6 +53,8 @@ const otherSnapshotId = "30000000-0000-4000-8000-000000000004";
 const itemId = (index: number) => `a0000000-0000-4000-8000-${index.toString().padStart(12, "0")}`;
 const loginCount = 129;
 // Received but not readable as fields: an unsupported item type and a login without its login.
+/** The last login item holds a Hidden custom field with an RFC 6238 TOTP key. */
+const seedIndex = loginCount;
 const unsupportedIndex = 130;
 const invalidIndex = 131;
 const unknownIndex = 999;
@@ -171,6 +174,9 @@ async function openWorker(
           name: `Synthetic item ${index + 1}`,
           collectionIds: [],
           login: { password: `synthetic-password-${index + 1}`, uris: uris[index] ?? [] },
+          ...(index + 1 === seedIndex
+            ? { fields: [{ name: "seed", value: rfcTotpSecrets.SHA1, type: 1, linkedId: null }] }
+            : {}),
         })),
         ...(withUnreadable
           ? [
@@ -537,4 +543,29 @@ describe("crypto Worker field requests", () => {
       expect(allSnapshots()).toEqual([]);
     },
   );
+});
+
+describe("crypto Worker TOTP code grant", () => {
+  it("passes the code grant to the field snapshot", async () => {
+    const fieldId = `custom.${snapshotId}.0`;
+    const ref = { connectionId, userId, snapshotId, itemId: itemId(seedIndex), fieldId };
+    const coded = await command({
+      kind: "resolve",
+      session,
+      ref,
+      allowedFieldIds: [fieldId],
+      nowMs: 59_000,
+      code: true,
+    });
+    expect(coded).toEqual({
+      ok: true,
+      data: { kind: "otp", value: "287082", period: 30, validUntilMs: 60_000 },
+    });
+    expect(JSON.stringify(coded)).not.toContain(rfcTotpSecrets.SHA1);
+    // Without the grant, the same field is plain text: the grant alone made the code.
+    expect(await command({ kind: "resolve", session, ref, allowedFieldIds: [fieldId] })).toEqual({
+      ok: true,
+      data: { kind: "text", value: rfcTotpSecrets.SHA1 },
+    });
+  });
 });

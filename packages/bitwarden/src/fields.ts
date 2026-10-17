@@ -308,7 +308,12 @@ export function createLocalFieldSnapshot(input: unknown): BitwardenResult<LocalF
               if (!field) return failure("field-missing");
               if (field.type !== 0 && field.type !== 1) return failure("unsupported-field");
               if (!field.value) return failure("field-missing");
-              return generateLocalTotp(field.value, grant.nowMs ? { nowMs: grant.nowMs } : {});
+              const generated = generateLocalTotp(
+                field.value,
+                grant.nowMs ? { nowMs: grant.nowMs } : {},
+              );
+              // Sampling the clock may dispose the snapshot; withhold the code then.
+              return item ? generated : failure("crypto-locked");
             }
             let value: string | null | undefined;
             if (custom.has(fieldId)) {

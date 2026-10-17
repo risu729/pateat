@@ -768,6 +768,25 @@ describe("offline restore and fresh session scope", () => {
       }),
     ).toEqual(vaultFailure("field-denied"));
   });
+  it("passes a code grant to the host without the snapshot ID", async () => {
+    const h = harness();
+    const current = await accepted(h);
+    const listed = await h.manager.listFields(current.handle, itemId);
+    if (!listed.ok) throw new Error("Synthetic field listing failed");
+    const otp = { kind: "otp" as const, value: "654321", period: 30, validUntilMs: 60_000 };
+    h.host.resolveField.mockImplementationOnce(async () => ({ ok: true, data: otp }));
+    expect(
+      await h.manager.resolveField(current.handle, listed.data[0]!.ref, {
+        snapshotId: current.handle.snapshotId,
+        allowedFieldIds: ["login.password"],
+        code: true,
+      }),
+    ).toEqual({ ok: true, data: otp });
+    expect(h.host.resolveField.mock.calls[0]![2]).toEqual({
+      allowedFieldIds: ["login.password"],
+      code: true,
+    });
+  });
   it("withholds a completed field result after disable invalidates its handle", async () => {
     const h = harness();
     const current = await accepted(h);
