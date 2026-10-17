@@ -39,12 +39,18 @@ export const ownerIdentities = sqliteTable(
 );
 
 /** Policy documents are scoped by both owner and profile identity. */
-export const profiles = sqliteTable("profiles", {
-  ownerId: text("owner_id").notNull().references(() => owners.id),
-  id: text("id").notNull(),
-  name: text("name").notNull(),
-  document: text("document", { mode: "json" }),
-}, (table) => [primaryKey({ columns: [table.ownerId, table.id] })]);
+export const profiles = sqliteTable(
+  "profiles",
+  {
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => owners.id),
+    id: text("id").notNull(),
+    name: text("name").notNull(),
+    document: text("document", { mode: "json" }),
+  },
+  (table) => [primaryKey({ columns: [table.ownerId, table.id] })],
+);
 
 /** Only a SHA-256 digest of each high-entropy device credential is stored. */
 export const devices = sqliteTable(
@@ -67,7 +73,10 @@ export const devices = sqliteTable(
     revokedAt: integer("revoked_at"),
   },
   (table) => [
-    foreignKey({ columns: [table.ownerId, table.profileId], foreignColumns: [profiles.ownerId, profiles.id] }),
+    foreignKey({
+      columns: [table.ownerId, table.profileId],
+      foreignColumns: [profiles.ownerId, profiles.id],
+    }),
     uniqueIndex("devices_token_hash_unique").on(table.tokenHash),
     index("devices_owner_idx").on(table.ownerId),
   ],

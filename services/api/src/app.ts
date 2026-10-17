@@ -96,8 +96,16 @@ export const app = new Hono<ApiEnv>()
   .all("/manage/sites/:scheme{https?}/:host", methodNotAllowed("GET"))
   // Profile editing requires a fresh owner session and the same extension allowlist
   // as pairing; a device bearer credential grants no access to these routes.
-  .use("/pair/profiles/*", requirePairingAccessApi, requirePairingOrigin, limitIdentity,
-    bodyLimit({ maxSize: MAX_BODY_BYTES, onError: (c) => apiError(c, 413, { error: "payload_too_large" }) }))
+  .use(
+    "/pair/profiles/*",
+    requirePairingAccessApi,
+    requirePairingOrigin,
+    limitIdentity,
+    bodyLimit({
+      maxSize: MAX_BODY_BYTES,
+      onError: (c) => apiError(c, 413, { error: "payload_too_large" }),
+    }),
+  )
   .route("/pair/profiles", profileEditorRoutes)
   // Direct pairing from an allowed extension with the owner's login session (ADR 0020).
   // Access and the Origin check run before the per-identity limit and any body read.

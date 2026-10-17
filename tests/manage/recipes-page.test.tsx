@@ -42,10 +42,19 @@ function mockClient(initial: Listed) {
   let current: ManageRecipes = { unreadable: [], ...initial };
   return {
     dashboard: vi.fn<ManageClient["dashboard"]>(),
+    profileId: "00000000-0000-4000-8000-000000000001",
+    selectProfile: vi.fn<ManageClient["selectProfile"]>(),
+    profiles: vi.fn<ManageClient["profiles"]>(async () => ({
+      version: 1,
+      profiles: [{ id: "00000000-0000-4000-8000-000000000001", name: "Default" }],
+    })),
+    copyProfile: vi.fn<ManageClient["copyProfile"]>(),
+    assignProfile: vi.fn<ManageClient["assignProfile"]>(),
     devices: vi.fn<ManageClient["devices"]>(),
     revokeDevice: vi.fn<ManageClient["revokeDevice"]>(),
     settings: vi.fn<ManageClient["settings"]>(async () => ({
       version: 1,
+      profileId: "00000000-0000-4000-8000-000000000001",
       revision: 0,
       settings: null,
     })),

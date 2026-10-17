@@ -84,13 +84,31 @@ export function createManageClient(fetcher: ManageFetch = (input, init) => fetch
     async dashboard(range: ManageDashboardRange) {
       return read(await call(fetcher, `/dashboard?range=${range}`), manageDashboardSchema);
     },
-    selectProfile(profileId: string) { selectedProfile = profileId; },
-    async profiles() { return read(await call(fetcher, "/profiles"), profilesSchema); },
+    get profileId() {
+      return selectedProfile;
+    },
+    selectProfile(profileId: string) {
+      selectedProfile = profileId;
+    },
+    async profiles() {
+      return read(await call(fetcher, "/profiles"), profilesSchema);
+    },
     async copyProfile(name: string, copyFrom: string) {
-      return read(await call(fetcher, "/profiles", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ version: 1, name, copyFrom }) }), profileSchema);
+      return read(
+        await call(fetcher, "/profiles", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ version: 1, name, copyFrom }),
+        }),
+        profileSchema,
+      );
     },
     async assignProfile(deviceId: string, profileId: string) {
-      await call(fetcher, `/devices/${encodeURIComponent(deviceId)}/profile`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ version: 1, profileId }) });
+      await call(fetcher, `/devices/${encodeURIComponent(deviceId)}/profile`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ version: 1, profileId }),
+      });
     },
     async devices() {
       return read(await call(fetcher, "/devices"), manageDevicesSchema);

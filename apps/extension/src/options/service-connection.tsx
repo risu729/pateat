@@ -98,7 +98,7 @@ export function ServiceConnection({
   const [message, setMessage] = useState<ServiceMessage>("");
   const [busy, setBusy] = useState(false);
   const [address, setAddress] = useState("");
-  const [profiles, setProfiles] = useState<{id: string; name: string}[]>([]);
+  const [profiles, setProfiles] = useState<{ id: string; name: string }[]>([]);
   const [profileId, setProfileId] = useState("");
   const [label, setLabel] = useState("Chrome");
   const [addressError, setAddressError] = useState("");
@@ -121,7 +121,10 @@ export function ServiceConnection({
       if (success !== undefined) setMessage(success);
     } else {
       if (response.state) setState(response.state);
-      if (response.profiles) { setProfiles(response.profiles); setProfileId(""); }
+      if (response.profiles) {
+        setProfiles(response.profiles);
+        setProfileId("");
+      }
       setMessage(errorMessage(response.error));
     }
   }
@@ -319,10 +322,19 @@ export function ServiceConnection({
             </label>
           </div>
           {profiles.length > 0 && (
-            <label className={fieldClass}>Settings profile
-              <select className={controlClass} value={profileId} onChange={(event) => setProfileId(event.target.value)}>
+            <label className={fieldClass}>
+              Settings profile
+              <select
+                className={controlClass}
+                value={profileId}
+                onChange={(event) => setProfileId(event.target.value)}
+              >
                 <option value="">Choose a profile</option>
-                {profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
+                {profiles.map((profile) => (
+                  <option key={profile.id} value={profile.id}>
+                    {profile.name}
+                  </option>
+                ))}
               </select>
             </label>
           )}
@@ -460,7 +472,12 @@ export function ServiceConnection({
         </RowList>
       )}
       {state?.kind === "connected" && client.profileEditor && settingsClient && (
-        <ProfileEditor origin={state.origin} service={client.profileEditor} local={settingsClient}/>
+        <ProfileEditor
+          key={state.origin}
+          origin={state.origin}
+          service={client.profileEditor}
+          local={settingsClient}
+        />
       )}
     </Panel>
   );

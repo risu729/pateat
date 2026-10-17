@@ -42,7 +42,10 @@ const dashboardQuerySchema = v.object({
 export const manageApiRoutes = new Hono<ApiEnv>()
   .get("/profiles", async (c) => {
     const ownerId = await findOwner(c.env.DB, c.get("identity"));
-    return c.json({ version: 1 as const, profiles: ownerId ? await listProfiles(c.env.DB, ownerId) : [] });
+    return c.json({
+      version: 1 as const,
+      profiles: ownerId ? await listProfiles(c.env.DB, ownerId) : [],
+    });
   })
   .post("/profiles", requireJsonBody, jsonBody(profileCreateSchema), async (c) => {
     const ownerId = await findOwner(c.env.DB, c.get("identity"));
@@ -51,13 +54,26 @@ export const manageApiRoutes = new Hono<ApiEnv>()
     const profile = await copyProfile(c.env.DB, ownerId, copyFrom, name);
     return profile ? c.json(profile, 201) : apiError(c, 404, { error: "not_found" });
   })
-  .post("/devices/:deviceId/profile", validate("param", deviceParamSchema, { status: 404, error: "not_found" }),
-    requireJsonBody, jsonBody(deviceProfileSchema), async (c) => {
+  .post(
+    "/devices/:deviceId/profile",
+    validate("param", deviceParamSchema, { status: 404, error: "not_found" }),
+    requireJsonBody,
+    jsonBody(deviceProfileSchema),
+    async (c) => {
       const ownerId = await findOwner(c.env.DB, c.get("identity"));
-      if (!ownerId || !await assignProfile(c.env.DB, ownerId, c.req.valid("param").deviceId, c.req.valid("json").profileId))
+      if (
+        !ownerId ||
+        !(await assignProfile(
+          c.env.DB,
+          ownerId,
+          c.req.valid("param").deviceId,
+          c.req.valid("json").profileId,
+        ))
+      )
         return apiError(c, 404, { error: "not_found" });
       return c.body(null, 204);
-    })
+    },
+  )
   .get("/devices", async (c) => {
     const ownerId = await findOwner(c.env.DB, c.get("identity"));
     const rows = ownerId
@@ -104,24 +120,36 @@ export const manageApiRoutes = new Hono<ApiEnv>()
     return c.json(await readDashboard(c.env.DB, ownerId, range, Date.now()));
   })
   // The same revision-checked document devices sync through /v1/settings.
-  .get("/profiles/:profileId/settings", validate("param", profileParamSchema, { status: 404, error: "not_found" }), async (c) => {
-    const ownerId = await findOwner(c.env.DB, c.get("identity"));
-    if (!ownerId) return apiError(c, 404, { error: "not_paired" });
-    const profileId = c.req.valid("param").profileId;
-    if (!(await listProfiles(c.env.DB, ownerId)).some((profile) => profile.id === profileId)) return apiError(c, 404, { error: "not_found" });
-    return c.json(await readSettings(c.env.DB, ownerId, profileId));
-  })
-  .put("/profiles/:profileId/settings", validate("param", profileParamSchema, { status: 404, error: "not_found" }), requireJsonBody, jsonBody(manageSettingsWriteSchema), async (c) => {
-    // Settings belong to an owner, who exists once a device was paired.
-    const ownerId = await findOwner(c.env.DB, c.get("identity"));
-    if (!ownerId) return apiError(c, 404, { error: "not_paired" });
-    const profileId = c.req.valid("param").profileId;
-    if (!(await listProfiles(c.env.DB, ownerId)).some((profile) => profile.id === profileId)) return apiError(c, 404, { error: "not_found" });
-    const result = await writeSettings(c.env.DB, ownerId, profileId, c.req.valid("json"), null);
-    if (!result.ok)
-      return c.json({ error: "settings_conflict" as const, current: result.current }, 409);
-    return c.json(result.state);
-  })
+  .get(
+    "/profiles/:profileId/settings",
+    validate("param", profileParamSchema, { status: 404, error: "not_found" }),
+    async (c) => {
+      const ownerId = await findOwner(c.env.DB, c.get("identity"));
+      if (!ownerId) return apiError(c, 404, { error: "not_paired" });
+      const profileId = c.req.valid("param").profileId;
+      if (!(await listProfiles(c.env.DB, ownerId)).some((profile) => profile.id === profileId))
+        return apiError(c, 404, { error: "not_found" });
+      return c.json(await readSettings(c.env.DB, ownerId, profileId));
+    },
+  )
+  .put(
+    "/profiles/:profileId/settings",
+    validate("param", profileParamSchema, { status: 404, error: "not_found" }),
+    requireJsonBody,
+    jsonBody(manageSettingsWriteSchema),
+    async (c) => {
+      // Settings belong to an owner, who exists once a device was paired.
+      const ownerId = await findOwner(c.env.DB, c.get("identity"));
+      if (!ownerId) return apiError(c, 404, { error: "not_paired" });
+      const profileId = c.req.valid("param").profileId;
+      if (!(await listProfiles(c.env.DB, ownerId)).some((profile) => profile.id === profileId))
+        return apiError(c, 404, { error: "not_found" });
+      const result = await writeSettings(c.env.DB, ownerId, profileId, c.req.valid("json"), null);
+      if (!result.ok)
+        return c.json({ error: "settings_conflict" as const, current: result.current }, 409);
+      return c.json(result.state);
+    },
+  )
   // The owner's model configuration (ADR 0014). Only this API reads or writes it: device
   // tokens cannot, so a stolen one cannot raise the cost of each call.
   .get("/models", async (c) => {

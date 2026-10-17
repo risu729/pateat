@@ -39,15 +39,26 @@ const accepts = (schema: v.GenericSchema, value: unknown) => v.safeParse(schema,
 
 describe("settings sync contract", () => {
   it("represents an empty service state only at revision 0", () => {
-    expect(accepts(syncSettingsStateSchema, { version: 1, revision: 0, settings: null })).toBe(
-      true,
-    );
-    expect(accepts(syncSettingsStateSchema, { version: 1, revision: 1, settings: null })).toBe(
-      false,
-    );
     expect(
       accepts(syncSettingsStateSchema, {
         version: 1,
+        profileId: "00000000-0000-4000-8000-000000000001",
+        revision: 0,
+        settings: null,
+      }),
+    ).toBe(true);
+    expect(
+      accepts(syncSettingsStateSchema, {
+        version: 1,
+        profileId: "00000000-0000-4000-8000-000000000001",
+        revision: 1,
+        settings: null,
+      }),
+    ).toBe(false);
+    expect(
+      accepts(syncSettingsStateSchema, {
+        version: 1,
+        profileId: "00000000-0000-4000-8000-000000000001",
         revision: 0,
         settings: createDefaultSettings(),
       }),
