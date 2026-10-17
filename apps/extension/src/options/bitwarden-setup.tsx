@@ -306,6 +306,7 @@ export function BitwardenSetup({
   const focusNext = useRef<RefObject<HTMLElement | null>>(undefined);
   const shownChallenge = useRef<Challenge>(undefined);
   const deleting = useRef(false);
+  const wasBusy = useRef(false);
   const [provider, setProvider] = useState<0 | 1>(0);
   const [emailCode, setEmailCode] = useState<EmailCode>();
   // The sign-in whose email code was already asked for once without a click.
@@ -735,6 +736,9 @@ export function BitwardenSetup({
     );
   }
   useEffect(() => {
+    // The first load is not the person's operation and must not take focus.
+    const finished = wasBusy.current && !busy;
+    wasBusy.current = busy && statusKnown;
     if (challenge !== shownChallenge.current) {
       shownChallenge.current = challenge;
       // A new or repeated challenge asks for a code. When it ends, its removed controls
@@ -745,9 +749,20 @@ export function BitwardenSetup({
     }
     // The control may only now be shown, or still disabled while an operation finishes.
     const target = focusNext.current?.current;
-    if (!target?.isConnected || target.matches(":disabled")) return;
-    focusNext.current = undefined;
-    target.focus();
+    if (target?.isConnected && !target.matches(":disabled")) {
+      focusNext.current = undefined;
+      target.focus();
+      return;
+    }
+    // A control the result removed or disabled, such as Cancel setup with nothing left to
+    // cancel, leaves focus on the page; the status says what happened.
+    const focused = document.activeElement;
+    if (
+      finished &&
+      !focusNext.current &&
+      (!focused || focused === document.body || focused.matches(":disabled"))
+    )
+      statusOutput.current?.focus();
   });
   const previewEnvironment: BitwardenProfile["environment"] =
     existing?.environment ??
@@ -784,7 +799,9 @@ export function BitwardenSetup({
             type="button"
             variant="ghost"
             aria-label={t("Refresh connections")}
+            className={BUSY_DIMMED}
             disabled={busy || !!challenge}
+            focusableWhenDisabled={busy}
             onClick={() =>
               start(async (epoch) => {
                 await readConnections(epoch);
@@ -833,7 +850,9 @@ export function BitwardenSetup({
                   <Button
                     type="button"
                     variant="outline"
+                    className={BUSY_DIMMED}
                     disabled={blocked}
+                    focusableWhenDisabled={busy}
                     aria-label={t("{{name}}: {{action}}", {
                       name: connection.label,
                       action: t(signInFirst ? "Sign in again" : "Sync"),
@@ -1182,6 +1201,8 @@ export function BitwardenSetup({
             <Button
               id="bitwarden-continue"
               type="button"
+              className={BUSY_DIMMED}
+              focusableWhenDisabled={busy}
               disabled={
                 busy || !code || (challenge.kind === "mfa-required" && !challenge.providers.length)
               }
@@ -1350,7 +1371,14 @@ export function BitwardenSetup({
             />
           </fieldset>
           <div className="flex flex-wrap gap-2">
-            <Button id="bitwarden-connect" type="button" disabled={busy} onClick={connect}>
+            <Button
+              id="bitwarden-connect"
+              type="button"
+              className={BUSY_DIMMED}
+              disabled={busy}
+              focusableWhenDisabled={busy}
+              onClick={connect}
+            >
               {t(existing ? "Sign in and sync" : "Connect Bitwarden")}
             </Button>
             {existing && (
@@ -1378,6 +1406,10 @@ export function BitwardenSetup({
   );
 }
 
+// Buttons that start an operation are only marked disabled while it runs, since Chrome
+// moves focus away from a focused control that becomes disabled.
+/** A busy button is marked with aria-disabled, which the Button's disabled style misses. */
+const BUSY_DIMMED = "aria-disabled:opacity-50";
 const iconButtonClass =
   "inline-grid size-10 flex-none place-items-center rounded-lg border border-transparent bg-transparent text-ink-muted hover:bg-surface-sunken disabled:opacity-50";
 const menuItemClass =
