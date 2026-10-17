@@ -168,9 +168,10 @@ function equivalentGroups(input: unknown): string[][] | undefined {
   for (const group of groups) {
     const values: string[] = [];
     for (const value of group) {
+      // As in the official clients, which compare raw strings, an entry that is not a
+      // hostname can never match, so it is ignored instead of voiding every group.
       const hostname = equivalentHostname(value);
-      if (!hostname) return undefined;
-      values.push(hostname);
+      if (hostname) values.push(hostname);
     }
     normalized.push(values);
   }

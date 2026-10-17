@@ -103,7 +103,9 @@ export async function findLiveSiteCandidates(input: {
       if (!eligible(itemId)) return;
       incomplete.getOrInsertComputed(itemId, () => new Set<string>()).add(reason);
     };
-    // Non-web schemes and malformed URIs can never match a page, as in the pinned clients.
+    // Pateat matches only http and https URIs, so a non-web scheme or malformed URI never
+    // matches a page and does not make the item incomplete. The pinned clients can match
+    // some non-web URIs with a hostname, such as ftp://, under Domain or Host.
     for (const entry of result.data.unavailableUris)
       if (entry.reason !== "unsupported-uri-scheme" && entry.reason !== "invalid-uri")
         note(entry.itemId, entry.reason);
