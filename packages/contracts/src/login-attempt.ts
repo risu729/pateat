@@ -509,6 +509,11 @@ const maySubmit = (context: LoginAttemptMetadata) =>
   context.mutationIntent === true ||
   context.operationKind === "fill" ||
   (context.operationKind === "click" && context.submissions > 0);
+/**
+ * Whether a login whose tab left the origin may have submitted there: its current
+ * operation may have, or it is watched (ADR 0027), as at its stop (ADR 0036).
+ */
+const leftMaySubmit = (context: LoginAttemptMetadata) => maySubmit(context) || watched(context);
 const operationMatches = (context: LoginAttemptMetadata, event: LoginAttemptEvent) =>
   "operationId" in event && event.operationId === context.operationId;
 /**
@@ -617,15 +622,17 @@ function record(
         // The result of a submission on the previous origin cannot be observed here, unless
         // the runtime confirmed the sign-in. A watched login ends where it stopped, as when
         // its watch ends: it never signed in, so its first step showing again is no logout
-        // (ADR 0027, 2026-10-13).
+        // (ADR 0027, 2026-10-13). A login watched at its stop (ADR 0036) has nothing in
+        // flight, yet submitted the steps before it.
         return {
-          outcome: !maySubmit(context)
-            ? "interrupted"
-            : event.signedIn
+          outcome:
+            event.signedIn && leftMaySubmit(context)
               ? "authenticated"
               : watched(context)
                 ? context.outcome
-                : "left-origin",
+                : maySubmit(context)
+                  ? "left-origin"
+                  : "interrupted",
         };
       return {
         document: sameScope(context.document, event.document) ? event.document : context.document,
@@ -932,7 +939,7 @@ function createLoginAttemptMachine() {
         event.type === "NAVIGATED" &&
         event.signedIn === true &&
         leftOrigin(context.document, event.document) &&
-        maySubmit(context),
+        leftMaySubmit(context),
       observedAuthenticated: ({ context, event }) =>
         event.type === "OBSERVED" &&
         event.result === "authenticated" &&

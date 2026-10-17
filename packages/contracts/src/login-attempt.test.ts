@@ -3452,6 +3452,24 @@ describe("a login that stops before a missing password (ADR 0036)", () => {
       expect(
         transitionLoginAttempt(stopped, { type: "OBSERVED", result: "challenge", document: top }),
       ).toMatchObject({ state: "watching", outcome: "challenge", stepIndex: 2, stopAt: 2 });
+      // Like any watched login, it ends where it stopped when its tab leaves the origin,
+      // or signed in when the runtime confirmed the sign-in on the new origin.
+      const watchedAtStop = transitionLoginAttempt(stopped, {
+        type: "OBSERVED",
+        result: "challenge",
+        document: top,
+      });
+      const away = { ...top, origin: "https://elsewhere.example", documentId: "away" };
+      expect(
+        transitionLoginAttempt(watchedAtStop, { type: "NAVIGATED", document: away }),
+      ).toMatchObject({ state: "blocked", outcome: "challenge" });
+      expect(
+        transitionLoginAttempt(watchedAtStop, {
+          type: "NAVIGATED",
+          document: away,
+          signedIn: true,
+        }),
+      ).toMatchObject({ state: "authenticated", outcome: "authenticated" });
       const answered = transitionLoginAttempt(stopped, answer);
       expect(answered).toMatchObject({
         state: "reconciling",
