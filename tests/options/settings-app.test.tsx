@@ -377,6 +377,116 @@ test("the add form validates locally and keeps focus on the origin after adds an
   ]);
 });
 
+test("an account that cannot be saved marks the account select, not the origin", async () => {
+  const client = mockClient();
+  // The same account connected twice cannot be told apart.
+  const response = saved();
+  response.catalog.connections[1]!.userId = "demo-personal-account";
+  client.getSettings.mockResolvedValue(response);
+  await mount(client);
+  // With no matching item the select is disabled, so focus stays on the valid origin.
+  await control("site-origin").fill("https://none.example");
+  await expect.element(control("default-account-note")).toMatchTextContent("No vault item matches");
+  await control("add-default").click();
+  await expect
+    .element(page.getByRole("alert"))
+    .toMatchTextContent("Choose an available default account.");
+  await expect.element(control("site-origin")).toHaveAttribute("aria-invalid", "false");
+  await expect.element(control("site-origin")).not.toHaveAttribute("aria-describedby");
+  await expect.element(control("default-account")).toHaveAttribute("aria-invalid", "true");
+  await expect
+    .element(control("default-account"))
+    .toHaveAccessibleDescription(/Choose an available default account\./);
+  await expect.element(control("site-origin")).toHaveFocus();
+
+  // An enabled select that names an ambiguous account takes focus.
+  await control("site-origin").fill("https://mail.example");
+  await expect.element(page.getByRole("alert")).not.toBeInTheDocument();
+  await expect.element(control("default-account")).toHaveAttribute("aria-invalid", "false");
+  await expect.element(control("default-account-note")).toMatchTextContent("1 matching item");
+  await control("add-default").click();
+  await expect
+    .element(page.getByRole("alert"))
+    .toMatchTextContent("This vault account is connected more than once.");
+  await expect.element(control("site-origin")).toHaveAttribute("aria-invalid", "false");
+  await expect.element(control("default-account")).toHaveAttribute("aria-invalid", "true");
+  await expect.element(control("default-account")).toHaveFocus();
+  // Choosing another account clears the error.
+  await control("default-account-all").click();
+  await control("default-account").selectOptions(JSON.stringify(["demo-personal", "primary"]));
+  await expect.element(page.getByRole("alert")).not.toBeInTheDocument();
+  await expect.element(control("default-account")).toHaveAttribute("aria-invalid", "false");
+  expect(client.saveSettings).not.toHaveBeenCalled();
+});
+
+test("after a default is saved the next origin starts from its best match", async () => {
+  const client = mockClient();
+  await mount(client);
+  await control("site-origin").fill("https://bank.example");
+  await expect.element(control("default-account-note")).toMatchTextContent("3 matching items");
+  await control("default-account").selectOptions(JSON.stringify(["demo-work", "primary"]));
+  await control("add-default").click();
+  await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 1");
+  // The work account is offered for mail.example too, but does not match it.
+  await control("default-account-all").click();
+  await control("site-origin").fill("https://mail.example");
+  await expect.element(control("default-account-note")).toMatchTextContent("1 matching item");
+  await expect
+    .element(control("default-account"))
+    .toHaveValue(JSON.stringify(["demo-personal", "secondary"]));
+});
+
+test("an origin in another spelling is saved in its canonical form", async () => {
+  const client = mockClient();
+  await mount(client);
+  for (const spelling of [
+    "https://bank.example/",
+    "https://bank.example/path",
+    "https://bank.example?query",
+    "https://bank.example#hash",
+    "https://user@bank.example",
+    "https://bank_example",
+  ]) {
+    // oxlint-disable-next-line no-await-in-loop
+    await control("site-origin").fill(spelling);
+    // oxlint-disable-next-line no-await-in-loop
+    await control("add-default").click();
+    // oxlint-disable-next-line no-await-in-loop
+    await expect
+      .element(page.getByRole("alert"))
+      .toMatchTextContent("Enter an exact HTTP(S) origin without a path or trailing slash.");
+  }
+  // A Unicode hostname is searched and saved as punycode.
+  await control("site-origin").fill("https://bücher.example");
+  await expect.element(control("default-account-note")).toMatchTextContent("No vault item matches");
+  expect(client.findSiteAccounts).toHaveBeenLastCalledWith(
+    "https://xn--bcher-kva.example",
+    expect.anything(),
+  );
+  for (const [revision, spelling] of [
+    "HTTPS://Bank.Example",
+    "https://bank.example:443",
+  ].entries()) {
+    // oxlint-disable-next-line no-await-in-loop
+    await control("site-origin").fill(spelling);
+    // oxlint-disable-next-line no-await-in-loop
+    await expect.element(control("default-account-note")).toMatchTextContent("3 matching items");
+    // oxlint-disable-next-line no-await-in-loop
+    await control("add-default").click();
+    // oxlint-disable-next-line no-await-in-loop
+    await expect
+      .element(control("settings-status"))
+      .toMatchTextContent(`saved locally. Revision ${revision + 1}`);
+    expect(client.findSiteAccounts).toHaveBeenLastCalledWith(
+      "https://bank.example",
+      expect.anything(),
+    );
+    expect(client.saveSettings.mock.calls[revision]?.[0].settings.siteDefaults).toEqual([
+      expect.objectContaining({ origin: "https://bank.example", itemId: "primary" }),
+    ]);
+  }
+});
+
 test("an origin row changes its default only on Save, and No default removes it", async () => {
   const client = mockClient();
   const response = saved(1);
