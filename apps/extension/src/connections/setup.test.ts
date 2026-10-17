@@ -992,6 +992,21 @@ describe("durable provider sessions", () => {
     expect(held.released()).toBe(true);
     expect(await h.revisions.revision(accountProfile.connectionId)).toBe(1_792_152_060_000);
   });
+  it("only an automatic check adopts its snapshot as automatic (ADR 0025)", async () => {
+    const h = harness({ existing: true });
+    await connected(h);
+    // A password sign-in is not automatic.
+    expect(h.policy.adopt).toHaveBeenCalledTimes(1);
+    expect(h.policy.adopt.mock.calls[0]?.[0]).not.toHaveProperty("automatic");
+    const fresh = h.restart();
+    h.revisionResponses.push({ status: 200, body: 1_792_152_060_000 });
+    expect(await fresh.service.autoSync(accountProfile.connectionId, hold())).toBe("synced");
+    expect(h.policy.adopt).toHaveBeenCalledTimes(2);
+    expect(h.policy.adopt.mock.calls[1]?.[0]).toMatchObject({ automatic: true });
+    expect((await fresh.caller.sync(accountProfile.connectionId)).ok).toBe(true);
+    expect(h.policy.adopt).toHaveBeenCalledTimes(3);
+    expect(h.policy.adopt.mock.calls[2]?.[0]).not.toHaveProperty("automatic");
+  });
   it("a login in progress defers before the full sync, or after it without accepting", async () => {
     const h = harness({ existing: true });
     await connected(h);
