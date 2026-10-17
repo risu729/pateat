@@ -3298,6 +3298,39 @@ describe("a login that stops before a missing password (ADR 0036)", () => {
     });
   });
 
+  it("judges the watch's own pages while watched at its stop, with no operation", () => {
+    // Watched at the stop with nothing in flight, the login has no effect step to name, yet
+    // its watch's pages are judged as any watched login's are (ADR 0036, ADR 0027).
+    const watching = transitionLoginAttempt(
+      atStop(),
+      { type: "OBSERVED", result: "challenge", document: top },
+      1000,
+    );
+    expect(watching.operationId).toBeUndefined();
+    const judging = { type: "JUDGING" } as const;
+    const once = transitionLoginAttempt(watching, judging);
+    expect(once).toMatchObject({ state: "watching", watch: { pages: 1 } });
+    const twice = transitionLoginAttempt(once, judging);
+    expect(twice.watch).toMatchObject({ pages: 2 });
+    expect(pagesLeft(twice, undefined)).toBe(0);
+    // Within the judge's limits.
+    expect(transitionLoginAttempt(twice, judging)).toEqual(twice);
+    // A page given back counts no more.
+    expect(transitionLoginAttempt(twice, { type: "UNJUDGED" }).watch).toMatchObject({
+      pages: 1,
+    });
+    // An operation the login does not hold is not its.
+    expect(transitionLoginAttempt(watching, { type: "JUDGING", operationId: "next-one" })).toEqual(
+      watching,
+    );
+    // Nor is a page judged without an operation before the login is watched.
+    const stopped = atStop();
+    expect(transitionLoginAttempt(stopped, judging)).toEqual(stopped);
+    const sent = advanced();
+    expect(transitionLoginAttempt(sent, judging)).toEqual(sent);
+    expect(transitionLoginAttempt(sent, { type: "UNJUDGED" })).toEqual(sent);
+  });
+
   it("counts an answer at the stop as a submission and goes on no further", () => {
     const answered = transitionLoginAttempt(atStop(), answer);
     expect(answered).toMatchObject({

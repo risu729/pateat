@@ -25381,6 +25381,32 @@ describe("an item without a password, up to its password (ADR 0036)", () => {
     },
   );
 
+  it("judges a later page of the login watched at its stop and completes it signed in", async () => {
+    vi.useFakeTimers();
+    // Watched at the stop with nothing in flight, the login judges the watch's own pages as
+    // any watched login does (ADR 0036 rules 4 and 5, ADR 0027).
+    const { judge, generation } = judging({ verdict: "signed-in" });
+    const { h, report } = start({ generation });
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => status()?.[0]?.["state"] === "watching");
+    expect(status()![0]).toMatchObject({ outcome: "challenge", stepIndex: 2, stopAt: 2 });
+    expect(status()![0]!["operationId"]).toBeUndefined();
+    const sent = judge.mock.calls.length;
+    // The person signs in some other way; the tab opens a page of the origin.
+    fake.state.signs = quiet;
+    fake.state.pageUrl = `${origin}/home`;
+    fake.state.observedPath = "/home";
+    fake.state.present = new Set();
+    fake.state.extracted = { "signed-in": described("/home") };
+    expect(await h.hello({ documentId: "home-document" }, false)).toMatchObject({ ok: true });
+    await until(() => status()?.[0]?.["state"] !== "watching");
+    expect(judge).toHaveBeenCalledTimes(sent + 1);
+    expect(status()![0]).toMatchObject({ state: "authenticated", outcome: "authenticated" });
+    expect(judgements(report).at(-1)).toMatchObject({ verdict: "signed-in", watched: true });
+    expect(executed().map((step) => step.kind)).toEqual(["fill", "click"]);
+    expect(passwordRead(h)).toBe(false);
+  });
+
   it("ends at the stop when the attempt refuses the answer", async () => {
     vi.useFakeTimers();
     // A login left at its stop by a stopped worker, with its submissions spent.
