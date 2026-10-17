@@ -356,6 +356,14 @@ gives that object's issue instead. Rows older than 90 days are deleted whenever 
 is logged and on every `GET /v1/recipes`, because routine releases do not apply cron
 triggers.
 
+A passkey-only first page sends `passkeyOnly: true` with `slots: []`
+([provisional ADR 0046](../../docs/adr/0046-passkey-only-generation.md)). It cannot
+supply `base` or `branch` and its observation has no fill fields or account list.
+The model must select one existing-passkey sign-in button, locally checked against
+the observed button and registration wording. The stored recipe explicitly has only
+the passkey route. It uses the same retry window, authenticated route, spending bounds
+and request log as other first pages; it grants no passkey signing permission.
+
 ## Schema and tests
 
 `src/db/schema.ts` is the Drizzle schema. Run

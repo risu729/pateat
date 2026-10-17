@@ -5942,10 +5942,18 @@ export function createLoginRuntime(
     if (passkeyOnly) {
       const leave = await options.vault?.enter(false).catch(() => undefined);
       let held: readonly PasskeyItem[] = [];
-      try { held = await options.passkeyItems?.(live.document.origin) ?? []; }
-      catch { held = []; }
-      finally { leave?.(); }
-      if (!items.some(({ connection, item }) => held.some((key) => key.connectionId === connection.id && key.itemId === item.id))) {
+      try {
+        held = (await options.passkeyItems?.(live.document.origin)) ?? [];
+      } catch {
+        held = [];
+      } finally {
+        leave?.();
+      }
+      if (
+        !items.some(({ connection, item }) =>
+          held.some((key) => key.connectionId === connection.id && key.itemId === item.id),
+        )
+      ) {
         miss("no-vault-match", "no-passkey");
         return undefined;
       }
@@ -6396,7 +6404,7 @@ export function createLoginRuntime(
         skipGeneration(live, hidden.reason);
         return;
       }
-      const custom = await customSlots(live.document.origin, scope);
+      const custom = passkeyOnly ? [] : await customSlots(live.document.origin, scope);
       if (documents.get(key) !== live) return;
       const spin = spinning(live.document.tabId);
       const result = await generation
@@ -6405,12 +6413,14 @@ export function createLoginRuntime(
             version: 1,
             observation: hidden.observation,
             ...(passkeyOnly ? { passkeyOnly: true } : {}),
-            slots: passkeyOnly ? [] : [
-              ...scope.slots.map((slot) =>
-                slot.id === "username" && shape ? { ...slot, valueShape: shape } : slot,
-              ),
-              ...custom,
-            ],
+            slots: passkeyOnly
+              ? []
+              : [
+                  ...scope.slots.map((slot) =>
+                    slot.id === "username" && shape ? { ...slot, valueShape: shape } : slot,
+                  ),
+                  ...custom,
+                ],
           },
           spin.sent(() =>
             report(live.document, {
@@ -6655,7 +6665,7 @@ export function createLoginRuntime(
     sender: Sender,
     token: string,
     start?: { path: string },
-    signIn?: { path: string; identifier?: true | undefined },
+    signIn?: { path: string; identifier?: true | undefined; passkey?: true | undefined },
     shown?: { path: string },
     list?: ListOffer,
     entryHello?: Announced,
@@ -6705,7 +6715,7 @@ export function createLoginRuntime(
     helloKey: string,
     sequence: number,
     start?: { path: string },
-    signIn?: { path: string; identifier?: true | undefined },
+    signIn?: { path: string; identifier?: true | undefined; passkey?: true | undefined },
     shown?: { path: string },
     list?: ListOffer,
     entryHello?: Announced,
@@ -6753,7 +6763,7 @@ export function createLoginRuntime(
     helloKey: string,
     sequence: number,
     start?: { path: string },
-    signIn?: { path: string; identifier?: true | undefined },
+    signIn?: { path: string; identifier?: true | undefined; passkey?: true | undefined },
     shown?: { path: string },
     list?: ListOffer,
     entryHello?: Announced,
@@ -7558,15 +7568,23 @@ export function createLoginRuntime(
       }
       // Nor as a page that asks for an identifier alone (ADR 0016), such as a profile page
       // with an email field.
-      if (offer && (signIn?.identifier || signIn?.passkey) && afterSignIn.get(document.tabId) === document.documentId) {
+      if (
+        offer &&
+        (signIn?.identifier || signIn?.passkey) &&
+        afterSignIn.get(document.tabId) === document.documentId
+      ) {
         skipGeneration(live, "after-sign-in");
         offer = false;
       }
       if (offer && (signIn?.path === live.path || listing)) {
         let missed: [GenerationMiss, (string | undefined)?] = ["vault-unavailable", "error"];
-        const scope = await generationSlotsFor(live, (...reason) => {
-          missed = reason;
-        }, signIn?.passkey === true).catch(() => undefined);
+        const scope = await generationSlotsFor(
+          live,
+          (...reason) => {
+            missed = reason;
+          },
+          signIn?.passkey === true,
+        ).catch(() => undefined);
         if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
         // Without an email listed, a shown text must name a matching item's username. A
         // list on a page whose path holds one is not sent: the page would be refused as
@@ -7595,7 +7613,12 @@ export function createLoginRuntime(
           live.state = "generating";
           delete live.reason;
           await publish(live);
-          void generateFor(live, scope, listing ? { names: otherOnly ?? names ?? [] } : undefined, signIn?.passkey === true);
+          void generateFor(
+            live,
+            scope,
+            listing ? { names: otherOnly ?? names ?? [] } : undefined,
+            signIn?.passkey === true,
+          );
           return { ok: false, reason: "generating" };
         }
         // No vault item matches this page, the vault could not tell, or no shown text names

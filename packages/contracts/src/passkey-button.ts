@@ -50,4 +50,3 @@ export const namesPasskey = (button: Pick<ObservedCandidate, "label" | "target">
   passkeyWording.test(
     button.target.by === "text" ? labelWords(button.target.value) : words(button.target.value),
   );
-

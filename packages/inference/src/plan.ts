@@ -426,20 +426,39 @@ export function validateGeneratedPage(
   draft: GeneratedPagePlan,
 ): { ok: true; plan: ValidatedGeneratedPage } | { ok: false; reason: GeneratedPageRejection } {
   if (slots.length === 0) {
-    const button = observation.candidates.find((candidate) => candidate.id === draft.action.candidate);
+    const button = observation.candidates.find(
+      (candidate) => candidate.id === draft.action.candidate,
+    );
     if (
       observation.accounts !== undefined ||
-      observation.candidates.some((candidate) => (fillRoles as readonly string[]).includes(candidate.role)) ||
-      draft.fields.length || draft.alternatives?.length || draft.accountSwitch !== undefined ||
-      draft.action.purpose !== "submit" || draft.passkeyButton !== button?.id ||
-      !button || button.role !== "button" || !isLoginTarget(button.target) ||
-      !namesPasskey(button) || registersPasskey(button)
-    ) return { ok: false, reason: "empty-plan" };
-    return { ok: true, plan: {
-      fields: [], action: draft.action, passkeyButton: button.id, passkeyTarget: button.target,
-      passkeyOnly: true,
-      steps: [{kind: "click", path: observation.path, target: button.target, purpose: "submit"}],
-    } };
+      observation.candidates.some((candidate) =>
+        (fillRoles as readonly string[]).includes(candidate.role),
+      ) ||
+      draft.fields.length ||
+      draft.alternatives?.length ||
+      draft.accountSwitch !== undefined ||
+      draft.action.purpose !== "submit" ||
+      draft.passkeyButton !== button?.id ||
+      !button ||
+      button.role !== "button" ||
+      !isLoginTarget(button.target) ||
+      !namesPasskey(button) ||
+      registersPasskey(button)
+    )
+      return { ok: false, reason: "empty-plan" };
+    return {
+      ok: true,
+      plan: {
+        fields: [],
+        action: draft.action,
+        passkeyButton: button.id,
+        passkeyTarget: button.target,
+        passkeyOnly: true,
+        steps: [
+          { kind: "click", path: observation.path, target: button.target, purpose: "submit" },
+        ],
+      },
+    };
   }
   const { passkeyButton, ...sets } = draft;
   const validated = validateGeneratedSets(observation, slots, sets);
