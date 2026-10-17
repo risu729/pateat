@@ -595,18 +595,16 @@ the last field. A fill that advances or submits through the page's own event set
 value and sends that one `input` or `change` event alone, with no focus, keys or blur
 that could run its effect again. Known limits: the events are not trusted (`isTrusted`
 is false), so a page that checks that, or opens a software keyboard on focus, can still
-refuse a fill (only the `chrome.debugger` permission lets an extension send trusted
-events; it shows Chrome's debugging bar, and using it is not planned and would be the
-owner's decision); no `compositionstart`, `compositionupdate` or `compositionend` events
-are sent, so a page that takes a value only when an input method's composition ends
-would get nothing (read from the code, no such page seen; to be added when one is
-found); Enter is never pressed, so a form is submitted by a click or by the page's own
-event, not by Enter alone; key events name the key and Chrome's `keyCode` that a US layout types the
-character with, as `{ key: "@", code: "Digit2", keyCode: 50, shiftKey: true }`, whatever
-the person's own layout, and a character no US key types, such as `é`, gets an empty
-`code` and `keyCode` 0 (owner, 2026-10-17 04:41 UTC, which added the symbols); a hidden
-tab's timers are throttled, so the waits between fields and between the digits of a
-split code may stretch; a page
+refuse a fill (`chrome.debugger` is the only extension API that sends trusted events,
+and the rule above keeps Pateat's own debugger detached); no `compositionstart`,
+`compositionupdate` or `compositionend` events are sent, so a page that takes a value
+only when an input method's composition ends gets none (read from the code; no such page
+has been seen); key events name the key and Chrome's `keyCode` that a US layout types
+the character with, as `{ key: "@", code: "Digit2", keyCode: 50, shiftKey: true }`,
+whatever the person's own layout, and a character no US key types, such as `é`, gets an
+empty `code` and `keyCode` 0 (owner, 2026-10-17 04:41 UTC, which added the symbols); a
+hidden tab's timers are throttled, so the waits between fields and between the digits of
+a split code may stretch; a page
 that writes the field from its own timer after each key may drop characters, and its
 fill then stops at the check after typing, while one that keeps its own copy of the
 value from such a timer may hold another value while the field passes that check, and
