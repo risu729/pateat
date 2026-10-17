@@ -116,7 +116,10 @@ than in this repository.
   account's entry, the `continue` button or `other`, then the branch, generated as any
   recipe after an `advance` step ([#332](https://github.com/risu729/pateat/pull/332)),
   or ends `account-not-listed` (local tests only). Next, the checks on Cloudflare, Wise
-  and Instagram in the owner's Chrome.
+  and Instagram in the owner's Chrome. Since 2026-10-17 (owner, after Cloudflare's
+  "Sign in with another profile" form started nothing), a form with an account field on
+  the list's path is sent as the `other` branch's first page while the chooser has no
+  such branch (local tests only).
 - Press a site's sign-in link on a page the site sent the visitor to before signing in,
   shown by a query value naming another path of the same site, such as pixiv's top page
   `https://www.pixiv.net/en/?return_to=%2Fbookmark_new_illust.php`, whose "Login" leads

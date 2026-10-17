@@ -17574,6 +17574,115 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
           chooser: { click: "other-shown" },
         });
       });
+
+      describe("before the chooser has that branch (owner 2026-10-17)", () => {
+        /** The form after "Sign in with another profile", as the page describes it. */
+        const otherForm = describedPage("/signin", [
+          { id: "c1", role: "email", target: target("email"), label: "Email" },
+          { id: "c2", role: "password", target: target("password"), label: "Password" },
+          { id: "c3", role: "button", target: target("login"), label: "Log in" },
+        ]);
+        /** The chooser path shows the form, not the list; the chooser has no `other` branch. */
+        const formOnly = (service: ReturnType<typeof generation>, reports?: LoginReport[]) => {
+          service.available.mockResolvedValue(true);
+          const h = onList(service, reports);
+          fake.state.present = new Set(["email", "password", "login"]);
+          fake.state.extracted = { login: otherForm };
+          fake.state.awaitReply = (readiness) =>
+            readiness.accounts === true ? { ok: false, reason: "timeout" } : { ok: true };
+          return h;
+        };
+
+        it("sends the form as the other branch's first page and logs in on it", async () => {
+          const reports: LoginReport[] = [];
+          let h!: ReturnType<typeof onList>;
+          const service = generation(async () => {
+            h.recipes.chooser.mockResolvedValue(withOther);
+            h.recipes.starts.mockResolvedValue([
+              { path: "/signin", steps: [afterOther.steps[0]!], list: [other] },
+            ]);
+            return { outcome: "recipe", recipe: withOther };
+          });
+          h = formOnly(service, reports);
+          // The first announcement offers the page; nothing is sent before its form shows.
+          expect(await h.hello({}, false)).toMatchObject({
+            ok: false,
+            reason: "form-not-ready",
+            generate: true,
+          });
+          expect(service.available).toHaveBeenCalledWith(
+            origin,
+            "/signin",
+            { recipeId: listed.id, revision: 1 },
+            "other",
+          );
+          expect(service.generate).not.toHaveBeenCalled();
+          expect(await h.signIn()).toEqual({ ok: false, reason: "generating" });
+          await vi.waitFor(() =>
+            expect(fake.state.messages.map((entry) => entry.type)).toContain("login.reconnect"),
+          );
+          expect(service.generate).toHaveBeenCalledTimes(1);
+          expect(service.generate.mock.calls[0]![0]).toMatchObject({
+            observation: otherForm.observation,
+            base: { recipeId: listed.id, revision: 1 },
+            branch: "other",
+          });
+          expect(reports.filter((entry) => entry.type === "generation")).toEqual([
+            expect.objectContaining({
+              outcome: "recipe",
+              page: "other",
+              recipeId: listed.id,
+              baseRevision: 1,
+            }),
+          ]);
+          // The page announces again and starts on the stored branch, clicking nothing.
+          fake.state.signIn = true;
+          fake.state.onExecute = async (message) => {
+            const step = (message["operation"] as { step: LoginStep }).step;
+            if (step.kind !== "click") return;
+            fake.state.observedPath = "/home";
+            fake.state.present = new Set();
+            fake.state.extracted = { "signed-in": homePage };
+          };
+          expect(await h.hello()).toEqual({ ok: true });
+          await until(settled("authenticated"));
+          expect(executed()).toEqual(["fill:email,password", "click:login"]);
+          expect(status()![0]).toMatchObject({ chooser: { click: "other-shown" } });
+        });
+
+        it("never sends a form without a field for the account", async () => {
+          // The password form after the person's own click on a listed profile.
+          const reports: LoginReport[] = [];
+          const service = generation();
+          const h = formOnly(service, reports);
+          fake.state.extracted = { login: passwordPage("/signin") };
+          expect(await h.hello({}, false)).toMatchObject({ generate: true });
+          expect(await h.signIn()).toEqual({ ok: false, reason: "generating" });
+          await vi.waitFor(() =>
+            expect(reports.find((entry) => entry.type === "generation")).toMatchObject({
+              outcome: "skipped",
+              reason: "no-account-field",
+              page: "other",
+            }),
+          );
+          expect(service.generate).not.toHaveBeenCalled();
+        });
+
+        it.each([
+          ["the page was sent already", "sent" as const, true],
+          ["the chooser has no button for another account", true as const, false],
+        ])("offers nothing when %s", async (_name, available, button) => {
+          const service = generation();
+          const h = formOnly(service);
+          service.available.mockResolvedValue(available);
+          if (!button)
+            h.recipes.chooser.mockResolvedValue({ ...listed, chooser: { path: "/signin" } });
+          const first = await h.hello({}, false);
+          expect(first).not.toHaveProperty("generate");
+          expect(await h.signIn()).not.toEqual({ ok: false, reason: "generating" });
+          expect(service.generate).not.toHaveBeenCalled();
+        });
+      });
     });
 
     const named = { username: "name", entries: 1, beside: 0, named: 0, other: "none" };

@@ -327,7 +327,11 @@ export function createLoginBadge(deps: {
         },
       };
     else if (report.type === "generation" && report.outcome !== "skipped") {
-      const page = report.page ?? (report.recipeId ? "continuation" : undefined);
+      // A chooser's `other` branch page goes on from its list, as a continuation does.
+      const page =
+        report.page === "other"
+          ? "continuation"
+          : (report.page ?? (report.recipeId ? "continuation" : undefined));
       change = {
         generation: {
           outcome: report.outcome,

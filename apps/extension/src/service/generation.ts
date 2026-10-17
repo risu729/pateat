@@ -402,11 +402,11 @@ export function createLoginGeneration(options: {
   }
 
   return {
-    async available(origin, path) {
+    async available(origin, path, base, branch) {
       if (!(await connected())) return "not-connected";
       await queue;
       const attempts = await recent().catch(() => []);
-      return attempts.find(same(origin, path))?.state ?? true;
+      return attempts.find(same(origin, path, base, branch))?.state ?? true;
     },
     async generate(input: RecipeGenerationRequest, sent): Promise<GenerationOutcome> {
       // `totp` is offered only for a page with a code field, so the slots never tell the
