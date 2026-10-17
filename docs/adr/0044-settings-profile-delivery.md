@@ -25,6 +25,9 @@ Proposed implementation details, not owner-confirmed:
   Profile deletion and inheritance are outside this implementation.
 - Settings responses carry profile identity. Switching profiles replaces the
   device's profile fields from the service and resets the local merge base.
+- The extension edits another profile with its local vault catalog via
+  `/pair/profiles` routes, guarded by owner Access sessions and the pairing extension
+  allowlist. A device bearer credential cannot select or edit another profile.
 - Current profile storage includes the currently supported profile fields only.
   ADR 0023 and ADR 0035 integration must extend the explicit profile projection
   and the extension merge keys when those independent changes land.

@@ -113,7 +113,7 @@ export function useSettingsEdit(client: ManageClient) {
       if (!next.success) throw new ManageApiError("bad_request");
       if (settingsDocumentBytes(next.output) > MAX_SETTINGS_DOCUMENT_BYTES)
         throw new ManageApiError("payload_too_large");
-      return client.saveSettings(state.revision, next.output);
+      return client.saveSettings(state.revision, next.output, state.profileId);
     },
     onSuccess: (state) => queryClient.setQueryData(SETTINGS_QUERY_KEY, state),
     onError: (error) => {

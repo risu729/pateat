@@ -10,6 +10,8 @@ import * as v from "valibot";
 import { CircleCheck, CircleX, Clock, Link, Lock, TriangleAlert } from "lucide-react";
 import { localSyncTime } from "../time";
 import { Button } from "./button";
+import { ProfileEditor } from "./profile-editor";
+import type { SettingsClient } from "./client";
 import type { ServiceClient } from "./service-client";
 import {
   Badge,
@@ -63,9 +65,11 @@ type Attempt = { origin: string; label: string; error: ServiceErrorCode };
 export function ServiceConnection({
   client,
   pollMs = SYNC_POLL_MS,
+  settingsClient,
 }: {
   client: ServiceClient;
   pollMs?: number;
+  settingsClient?: SettingsClient;
 }) {
   const [state, setState] = useState<ServiceState | undefined>();
   const [message, setMessage] = useState("");
@@ -415,6 +419,9 @@ export function ServiceConnection({
             }
           />
         </RowList>
+      )}
+      {state?.kind === "connected" && client.profileEditor && settingsClient && (
+        <ProfileEditor origin={state.origin} service={client.profileEditor} local={settingsClient}/>
       )}
     </Panel>
   );
