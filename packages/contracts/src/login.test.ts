@@ -2326,7 +2326,7 @@ describe("chooser recipes (ADR 0028)", () => {
       loginChooserRecipeSchema,
       chooser({ continue: { by: "text", value: "Log back in" } }),
     );
-    const click = (index: number, purpose: "advance" | "submit" = "advance") => ({
+    const clickStep = (index: number, purpose: "advance" | "submit" = "advance") => ({
       kind: "click" as const,
       path: `/page-${index}`,
       target: { by: "id" as const, value: `next-${index}` },
@@ -2351,7 +2351,7 @@ describe("chooser recipes (ADR 0028)", () => {
         [
           password(0),
           ...Array.from({ length: count }, (_, index) =>
-            click(index, index === count - 1 ? "submit" : "advance"),
+            clickStep(index, index === count - 1 ? "submit" : "advance"),
           ),
         ],
         count,
@@ -2361,13 +2361,13 @@ describe("chooser recipes (ADR 0028)", () => {
       branch(
         [
           ...Array.from({ length: count - 1 }, (_, index) => password(index)),
-          click(count - 1, "submit"),
+          clickStep(count - 1, "submit"),
         ],
         1,
       );
     // A marker on the button the login clicks on the list would prove the sign-in there.
     const marked = (target: LoginTarget) =>
-      branch([password(0), click(0, "submit")], 1, {
+      branch([password(0), clickStep(0, "submit")], 1, {
         completion: [{ target }],
       });
     const cases: [ChooserClick, ReturnType<typeof branch>][] = [
