@@ -2449,10 +2449,13 @@ context links to the 48-candidate limit or to shared text. Hidden, collapsed,
 transparent (opacity 0, also through an ancestor) or tiny field makes the form
 incomplete. Since 2026-10-17 an element transparent only because it or each transparent
 ancestor has a running or paused CSS animation, CSS transition or script animation that
-takes its opacity above 0 counts as opaque, wherever the content script reads whether an
-element is shown (fields, buttons and their text, lists of accounts, sign-in entries and
-the signed-in page). An input at opacity 0 with no such animation, or under one that
-holds the opacity at 0 or finished at 0, stays transparent. Labels come from
+still takes its opacity above 0 later in its current iteration, in the direction it
+plays (one still in its delay from the iteration's start), counts as opaque, wherever
+the content script reads whether an element is shown (fields, buttons and their text,
+lists of accounts, sign-in entries and the signed-in page). An input at opacity 0 with
+no such animation stays transparent, as does one under an animation that holds the
+opacity at 0 for the rest of its iteration (a fade-out that then holds, a carousel's
+slide hidden until its next cycle) or finished at 0. Labels come from
 `aria-labelledby`, `aria-label`, `<label>`, the text next to a field (the preceding
 table cell, `<dt>` or sibling, at most three levels up, never across another control or
 its label), then `title`; image `alt` names buttons, including `<input type="image">`. A

@@ -1181,6 +1181,9 @@ describe("extractLoginObservation", () => {
       @keyframes in { from { opacity: 0 } }
       @keyframes out { to { opacity: 0 } }
       @keyframes hold { from, to { opacity: 0 } }
+      @keyframes show { from { opacity: 0 } to { opacity: 1 } }
+      @keyframes outhold { 0% { opacity: 1 } 5%, 100% { opacity: 0 } }
+      @keyframes slide { 0%, 30% { opacity: 1 } 33%, 100% { opacity: 0 } }
     </style>`;
     const fields = `<input id="u" type="email"><input id="p" type="password">
       <button id="go">Next</button>`;
@@ -1217,6 +1220,11 @@ describe("extractLoginObservation", () => {
       transition();
       expect(getComputedStyle(container()).opacity).toBe("0");
       expect(observe().complete).toBe(true);
+      // Transparent by its own style until a delayed animation without a fill starts.
+      page(`${keyframes}<div id="fade" style="opacity:0;animation:show 5s 1000s">
+        <form id="f">${fields}</form></div>`);
+      expect(getComputedStyle(container()).opacity).toBe("0");
+      expect(observe().complete).toBe(true);
       // Paused at its start by a script.
       const fade = transition();
       const [running] = fade.getAnimations();
@@ -1250,10 +1258,16 @@ describe("extractLoginObservation", () => {
           <input id="trap" style="opacity:0"></form></div>`),
       ).toEqual([false, "unfillable-field"]);
       // A form at opacity 0 is refused alike with no animation, with one that holds the
-      // opacity at 0, and after a fade-out finished.
+      // opacity at 0, after a fade-out finished, halfway through a fade-out that then
+      // holds for 100 seconds, and as a carousel's slide hidden until its next cycle.
       const still = outcome(`<div id="fade" style="opacity:0"><form id="f">${fields}</form></div>`);
       expect(still).toBe("no-candidates");
-      for (const animation of ["hold 5s infinite", "out 5s forwards"]) {
+      for (const animation of [
+        "hold 5s infinite",
+        "out 5s forwards",
+        "outhold 100s -50s",
+        "slide 10s -5s infinite",
+      ]) {
         const html = `<div id="fade" style="animation:${animation}"><form id="f">${fields}</form></div>`;
         expect(outcome(html), animation).toEqual(still);
         expect(getComputedStyle(container()).opacity, animation).toBe("0");

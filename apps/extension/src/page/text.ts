@@ -1,3 +1,5 @@
+import { browser } from "wxt/browser";
+
 /** Elements whose text is never page text: code, styles, raw markup and control contents. */
 const textless = new Set([
   "SCRIPT",
@@ -87,27 +89,63 @@ function hiddenByAttribute(element: Element): boolean {
   return false;
 }
 
-/** The parent of `element` in the flat tree, as `checkVisibility` walks it. */
-function flatParent(element: Element): Element | null {
+/**
+ * The parent of `element` in the flat tree, as `checkVisibility` walks it, or `undefined`
+ * when its slot in its parent's shadow root cannot be found. A closed shadow root hides
+ * the slot from `assignedSlot`; a content script reaches the root through
+ * `dom.openOrClosedShadowRoot`.
+ */
+function flatParent(element: Element): Element | null | undefined {
   if (element.assignedSlot) return element.assignedSlot;
   const parent = element.parentNode;
-  return parent instanceof ShadowRoot ? parent.host : element.parentElement;
+  if (parent instanceof ShadowRoot) return parent.host;
+  const host = element.parentElement;
+  const root = host && browser?.dom?.openOrClosedShadowRoot?.(host);
+  if (!root) return host;
+  return [...root.querySelectorAll("slot")].find((slot) => slot.assignedNodes().includes(element));
+}
+
+/** Whether the current iteration of `animation` plays toward its effect's last keyframe. */
+function forward(animation: Animation, timing: ComputedEffectTiming): boolean {
+  const odd = (timing.currentIteration ?? Math.floor(timing.iterationStart ?? 0)) % 2 === 1;
+  const reversed =
+    timing.direction === "reverse" ||
+    (timing.direction === "alternate" && odd) ||
+    (timing.direction === "alternate-reverse" && !odd);
+  return reversed === animation.playbackRate < 0;
 }
 
 /**
- * Whether an animation of `element` that has not finished, running or paused, takes its
- * opacity above 0 at some point: a CSS animation, a CSS transition or a script's
- * `animate()`. One that holds the opacity at 0 throughout does not count.
+ * Whether an animation of `element` that has not finished, running or paused, still
+ * takes its opacity above 0 in its current iteration: a CSS animation, a CSS transition
+ * or a script's `animate()` with a keyframe ahead of its current progress, in the
+ * direction it plays, whose opacity is above 0. One that holds the opacity at 0 for the
+ * rest of the iteration, as a fade-out that then holds or a carousel's slide hidden
+ * until its next cycle, does not count. One still waiting out its delay counts from the
+ * iteration's start.
  */
 function fades(element: Element): boolean {
-  return element
-    .getAnimations()
-    .some(
-      (animation) =>
-        (animation.playState === "running" || animation.playState === "paused") &&
-        animation.effect instanceof KeyframeEffect &&
-        animation.effect.getKeyframes().some((frame) => Number(frame["opacity"] ?? 0) > 0),
-    );
+  return element.getAnimations().some((animation) => {
+    const effect = animation.effect;
+    if (
+      (animation.playState !== "running" && animation.playState !== "paused") ||
+      !(effect instanceof KeyframeEffect)
+    )
+      return false;
+    const timing = effect.getComputedTiming();
+    const ahead = forward(animation, timing);
+    // Before its delay ends without a backwards fill, the effect is not applied yet.
+    const waiting = timing.localTime !== null && Number(timing.localTime) < (timing.delay ?? 0);
+    const at = timing.progress ?? (waiting ? (ahead ? 0 : 1) : undefined);
+    if (at === undefined) return false;
+    return effect
+      .getKeyframes()
+      .some(
+        (frame) =>
+          (ahead ? frame.computedOffset >= at : frame.computedOffset <= at) &&
+          Number(frame["opacity"] ?? 0) > 0,
+      );
+  });
 }
 
 /**
@@ -124,10 +162,15 @@ function fadingIn(element: Element): boolean {
   const view = element.ownerDocument.defaultView;
   if (!view) return false;
   let transparent = false;
-  for (let node: Element | null = element; node; node = flatParent(node)) {
-    if (Number(view.getComputedStyle(node).opacity) !== 0) continue;
-    if (!fades(node)) return false;
-    transparent = true;
+  for (let node: Element | null = element; node;) {
+    if (Number(view.getComputedStyle(node).opacity) === 0) {
+      if (!fades(node)) return false;
+      transparent = true;
+    }
+    const parent = flatParent(node);
+    // A slot it cannot find may sit under a transparent element that is not fading.
+    if (parent === undefined) return false;
+    node = parent;
   }
   return transparent;
 }
