@@ -19,6 +19,7 @@ import { manageApiRoutes } from "./routes/manage-api";
 import { manageClaudeRoutes } from "./routes/manage-claude";
 import { oidcRoutes } from "./routes/oidc";
 import { createPairedDevice, pairLimit } from "./routes/pair";
+import { profileEditorRoutes } from "./routes/profile-editor";
 import { recipeRoutes } from "./routes/recipes";
 import { settingsRoutes } from "./routes/settings";
 import { jsonBody, requireJsonBody } from "./validation";
@@ -63,7 +64,9 @@ export const app = new Hono<ApiEnv>()
   )
   .route("/manage/api", manageApiRoutes)
   .all("/manage/api/devices", methodNotAllowed("GET"))
-  .all("/manage/api/settings", methodNotAllowed("GET, PUT"))
+  .all("/manage/api/profiles", methodNotAllowed("GET, POST"))
+  .all("/manage/api/profiles/:profileId/settings", methodNotAllowed("GET, PUT"))
+  .all("/manage/api/devices/:deviceId/profile", methodNotAllowed("POST"))
   .all("/manage/api/devices/:deviceId/revoke", methodNotAllowed("POST"))
   .all("/manage/api/recipes", methodNotAllowed("GET"))
   .all("/manage/api/recipes/:recipeId/revoke", methodNotAllowed("POST"))
@@ -80,6 +83,11 @@ export const app = new Hono<ApiEnv>()
   // One site's page, for the origin `<scheme>://<host>`; the app checks the host.
   .get("/manage/sites/:scheme{https?}/:host", requireAccess, appPage)
   .all("/manage/sites/:scheme{https?}/:host", methodNotAllowed("GET"))
+  // Profile editing requires a fresh owner session and the same extension allowlist
+  // as pairing; a device bearer credential grants no access to these routes.
+  .use("/pair/profiles/*", requirePairingAccessApi, requirePairingOrigin, limitIdentity,
+    bodyLimit({ maxSize: MAX_BODY_BYTES, onError: (c) => apiError(c, 413, { error: "payload_too_large" }) }))
+  .route("/pair/profiles", profileEditorRoutes)
   // Direct pairing from an allowed extension with the owner's login session (ADR 0020).
   // Access and the Origin check run before the per-identity limit and any body read.
   // No CORS headers: extension contexts with host access skip CORS; pages cannot read it.
