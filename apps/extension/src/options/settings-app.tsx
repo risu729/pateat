@@ -569,7 +569,7 @@ export function SettingsApp({
               </Panel>
             )}
           </fieldset>
-          {serviceClient && <ServiceConnection client={serviceClient} />}
+          {serviceClient && <ServiceConnection client={serviceClient} settingsClient={client} />}
           <footer className="flex flex-wrap gap-4 text-[0.8125rem] leading-5 text-ink-muted">
             <a href="legal.html" target="_blank" rel="noreferrer">
               {t("Licenses and source")}

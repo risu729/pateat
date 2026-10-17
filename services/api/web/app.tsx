@@ -1,7 +1,11 @@
 // The toolbar icon, emitted beside the bundle as the favicon is.
 import logo from "../../../apps/extension/icons/icon.svg?url";
-import type { ManageClient } from "./api";
+import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { describeError, type ManageClient } from "./api";
 import { DashboardPage } from "./dashboard";
+import { SETTINGS_QUERY_KEY } from "./settings";
+import { Button } from "./button";
 import { DevicesPage } from "./devices";
 import { ModelsPage } from "./models";
 import { RequestLogPage } from "./request-log";
@@ -31,6 +35,20 @@ const PAGES = [
 const linkClasses = "text-accent-ink underline hover:text-accent-hover";
 
 export function ManageApp({ client, path }: { client: ManageClient; path: string }) {
+  const queryClient = useQueryClient();
+  const [selectedProfile, setSelectedProfile] = useState("");
+  const [name, setName] = useState("");
+  const profiles = useQuery({ queryKey: ["profiles"], queryFn: () => client.profiles() });
+  const profileId = selectedProfile || (profiles.data?.profiles.length === 1 ? profiles.data.profiles[0]!.id : "");
+  if (profileId) client.selectProfile(profileId);
+  const copy = useMutation({
+    mutationFn: () => client.copyProfile(name.trim(), profileId),
+    onSuccess: async (profile) => {
+      setName(""); setSelectedProfile(profile.id); client.selectProfile(profile.id);
+      await queryClient.invalidateQueries({ queryKey: ["profiles"] });
+      await queryClient.invalidateQueries({ queryKey: SETTINGS_QUERY_KEY });
+    },
+  });
   const site = siteOrigin(path);
   const current = PAGES.find((page) => page.path === (site ? "/manage/sites" : path));
   const title = site ?? current?.title;
@@ -59,8 +77,26 @@ export function ManageApp({ client, path }: { client: ManageClient; path: string
           </ul>
         </nav>
       </header>
-      <main>
-        {site ? (
+      {profiles.data && profiles.data.profiles.length > 0 && (
+        <section aria-label="Settings profiles" className="flex flex-wrap items-end gap-3">
+          <label>Editing profile
+            <select aria-label="Editing profile" value={profileId} onChange={(event) => {
+              setSelectedProfile(event.target.value); client.selectProfile(event.target.value);
+              queryClient.removeQueries({ queryKey: SETTINGS_QUERY_KEY });
+            }}>
+              <option value="" disabled>Choose a profile</option>
+              {profiles.data.profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
+            </select>
+          </label>
+          <form onSubmit={(event) => { event.preventDefault(); copy.mutate(); }}>
+            <label>New profile name <input aria-label="New profile name" value={name} maxLength={64} onChange={(event) => setName(event.target.value)} /></label>
+            <Button type="submit" disabled={!profileId || !name.trim() || copy.isPending}>Copy selected profile</Button>
+          </form>
+          {copy.isError && <p role="alert">{describeError(copy.error)}</p>}
+        </section>
+      )}
+      <main key={profileId}>
+        {(site || current?.path === "/manage/sites") && profiles.data && !profileId ? <p>Choose a settings profile to edit.</p> : site ? (
           <SitePage client={client} origin={site} />
         ) : current ? (
           <current.Page client={client} />

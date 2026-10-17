@@ -114,6 +114,8 @@ owner the reason when the amendment changes a recorded owner instruction.
 - [0071: Elements may be named by their `data-test` attribute](adr/0071-data-test-locators.md)
 - [0072: A field may be named by its `name` within the sign-in form](adr/0072-field-name-in-the-sign-in-form.md)
 
+- [0044: Settings profile delivery details (temporary proposal)](adr/0044-settings-profile-delivery.md)
+
 This layout follows the useful separation in
 [Kogane ADR 0041](https://github.com/risu729/kogane/blob/main/docs/adr/0041-documentation-scope.md),
 with fewer document classes and no duplicated roadmap/status history.
