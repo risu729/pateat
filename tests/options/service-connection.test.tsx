@@ -331,7 +331,9 @@ test("requires an explicit profile choice before retrying a multi-profile pairin
   const local = "00000000-0000-4000-8000-000000000010";
   const agent = "00000000-0000-4000-8000-000000000011";
   client.pair.mockResolvedValueOnce({
-    ...failed("profile-required"),
+    ok: false,
+    error: "profile-required",
+    state: { kind: "disconnected" },
     profiles: [
       { id: local, name: "Local browser" },
       { id: agent, name: "Agent browser" },
