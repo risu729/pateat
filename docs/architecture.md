@@ -1073,6 +1073,26 @@ behind the same Access check as the page. The Worker's own HTML pages
 a `data:` URL and allow only `img-src data:`, so the icon never needs a request to a
 path that another Access application, or none, guards.
 
+## Extension UI language
+
+The popup and passkey chooser bundle English and Japanese translations with the
+owner-chosen i18next and react-i18next libraries. Their labels, status explanations,
+accessible names and document titles follow the language selected in the extension
+settings. Vault names, usernames and hostnames are interpolated as text; unknown
+status codes remain visible as codes. The setting does not change login policy.
+
+The storage and default choices in [ADR 0043](adr/0043-extension-language-preference.md)
+are provisional: the extension origin's `localStorage` holds `pateat.language` as
+`system`, `en` or `ja`, per browser profile and independent of service sync. The default
+uses the first English or Japanese browser preference, falling back to English.
+An open translated page follows another extension page's change. With storage
+unavailable, the choice applies to the current page until it closes.
+
+This is a partial rollout. The settings page has a language selector but its other
+content and HTML language remain English. Diagnostics, background toolbar titles,
+manifest metadata, service pages and user documentation still need translation.
+The phase 3 wording review and complete Japanese-language acceptance gate remain open.
+
 ## Page styles and theme
 
 The extension's pages (settings, popup, diagnostics and the passkey chooser) and the
