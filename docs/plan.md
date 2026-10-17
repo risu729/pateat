@@ -816,8 +816,9 @@ items the owner mentioned and gates still open on 2026-10-11.
   enough.
 - Done: the crypto Worker no longer keeps decrypted item copies between requests. The
   review asked for copies that hold only the fields a request needs; instead each field
-  listing or resolution decrypts its one item and disposes it before replying, as stored
-  passkeys already did ([vault adapter](architecture.md#vault-adapter)).
+  listing or resolution decrypts its one item and disposes it before replying; stored
+  passkey operations already kept nothing between requests
+  ([vault adapter](architecture.md#vault-adapter)).
 - Signing in through an identity provider
   ([ADR 0026](adr/0026-sign-in-through-identity-providers.md), ADR 0027 delivery 5).
 - [ADR 0027](adr/0027-per-account-login-routes.md) delivery 4's deferred part: a `totp`

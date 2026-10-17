@@ -324,10 +324,11 @@ username's shape when every matching item agrees
 Local field snapshots detach supported decrypted items from caller mutation. The crypto
 Worker keeps no decrypted item between requests: each field listing or field resolution
 decrypts that one item, answers from a snapshot made for the request, and disposes the
-snapshot before it replies, so a request returns only the listing or the one value
-asked for. JavaScript cannot wipe the disposed copies; they only become unreachable.
-Between requests the session holds only the value-free catalog and the decrypted login
-URI rules from verification; closing the session destroys the Worker.
+snapshot before it replies, so a field request returns only the listing or the one
+value asked for (the probe build's `decrypt` operation still returns a whole item).
+JavaScript cannot wipe the disposed copies; they only become unreachable. Between
+requests the session keeps no decrypted item data beyond the value-free catalog and the
+login URI rules captured during verification; closing the session destroys the Worker.
 References bind connection, user, item and snapshot identity; custom fields use
 snapshot-scoped positional IDs because Bitwarden does not supply a persistent field
 UUID. Resolution requires an explicit field allowlist. Linked aliases also require
