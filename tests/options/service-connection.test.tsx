@@ -260,6 +260,58 @@ test("keeps no retry and opens no tab for an address edited while pairing runs",
   expect(client.pair).toHaveBeenCalledOnce();
 });
 
+test("keeps no retry and opens no tab for a name edited while site access is asked", async () => {
+  const client = mockClient();
+  let allow: (granted: boolean) => void = () => undefined;
+  client.requestSiteAccess.mockReturnValueOnce(
+    new Promise((resolve) => {
+      allow = resolve;
+    }),
+  );
+  client.pair.mockResolvedValueOnce(failed("sign-in-needed"));
+  await render(<ServiceConnection client={client} pollMs={60_000} />);
+  await submitPair();
+  await expect.poll(() => client.requestSiteAccess.mock.calls.length).toBe(1);
+  await page.getByLabelText("Device name", { exact: true }).fill("Work laptop");
+  allow(true);
+  await expect.poll(() => client.pair.mock.calls.length).toBe(1);
+  await expect
+    .element(page.getByRole("button", { name: "Pair this device", exact: true }))
+    .toBeEnabled();
+  expect(client.openSignIn).not.toHaveBeenCalled();
+  await expect
+    .element(page.getByRole("button", { name: "Try again", exact: true }))
+    .not.toBeInTheDocument();
+  window.dispatchEvent(new Event("focus"));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(client.pair).toHaveBeenCalledOnce();
+});
+
+test("keeps no Try again for a name edited while Try again asks for site access", async () => {
+  const client = mockClient();
+  client.pair.mockResolvedValue(failed("unreachable"));
+  await render(<ServiceConnection client={client} pollMs={60_000} />);
+  await submitPair();
+  await expect.element(page.getByText(/could not be reached/)).toBeVisible();
+  let allow: (granted: boolean) => void = () => undefined;
+  client.requestSiteAccess.mockReturnValueOnce(
+    new Promise((resolve) => {
+      allow = resolve;
+    }),
+  );
+  await page.getByRole("button", { name: "Try again", exact: true }).click();
+  await expect.poll(() => client.requestSiteAccess.mock.calls.length).toBe(2);
+  await page.getByLabelText("Device name", { exact: true }).fill("Work laptop");
+  allow(true);
+  await expect.poll(() => client.pair.mock.calls.length).toBe(2);
+  await expect
+    .element(page.getByRole("button", { name: "Pair this device", exact: true }))
+    .toBeEnabled();
+  await expect
+    .element(page.getByRole("button", { name: "Try again", exact: true }))
+    .not.toBeInTheDocument();
+});
+
 test("removes the return listeners on unmount while other page listeners stay active", async () => {
   const client = mockClient();
   client.pair.mockResolvedValue(failed("sign-in-needed"));
