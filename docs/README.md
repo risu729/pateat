@@ -43,6 +43,9 @@ private page captures, or raw model requests. Reviewed observations derived from
 pages, with synthetic slot hints, may be committed as evaluation data
 ([ADR 0012](adr/0012-inference-request-log.md)).
 
+The [operations and recovery runbook](operations.md) covers current diagnostics,
+release retry, reviewed reverts and the unverified database-restore boundary.
+
 ## Decision records
 
 A new ADR starts with `Status:` and `Date:` lines. `Status:` says who accepted it, the
