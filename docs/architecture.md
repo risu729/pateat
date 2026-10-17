@@ -2093,7 +2093,10 @@ steady-state API calls carry no cookie.
   five minutes, so a rotated key may be refused briefly.
 - Pairing. **Pair this device** on the settings page asks for site access to the
   service, then the extension's background service worker sends one `POST /pair` with
-  the device label, `credentials: "include"`, `redirect: "manual"` and
+  the device label (1 to 64 UTF-16 code units after trimming; emoji with joiners are
+  accepted, while control characters, line and paragraph separators, text-direction
+  marks and a name of invisible characters alone are refused; other invisible format
+  characters inside a name are kept), `credentials: "include"`, `redirect: "manual"` and
   `X-Requested-With: XMLHttpRequest`, so the browser's Access session travels with it.
   The route sits behind Access; the Worker verifies the token (the host-wide
   application's audience, or "pateat pair"'s, which also admits browsers without WARP,

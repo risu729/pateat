@@ -19,7 +19,14 @@ export const deviceLabelSchema = v.pipe(
   v.trim(),
   v.minLength(1),
   v.maxLength(64),
-  v.regex(/^[^\p{C}]+$/u, "Labels cannot contain control characters"),
+  // Control characters, line and paragraph separators and text-direction marks are
+  // refused. Other format characters stay, as emoji need joiners and tags.
+  v.regex(
+    /^[^\p{Cc}\p{Cs}\p{Zl}\p{Zp}\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]+$/u,
+    "Labels cannot contain control characters, line breaks or text-direction marks",
+  ),
+  // A name of invisible characters alone would show as blank.
+  v.regex(/[\p{L}\p{N}\p{P}\p{S}]/u, "Labels need a visible character"),
 );
 
 /** A Chrome extension ID: the first 128 bits of the key's SHA-256 as letters `a`-`p`. */

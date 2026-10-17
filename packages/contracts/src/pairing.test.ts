@@ -18,6 +18,31 @@ describe("device labels", () => {
     expect(v.safeParse(deviceLabelSchema, "line\nbreak").success).toBe(false);
     expect(v.safeParse(deviceLabelSchema, "x".repeat(65)).success).toBe(false);
   });
+
+  it("accepts emoji names joined or tagged by format characters", () => {
+    // Zero-width joiner, variation selector, and tag characters of a subdivision flag.
+    for (const label of ["👩‍💻 MacBook", "🏳️‍🌈 laptop", "🏴󠁧󠁢󠁳󠁣󠁴󠁿 PC", "仕事用ノート"])
+      expect(v.safeParse(deviceLabelSchema, label).success).toBe(true);
+  });
+
+  it("rejects characters that hide or reorder what the name shows", () => {
+    for (const label of [
+      "tab\there",
+      "nul\u0000",
+      "del\u007f",
+      "line\u2028separator",
+      "para\u2029separator",
+      "right-to-left\u202eoverride",
+      "isolate\u2066text\u2069",
+      "mark\u200f",
+      "arabic\u061cmark",
+      "lone\ud800surrogate",
+      // Invisible characters alone would show as a blank name.
+      "\u200b",
+      "\u2060\u00ad",
+    ])
+      expect(v.safeParse(deviceLabelSchema, label).success).toBe(false);
+  });
 });
 
 describe("pairing bodies", () => {
