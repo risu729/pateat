@@ -24,6 +24,7 @@ const schema = v.variant("action", [
       "cancel-result",
       "status",
       "release",
+      "argon2-max",
     ]),
   }),
   v.strictObject({
@@ -200,6 +201,22 @@ export function createCryptoProbe(
         return { ok: true, data: { released: true } };
       }
       if (action === "vectors") return { ok: true, data: await vectors() };
+      if (action === "argon2-max") {
+        // Bitwarden's largest Argon2id memory choice (1024 MiB), within the host's normal budget.
+        const result = await host.deriveAuthentication({
+          ...authInput("synthetic-host-argon2-max"),
+          prelogin: {
+            mode: "legacy" as const,
+            response: { kdf: 1, kdfIterations: 2, kdfMemory: 1024, kdfParallelism: 1 },
+          },
+        });
+        return {
+          ok: true,
+          data: result.ok
+            ? { derived: result.data.masterPasswordHash.length > 0 }
+            : { derived: false, code: result.error.code },
+        };
+      }
       if (action === "cancel-result") {
         const opened = await open(rawV1Account(), "synthetic-host-result");
         if (!opened.ok) return { ok: true, data: { withheld: false, locked: false } };

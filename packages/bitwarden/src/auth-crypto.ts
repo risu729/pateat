@@ -48,7 +48,7 @@ export async function derivePasswordAuthentication(
     return failure("invalid-crypto-input");
   if (
     (type === 0 && iterations > 2_000_000) ||
-    (type === 1 && (iterations > 20 || memory! > 256 || parallelism! > 16))
+    (type === 1 && (iterations > 20 || memory! > 1024 || parallelism! > 16))
   )
     return failure("resource-limit");
   // PM-28143: modern prelogin currently permits absent/null salt, but never an empty salt.

@@ -10,7 +10,8 @@ type ProbeAction =
   | "cancel-result"
   | "deadline"
   | "status"
-  | "release";
+  | "release"
+  | "argon2-max";
 type Status = {
   generation: string;
   ready: boolean;
@@ -418,6 +419,24 @@ for (const action of ["isolation", "lock"] as const) {
     });
   });
 }
+
+test("the native Worker derives an Argon2id key at Bitwarden's maximum 1024 MiB memory", async () => {
+  // Browser launch plus a real 1 GiB derivation within the host's own 30 s request budget.
+  test.setTimeout(90_000);
+  await withLoginExtension(async (context, _background, extensionId) => {
+    const external = prohibitExternalRequests(context);
+    const page = await controller(context, extensionId);
+    const observed = await observeWorkers(context, page, extensionId);
+    try {
+      expect(await observed.run("argon2-max")).toEqual({ ok: true, data: { derived: true } });
+      await observed.expectTerminated();
+      expect(await status(page)).toMatchObject({ pending: 0, sessions: 0 });
+      expect(external).toEqual([]);
+    } finally {
+      await observed.dispose();
+    }
+  });
+});
 
 for (const action of ["cancel", "deadline"] as const) {
   test(`native KDF ${action} terminates the dispatched Worker and permits fresh known-answer work`, async () => {
