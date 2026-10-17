@@ -335,7 +335,7 @@ describe("strict account initialization and metadata", () => {
   it.each([
     { ...v1Input(), kdf: { pBKDF2: { iterations: 2_000_001 } } },
     { ...v2Input(), kdf: { argon2id: { iterations: 21, memory: 32, parallelism: 4 } } },
-    { ...v2Input(), kdf: { argon2id: { iterations: 6, memory: 257, parallelism: 4 } } },
+    { ...v2Input(), kdf: { argon2id: { iterations: 6, memory: 1025, parallelism: 4 } } },
     { ...v2Input(), kdf: { argon2id: { iterations: 6, memory: 32, parallelism: 17 } } },
   ])("reports valid but excessive KDF configuration as a resource limit %#", async (input) => {
     const initialize = vi.fn();
@@ -344,6 +344,74 @@ describe("strict account initialization and metadata", () => {
       error: { code: "resource-limit" },
     });
     expect(initialize).not.toHaveBeenCalled();
+  });
+
+  it("reports an excessive master-unlock KDF as a resource limit", async () => {
+    const original = v1Input();
+    const kdf = { argon2id: { iterations: 6, memory: 1025, parallelism: 4 } };
+    const input = {
+      ...original,
+      kdf,
+      unlock: {
+        ...original.unlock,
+        masterPasswordUnlock: { ...original.unlock.masterPasswordUnlock, kdf },
+      },
+    };
+    const initialize = vi.fn();
+    expect(await createLocalCryptoSession(input, { ...sdk, init_sdk: initialize })).toEqual({
+      ok: false,
+      error: { code: "resource-limit" },
+    });
+    expect(initialize).not.toHaveBeenCalled();
+  });
+
+  // Bitwarden lets users choose Argon2id memory up to 1024 MiB. The SDK's user-crypto
+  // initialization is stubbed so no derivation of that size runs.
+  it.each([257, 512, 1024])(
+    "admits Argon2id memory %s MiB within Bitwarden's 1024 MiB range for password unlock",
+    async (memory) => {
+      const original = v1Input();
+      const kdf = { argon2id: { iterations: 6, memory, parallelism: 4 } };
+      const input = {
+        ...original,
+        kdf,
+        unlock: {
+          ...original.unlock,
+          masterPasswordUnlock: { ...original.unlock.masterPasswordUnlock, kdf },
+        },
+      };
+      const initializeSdk = vi.fn(sdk.init_sdk);
+      const initializeUser = vi
+        .spyOn(sdk.CryptoClient.prototype, "initialize_user_crypto")
+        .mockRejectedValue(new Error("Stop after resource admission"));
+      expect(await createLocalCryptoSession(input, { ...sdk, init_sdk: initializeSdk })).toEqual({
+        ok: false,
+        error: { code: "crypto-failed" },
+      });
+      expect(initializeSdk).toHaveBeenCalledTimes(1);
+      expect(initializeUser).toHaveBeenCalledTimes(1);
+      expect(initializeUser).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kdfParams: kdf,
+          method: expect.objectContaining({
+            masterPasswordUnlock: expect.objectContaining({
+              master_password_unlock: expect.objectContaining({ kdf }),
+            }),
+          }),
+        }),
+      );
+    },
+  );
+
+  it("initializes a decrypted-key account whose Argon2id memory is 1024 MiB", async () => {
+    // The decrypted-key path runs no KDF, so the real SDK completes initialization quickly.
+    const input = {
+      ...v2Input(),
+      kdf: { argon2id: { iterations: 6, memory: 1024, parallelism: 4 } },
+    };
+    const created = await createLocalCryptoSession(input, sdk);
+    if (!created.ok) expect.unreachable(`initialization failed with ${created.error.code}`);
+    sessions.push(created.data);
   });
 
   it("rejects conflicting account and master-unlock KDFs before SDK use", async () => {
