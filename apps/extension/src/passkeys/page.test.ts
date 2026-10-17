@@ -94,26 +94,45 @@ describe("MAIN-world passkey wrapper", () => {
     expect(page.nativeGet.mock.contexts[0]).toBe(page.container);
   });
 
-  it("relays Immediate UI's uiMode as immediate mediation and delegates the caller's call", async () => {
+  it("preserves Immediate UI uiMode and delegates the caller's exact call", async () => {
     const page = fakePage(answer({ kind: "delegate" }));
     const options = { publicKey, uiMode: "immediate" };
     await expect(page.container.get(options)).resolves.toBe("native");
     expect(page.posted[0]).toMatchObject({
       type: "get",
-      request: { mediation: "immediate" },
+      request: { uiMode: "immediate" },
     });
     expect(page.nativeGet.mock.calls[0]![0]).toBe(options);
   });
 
-  it("relays uiMode immediate over any mediation and leaves other uiMode values to the browser", async () => {
-    expect(snapshotGetOptions({ publicKey, uiMode: 1 })).toBeUndefined();
+  it("preserves supported mediation and delegates unsupported Immediate UI combinations", () => {
+    for (const extra of [
+      { uiMode: 1 },
+      { uiMode: "other" },
+      { uiMode: "immediate", signal: new AbortController().signal },
+    ])
+      expect(snapshotGetOptions({ publicKey, ...extra })).toBeUndefined();
     expect(
       snapshotGetOptions({ publicKey, uiMode: "immediate", mediation: "optional" }),
-    ).toMatchObject({ mediation: "immediate" });
-    expect(
-      snapshotGetOptions({ publicKey, uiMode: "immediate", mediation: "conditional" }),
-    ).toMatchObject({ mediation: "immediate" });
-    expect(snapshotGetOptions({ publicKey, uiMode: "other" })).toBeUndefined();
+    ).toMatchObject({
+      uiMode: "immediate",
+      mediation: "optional",
+    });
+  });
+
+  it("hands mixed credentials and Immediate UI signals directly to the original provider", async () => {
+    for (const extra of [
+      { password: true },
+      { identity: { providers: [] } },
+      { signal: new AbortController().signal },
+    ]) {
+      const page = fakePage();
+      const options = { publicKey, uiMode: "immediate", ...extra };
+      await expect(page.container.get(options)).resolves.toBe("native");
+      expect(page.posted).toHaveLength(0);
+      expect(page.nativeGet.mock.calls[0]![0]).toBe(options);
+      expect(page.nativeGet.mock.contexts[0]).toBe(page.container);
+    }
   });
 
   it("delegates promptly when no relay acknowledges", async () => {
