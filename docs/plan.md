@@ -919,6 +919,12 @@ items the owner mentioned and gates still open on 2026-10-11.
   ([ADR 0023](adr/0023-synced-vault-policy.md)), more settings profiles
   ([ADR 0024](adr/0024-settings-profiles.md)), the ADR 0025 later work, the ADR 0027
   cases it does not handle, and generation for passkey-only start pages.
+  - Profile implementation is in [PR #664](https://github.com/risu729/pateat/pull/664):
+    owner-scoped excluded sites and site defaults, shared bindings, copy creation,
+    explicit pairing choice, owner device reassignment, and profile editing using a
+    device's own catalog. Local synthetic checks cover profile isolation and deferred
+    switching. Integration with the independently authored ADR 0023 and ADR 0035 fields
+    remains open; no deployed or real-account profile compatibility is claimed.
 - Real-account checks of individual Bitwarden two-step methods, other KDFs, V2 keys and
   organization items. The owner moved them after the public release on 2026-10-11
   (18:35 UTC), since few users are expected to need them; each needs the owner's

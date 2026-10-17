@@ -149,7 +149,8 @@ export function createServiceRuntime(options: {
         const result = await transport.pair(request.origin, request.label, request.profileId);
         // Nothing is stored until the service has created the device.
         if (result.kind === "sign-in-needed") return fail("sign-in-needed", record);
-        if (result.kind === "profile-required") return { ok: false, error: "profile-required", profiles: result.profiles };
+        if (result.kind === "profile-required")
+          return { ok: false, error: "profile-required", profiles: result.profiles };
         if (result.kind === "failed") return fail(result.error, record);
         // The credential is shown nowhere and goes straight into trusted storage.
         const connected: ServiceRecord = {

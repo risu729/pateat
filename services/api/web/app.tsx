@@ -34,7 +34,9 @@ export function ManageApp({ client, path }: { client: ManageClient; path: string
   const [name, setName] = useState("");
   const profiles = useQuery({ queryKey: ["profiles"], queryFn: () => client.profiles() });
   const profileId =
-    selectedProfile || (profiles.data?.profiles.length === 1 ? profiles.data.profiles[0]!.id : "");
+    selectedProfile ||
+    client.profileId ||
+    (profiles.data?.profiles.length === 1 ? profiles.data.profiles[0]!.id : "");
   if (profileId) client.selectProfile(profileId);
   const copy = useMutation({
     mutationFn: () => client.copyProfile(name.trim(), profileId),
@@ -120,7 +122,11 @@ export function ManageApp({ client, path }: { client: ManageClient; path: string
         </section>
       )}
       <main key={profileId}>
-        {(site || current?.path === "/manage/sites") && profiles.data && !profileId ? (
+        {(site || current?.path === "/manage/sites") && profiles.isPending ? (
+          <output>Loading settings profiles…</output>
+        ) : (site || current?.path === "/manage/sites") && profiles.isError ? (
+          <p role="alert">{describeError(profiles.error)}</p>
+        ) : (site || current?.path === "/manage/sites") && !profileId ? (
           <p>Choose a settings profile to edit.</p>
         ) : site ? (
           <SitePage client={client} origin={site} />

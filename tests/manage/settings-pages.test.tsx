@@ -116,6 +116,7 @@ test("excludes a site on a service that has no settings yet, then allows it", as
   expect(client.saveSettings).toHaveBeenLastCalledWith(
     0,
     settingsOf({ excludedSites: [{ hostname: "intranet.example", includeSubdomains: true }] }),
+    "00000000-0000-4000-8000-000000000001",
   );
   await expect.element(page.getByLabelText("Hostname")).toHaveValue("");
   await expect.element(page.getByRole("status")).toHaveTextContent("intranet.example excluded");
@@ -131,7 +132,11 @@ test("excludes a site on a service that has no settings yet, then allows it", as
 
   await page.getByRole("button", { name: "Allow intranet.example and subdomains" }).click();
   await expect.element(page.getByText("No sites yet")).toBeVisible();
-  expect(client.saveSettings).toHaveBeenLastCalledWith(1, settingsOf());
+  expect(client.saveSettings).toHaveBeenLastCalledWith(
+    1,
+    settingsOf(),
+    "00000000-0000-4000-8000-000000000001",
+  );
   await expect
     .element(page.getByRole("status"))
     .toHaveTextContent("intranet.example and subdomains allowed");
@@ -208,6 +213,7 @@ test("lists each site with its recipes, default account and bindings", async () 
       }),
     },
     [recipe],
+    "00000000-0000-4000-8000-000000000001",
   );
   await mount(client, "/manage/sites");
   const bank = page.getByRole("listitem").filter({ hasText: "https://bank.example" });
@@ -353,6 +359,7 @@ test("lists a site's account bindings with their fields and removes one", async 
   expect(client.saveSettings).toHaveBeenLastCalledWith(
     2,
     settingsOf({ bindings: [other, elsewhere] }),
+    "00000000-0000-4000-8000-000000000001",
   );
   await expect
     .element(page.getByRole("status"))
@@ -389,12 +396,17 @@ test("turns Pateat off and on for the site's exact hostname", async () => {
   expect(client.saveSettings).toHaveBeenLastCalledWith(
     0,
     settingsOf({ excludedSites: [{ hostname: "bank.example", includeSubdomains: false }] }),
+    "00000000-0000-4000-8000-000000000001",
   );
   await expect.element(page.getByRole("status")).toHaveTextContent("bank.example excluded");
 
   await toggle.click();
   await expect.element(toggle).toBeChecked();
-  expect(client.saveSettings).toHaveBeenLastCalledWith(1, settingsOf());
+  expect(client.saveSettings).toHaveBeenLastCalledWith(
+    1,
+    settingsOf(),
+    "00000000-0000-4000-8000-000000000001",
+  );
   await expect.element(page.getByRole("status")).toHaveTextContent("bank.example allowed");
 });
 
@@ -415,6 +427,7 @@ test("leaves a rule that also covers other sites to the Sites list", async () =>
     .element(toggle)
     .toHaveAccessibleDescription(
       "Excluded with example and subdomains; allow it on the Sites list",
+      "00000000-0000-4000-8000-000000000001",
     );
 });
 

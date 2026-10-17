@@ -125,7 +125,7 @@ export function ProfileEditor({
           Reload profile
         </Button>
       )}
-      {message && <p role="status">{message}</p>}
+      {message && <output>{message}</output>}
     </section>
   );
 }
