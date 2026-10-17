@@ -5,10 +5,10 @@ const reasons: Record<SettingsConflictCause, string> = {
   "vault-added": "a Bitwarden vault was added",
   "vault-sync": "a Bitwarden vault was synced after a sign-in or Sync",
   "automatic-vault-sync": "a Bitwarden vault was synced automatically",
-  "field-review": "custom fields were reviewed in another window",
-  "service-sync": "settings from your other devices arrived from the sync service",
-  "account-choice": "an account chosen on a page was saved as the site's default",
-  unknown: "settings changed elsewhere",
+  "field-review": "custom fields were reviewed",
+  "service-sync": "settings were merged with the Pateat sync service",
+  "account-choice": "an account used to sign in on a site was saved for that site",
+  unknown: "settings changed for a reason no longer recorded",
 };
 
 /**

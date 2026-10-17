@@ -204,7 +204,7 @@ export const SETTINGS_CHANGE_CAUSES = [
   "field-review",
   /** Settings merged from the Pateat service. */
   "service-sync",
-  /** An account chosen outside the settings page, saved as the site's default (ADR 0021). */
+  /** An account used on a site, from a login or a passkey request, saved for it (ADR 0021). */
   "account-choice",
 ] as const;
 export const settingsChangeCauseSchema = v.picklist(SETTINGS_CHANGE_CAUSES);
