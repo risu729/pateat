@@ -1088,9 +1088,14 @@ uses the first English or Japanese browser preference, falling back to English.
 An open translated page follows another extension page's change. With storage
 unavailable, the choice applies to the current page until it closes.
 
-This is a partial rollout. The settings page has a language selector but its other
-content and HTML language remain English. Diagnostics, background toolbar titles,
-manifest metadata, service pages and user documentation still need translation.
+This is a partial rollout. The settings shell, navigation, save/reload status, theme
+controls and site policies now follow the chosen language, including document metadata.
+Changing the language re-renders messages without resetting editable drafts or issuing
+settings writes. Site validation stores message keys and save/load results retain
+translation callbacks so already-visible messages follow a later language change.
+Bitwarden connection/vault controls, service connection controls, diagnostics,
+background toolbar titles, manifest metadata, service pages and user documentation
+remain separate translation work.
 The phase 3 wording review and complete Japanese-language acceptance gate remain open.
 
 ## Page styles and theme
