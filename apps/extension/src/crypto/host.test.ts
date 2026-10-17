@@ -611,6 +611,37 @@ describe("fixed operations, session scope and reply fencing", () => {
     expect(await deriving).toEqual({ ok: true, data: derived });
   });
 
+  it("retires the Worker session of an open whose result the host refuses", async () => {
+    const h = harness();
+    const pending = h.host.open(openInput());
+    const request = await h.command(0);
+    const session: HostSessionRef = {
+      brokerGeneration: h.host.generation,
+      connectionId,
+      userId: accountUserId,
+      sessionId: crypto.randomUUID(),
+      snapshotId,
+    };
+    // The metadata names another connection, so the host refuses the session.
+    h.reply(request, {
+      ok: true,
+      data: {
+        session,
+        metadata: {
+          connectionId: "connection-2",
+          userId: accountUserId,
+          accountVersion: "v1",
+          securityVersion: 1,
+        },
+      },
+    });
+    expect(await pending).toEqual({ ok: false, error: { code: "crypto-failed" } });
+    expect(h.posted).toContainEqual(
+      expect.objectContaining({ type: "crypto.cancel", requestId: request.requestId }),
+    );
+    expect(h.host.status()).toMatchObject({ pending: 0, sessions: 0 });
+  });
+
   it("rechecks a waiting open against the session caps when its turn comes", async () => {
     const h = harness();
     await h.open();
@@ -989,24 +1020,30 @@ describe("cancellation, deadlines and host loss", () => {
 
   it("bounds native initialization work before the handshake by running one KDF job at a time", async () => {
     const h = harness({ automaticReady: false, timeoutMs: 300 });
-    const controller = new AbortController();
-    const first = h.host.deriveAuthentication(auth(), controller.signal);
+    const first = h.host.deriveAuthentication(auth());
     const second = h.host.deriveAuthentication({ ...auth(), connectionId: "second-connection" });
     expect(await within(second, 20)).toBe("waiting");
-    controller.abort();
-    expect(await first).toEqual({ ok: false, error: { code: "cancelled" } });
     await vi.waitFor(() =>
       expect(h.posted).toContainEqual(expect.objectContaining({ type: "crypto.reset" })),
     );
     h.onMessage.emit({ version: 1, type: "crypto.ready", generation: h.host.generation });
-    // The cancelled first never reached the Worker; the second runs alone.
-    const deriveCommand = await h.command(0);
-    expect(deriveCommand.connectionId).toBe("second-connection");
-    expect(h.host.status()).toMatchObject({ pending: 1 });
-    const derived = { connectionId: "second-connection", masterPasswordHash: "synthetic-hash" };
-    h.reply(deriveCommand, { ok: true, data: derived });
-    expect(await second).toEqual({ ok: true, data: derived });
+    const firstCommand = await h.command(0);
+    expect(firstCommand.connectionId).toBe(connectionId);
+    // The second waits for the first instead of starting a concurrent KDF.
+    expect(await within(second, 20)).toBe("waiting");
     expect(h.commands).toHaveLength(1);
+    const firstHash = { connectionId, masterPasswordHash: "synthetic-hash-1" };
+    h.reply(firstCommand, { ok: true, data: firstHash });
+    expect(await first).toEqual({ ok: true, data: firstHash });
+    const secondCommand = await h.command(1);
+    expect(secondCommand.connectionId).toBe("second-connection");
+    const secondHash = {
+      connectionId: "second-connection",
+      masterPasswordHash: "synthetic-hash-2",
+    };
+    h.reply(secondCommand, { ok: true, data: secondHash });
+    expect(await second).toEqual({ ok: true, data: secondHash });
+    expect(h.commands).toHaveLength(2);
   });
 
   it("cancellation at the dispatch barrier prevents any secret command delivery", async () => {

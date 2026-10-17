@@ -90,7 +90,7 @@ export function startCryptoOffscreen() {
     const ephemeral = op.kind === "derive-auth" || op.kind === "open";
     if (ephemeral) {
       if (
-        sessions.size >= MAX_SESSIONS ||
+        (op.kind === "open" && sessions.size >= MAX_SESSIONS) ||
         jobs.size >= 8 ||
         jobs.values().some((job) => job.ephemeral)
       ) {
