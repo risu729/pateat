@@ -285,6 +285,7 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
           accepted.data.comparedSnapshotId === prior.data?.accepted?.snapshotId
             ? accepted.data.sameCustomFields
             : [],
+        ...(auto ? { automatic: true as const } : {}),
       });
       if (!alive(flow)) {
         clear(flow);

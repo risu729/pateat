@@ -18,6 +18,7 @@ import { VaultAccess, VaultRows } from "./connections";
 import { SitePolicy } from "./site-policy";
 import { BitwardenSetup } from "./bitwarden-setup";
 import type { ConnectionClient } from "./connection-client";
+import { saveConflictMessage } from "./save-conflict";
 import type { ServiceClient } from "./service-client";
 import { ServiceConnection } from "./service-connection";
 import { LanguageSelect } from "./language-select";
@@ -125,9 +126,7 @@ export function SettingsApp({
           setSaveBlocked(blocked);
           setMessage((translate) =>
             result.error.code === "revision-conflict"
-              ? translate(
-                  "Settings changed in another window. Your unsaved draft has been preserved. Reload saved settings to review the latest version before saving. Reloading discards the draft.",
-                )
+              ? saveConflictMessage(result.error.causes)
               : translate(
                   blocked
                     ? "{{error}} Your unsaved draft has been preserved. Reload saved settings to retry. Reloading discards the draft."

@@ -6,7 +6,10 @@ explicit Sync action. The check after a page with a recipe finds no matching ite
 the custom-field comparison that keeps unchanged protected items usable, both listed as
 later work at acceptance, are implemented as
 [After no item matches](#after-no-item-matches) and
-[Protected items after a sync](#protected-items-after-a-sync) describe.
+[Protected items after a sync](#protected-items-after-a-sync) describe. The settings
+page's reason for a save that met a revision conflict, also later work at acceptance, is
+implemented as [Settings saves after a sync](#settings-saves-after-a-sync) describes; its
+details were chosen by an agent and are not confirmed by the owner.
 Amended on 2026-10-12 by [ADR 0034](0034-answer-page-passkey-requests.md): a
 conditional passkey request waiting for a login is not a request being handled; the
 hold covers it only while it reads the vault and signs.
@@ -171,6 +174,33 @@ The comparison counts only when it was made against the snapshot being replaced,
 digest request that may have ended the old session also drops it from the manager. A
 device without the old snapshot open still relies on review.
 
+### Settings saves after a sync
+
+Adopting a synced snapshot writes the field policy and so a new settings revision, and the
+settings page learns of it only when it saves: the page expects the revision it loaded,
+and the save fails as a revision conflict. The page used to say "Settings changed in
+another window" whatever wrote the revision. Each settings revision now records its
+cause in the snapshot's `changes` list, which keeps the latest 16 revisions and no
+setting value:
+
+| Cause | Written by |
+| --- | --- |
+| `settings-save` | A save from a settings page or the toolbar popup |
+| `vault-added` | A new connection's policy entry |
+| `vault-sync` | A snapshot adopted after a password sign-in or **Sync** |
+| `automatic-vault-sync` | A snapshot adopted by an automatic check |
+| `field-review` | A custom-field review ([ADR 0023](0023-synced-vault-policy.md)) |
+| `service-sync` | Settings merged from the Pateat service |
+| `account-choice` | An account chosen outside the settings page, saved as the site's default ([ADR 0021](0021-account-choice-outside-settings.md)) |
+
+The store writes the entry itself, so a background mutation cannot drop or rewrite it. A
+`revision-conflict` answer lists the distinct causes of the revisions after the expected
+one, oldest first, with `unknown` first when some of them are older than the list keeps
+or the store is behind the expected revision. The settings page names each cause in its
+status line, as in "Saved settings changed before this save: a Bitwarden vault was
+synced automatically.", and still keeps the draft and asks for a reload. The toolbar
+popup already reloads after a conflict and is unchanged.
+
 ### Differences from the official extension
 
 | Topic | Official extension | Pateat |
@@ -198,8 +228,7 @@ on the installation.
 
 - Record the evidence of items found equal as reviewed in the synced record of
   [ADR 0023](0023-synced-vault-policy.md), once that record is implemented.
-- Show items awaiting review on the toolbar icon, and tell the settings page why its
-  save met a revision conflict after an automatic sync.
+- Show items awaiting review on the toolbar icon.
 
 ## Alternatives and consequences
 

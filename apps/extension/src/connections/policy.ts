@@ -77,7 +77,7 @@ export function createConnectionPolicy(options: {
             excludedFields: [],
           });
         return snapshot;
-      });
+      }, "vault-added");
     },
     async adopt(input) {
       const captured = structuredClone(input);
@@ -144,7 +144,7 @@ export function createConnectionPolicy(options: {
           },
         ];
         return snapshot;
-      });
+      }, captured.automatic ? "automatic-vault-sync" : "vault-sync");
       return { policyReviewItemIds: review };
     },
     async review(input) {
@@ -201,7 +201,7 @@ export function createConnectionPolicy(options: {
           },
         ];
         return snapshot;
-      });
+      }, "field-review");
       // Recheck after the independent settings write; a concurrent newer vault never
       // makes this review authorize another snapshot.
       if (

@@ -3,6 +3,7 @@ import {
   isSiteExcluded,
   siteDefaultConnection,
   type SettingsResponse,
+  type SettingsChangeCause,
   type SettingsSnapshot,
   type VaultCatalog,
   type LocalSettings,
@@ -325,6 +326,7 @@ export async function rememberVaultPasskey(input: {
     update(
       expectedRevision: number | undefined,
       mutate: (snapshot: SettingsSnapshot) => SettingsSnapshot,
+      cause: SettingsChangeCause,
     ): Promise<SettingsSnapshot>;
   };
   origin: string;
@@ -374,6 +376,6 @@ export async function rememberVaultPasskey(input: {
         entry,
       ],
     },
-  }));
+  }), "account-choice");
   return true;
 }

@@ -8,6 +8,7 @@ import {
   siteDefaultConnection,
   siteDefaultSchema,
   type LocalSettings,
+  type SettingsChangeCause,
   type SettingsSnapshot,
   type SyncSettingsState,
   type VaultCatalog,
@@ -231,6 +232,7 @@ export function createSettingsSync(options: {
     update(
       expectedRevision: number | undefined,
       mutate: (snapshot: SettingsSnapshot) => SettingsSnapshot,
+      cause: SettingsChangeCause,
     ): Promise<SettingsSnapshot>;
   };
   storage: SettingsBaseStorage;
@@ -369,7 +371,7 @@ export function createSettingsSync(options: {
           await settings.update(local.revision, (snapshot) => ({
             ...snapshot,
             settings: v.parse(localSettingsSchema, applySynced(snapshot.settings, merged)),
-          }));
+          }), "service-sync");
         } catch (error) {
           // Settings changed locally while merging; merge again with that change.
           if (error instanceof Error && error.message === "revision-conflict") continue;
