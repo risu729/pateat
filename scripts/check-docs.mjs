@@ -35,7 +35,7 @@ for (const file of new Set(files)) {
             .replace(/^#+ /, "")
             .trim()
             .toLowerCase()
-            .replace(/[^\w\s-]/g, "")
+            .replace(/[^\p{L}\p{N}_\s-]/gu, "")
             .replace(/\s/g, "-"),
         );
       if (!headings.includes(fragment)) failures.push(`${file}: missing heading: ${target}`);
