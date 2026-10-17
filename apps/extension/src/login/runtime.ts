@@ -7669,8 +7669,8 @@ export function createLoginRuntime(
         offer &&
         listing &&
         !asking &&
-        !(clickSite && pendingClick(document.tabId, clickSite)) &&
-        signedInElsewhere(document.tabId, document.origin)
+        signedInElsewhere(document.tabId, document.origin) &&
+        !(clickSite && pendingClick(document.tabId, clickSite))
       ) {
         if (!listing.names || listing.other || entryOffer)
           skipGeneration(live, "signed-in-elsewhere");

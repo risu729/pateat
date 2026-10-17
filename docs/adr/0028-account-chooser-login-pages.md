@@ -115,40 +115,40 @@ email listed, it hands over up to 32 short texts instead: those beside at most t
 buttons, each at most 64 characters and without an `@`; a control's own text is never
 one. Only buttons with words (rendered text, an input button's value or an image's alt
 text; an `aria-label` alone does not count) count toward the three and decide the
-container: on
-2026-10-13 Instagram's saved-profile page showed a settings gear, a control with no
-text, beside the profile, "Continue", "Use another profile" and "Create new account", so
-the profile's container held four controls and the page was logged `no-list`. Many
-ordinary pages show such a text, so on a site with a vault match the worker reads the
-matching items' usernames, email usernames included, one at a time on each such page,
-and sends the page only when a text names one, or (owner, 2026-10-12 19:11 UTC, below)
-when the page also shows a control to sign in with another account; a page offered only
-by such texts that is not sent is logged at debug level only, as mostly ordinary
-browsing (owner rule that Pateat never stops silently, 2026-10-12). The worker passes
-the naming texts back with the request to describe the page. The observation then lists
-each as `[account]`, and hides the name wherever it shows, with or without a leading
-`@`, in any width or case, such as in a heading; a name starting or ending with a Latin
-letter or digit is not found inside a longer Latin word, but is found beside kana or
-kanji, as in `taro.yamadaさん`. A control whose text or label holds it is left out, and
-so is the page when its path holds it. Every other text beside the buttons, which may
-name an account that is not in the vault, is shown as `[account]` when it is a whole
-heading or the title, and a control with such a text is left out. Not covered yet: such
-another name inside a longer text, such as "Continue as" and that name, or as a
-control's own text, still reaches the AI; and a list whose rows are buttons showing only
-a username, with no text beside them, is not found. The page right after a submitted
-password form is skipped: the content script skips its own next path, and the worker the
-tab's next document when it loads within a minute of the submission, kept in memory
-only, so a restart of the worker in between forgets it. The content script's skip ends
-with its document, so only the worker's carries to the next document. A later load, such
-as a reload after a single-page app signed in and out in one document, is not skipped (a
-gap found while checking Cloudflare, 2026-10-12); nor is a page that loads more than a
-minute after the submission because a second step in the same document took that long. A
-submission in a frame counts for the tab's page, and a next page of another origin ends
-the skip; after a submission in a frame, a same-document URL change of the tab's page is
-not skipped, since only the frame saw the submission. A stored chooser's path counts as
-a recipe start, so the page is not sent again, and a chooser login starts there. The
-local log names a list's generation with `page: accounts`, and the skips of a list with
-an email as `after-sign-in` or `no-vault-match`. At debug level it also names a page
+container: on 2026-10-13 Instagram's saved-profile page showed a settings gear, a
+control with no text, beside the profile, "Continue", "Use another profile" and "Create
+new account", so the profile's container held four controls and the page was logged
+`no-list`. Many ordinary pages show such a text, so on a site with a vault match the
+worker reads the matching items' usernames, email usernames included, one at a time on
+each such page, and sends the page only when a text names one, or (owner, 2026-10-12
+19:11 UTC, below) when the page also shows a control to sign in with another account; a
+page offered only by such texts that is not sent is logged at debug level only, as
+mostly ordinary browsing (owner rule that Pateat never stops silently, 2026-10-12). The
+worker passes the naming texts back with the request to describe the page. The
+observation then lists each as `[account]`, and hides the name wherever it shows, with
+or without a leading `@`, in any width or case, such as in a heading; a name starting or
+ending with a Latin letter or digit is not found inside a longer Latin word, but is
+found beside kana or kanji, as in `taro.yamadaさん`. A control whose text or label holds
+it is left out, and so is the page when its path holds it. Every other text beside the
+buttons, which may name an account that is not in the vault, is shown as `[account]`
+when it is a whole heading or the title, and a control with such a text is left out. Not
+covered yet: such another name inside a longer text, such as "Continue as" and that
+name, or as a control's own text, still reaches the AI; and a list whose rows are
+buttons showing only a username, with no text beside them, is not found. The page right
+after a submitted password form is skipped: the content script skips its own next path,
+and the worker the tab's next document when it loads within a minute of the submission,
+kept in memory only, so a restart of the worker in between forgets it. The content
+script's skip ends with its document, so only the worker's carries to the next document.
+A later load, such as a reload after a single-page app signed in and out in one
+document, is not skipped (a gap found while checking Cloudflare, 2026-10-12); nor is a
+page that loads more than a minute after the submission because a second step in the
+same document took that long. A submission in a frame counts for the tab's page, and a
+next page of another origin ends the skip; after a submission in a frame, a
+same-document URL change of the tab's page is not skipped, since only the frame saw the
+submission. A stored chooser's path counts as a recipe start, so the page is not sent
+again, and a chooser login starts there. The local log names a list's generation with
+`page: accounts`, and the skips of a list with an email as `after-sign-in`,
+`signed-in-elsewhere` (below) or `no-vault-match`. At debug level it also names a page
 that, once its ten seconds end without a sign-in input, holds an `@` in its text but is
 not taken as a list (`not-a-list`, with why: for its first shown address, such as
 `inside-control` or `not-rendered`; else how a hidden one is hidden; else
@@ -171,16 +171,19 @@ Amended on 2026-10-17 by the owner's decision (02:15 UTC, decision card "A:
 in a new tab as a list, five minutes after Pateat's login in another tab: the dashboard
 lists the site's accounts with their email addresses, and the AI abstained
 (`no-login-form`). While another tab's login of the same origin authenticated less than
-an hour ago, a list of accounts is not sent (`signed-in-elsewhere`, logged as
-`after-sign-in` is). It is still sent once this tab clicked a control that logs out, or
-while any tab of the origin asks after a logout
+an hour ago, including one completed without the judge's verdict
+([ADR 0029](0029-local-sign-in-state.md)), a list of accounts is not sent
+(`signed-in-elsewhere`, logged as `after-sign-in` is). It is still sent once this tab
+clicked a control that logs out (a click less than 10 minutes old, until its first step
+shows), or while any tab of the origin asks after a logout
 ([ADR 0021](0021-account-choice-outside-settings.md) D). The hour bounds the skip
 because that other tab's record stays until its own page shows the recipe's first step
 again or the tab closes: a real list opened meanwhile, such as one to add or switch an
 account, is first generated up to an hour later, while a list with a stored chooser
 starts as before. A session Pateat did not sign in, or one older than the hour, still
-sends such a page at most once in the 10-minute window. A form, a sign-in entry and a
-page that asks for an identifier alone are unchanged. No site is named
+sends such a page at most once in the 10-minute window. A form, a page that asks for an
+identifier alone and a sign-in entry page without a list are unchanged; an entry offered
+beside such a list is not sent either, as after a sign-in. No site is named
 ([ADR 0033](0033-no-site-specific-features.md)).
 
 ### What the AI answers
