@@ -807,14 +807,18 @@ separately (owner, 2026-10-14 07:24 UTC), and the adopted
 be started from the issue alone (owner, 2026-10-14 08:40 UTC). The list below names
 items the owner mentioned and gates still open on 2026-10-11.
 
-- From the [external review](research/2026-10-13-external-review.md): decrypted item
-  copies in the crypto Worker that hold only the fields a request needs instead of the
-  whole item; a scheduled purge of the inference log, reconsidered once
+- From the [external review](research/2026-10-13-external-review.md): a scheduled purge
+  of the inference log, reconsidered once
   [ADR 0035](adr/0035-page-kinds-per-site.md) changes which rows the purge keeps (a
   trigger is a deployment change the owner approves); and syncing which recipes exist
   and which are revoked separately from their bodies, if
   [#544](https://github.com/risu729/pateat/issues/544) and the recipe limits are not
   enough.
+- Done: the crypto Worker no longer keeps decrypted item copies between requests. The
+  review asked for copies that hold only the fields a request needs; instead each field
+  listing or resolution decrypts its one item and disposes it before replying; stored
+  passkey operations already kept nothing between requests
+  ([vault adapter](architecture.md#vault-adapter)).
 - Signing in through an identity provider
   ([ADR 0026](adr/0026-sign-in-through-identity-providers.md), ADR 0027 delivery 5).
 - [ADR 0027](adr/0027-per-account-login-routes.md) delivery 4's deferred part: a `totp`
