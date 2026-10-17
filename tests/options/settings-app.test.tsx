@@ -672,3 +672,21 @@ test("malformed save responses are rejected at the runtime boundary and keep the
     send.mock.calls.filter(([request]) => (request as { type: string }).type === "settings.save"),
   ).toHaveLength(1);
 });
+
+test("the section nav marks the section scrolled into view after settings load", async () => {
+  await page.viewport(400, 300);
+  try {
+    await mount();
+    const nav = page.getByRole("navigation", { name: "Sections" });
+    const link = (name: string) => nav.getByRole("link", { name, exact: true });
+    await expect.element(link("Demo vaults")).toHaveAttribute("aria-current", "location");
+    // Loading replaced the placeholder Sites section; the nav must follow the new one.
+    document.getElementById("sites")?.scrollIntoView({ block: "start" });
+    await expect.element(link("Sites")).toHaveAttribute("aria-current", "location");
+    await expect.element(link("Demo vaults")).not.toHaveAttribute("aria-current");
+    document.getElementById("demo-vaults")?.scrollIntoView({ block: "start" });
+    await expect.element(link("Demo vaults")).toHaveAttribute("aria-current", "location");
+  } finally {
+    await page.viewport(414, 896);
+  }
+});
