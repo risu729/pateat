@@ -28,6 +28,24 @@ describe("pageSigns", () => {
     expect(pageSigns(document)).toEqual(none);
   });
 
+  // Chromium's `autocomplete` property reads "" for a token list that is not a valid
+  // autofill detail, so the signs read the attribute's tokens.
+  it("reads a code input among several autocomplete tokens", () => {
+    document.body.innerHTML = '<input autocomplete="off one-time-code">';
+    expect(pageSigns(document)).toEqual({ ...none, code: true });
+  });
+
+  it("reads a password input among several autocomplete tokens", () => {
+    document.body.innerHTML = '<form><input autocomplete="off current-password"></form>';
+    expect(pageSigns(document)).toEqual({ ...none, password: true });
+  });
+
+  it("leaves out a new password input among several autocomplete tokens", () => {
+    document.body.innerHTML =
+      '<form><input type="password" autocomplete="off new-password"></form>';
+    expect(pageSigns(document)).toEqual(none);
+  });
+
   it("reads a code input and a CAPTCHA widget large enough to solve", () => {
     document.body.innerHTML = '<input autocomplete="one-time-code">';
     expect(pageSigns(document)).toEqual({ ...none, code: true });
