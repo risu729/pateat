@@ -19,8 +19,10 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import * as v from "valibot";
 import type { SetupBegin, SetupReply } from "../connections/types";
 import { providerPermissionOrigins } from "../connections/permissions";
+import { emailSchema } from "../connections/wire";
 import { localSyncTime } from "../time";
 import { Button } from "./button";
 import type { ConnectionClient } from "./connection-client";
@@ -359,14 +361,11 @@ export function BitwardenSetup({
     const environment: BitwardenProfile["environment"] =
       existing?.environment ??
       (region === "self-hosted"
-        ? { kind: "self-hosted", baseUrl }
+        ? { kind: "self-hosted", baseUrl: baseUrl.trim() }
         : { kind: "cloud", region: region === "eu" ? "eu" : "us" });
     const profile = normalizeBitwardenProfile({ connectionId: "setup-preview", environment });
-    if (
-      !profile.ok ||
-      (!existing && (!name.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) ||
-      !password
-    ) {
+    const account = email.trim();
+    if (!profile.ok || (!existing && (!name.trim() || !v.is(emailSchema, account))) || !password) {
       setMessage(
         "Enter a connection name, valid email and master password. Self-hosted addresses must be ordinary HTTPS roots without a path, credentials, query or fragment.",
       );
@@ -383,7 +382,7 @@ export function BitwardenSetup({
           kind: "new",
           environment: profile.data.environment,
           label: name.trim(),
-          email,
+          email: account,
           password,
           enabled,
         };
@@ -400,11 +399,13 @@ export function BitwardenSetup({
     });
   }
   function continueSetup() {
-    if (!challenge || !code || operation.current) return;
+    // Pasted codes often carry spaces, as in "123 456"; no code contains whitespace.
+    const value = code.replace(/\s/g, "");
+    if (!challenge || !value || operation.current) return;
     const input =
       challenge.kind === "mfa-required"
-        ? { flowId: challenge.flowId, twoFactor: { provider, code } }
-        : { flowId: challenge.flowId, newDeviceOtp: code };
+        ? { flowId: challenge.flowId, twoFactor: { provider, code: value } }
+        : { flowId: challenge.flowId, newDeviceOtp: value };
     clearSecrets();
     start(async (epoch) => {
       await receive(await client.continue(input), epoch);
@@ -453,7 +454,7 @@ export function BitwardenSetup({
   const previewEnvironment: BitwardenProfile["environment"] =
     existing?.environment ??
     (region === "self-hosted"
-      ? { kind: "self-hosted", baseUrl }
+      ? { kind: "self-hosted", baseUrl: baseUrl.trim() }
       : { kind: "cloud", region: region === "eu" ? "eu" : "us" });
   const origins = providerPermissionOrigins(previewEnvironment);
   const formOpen = addOpen ?? !connections.length;
