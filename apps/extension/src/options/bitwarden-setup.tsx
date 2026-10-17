@@ -228,6 +228,8 @@ export function BitwardenSetup({
   const [message, setMessage] = useState("Loading Bitwarden connections…");
   const operation = useRef(false);
   const generation = useRef(0);
+  // Connection IDs listed before a new connection's first sign-in started.
+  const addedFrom = useRef<Set<string>>(undefined);
   const passwordInput = useRef<HTMLInputElement>(null);
   const codeInput = useRef<HTMLInputElement>(null);
   const catalogChanged = useRef(onCatalogChanged);
@@ -241,8 +243,21 @@ export function BitwardenSetup({
   async function readConnections(epoch: number) {
     const result = await client.list();
     if (epoch !== generation.current) return;
-    if (result.ok && result.kind === "status") setConnections(result.connections);
-    else throw new Error("Connection metadata unavailable.");
+    if (!result.ok || result.kind !== "status") throw new Error("Connection metadata unavailable.");
+    setConnections(result.connections);
+    setStatusKnown(true);
+    // The background keeps a new connection even when its first sign-in fails; once its
+    // row is listed, "Sign in again" completes it and the add form must not register it twice.
+    const before = addedFrom.current;
+    if (before && result.connections.some((connection) => !before.has(connection.connectionId))) {
+      addedFrom.current = undefined;
+      setName("");
+      setEmail("");
+    }
+  }
+  /** Rows may have changed after an error or cancellation; a failed read keeps the message. */
+  function rereadConnections(epoch: number) {
+    return readConnections(epoch).catch(() => undefined);
   }
   useEffect(() => {
     const epoch = ++generation.current;
@@ -281,6 +296,7 @@ export function BitwardenSetup({
       // A resolved error may follow a durable cache/configuration change.
       // Preserve the draft and require a fresh catalog before another settings save.
       onCatalogChanged();
+      await rereadConnections(epoch);
       return;
     }
     if (result.kind === "mfa-required" || result.kind === "new-device-verification-required") {
@@ -308,10 +324,13 @@ export function BitwardenSetup({
       setExisting(undefined);
       catalogChanged.current();
       await readConnections(epoch);
-    } else if (result.kind === "interaction-required")
+    } else if (result.kind === "interaction-required") {
       setMessage(`Setup is incomplete: ${result.reason}. This interaction is not supported here.`);
-    else if (result.kind === "cancelled") setMessage("Setup cancelled.");
-    else if (result.kind === "status") setConnections(result.connections);
+      await rereadConnections(epoch);
+    } else if (result.kind === "cancelled") {
+      setMessage("Setup cancelled.");
+      await rereadConnections(epoch);
+    } else if (result.kind === "status") setConnections(result.connections);
     else if (result.kind === "forgotten") {
       setMessage(
         "Sync sign-in removed from this device. This does not sign out other sessions; the local vault still unlocks as before.",
@@ -396,6 +415,8 @@ export function BitwardenSetup({
         setMessage("Provider access was not granted. No sign-in request was sent.");
         return;
       }
+      addedFrom.current =
+        input.kind === "new" ? new Set(connections.map((c) => c.connectionId)) : undefined;
       await receive(await client.begin(input), epoch);
     });
   }
@@ -411,14 +432,21 @@ export function BitwardenSetup({
     });
   }
   function cancel(stopped = "Setup stopped. Refresh to confirm the latest state.") {
-    ++generation.current;
+    const running = operation.current || !!challenge;
+    const epoch = ++generation.current;
     operation.current = false;
-    client.close();
     clearSecrets();
     setChallenge(undefined);
+    setExisting(undefined);
     setBusy(false);
+    if (!running) {
+      setMessage("Setup cancelled.");
+      return;
+    }
+    client.close();
     setMessage(stopped);
     catalogChanged.current();
+    void rereadConnections(epoch);
   }
   function syncConnection(connection: Connection) {
     if (operation.current) return;
