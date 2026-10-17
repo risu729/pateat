@@ -447,7 +447,10 @@ function tokenClaims(token: unknown, now: number): RecordValue {
     )
       reject();
   }
-  if (typeof claims["nbf"] === "number" && claims["nbf"] > now) reject("authentication-expired");
+  // The server sets nbf to its own issue second, so a local clock slightly behind it must still
+  // accept a fresh token. 300 s is Duende IdentityServer's default clock skew.
+  if (typeof claims["nbf"] === "number" && claims["nbf"] > now + 300)
+    reject("authentication-expired");
   if (claims["iss"] != null) requiredText(claims["iss"], 2048);
   if (claims["aud"] != null) {
     const values = typeof claims["aud"] === "string" ? [claims["aud"]] : list(claims["aud"], 100);
