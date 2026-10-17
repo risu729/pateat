@@ -821,9 +821,11 @@ items the owner mentioned and gates still open on 2026-10-11.
   owner moved from phase 1 on 2026-10-12 (14:26 UTC): a `totp` handler that reads a
   custom field a saved binding names for the code. Implemented on 2026-10-17 by the
   [amendment](adr/0027-per-account-login-routes.md#amendment-a-totp-code-from-a-custom-field)
-  (a Text or Hidden field's seed makes the code; the owner has not confirmed that
-  choice yet), with synthetic tests only. Still open: a login in the owner's Chrome
-  with a vault item that keeps its seed in a custom field.
+  (a Text or Hidden field's seed makes the code; the owner has not confirmed that choice
+  yet), with synthetic tests only. Nothing in Pateat writes a binding that names a
+  custom field for `totp` yet, so the handler cannot be reached from the product; a way
+  to choose that field, and then a login in the owner's Chrome with a vault item that
+  keeps its seed in a custom field, are still open.
 - Signing in with a code or link sent by email, which
   [ADR 0027](adr/0027-per-account-login-routes.md) does not handle today (such a code
   page ends `challenge`). It has the same priority as signing in through an identity
@@ -1238,7 +1240,9 @@ destination policy and invalidate stale operations.
 
 OTPAuth supplies local standard TOTP and Steam generation. Supported inputs are
 canonical Base32 and explicit TOTP URI parameters; unsupported algorithms and
-HOTP are explicit errors. OTP seeds are not field values or inference inputs.
+HOTP are explicit errors. The built-in TOTP seed is not a field value or an inference
+input; a seed in a custom field is read for a code only for the `totp` slot (ADR 0027
+amendment of 2026-10-17).
 Independent RFC 6238 and pinned upstream answers, clock boundaries and the
 packaged MV3 probe are the verification gates for this slice.
 
