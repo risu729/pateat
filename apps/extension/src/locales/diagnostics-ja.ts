@@ -145,8 +145,7 @@ export const diagnosticsJa = {
   "logs unreadable": "ログを読み取れません",
   "{{problems}} logged in the last 24 h": "過去 24 時間の記録: {{problems}}",
   "no errors or warnings logged in the last 24 h": "過去 24 時間にエラーや警告の記録なし",
-  "service {{remote}} recipes, cached {{local}}":
-    "レシピ: サービス {{remote}} 件、保存済み {{local}} 件",
+  "service {{recipes}}, cached {{local}}": "サービス {{recipes}}、保存済み {{local}} 件",
   "settings revision service {{remote}}, here {{local}}":
     "設定のリビジョン: サービス {{remote}}、この端末 {{local}}",
   "recipes and settings match the service": "レシピと設定はサービスの内容と一致",
