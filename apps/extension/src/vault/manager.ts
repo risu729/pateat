@@ -26,6 +26,7 @@ export type VaultCryptoHost = Pick<
   | "verifyReceivedCiphers"
   | "exportUnlockMaterial"
   | "lock"
+  | "isOpen"
   | "listFields"
   | "resolveField"
   | "catalog"
@@ -138,6 +139,12 @@ export function createLocalVaultManager(options: {
     if (candidate) void retire(candidate);
     await Promise.allSettled([...retirements]);
   }
+  // A timeout, cancellation, Worker failure or lost offscreen document ends the live
+  // session in the crypto host without a lock. Forget it so the next read restores one;
+  // the host has already retired it, so there is nothing to lock.
+  function forgetEndedLive() {
+    if (live && !options.host.isOpen(live.opened.session)) live = undefined;
+  }
   function handleFor(entry: VaultEntry): LocalVaultHandle {
     if (!entry.accepted) throw new Error();
     return {
@@ -150,6 +157,7 @@ export function createLocalVaultManager(options: {
     };
   }
   function validHandle(handle: LocalVaultHandle) {
+    forgetEndedLive();
     return (
       !disposed &&
       !uncertain &&
@@ -388,6 +396,7 @@ export function createLocalVaultManager(options: {
         const compared = Array.isArray(capturedInput.compareCustomFields)
           ? [...new Set(capturedInput.compareCustomFields.filter((id) => v.is(itemIdSchema, id)))]
           : [];
+        forgetEndedLive();
         const old = live;
         const comparison =
           compared.length &&
@@ -733,6 +742,7 @@ export function createLocalVaultManager(options: {
         : vaultFailure("stale-vault-handle");
     },
     status() {
+      forgetEndedLive();
       return {
         generation,
         epoch,
