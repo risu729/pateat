@@ -1,4 +1,5 @@
 import {
+  MAX_ACTIVE_RECIPE_BYTES,
   parseLoginRecipe,
   type LoginRecipe,
   type StoredLoginRecipe,
@@ -373,6 +374,61 @@ describe("recipe sync", () => {
     expect(service.recordSync).toHaveBeenCalledWith(DEVICE, { rejected: true });
     expect(service.recordSync).toHaveBeenLastCalledWith(OTHER_DEVICE, { syncedAt: 5_000 });
     expect(cache()).toMatchObject({ deviceId: OTHER_DEVICE });
+  });
+
+  it("keeps retrying an overflowing page even when smaller current heads fit on later pages", async () => {
+    const bytes = (value: unknown) => new TextEncoder().encode(JSON.stringify(value)).byteLength;
+    const small = recipe("old-000", "/login");
+    const large = parseLoginRecipe({
+      ...small,
+      steps: [
+        ...small.steps.slice(0, 2),
+        ...Array.from({ length: 29 }, () => ({
+          kind: "assert",
+          path: `/${"p".repeat(299)}`,
+          target: target("p".repeat(120)),
+          present: true,
+        })),
+        small.steps.at(-1),
+      ],
+    });
+    const old = Array.from(
+      { length: Math.floor((MAX_ACTIVE_RECIPE_BYTES * 0.9) / bytes(large)) },
+      (_, i) => ({ ...large, id: `old-${String(i).padStart(3, "0")}` }),
+    );
+    const added = Array.from(
+      { length: Math.floor((MAX_ACTIVE_RECIPE_BYTES * 0.65) / bytes(large)) },
+      (_, i) => ({ ...large, id: `new-${String(i).padStart(3, "0")}` }),
+    );
+    // The service first shrinks these to revision 2, admits the new recipes, then
+    // writes equal-sized revision 3s. Its latest-head feed sorts the new recipes first.
+    const shrunk = old.map((held) => ({ ...small, id: held.id, revision: 3 }));
+    expect(old.length).toBeLessThanOrEqual(100);
+    expect(added.length).toBeLessThanOrEqual(100);
+    // Both the old service snapshot and the final heads obey its active-document cap.
+    expect(old.reduce((sum, held) => sum + bytes(held), 0)).toBeLessThan(MAX_ACTIVE_RECIPE_BYTES);
+    expect([...added, ...shrunk].reduce((sum, held) => sum + bytes(held), 0)).toBeLessThan(
+      MAX_ACTIVE_RECIPE_BYTES,
+    );
+    const stored = { version: 1, origin: SERVICE, deviceId: DEVICE, cursor: 1, recipes: old };
+    expect(bytes({ ...stored, recipes: [...old, ...added] })).toBeGreaterThan(
+      MAX_RECIPE_CACHE_BYTES,
+    );
+    const { sync, cache, transport } = setup({ stored });
+    // These shrinking heads are already available later in the feed, but the unchanged
+    // persisted cursor keeps retrying the additions. A revoke-only walk cannot apply
+    // shrinking active heads either, so it also retries the same overflowing page.
+    transport.recipeChanges.mockImplementation(async (_origin, _credential, cursor) =>
+      cursor === 1 ? page(added.map(active), 2, false) : page(shrunk.map(active), 3),
+    );
+    expect(await sync.sync()).toBe("cache-full");
+    expect(cache()).toEqual(stored);
+    expect(await sync.sync()).toBe("cache-full");
+    expect(cache()).toEqual(stored);
+    expect(
+      transport.recipeChanges.mock.calls.filter(([, , cursor]) => cursor === 1).length,
+    ).toBeGreaterThanOrEqual(2);
+    expect(transport.recipeChanges).toHaveBeenLastCalledWith(SERVICE, CREDENTIAL, 1);
   });
 
   it("stops before the cache outgrows its share of local storage", async () => {

@@ -1,5 +1,6 @@
 import {
   isLoginRouteRecipe,
+  MAX_ACTIVE_RECIPE_BYTES,
   type EntryGenerationResult,
   type LoginObservation,
   type LoginRecipe,
@@ -25,7 +26,13 @@ import { createDeviceToken, hashDeviceToken } from "../src/auth";
 import { saveWifCredential } from "../src/claude/credentials";
 import { MAX_ACTIVE_RECIPES } from "../src/limits";
 import { writeRecipe } from "../src/recipe-store";
-import { ATTEMPT_WINDOW_MS, generatedRecipeId, staleHead } from "../src/recipes/generate";
+import { documentBytes, seedRecipeBytes, storedRecipeBytes } from "./recipe-byte-helpers";
+import {
+  ATTEMPT_WINDOW_MS,
+  generatedRecipeId,
+  MIN_GENERATION_RECIPE_ROOM_BYTES,
+  staleHead,
+} from "../src/recipes/generate";
 
 // Synthetic owners, devices, federation identifiers and pages only. Anthropic's token
 // endpoint and the Messages API are answered locally; no request leaves the test.
@@ -1195,6 +1202,83 @@ describe("recipe generation", () => {
     ).toMatchObject({ status: "recipe", change: { revision: 4 } });
   });
 
+  it("refuses new pages and continuations before the model call with less than 32 KiB left", async () => {
+    const device = await owner();
+    replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    const first = await generate(device, emailPage);
+    if (first.status !== "recipe") throw new Error(first.status);
+    await seedRecipeBytes(
+      device.ownerId,
+      MAX_ACTIVE_RECIPE_BYTES -
+        documentBytes(first.change.recipe) -
+        MIN_GENERATION_RECIPE_ROOM_BYTES +
+        1,
+    );
+    const limited = { version: 1, status: "unavailable", reason: "recipe-limit" };
+    expect(await generate(device, observation("/other", emailPage.candidates))).toEqual(limited);
+    expect(
+      await generate(device, passwordPage, { recipeId: first.change.recipeId, revision: 1 }),
+    ).toEqual(limited);
+    expect(sent).toHaveLength(1);
+    expect(
+      await rows("SELECT path FROM generation_attempts WHERE owner_id = ?", device.ownerId),
+    ).toEqual([{ path: "/login" }]);
+    // A cached active answer costs no call and remains available at the limit.
+    expect(await generate(device, emailPage)).toMatchObject({ status: "recipe" });
+  });
+
+  it("admits exactly 32 KiB of preflight room and maps a racing continuation's byte refusal", async () => {
+    const device = await owner();
+    replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    const first = await generate(device, emailPage);
+    if (first.status !== "recipe") throw new Error(first.status);
+    await seedRecipeBytes(
+      device.ownerId,
+      MAX_ACTIVE_RECIPE_BYTES -
+        documentBytes(first.change.recipe) -
+        MIN_GENERATION_RECIPE_ROOM_BYTES,
+    );
+    during = async () => {
+      await env.DB.prepare(
+        "UPDATE recipe_revisions SET document = document || ? WHERE owner_id = ? AND recipe_id = 'byte-seed'",
+      )
+        .bind(" ".repeat(MIN_GENERATION_RECIPE_ROOM_BYTES), device.ownerId)
+        .run();
+    };
+    replies.push({ text: plan([["password", "password"]], "sign-in", "submit") });
+    expect(
+      await generate(device, passwordPage, { recipeId: first.change.recipeId, revision: 1 }),
+    ).toEqual({ version: 1, status: "unavailable", reason: "recipe-limit" });
+    expect(sent).toHaveLength(2);
+    expect(
+      await rows(
+        "SELECT revision FROM recipe_heads WHERE owner_id = ? AND recipe_id = ?",
+        device.ownerId,
+        first.change.recipeId,
+      ),
+    ).toEqual([{ revision: 1 }]);
+    expect(await storedRecipeBytes(device.ownerId)).toBe(MAX_ACTIVE_RECIPE_BYTES);
+  });
+
+  it("maps a new recipe's byte refusal after the model call", async () => {
+    const device = await owner();
+    during = () => seedRecipeBytes(device.ownerId, MAX_ACTIVE_RECIPE_BYTES);
+    replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    expect(await generate(device, emailPage)).toEqual({
+      version: 1,
+      status: "unavailable",
+      reason: "recipe-limit",
+    });
+    expect(sent).toHaveLength(1);
+    expect(
+      await rows(
+        "SELECT revision FROM recipe_heads WHERE owner_id = ? AND recipe_id = ?",
+        device.ownerId,
+        await generatedRecipeId(ORIGIN, emailPage.path),
+      ),
+    ).toEqual([]);
+  });
+
   it("needs room for one more active recipe before a first page's call", async () => {
     const device = await owner();
     await env.DB.prepare(
@@ -1822,6 +1906,48 @@ describe("page judgement (ADR 0027)", () => {
     expect(sent).toHaveLength(calls);
     expect(await spend(device)).toEqual(before);
     expect(await judgements(device)).toEqual(stored);
+  });
+
+  it("maps a first marker write refused for bytes to recipe-limit", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    await seedRecipeBytes(device.ownerId, MAX_ACTIVE_RECIPE_BYTES - documentBytes(change.recipe));
+    replies.push(judgeReply({ decision: "signed-in", marker: "logout" }));
+    const answer = await complete(device, change.recipeId, 2, homePage);
+    expect(answer.body).toEqual({ version: 1, status: "unavailable", reason: "recipe-limit" });
+    expect(await head(device, change.recipeId)).toBe(2);
+    expect(sent).toHaveLength(3);
+  });
+
+  it("answers signed-in when a later marker is refused for bytes", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    replies.push(judgeReply({ decision: "signed-in", marker: "logout" }));
+    const first = await complete(device, change.recipeId, 2, homePage);
+    if (!("change" in first.body) || !first.body.change) throw new Error("no change");
+    await seedRecipeBytes(
+      device.ownerId,
+      MAX_ACTIVE_RECIPE_BYTES - documentBytes(first.body.change.recipe),
+    );
+    const account = observation("/account", [element("account", "button", "Account")]);
+    replies.push(judgeReply({ decision: "signed-in", marker: "account" }));
+    expect((await complete(device, change.recipeId, 3, account)).body).toEqual({
+      version: 1,
+      status: "signed-in",
+    });
+    expect(await head(device, change.recipeId)).toBe(3);
+    expect(sent).toHaveLength(4);
+  });
+
+  it("answers challenge when its handler is refused for bytes", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    await seedRecipeBytes(device.ownerId, MAX_ACTIVE_RECIPE_BYTES - documentBytes(change.recipe));
+    replies.push(judgeReply({ decision: "challenge", passkeyButton: "key" }));
+    const answer = await complete(device, change.recipeId, 2, webauthnPage);
+    expect(answer.body).toEqual({ version: 1, status: "challenge" });
+    expect(await head(device, change.recipeId)).toBe(2);
+    expect(sent).toHaveLength(3);
   });
 
   it("judges each revision and path once", async () => {
@@ -3786,6 +3912,42 @@ describe("sign-in entry pages (ADR 0031)", () => {
     expect(response.status).toBe(200);
     return (await response.json()) as EntryGenerationResult;
   }
+
+  it("refuses entry generation before the model call when less than 32 KiB remains", async () => {
+    const device = await owner();
+    await seedRecipeBytes(
+      device.ownerId,
+      MAX_ACTIVE_RECIPE_BYTES - MIN_GENERATION_RECIPE_ROOM_BYTES + 1,
+    );
+    expect(await generateEntry(device, topPage)).toEqual({
+      version: 1,
+      status: "unavailable",
+      reason: "recipe-limit",
+    });
+    expect(sent).toHaveLength(0);
+    expect(
+      await rows("SELECT * FROM generation_attempts WHERE owner_id = ?", device.ownerId),
+    ).toEqual([]);
+  });
+
+  it("maps entry generation's byte refusal after the model call", async () => {
+    const device = await owner();
+    during = () => seedRecipeBytes(device.ownerId, MAX_ACTIVE_RECIPE_BYTES);
+    replies.push({ text: entryAnswer("c2") });
+    expect(await generateEntry(device, topPage)).toEqual({
+      version: 1,
+      status: "unavailable",
+      reason: "recipe-limit",
+    });
+    expect(sent).toHaveLength(1);
+    expect(
+      await rows(
+        "SELECT revision FROM recipe_heads WHERE owner_id = ? AND recipe_id = ?",
+        device.ownerId,
+        await generatedRecipeId(ORIGIN, topPage.path),
+      ),
+    ).toEqual([]);
+  });
 
   it("stores the named link as the entry recipe of the page's origin and path", async () => {
     const device = await owner();

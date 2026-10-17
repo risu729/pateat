@@ -105,7 +105,7 @@ export const generationUnavailableReasonSchema = v.picklist([
   "not-judgeable",
   "recipe-revoked",
   "recipe-conflict",
-  /** A new recipe would exceed the owner's active recipe limit. */
+  /** The owner's recipe count or bytes would exceed the service limit. */
   "recipe-limit",
 ]);
 export const generationFailureSchema = v.picklist([
