@@ -239,6 +239,7 @@ function AccountChoices({
   disabled: boolean;
   onChange: (value: string) => void;
 }) {
+  const { t } = useTranslation(undefined, { i18n });
   return (
     <div className="popup-choices">
       {cards.map((card) => (
@@ -249,7 +250,10 @@ function AccountChoices({
             value={card.value}
             checked={checked === card.value}
             disabled={disabled}
-            aria-label={`${card.title}, ${card.sub}${card.isDefault ? ", default" : ""}`}
+            aria-label={t(card.isDefault ? "{{title}}, {{sub}}, default" : "{{title}}, {{sub}}", {
+              title: card.title,
+              sub: card.sub,
+            })}
             onChange={() => onChange(card.value)}
           />
           <CardBody card={card} />

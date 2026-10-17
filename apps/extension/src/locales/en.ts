@@ -199,4 +199,6 @@ export const en = {
   "This page": "This page",
   "Open the detailed log": "Open the detailed log",
   matchingAccounts: "{{count}} accounts match this page",
+  "{{title}}, {{sub}}, default": "{{title}}, {{sub}}, default",
+  "{{title}}, {{sub}}": "{{title}}, {{sub}}",
 } as const;
