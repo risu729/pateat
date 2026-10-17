@@ -218,7 +218,7 @@ export function createLocalFieldSnapshot(input: unknown): BitwardenResult<LocalF
       const kind = (["text", "hidden", "boolean", "linked"] as const)[field.type] ?? "unsupported";
       const source =
         kind === "linked" && field.linkedId != null ? linkedSources[field.linkedId] : undefined;
-      add(id, field.name ?? `Custom field ${index + 1}`, kind, {
+      add(id, field.name || `Custom field ${index + 1}`, kind, {
         name: field.name || null,
         // Built-ins are listed first; a link to a field this item lacks names no source.
         linkedFieldId:

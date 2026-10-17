@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import * as sdk from "@bitwarden/sdk-internal/node/bitwarden_wasm_internal.js";
+import { vaultDisplayLabel } from "./catalog";
 import { createLocalFieldSnapshot } from "./fields";
 import { createLocalCryptoSession } from "./local-crypto";
 import {
@@ -159,7 +160,23 @@ describe("local field references and permission boundaries", () => {
     });
     // Unnamed fields keep a display label but have no name to bind by.
     expect(field(customFieldId(4))).toMatchObject({ label: "Custom field 5", name: null });
-    expect(field(customFieldId(5))).toMatchObject({ name: null });
+    expect(field(customFieldId(5))).toMatchObject({ label: "Custom field 6", name: null });
+  });
+
+  it("labels an empty-named custom field by position but keeps a whitespace-only name", () => {
+    const item = localLoginView();
+    const first = item.fields.length;
+    item.fields.push(
+      { name: "", value: "a", type: 0, linkedId: null },
+      { name: "  ", value: "b", type: 1, linkedId: null },
+    );
+    const listed = snapshot(item).list();
+    const field = (fieldId: string) => listed.find((entry) => entry.ref.fieldId === fieldId)!;
+    const empty = field(customFieldId(first));
+    expect(empty).toMatchObject({ label: `Custom field ${first + 1}`, name: null });
+    // The worker shows this label; an empty one would fall back to the internal field ID.
+    expect(vaultDisplayLabel(empty.label, empty.ref.fieldId)).toBe(`Custom field ${first + 1}`);
+    expect(field(customFieldId(first + 1))).toMatchObject({ label: "  ", name: "  " });
   });
 
   it("locks values and metadata permanently when disposed", () => {
