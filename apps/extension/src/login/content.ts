@@ -275,11 +275,13 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             ? identifierInput(document)
             : undefined;
         const passkey = bare && !accounts && !identifier && extractPasskeyObservation(document).ok;
-        const offerEntry = bare && !passkey && entryWanted && !entryOffered && identifier !== "sole";
+        const offerEntry =
+          bare && !passkey && entryWanted && !entryOffered && identifier !== "sole";
         if (offerEntry) entryOffered = true;
         watch(starts);
         if (passkey) void announce(false, "passkey").catch(() => undefined);
-        else if (identifier && !offerEntry) void announce(false, "identifier").catch(() => undefined);
+        else if (identifier && !offerEntry)
+          void announce(false, "identifier").catch(() => undefined);
         else if (accounts || offerEntry)
           void announce(false, false, accounts, offerEntry).catch(() => undefined);
         // Nothing to send: the log says why (ADR 0019).
@@ -707,12 +709,12 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           command.page === "passkey"
             ? extractPasskeyObservation(document)
             : command.page === "login"
-            ? extractLoginObservation(document, command.known)
-            : command.page === "accounts"
-              ? extractAccountListObservation(document, command.names)
-              : command.page === "entry"
-                ? extractEntryObservation(document, (url) => onSite.has(url.hostname))
-                : extractSignedInObservation();
+              ? extractLoginObservation(document, command.known)
+              : command.page === "accounts"
+                ? extractAccountListObservation(document, command.names)
+                : command.page === "entry"
+                  ? extractEntryObservation(document, (url) => onSite.has(url.hostname))
+                  : extractSignedInObservation();
       } catch {
         // A page the extractor cannot read still gets an answer the log can name.
         result = { ok: false, reason: "extract-error" };

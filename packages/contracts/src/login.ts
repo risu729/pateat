@@ -270,7 +270,7 @@ export const loginRecipeSchema = v.pipe(
     revision,
     origin: loginOriginSchema,
     /** The slots of the password route's first variant (variant 0). */
-    slots: v.union([recipeSlotList, v.tuple([])]),
+    slots: v.pipe(v.array(identifier), v.maxLength(20), v.check(unique, "Duplicate recipe slots")),
     /** A button-only start page: no password route or fallback (ADR 0046, proposed). */
     passkeyOnly: v.optional(v.literal(true)),
     /** The password route's first variant (variant 0): its steps. */
@@ -367,12 +367,21 @@ export const loginRecipeSchema = v.pipe(
     // Counts route steps only; an entered handler adds its own effects to the attempt.
     maxSubmissions: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(8)),
   }),
-  v.check((recipe) => recipe.passkeyOnly
-    ? recipe.slots.length === 0 && recipe.alternatives === undefined && recipe.passkey !== undefined &&
-      recipe.steps.length === 1 && recipe.steps[0]!.kind === "click" &&
-      recipe.steps[0]!.purpose === "submit" && recipe.steps[0]!.path === recipe.passkey.path &&
-      sameLoginTarget(recipe.steps[0]!.target, recipe.passkey.target) && recipe.maxSubmissions === 1
-    : recipe.slots.length > 0, "A passkey-only recipe has only its passkey submit"),
+  v.check(
+    (recipe) =>
+      recipe.passkeyOnly
+        ? recipe.slots.length === 0 &&
+          recipe.alternatives === undefined &&
+          recipe.passkey !== undefined &&
+          recipe.steps.length === 1 &&
+          recipe.steps[0]!.kind === "click" &&
+          recipe.steps[0]!.purpose === "submit" &&
+          recipe.steps[0]!.path === recipe.passkey.path &&
+          sameLoginTarget(recipe.steps[0]!.target, recipe.passkey.target) &&
+          recipe.maxSubmissions === 1
+        : recipe.slots.length > 0,
+    "A passkey-only recipe has only its passkey submit",
+  ),
   v.check(
     (recipe) =>
       variantsOf(recipe).every((variant) =>
@@ -555,7 +564,7 @@ export const loginRecipeSchema = v.pipe(
       entries.some((entry) => entry.path === passkey.path && targetKey(entry.target) === key);
     return (
       !onPath(
-        variantsOf(recipe).flatMap((variant) =>
+        (recipe.passkeyOnly ? [] : variantsOf(recipe)).flatMap((variant) =>
           variant.steps.flatMap((step) =>
             (step.kind === "fill" ? step.fields.map((field) => field.target) : [step.target]).map(
               (target) => ({ path: step.path, target }),
@@ -1046,8 +1055,8 @@ export function laterStartSteps(
   );
 }
 /**
- * Whether the recipe offers the route; every recipe has the `password` route, since a
- * start page without a password input is never generated (ADR 0016).
+ * Whether the recipe offers the route. A passkey-only recipe has no password route
+ * (ADR 0046, proposed); ordinary recipes keep their password variants.
  */
 export function recipeHasRoute(recipe: LoginRecipe, route: LoginRoute): boolean {
   return route === "passkey"
@@ -1273,6 +1282,7 @@ export function continuesRecipe(previous: LoginRecipe, next: LoginRecipe): boole
     !refillsLoginSlot(previous.steps, next.steps.slice(previous.steps.length)) &&
     previous.slots.every((slot) => next.slots.includes(slot)) &&
     next.maxSubmissions >= previous.maxSubmissions &&
+    previous.passkeyOnly === next.passkeyOnly &&
     same(previous.passkey ?? null, next.passkey ?? null) &&
     same(previous.rejection ?? null, next.rejection ?? null) &&
     (previous.accountSwitch === undefined || same(previous.accountSwitch, next.accountSwitch)) &&

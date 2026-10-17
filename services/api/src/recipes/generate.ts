@@ -356,7 +356,12 @@ export async function generateRecipe(
         return revisionOf(latest) !== baseRevision ? "recipe-conflict" : undefined;
       },
     ),
-    invoke: (model) => createRecipeGenerator({ model, ...roleConfig })({ observation, slots, ...(passkeyOnly ? { passkeyOnly } : {}) }),
+    invoke: (model) =>
+      createRecipeGenerator({ model, ...roleConfig })({
+        observation,
+        slots,
+        ...(passkeyOnly ? { passkeyOnly } : {}),
+      }),
     logValue: (value) => {
       if ("accountList" in value)
         return {
