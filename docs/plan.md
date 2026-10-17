@@ -524,7 +524,8 @@ than in this repository.
   and about 10 seconds later the login settled `unknown-submit` (`login.state` decision
   `unknown`, `recipe.judge` `not-sent` with `sign-in-shown`) without typing the
   password. The email view keeps a password input off-screen, transparent and hidden
-  from assistive technology for the browser to fill, which the content script's
+  from assistive technology for the browser to fill (read in the owner's Chrome at
+  04:14 UTC), which the content script's
   visibility check counted as a writable field just before Next, so the advance whose
   next step is on its own path was never confirmed
   ([architecture](architecture.md#declarative-recipes-and-ai)). That the recipe's

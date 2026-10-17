@@ -886,9 +886,10 @@ continue), none of them was ready that way or matched several elements when the 
 script measured them in the same task as the click or the fill's first input, just
 before it, and none is one of the advance's own elements
 ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). So a password input an
-email form keeps off-screen for the browser to fill, as Microsoft Entra's does, neither
-keeps the advance from being confirmed once the password form shows nor confirms it
-while the email form still shows (2026-10-17, agent fix). This holds in the same
+email form keeps off-screen for the browser to fill (inferred on Microsoft Entra's
+email view on 2026-10-17) neither keeps the advance from being confirmed once the
+password form shows nor confirms it while the email form still shows (2026-10-17, agent
+fix). This holds in the same
 document, after a `history.pushState` that keeps the path, and in a new document the
 form posts back to that path once the advance's answer arrived. So a page that still
 shows only the account form, or showed the password form from the start, never
@@ -900,7 +901,8 @@ a handler's elements on that path gets the password, not the handler. "Shown" is
 content script's visibility check, which ignores occlusion, opacity, off-screen
 position, `aria-hidden` and `inert`; the description's visibility still ignores
 occlusion, so a password form revealed under a captcha or consent overlay counts as
-ready: a known limitation. A click that submits never
+ready unless the overlay hides the rest of the page with `aria-hidden` or `inert`, when
+it is ready only once the overlay closes: a known limitation. A click that submits never
 continues on its own path, and handler steps keep their own rules. A handler that has
 not run is entered once per login when all its elements are unique and usable: its code
 field a shown writable input, its button shown, enabled or not, since many code pages
