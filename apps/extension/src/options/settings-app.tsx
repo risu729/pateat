@@ -444,21 +444,45 @@ function SectionNav({ sections }: { sections: NavSection[] }) {
   const [current, setCurrent] = useState(sections[0]?.id);
   const ids = sections.map((section) => section.id).join(" ");
   useEffect(() => {
+    const order = ids.split(" ");
+    const observed = new Map<string, Element>();
     const visible = new Map<string, boolean>();
     const observer = new IntersectionObserver(
       (entries) => {
-        for (const entry of entries) visible.set(entry.target.id, entry.isIntersecting);
+        for (const entry of entries) {
+          // A replaced section's last report must not stand for the one now in its place.
+          if (observed.get(entry.target.id) === entry.target) {
+            visible.set(entry.target.id, entry.isIntersecting);
+          }
+        }
         // The first section in page order that is in the upper part of the window.
-        const first = ids.split(" ").find((id) => visible.get(id));
+        const first = order.find((id) => visible.get(id));
         if (first) setCurrent(first);
       },
       { rootMargin: "0px 0px -60% 0px" },
     );
-    for (const id of ids.split(" ")) {
-      const element = document.getElementById(id);
-      if (element) observer.observe(element);
-    }
-    return () => observer.disconnect();
+    // Sections remount, such as Sites once settings load; observe whichever element has the id.
+    const follow = () => {
+      for (const id of order) {
+        const element = document.getElementById(id);
+        const previous = observed.get(id);
+        if (element === previous) continue;
+        if (previous) observer.unobserve(previous);
+        visible.delete(id);
+        observed.delete(id);
+        if (element) {
+          observed.set(id, element);
+          observer.observe(element);
+        }
+      }
+    };
+    follow();
+    const mutations = new MutationObserver(follow);
+    mutations.observe(document.body, { childList: true, subtree: true });
+    return () => {
+      mutations.disconnect();
+      observer.disconnect();
+    };
   }, [ids]);
   return (
     <nav
