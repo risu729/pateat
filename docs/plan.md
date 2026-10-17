@@ -714,8 +714,11 @@ Once the fixes have settled:
   local to the browser profile, outside service sync. The extension infrastructure,
   language selector, popup and passkey chooser are implemented in
   [draft PR 661](https://github.com/risu729/pateat/pull/661);
-  options, diagnostics, toolbar background titles, manifest metadata and user docs
-  remain untranslated. This partial slice does not complete the preceding wording review
+  the Bitwarden settings connection, vault-access, setup, MFA and field-review flows
+  have a further EN/JA implementation using that infrastructure (synthetic tests and
+  independent review pending). Other options sections, diagnostics, toolbar background
+  titles, manifest metadata and user docs remain untranslated. These partial slices do
+  not complete the preceding wording review
   or this phase's translation gate. The owner chose (2026-10-12 14:14 UTC) that "the
   docs" means the README and the user-facing pages, including those the docs website
   below adds; ADRs, this plan and research notes stay in English. AGENTS.md's English

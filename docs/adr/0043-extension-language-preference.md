@@ -28,9 +28,21 @@ the page closes. Other open extension pages follow the `storage` event.
 
 Bundle English and Japanese catalogs with i18next; never fetch translations from a
 service. React renders interpolated vault labels and hostnames as text. Unsupported
-status codes remain visible as diagnostic codes. The popup and chooser set their
-HTML language and document titles before rendering and follow later changes.
-The settings page remains English except for the language selector in this slice.
+status codes remain visible as diagnostic codes. The popup and chooser set their HTML
+language and document titles before rendering and follow later changes. The settings
+page remains English except for the language selector in this initial slice.
+
+### Rollout update, 2026-10-17
+
+The Bitwarden connection cards, vault-access controls, setup and manual verification,
+custom-field review and connection notices now use bundled English and Japanese
+catalogs. Existing source strings remain the translation keys. Notices retain their
+source message and interpolation until render, so language changes preserve pending
+operations, form drafts and focus. Account and field names, hostnames and unknown
+diagnostic codes stay literal interpolated text. Sync timestamps use the selected UI
+locale and the browser's time zone. This extends the same language policy; it adds no
+storage, permission or login-policy choice. Other settings sections remain follow-up
+work, and the complete Japanese-language acceptance gate remains open.
 
 ## Consequences
 
