@@ -15,7 +15,7 @@ migrations to that database before activation
 
 All responses carry `Cache-Control: no-store` and `nosniff`; no route sends CORS
 headers. API routes answer JSON, and owner pages answer script-free HTML that cannot be
-framed. Contracts live in `packages/contracts/src/sync.ts`, `pairing.ts` and
+framed. Contracts live in `packages/contracts/src/sync.ts`, `pairing.ts`, `manage.ts` and
 `generation.ts`.
 
 | Route | Purpose |
@@ -33,7 +33,7 @@ framed. Contracts live in `packages/contracts/src/sync.ts`, `pairing.ts` and
 | `DELETE /v1/device` | Revoke the calling device's own credential |
 | `POST /pair` | Create a device for the signed-in owner from an allowed extension; 201 with the credential, once |
 | `GET /pair/signed-in` | The page the extension opens when pairing needs a sign-in; it asks the user to go back to Pateat's settings |
-| `GET /manage`, `/manage/sites`, `/manage/sites/:scheme/:host` | Owner web UI (React app): devices; the sites list with excluded sites and revoked recipes; one origin's default account, recipes and bindings |
+| `GET /manage`, `/manage/sites`, `/manage/sites/:scheme/:host`, `/manage/claude` | Owner web UI (React app): devices; the sites list with excluded sites and revoked recipes; one origin's default account, recipes and bindings; Claude credentials |
 | `GET /manage/assets/*` | The web UI's built script, styles and notices |
 | `GET /manage/api/devices` | The owner's devices with their last use, newest first |
 | `POST /manage/api/devices/:deviceId/revoke` | Revoke one of the owner's devices; 204 |
@@ -41,9 +41,9 @@ framed. Contracts live in `packages/contracts/src/sync.ts`, `pairing.ts` and
 | `PUT /manage/api/settings` | Replace them like `PUT /v1/settings`; `connections` must be empty and the document at most 120 KiB |
 | `GET /manage/api/recipes` | Every recipe head with its document, most recently changed first |
 | `POST /manage/api/recipes/:recipeId/revoke` | Revoke one recipe if `expectedRevision` is its head; otherwise 409 with the current head |
-| `GET /manage/claude` | Access page showing the Console values and the owner's WIF identifiers |
-| `POST /manage/claude` | Save the owner's four WIF identifiers |
-| `POST /manage/claude/test` | Exchange one assertion and show only the outcome, never the token |
+| `GET /manage/api/claude` | The Claude Console values for this owner and their saved WIF identifiers; 404 `not_paired` without a paired device |
+| `PUT /manage/api/claude` | Replace the owner's four WIF identifiers |
+| `POST /manage/api/claude/test` | Exchange one assertion and return only the outcome, never the token |
 
 `/v1` routes require `Authorization: Bearer pateat_device_…`. The Worker stores only the
 SHA-256 digest of each 256-bit device credential and derives the owner from it; paths
@@ -144,11 +144,10 @@ own Claude credentials. `src/claude/` holds the only path from an owner to a cre
   settings both `/.well-known` routes answer 503 and nothing is signed.
 - The `inference_credentials` table holds one row per owner with kind `wif` and the
   identifiers of the owner's own federation rule: `fdrl_…`, the organization UUID,
-  `svac_…` and `wrkspc_…`. None is a secret. The owner enters them on
-  `/manage/claude`, a temporary script-free page that the React web UI will replace.
-  It applies its own Access, same-origin and body-size checks; no app-wide `/manage`
-  middleware covers it. Its test button only
-  exchanges a token, which calls no model and costs nothing.
+  `svac_…` and `wrkspc_…`. None is a secret. The owner enters them on the web UI's
+  Claude tab (`/manage/claude`) through `/manage/api/claude`, behind the same Access,
+  same-origin, rate and body-size checks as the rest of `/manage/api`. Its test button
+  only exchanges a token, which calls no model and costs nothing.
 - `resolveClaudeCredential(env, ownerId)` signs a fresh assertion
   `{ iss, sub: "owner:<ownerId>", aud: "https://api.anthropic.com", iat, nbf, exp, jti }`
   that lasts five minutes. It exchanges the assertion once at
@@ -165,8 +164,8 @@ Console offers it. On 2026-10-11 the Connect workload wizard offered only
 `workspace:developer` and `org:admin`, so the owner's rule uses `workspace:developer`
 with the wizard's 600-second token lifetime. That scope also allows Files, Skills and
 Managed Agents in the rule's workspace; Pateat calls only the Messages API, and each
-exchanged token serves one call and is then discarded. `/manage/claude` shows the saved
-identifiers.
+exchanged token serves one call and is then discarded. `/manage/claude` shows these
+values and the saved identifiers.
 
 ## Recipe generation
 

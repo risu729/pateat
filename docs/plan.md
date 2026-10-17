@@ -1730,8 +1730,9 @@ tests cover it.
   to Claude per owner through Workload Identity Federation
   ([ADR 0015](adr/0015-per-owner-claude-credentials.md)); a registered, encrypted API
   key is a later second option. The issuer metadata routes, the `inference_credentials`
-  table and `resolveClaudeCredential` exist. Owners enter identifiers on the temporary
-  `/manage/claude` page until the React web UI replaces it. On 2026-10-11 at 12:26 UTC
+  table and `resolveClaudeCredential` exist. Owners enter identifiers on the web UI's
+  Claude tab (`/manage/claude`), which replaced the temporary script-free form page; its
+  layout is proposed and awaits the owner's review. On 2026-10-11 at 12:26 UTC
   the deployed service at `pateat.takuk.me` exchanged a real assertion with Anthropic.
   The owner's federation rule is scoped to `workspace:developer`, because the Console
   offered no `workspace:inference`, and the token was valid for 10 minutes. The first
