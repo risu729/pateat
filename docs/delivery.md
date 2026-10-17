@@ -348,6 +348,10 @@ that the Worker accepts as an owner, which is a separate owner decision.
 
 ## Failure and rollback
 
+Use the [operations runbook](operations.md) for current triage, retry commands and
+recovery limits. A failed run does not pause future automatic releases; the
+promotion/failure-acknowledgement gate remains unimplemented.
+
 If migrations fail, do not deploy. If activation/readback/smoke checks fail (after the
 one automatic activation retry described above), leave the release failed, retain
 sanitized evidence, and stop automatic further promotion. Restore a retained compatible
