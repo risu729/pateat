@@ -4168,6 +4168,25 @@ describe("production login document admission", () => {
       expect(executes()).toEqual([]);
       expect(h.store.update).not.toHaveBeenCalled();
     });
+    it("refuses a page URL longer than the matcher accepts as a URL, not a vault failure", async () => {
+      // The crypto host rejects a target over 8192 characters as an invalid request.
+      const uris = vi.fn<LiveUriMatcher>(async (_connection, url) =>
+        url.length > 8192 ? vaultFailure("invalid-request") : { ok: true, data: uriMatch() },
+      );
+      const report = vi.fn<(report: LoginReport) => void>();
+      fake.state.pageUrl = `https://login.example/signin?SAMLRequest=${"a".repeat(8200)}`;
+      const h = harness(unsaved, { allowedOrigins: [], uris, report });
+      expect(await h.hello()).toEqual({ ok: false, reason: "url-too-long" });
+      expect(report).toHaveBeenCalledWith({
+        type: "refused",
+        tabId: 1,
+        origin,
+        reason: "url-too-long",
+      });
+      expect(uris).not.toHaveBeenCalled();
+      expect(h.fields).not.toHaveBeenCalled();
+      expect(executes()).toEqual([]);
+    });
     describe("when no item matches, after a vault check (ADR 0025)", () => {
       const none: Awaited<ReturnType<LiveUriMatcher>> = {
         ok: true,
