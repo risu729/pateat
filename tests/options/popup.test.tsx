@@ -645,6 +645,7 @@ test("an excluded site offers no account choice, even one that waited before", a
   await expect.element(page.getByText("No logins or passkey answers on this site")).toBeVisible();
   // Give the choice time to be asked for and drawn, as it would be on a site that is on.
   await new Promise((resolve) => setTimeout(resolve, 300));
+  expect(choices.get).not.toHaveBeenCalled();
   // The worker keeps a choice from before the exclusion; Log in would only be refused.
   await expect
     .element(page.getByRole("heading", { name: "Choose an account" }))
