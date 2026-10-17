@@ -1359,10 +1359,11 @@ an enforced organization URI-match-defaults policy applies, using the pinned SDK
 exemptions for owners, admins and provider users. Pateat cannot see the official
 clients' local default setting. Differing enforced defaults, or malformed policy or
 domain data, mark that part unavailable; affected URIs report unavailable rather than
-falling back. An equivalent-domain entry that is not a hostname is ignored, as in the
-official clients, while the rest of its group still applies. A retained context that no
-longer readmits, for example after an IDNA table change, is dropped: fields keep
-working, and URI matching reports unavailable until the next accepted sync.
+falling back. An equivalent-domain entry that is not a hostname, including an empty or
+overlong one, is ignored, as in the official clients, while the rest of its group still
+applies. A retained context that no longer readmits, for example after an IDNA table
+change, is dropped: fields keep working, and URI matching reports unavailable until the
+next accepted sync.
 
 The owner asked for official-client URI rules. The remaining differences (Regex, no
 Domain fallback on unavailable context, no access to the local default setting) are
