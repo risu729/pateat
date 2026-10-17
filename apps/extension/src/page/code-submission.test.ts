@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { splitCodeInputs, watchCodeSubmission } from "./code-submission";
+import { splitCodeInputs, visible, watchCodeSubmission } from "./code-submission";
 
 afterEach(() => {
   document.body.innerHTML = "";
@@ -313,5 +313,42 @@ describe("splitCodeInputs (ADR 0027, owner decision 2026-10-12)", () => {
   it("leaves out inputs of another form", () => {
     document.body.innerHTML = `<form>${boxes(6)}</form><form><input inputmode="numeric" maxlength="1"></form>`;
     expect(splitCodeInputs(first(), 6, usable)).toHaveLength(6);
+  });
+});
+
+describe("visible", () => {
+  const control = (html: string) => {
+    document.body.innerHTML = html;
+    return document.querySelector<HTMLElement>("#c")!;
+  };
+
+  it("leaves out a control whose content `content-visibility` skips", () => {
+    // A closed `<details>` skips its content with `content-visibility: hidden`, as
+    // `hidden="until-found"` and the property set directly do; the control still has a box.
+    for (const html of [
+      '<details><summary>Account</summary><input id="c" type="password"></details>',
+      '<details><summary>Account</summary><div><a id="c" href="/out">Sign out</a></div></details>',
+      '<div hidden="until-found"><input id="c"></div>',
+      '<div style="content-visibility: hidden"><button id="c">Sign in</button></div>',
+      '<div style="content-visibility: hidden"><div><input id="c"></div></div>',
+    ]) {
+      const element = control(html);
+      expect(element.checkVisibility(), html).toBe(false);
+      expect(visible(element), html).toBe(false);
+    }
+  });
+
+  it("keeps a control of an open `<details>`, a closed one's summary and `content-visibility: auto`", () => {
+    for (const html of [
+      '<details open><summary>Account</summary><input id="c" type="password"></details>',
+      '<details><summary id="c">Account</summary><input type="password"></details>',
+      '<details><summary><button id="c">Account</button></summary><p>Menu</p></details>',
+      '<div style="content-visibility: hidden" id="c">Skipped content</div>',
+      '<div style="content-visibility: auto"><input id="c"></div>',
+      // Off-screen, the browser skips its rendering only until it scrolls into view.
+      '<div style="height: 5000px"></div><div style="content-visibility: auto"><input id="c"></div>',
+    ]) {
+      expect(visible(control(html)), html).toBe(true);
+    }
   });
 });
