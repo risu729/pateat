@@ -1629,7 +1629,8 @@ The fourth slice syncs recipes into a last-known-good cache that the login execu
 reads. The background pulls `GET /v1/recipes` pages from the stored cursor with the
 paired device's credential, applies active and revoked changes, and writes the cursor
 and recipes together, so a failed page or write leaves the previous consistent copy. It
-reads at most 50 pages per sync and refuses a page that moves the cursor backwards or
+reads at most 50 pages per sync, plus one blocked-page retry after an overflow walk,
+and refuses a page that moves the cursor backwards or
 does not advance it. The cache belongs to one paired device: a new pairing starts from
 an empty cache, nothing is served while no device is paired or the pairing cannot be
 read, and disconnecting or forgetting an unreadable pairing clears it. Sync runs right
@@ -1641,7 +1642,14 @@ one after pairing, for 15 minutes. A lookup does not wait for the network or for
 and disconnect requests. The serialized cache is limited to 2 MiB of the extension's 10
 MB `storage.local` quota, which it shares with settings, login attempts and other
 extension state (the vault cache is in IndexedDB); a page that would exceed it is not
-applied, and the settings page says the recipes no longer fit. How many recipes that
+fully applied. Sync walks the remaining pages within the shared 50-page budget,
+applying only revocations with the old persisted cursor, then retries the blocked
+page once from that cursor. Active changes, including later reactivations, stay
+pending until their entire page fits; revocations beyond the bounded walk wait for
+a later sync. If the retry still does not fit, the settings page says the recipes
+no longer fit
+([ADR 0013 amendment](adr/0013-service-held-recipes-and-settings.md#amendment-revocations-while-the-cache-is-full-2026-10-14),
+[issue #544](https://github.com/risu729/pateat/issues/544)). How many recipes that
 holds, and the planned service cap that keeps an owner within it, are under [service
 limits](architecture.md#service-limits). A 401 marks the device as rejected: syncing
 stops, login keeps using the cached recipes, and the settings page says to pair again.
