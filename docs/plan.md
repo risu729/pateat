@@ -518,6 +518,22 @@ than in this repository.
   Making the offer check ignore inputs the description does not count as visible would
   remove the early offer itself; it changes when pages are offered and is not done.
   Check the UNSW sign-in page in the owner's Chrome.
+- On that page in the owner's Chrome on build `64d105b` (2026-10-17, 05:53 UTC), a login
+  with its generated recipe (revision 4: the email, Next, the password and Sign in, all
+  on one path) clicked Next, the page swapped in its password view in the same document,
+  and about 10 seconds later the login settled `unknown-submit` (`login.state` decision
+  `unknown`, `recipe.judge` `not-sent` with `sign-in-shown`) without typing the
+  password. The email view keeps a password input off-screen, transparent and hidden
+  from assistive technology for the browser to fill (read in the owner's Chrome at
+  04:14 UTC), which the content script's
+  visibility check counted as a writable field just before Next, so the advance whose
+  next step is on its own path was never confirmed
+  ([architecture](architecture.md#declarative-recipes-and-ai)). That the recipe's
+  password locator named that input on the email view is inferred from the log and the
+  code, not read on the live page. Since 2026-10-17 such an advance's next fields and
+  buttons count only when they are also visible as the page's description reads them,
+  before and after the advance (agent fix applying ADR 0013, local tests only). Check
+  the UNSW sign-in page in the owner's Chrome.
 - A login control that is a link whose `javascript:` URL alone submits never submitted:
   on 2026-10-17 (build `d29951d`, 01:55 UTC) the owner's Chrome filled SMBC Trust Bank's
   sign-on page and clicked サインオン, and Chrome refused the URL under the content

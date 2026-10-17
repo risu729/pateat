@@ -2,9 +2,10 @@ import * as v from "valibot";
 import type { LoginMarkerTarget, LoginTarget } from "@pateat/contracts";
 import { browser } from "wxt/browser";
 import { accountText, showsOtherAccount, shownAccounts } from "../page/accounts";
-import { isButton, isScriptButton } from "../page/text";
+import { isButton } from "../page/text";
 import { pressElement } from "../page/script-url-click";
 import { findTargets } from "../page/targets";
+import { clickable, targetState, writable } from "../page/target-state";
 import { identifierInput } from "../page/identifier-field";
 import {
   CODE_SETTLE_MS,
@@ -52,7 +53,6 @@ import {
   reconnectSchema,
   type ExecutionDetail,
   type LoginReadiness,
-  type TargetRequirement,
   type TargetState,
 } from "./wire";
 import { newId } from "@pateat/contracts/ids";
@@ -66,28 +66,6 @@ const pagePath = () => observedPath(location.pathname);
 /** Fixed locators deliberately reject duplicates rather than taking the first match. */
 function matches(target: LoginMarkerTarget, links = false): Element[] {
   return findTargets(document, target, { links });
-}
-/** An input of a kind Pateat fills, whether or not it is shown or can be written now. */
-function textInput(element: Element | undefined): element is HTMLInputElement {
-  return (
-    element instanceof HTMLInputElement &&
-    !["hidden", "file", "submit", "button", "image", "reset", "checkbox", "radio"].includes(
-      element.type,
-    )
-  );
-}
-function writable(element: Element | undefined): element is HTMLInputElement {
-  return textInput(element) && visible(element) && !element.disabled && !element.readOnly;
-}
-function clickable(element: Element | undefined): element is HTMLElement {
-  if (element === undefined) return false;
-  if (isButton(element)) return visible(element) && !element.disabled;
-  return (
-    element instanceof HTMLElement &&
-    isScriptButton(element) &&
-    visible(element) &&
-    element.getAttribute("aria-disabled") !== "true"
-  );
 }
 function followable(element: Element | undefined): element is HTMLAnchorElement {
   return element instanceof HTMLAnchorElement && element.hasAttribute("href") && visible(element);
@@ -105,29 +83,6 @@ function switchable(element: Element | undefined): element is HTMLElement {
   if (!clickable(element) || !isButton(element)) return false;
   const submits = element.type === "submit" || element.type === "image";
   return !(submits && element.form);
-}
-/**
- * One target's state: `unique` when it matches one element that is what `require` asks for
- * (a shown writable input, a shown enabled button, any shown element, an input of a kind
- * Pateat fills, or such an input shown); without it, or with `present`, any one element
- * counts.
- */
-function targetState(
-  target: LoginMarkerTarget,
-  require?: TargetRequirement,
-  links = false,
-): TargetState {
-  const found = matches(target, links);
-  if (found.length !== 1) return found.length === 0 ? "missing" : "ambiguous";
-  const [element] = found;
-  const shown = element instanceof HTMLElement && visible(element);
-  return (require === "writable" && !writable(element)) ||
-    (require === "clickable" && !clickable(element)) ||
-    (require === "shown" && !shown) ||
-    (require === "input" && !textInput(element)) ||
-    (require === "shown-input" && !(textInput(element) && shown))
-    ? "unusable"
-    : "unique";
 }
 /** Whether the page lists an account by its email, masked or not (ADR 0028). */
 function listsAccounts(): boolean {
@@ -784,7 +739,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       respond({
         path: pagePath(),
         targets: command.targets.map((target, index) =>
-          targetState(target, command.require?.[index], command.links?.[index] === true),
+          targetState(document, target, command.require?.[index], command.links?.[index] === true),
         ),
         ...(command.signIn
           ? {
@@ -844,7 +799,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       // the click or the first input; the answer reports them (ADR 0013).
       const measureNext = () => {
         const next = command.next;
-        if (next) before = next.targets.map((target) => targetState(target, next.require));
+        if (next)
+          before = next.targets.map((target) => targetState(document, target, next.require));
       };
       if (step.kind === "fill") {
         // Resolve every target first so a partial/ambiguous mapping never causes partial fill.

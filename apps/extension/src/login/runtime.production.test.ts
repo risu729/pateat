@@ -109,6 +109,12 @@ const fake = vi.hoisted(() => {
     session: {} as Record<string, unknown>,
     /** Present elements that are hidden or disabled, for an observation that asks. */
     unusable: new Set<string>(),
+    /**
+     * Present elements that a step's wait counts as usable but the page's description does
+     * not see: hidden from assistive technology, transparent, tiny or off-screen, as a
+     * password input an email form keeps for the browser.
+     */
+    faint: new Set<string>(),
     /** Elements that match more than once. */
     ambiguous: new Set<string>(),
     /** Tab-specific toolbar badge text and title. */
@@ -200,7 +206,8 @@ const fake = vi.hoisted(() => {
             ? "missing"
             : state.ambiguous.has(value)
               ? "ambiguous"
-              : [undefined, "present"].includes(require) === false && state.unusable.has(value)
+              : ([undefined, "present"].includes(require) === false && state.unusable.has(value)) ||
+                  (require?.startsWith("described-") === true && state.faint.has(value))
                 ? "unusable"
                 : "unique";
         if (message["type"] === "login.observe")
@@ -15045,6 +15052,7 @@ describe("the start page's passkey route (ADR 0027)", () => {
 describe("an advance whose next step is on the same path (ADR 0013)", () => {
   afterEach(() => {
     vi.useRealTimers();
+    fake.state.faint = new Set();
     for (const listener of fake.state.removed.splice(0))
       for (const tabId of [1, 2]) listener(tabId);
   });
@@ -15065,6 +15073,7 @@ describe("an advance whose next step is on the same path (ADR 0013)", () => {
     // An identifier-first form: the email form shows, the password form is hidden.
     fake.state.present = new Set(["email", "next", "password", "login"]);
     fake.state.unusable = new Set(["password", "login"]);
+    fake.state.faint = new Set();
     fake.state.ambiguous = new Set();
     fake.state.awaited = { ok: true };
     fake.state.onAwait = undefined;
@@ -15173,10 +15182,42 @@ describe("an advance whose next step is on the same path (ADR 0013)", () => {
         .map((entry) => (entry as Record<string, unknown>)["next"]),
     ).toEqual([
       undefined,
-      { path: "/signin", require: "writable", targets: [target("password")] },
+      { require: "described-writable", targets: [target("password")] },
       undefined,
       undefined,
     ]);
+  });
+
+  it("continues once a password input the email form kept for the browser shows", async () => {
+    // Microsoft Entra's email view keeps its password input off-screen and hidden from
+    // assistive technology for the browser to fill (2026-10-17): the password fill's wait
+    // counts it as writable, but the page's description does not see it.
+    fake.state.unusable = new Set(["login"]);
+    fake.state.faint = new Set(["password"]);
+    swapForms(() => {
+      // Next shows that same input in the password view, in the same document.
+      fake.state.faint = new Set();
+    });
+    const h = start();
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(settled("authenticated"));
+    expect(executed()).toEqual(allSteps);
+    expect(status()![0]).toMatchObject({ stepIndex: 3, submissions: 2 });
+  });
+
+  it("never continues while the password view has not shown the kept input", async () => {
+    fake.state.unusable = new Set(["login"]);
+    fake.state.faint = new Set(["password"]);
+    // Next leaves the email view up, as while the account is checked: the kept input is
+    // still the only password input, so the password is never typed into it.
+    swapForms(() => {
+      fake.state.unusable = new Set(["login"]);
+    });
+    const h = start();
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(settled("reconciling", "unknown-submit"), 15_000);
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(executed()).toEqual(allSteps.slice(0, 2));
   });
 
   it("continues after a same-document URL change that keeps the path", async () => {
@@ -15404,8 +15445,7 @@ describe("an advance whose next step is on the same path (ADR 0013)", () => {
         .filter((entry) => entry.type === "login.execute")
         .map((entry) => (entry as Record<string, unknown>)["next"]);
     const measures = (value: string) => ({
-      path: "/signin",
-      require: "writable",
+      require: "described-writable",
       targets: [target(value)],
     });
     const usernamePassword: SavedLoginBinding["slots"] = [
