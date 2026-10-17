@@ -1957,6 +1957,38 @@ nor runs a recipe on a page whose path:
 
 Such a page is not sent for generation and is logged as `unsupported-page`.
 
+### What recipe generation does not handle
+
+Observed in the code on 2026-10-17 (agent reading, local tests only); each case ends
+as stated, never as a guessed recipe:
+
+- A path the recipe contract refuses is never sent (see
+  [Page paths recipes cannot name](#page-paths-recipes-cannot-name)).
+- Only `h1` to `h3` elements are sent as headings; `h4` to `h6` and `role="heading"`
+  are not.
+- A canvas or `contenteditable` element used as a sign-in field is not described, so
+  such a page has no field to map.
+- Every form with a field counts toward the 48 candidates, not only the login form, so
+  a page with a long unrelated form beside a login form ends `too-many-candidates`.
+- A described page can still be larger than the 64 KiB a role sends (`input-too-large`,
+  checked before any model call) while it passes the request's 128 KiB body limit, as
+  48 candidates with long Japanese labels, descriptions and placeholders do. The
+  extension does not trim such a page.
+- Redaction does not catch every personal value in page text: an address written with
+  spaces around `@` or as `[at]`, digits of other scripts such as `٤٥٦٧`, digit
+  groups split by spaces and token-like text outside the path are sent as shown, unless
+  they are a matching item's username.
+- The local plan check does not compare the action's `advance` or `submit` with the
+  slots the plan fills, so a password page answered with `advance` waits for a next page
+  ([ADR 0018](adr/0018-recipe-generation-route.md#continuing-after-an-advance)) instead
+  of the judge, and an identifier-only page answered with `submit` cannot be continued.
+- An alternative identifier set ([ADR 0027](adr/0027-per-account-login-routes.md)) in
+  another form than the main set is not refused locally; only the prompt forbids it.
+- A model answer that ends at the output token limit is `truncated` even when its JSON
+  is complete, and the paid answer is dropped.
+- The service passes no abort signal to the model call, so a device that stops waiting
+  or disconnects does not end it; the call is charged and logged as usual.
+
 ## Existing passkeys
 
 Register the MAIN-world bridge at document start without waiting for remote
