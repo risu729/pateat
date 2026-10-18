@@ -1606,8 +1606,10 @@ real Bitwarden Cloud US account in their Chrome
   check for that document only, and is reused while the connection's snapshot is
   unchanged; it never saves `allowedOrigins` or grants a field. Each new document is
   matched again, so an Exact rule refuses a later page at another path. No match refuses
-  as `item-origin-mismatch` and asks for the same vault check. Page URLs over 8192
-  characters and answers from another snapshot refuse as `vault-unavailable`. Static
+  as `item-origin-mismatch` and asks for the same vault check. Page URLs are matched
+  up to Chromium's 2,097,152-character limit, so a long SAML or OIDC page logs in as
+  in the official clients; a longer URL refuses as `url-too-long` without asking the
+  vault. Answers from another snapshot refuse as `vault-unavailable`. Static
   `allowedOrigins` remain empty for live items; Domain-mode subdomains and raw
   StartsWith rules cannot be expressed as exact origins, so do not derive them.
   Synthetic unit tests cover these paths, and `tests/extension/login-service.spec.ts`

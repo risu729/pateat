@@ -3132,7 +3132,10 @@ export function createLoginRuntime(
     snapshot: Extract<SettingsResponse, { ok: true }>,
     live: LiveDocument,
     selected: { connectionId: string; itemId: string },
-  ): Promise<{ catalog: VaultCatalog } | { reason: "vault-unavailable" | "item-uri-unevaluated" }> {
+  ): Promise<
+    | { catalog: VaultCatalog }
+    | { reason: "vault-unavailable" | "item-uri-unevaluated" | "url-too-long" }
+  > {
     const { catalog } = snapshot;
     const connection = catalog.connections.find((entry) => entry.id === selected.connectionId);
     const item = connection?.items.find((entry) => entry.id === selected.itemId);
@@ -3154,7 +3157,8 @@ export function createLoginRuntime(
         url: live.url,
         match: uris,
       });
-      if (!scope.ok) return { catalog };
+      if (!scope.ok)
+        return scope.reason === "url-too-long" ? { reason: scope.reason } : { catalog };
       const matched = scope.candidates.some(
         (entry) => entry.itemId === selected.itemId && entry.snapshotId === connection.snapshotId,
       );

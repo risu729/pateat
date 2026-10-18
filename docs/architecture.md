@@ -272,8 +272,13 @@ scheme, or after the first `/` of a bare host, WHATWG URL (its Host match) and t
 (its Domain match) both end the host at the backslash, so
 `https://bank.example\@evil.test`, `https://bank.example/a\b` and `bank.example/a\b`
 match `bank.example`. Malformed or unsupported individual stored URIs receive
-unavailable metadata without blocking unrelated valid candidates. Equivalent groups and
-the effective default mode are retained with the prepared account snapshot; an
+unavailable metadata without blocking unrelated valid candidates. The page URL is
+matched at any length up to Chromium's own URL limit of 2,097,152 characters
+(`url::kMaxURLChars`), as the official clients match it at any length; a longer one
+refuses as `url-too-long` before any vault is asked (the owner chose to match the
+official clients here on 2026-10-19). A stored URI over 8192 characters is invalid; the
+Bitwarden server stores at most 10,000 encrypted characters for one. Equivalent groups
+and the effective default mode are retained with the prepared account snapshot; an
 unavailable or conflicting context makes the affected URIs unavailable instead of
 falling back. A group entry that is not a hostname, such as a URL, `host:port`, an empty
 entry or a name over 253 characters, is ignored and the rest of its group applies, as in

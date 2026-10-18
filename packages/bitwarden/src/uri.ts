@@ -38,7 +38,13 @@ type UriUnavailableReason =
   | "equivalent-domains-unavailable";
 
 const maxUris = 1000;
+/** A saved item URI; the Bitwarden server stores at most 10,000 encrypted characters. */
 const maxUrlLength = 8192;
+/**
+ * A page URL, which Bitwarden clients match at any length. Chromium refuses URLs longer
+ * than this (`url::kMaxURLChars`), so no page Pateat can see is longer.
+ */
+export const maxTargetUrlLength = 2 * 1024 * 1024;
 const maxGroups = 1000;
 const maxDomainMembers = 10_000;
 const maxHostLength = 253;
@@ -96,8 +102,8 @@ const hasHostnameLabels = (hostname: string) =>
     .split(".")
     .every((label) => label.length > 0);
 
-function webUrl(value: string, allowBareHost: boolean): URL | undefined {
-  if (!value || value.length > maxUrlLength || controlled(value)) return undefined;
+function webUrl(value: string, allowBareHost: boolean, maxLength = maxUrlLength): URL | undefined {
+  if (!value || value.length > maxLength || controlled(value)) return undefined;
   if (!allowBareHost && /\s/u.test(value)) return undefined;
   let candidate = value.trim();
   if (!allowBareHost && backslashBeforeQuery(candidate)) return undefined;
@@ -266,7 +272,7 @@ export function admitBitwardenUriMatchContext(
 type UriEvaluator = (uris: unknown) => BitwardenResult<UriMatchEvaluation>;
 /** Precompute the target and its equivalent set once; each call evaluates one item's URIs. */
 function createEvaluator(targetUrl: string, settings: MatchingSettings): UriEvaluator | undefined {
-  const target = webUrl(targetUrl, false);
+  const target = webUrl(targetUrl, false, maxTargetUrlLength);
   if (!target) return undefined;
   const targetDomain = domainKey(target);
   const equivalents = new Set<string>();
@@ -373,7 +379,7 @@ export function matchBitwardenLoginUris(
   try {
     if (!Array.isArray(uris) || uris.length > maxUris || typeof targetUrl !== "string")
       return failure("invalid-uri-input");
-    if (!webUrl(targetUrl, false)) return failure("invalid-uri-input");
+    if (!webUrl(targetUrl, false, maxTargetUrlLength)) return failure("invalid-uri-input");
     const settings = matchingSettings(options);
     if (!settings) return failure("invalid-options");
     return createEvaluator(targetUrl, settings)?.(uris) ?? failure("invalid-uri-input");
@@ -389,7 +395,7 @@ export function createBitwardenUriMatcher(
 ): BitwardenResult<{ targetOrigin: string; evaluate: UriEvaluator }> {
   try {
     if (typeof targetUrl !== "string") return failure("invalid-uri-input");
-    const target = webUrl(targetUrl, false);
+    const target = webUrl(targetUrl, false, maxTargetUrlLength);
     if (!target) return failure("invalid-uri-input");
     const settings = matchingSettings({ context });
     if (!settings) return failure("invalid-options");

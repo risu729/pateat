@@ -169,6 +169,17 @@ describe("crypto Worker URI matching on plain HTTP pages (ADR 0050)", () => {
       unavailable: [itemId(7)],
     });
   });
+
+  it("matches a page URL longer than a saved URI may be", async () => {
+    const long = `https://router.example/login?SAMLRequest=${"a".repeat(8200)}`;
+    expect((await candidates(long)).items).toEqual([
+      itemId(1),
+      itemId(2),
+      itemId(3),
+      itemId(4),
+      itemId(5),
+    ]);
+  });
 });
 
 describe("crypto Worker decrypted field cache", () => {

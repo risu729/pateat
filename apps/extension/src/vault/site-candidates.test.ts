@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { maxTargetUrlLength } from "@pateat/bitwarden";
 import {
   createDefaultSettings,
   resolveSiteAccount,
@@ -111,40 +112,27 @@ describe("live provider URI candidates", () => {
     expect(match).not.toHaveBeenCalled();
   });
 
-  // The crypto host rejects a `match-uris` target over 8192 characters as an invalid
-  // request; that is a page Pateat does not match, not a vault failure.
+  // Bitwarden clients match a page URL at any length; the crypto host accepts a
+  // `match-uris` target up to Chromium's own URL limit.
   const sized = (length: number) => `${url}?q=${"a".repeat(length - url.length - 3)}`;
   /** Answers as the host does: a target over its limit fails request validation. */
   const hostLimited = () =>
     vi.fn<LiveUriMatcher>(async (_connectionId, targetUrl) =>
-      targetUrl.length > 8192 ? vaultFailure("invalid-request") : { ok: true, data: candidates() },
+      targetUrl.length > maxTargetUrlLength
+        ? vaultFailure("invalid-request")
+        : { ok: true, data: candidates() },
     );
 
-  it("refuses a page URL longer than the matcher accepts without querying the vault", async () => {
+  it("queries the vault for a page URL longer than a saved URI may be", async () => {
     const value = catalog();
     const match = hostLimited();
     const long = sized(8200);
     expect(long).toHaveLength(8200);
-    const result = await findLiveSiteCandidates({
-      settings: settings(value),
-      catalog: value,
-      url: long,
-      match,
-    });
-    expect(result).toEqual({ ok: false, reason: "url-too-long" });
-    expect(match).not.toHaveBeenCalled();
-  });
-
-  it("still queries the vault for a page URL of exactly the matcher's limit", async () => {
-    const value = catalog();
-    const match = hostLimited();
-    const longest = sized(8192);
-    expect(longest).toHaveLength(8192);
     expect(
       await findLiveSiteCandidates({
         settings: settings(value),
         catalog: value,
-        url: longest,
+        url: long,
         match,
       }),
     ).toMatchObject({
@@ -152,7 +140,36 @@ describe("live provider URI candidates", () => {
       candidates: [{ connectionId: "live", itemId: loginId }],
       unavailableConnections: [],
     });
+    expect(match).toHaveBeenCalledWith("live", long, undefined);
+  });
+
+  it("still queries the vault for a page URL of exactly Chromium's limit", async () => {
+    const value = catalog();
+    const match = hostLimited();
+    const longest = sized(maxTargetUrlLength);
+    expect(longest).toHaveLength(maxTargetUrlLength);
+    expect(
+      await findLiveSiteCandidates({
+        settings: settings(value),
+        catalog: value,
+        url: longest,
+        match,
+      }),
+    ).toMatchObject({ ok: true, unavailableConnections: [] });
     expect(match).toHaveBeenCalledWith("live", longest, undefined);
+  });
+
+  it("refuses a page URL longer than Chromium allows without querying the vault", async () => {
+    const value = catalog();
+    const match = hostLimited();
+    const result = await findLiveSiteCandidates({
+      settings: settings(value),
+      catalog: value,
+      url: sized(maxTargetUrlLength + 1),
+      match,
+    });
+    expect(result).toEqual({ ok: false, reason: "url-too-long" });
+    expect(match).not.toHaveBeenCalled();
   });
 
   it("skips disabled connections and reports locked ones without querying", async () => {
