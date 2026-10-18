@@ -833,8 +833,10 @@ the username (a site that remembers the account and asks only for the password),
 background sends the selected item's username to the content script with that one fill.
 The content script compares it with the account identifiers shown in the form, or the
 page when there is no form, and the first eight `h1`-`h3` headings; every element
-boundary separates words, and `mailto:` links, `<address>` and `<footer>` are skipped as
-contact addresses. The username never leaves the content script or reaches status. An
+boundary but a `<wbr>` separates words, format characters are left out (so
+`taro.yamada@<wbr>example.com` is one address), and `mailto:` links, `<address>` and
+`<footer>` are skipped as contact addresses. The username never leaves the content
+script or reaches status. An
 email username is compared with shown email addresses. A username of digits only is
 compared with masked IDs that show at least two characters (`****1234`), and only on a
 step that fills a password or Hidden field, because a one-time-code page usually shows
@@ -2005,7 +2007,14 @@ abstention path when a useful safe observation cannot be constructed. The owner 
 2026-10-11 to redact observed text before it is sent: email-like strings, including
 masked ones, become `[email]`; runs of three or more `*`, `●`, `•` or `＊` become
 `[masked]`; and runs of four or more ASCII or fullwidth digits become `[number]`
-(`口座番号 ****1234` becomes `口座番号 [masked][number]`). Names cannot be detected and
+(`口座番号 ****1234` becomes `口座番号 [masked][number]`). Page text is read as it
+renders, both before redaction and before it is compared with an account: a `<wbr>`
+line-break opportunity separates nothing, and format characters (`\p{Cf}`, such as
+U+200B zero-width space and U+00AD soft hyphen) are left out, so
+`taro.yamada@<wbr>example.com` and `taro.yamada@&#8203;example.com` become
+`[email]`, and the sign-in state's E2, the entries of a list of accounts and the
+wrong-account check each read them as one address; usernames are compared without
+format characters too. Names cannot be detected and
 stay, except the account's own usernames: just before a page goes to the service (a
 recipe's first page, the page after an `advance` step, and the page the completion judge
 gets), the worker reads the `login.username` of the items that match the page as for the

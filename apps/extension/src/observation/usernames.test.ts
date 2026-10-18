@@ -460,6 +460,11 @@ describe("pathShowsUsername (ADR 0028, owner 2026-10-12 19:45 UTC)", () => {
     expect(pathShowsUsername("/risu729/pateat/pull/1", ["risu729"])).toBe(true);
     expect(pathShowsUsername("/@Taro.Yamada/posts", ["taro.yamada"])).toBe(true);
     expect(pathShowsUsername("/users/taro%40example.com", ["taro@example.com"])).toBe(true);
+    // A username holding a format character, such as the ZWNJ of a Persian name.
+    expect(
+      pathShowsUsername("/u/%D8%B9%D9%84%DB%8C%E2%80%8C%D8%B1%D8%B6%D8%A7", ["علی\u200Cرضا"]),
+    ).toBe(true);
+    expect(pathShowsUsername("/u/علی\u200Cرضا", ["علی\u200Cرضا"])).toBe(true);
     expect(withoutUsernames(observation({ path: "/risu729/pateat" }), ["risu729"])).toEqual({
       ok: false,
       reason: "username-shown",

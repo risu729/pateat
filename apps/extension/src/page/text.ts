@@ -232,7 +232,10 @@ export function shown(element: Element, opacity = true): element is HTMLElement 
  * rendering does: `<div>Customer</div><div>Number</div>` and
  * `<p>Customer</p><label>Number</label>`. With `everyElement`, every element boundary
  * separates words (`<span>a@example.com</span><a>Not you?</a>`), and elements matching
- * `skip` contribute nothing.
+ * `skip` contribute nothing. A line-break opportunity never separates words: a `<wbr>`
+ * adds nothing, and format characters such as a zero-width space or soft hyphen are
+ * left out, so `taro@<wbr>example.com` and `taro@\u200Bexample.com` read as
+ * `taro@example.com`.
  */
 export function renderedText(
   root: Element,
@@ -251,7 +254,7 @@ export function renderedText(
   while (pending.length > 0 && text.length <= limit) {
     const node = pending.pop();
     if (node === undefined) text += " ";
-    else if (node instanceof Text) text += node.data;
+    else if (node instanceof Text) text += node.data.replace(/\p{Cf}+/gu, "");
     else if (
       node instanceof Element &&
       !textless.has(node.tagName) &&
@@ -259,7 +262,10 @@ export function renderedText(
       !(skip && node.matches(skip))
     ) {
       if (node instanceof HTMLBRElement) text += " ";
-      else if (everyElement || !view?.getComputedStyle(node).display.startsWith("inline")) {
+      else if (
+        node.localName !== "wbr" &&
+        (everyElement || !view?.getComputedStyle(node).display.startsWith("inline"))
+      ) {
         text += " ";
         pending.push(undefined);
       }

@@ -1698,6 +1698,12 @@ describe("extractSignedInObservation", () => {
       <button id="logout" type="button">Sign out</button>`,
     );
     expect(signedIn().headerText).toBe("Account taro.yamada");
+    // A <wbr> or a zero-width space does not split an address out of its redaction.
+    page(
+      `<header><span>taro.yamada@<wbr>example.com</span><span>me@&#8203;example.com</span></header>
+      <button id="logout" type="button">Sign out</button>`,
+    );
+    expect(signedIn().headerText).toBe("[email] [email]");
     // Cut at 1,000 characters.
     page(
       `<nav>${"<a href='/x'>Menu</a> ".repeat(300)}</nav>

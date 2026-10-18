@@ -396,6 +396,22 @@ describe("pageSigns", () => {
     expect(pageSigns(document)).not.toHaveProperty("username");
   });
 
+  it("finds a username split by <wbr> or a format character in the navigation", () => {
+    for (const html of [
+      "<nav>me@<wbr>example.com</nav>",
+      "<nav>me@&#8203;example.com</nav>",
+      "<nav>me@example&shy;.com</nav>",
+      "<header><span>taro.yamada@<wbr>example.com</span></header>",
+    ]) {
+      document.body.innerHTML = html;
+      const username = html.includes("taro") ? "taro.yamada@example.com" : "me@example.com";
+      expect.soft(pageSigns(document, { username }).username, html).toBe(true);
+    }
+    // A username holding a format character, such as the ZWNJ of a Persian name.
+    document.body.innerHTML = "<nav>علی&zwnj;رضا</nav>";
+    expect(pageSigns(document, { username: "علی\u200Cرضا" }).username).toBe(true);
+  });
+
   it("finds the username behind an open modal dialog that hid the page (2026-10-13)", () => {
     const header = (hider: string) =>
       `<div id="app" ${hider}><header><a href="/me">risu729</a></header></div>`;
