@@ -473,6 +473,22 @@ execution checks. Users may preauthorize bounded automatic operations without
 confirmation every time; AI cannot expand those grants. The initial action
 vocabulary contains login operations only.
 
+### Hostnames Pateat does not run on
+
+Policy inputs accept only hostnames whose labels are 1 to 63 lowercase letters, digits
+and inner hyphens (`normalizeHostname` in `packages/contracts/src/settings.ts`), plus IP
+addresses and `localhost`. Pateat treats a page whose hostname fails this check as
+excluded, so it never observes, fills or answers a passkey request there, and such a
+hostname cannot be entered as an exclusion rule. Browsers still open these hosts:
+
+- a label with an underscore, such as `my_host.example.com`;
+- a label that starts or ends with a hyphen, such as `-a.example.com`;
+- a label longer than 63 characters, or a hostname longer than 253.
+
+A hostname ending in a dot (`example.com.`) is accepted, and exclusion rules match it as
+`example.com`. Its origin keeps the dot, though, so a site default, binding or recipe
+saved for `https://example.com` does not apply on `https://example.com.`.
+
 ## Background execution
 
 Address tabs explicitly by `tabId`, frames by `frameId`, and documents by `documentId`.
@@ -1878,6 +1894,18 @@ or return invalid output; all have explicit local outcomes.
 Never automatically fall back to another provider or model. Compatible local
 recipes continue working when inference is unavailable or its spending cap is
 reached.
+
+### Page paths recipes cannot name
+
+Recipe steps, markers and page descriptions name a page by its exact canonical path
+(`loginPathSchema` in `packages/contracts/src/login.ts`), so Pateat neither describes
+nor runs a recipe on a page whose path:
+
+- is longer than 300 characters once percent-encoded, which non-ASCII paths reach
+  early: each Japanese character takes nine, so a path of 34 of them exceeds it;
+- starts with `//`, such as `https://example.com//login`.
+
+Such a page is not sent for generation and is logged as `unsupported-page`.
 
 ## Existing passkeys
 
