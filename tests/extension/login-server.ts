@@ -332,6 +332,39 @@ export async function startLoginFixture(
         });`,
         ),
       );
+    } else if (path === "/method-choice") {
+      // An identifier-first form whose Next asks how to confirm the sign-in (ADR 0048), in
+      // the same document on the same path: "Password" shows the password form, "Mobile"
+      // and Cancel do nothing here. `?skip` shows the password form right after Next, as a
+      // site that skips the choice; `?forgot` labels the button "Forgot password?"; `?dead`
+      // makes the button do nothing. Only those known flags are read, and the query is
+      // never written into the page.
+      const skip = fixtureUrl.searchParams.has("skip");
+      const forgot = fixtureUrl.searchParams.has("forgot");
+      const dead = fixtureUrl.searchParams.has("dead");
+      response.end(
+        html(
+          `<h1>Synthetic sign-in with a choice of how to verify</h1><form id="account-form"><label>Account<input id="account" autocomplete="username"></label><button id="next" type="button">Next</button></form><section id="choice" hidden><h2>Let's confirm it's you</h2><button id="choose-password" type="button">${forgot ? "Forgot password?" : "Password"}</button><button id="mobile" type="button">Mobile</button><a id="cancel" href="#">Cancel</a></section><form id="password-form" hidden><label>Password<input id="password" type="password" autocomplete="current-password"></label><button id="login" type="button">Log in</button></form>`,
+          `const count = (key) => sessionStorage.setItem(key, String(Number(sessionStorage.getItem(key) || 0) + 1));
+        document.getElementById('next').addEventListener('click', () => {
+          count('identityClicks');
+          sessionStorage.setItem('identityMatched', String(document.getElementById('account').value === "00001234"));
+          document.getElementById('account-form').hidden = true;
+          setTimeout(() => { document.getElementById(${JSON.stringify(skip ? "password-form" : "choice")}).hidden = false; }, 300);
+          updateFixtureStatus();
+        });
+        document.getElementById('choose-password').addEventListener('click', () => {
+          count('chooseClicks');
+          ${dead ? "" : "document.getElementById('choice').hidden = true; setTimeout(() => { document.getElementById('password-form').hidden = false; }, 300);"}
+        });
+        document.getElementById('mobile').addEventListener('click', () => count('mobileClicks'));
+        document.getElementById('login').addEventListener('click', () => {
+          count('submitClicks');
+          sessionStorage.setItem('passwordMatched', String(document.getElementById('password').value === ${JSON.stringify(password)}));
+          location.href = '/authenticated';
+        });`,
+        ),
+      );
     } else if (path === "/identifier" || path === "/identifier/again") {
       // An identifier page whose Next opens the password page as a new document (ADR 0018).
       // `?again` opens /identifier/again instead, which shows the identifier form again

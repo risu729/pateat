@@ -24,6 +24,10 @@ Amended on 2026-10-12: every number on the page shown after sign-in becomes `[nu
 ([Architecture](../architecture.md#declarative-recipes-and-ai)).
 Amended on 2026-10-14: [retention purge failures](#retention-purge-failures)
 are isolated from sync and call logging (implemented).
+Amended on 2026-10-18 by [ADR 0048](0048-password-method-button.md) (owner, 01:38 UTC):
+the click of a learned `password` handler that follows the recipe's final `advance` is
+continued like that advance
+([Continuing after an advance](#continuing-after-an-advance)); implemented.
 
 Date: 2026-10-11
 
@@ -184,10 +188,14 @@ Implementation choices for the page after a recipe's final `advance` step, made 
   first variant), in the tab's own page rather than a frame, whose recipe has no
   `completion` and no `alternatives`, and only once the step in flight is the recipe's
   last step, an `advance`, and never a login that only fills the form after a logout,
-  which stops before the advance (ADR 0021 D). Once the result would settle as unknown,
-  confirmed sign-in evidence still completes the login before the continuation's own
-  rule applies (ADR 0029). A recipe with a completion has already reached a signed-in
-  page; its later pages are judged as before
+  which stops before the advance (ADR 0021 D). Since 2026-10-18
+  ([ADR 0048](0048-password-method-button.md)) the step in flight may also be the click
+  of a `password` handler when that click is the last step of the login's plan and the
+  recipe's own last step is an `advance`; its page is checked for a password input
+  before the click's hold, and the continued steps follow the handler's. Once the result
+  would settle as unknown, confirmed sign-in evidence still completes the login before
+  the continuation's own rule applies (ADR 0029). A recipe with a completion has
+  already reached a signed-in page; its later pages are judged as before
   ([ADR 0027](0027-per-account-login-routes.md)).
 - **Which page.** The page qualifies once it has finished loading
   (`document.readyState` is `complete`) and has shown, on one path for a second within

@@ -193,10 +193,12 @@ export const loginRouteSchema = v.picklist(["password", "passkey"]);
  * path matches and all its elements show, and run only for an item with the handler's
  * fact. Its steps follow from its kind. `passkey` clicks a button such as "Use security
  * key"; `totp` fills the item's TOTP code into `field` and clicks `target`, its submit
- * button.
+ * button; `password` clicks a button such as "Password" on a page that asks how to
+ * confirm the sign-in, which goes on to typing the password (ADR 0048).
  */
 export const loginHandlerSchema = v.variant("kind", [
   v.strictObject({ kind: v.literal("passkey"), path, target: loginTargetSchema }),
+  v.strictObject({ kind: v.literal("password"), path, target: loginTargetSchema }),
   v.pipe(
     v.strictObject({
       kind: v.literal("totp"),
@@ -351,7 +353,8 @@ export const loginRecipeSchema = v.pipe(
      */
     accountSwitch: v.optional(loginTargetSchema),
     /**
-     * Second-factor pages learned from judged pages (ADR 0027), one per kind and path.
+     * Second-factor pages learned from judged pages (ADR 0027), and pages that ask how to
+     * confirm the sign-in before the password (ADR 0048), one per kind and path.
      * They are only ever appended, so a running login's entered handlers keep their index.
      */
     handlers: v.optional(
@@ -530,6 +533,25 @@ export const loginRecipeSchema = v.pipe(
           ),
       ),
     "The code field is a route step target",
+  ),
+  // A `password` handler's button leads to the password a route step types: it is never a
+  // route step's own element on its path (ADR 0048).
+  v.check(
+    (recipe) =>
+      !(recipe.handlers ?? []).some(
+        (handler) =>
+          handler.kind === "password" &&
+          variantsOf(recipe).some((variant) =>
+            variant.steps.some(
+              (step) =>
+                step.path === handler.path &&
+                (step.kind === "fill" ? step.fields.map((field) => field.target) : [step.target])
+                  .map(targetKey)
+                  .includes(targetKey(handler.target)),
+            ),
+          ),
+      ),
+    "A password handler's button is a route step target",
   ),
   // The passkey route starts on the start page, beside the password route.
   v.check(
@@ -1122,17 +1144,18 @@ export function passwordStopOrMiss(
 /** The slot a `totp` handler's fill uses; a binding for it reads the item's TOTP field. */
 export const TOTP_HANDLER_SLOT = "totp";
 /**
- * The steps a handler runs: a `passkey` handler's click, or a `totp` handler's fill of the
- * code into its field followed by the click on its submit button.
+ * The steps a handler runs: a `passkey` handler's click, a `password` handler's click that
+ * advances to the password page (ADR 0048), or a `totp` handler's fill of the code into
+ * its field followed by the click on its submit button.
  */
 export function handlerSteps(handler: LoginHandler): LoginStep[] {
   const click: LoginStep = {
     kind: "click",
     path: handler.path,
     target: handler.target,
-    purpose: "submit",
+    purpose: handler.kind === "password" ? "advance" : "submit",
   };
-  if (handler.kind === "passkey") return [click];
+  if (handler.kind !== "totp") return [click];
   return [
     {
       kind: "fill",
@@ -1160,10 +1183,11 @@ export const loginItemFactsSchema = v.strictObject({
 });
 export type LoginItemFacts = v.InferOutput<typeof loginItemFactsSchema>;
 /** The fact each handler kind requires. */
-export const handlerFact = { passkey: "passkey", totp: "totp" } as const satisfies Record<
-  LoginHandler["kind"],
-  keyof LoginItemFacts
->;
+export const handlerFact = {
+  passkey: "passkey",
+  password: "password",
+  totp: "totp",
+} as const satisfies Record<LoginHandler["kind"], keyof LoginItemFacts>;
 /** The field a fill of `fieldId` reads: a Linked field's built-in source, or the field itself. */
 export function loginFieldSource(item: Pick<VaultItemMetadata, "fields">, fieldId: string): string {
   const field = item.fields.find((entry) => entry.id === fieldId);

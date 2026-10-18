@@ -35,6 +35,7 @@ const PROBE_PATHS = [
   "/totp",
   "/identifier-first",
   "/identifier-swap",
+  "/method-choice",
 ];
 /** Where every synthetic recipe starts, which a fixture document watches for. */
 export function probeStarts(origin: string): LoginRecipeStart[] {
@@ -119,8 +120,21 @@ function identifierFirstRecipe(origin: string, path: string, swap = false): Logi
     maxSubmissions: 2,
   });
 }
+/**
+ * An identifier-first form whose Next asks, in the same document and on the same path, how
+ * to confirm the sign-in (ADR 0048): the `password` handler presses "Password", which shows
+ * the password form that the route's next steps fill and submit.
+ */
+function methodChoiceRecipe(origin: string, path: string): LoginRecipe {
+  return parseLoginRecipe({
+    ...identifierFirstRecipe(origin, path),
+    id: "demo-method-choice",
+    handlers: [{ kind: "password", path, target: target("choose-password") }],
+  });
+}
 export function probeRecipe(origin: string, path: string): LoginRecipe | undefined {
   if (!PROBE_PATHS.includes(path)) return undefined;
+  if (path === "/method-choice") return methodChoiceRecipe(origin, path);
   if (path === "/variants") return variantsRecipe(origin, path);
   if (path === "/totp") return totpRecipe(origin, path);
   if (path === "/identifier-first") return identifierFirstRecipe(origin, path);

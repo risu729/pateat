@@ -1168,7 +1168,8 @@ function markerProof(recipe: LoginRecipe, pageOrigin = recipe.origin) {
  * off-screen or hidden from assistive technology for the browser is not taken for the
  * password form before or after the advance. Undefined when no element could confirm it: a
  * next step that needs none, one that shares an element with the advance, or a handler's
- * step, which keeps its own rules (ADR 0027).
+ * step, which keeps its own rules (ADR 0027). A `password` handler's click is the exception:
+ * the route's next step on its path confirms it as it confirms an advance (ADR 0048).
  */
 function inPlaceNext(
   recipe: LoginRecipe,
@@ -1181,7 +1182,7 @@ function inPlaceNext(
   if (
     !done ||
     !next ||
-    done.handler !== undefined ||
+    (done.handler !== undefined && recipe.handlers?.[done.handler]?.kind !== "password") ||
     next.handler !== undefined ||
     loginStepEffect(done.step) !== "advance" ||
     done.step.path !== next.step.path
@@ -1205,8 +1206,12 @@ function inPlaceNext(
   };
 }
 const probeMode = import.meta.env.MODE === "probe";
-/** The order in which handlers shown together are tried: a passkey types nothing. */
-const handlerOrder = { passkey: 0, totp: 1 } as const satisfies Record<
+/**
+ * The order in which handlers shown together are tried: a `password` handler first, so a
+ * login that types its password goes on to it rather than to a passkey beside it (ADR
+ * 0048), then a passkey, which types nothing.
+ */
+const handlerOrder = { password: 0, passkey: 1, totp: 2 } as const satisfies Record<
   LoginHandler["kind"],
   number
 >;
@@ -3805,11 +3810,22 @@ export function createLoginRuntime(
         inFlight !== undefined &&
         inFlight.handler === undefined &&
         run.metadata.route === "passkey";
+      // The page after a `password` handler's click that asks for the password is continued
+      // before the click's hold is read, since the button may stay beside the password form;
+      // such a page is not held, judged or handled (ADR 0048).
+      const choseByPassword =
+        inFlight?.handler !== undefined &&
+        run.recipe.handlers?.[inFlight.handler]?.kind === "password";
+      if (choseByPassword) {
+        continued = await continueOn(run);
+        if (continued === "moved") return undefined;
+      }
+      const asksPassword = continued === "qualified";
       // After answering the page's own request, the start page's sign-in form still
       // showing on its path means the site has not signed in: it may still be exchanging
       // the assertion in this document for a while, then the login falls back to its
       // password variant (ADR 0034).
-      if (inFlight && routeClick && passkeyAnswersRequest(run.recipe)) {
+      if (!asksPassword && inFlight && routeClick && passkeyAnswersRequest(run.recipe)) {
         let shows: boolean;
         const onList = listOf(run);
         if (onList) {
@@ -3830,7 +3846,11 @@ export function createLoginRuntime(
           await fallBack(run, "sign-in-shown");
           return undefined;
         }
-      } else if (inFlight && (run.heldClick === run.metadata.stepIndex || routeClick)) {
+      } else if (
+        !asksPassword &&
+        inFlight &&
+        (run.heldClick === run.metadata.stepIndex || routeClick)
+      ) {
         const clicked = await observe(run, stepTargets(inFlight.step));
         if (!clicked) return undefined;
         if (clicked.targets.some((state) => state !== "missing")) {
@@ -3845,13 +3865,15 @@ export function createLoginRuntime(
           }
         }
       }
-      if (await enterHandler(run, observed.path)) return undefined;
+      if (!asksPassword && (await enterHandler(run, observed.path))) return undefined;
       // The page after the final advance before a stop just past the plan's last step that
       // asks for a passkey takes the login to that stop at once (ADR 0036).
       if (advancingToStop(run.metadata) && asksPasskey(run) && (await toStop(run)))
         return undefined;
-      continued = await continueOn(run);
-      if (continued === "moved") return undefined;
+      if (!choseByPassword) {
+        continued = await continueOn(run);
+        if (continued === "moved") return undefined;
+      }
     }
     if (!settleUnknown) return undefined;
     // Otherwise that page is continued as any login's, or judged once the step's wait ran
@@ -4237,7 +4259,9 @@ export function createLoginRuntime(
    * steps, or to `challenge` when no shown handler qualifies or the attempt's budget has
    * no room for it. At a login's stop before its item's missing password (`stop`, ADR
    * 0036), only a `passkey` handler is entered, before the stop step, and the login ends
-   * there with `stop.end` instead.
+   * there with `stop.end` instead. A `password` handler goes first, and only for a login
+   * that types its password and has not filled it yet; one shown but refused ends the login
+   * as `challenge` rather than letting another handler beside it be entered (ADR 0048).
    */
   async function enterHandler(
     run: Execution,
@@ -4275,9 +4299,10 @@ export function createLoginRuntime(
     // The first plan step not yet run: the one after the step in flight, or the current one.
     const unrun =
       run.metadata.operationId === undefined ? run.metadata.stepIndex : run.metadata.stepIndex + 1;
+    const plan = attemptPlan(run.recipe, run.metadata) ?? [];
     const passwordAhead =
       typesPassword &&
-      (attemptPlan(run.recipe, run.metadata) ?? []).some(
+      plan.some(
         (entry, index) =>
           index >= unrun &&
           entry.handler === undefined &&
@@ -4285,19 +4310,38 @@ export function createLoginRuntime(
           entry.step.path === path &&
           entry.step.fields.some((field) => field.slot === "password"),
       );
+    // A `password` handler's button goes on to the password this login types (ADR 0048): only
+    // a login that types it, does not only fill, runs in the tab's top document on the
+    // recipe's own origin and has not filled its password yet presses it.
+    const choosesPassword =
+      typesPassword &&
+      run.metadata.fillOnly !== true &&
+      run.live.document.frameId === 0 &&
+      run.live.topUrl === undefined &&
+      run.live.document.origin === run.recipe.origin &&
+      !plan.some(
+        (entry, index) =>
+          index < unrun &&
+          entry.step.kind === "fill" &&
+          entry.step.fields.some((field) => field.slot === "password"),
+      );
     const entries = (run.recipe.handlers ?? []).flatMap((handler, index) => {
       if (
         handler.path !== path ||
         (stop && handler.kind !== "passkey") ||
-        (passwordAhead && handler.kind === "passkey")
+        (passwordAhead && handler.kind === "passkey") ||
+        (!choosesPassword && handler.kind === "password")
       )
         return [];
       const ran = run.metadata.handlers.some((entered) => entered.index === index);
+      // A `password` handler is pressed only while none of the route's fill fields shows on
+      // its path: a page that shows one gets it filled instead.
       const sameForm =
         !ran &&
         ((handler.kind === "totp" &&
           routeClicks.some((target) => sameLoginTarget(target, handler.target))) ||
-          (handler.kind === "passkey" && typesPassword));
+          (handler.kind === "passkey" && typesPassword) ||
+          handler.kind === "password");
       const targets = handlerTargets(handler);
       return [
         {
@@ -4309,7 +4353,10 @@ export function createLoginRuntime(
               ? targets.map(() => "present" as const)
               : handler.kind === "totp"
                 ? (["writable", "shown"] as const)
-                : (["shown"] as const)),
+                : handler.kind === "password"
+                  ? // Shown, and its rendered text names the password choice (ADR 0048).
+                    (["password-choice"] as const)
+                  : (["shown"] as const)),
             ...(sameForm ? routeFields.map(() => "writable" as const) : []),
           ],
           own: targets.length,
@@ -4374,7 +4421,13 @@ export function createLoginRuntime(
           : entry.handler.kind === "totp" && attemptUsesCode(run.recipe, run.metadata)
             ? ("code-used" as const)
             : undefined;
-    const fresh = shown.find((entry) => refusal(entry) === undefined);
+    // A `password` handler goes first; refused, as when its button shows again after its
+    // press, it ends the login there, so the passkey button beside it is never pressed by a
+    // login that types its password (ADR 0048).
+    const fresh =
+      shown[0]!.handler.kind === "password" && refusal(shown[0]!) !== undefined
+        ? undefined
+        : shown.find((entry) => refusal(entry) === undefined);
     if (!fresh) {
       reportHandler(shown[0]!, refusal(shown[0]!)!);
       await challenge();
@@ -4796,7 +4849,9 @@ export function createLoginRuntime(
    * continued on the page it leads to (ADR 0018): a `password` route login on the recipe's
    * own steps (variant 0), in the tab's own page, with recipe generation configured, whose
    * recipe has no completion and no alternatives. A login of an item without a password
-   * asks only when its stop lies just past that advance (ADR 0036).
+   * asks only when its stop lies just past that advance (ADR 0036). A `password` handler's
+   * click counts as that advance when it is the plan's last step and the recipe's own last
+   * step is an advance (ADR 0048).
    */
   function continuable(run: Execution): boolean {
     const { metadata, recipe } = run;
@@ -4824,8 +4879,11 @@ export function createLoginRuntime(
       plan.length === metadata.stepCount &&
       metadata.stepIndex + 1 === plan.length &&
       inFlight !== undefined &&
-      inFlight.handler === undefined &&
-      loginStepEffect(inFlight.step) === "advance"
+      (inFlight.handler === undefined ||
+        recipe.handlers?.[inFlight.handler]?.kind === "password") &&
+      loginStepEffect(inFlight.step) === "advance" &&
+      recipe.steps.at(-1) !== undefined &&
+      loginStepEffect(recipe.steps.at(-1)!) === "advance"
     );
   }
   /**
@@ -5716,6 +5774,13 @@ export function createLoginRuntime(
           after?.kind === "click"
             ? after.target
             : undefined;
+        const ownHandler = attemptPlan(run.recipe, run.metadata)?.[operation.stepIndex]?.handler;
+        // A `password` handler's button is pressed only while its rendered text, read in the
+        // same task as the press, still names the password choice (ADR 0048).
+        const passwordChoice =
+          operation.step.kind === "click" &&
+          ownHandler !== undefined &&
+          run.recipe.handlers?.[ownHandler]?.kind === "password";
         run.delivered = true;
         const { tabId } = run.live.document;
         if (
@@ -5727,7 +5792,6 @@ export function createLoginRuntime(
           operation.step.kind === "click" ||
           (operation.step.kind === "fill" && operation.step.effect !== "prepare")
         ) {
-          const handler = attemptPlan(run.recipe, run.metadata)?.[operation.stepIndex]?.handler;
           const at = Date.now();
           effects.set(tabId, {
             attemptId: run.metadata.id,
@@ -5736,7 +5800,7 @@ export function createLoginRuntime(
             submits: loginStepEffect(operation.step) === "submit",
             passkey:
               run.metadata.route === "passkey" ||
-              (handler !== undefined && run.recipe.handlers?.[handler]?.kind === "passkey"),
+              (ownHandler !== undefined && run.recipe.handlers?.[ownHandler]?.kind === "passkey"),
             ...(codeStep(run.recipe, run.metadata, operation.stepIndex) ? { code: at } : {}),
           });
           // A passkey handler's click asks for the passkey; it does not submit the password.
@@ -5772,6 +5836,7 @@ export function createLoginRuntime(
             : {}),
           // A `totp` handler's code fill watches for the page submitting the code itself.
           ...(codeSubmit ? { code: { submit: codeSubmit } } : {}),
+          ...(passwordChoice ? { passwordChoice: true as const } : {}),
           // An advance whose next step is on its path has the document measure that step
           // just before its effect, in the same task (ADR 0013).
           ...(inPlace ? { next: inPlace } : {}),
