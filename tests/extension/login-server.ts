@@ -527,9 +527,9 @@ export async function startLoginFixture(
       );
     } else if (path === "/password") {
       // `?slow=1` renders the form four seconds after load, past the old three-second budget.
+      // `?email=1` also asks for an email, as a form for another account does (ADR 0049).
       const slow = fixtureUrl.searchParams.has("slow");
-      const form =
-        '<label>Password<input id="password" type="password"></label><button id="login" type="button">Log in</button>';
+      const form = `${fixtureUrl.searchParams.has("email") ? '<label>Email<input id="other-email" type="email"></label>' : ""}<label>Password<input id="password" type="password"></label><button id="login" type="button">Log in</button>`;
       response.end(
         html(
           slow

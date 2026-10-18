@@ -15,7 +15,12 @@ import {
   validateLoginOperation,
   withdrawAccountSwitch,
 } from "./login-attempt";
-import { CHOOSER_ENTRY_TARGET, type LoginDocument, type LoginRecipe } from "./login";
+import {
+  CHOOSER_ENTRY_TARGET,
+  type LoginDocument,
+  type LoginRecipe,
+  type LoginStep,
+} from "./login";
 
 const facts = { password: true, totp: false, passkey: false, discoverablePasskey: false };
 const document: LoginDocument = {
@@ -3818,10 +3823,22 @@ describe("a login that starts at a later step (ADR 0049)", () => {
       transitionLoginAttempt(switched, { type: "ROUTE", route: "password", steps: 4 }),
     ).toMatchObject({ route: "password", stepIndex: 2, stepCount: 4 });
     // A passkey answer that falls back to the variant records the step too.
-    expect(create({ choice: { route: "passkey" }, fallback: 0, startAt: 2 })).toMatchObject({
-      route: "passkey",
-      stepIndex: 0,
-      startStep: 2,
+    const answering = create({ choice: { route: "passkey" }, fallback: 0, startAt: 2 });
+    expect(answering).toMatchObject({ route: "passkey", stepIndex: 0, startStep: 2 });
+    // The answer stands on that step's page and element, where the form it waits on shows.
+    expect(attemptPlan(twoPages, answering)).toEqual([
+      {
+        step: {
+          kind: "click",
+          path: "/password",
+          target: (twoPages.steps[2] as Extract<LoginStep, { kind: "fill" }>).fields[0]!.target,
+          purpose: "submit",
+        },
+      },
+    ]);
+    expect(attemptPlan(twoPages, { ...answering, startStep: undefined })?.[0]?.step).toMatchObject({
+      path: "/login",
+      target: { by: "id", value: "email" },
     });
   });
 

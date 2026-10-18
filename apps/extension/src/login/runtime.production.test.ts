@@ -2,6 +2,7 @@ import * as v from "valibot";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import {
   createSettingsStore,
+  laterStartSteps,
   parseLoginRecipe,
   recipeStartSteps,
   type LocalSettings,
@@ -22641,10 +22642,7 @@ describe("a login that starts at a later step its page shows (ADR 0049)", () => 
   const bindingOf = (used: LoginRecipe): SavedLoginBinding => ({
     ...savedBinding,
     recipeId: used.id,
-    slots: [
-      { slot: "username", field: "username" },
-      { slot: "password", field: "password" },
-    ],
+    slots: used.slots.map((slot) => ({ slot, field: slot as "username" | "password" })),
   });
   const status = () =>
     fake.state.storage["pateat.login-attempts.v4"] as Record<string, unknown>[] | undefined;
@@ -22679,10 +22677,11 @@ describe("a login that starts at a later step its page shows (ADR 0049)", () => 
     recipes: LoginRecipe[],
     overrides: Partial<LocalSettings> = {},
     reports: LoginReport[] = [],
+    live: Parameters<typeof harness>[1] = {},
   ) {
     const h = harness(
       { bindings: recipes.map(bindingOf), ...overrides },
-      { username: true, report: (entry) => reports.push(entry) },
+      { username: true, report: (entry) => reports.push(entry), ...live },
     );
     h.fields.mockImplementation(async ({ fieldId }) =>
       fieldId === "login.username" ? "me@example.com" : "synthetic-secret",
@@ -22695,11 +22694,11 @@ describe("a login that starts at a later step its page shows (ADR 0049)", () => 
       recipes.map((used) => ({
         path: used.steps[0]!.path,
         steps: [used.steps[0]!],
-        later: [used.steps[2]!],
+        later: laterStartSteps(used).map(({ step }) => step),
       })),
     );
     const later = vi.fn(async (_origin: string, path: string) =>
-      recipes.filter((used) => used.steps.slice(1).some((step) => step.path === path)),
+      recipes.filter((used) => laterStartSteps(used).some(({ step }) => step.path === path)),
     );
     Object.assign(h.recipes, { later });
     return { h, reports, later };
@@ -22794,6 +22793,79 @@ describe("a login that starts at a later step its page shows (ADR 0049)", () => 
       fillOnly: true,
       startStep: 2,
     });
+  });
+
+  it("starts at the later step beside the start page's passkey button, with the password", async () => {
+    fake.state.pageUrl = "https://login.example/signin/id";
+    fake.state.observedPath = "/signin/id";
+    // A page that shows its passkey button at each stage, here beside the password input of
+    // the account it remembers; the item holds a passkey and a password.
+    shows(["password", "login", "passkey"]);
+    const used = parseLoginRecipe({
+      ...twoPages("/signin/id"),
+      passkey: { path: "/signin/id", target: target("passkey") },
+    });
+    const passkeys = vi.fn(async () => ({ passkey: true, discoverable: true }));
+    const { h, reports } = start([used], {}, [], { passkeys });
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]));
+    expect(executed()).toEqual(["fill:password", "click:login"]);
+    expect(status()![0]).toMatchObject({ route: "password", startStep: 2 });
+    expect(reports.find((entry) => entry.type === "start")).toMatchObject({
+      route: "password",
+      startStep: 2,
+    });
+  });
+
+  it("still starts at the passkey button when it shows alone", async () => {
+    fake.state.pageUrl = "https://login.example/signin/id";
+    fake.state.observedPath = "/signin/id";
+    shows(["passkey"]);
+    const used = parseLoginRecipe({
+      ...twoPages("/signin/id"),
+      passkey: { path: "/signin/id", target: target("passkey") },
+    });
+    const passkeys = vi.fn(async () => ({ passkey: true, discoverable: true }));
+    const { h } = start([used], {}, [], { passkeys });
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(executed()).toEqual(["click:passkey"]));
+    expect(status()![0]).toMatchObject({ route: "passkey" });
+    expect(status()![0]!["startStep"]).toBeUndefined();
+  });
+
+  it("starts nothing while the page shows a signed-in marker, as a password prompt in an app", async () => {
+    // The app asks for the password again before a sensitive action, on the path of the
+    // recipe's password step, and still shows the recipe's signed-in marker.
+    shows(["password", "login", "authenticated"]);
+    const { h } = start([twoPages()]);
+    expect(await h.hello()).toEqual({ ok: false, reason: "stale-document" });
+    expect(executed()).toEqual([]);
+    expect(status()).toBeUndefined();
+  });
+
+  it("starts the recipe whose first step shows over another recipe's later step", async () => {
+    shows(["password", "login"]);
+    // Generated before ADR 0049 for the password page shown alone.
+    const own = parseLoginRecipe({
+      ...recipe,
+      id: "synthetic-password-page",
+      slots: ["password"],
+      steps: [
+        {
+          kind: "fill",
+          path: "/signin/pwd",
+          fields: [{ slot: "password", target: target("password") }],
+        },
+        { kind: "click", path: "/signin/pwd", target: target("login"), purpose: "submit" },
+      ],
+    });
+    const { h, reports } = start([twoPages(), own]);
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]));
+    expect(status()![0]).toMatchObject({ recipeId: own.id, stepCount: 2 });
+    expect(executed()).toEqual(["fill:password", "click:login"]);
+    expect(status()![0]!["startStep"]).toBeUndefined();
+    expect(reports.find((entry) => entry.type === "start")).not.toHaveProperty("startStep");
   });
 
   it("lists the later steps for the document to watch, after the first steps", async () => {

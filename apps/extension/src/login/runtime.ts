@@ -6265,6 +6265,33 @@ export function createLoginRuntime(
     return { username, others, othersComplete };
   }
   /** Whether the document shows a step's elements now, without waiting for them. */
+  /**
+   * Whether the page visibly shows one of the recipe's signed-in markers learned on its own
+   * origin (ADR 0029), whatever else it shows: a later step there is no start (ADR 0049).
+   */
+  async function showsMarker(live: LiveDocument, recipe: LoginRecipe): Promise<boolean> {
+    const markers = (recipe.completion ?? []).filter((marker) => marker.origin === undefined);
+    if (!markers.length) return false;
+    try {
+      const parsed = v.safeParse(
+        observationSchema,
+        await send(live, {
+          type: "login.observe",
+          path: live.path,
+          targets: markers.map((marker) => marker.target),
+          require: markers.map(() => "shown" as const),
+          links: markers.map(() => true),
+        }),
+      );
+      // A page that cannot be read starts nothing either.
+      return (
+        !parsed.success ||
+        parsed.output.targets.some((state) => state === "unique" || state === "ambiguous")
+      );
+    } catch {
+      return true;
+    }
+  }
   async function showsNow(live: LiveDocument, readiness: LoginReadiness): Promise<boolean> {
     try {
       const parsed = v.safeParse(
@@ -7658,15 +7685,22 @@ export function createLoginRuntime(
       const candidates = await recipes.later(document.origin, live.path).catch(() => []);
       if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
       if (candidates.length) {
+        // The start page's passkey button may stay beside a later step, as on a page that
+        // shows it at each stage: only a `password` variant's first step goes first, and a
+        // later start is never offered the button.
         let firstShows = false;
         /* eslint-disable no-await-in-loop */
-        for (const step of recipe ? recipeStartSteps(recipe) : []) {
-          firstShows = await showsNow(live, loginReadiness(step));
+        for (const variant of recipe ? passwordVariants(recipe) : []) {
+          firstShows = await showsNow(live, loginReadiness(variant.steps[0]!));
           if (firstShows) break;
         }
         const showing: { recipe: LoginRecipe; variants: Map<number, number[]> }[] = [];
         if (!firstShows)
           for (const candidate of candidates) {
+            // A page that shows one of the recipe's signed-in markers is signed in, as a
+            // single-page app asking for the password again before a sensitive action: no
+            // login starts there.
+            if (await showsMarker(live, candidate)) continue;
             const variants = new Map<number, number[]>();
             for (const { variant, index, step } of laterStartSteps(candidate)) {
               if (step.path !== live.path) continue;
@@ -7682,10 +7716,19 @@ export function createLoginRuntime(
         if (showing.length === 1) {
           recipe = showing[0]!.recipe;
           later = { variants: showing[0]!.variants };
-        } else if (!firstShows && showing.length === 0)
-          // The step that announced the page no longer shows: the document tries again.
+        } else if (showing.length > 1) recipe = undefined;
+        else if (
+          !firstShows &&
+          !(
+            recipe?.passkey &&
+            (await showsNow(live, loginReadiness(routeSteps(recipe, { route: "passkey" })[0]!)))
+          )
+        )
+          // No step that may start a login shows, as when the one that announced the page
+          // went, or it shows beside a signed-in marker: the document tries again, up to
+          // its limit (START_TRIES).
           return { ok: false, reason: "stale-document" };
-        else if (!firstShows) recipe = undefined;
+        if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
       }
     }
     // A new attempt starts only once the document reports a first step of its recipe ready:

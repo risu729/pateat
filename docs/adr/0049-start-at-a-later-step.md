@@ -58,22 +58,29 @@ the service and the AI prompts are unchanged.
    variant (ADR 0027), on the page's path, that fills a field other than a one-time
    code, and is ready as a first step is: each target is one writable input. A `click`,
    `wait` or `assert` step never starts a login. The step is not ready while the page
-   also shows a visible, writable username or email input it does not fill, since such
-   a page asks for an account too, as Cloudflare's other-profile form with its email
-   and password inputs. The branches of a chooser recipe (ADR 0028) never start mid-way:
-   which branch runs depends on what was pressed on the list; #625's `other-shown` stays
-   as it was.
+   also shows a visible, writable username or email input it does not fill (a
+   `type="email"` input, or one whose `autocomplete` names a username or an email),
+   since such a page asks for an account too, as Cloudflare's other-profile form with
+   its email and password inputs. The branches of a chooser recipe (ADR 0028) never
+   start mid-way: which branch runs depends on what was pressed on the list; the
+   `other-shown` start of [#625](https://github.com/risu729/pateat/pull/625) stays as it
+   was.
 2. **Order.** A recipe's first step ready on the page wins, also over another recipe's
    later step, so a recipe generated for `/signin/pwd` before this ADR still starts
-   there. Otherwise the recipe whose later step shows starts at the earliest such step
-   of the variant chosen for the account. When later steps of two recipes show, nothing
-   starts, as for two first steps.
+   there. The start page's passkey button does not count here: a page that shows it at
+   each stage, beside the password input of the account it remembers, starts at the
+   later step, and the button alone still starts the `passkey` route. Otherwise the
+   recipe whose later step shows starts at the earliest such step of the variant chosen
+   for the account. When later steps of two recipes show, nothing starts, as for two
+   first steps.
 3. **Route.** The route and variant are chosen from the item as for a first step, among
    that variant's steps. The start page's passkey button (ADR 0027) is not offered for
    such a start: an item with a passkey and a password starts at the later step with its
-   password. A passkey request the page itself makes (ADR 0034) is still answered, and
-   a fallback to the `password` route returns to the later step. An item whose variant
-   has no showing later step, or that would stop before it (ADR 0036), does not start.
+   password. On a recipe without a passkey button, a passkey request the page itself
+   makes (ADR 0034) is still answered for an item that also holds a password: the
+   answer waits on the later step's page, and a fallback to the `password` route returns
+   to that step. An item with a passkey and no password, an item whose variant has no
+   showing later step, or one that would stop before it (ADR 0036), does not start.
 4. **Pressing.** The same as a login that starts at its first step: if another account
    shows on the page, the login ends `wrong-account` (and presses the recipe's
    `accountSwitch` if it has one); otherwise it fills to the end and presses. This keeps
@@ -90,12 +97,20 @@ the service and the AI prompts are unchanged.
 7. **Frames and log.** Frames follow ADR 0017 as for a first step. `login.start` logs
    `startStep`, the index of the step the login started at, for a later start.
 
-Details added in implementation, not confirmed by the owner: a visible writable username
-or email input blocks a later start even when it already holds a value (the proposal
-said an empty one), since its value may name another account; the content script watches
-at most 32 steps, first steps before later ones; a refused later start is logged as
-`login.refused` `no-route` with `later-variant` (the chosen variant shows no later step)
-or `password-empty:later-start` (the login would stop before it).
+Details added in implementation, not confirmed by the owner:
+
+- A visible writable username or email input blocks a later start even when it already
+  holds a value (the proposal said an empty one), since its value may name another
+  account.
+- No later start happens while the page visibly shows one of the recipe's signed-in
+  markers (ADR 0029) learned on its origin, as a single-page app does when it asks for
+  the password again before a sensitive action; the page announces again up to its
+  limit and is logged as `login.refused` `stale-document` (`gave-up` once it stops).
+- The content script watches at most 32 steps, first steps before later ones.
+- A refused later start is logged as `login.refused` `no-route` with `later-variant`
+  (the chosen variant shows no later step) or `password-empty:later-start` (the login
+  would stop before it). Such a refusal can come after the popup offered the account,
+  since the variant is known only once the account is.
 
 ## Consequences
 
@@ -108,10 +123,13 @@ or `password-empty:later-start` (the login would stop before it).
 - A re-authentication form ("enter your password to continue") on the same path as the
   recipe's password step starts a login in a tab without one and counts as a logout in a
   tab with one. ADR 0021 D already listed this for forms shaped like a first step; a
-  password-only step makes it likelier. [ADR 0035](0035-page-kinds-per-site.md) does not
-  prevent it, since such a page uses the existing `sign-in` recipe and is never sent to
-  be judged `confirm`. Accepted with the recommendation; a separate check for a later
-  start would be a new decision.
+  password-only step makes it likelier, above all in a single-page app whose whole app
+  lives on one path. [ADR 0035](0035-page-kinds-per-site.md) does not prevent it, since
+  such a page uses the existing `sign-in` recipe and is never sent to be judged
+  `confirm`. Accepted with the recommendation. The signed-in marker check above stops a
+  new login on such a page once the recipe has a marker that shows there; a recipe
+  without one, a prompt that hides the marker, and the logout in a tab with a login
+  (which fills without pressing) are not covered.
 - Not fixed: a recipe whose one `fill` step fills both the username and the password, on
   a page that later shows only the password input (the step is only partly ready), and a
   page no step of any recipe matches.
@@ -123,7 +141,8 @@ or `password-empty:later-start` (the login would stop before it).
   changing ADR 0016's one recipe per start path and the `recipe-ambiguous` rule, every
   page state would cost a generation, and recipes of one site could drift apart. The
   press and re-authentication questions stay the same.
-- **C. Fix each site as it shows up**, as #625 did for a list. That leans towards
+- **C. Fix each site as it shows up**, as
+  [#625](https://github.com/risu729/pateat/pull/625) did for a list. That leans towards
   site-specific work, which [ADR 0033](0033-no-site-specific-features.md) rules out.
 - **Press only when the page's account matches.** The other choice on the owner's card.
   On sites that show no comparable account it fills without pressing in a tab without a

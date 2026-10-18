@@ -13,6 +13,7 @@ import {
   loginStepEffect,
   MAX_PASSWORD_ALTERNATIVES,
   parseLoginRecipe,
+  passwordVariants,
   routeSlots,
   routeSteps,
   sameLoginDocument,
@@ -1479,11 +1480,17 @@ export function attemptUsesCode(
  */
 export function attemptPlan(
   recipe: LoginRecipe,
-  metadata: Pick<LoginAttemptMetadata, "route" | "variant" | "handlers">,
+  metadata: Pick<LoginAttemptMetadata, "route" | "variant" | "handlers" | "startStep">,
 ): { step: LoginStep; handler?: number }[] | undefined {
+  // A page's own passkey request answered on a later start stands on that step (ADR 0049).
+  const from =
+    metadata.route === "passkey" && metadata.startStep !== undefined
+      ? passwordVariants(recipe)[metadata.variant ?? 0]?.steps[metadata.startStep]
+      : undefined;
   const plan: { step: LoginStep; handler?: number }[] = routeSteps(
     recipe,
     attemptRouteChoice(metadata),
+    from,
   ).map((step) => ({ step }));
   for (const entry of metadata.handlers) {
     const handler = recipe.handlers?.[entry.index];
