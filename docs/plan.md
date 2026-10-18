@@ -575,7 +575,10 @@ than in this repository.
   ([architecture](architecture.md#declarative-recipes-and-ai); agent implementation
   choice under the owner's 2026-10-11 decision that script links are clicked as buttons;
   local DOM tests, a standalone extension in Chromium 141 and the synthetic browser test
-  in CI). Check that page in the owner's Chrome.
+  in CI). On build `a0a4c2e` (2026-10-18, 22:09 UTC) the owner's Chrome filled that
+  page, clicked サインオン, landed on the signed-in Prestia Online home and the attempt
+  ended `authenticated` after the judge answered `signed-in`, with no `script-src` error
+  in the diagnostics.
 - SMBC Trust Bank's sign-in page in the owner's Chrome on build `d29951d` (2026-10-17,
   01:54 to 02:16 UTC): the submit click had no effect, so the login settled as unknown
   in the same document and was watched
@@ -584,8 +587,9 @@ than in this repository.
   read again (`login.state` with `reshownMiss` `no-effect`, `recipe.judge` `not-sent`
   with `watched`), and the popup said "Logging in…". Since 2026-10-17 a restarted worker
   does not read the watch's own document again, and the popup shows such a login as
-  watched (agent fix applying ADR 0027, local tests only). Check the page in the owner's
-  Chrome after a worker restart.
+  watched (agent fix applying ADR 0027, local tests only). The 2026-10-18 22:09 UTC
+  login above submitted, so no watch or worker restart happened there; the restart case
+  is still untested in the owner's Chrome.
 - Known faults moved from phase 1 (owner, 2026-10-12 20:35 UTC), fixed when a real site
   shows them again: the `reconciling` exception seen on SBI証券, and `generate` ignoring
   a failed sync after generation (both recorded under phase 1).
