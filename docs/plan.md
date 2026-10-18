@@ -2776,7 +2776,10 @@ submission with its sign-in form again (its password input and no other sign, ev
 the result stays unknown) or the login ends `credential-rejected`; its record is
 released then, so other tabs of the site ask instead of being held, and the badge and
 popup say the site did not accept the login (`pateat.login-rejected-asks.v1`). Frame
-logins and sites whose logout page shows only a password step are not detected. By the
+logins are not detected. Since 2026-10-18 (owner, 01:40 UTC;
+[ADR 0049](adr/0049-start-at-a-later-step.md); local tests only, not yet on a real site)
+a later password step a login may start at counts as the first step does, so a site
+whose logout page shows only a password step is detected. By the
 owner's constraint (2026-10-12) a session that only expired never needs a manual press,
 so a logout of a session carried over from another tab's login or an earlier browser
 session is not detected by the form alone. Since 2026-10-16 (owner, after

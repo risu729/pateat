@@ -60,6 +60,11 @@ only a `passkey` handler from it, and a `password` login never enters a `passkey
 handler on a path where its plan still has a route step to run that fills the password
 or while a fill field of the route shows.
 
+Amended on 2026-10-18 by [ADR 0049](0049-start-at-a-later-step.md) (owner, 01:40 UTC,
+implemented): a later step a login may start at releases a watched login as its first
+step does, and the start page's `passkey` button is not offered to a login that starts
+at a later step.
+
 Date: 2026-10-11
 
 ## Context

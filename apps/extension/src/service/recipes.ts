@@ -1,5 +1,6 @@
 import {
   deviceIdSchema,
+  laterStartSteps,
   loginRecipesForOrigin,
   MAX_RECIPE_CACHE_BYTES,
   recipeStartSteps,
@@ -440,10 +441,15 @@ export function createRecipeSync(options: {
       // the button for another account; an entry recipe (ADR 0031) is left out: the runtime
       // counts its path as a start for generation through `entries` instead.
       return [
-        ...loginRecipesForOrigin(cache.recipes, origin).map((recipe) => ({
-          path: recipe.steps[0]!.path,
-          steps: recipeStartSteps(recipe),
-        })),
+        ...loginRecipesForOrigin(cache.recipes, origin).map((recipe) => {
+          // A later step a login may start at when no first step shows (ADR 0049).
+          const later = laterStartSteps(recipe).map(({ step }) => step);
+          return {
+            path: recipe.steps[0]!.path,
+            steps: recipeStartSteps(recipe),
+            ...(later.length ? { later } : {}),
+          };
+        }),
         ...cache.recipes.flatMap((recipe) =>
           "chooser" in recipe && recipe.origin === origin
             ? [
@@ -467,6 +473,17 @@ export function createRecipeSync(options: {
             : [],
         ),
       ];
+    },
+    async later(origin: string, path: string) {
+      const connection = await service.connection().catch(() => undefined);
+      if (!connection) return [];
+      const cache = await load(connection);
+      if (!cache) return [];
+      // A chooser's branches are never started in the middle: which one runs depends on the
+      // click on its list, which the page alone does not tell (ADR 0049).
+      return loginRecipesForOrigin(cache.recipes, origin).filter((recipe) =>
+        laterStartSteps(recipe).some(({ step }) => step.path === path),
+      );
     },
     async entries(origin: string) {
       const connection = await service.connection().catch(() => undefined);
