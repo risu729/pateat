@@ -783,6 +783,86 @@ test("continues an identifier-first form that swaps its views in place and keeps
   }
 });
 
+/** What the `/method-choice` fixture page counted; never a value. */
+async function choiceEvidence(page: Page) {
+  return page.evaluate(() => ({
+    identityClicks: Number(sessionStorage.getItem("identityClicks") || 0),
+    chooseClicks: Number(sessionStorage.getItem("chooseClicks") || 0),
+    mobileClicks: Number(sessionStorage.getItem("mobileClicks") || 0),
+    submitClicks: Number(sessionStorage.getItem("submitClicks") || 0),
+    identityMatched: sessionStorage.getItem("identityMatched"),
+    passwordMatched: sessionStorage.getItem("passwordMatched"),
+  }));
+}
+
+for (const [name, query, chooseClicks] of [
+  ["presses Password on the page that asks how to verify", "", 1],
+  ["leaves the button alone when the site skips that page", "?skip", 0],
+] as const)
+  test(`${name}, then types the password (ADR 0048)`, async () => {
+    const fixture = await startLoginFixture();
+    try {
+      await withLoginExtension(async (context, _worker, id) => {
+        const options = await context.newPage();
+        await configure(options, id, fixture.origin);
+        const page = await context.newPage();
+        await page.goto(`${fixture.origin}/method-choice${query}`);
+        await expect(page.locator("#authenticated")).toBeVisible({ timeout: 15_000 });
+        expect(await choiceEvidence(page)).toEqual({
+          identityClicks: 1,
+          chooseClicks,
+          mobileClicks: 0,
+          submitClicks: 1,
+          identityMatched: "true",
+          passwordMatched: "true",
+        });
+        await expect
+          .poll(async () =>
+            JSON.stringify(await send(options, { version: 1, type: "login.probe.status" })),
+          )
+          .toContain('"authenticated"');
+        const status = JSON.stringify(
+          await send(options, { version: 1, type: "login.probe.status" }),
+        );
+        expect(status).toContain('"recipeId":"demo-method-choice"');
+        expect(status).toContain(
+          chooseClicks ? '"handlers":[{"index":0,"start":2}]' : '"handlers":[]',
+        );
+        expect(status).not.toContain("Pateat-synthetic-only!");
+      });
+    } finally {
+      await fixture.close();
+    }
+  });
+
+test("never presses a learned button whose text does not name the password (ADR 0048)", async () => {
+  test.setTimeout(60_000);
+  const fixture = await startLoginFixture();
+  try {
+    await withLoginExtension(async (context, _worker, id) => {
+      const options = await context.newPage();
+      await configure(options, id, fixture.origin);
+      const page = await context.newPage();
+      await page.goto(`${fixture.origin}/method-choice?forgot`);
+      await expect(page.locator("#choice")).toBeVisible({ timeout: 15_000 });
+      // Past the advance's ten-second wait, nothing more is pressed.
+      await page.waitForTimeout(12_000);
+      expect(await send(options, { version: 1, type: "login.probe.status" })).toMatchObject({
+        attempts: [{ stepIndex: 1, handlers: [] }],
+      });
+      expect(await choiceEvidence(page)).toMatchObject({
+        identityClicks: 1,
+        chooseClicks: 0,
+        mobileClicks: 0,
+        submitClicks: 0,
+      });
+      await expect(page.locator("#password")).toBeHidden();
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
 test("an identifier-first page that shows the password form from the start never continues after Next (ADR 0013)", async () => {
   const fixture = await startLoginFixture();
   try {

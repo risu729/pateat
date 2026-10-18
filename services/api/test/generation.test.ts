@@ -2350,6 +2350,100 @@ describe("page judgement (ADR 0027)", () => {
     expect(await head(device, change.recipeId)).toBe(3);
   });
 
+  describe("a page that asks how to confirm the sign-in (ADR 0048)", () => {
+    // The page after the identifier's Next: no inputs, a choice of how to verify.
+    const choicePage = (label = "Password") =>
+      observation("/login", [
+        element("choose-password", "button", label),
+        element("mobile", "button", "Mobile"),
+        element("cancel", "link", "Cancel"),
+      ]);
+    const passwordHandler = {
+      kind: "password",
+      path: "/login",
+      target: { by: "id", value: "choose-password" },
+    };
+    async function identifierRecipe(device: Device) {
+      replies.push({ text: plan([["email", "email"]], "next", "advance") });
+      const first = await generate(device, emailPage);
+      if (first.status !== "recipe") throw new Error(first.status);
+      return first.change;
+    }
+
+    it("adds a password handler, which a continuation of the route keeps", async () => {
+      const device = await owner();
+      const info = vi.spyOn(console, "info");
+      const change = await identifierRecipe(device);
+      replies.push(judgeReply({ decision: "challenge", passwordButton: "choose-password" }));
+      const judged = await complete(device, change.recipeId, 1, choicePage());
+      expect(judged.body).toMatchObject({
+        status: "challenge",
+        change: {
+          revision: 2,
+          recipe: { steps: route(change.recipe).steps, handlers: [passwordHandler] },
+        },
+      });
+      expect(info).toHaveBeenCalledWith("Judged page handlers", {
+        recipeId: change.recipeId,
+        handlers: [{ kind: "password", kept: true }],
+      });
+      // The judge was told what such a page and its button are.
+      expect(JSON.stringify(sent.at(-1)!.body)).toContain("passwordButton is the button");
+      // The password page after the press continues the route; the handler stays.
+      replies.push({ text: plan([["password", "password"]], "sign-in", "submit") });
+      const continued = await generate(device, passwordPage, {
+        recipeId: change.recipeId,
+        revision: 2,
+      });
+      if (continued.status !== "recipe") throw new Error(continued.status);
+      expect(continued.change.revision).toBe(3);
+      expect(route(continued.change.recipe)).toMatchObject({
+        steps: [
+          { kind: "fill", path: "/login" },
+          { kind: "click", path: "/login", purpose: "advance" },
+          { kind: "fill", path: "/password" },
+          { kind: "click", path: "/password", purpose: "submit" },
+        ],
+        handlers: [passwordHandler],
+      });
+      info.mockRestore();
+    });
+
+    it("answers a plain challenge for a button that does not name the password", async () => {
+      const device = await owner();
+      const change = await identifierRecipe(device);
+      const info = vi.spyOn(console, "info");
+      replies.push(judgeReply({ decision: "challenge", passwordButton: "choose-password" }));
+      expect(
+        (await complete(device, change.recipeId, 1, choicePage("Forgot password?"))).body,
+      ).toEqual({ version: 1, status: "challenge" });
+      expect(info).toHaveBeenCalledWith("Judged page handlers", {
+        recipeId: change.recipeId,
+        handlers: [{ kind: "password", kept: false, reason: "not-password" }],
+      });
+      expect(await head(device, change.recipeId)).toBe(1);
+      info.mockRestore();
+    });
+
+    it("never learns one for a recipe that already types the password", async () => {
+      const device = await owner();
+      const change = await twoPageRecipe(device);
+      const info = vi.spyOn(console, "info");
+      const later = observation("/verify", [element("choose-password", "button", "Password")]);
+      replies.push(judgeReply({ decision: "challenge", passwordButton: "choose-password" }));
+      expect((await complete(device, change.recipeId, 2, later)).body).toEqual({
+        version: 1,
+        status: "challenge",
+      });
+      expect(info).toHaveBeenCalledWith("Judged page handlers", {
+        recipeId: change.recipeId,
+        handlers: [{ kind: "password", kept: false, reason: "password-filled" }],
+      });
+      expect(await head(device, change.recipeId)).toBe(2);
+      info.mockRestore();
+    });
+  });
+
   it("adds a totp handler for an authenticator app code, beside a passkey handler in one revision", async () => {
     const device = await owner();
     const change = await twoPageRecipe(device);
@@ -2687,11 +2781,16 @@ describe("page judgement (ADR 0027)", () => {
         inputMode: "numeric" as const,
         maxLength: 6,
       };
-      const page = observation("/password", [...stopPage.candidates, code]);
+      const page = observation("/password", [
+        ...stopPage.candidates,
+        code,
+        element("choose-password", "button", "Use your password"),
+      ]);
       replies.push(
         judgeReply({
           decision: "challenge",
           passkeyButton: "passkey",
+          passwordButton: "choose-password",
           code: { field: "app-code", submit: "sign-in", source: "authenticator-app" },
         }),
       );
@@ -2724,6 +2823,7 @@ describe("page judgement (ADR 0027)", () => {
         recipeId: change.recipeId,
         handlers: [
           { kind: "passkey", kept: true },
+          { kind: "password", kept: false, reason: "stop" },
           { kind: "totp", kept: false, reason: "stop" },
         ],
       });

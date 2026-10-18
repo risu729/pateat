@@ -69,4 +69,39 @@ describe("targetState", () => {
     page(`<input id="pw" type="password"><input id="pw" type="password">`);
     expect(targetState(document, password, "described-writable")).toBe("ambiguous");
   });
+
+  // A page that asks how to confirm the sign-in (ADR 0048): the button is pressed only
+  // while its rendered text names the password choice.
+  describe("a button that goes on to the password", () => {
+    const choose = { by: "id", value: "choose" } as const;
+
+    it("takes a shown button whose text names the password, enabled or not", () => {
+      for (const html of [
+        `<button id="choose" type="button">Password</button>`,
+        `<button id="choose" type="button" disabled><span>Use your</span> password</button>`,
+        `<div id="choose" role="button">パスワードでログイン</div>`,
+        `<input id="choose" type="button" value="Sign in with password">`,
+      ]) {
+        page(html);
+        expect(targetState(document, choose, "password-choice"), html).toBe("unique");
+      }
+    });
+
+    it("refuses another way, a hidden button and an element that is no button", () => {
+      for (const html of [
+        `<button id="choose" type="button">Mobile</button>`,
+        `<button id="choose" type="button">Forgot password?</button>`,
+        `<button id="choose" type="button">ワンタイムパスワード</button>`,
+        `<button id="choose" type="button" hidden>Password</button>`,
+        `<span id="choose">Password</span>`,
+        `<a id="choose" href="/password">Password</a>`,
+      ]) {
+        page(html);
+        expect(targetState(document, choose, "password-choice"), html).toBe("unusable");
+      }
+      // The page shows the button's text, whatever its locator says.
+      page(`<button id="choose" type="button" aria-label="Password">Text me a code</button>`);
+      expect(targetState(document, choose, "password-choice")).toBe("unusable");
+    });
+  });
 });

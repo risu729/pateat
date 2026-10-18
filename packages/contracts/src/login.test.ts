@@ -654,6 +654,39 @@ describe("second-factor page handlers (ADR 0027)", () => {
     ]);
   });
 
+  describe("the password handler (ADR 0048)", () => {
+    const choice = { by: "text", value: "Password" } as const;
+    const password = (path = "/identity", target: LoginTarget = choice) => ({
+      kind: "password" as const,
+      path,
+      target,
+    });
+
+    it("accepts a button beside other handlers on its path, and clicks it as an advance", () => {
+      const handlers = [password(), passkeyHandler("/identity")];
+      expect(parseLoginRecipe(withHandlers(handlers)).handlers).toEqual(handlers);
+      expect(handlerSteps(password())).toEqual([
+        { kind: "click", path: "/identity", target: choice, purpose: "advance" },
+      ]);
+      expect(handlerTargets(password())).toEqual([choice]);
+    });
+
+    it("refuses a route step's element on its path, and a second one per path", () => {
+      const next = { by: "id", value: "next" } as const;
+      expect(() => parseLoginRecipe(withHandlers([password("/identity", next)]))).toThrow();
+      // On another path the locator names another element.
+      expect(parseLoginRecipe(withHandlers([password("/choose", next)])).handlers).toHaveLength(1);
+      expect(() =>
+        parseLoginRecipe(
+          withHandlers([password(), password("/identity", { by: "id", value: "other" })]),
+        ),
+      ).toThrow();
+      expect(() =>
+        parseLoginRecipe(withHandlers([{ ...password(), field: { by: "id", value: "x" } }])),
+      ).toThrow();
+    });
+  });
+
   describe("the totp handler", () => {
     const code = (change: Record<string, unknown> = {}) => ({
       kind: "totp" as const,

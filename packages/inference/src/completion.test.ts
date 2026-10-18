@@ -245,6 +245,65 @@ describe("passkey button on a challenge page (ADR 0027)", () => {
   });
 });
 
+describe("password button on a page that asks how to verify (ADR 0048)", () => {
+  // A synthetic page after the identifier: no inputs, a choice of how to confirm the
+  // sign-in, and links to cancel or read more.
+  const choice = {
+    ...signedIn,
+    path: "/",
+    title: "Sign in",
+    headings: ["Let's confirm it's you"],
+    candidates: [
+      {
+        id: "password",
+        role: "button",
+        target: { by: "id", value: "choose-password" },
+        label: "Password",
+      },
+      { id: "mobile", role: "button", target: { by: "text", value: "Mobile" }, label: "Mobile" },
+      { id: "cancel", role: "link", target: { by: "id", value: "cancel" }, label: "Cancel" },
+    ],
+  };
+  const challenge = { ...request, observation: choice };
+
+  it("names the page's button that goes on to the password", async () => {
+    expect(
+      await judgeReturning({ decision: "challenge", passwordButton: "password" }).judge(challenge),
+    ).toEqual(
+      expect.objectContaining({
+        status: "ok",
+        value: { decision: "challenge", password: { by: "id", value: "choose-password" } },
+      }),
+    );
+  });
+
+  it.each(["cancel", "missing"])(
+    "keeps a plain challenge when the named element %s is not a button",
+    async (passwordButton) => {
+      const outcome = await judgeReturning({ decision: "challenge", passwordButton }).judge(
+        challenge,
+      );
+      expect(outcome).toMatchObject({ status: "ok", value: { decision: "challenge" } });
+      expect(outcome.status === "ok" && "password" in outcome.value).toBe(false);
+    },
+  );
+
+  it("fails closed on a password button outside a challenge", async () => {
+    expect(
+      await judgeReturning({ decision: "unclear", passwordButton: "password" }).judge(challenge),
+    ).toMatchObject({ status: "failed", error: "invalid-output" });
+  });
+
+  it("tells the model what counts as such a page and which buttons never count", () => {
+    expect(completionInstructions).toMatch(
+      /A page that asks how to confirm the sign-in, such as with the password or a phone, is a challenge\./u,
+    );
+    expect(completionInstructions).toMatch(
+      /passwordButton is the button on such a page that goes on to typing the account's existing password, .*never one that uses a phone, mobile, push notification, SMS, email, an app, a passkey or security key, sends or enters a code, creates, resets or changes a password, says Forgot password, tries another way or cancels, and never a link\./u,
+    );
+  });
+});
+
 describe("TOTP code on a challenge page (ADR 0027)", () => {
   const codeField = {
     id: "code",

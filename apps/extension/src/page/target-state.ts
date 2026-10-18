@@ -1,9 +1,9 @@
-import type { LoginMarkerTarget } from "@pateat/contracts";
+import { namesPasswordChoice, type LoginMarkerTarget } from "@pateat/contracts";
 import type { TargetRequirement, TargetState } from "../login/wire";
 import { presence } from "../observation/extract";
 import { visible } from "./code-submission";
 import { findTargets } from "./targets";
-import { isButton, isScriptButton } from "./text";
+import { buttonText, isButton, isScriptButton } from "./text";
 
 /** An input of a kind Pateat fills, whether or not it is shown or can be written now. */
 function textInput(element: Element | undefined): element is HTMLInputElement {
@@ -29,12 +29,19 @@ export function clickable(element: Element | undefined): element is HTMLElement 
     element.getAttribute("aria-disabled") !== "true"
   );
 }
+/** A shown button whose text names the password as the way to confirm the sign-in. */
+function passwordChoice(element: Element | undefined): boolean {
+  const text = element instanceof HTMLElement && visible(element) ? buttonText(element) : undefined;
+  return text !== undefined && namesPasswordChoice(text);
+}
 /**
  * One target's state in `document`: `unique` when it matches one element that is what
  * `require` asks for (a shown writable input, a shown enabled button, any shown element, an
  * input of a kind Pateat fills, or such an input shown; with `described-writable` or
  * `described-clickable`, a writable input or a clickable button that is also visible as the
- * page's description reads it); without it, or with `present`, any one element counts.
+ * page's description reads it; with `password-choice`, a shown button whose rendered text
+ * names the password choice, ADR 0048); without it, or with `present`, any one element
+ * counts.
  */
 export function targetState(
   document: Document,
@@ -55,7 +62,8 @@ export function targetState(
     (require === "described-clickable" && !(clickable(element) && described())) ||
     (require === "shown" && !shown) ||
     (require === "input" && !textInput(element)) ||
-    (require === "shown-input" && !(textInput(element) && shown))
+    (require === "shown-input" && !(textInput(element) && shown)) ||
+    (require === "password-choice" && !passwordChoice(element))
     ? "unusable"
     : "unique";
 }

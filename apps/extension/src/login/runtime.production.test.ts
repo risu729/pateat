@@ -17048,6 +17048,190 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
     expect(service.generate).not.toHaveBeenCalled();
   });
 
+  describe("a learned button that goes on to the password (ADR 0048)", () => {
+    const choose = target("choose-password");
+    const handler = { kind: "password" as const, path: "/signin", target: choose };
+    /** The page after Next on the same path: no inputs, a choice of how to verify. */
+    const choicePage = describedPage("/signin", [
+      { id: "c1", role: "button", target: choose, label: "Password" },
+      { id: "c2", role: "button", target: target("mobile"), label: "Mobile" },
+    ]);
+    /** The judged revision: the email page's steps and the choice page's handler. */
+    const withHandler = parseLoginRecipe({ ...emailFirst, revision: 2, handlers: [handler] });
+    /** The continued revision: the password page after the press, appended. */
+    const continued = continuedOn("/signin", { revision: 3, handlers: [handler] });
+    const withPress = [
+      "fill:email",
+      "click:next",
+      "click:choose-password",
+      "fill:password",
+      "click:login",
+    ];
+    /**
+     * Next shows the choice page, or the password form with `skip`; the Password button
+     * shows the password form, beside the choice with `keep`, or does nothing with `dead`;
+     * Log in signs in on `/home`.
+     */
+    const choosing = ({ skip = false, dead = false, keep = false } = {}) => {
+      const passwordForm = () => {
+        fake.state.present = new Set([
+          "password",
+          "login",
+          ...(keep ? ["choose-password", "mobile"] : []),
+        ]);
+        fake.state.signIn = true;
+        fake.state.extracted = { login: passwordPage("/signin") };
+      };
+      fake.state.onExecute = async (message) => {
+        const step = (
+          message["operation"] as { step: { kind: string; target?: { value: string } } }
+        ).step;
+        if (step.kind !== "click") return;
+        if (step.target?.value === "next" && skip) passwordForm();
+        else if (step.target?.value === "next") {
+          fake.state.present = new Set(["choose-password", "mobile"]);
+          fake.state.signIn = false;
+          fake.state.extracted = { "signed-in": choicePage };
+        }
+        if (step.target?.value === "choose-password" && !dead) passwordForm();
+        if (step.target?.value === "login") {
+          fake.state.observedPath = "/home";
+          fake.state.present = new Set(["logout"]);
+          fake.state.signIn = false;
+          fake.state.extracted = { "signed-in": homePage };
+        }
+      };
+    };
+
+    it("presses the button the judge named, continues on the password page and signs in", async () => {
+      choosing();
+      const reports: LoginReport[] = [];
+      let h!: ReturnType<typeof harness>;
+      const service = generation(
+        answering(() => h, continued),
+        async (_id, revision) => {
+          if (revision !== 1) return { verdict: "signed-in" };
+          h.recipes.recipe.mockResolvedValue(withHandler);
+          return { verdict: "challenge", recipe: withHandler };
+        },
+      );
+      h = start(service, { report: reports });
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("authenticated"));
+      expect(executed()).toEqual(withPress);
+      // The choice page was judged under the first revision; the page after the press was
+      // sent once to continue the handler's revision, never judged.
+      expect(service.judge.mock.calls.map((call) => call.slice(0, 4))).toEqual([
+        [emailFirst.id, 1, "password", choicePage.observation],
+        [emailFirst.id, 3, "password", homePage.observation],
+      ]);
+      expect(service.generate).toHaveBeenCalledTimes(1);
+      expect(service.generate.mock.calls[0]![0]).toMatchObject({
+        base: { recipeId: emailFirst.id, revision: 2 },
+        observation: passwordPage("/signin").observation,
+      });
+      expect(status()![0]).toMatchObject({
+        recipeRevision: 3,
+        handlers: [{ index: 0, start: 2 }],
+        stepCount: 5,
+        submissions: 3,
+      });
+      expect(
+        reports.flatMap((entry) =>
+          entry.type === "handler" ? [`${entry.kind} ${entry.outcome} ${entry.steps}`] : [],
+        ),
+      ).toEqual(["password entered 1"]);
+    });
+
+    it("continues on a password form shown beside the button it pressed, without holding", async () => {
+      choosing({ keep: true });
+      let h!: ReturnType<typeof harness>;
+      const service = generation(
+        answering(() => h, continued),
+        async (_id, revision) =>
+          revision === 1 ? { verdict: "challenge", recipe: withHandler } : { verdict: "signed-in" },
+      );
+      h = start(service);
+      expect(await h.hello()).toEqual({ ok: true });
+      // Well within the two minutes a held click waits while its button shows.
+      await until(settled("authenticated"), 60_000);
+      expect(executed()).toEqual(withPress);
+      expect(service.generate).toHaveBeenCalledTimes(1);
+    });
+
+    it("presses it on a later login when the page shows, then types the password", async () => {
+      choosing();
+      const service = generation();
+      const h = start(service, { recipe: continued });
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("authenticated"));
+      expect(executed()).toEqual(withPress);
+      // Next and the press each confirm the password form on their own path, as measured
+      // just before their click (ADR 0013).
+      expect(measured()).toEqual(["click:next", "click:choose-password"]);
+      expect(service.generate).not.toHaveBeenCalled();
+    });
+
+    it("leaves the button alone when the site shows the password form at once", async () => {
+      choosing({ skip: true });
+      const service = generation();
+      const h = start(service, { recipe: continued });
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("authenticated"));
+      expect(executed()).toEqual(allSteps);
+      expect(status()![0]).toMatchObject({ handlers: [] });
+    });
+
+    it("never presses a button whose text does not name the password", async () => {
+      choosing();
+      const service = generation(undefined, async () => ({ verdict: "challenge" }));
+      const h = start(service, { recipe: continued });
+      const original = fake.state.onExecute!;
+      // The content script reads the live button's text as not naming the password choice.
+      fake.state.onExecute = async (message, tabId) => {
+        await original(message, tabId);
+        fake.state.unusable = new Set(["choose-password"]);
+      };
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("watching"));
+      expect(executed()).toEqual(["fill:email", "click:next"]);
+      expect(status()![0]).toMatchObject({ outcome: "challenge", handlers: [] });
+    });
+
+    it("ends challenge and watches when the press does nothing", async () => {
+      choosing({ dead: true });
+      const service = generation(undefined, async () => ({ verdict: "unclear" }));
+      const h = start(service, { recipe: continued });
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("watching"));
+      expect(executed()).toEqual(withPress.slice(0, 3));
+      expect(status()![0]).toMatchObject({
+        outcome: "challenge",
+        handlers: [{ index: 0, start: 2 }],
+      });
+      // The page that kept the button was never judged while it showed.
+      expect(service.judge).not.toHaveBeenCalled();
+    });
+
+    it("after a logout, only fills the first page and never presses Next or the button", async () => {
+      choosing();
+      const service = generation();
+      const h = start(service, { recipe: continued });
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("authenticated"));
+      expect(executed()).toEqual(withPress);
+      // The site signs out and shows the email page again in the tab (ADR 0021 D).
+      fake.state.observedPath = "/signin";
+      fake.state.present = new Set(["email", "next"]);
+      fake.state.signIn = false;
+      fake.state.extracted = {};
+      expect(await h.hello({ documentId: "signed-out" })).toEqual({ ok: true });
+      await until(() => executed().length === withPress.length + 1);
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(executed()).toEqual([...withPress, "fill:email"]);
+    });
+  });
+
   describe("probed independently", () => {
     /** A worker restart: a new runtime over the same storage finds tab 1 open. */
     async function restarted<T>(run: () => Promise<T>): Promise<T> {

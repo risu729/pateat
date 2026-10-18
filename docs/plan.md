@@ -486,6 +486,16 @@ than in this repository.
   there ([ADR 0039](adr/0039-redacted-token-path-segments.md), owner, 14:10 UTC; local
   tests only, and a synthetic browser test not yet run). Check both sites in the owner's
   Chrome.
+- UniSuper's login stopped on the page after its username and Next (2026-10-17, 01:33
+  UTC, build `d29951d`): "Let's confirm it's you", on the same path, offered only a
+  "Password" and a "Mobile" button, the judge answered `unclear`, and the owner pressed
+  "Password" themselves. Since 2026-10-18 the judge may name such a page's button that
+  goes on to the password as a `password` handler, which a login presses only when the
+  button shows and its text names the password by a shared English and Japanese word
+  list, and the page after the press is continued as after a final `advance`
+  ([ADR 0048](adr/0048-password-method-button.md), owner, 01:38 UTC). Implemented with
+  local tests only (unit, service and a synthetic browser fixture); check UniSuper in
+  the owner's Chrome, which needs one more judge call and one continuation call.
 - UNSW's single sign-on page on Microsoft Entra
   (`login.microsoftonline.com/<tenant>/oauth2/authorize`) was logged `recipe.generate`
   `skipped` `incomplete-observation` with `unfillable-field` in the owner's Chrome on
