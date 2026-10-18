@@ -224,6 +224,7 @@ export const inferenceLog = sqliteTable(
   },
   (table) => [
     index("inference_log_owner_created").on(table.ownerId, table.createdAt),
+    // Joins a recipe's rows with its revisions, for the backfill and the corpus.
     index("inference_log_owner_recipe").on(table.ownerId, table.recipeId),
     index("inference_log_created").on(table.createdAt),
     check("inference_log_role_check", sql`${table.role} IN ('generate', 'judge')`),

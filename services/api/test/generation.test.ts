@@ -4148,6 +4148,15 @@ describe("account lists and chooser branches (ADR 0028)", () => {
         recipeId,
       ),
     ).toEqual([{ revision: 4 }]);
+    // The log keeps the revision the rebased write stored, not the one the call started on.
+    expect(await logRows(device.ownerId)).toContainEqual(
+      expect.objectContaining({
+        branch: "other",
+        base_revision: 2,
+        revision: 4,
+        recipe_page: "continuation",
+      }),
+    );
   });
 
   it("adds a handler into a branch and never judges the list shown again", async () => {
