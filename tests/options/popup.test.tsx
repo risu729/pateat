@@ -627,6 +627,60 @@ test("a login refused for several matches is restarted with the account picked h
   expect(current().snapshot.revision).toBe(0);
 });
 
+test("an excluded site offers no account choice, even one that waited before", async () => {
+  const settings = createDefaultSettings();
+  settings.excludedSites.push({ hostname: "bank.example", includeSubdomains: false });
+  const { client } = store(saved(0, settings));
+  const choices = noChoice();
+  choices.get.mockResolvedValue({
+    ok: true,
+    origin: "https://bank.example",
+    documentId: "refused-document",
+    candidates: [
+      { connectionId: "demo-personal", itemId: "primary" },
+      { connectionId: "demo-work", itemId: "primary" },
+    ],
+  });
+  await mount(client, "https://bank.example/login", choices);
+  await expect.element(page.getByText("No logins or passkey answers on this site")).toBeVisible();
+  // Give the choice time to be asked for and drawn, as it would be on a site that is on.
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  expect(choices.get).not.toHaveBeenCalled();
+  // The worker keeps a choice from before the exclusion; Log in would only be refused.
+  await expect
+    .element(page.getByRole("heading", { name: "Choose an account" }))
+    .not.toBeInTheDocument();
+  await expect.element(page.getByRole("button", { name: "Log in" })).not.toBeInTheDocument();
+  await expect
+    .element(
+      page.getByText("Checking whether this page waits for an account choice", { exact: false }),
+    )
+    .not.toBeInTheDocument();
+});
+
+test("turning Pateat off for the site hides a waiting account choice", async () => {
+  const { client } = store();
+  const choices = noChoice();
+  choices.get.mockResolvedValue({
+    ok: true,
+    origin: "https://bank.example",
+    documentId: "refused-document",
+    candidates: [
+      { connectionId: "demo-personal", itemId: "primary" },
+      { connectionId: "demo-work", itemId: "primary" },
+    ],
+  });
+  await mount(client, "https://bank.example/login", choices);
+  await expect.element(page.getByRole("heading", { name: "Choose an account" })).toBeVisible();
+  await userEvent.click(page.getByRole("switch", { name: "Pateat on this site" }));
+  await expect.element(page.getByText("bank.example is now excluded")).toBeVisible();
+  await expect.element(page.getByText("No logins or passkey answers on this site")).toBeVisible();
+  await expect
+    .element(page.getByRole("heading", { name: "Choose an account" }))
+    .not.toBeInTheDocument();
+  await expect.element(page.getByRole("button", { name: "Log in" })).not.toBeInTheDocument();
+});
+
 test("a choice that starts waiting after the popup opened is shown while it stays open", async () => {
   const { client } = store();
   const choices = noChoice();
