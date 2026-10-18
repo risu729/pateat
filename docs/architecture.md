@@ -2316,6 +2316,17 @@ minimum supported schema, origin scope and device access; reject stale or
 incompatible results. Start private per owner. Public recipe sharing and
 cross-user learning are deferred to a separate design.
 
+Stored heads are revalidated on every read. An active head whose document no longer
+passes the recipe contract, for example after a contract tightened without a migration
+that rewrites it, is read as revoked at its revision (owner, 2026-10-18): the change
+feed sends `{ recipeId, revision, state: "revoked" }`, devices drop their copy and move
+their cursor past it, and generation and completion treat it as revoked, so a device can
+generate the recipe again over it. On the service it stays active, counting toward the
+recipe limits, until it is revoked or replaced. `GET /manage/api/recipes` lists it in
+`unreadable` (`{ recipeId, revision, updatedAt }`) instead of `recipes`, and the Sites
+list shows it under Unreadable recipes with Revoke. A head whose recipe ID or revision
+itself fails its contract still answers 500.
+
 Keep provider selection independent of recipe contracts: Claude for bounded generation
 and Clef-flash, Clef and Jev for finite choices are evaluation candidates, not fixed
 model requirements. Initial inference uses server-held keys. A future direct adapter
@@ -2417,11 +2428,11 @@ planned change. Each is current behavior that the service does not handle.
   create and revoke recipes in a loop within the request limit, and every new device
   downloads all tombstones on its first sync; `GET /manage/api/recipes` returns every
   head in one unpaginated answer.
-- One invalid stored row. Stored documents fail closed, so a recipe head that no longer
-  validates makes its change-feed page answer 500 on every retry: devices cannot move
-  their cursor past it, and the web UI's recipe list fails as a whole. A contract that
-  tightens without a migration that rewrites or removes affected rows stops recipe sync
-  for their owners.
+- One invalid stored head. A recipe document that no longer validates is read as
+  revoked (see above), but a head whose recipe ID or revision fails its contract still
+  makes its change-feed page and the web UI's recipe list answer 500 on every retry, and
+  devices cannot move their cursor past it. Only a direct database edit or a migration
+  that changes those contracts can produce one.
 - Requests without limits. `OWNER_LIMITER` runs after authentication, so `/v1`
   requests with unknown credentials are not limited by the Worker; owner pages, their
   assets, `/pair/signed-in` and `/manage/claude` (whose test button makes one token
@@ -2530,8 +2541,11 @@ field exclusions and custom-field review, which need the device's vault catalog
     count, its default account ("<item> in <account>") and its binding count, and
     opening the site's page; then each `excludedSites` rule (a hostname, optionally with
     its subdomains) with Allow, which deletes it, and a form to add one. Below them,
-    Revoked recipes lists each tombstone with its revision and time; a tombstone keeps
-    no origin, so it belongs to no site.
+    Unreadable recipes, shown only when there are any, lists each active recipe whose
+    document the service can no longer read, with its revision, time and Revoke with
+    the same confirmation as a site's recipes. Revoked recipes lists each tombstone
+    with its revision and time; neither keeps a readable origin, so they belong to no
+    site.
   - A site (`/manage/sites/<scheme>/<host>`, one exact origin, the key of defaults,
     recipes and bindings; the Worker serves the app for any host under `http` or
     `https`, and the app shows "No such page." for one that is not a canonical origin):

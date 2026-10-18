@@ -484,12 +484,42 @@ describe("recipe sync", () => {
     });
   });
 
-  it("fails closed without details when a stored recipe is corrupt", async () => {
+  it("sends a recipe whose stored document no longer validates as revoked", async () => {
     const device = await enrollOwner();
     await publish(device, "bank-login", 0);
-    await env.DB.prepare("UPDATE recipe_revisions SET document = ? WHERE owner_id = ?")
-      .bind(JSON.stringify({ synthetic: "corrupt" }), device.ownerId)
+    await publish(device, "shop-login", 0);
+    // Stands in for a stored document that a later, stricter contract refuses.
+    await env.DB.prepare(
+      "UPDATE recipe_revisions SET document = ? WHERE owner_id = ? AND recipe_id = 'bank-login'",
+    )
+      .bind(JSON.stringify({ synthetic: "unreadable" }), device.ownerId)
       .run();
+    const response = await api(device, "/v1/recipes");
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      changes: [
+        { recipeId: "bank-login", revision: 1, state: "revoked" },
+        { recipeId: "shop-login", revision: 1, state: "active" },
+      ],
+      cursor: 2,
+      complete: true,
+    });
+    // A device may replace it with a readable revision.
+    expect((await publish(device, "bank-login", 1)).status).toBe(200);
+    expect(await (await api(device, "/v1/recipes?after=2")).json()).toMatchObject({
+      changes: [{ recipeId: "bank-login", revision: 2, state: "active" }],
+    });
+  });
+
+  it("fails closed without details when a stored recipe head is corrupt", async () => {
+    const device = await enrollOwner();
+    await publish(device, "bank-login", 0);
+    // A revision the contract refuses cannot be sent even as revoked.
+    await env.DB.batch(
+      ["recipe_heads", "recipe_revisions"].map((table) =>
+        env.DB.prepare(`UPDATE ${table} SET revision = 0 WHERE owner_id = ?`).bind(device.ownerId),
+      ),
+    );
     const response = await api(device, "/v1/recipes");
     expect(response.status).toBe(500);
     expect(await response.json()).toEqual({ error: "internal_error" });
