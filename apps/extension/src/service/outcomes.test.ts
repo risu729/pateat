@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import type { LoginReport } from "../login/runtime";
-import { createLoginOutcomes, loginOutcomeOf, MAX_OUTCOME_SENDS } from "./outcomes";
+import {
+  createLoginOutcomes,
+  loginOutcomeOf,
+  MAX_OUTCOME_SENDS,
+  PENDING_OUTCOME_MS,
+  type LoginOutcomeSent,
+} from "./outcomes";
 import type { ServiceConnection } from "./runtime";
 import type { OutcomeResult, ServiceTransport } from "./transport";
 
@@ -51,16 +57,21 @@ function setup(
   };
   const answer = options.answer ?? (async (): Promise<OutcomeResult> => ({ kind: "kept" }));
   const reportOutcome = vi.fn<ServiceTransport["reportOutcome"]>(() => answer());
-  const connection = "connection" in options ? options.connection : CONNECTION;
+  const state = {
+    connection: "connection" in options ? options.connection : CONNECTION,
+    now: 1_000,
+  };
+  const logged: LoginOutcomeSent[] = [];
   const outcomes = createLoginOutcomes({
-    service: { connection: async () => connection },
+    service: { connection: async () => state.connection },
     transport: { reportOutcome },
     storage,
-    now: () => 1_000,
+    report: (sent) => logged.push(sent),
+    now: () => state.now,
   });
   /** Lets the queued work run. */
   const settle = () => outcomes.flush();
-  return { outcomes, reportOutcome, storage, settle, stored: () => stored };
+  return { outcomes, reportOutcome, storage, settle, stored: () => stored, state, logged };
 }
 
 describe("loginOutcomeOf", () => {
@@ -109,9 +120,44 @@ describe("loginOutcomeOf", () => {
       )?.report.cause,
     ).toBe("unconfirmed");
     expect(
-      loginOutcomeOf(attempt({ state: "watching", outcome: "challenge", settled: undefined }))
+      loginOutcomeOf(
+        attempt({
+          state: "blocked",
+          outcome: "cancelled",
+          cause: "page-changed",
+          settled: undefined,
+        }),
+      )?.report,
+    ).toEqual({ version: 1, revision: 3, outcome: "cancelled", cause: "page-changed", step: 1 });
+  });
+
+  it("reports a watched login only when its watch ends (ADR 0027)", () => {
+    // Where it stopped: a step left to the person, or a result settled as unknown.
+    expect(
+      loginOutcomeOf(
+        attempt({ state: "watching", outcome: "challenge", settled: undefined, watched: true }),
+      ),
+    ).toBeUndefined();
+    expect(loginOutcomeOf(attempt({ watched: true }))).toBeUndefined();
+    // How the watch ended: signed in, abandoned, or ended where it stopped.
+    expect(
+      loginOutcomeOf(
+        attempt({ state: "authenticated", outcome: "authenticated", settled: undefined }),
+      )?.report,
+    ).toEqual({ version: 1, revision: 3, outcome: "authenticated", step: 1 });
+    expect(
+      loginOutcomeOf(
+        attempt({ state: "blocked", outcome: "challenge-abandoned", settled: undefined }),
+      )?.report.outcome,
+    ).toBe("challenge-abandoned");
+    expect(
+      loginOutcomeOf(attempt({ state: "blocked", outcome: "unknown-submit", settled: undefined }))
         ?.report,
-    ).toEqual({ version: 1, revision: 3, outcome: "challenge", step: 1 });
+    ).toEqual({ version: 1, revision: 3, outcome: "unknown-submit", step: 1 });
+  });
+
+  it("lets a listed cause take precedence over the settled flag", () => {
+    expect(loginOutcomeOf(attempt({ cause: "sign-in-shown" }))?.report.cause).toBe("sign-in-shown");
   });
 
   it.each([
@@ -120,6 +166,20 @@ describe("loginOutcomeOf", () => {
     ["a login that retries", { state: "retryable", outcome: "timeout", settled: undefined }],
     ["a fill-only login", { state: "blocked", outcome: "cancelled", reason: "fill-only" }],
     ["a login stopped before a missing password", { state: "watching", stop: "password" }],
+    [
+      "a login of an item without a password that failed before its stop",
+      {
+        state: "blocked",
+        outcome: "structural-mismatch",
+        cause: "target-missing",
+        stop: "password",
+      },
+    ],
+    ["a cancel without a cause", { state: "blocked", outcome: "cancelled", settled: undefined }],
+    [
+      "a cancel with a cause outside the list",
+      { state: "blocked", outcome: "cancelled", cause: "settings-saved", settled: undefined },
+    ],
     [
       "a login stopped by a settings change",
       { state: "blocked", outcome: "policy-changed", cause: "settings-synced" },
@@ -141,12 +201,12 @@ describe("loginOutcomeOf", () => {
       loginOutcomeOf(
         attempt({
           state: "blocked",
-          outcome: "cancelled",
+          outcome: "interrupted",
           cause: "settings-saved",
           settled: undefined,
         }),
       )?.report,
-    ).toEqual({ version: 1, revision: 3, outcome: "cancelled", step: 1 });
+    ).toEqual({ version: 1, revision: 3, outcome: "interrupted", step: 1 });
   });
 });
 
@@ -186,11 +246,19 @@ describe("createLoginOutcomes", () => {
   });
 
   it("reports nothing without a paired service, nor later once it is paired", async () => {
-    const { outcomes, reportOutcome, storage, settle } = setup({ connection: undefined });
+    const { outcomes, reportOutcome, storage, settle, state } = setup({ connection: undefined });
     outcomes.observe(attempt());
     await settle();
     expect(reportOutcome).not.toHaveBeenCalled();
     expect(storage.write).not.toHaveBeenCalled();
+    // Pairing later sends nothing for the login that ended before it.
+    state.connection = CONNECTION;
+    await settle();
+    expect(reportOutcome).not.toHaveBeenCalled();
+    // The revision's next ended login, once paired, is its first report.
+    outcomes.observe(attempt({ state: "authenticated", outcome: "authenticated" }));
+    await settle();
+    expect(reportOutcome.mock.calls.map((call) => call[3].outcome)).toEqual(["authenticated"]);
     const rejected = setup({ connection: { ...CONNECTION, rejected: true } });
     rejected.outcomes.observe(attempt());
     await rejected.settle();
@@ -205,12 +273,14 @@ describe("createLoginOutcomes", () => {
     // One attempt now and one at the flush the test itself makes; never a retry loop.
     expect(reportOutcome).toHaveBeenCalledTimes(2);
     expect(stored()).toMatchObject({ entries: [{ revision: 3, pending: { revision: 3 } }] });
-    // The same revision ending again is not reported again, even while pending.
-    outcomes.observe(attempt({ state: "authenticated", outcome: "authenticated" }));
+    // Another ended login, of the same revision here, sends what is pending without a
+    // flush, and the revision is not reported again.
     answer = { kind: "kept" };
+    outcomes.observe(attempt({ state: "authenticated", outcome: "authenticated" }));
+    await vi.waitFor(() => expect(reportOutcome).toHaveBeenCalledTimes(3));
+    expect(reportOutcome.mock.calls.at(-1)![3]).toMatchObject({ outcome: "unknown-submit" });
     await settle();
     expect(reportOutcome).toHaveBeenCalledTimes(3);
-    expect(reportOutcome.mock.calls.at(-1)![3]).toMatchObject({ outcome: "unknown-submit" });
     expect(stored()).toEqual({
       version: 1,
       entries: [
@@ -255,6 +325,71 @@ describe("createLoginOutcomes", () => {
     expect(reportOutcome.mock.calls.map((call) => call[3].revision)).toEqual([1, 2, 3, 4, 5]);
   });
 
+  it("sends what is pending at an ended login it reports nothing for", async () => {
+    let answer: OutcomeResult = { kind: "failed", error: "unreachable" };
+    const { outcomes, reportOutcome } = setup({ answer: async () => answer });
+    outcomes.observe(attempt());
+    await vi.waitFor(() => expect(reportOutcome).toHaveBeenCalledTimes(1));
+    answer = { kind: "kept" };
+    outcomes.observe(
+      attempt({
+        recipeRevision: 9,
+        state: "blocked",
+        outcome: "policy-changed",
+        settled: undefined,
+      }),
+    );
+    await vi.waitFor(() => expect(reportOutcome).toHaveBeenCalledTimes(2));
+    expect(reportOutcome.mock.calls.map((call) => call[3].revision)).toEqual([3, 3]);
+  });
+
+  it("drops a report still pending after 14 days and keeps its revision reported", async () => {
+    const { outcomes, reportOutcome, settle, state, stored } = setup({
+      answer: async () => ({ kind: "failed", error: "unreachable" }),
+    });
+    outcomes.observe(attempt());
+    await settle();
+    expect(reportOutcome).toHaveBeenCalledTimes(2);
+    state.now += PENDING_OUTCOME_MS;
+    await settle();
+    expect(reportOutcome).toHaveBeenCalledTimes(3);
+    state.now += 1;
+    await settle();
+    expect(reportOutcome).toHaveBeenCalledTimes(3);
+    expect(stored()).toEqual({
+      version: 1,
+      entries: [expect.not.objectContaining({ pending: expect.anything() })],
+    });
+    outcomes.observe(attempt({ state: "authenticated", outcome: "authenticated" }));
+    await settle();
+    expect(reportOutcome).toHaveBeenCalledTimes(3);
+  });
+
+  it("skips a report the service answers unexpectedly and sends the next one", async () => {
+    const { outcomes, reportOutcome, settle, stored, logged } = setup({
+      answer: async () => ({ kind: "failed", error: "unexpected-response" }),
+    });
+    reportOutcome.mockImplementation(async (_origin, _credential, _id, report) =>
+      report.revision === 1 ? { kind: "failed", error: "unexpected-response" } : { kind: "kept" },
+    );
+    outcomes.observe(attempt({ recipeRevision: 1 }));
+    outcomes.observe(attempt({ recipeRevision: 2, branch: "other" }));
+    await settle();
+    // Revision 1 was tried at each of the three runs; revision 2 went at its own.
+    expect(reportOutcome.mock.calls.map((call) => call[3].revision)).toEqual([1, 1, 2, 1]);
+    expect(stored()).toMatchObject({
+      entries: [{ revision: 1, pending: { revision: 1 } }, { revision: 2 }],
+    });
+    expect((stored() as { entries: object[] }).entries[1]).not.toHaveProperty("pending");
+    // The local log gets one value-free line per request (ADR 0019).
+    expect(logged).toEqual([
+      { recipeId: "gen-0123", revision: 1, result: "failed:unexpected-response" },
+      { recipeId: "gen-0123", revision: 1, result: "failed:unexpected-response" },
+      { recipeId: "gen-0123", revision: 2, branch: "other", result: "kept" },
+      { recipeId: "gen-0123", revision: 1, result: "failed:unexpected-response" },
+    ]);
+  });
+
   it("never throws into the login when sending or storage fails", async () => {
     const failing = setup({
       answer: async () => {
@@ -263,6 +398,7 @@ describe("createLoginOutcomes", () => {
     });
     expect(() => failing.outcomes.observe(attempt())).not.toThrow();
     await expect(failing.settle()).resolves.toBeUndefined();
+    expect(failing.logged.map((sent) => sent.result)).toEqual(["failed:threw", "failed:threw"]);
 
     const broken = setup();
     broken.storage.read.mockRejectedValue(new Error("synthetic storage failure"));

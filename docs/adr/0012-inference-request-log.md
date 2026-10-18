@@ -100,6 +100,10 @@ local log:
   not a tombstone.
 - Its rows are kept one year like the log's and deleted with expired log rows. The
   Request log page counts them beside the requests, and Delete all deletes them too.
+- A row is the first report the service received for its revision, not always the
+  revision's first login: a revision that ran before the build that sends these codes
+  reports its next login instead. The corpus builder drops outcome rows whose revision's
+  generation row (`inference_log.revision`) predates that build's deployment.
 
 ## Consequences
 

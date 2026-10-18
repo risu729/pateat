@@ -12,9 +12,11 @@ export const REQUEST_LOG_QUERY_KEY = ["request-log"] as const;
 const RETENTION_DAYS = INFERENCE_LOG_RETENTION_MS / (24 * 60 * 60 * 1000);
 const requests = (n: number) => `${n} request${n === 1 ? "" : "s"}`;
 const results = (n: number) => `${n} login result${n === 1 ? "" : "s"}`;
-/** Requests, and login results when there are any. */
+/** The requests and login results there are, or `0 requests` when there are neither. */
 const held = (entries: number, outcomes: number) =>
-  outcomes ? `${requests(entries)} and ${results(outcomes)}` : requests(entries);
+  [entries ? requests(entries) : "", outcomes ? results(outcomes) : ""]
+    .filter(Boolean)
+    .join(" and ") || requests(0);
 
 /**
  * The service's log of the requests it sent to Claude (ADR 0012) and the login result codes

@@ -11,7 +11,7 @@ import {
 import * as v from "valibot";
 import type { LoginReport, StopCause } from "../login/runtime";
 import type { ServiceConnection } from "./runtime";
-import type { ServiceTransport } from "./transport";
+import type { OutcomeResult, ServiceTransport } from "./transport";
 
 // The one exception to "logs are never synced" (ADR 0019, amended 2026-10-18): how the
 // first login of each recipe revision on this device ended, as codes only, for the
@@ -25,6 +25,20 @@ void stopCauses;
 export const MAX_LOGIN_OUTCOMES = 500;
 /** Reports sent in one go, so a backlog never bursts against the owner's request limit. */
 export const MAX_OUTCOME_SENDS = 5;
+/**
+ * A report still pending after this long is dropped, and its revision stays reported: the
+ * local log keeps its login this long too (`LOG_RETENTION_MS`, ADR 0019).
+ */
+export const PENDING_OUTCOME_MS = 14 * 24 * 60 * 60 * 1000;
+
+/** One request that left the device, for the local log (ADR 0019): codes only. */
+export type LoginOutcomeSent = {
+  recipeId: string;
+  revision: number;
+  branch?: ChooserBranch;
+  /** `kept`, `refused`, `rejected`, or `failed:<code>`. */
+  result: string;
+};
 
 /**
  * The revisions this device reported, per service and device like the generated slot
@@ -58,15 +72,19 @@ export interface LoginOutcomeStorage {
 /**
  * Results that leave the revision for a later login, because they say nothing about its
  * plan: settings or the vault changed under the login, or the recipe's account switch
- * starts a fresh attempt.
+ * starts a fresh attempt. A `cancelled` end without a cause is left too (below).
  */
 const notEnded = new Set(["policy-changed", "account-switched"]);
 
 /**
- * The code to send for a login report, or nothing: only for a login that just ended or
- * settled (signed in, blocked, watched after a step left to the person, or settled as
- * unknown) on a service recipe revision. A fill-only login and one that stops before an
- * item's missing password run only part of the revision, so they report nothing.
+ * The code to send for a login report, or nothing: only for a login on a service recipe
+ * revision that just ended (signed in or blocked) or, unless it is watched, settled as
+ * unknown. A watched login (ADR 0027) reports how its watch ends, as signed in or blocked
+ * with the outcome the watch left, never where it first stopped. A fill-only login and one
+ * of an item without a password run only part of the revision, so they report nothing:
+ * every report of the latter names its stop, so it reports nothing even when it fails
+ * before the stop. A listed cause is sent as it is and takes precedence over the
+ * `settled` and `unconfirmed` flags, which stand in only when there is none.
  */
 export function loginOutcomeOf(
   report: LoginReport,
@@ -76,9 +94,11 @@ export function loginOutcomeOf(
   const ended =
     report.state === "authenticated" ||
     report.state === "blocked" ||
-    report.state === "watching" ||
-    (report.state === "reconciling" && report.settled === true);
+    (report.state === "reconciling" && report.settled === true && !report.watched);
   if (!ended || !report.outcome || notEnded.has(report.outcome)) return undefined;
+  // A cancel with no cause, as a navigation the login did not expect, says nothing of the plan.
+  if (report.outcome === "cancelled" && !v.is(loginOutcomeCauseSchema, report.cause))
+    return undefined;
   const cause: LoginOutcomeCause | undefined = v.is(loginOutcomeCauseSchema, report.cause)
     ? report.cause
     : report.settled
@@ -116,14 +136,16 @@ const sameRevision =
 /**
  * Sends the service the result code of the first login of each recipe revision on this
  * device (ADR 0019, amended 2026-10-18). A revision is recorded before its report is sent,
- * so it is reported at most once; a report the service could not take stays pending, and
- * is sent once at the next ended login or recipe sync, a few at a time. Nothing here
- * throws into, waits on or changes a login.
+ * so it is reported once; a report the service could not take stays pending, and every
+ * ended login and successful recipe sync sends what is pending, a few at a time, until it
+ * is 14 days old. Nothing here throws into, waits on or changes a login.
  */
 export function createLoginOutcomes(options: {
   service: { connection(): Promise<ServiceConnection | undefined> };
   transport: Pick<ServiceTransport, "reportOutcome">;
   storage: LoginOutcomeStorage;
+  /** Told of each request sent, for the local log; never changes the sending. */
+  report?: (sent: LoginOutcomeSent) => void;
   now?: () => number;
 }) {
   const { service, transport, storage } = options;
@@ -172,11 +194,26 @@ export function createLoginOutcomes(options: {
     return true;
   }
 
-  /** Sends pending reports of this service and device, oldest first, until one fails. */
+  /** The entry without its pending report: its revision stays reported. */
+  const settledEntry = ({ pending: _pending, ...rest }: Entry): Entry => rest;
+
+  /**
+   * Sends pending reports of this service and device, oldest first. A report older than
+   * `PENDING_OUTCOME_MS` is dropped unsent. An unreachable or rate-limited service or a
+   * rejected device stops the run and keeps the rest; an unexpected answer, such as a 5xx,
+   * skips that report only, so one bad entry never holds the others back.
+   */
   async function send() {
     const connection = await connected();
     if (!connection) return;
     let current = await entries();
+    const cutoff = now() - PENDING_OUTCOME_MS;
+    if (current.some((entry) => entry.pending && entry.at < cutoff)) {
+      current = current.map((entry) =>
+        entry.pending && entry.at < cutoff ? settledEntry(entry) : entry,
+      );
+      await write(current);
+    }
     const pending = current
       .filter(
         (entry) =>
@@ -186,35 +223,60 @@ export function createLoginOutcomes(options: {
       )
       .slice(0, MAX_OUTCOME_SENDS);
     for (const entry of pending) {
-      // oxlint-disable-next-line no-await-in-loop -- one request at a time, stopping at a failure
-      const result = await transport.reportOutcome(
-        connection.origin,
-        connection.credential,
-        entry.recipeId,
-        entry.pending!,
-      );
-      // A rejected device or an unreachable service keeps the report for the next time.
+      let result: OutcomeResult | undefined;
+      try {
+        // oxlint-disable-next-line no-await-in-loop -- one request at a time, stopping at a failure
+        result = await transport.reportOutcome(
+          connection.origin,
+          connection.credential,
+          entry.recipeId,
+          entry.pending!,
+        );
+      } catch {
+        result = undefined;
+      }
+      try {
+        options.report?.({
+          recipeId: entry.recipeId,
+          revision: entry.revision,
+          ...(entry.branch ? { branch: entry.branch } : {}),
+          result: !result
+            ? "failed:threw"
+            : result.kind === "failed"
+              ? `failed:${result.error}`
+              : result.kind,
+        });
+      } catch {
+        // The log never changes the sending.
+      }
+      if (!result || (result.kind === "failed" && result.error === "unexpected-response")) continue;
       if (result.kind !== "kept" && result.kind !== "refused") return;
       const done = sameRevision(connection, entry.recipeId, entry.branch, entry.revision);
-      current = current.map((stored) => {
-        if (!done(stored)) return stored;
-        const { pending: _sent, ...rest } = stored;
-        return rest;
-      });
+      current = current.map((stored) => (done(stored) ? settledEntry(stored) : stored));
       // oxlint-disable-next-line no-await-in-loop -- recorded before the next request
       await write(current);
     }
   }
 
   return {
-    /** Takes every login report; reports a revision's first ended login. Never throws. */
+    /**
+     * Takes every login report; records a revision's first ended login and sends what is
+     * pending. Never throws.
+     */
     observe(report: LoginReport): void {
       try {
         const found = loginOutcomeOf(report);
+        // Every ended login also sends what is still pending, one it reports nothing for too.
         if (found)
           void enqueue(async () => {
-            if (await record(found)) await send();
+            await record(found);
+            await send();
           });
+        else if (
+          report.type === "attempt" &&
+          (report.state === "authenticated" || report.state === "blocked")
+        )
+          void enqueue(send);
       } catch {
         // A report must never change the login.
       }

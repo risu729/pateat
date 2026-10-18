@@ -237,6 +237,19 @@ test("deletes the whole request log after a confirmation", async () => {
   await expect.element(page.getByRole("button", { name: "Delete all" })).toBeDisabled();
 });
 
+test("names only the login results when no request is logged", async () => {
+  const client = mockClient();
+  client.requestLog.mockResolvedValue({ version: 1, entries: 0, outcomes: 2, oldestAt: PAIRED });
+  await mount(client, "/manage/request-log");
+  await expect
+    .element(page.getByText(`2 login results logged since ${formatted(PAIRED)}.`))
+    .toBeVisible();
+  await page.getByRole("button", { name: "Delete all" }).click();
+  await expect
+    .element(page.getByText("Delete all 2 login results? This cannot be undone."))
+    .toBeVisible();
+});
+
 test("reports a failed deletion and keeps the log shown", async () => {
   const client = mockClient();
   client.deleteRequestLog.mockRejectedValue(new ManageApiError("rate_limited"));

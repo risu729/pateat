@@ -249,6 +249,54 @@ describe("diagnostics log", () => {
     vi.restoreAllMocks();
   });
 
+  it("logs each first login result sent to the service as codes (ADR 0019)", async () => {
+    const log = createDiagnosticsLog({
+      build: { version: "0.1.0", revision: "1c42ad3" },
+      settings: async () => {
+        throw new Error("not needed");
+      },
+      recipeCache: async () => undefined,
+      connections: async () => ({ ok: true, kind: "status", connections: [] }),
+      databaseName: `log-test-${crypto.randomUUID()}`,
+      scope: { addEventListener: () => undefined } as never,
+    });
+    for (const level of ["debug", "info", "warn"] as const)
+      vi.spyOn(console, level).mockImplementation(() => undefined);
+    log.loginOutcome({ recipeId: "gen-0123", revision: 3, result: "kept" });
+    log.loginOutcome({ recipeId: "gen-0123", revision: 4, result: "failed:unreachable" });
+    log.loginOutcome({
+      recipeId: "gen-0123",
+      revision: 5,
+      branch: "other",
+      result: "failed:unexpected-response",
+    });
+    await vi.waitFor(async () =>
+      expect(
+        (await log.logger.entries()).filter((entry) => entry.event === "service.outcome"),
+      ).toHaveLength(3),
+    );
+    const entries = (await log.logger.entries()).filter(
+      (entry) => entry.event === "service.outcome",
+    );
+    expect(entries.map(({ level, fields }) => ({ level, fields }))).toEqual([
+      { level: "info", fields: { recipe: "gen-0123", recipeRevision: 3, result: "kept" } },
+      {
+        level: "info",
+        fields: { recipe: "gen-0123", recipeRevision: 4, result: "failed:unreachable" },
+      },
+      {
+        level: "warn",
+        fields: {
+          recipe: "gen-0123",
+          recipeRevision: 5,
+          branch: "other",
+          result: "failed:unexpected-response",
+        },
+      },
+    ]);
+    vi.restoreAllMocks();
+  });
+
   it("keeps a page URL's path and parameter names only for a site named in full", async () => {
     const { logger } = setup();
     const long = `https://bank.example/signin?return=${"a".repeat(600)}`;

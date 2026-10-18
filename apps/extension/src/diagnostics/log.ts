@@ -129,6 +129,11 @@ export const LOG_EVENTS = {
       removed: "count",
     },
   },
+  // A first login's result code sent to the service (ADR 0019, amended 2026-10-18).
+  "service.outcome": {
+    level: "info",
+    fields: { recipe: "recipe", recipeRevision: "count", branch: "code", result: "code" },
+  },
   "settings.changed": { level: "info", fields: { source: "code", revision: "count" } },
   "login.attempt": {
     level: "info",

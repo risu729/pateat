@@ -146,11 +146,12 @@ export default defineBackground(() => {
     },
   });
   // ADR 0019, amended 2026-10-18: the first login of each recipe revision sends its result
-  // code; one the service could not take goes with the next recipe sync that reached it.
+  // code; one the service could not take goes with the next ended login or recipe sync.
   const loginOutcomes = createLoginOutcomes({
     service,
     transport: serviceTransport,
     storage: createBrowserLoginOutcomeStorage(),
+    report: diagnosticsLog.loginOutcome,
   });
   const recipeCacheStorage = createBrowserRecipeCacheStorage();
   const recipeScheduleStorage = createBrowserRecipeScheduleStorage();

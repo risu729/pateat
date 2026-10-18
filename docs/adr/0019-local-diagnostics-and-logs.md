@@ -359,29 +359,46 @@ the evaluation corpus ([ADR 0012](0012-inference-request-log.md)), where the loc
 keeps them only 14 days. Logs are still never synced; this narrow, value-free result
 code is the one exception:
 
-- For the first login of each recipe revision on a device that ends (signed in, blocked,
-  watched after a step left to the person, or settled as unknown), the worker sends
+- For the first login of each recipe revision on a device that ends, signed in or
+  blocked, or settles as unknown without being watched, the worker sends
   `POST /v1/recipes/:recipeId/outcome` with the revision, the chooser branch when there
   is one, the `login.attempt` outcome, a cause from a fixed list, and the step index.
   The service adds the time. Never the URL, origin, reason text, labels, values,
   usernames or page text.
-- The cause list is the worker's stop causes, the page's reasons for a failed or
-  cancelled step, `settled` for a result that settled as unknown and `unconfirmed` for a
-  sign-in on an undecided page (`loginOutcomeCauseSchema`). Any other cause, and the
-  `reason` field, is not sent.
-- The device records each revision before sending, so it reports each one once; the
-  service keeps the first report of a revision from any of the owner's
-  devices, so "first" means the first time the revision ran, whichever device generated
-  it. One the service could not take stays pending and goes with the next ended login or
-  recipe sync, a few at a time; sending never affects the login.
+- The cause list is the worker's stop causes and the page's reasons for a failed or
+  cancelled step, sent as they are; only when a login has none of them does `settled`
+  (a result that settled as unknown) or `unconfirmed` (a sign-in on an undecided page)
+  stand in (`loginOutcomeCauseSchema`). Any other cause, and the `reason` field, is not
+  sent.
+- The device records each revision before sending, so it reports each one once. The
+  service keeps the first report it receives for a revision, from any of the owner's
+  devices, and ignores later ones; "first" means that report, whichever device generated
+  the revision. A revision that already ran before this build reports its next login as
+  its first (see
+  [ADR 0012](0012-inference-request-log.md#amendment-2026-10-18-login-result-codes)).
+- One the service could not take stays pending. Every ended login and every successful
+  recipe sync sends what is pending, at most five at a time: an unreachable or
+  rate-limited service or a rejected device stops the run, an unexpected answer such as
+  a 5xx skips only that report, and a report still pending after 14 days, the local
+  log's retention, is dropped unsent. Sending never affects the login. Each request
+  logs one `service.outcome` line with the recipe, revision, branch and result (`kept`,
+  `refused`, `rejected` or `failed:<code>`), as every request that leaves the device
+  does.
 - A login without a recipe revision sends nothing. Not confirmed by the owner (the
-  agent's choice): a fill-only login, one that stops before an item's missing password,
-  and `policy-changed` or `account-switched` ends send nothing and leave the revision to
-  its next login; a watched login reports where it first stopped, not how the watch
-  ended; the route is `POST /v1/recipes/:recipeId/outcome` with the recipe ID in the
-  path, as `/completion` has it, and `branch` is left out without one rather than sent
-  as `""`. The design note planned its own ADR; it is recorded as amendments here and in
-  ADR 0012 instead.
+  agent's choice):
+  - A fill-only login, any login of an item without a password (every report of it names
+    its stop, so it sends nothing even when it fails before the stop), and
+    `policy-changed`, `account-switched` or cause-less `cancelled` ends send nothing and
+    leave the revision to its next login.
+  - A watched login ([ADR 0027](0027-per-account-login-routes.md)) reports when its
+    watch ends: signed in, or blocked with the outcome the watch left (such as
+    `challenge-abandoned`), never where it first stopped. One whose tab closes before
+    the watch ends reports nothing.
+  - The route is `POST /v1/recipes/:recipeId/outcome` with the recipe ID in the path, as
+    `/completion` has it, and `branch` is left out without one rather than sent as
+    `""`.
+  - The design note planned its own ADR; it is recorded as amendments here and in ADR
+    0012 instead.
 - No host permission is added: the service origin is already allowed. The service side,
   retention and delete-all are recorded in
   [ADR 0012](0012-inference-request-log.md#amendment-2026-10-18-login-result-codes).

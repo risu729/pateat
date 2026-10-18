@@ -21884,6 +21884,8 @@ describe("an item without a password, up to its password (ADR 0036)", () => {
         state: "watching",
         stop: "password",
         reason: "password-empty",
+        // A watched login says so, so its first result is sent when the watch ends.
+        watched: true,
       }),
     );
   });
