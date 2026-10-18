@@ -17,7 +17,12 @@ import type { LoginRecipes } from "../login/runtime";
 import { loginReadiness } from "../login/wire";
 import type { RecipeSyncRecord, ServiceConnection } from "./runtime";
 import type { SettingsSyncOutcome } from "./settings-sync";
-import type { ServiceTransport, TransportFailure } from "./transport";
+import {
+  addTimings,
+  type ServiceTiming,
+  type ServiceTransport,
+  type TransportFailure,
+} from "./transport";
 
 /** A lookup this long after the last sync attempt starts a background sync. */
 export const RECIPE_SYNC_STALE_MS = 5 * 60 * 1000;
@@ -93,7 +98,15 @@ export type RecipeSyncChanges = {
   added: number;
   updated: number;
   removed: number;
+  /** The run's requests' timing added up; none when it sent none (ADR 0019). */
+  timing?: ServiceTiming;
 };
+
+/** Adds one request's timing to a sync run's. */
+function timed(changed: RecipeSyncChanges, timing: ServiceTiming | undefined): void {
+  const total = addTimings(changed.timing, timing);
+  if (total) changed.timing = total;
+}
 
 export function createRecipeSync(options: {
   service: {
@@ -106,7 +119,11 @@ export function createRecipeSync(options: {
   schedule: RecipeScheduleStorage;
   /** Settings sync for the same device, run after recipes in every sync. */
   settings?: {
-    run(connection: ServiceConnection, stale: () => boolean): Promise<SettingsSyncOutcome>;
+    run(
+      connection: ServiceConnection,
+      stale: () => boolean,
+      timed?: (timing: ServiceTiming | undefined) => void,
+    ): Promise<SettingsSyncOutcome>;
     clear(): Promise<void>;
   };
   /** Receives the outcome of each sync run and what it changed, for the local log. */
@@ -183,7 +200,11 @@ export function createRecipeSync(options: {
     // Recipes alone do not complete a sync, so nothing is recorded for them.
     if (!withSettings) return recipesOutcome;
     const settingsOutcome = options.settings
-      ? await options.settings.run(connection, () => generation !== started)
+      ? await options.settings.run(
+          connection,
+          () => generation !== started,
+          (timing) => timed(changed, timing),
+        )
       : "synced";
     if (generation !== started) return "not-connected";
     if (settingsOutcome === "rejected") {
@@ -223,6 +244,7 @@ export function createRecipeSync(options: {
         connection.credential,
         cursor,
       );
+      timed(changed, result.timing);
       if (generation !== started) return "not-connected";
       if (result.kind === "rejected") {
         await service.recordSync(connection.deviceId, { rejected: true });

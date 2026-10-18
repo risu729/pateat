@@ -34,6 +34,11 @@ import {
   recipeStartSteps,
   laterStartSteps,
   recoverLoginAttempt,
+  addAttemptTime,
+  attemptTimes,
+  awaitPerson,
+  personAnswered,
+  type AttemptTimes,
   resolveBindingFields,
   resolveLoginPlan,
   routeFillTargets,
@@ -92,6 +97,7 @@ import {
 import { browser, type Browser } from "wxt/browser";
 import { storage } from "wxt/utils/storage";
 import { trustedRecord } from "../storage";
+import type { ServiceTiming } from "../service/transport";
 import { createLoginBadge, memoryBadgeStorage, setActionBadge, type LoginBadge } from "./badge";
 import { domainKey } from "@pateat/bitwarden";
 import {
@@ -303,6 +309,19 @@ const entryPressSchema = v.strictObject({
   documentId: v.string(),
   url: v.string(),
   checked: v.optional(v.literal(true)),
+  /**
+   * The time the login after the press took on the pressed page (ADR 0019): since when
+   * that page was seen, with its service and person time. The login on the next page
+   * takes it over once, and it is dropped then.
+   */
+  timing: v.optional(
+    v.strictObject({
+      since: v.pipe(v.number(), v.integer(), v.minValue(0)),
+      serviceMs: v.pipe(v.number(), v.integer(), v.minValue(0)),
+      networkMs: v.pipe(v.number(), v.integer(), v.minValue(0)),
+      personMs: v.pipe(v.number(), v.integer(), v.minValue(0)),
+    }),
+  ),
 });
 type EntryPress = v.InferOutput<typeof entryPressSchema>;
 /**
@@ -395,6 +414,8 @@ type UnsavedChoice = {
  */
 const withChoice = (value: SettingsSnapshot["settings"], choice: UnsavedChoice) =>
   saveLoginChoice(value, choice.binding, { replace: choice.replace === true });
+/** A login's time before its attempt exists (ADR 0019): `AttemptTiming` without a running wait. */
+type StartTiming = { since: number; serviceMs: number; networkMs: number; personMs: number };
 /** A document's path before its token-like segments are replaced (ADR 0039). */
 const rawPath = (live: LiveDocument) => new URL(live.url).pathname;
 type LiveDocument = {
@@ -433,6 +454,13 @@ type LiveDocument = {
    * login began to be watched ends that login (ADR 0027).
    */
   seenAt: number;
+  /**
+   * The time a login this document starts takes before it starts, for the local log (ADR
+   * 0019): since when it waits for one, and its service and person time so far, such as
+   * its first page's generation or an account pick. Shared with the same document's later
+   * announcements, so time added to an earlier one counts too.
+   */
+  timing: StartTiming;
   /** Why this document's sign-in entry was not pressed, each reason logged once at info. */
   entryRefusals?: string[];
   /**
@@ -520,6 +548,8 @@ const pickedAccountSchema = v.strictObject({
   connectionId: v.string(),
   itemId: v.string(),
   makeDefault: v.boolean(),
+  /** How long the popup offered the choice before the pick: the person's time (ADR 0019). */
+  waitedMs: v.pipe(v.number(), v.integer(), v.minValue(0)),
 });
 type PickedAccount = v.InferOutput<typeof pickedAccountSchema>;
 /**
@@ -528,6 +558,8 @@ type PickedAccount = v.InferOutput<typeof pickedAccountSchema>;
  */
 const pendingChoiceSchema = v.strictObject({
   document: loginDocumentSchema,
+  /** When the document was first offered the choice, in epoch milliseconds (ADR 0019). */
+  at: v.pipe(v.number(), v.integer(), v.minValue(0)),
   candidates: v.array(v.strictObject({ connectionId: v.string(), itemId: v.string() })),
   logout: v.optional(logoutReasonSchema),
 });
@@ -821,34 +853,41 @@ export type GenerationHold = "not-connected" | "sending" | "sent";
  */
 export type GenerationOutcome =
   /** A route recipe, or a chooser recipe for a list of accounts (ADR 0028). */
-  | { outcome: "recipe"; recipe: LoginRecipe | LoginChooserRecipe }
-  | {
-      outcome: "abstained" | "failed" | "unavailable" | "skipped";
-      reason: string;
-      retry?: true;
-    }
-  | {
-      outcome: "failed";
-      reason: "invalid-output";
-      /** Which check refused the model's output (`json`, `schema` or `plan`). */
-      check: "json" | "schema" | "plan";
-      /** The plan check's code or the output format's issue. */
-      detail?: string;
-      /** For an output format issue: where in the output it was. */
-      path?: string;
-      /** Refused output came from a model call, so the page is never left free. */
-      retry?: never;
-    };
+  (
+    | { outcome: "recipe"; recipe: LoginRecipe | LoginChooserRecipe }
+    | {
+        outcome: "abstained" | "failed" | "unavailable" | "skipped";
+        reason: string;
+        retry?: true;
+      }
+    | {
+        outcome: "failed";
+        reason: "invalid-output";
+        /** Which check refused the model's output (`json`, `schema` or `plan`). */
+        check: "json" | "schema" | "plan";
+        /** The plan check's code or the output format's issue. */
+        detail?: string;
+        /** For an output format issue: where in the output it was. */
+        path?: string;
+        /** Refused output came from a model call, so the page is never left free. */
+        retry?: never;
+      }
+  ) &
+    ServiceTimed;
 
 /** What came of a page sent as a site's sign-in entry (ADR 0031): its entry recipe, or not. */
 export type EntryGenerationOutcome =
-  | { outcome: "recipe"; recipe: LoginEntryRecipe }
+  | ({ outcome: "recipe"; recipe: LoginEntryRecipe } & ServiceTimed)
   | Exclude<GenerationOutcome, { outcome: "recipe" }>;
+
+/** How long a request that reached the service took, for the local log (ADR 0019). */
+type ServiceTimed = { timing?: ServiceTiming };
 
 /** An outcome's fields for the local log: never the recipe itself or `retry`. */
 function outcomeFields(answer: GenerationOutcome | EntryGenerationOutcome) {
-  if (answer.outcome === "recipe") return { outcome: answer.outcome };
-  if (!("check" in answer)) return { outcome: answer.outcome, reason: answer.reason };
+  const timed = answer.timing ? { timing: answer.timing } : {};
+  if (answer.outcome === "recipe") return { outcome: answer.outcome, ...timed };
+  if (!("check" in answer)) return { outcome: answer.outcome, reason: answer.reason, ...timed };
   const { outcome, reason, check, detail, path } = answer;
   return {
     outcome,
@@ -856,6 +895,7 @@ function outcomeFields(answer: GenerationOutcome | EntryGenerationOutcome) {
     check,
     ...(detail === undefined ? {} : { detail }),
     ...(path === undefined ? {} : { path }),
+    ...timed,
   };
 }
 
@@ -974,6 +1014,8 @@ export interface LoginGeneration {
     reason?: string;
     /** A chooser login's is the whole chooser (ADR 0028). */
     recipe?: LoginRecipe | LoginChooserRecipe;
+    /** How long the request took, when one was sent (ADR 0019). */
+    timing?: ServiceTiming;
   }>;
 }
 
@@ -1296,6 +1338,8 @@ export type LoginReport = (
       routeChange?: RouteChange;
       /** The login stops before the password its item lacks (ADR 0036). */
       stop?: "password";
+      /** For a login that just ended, signed in or blocked: how long it took (ADR 0019). */
+      times?: AttemptTimes;
     }
   | {
       type: "refused";
@@ -1445,6 +1489,8 @@ export type LoginReport = (
        * as its `other` branch's first page (ADR 0028).
        */
       page?: "accounts" | "entry" | "other";
+      /** How long the request took, once it was answered or failed (ADR 0019). */
+      timing?: ServiceTiming;
     }
   | {
       /**
@@ -1507,6 +1553,8 @@ export type LoginReport = (
        * button beside the password field (ADR 0036, owner 2026-10-13 05:39 UTC).
        */
       stop?: "password";
+      /** How long the request took, once it was answered or failed (ADR 0019). */
+      timing?: ServiceTiming;
     }
   | ({
       type: "state";
@@ -1765,9 +1813,14 @@ export function createLoginRuntime(
       stop?: StopCause;
       reason?: string;
       routeChange?: RouteChange;
+      /** When the login ended, if earlier than now, such as when its watch ran out. */
+      endedAt?: number;
     } = {},
   ) => {
-    const { stop, ...marks } = flags;
+    const { stop, endedAt, ...marks } = flags;
+    // A login that just ended, signed in or blocked, says how long it took (ADR 0019); a
+    // watched one only when its watch ends, which may have been before it was noticed.
+    const times = terminal(metadata) && !flags.repeat ? attemptTimes(metadata, endedAt) : undefined;
     // Handler steps sit inside the plan, so the plan names the handler a step belongs to.
     const handler =
       recipe && metadata.handlers.length
@@ -1796,6 +1849,7 @@ export function createLoginRuntime(
       ...(policy && metadata.outcome === "policy-changed" ? policy : {}),
       ...(stop ? { cause: stop } : {}),
       ...marks,
+      ...(times ? { times } : {}),
     });
   };
   let origin = DEFAULT_PROBE_ORIGIN;
@@ -2035,7 +2089,14 @@ export function createLoginRuntime(
     candidates: PendingChoice["candidates"],
     logout?: LogoutReason,
   ): void {
-    pending.set(document.tabId, { document, candidates, ...(logout ? { logout } : {}) });
+    // The same document offered the choice again still waits since its first offer.
+    const offered = pending.get(document.tabId);
+    pending.set(document.tabId, {
+      document,
+      at: offered?.document.documentId === document.documentId ? offered.at : Date.now(),
+      candidates,
+      ...(logout ? { logout } : {}),
+    });
     void quietly(saveSession);
     badge.choice(document.tabId, choiceBadge(candidates, logout));
     // The site may have been excluded while the refusal was decided from older settings.
@@ -2479,6 +2540,7 @@ export function createLoginRuntime(
       connectionId: request.connectionId,
       itemId: request.itemId,
       makeDefault: request.makeDefault,
+      waitedMs: Math.max(0, Date.now() - waiting.at),
     };
     picked.set(request.tabId, pick);
     clearChoice(request.tabId);
@@ -2521,6 +2583,65 @@ export function createLoginRuntime(
     }
     return { ok: false, reason: "not-started" };
   }
+  /**
+   * Adds time a login waited for the service to its attempt (ADR 0019): to the run that
+   * holds it now, which may be a later document's, and to its stored record, both written
+   * with the attempt's next change.
+   */
+  function spend(attemptId: string, waitedMs: number, timing: ServiceTiming | undefined): void {
+    const add = { serviceMs: waitedMs, networkMs: timing?.networkMs ?? 0 };
+    for (const run of attempts.values())
+      if (run.metadata.id === attemptId) run.metadata = addAttemptTime(run.metadata, add);
+    for (const [key, record] of persisted)
+      if (record.id === attemptId) persisted.set(key, addAttemptTime(record, add));
+  }
+  /**
+   * The time a new login took before it started (ADR 0019): since its page was seen, or the
+   * sign-in entry pressed just before it was, with the service time spent on them and the
+   * person's time picking its account in the popup. An entry press's time is taken once.
+   */
+  function startTiming(
+    live: LiveDocument,
+    chosen: { connectionId: string; itemId: string },
+  ): StartTiming {
+    const { tabId, documentId, frameId } = live.document;
+    const timing = { ...live.timing };
+    const press = entryPresses.get(tabId);
+    const pressedAt = press && isoTimeMs(press.pressedAt);
+    if (
+      press?.timing &&
+      pressedAt !== undefined &&
+      frameId === 0 &&
+      !(press.documentId === documentId && press.url === live.url) &&
+      timing.since >= pressedAt &&
+      timing.since - pressedAt <= ENTRY_NEXT_PAGE_MS + LOGIN_STEP_WAIT_MS
+    ) {
+      timing.since = Math.min(timing.since, press.timing.since);
+      timing.serviceMs += press.timing.serviceMs;
+      timing.networkMs += press.timing.networkMs;
+      timing.personMs += press.timing.personMs;
+      const { timing: _taken, ...spent } = press;
+      entryPresses.set(tabId, spent);
+      void quietly(saveSession);
+    }
+    const pick = picked.get(tabId);
+    if (
+      pick?.attemptId === undefined &&
+      pick?.documentId === documentId &&
+      pick.connectionId === chosen.connectionId &&
+      pick.itemId === chosen.itemId
+    )
+      timing.personMs += pick.waitedMs;
+    // The document's time so far is this login's; another login it starts later, as after
+    // a fill-only login, counts from now (ADR 0019).
+    Object.assign(live.timing, { since: Date.now(), serviceMs: 0, networkMs: 0, personMs: 0 });
+    return timing;
+  }
+  /** Adds time spent on a document's login before it started, such as its generation. */
+  function spendBefore(live: LiveDocument, waitedMs: number, timing: ServiceTiming | undefined) {
+    live.timing.serviceMs += Math.max(0, Math.round(waitedMs));
+    live.timing.networkMs += timing?.networkMs ?? 0;
+  }
   function current(run: Execution): boolean {
     return (
       attempts.get(run.live.document.tabId) === run &&
@@ -2545,9 +2666,9 @@ export function createLoginRuntime(
     const previous = persisted.get(key);
     const next = parseAttemptMetadata({ ...metadata, changedAt: undefined });
     // Only the login's own progress counts as a change. A new page of its tab (another
-    // `documentId`), a page sent to be judged or newer settings a watch took over keep the
-    // time, so a tab left browsing the site after a login that did not succeed stops
-    // holding it.
+    // `documentId`), a page sent to be judged, newer settings a watch took over or the
+    // login's own times keep the time, so a tab left browsing the site after a login that
+    // did not succeed stops holding it.
     const progress = (record: LoginAttemptMetadata) =>
       JSON.stringify({
         ...record,
@@ -2556,6 +2677,7 @@ export function createLoginRuntime(
         watch: undefined,
         policyRevision: undefined,
         changedAt: undefined,
+        timing: undefined,
       });
     const unchanged =
       previous?.changedAt !== undefined && (!progressed || progress(previous) === progress(next));
@@ -4700,6 +4822,8 @@ export function createLoginRuntime(
     if (!current(run)) return true;
     if (pagesLeft(run.metadata, operationId) !== left - 1) return false;
     const watchedPage = run.metadata.watch !== undefined;
+    // The answer's timing, once it came (ADR 0019).
+    let timed: { timing?: ServiceTiming } = {};
     const reportJudge = (
       verdict: Extract<LoginReport, { type: "judge" }>["verdict"],
       detail: {
@@ -4720,6 +4844,7 @@ export function createLoginRuntime(
         ...detail,
         ...(watchedPage ? { watched: true as const } : {}),
         ...(disabledLeftOut ? { disabledLeftOut: true as const } : {}),
+        ...timed,
       });
     // A chooser login's branch, and whether the description left a disabled field out
     // (ADR 0029); each is passed only when there is one.
@@ -4730,10 +4855,12 @@ export function createLoginRuntime(
         ? [branch]
         : [];
     const spin = spinning(run.live.document.tabId);
+    const asked = Date.now();
     const {
       verdict,
       reason,
       recipe: added,
+      timing,
     } = await generation
       .judge(
         recipe.id,
@@ -4747,6 +4874,8 @@ export function createLoginRuntime(
         ...judgedTail,
       )
       .finally(spin.stop);
+    spend(metadata.id, Date.now() - asked, timing);
+    if (timing) timed = { timing };
     if (!current(run)) {
       reportJudge(verdict, {
         ...(reason ? { reason } : {}),
@@ -5151,6 +5280,7 @@ export function createLoginRuntime(
     // The page that asks, logged when its request leaves the device (ADR 0019).
     const page = run.live.document;
     const spin = spinning(page.tabId);
+    const askedAt = Date.now();
     const asked = generation
       .generate(
         {
@@ -5180,7 +5310,12 @@ export function createLoginRuntime(
       .finally(spin.stop)
       // A thrown request frees its claim, so it is given back like any request that did not
       // reach the model.
-      .catch((): GenerationOutcome => ({ outcome: "failed", reason: "error", retry: true }));
+      .catch((): GenerationOutcome => ({ outcome: "failed", reason: "error", retry: true }))
+      // Counted once, for whichever document of the login takes the answer (ADR 0019).
+      .then((answer) => {
+        if (answer.outcome !== "skipped") spend(metadata.id, Date.now() - askedAt, answer.timing);
+        return answer;
+      });
     // Kept in memory for a later document of this login, which the form may post to
     // before the answer arrives.
     const request = { operationId, answer: asked };
@@ -5406,6 +5541,8 @@ export function createLoginRuntime(
       const settle = Date.now() >= until;
       const held = await reconcile(run, settle);
       if (!current(run) || !observing()) return;
+      // A held button gone means the person pressed it (ADR 0019).
+      if (!held) run.metadata = personAnswered(run.metadata);
       if (held) {
         if (Date.now() >= holdUntil) {
           await change(run, { type: "OBSERVED", result: "challenge", document: run.live.document });
@@ -5964,6 +6101,8 @@ export function createLoginRuntime(
       )
         continue;
       if (leftToPerson) {
+        // The person's own click, while the button is held, is their time (ADR 0019).
+        run.metadata = awaitPerson(run.metadata);
         await change(
           run,
           { type: "SUBMITTED", operationId: operation.operationId },
@@ -6653,6 +6792,7 @@ export function createLoginRuntime(
       const custom = await customSlots(live.document.origin, scope);
       if (documents.get(key) !== live) return;
       const spin = spinning(live.document.tabId);
+      const asked = Date.now();
       const result = await generation
         .generate(
           {
@@ -6678,6 +6818,8 @@ export function createLoginRuntime(
         )
         .finally(spin.stop)
         .catch((): GenerationOutcome => ({ outcome: "failed", reason: "error" }));
+      // A page not sent waited for no service.
+      if (result.outcome !== "skipped") spendBefore(live, Date.now() - asked, result.timing);
       sent = true;
       report(live.document, {
         type: "generation",
@@ -7168,6 +7310,12 @@ export function createLoginRuntime(
         ? { notStarted: oldLive.notStarted }
         : {}),
       seenAt: sameDocument ? oldLive.seenAt : Date.now(),
+      // A document that waited for a locked vault starts its login's time again once it can
+      // read it: unlocking the vault comes before any login (ADR 0019).
+      timing:
+        sameDocument && oldLive.reason !== "vault-unavailable"
+          ? oldLive.timing
+          : { since: Date.now(), serviceMs: 0, networkMs: 0, personMs: 0 },
       ...(sameDocument && oldLive.path === path && oldLive.entryRefusals
         ? { entryRefusals: oldLive.entryRefusals }
         : {}),
@@ -7527,9 +7675,16 @@ export function createLoginRuntime(
       watchEnded = recorded.watch?.documentId;
       const run = attempts.get(document.tabId);
       const own = run?.metadata.id === recorded.id ? run : undefined;
-      const ended = transitionLoginAttempt(own?.metadata ?? recorded, { type: "WATCH_ENDED" });
+      // It ended when the watch ran out, which may be long before this page showed; the
+      // time between counts for nothing (ADR 0019).
+      const endedAt = Math.min(Date.now(), (recorded.watch?.since ?? 0) + WATCH_MS);
+      const ended = transitionLoginAttempt(
+        own?.metadata ?? recorded,
+        { type: "WATCH_ENDED" },
+        endedAt,
+      );
       if (own) own.metadata = ended;
-      reportAttempt(ended, own?.recipe);
+      reportAttempt(ended, own?.recipe, undefined, { endedAt });
       try {
         await keep(ended, false);
       } catch {
@@ -8265,6 +8420,8 @@ export function createLoginRuntime(
         type: "NAVIGATED",
         document,
       });
+      // A new page ends a wait for the person's click, as their press led to it (ADR 0019).
+      if (!metadata.watch) metadata = personAnswered(metadata);
       if (revised)
         metadata = transitionLoginAttempt(metadata, {
           type: "REVISED",
@@ -8307,6 +8464,7 @@ export function createLoginRuntime(
       if (later && startAt === undefined) return refuse("no-route", "later-variant");
       if (later && "stopAt" in plan && typeof plan.stopAt === "number" && plan.stopAt <= startAt!)
         return refuse("no-route", "password-empty:later-start");
+      const timing = startTiming(live, plan.account);
       metadata = transitionLoginAttempt(
         createAttemptMetadata({
           id: newId(),
@@ -8330,6 +8488,7 @@ export function createLoginRuntime(
           // An item without a password stops before it (ADR 0036).
           ...("stopAt" in plan && typeof plan.stopAt === "number" ? { stopAt: plan.stopAt } : {}),
           ...(startAt === undefined ? {} : { startAt }),
+          timing,
         }),
         { type: "RESOLVE" },
       );
@@ -8838,6 +8997,7 @@ export function createLoginRuntime(
         return;
       }
       const spin = spinning(live.document.tabId);
+      const asked = Date.now();
       const result = await generation
         .generateEntry(
           { version: 1, observation },
@@ -8853,6 +9013,7 @@ export function createLoginRuntime(
         )
         .finally(spin.stop)
         .catch((): EntryGenerationOutcome => ({ outcome: "failed", reason: "error" }));
+      if (result.outcome !== "skipped") spendBefore(live, Date.now() - asked, result.timing);
       sent = true;
       report(live.document, {
         type: "generation",
@@ -9005,6 +9166,7 @@ export function createLoginRuntime(
         pressedAt: isoTime(Date.now()),
         documentId: live.document.documentId,
         url,
+        timing: { ...live.timing },
       };
       // Stored first, so a restarted worker still counts the press and checks its next page.
       const previous = entryPresses.get(tabId);
@@ -9559,6 +9721,8 @@ export function createLoginRuntime(
     const { document } = live;
     const recipe = await attemptRecipe(record);
     let disabledLeftOut = false;
+    // The answer's timing, once it came (ADR 0019).
+    let timed: { timing?: ServiceTiming } = {};
     const reportJudge = (
       verdict: Extract<LoginReport, { type: "judge" }>["verdict"],
       reason?: string,
@@ -9574,6 +9738,7 @@ export function createLoginRuntime(
         ...(reason ? { reason } : {}),
         moved: true,
         ...(disabledLeftOut ? { disabledLeftOut: true as const } : {}),
+        ...timed,
       });
     const stale = () =>
       documents.get(frameKey(document))?.document.documentId !== document.documentId;
@@ -9666,7 +9831,8 @@ export function createLoginRuntime(
       return false;
     }
     const spin = spinning(document.tabId);
-    const { verdict, reason } = await generation
+    const asked = Date.now();
+    const { verdict, reason, timing } = await generation
       .judge(
         recipe.id,
         recipe.revision,
@@ -9679,6 +9845,8 @@ export function createLoginRuntime(
         ...(disabledLeftOut ? [true as const] : []),
       )
       .finally(spin.stop);
+    spend(record.id, Date.now() - asked, timing);
+    if (timing) timed = { timing };
     reportJudge(verdict, reason);
     if (verdict !== "signed-in" && !(verdict === "unclear" && reason === "judged-signed-in"))
       return false;
@@ -10532,6 +10700,8 @@ export function createLoginRuntime(
     if (!current(run)) return true;
     if (!stopped() || run.metadata.stopJudged !== true) return false;
     const { recipe } = run;
+    // The answer's timing, once it came (ADR 0019).
+    let timed: { timing?: ServiceTiming } = {};
     const reportJudge = (
       verdict: Extract<LoginReport, { type: "judge" }>["verdict"],
       detail: { reason?: string; takenOver?: boolean } = {},
@@ -10547,12 +10717,15 @@ export function createLoginRuntime(
         ...detail,
         ...(disabledLeftOut ? { disabledLeftOut: true as const } : {}),
         stop: "password",
+        ...timed,
       });
     const spin = spinning(run.live.document.tabId);
+    const asked = Date.now();
     const {
       verdict,
       reason,
       recipe: added,
+      timing,
     } = await generation
       .judge(
         recipe.id,
@@ -10565,6 +10738,8 @@ export function createLoginRuntime(
         true,
       )
       .finally(spin.stop);
+    spend(run.metadata.id, Date.now() - asked, timing);
+    if (timing) timed = { timing };
     let reported = false;
     // Only a `passkey` handler is entered from the answer, at the stop.
     const movedOn =

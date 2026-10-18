@@ -1920,6 +1920,12 @@ tests cover it.
   `POST /v1/recipes/:recipeId/outcome`, kept one row per revision in `login_outcomes`
   for a year and deleted with the request log
   ([ADR 0019](adr/0019-local-diagnostics-and-logs.md#amendment-2026-10-18-first-login-results-for-evaluation)).
+- Done (local tests only, not deployed): the extension's local log records how long
+  each generation, judgement and sync request took, and on a login's ending entry its
+  total, service, network, person and other time
+  ([ADR 0019](adr/0019-local-diagnostics-and-logs.md#amendment-2026-10-18-how-long-requests-and-logins-take)).
+  Until the service sends `Server-Timing`, a request has only its round trip
+  (`roundTripMs`), with no service or network part.
 - Done: the generation routes stop at
   $100 of estimated Claude spend per owner a month and $5 a day (`CLAUDE_CALL_LIMITS` in
   `services/api/src/claude/calls.ts`,

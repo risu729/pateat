@@ -127,6 +127,10 @@ export const LOG_EVENTS = {
       added: "count",
       updated: "count",
       removed: "count",
+      // The run's requests added up (ADR 0019, amended 2026-10-18).
+      roundTripMs: "count",
+      serverMs: "count",
+      networkMs: "count",
     },
   },
   // A first login's result code sent to the service (ADR 0019, amended 2026-10-18).
@@ -156,6 +160,12 @@ export const LOG_EVENTS = {
       unconfirmed: "flag",
       routeChange: "code",
       stop: "code",
+      // How long a login that ended took (ADR 0019, amended 2026-10-18).
+      totalMs: "count",
+      serviceMs: "count",
+      networkMs: "count",
+      personMs: "count",
+      otherMs: "count",
       url: "url",
     },
   },
@@ -317,6 +327,12 @@ export const LOG_EVENTS = {
       // `accounts` for a list of accounts (ADR 0028), `entry` for a sign-in entry (ADR 0031),
       // `other` for a form on a chooser's path sent as its `other` branch (ADR 0028).
       page: "code",
+      // How long the request took (ADR 0019, amended 2026-10-18).
+      roundTripMs: "count",
+      serverMs: "count",
+      networkMs: "count",
+      tokenMs: "count",
+      modelMs: "count",
       url: "url",
     },
   },
@@ -337,6 +353,12 @@ export const LOG_EVENTS = {
       moved: "flag",
       // `password` for the page of a login's stop before its item's missing password (ADR 0036).
       stop: "code",
+      // How long the request took (ADR 0019, amended 2026-10-18).
+      roundTripMs: "count",
+      serverMs: "count",
+      networkMs: "count",
+      tokenMs: "count",
+      modelMs: "count",
       url: "url",
     },
   },

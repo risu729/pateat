@@ -1426,6 +1426,115 @@ describe("production login document admission", () => {
       fake.browser.tabs.query = query;
     }
   });
+  describe("how long a login took (ADR 0019)", () => {
+    const attemptReports = (report: ReturnType<typeof vi.fn<(report: LoginReport) => void>>) =>
+      report.mock.calls
+        .map(([entry]) => entry)
+        .filter(
+          (entry): entry is Extract<LoginReport, { type: "attempt" }> => entry.type === "attempt",
+        );
+    it("logs the times once, when the login signs in", async () => {
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness({}, { report });
+      const before = Date.now();
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() =>
+        expect(attemptReports(report).map((entry) => entry.state)).toContain("authenticated"),
+      );
+      const reports = attemptReports(report);
+      expect(reports.filter((entry) => entry.times)).toHaveLength(1);
+      const { times } = reports.find((entry) => entry.state === "authenticated")!;
+      // Nothing waited for the service or the person: all of it is the page and Pateat.
+      expect(times).toEqual({
+        totalMs: expect.any(Number),
+        serviceMs: 0,
+        networkMs: 0,
+        personMs: 0,
+        otherMs: times!.totalMs,
+      });
+      expect(times!.totalMs).toBeLessThanOrEqual(Date.now() - before);
+      // The record keeps its stamps, never a value's typing time.
+      expect(fake.state.storage["pateat.login-attempts.v4"]).toMatchObject([
+        { state: "authenticated", timing: { since: expect.any(Number), serviceMs: 0 } },
+      ]);
+    });
+    it("takes over the time of the sign-in entry pressed just before, once", async () => {
+      // The entry page was seen five seconds ago; its generation took 2 s, 0.3 s of it on
+      // the network, and its entry was pressed a second ago.
+      const now = Date.now();
+      const press = {
+        tabId: 1,
+        origin,
+        recipeId: "synthetic-entry",
+        revision: 2,
+        pressedAt: new Date(now - 1_000).toISOString(),
+        documentId: "entry-page",
+        url: `${origin}/`,
+        checked: true,
+        timing: { since: now - 5_000, serviceMs: 2_000, networkMs: 300, personMs: 0 },
+      };
+      fake.state.session["pateat.login-entry-presses.v1"] = [press];
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness({}, { report });
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() =>
+        expect(attemptReports(report).map((entry) => entry.state)).toContain("authenticated"),
+      );
+      const { times } = attemptReports(report).find((entry) => entry.state === "authenticated")!;
+      expect(times).toMatchObject({ serviceMs: 2_000, networkMs: 300, personMs: 0 });
+      expect(times!.totalMs).toBeGreaterThanOrEqual(5_000);
+      expect(times!.otherMs).toBe(times!.totalMs - 2_000);
+      // The press keeps no time, so no later login takes it again.
+      const { timing: _taken, ...untimed } = press;
+      expect(fake.state.session["pateat.login-entry-presses.v1"]).toEqual([untimed]);
+    });
+    it("counts on from the stored record after a worker restart", async () => {
+      fake.state.awaited = { ok: false, reason: "timeout" };
+      const first = harness();
+      expect(await first.hello()).toEqual({ ok: true });
+      await vi.waitFor(() =>
+        expect(fake.state.storage["pateat.login-attempts.v4"]).toMatchObject([
+          { state: "blocked", outcome: "retry-limit" },
+        ]),
+      );
+      const [record] = fake.state.storage["pateat.login-attempts.v4"] as Record<string, unknown>[];
+      // The stopped worker had spent a minute on the login: 5 s on the service, of which
+      // 0.8 s on the network, and 1 s waiting for the person.
+      const since = Date.now() - 60_000;
+      fake.state.storage["pateat.login-attempts.v4"] = [
+        {
+          ...record,
+          state: "retryable",
+          outcome: "structural-mismatch",
+          retries: 1,
+          retryRequired: true,
+          timing: { since, serviceMs: 5_000, networkMs: 800, personMs: 1_000 },
+        },
+      ];
+      fake.state.awaited = { ok: true };
+      fake.state.present = new Set(["password", "login"]);
+      fake.state.onExecute = async (message) => {
+        if ((message["operation"] as { step: LoginStep }).step.kind === "click")
+          fake.state.present = new Set(["authenticated"]);
+      };
+      const query = fake.browser.tabs.query;
+      fake.browser.tabs.query = async () => [{ id: 1 }] as never;
+      try {
+        const report = vi.fn<(report: LoginReport) => void>();
+        const restarted = harness({}, { report });
+        expect(await restarted.hello({ documentId: "after-restart" })).toEqual({ ok: true });
+        await vi.waitFor(() =>
+          expect(attemptReports(report).map((entry) => entry.state)).toContain("authenticated"),
+        );
+        const { times } = attemptReports(report).find((entry) => entry.state === "authenticated")!;
+        expect(times).toMatchObject({ serviceMs: 5_000, networkMs: 800, personMs: 1_000 });
+        expect(times!.totalMs).toBeGreaterThanOrEqual(60_000);
+        expect(times!.otherMs).toBe(times!.totalMs - 6_000);
+      } finally {
+        fake.browser.tabs.query = query;
+      }
+    });
+  });
   describe("a login form inside a frame", () => {
     const executes = () => fake.state.messages.filter((entry) => entry.type === "login.execute");
     // The tab shows the page around the frame; the frame's own URL is the login page.
@@ -4867,6 +4976,7 @@ describe("production login document admission", () => {
               connectionId,
               itemId: otherItemId,
               makeDefault: false,
+              waitedMs: expect.any(Number),
             },
           ],
           "pateat.login-choices.v1": [],
@@ -4878,6 +4988,14 @@ describe("production login document admission", () => {
           "pateat.login-noted.v1": [["1 synthetic-document /signin", ["account-ambiguous "]]],
           "pateat.login-logout-clicks.v1": [],
         });
+        // The time the popup offered the choice is the person's, in the login's times too
+        // (ADR 0019).
+        const [{ waitedMs }] = fake.state.session["pateat.login-picks.v1"] as [
+          { waitedMs: number },
+        ];
+        expect(fake.state.storage["pateat.login-attempts.v4"]).toMatchObject([
+          { timing: { personMs: waitedMs } },
+        ]);
         for (const listener of fake.state.removed) listener(1);
         await vi.waitFor(() =>
           expect(fake.state.session).toEqual({
@@ -5326,6 +5444,37 @@ describe("production login document admission", () => {
               expect.objectContaining({ origin, userId, itemId: otherItemId }),
             ]),
           );
+        });
+        it("times a login picked after a fill-only one from where that one started", async () => {
+          const h = harness(
+            {},
+            { allowedOrigins: [], uris: async () => ({ ok: true, data: both }) },
+          );
+          expect(await h.hello()).toEqual({ ok: true });
+          await vi.waitFor(() => expect(attempts()).toMatchObject([{ state: "authenticated" }]));
+          // The signed-out page is seen at once, and its form shows a minute later.
+          await h.hello({ documentId: "signed-out" }, false);
+          vi.useFakeTimers({ toFake: ["Date"] });
+          onTestFinished(() => void vi.useRealTimers());
+          const formShown = Date.now() + 60_000;
+          vi.setSystemTime(formShown);
+          await filledOnly(h, { documentId: "signed-out" });
+          fake.state.onReconnect = () => h.hello({ documentId: "signed-out" });
+          vi.setSystemTime(formShown + 30_000);
+          expect(await pick(h, { documentId: "signed-out" })).toEqual({ ok: true });
+          await vi.waitFor(() =>
+            expect(attempts()).toMatchObject([
+              { state: "authenticated", account: { itemId: otherItemId } },
+            ]),
+          );
+          // The fill-only login took the page's time before it; the picked one counts from
+          // the fill-only login's start, with the time the choice waited as the person's.
+          const [record] = fake.state.storage["pateat.login-attempts.v4"] as {
+            timing: { since: number; personMs: number };
+          }[];
+          expect(record!.timing.since).toBe(formShown);
+          // About 30 s: each check of `vi.waitFor` moves the faked clock on by 50 ms.
+          expect(record!.timing.personMs).toBeGreaterThan(29_000);
         });
         it("watches in the document that logged in and asks when its form shows again", async () => {
           const h = harness(
@@ -5787,6 +5936,54 @@ describe("production login document admission", () => {
         { slot: "username", value: "synthetic-secret" },
         { slot: "password", value: "synthetic-secret", secret: "password" },
       ]);
+    });
+
+    it("counts the first page's generation in the login's own times (ADR 0019)", async () => {
+      fake.state.extracted = { login: loginPage };
+      const service = generation();
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness(unsaved, {
+        allowedOrigins: [],
+        uris,
+        username: true,
+        custom: [],
+        generation: service,
+        report,
+      });
+      h.recipes.recipe.mockResolvedValue(undefined);
+      h.recipes.starts.mockResolvedValue(startsOf([]));
+      expect(await h.hello({}, false)).toMatchObject({ reason: "recipe-not-found" });
+      const timing = { roundTripMs: 40, serverMs: 30, networkMs: 10, modelMs: 25 };
+      service.generate.mockImplementation(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 40));
+        h.recipes.recipe.mockResolvedValue(generated);
+        h.recipes.starts.mockResolvedValue(startsOf([generated.steps[0]!]));
+        return { outcome: "recipe", recipe: generated, timing };
+      });
+      expect(await h.signIn()).toEqual({ ok: false, reason: "generating" });
+      await vi.waitFor(() =>
+        expect(fake.state.messages.map((entry) => entry.type)).toContain("login.reconnect"),
+      );
+      // The request's own timing goes to its log line.
+      expect(report).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "generation", outcome: "recipe", timing }),
+      );
+      expect(await h.hello()).toEqual({ ok: true });
+      // The attempt starts after the generation, which its time still holds.
+      await vi.waitFor(() =>
+        expect(status()).toMatchObject([
+          {
+            timing: {
+              since: expect.any(Number),
+              serviceMs: expect.any(Number),
+              networkMs: 10,
+              personMs: 0,
+            },
+          },
+        ]),
+      );
+      const [record] = status() as { timing: { serviceMs: number } }[];
+      expect(record!.timing.serviceMs).toBeGreaterThanOrEqual(35);
     });
 
     it("generates a tenant's page under its [id] path and runs it on another tenant's page (ADR 0039)", async () => {
@@ -7888,6 +8085,8 @@ describe("production login document admission", () => {
               pressedAt: expect.any(String),
               documentId: "synthetic-document",
               url: entryUrl,
+              // The login on the next page takes the entry page's time over (ADR 0019).
+              timing: { since: expect.any(Number), serviceMs: 0, networkMs: 0, personMs: 0 },
             },
           ]);
           // The press is no attempt: nothing is recorded, held or read from the vault.
@@ -11164,6 +11363,34 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       expect(clicks("login")).toBe(1);
     });
 
+    it("counts the time the person takes with the CAPTCHA and the button as theirs", async () => {
+      vi.useFakeTimers();
+      captchaOnLogin();
+      const service = generation(async () => ({ verdict: "signed-in" }));
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness({}, { generation: service, report });
+      h.recipes.recipe.mockResolvedValue(plain);
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(() => clicks("login") === 1);
+      const [held] = status() as { timing: { personSince?: number } }[];
+      expect(held!.timing.personSince).toEqual(expect.any(Number));
+      await vi.advanceTimersByTimeAsync(60_000);
+      fake.state.executeReply = undefined;
+      fake.state.observedPath = "/home";
+      fake.state.present = new Set(["logout"]);
+      fake.state.extracted = { "signed-in": homePage };
+      await until(settled("authenticated"));
+      const signedIn = report.mock.calls
+        .map(([entry]) => entry)
+        .find((entry) => entry.type === "attempt" && entry.state === "authenticated");
+      const times = (signedIn as { times: Record<string, number> }).times;
+      // A minute at least was the person's, and never more than the login took.
+      expect(times["personMs"]).toBeGreaterThanOrEqual(60_000);
+      expect(times["personMs"]! + times["serviceMs"]!).toBeLessThanOrEqual(times["totalMs"]!);
+      expect(times["otherMs"]).toBe(times["totalMs"]! - times["personMs"]! - times["serviceMs"]!);
+      expect(status()![0]).not.toHaveProperty("timing.personSince");
+    });
+
     it("does not take a rejection the page already showed as the person's", async () => {
       vi.useFakeTimers();
       captchaOnLogin();
@@ -13921,6 +14148,29 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       expect(service.judge).toHaveBeenCalledTimes(1);
       expect(status()).toMatchObject([{ state: "blocked", outcome: "challenge", changedAt }]);
       expect(status()![0]).not.toHaveProperty("watch");
+    });
+
+    it("counts a watch that ran out only up to its end, however late a page notices", async () => {
+      const { h } = await watched();
+      const [record] = status() as {
+        watch: { since: number };
+        timing: { since: number; personSince: number };
+      }[];
+      expect(record!.timing.personSince).toBeGreaterThanOrEqual(record!.watch.since);
+      // The person left the tab for an hour; the next page is the first to notice the end.
+      await vi.advanceTimersByTimeAsync(60 * 60_000);
+      await open(h, "/home");
+      const ended = reports.mock.calls
+        .map(([entry]) => entry)
+        .find((entry) => entry.type === "attempt" && entry.state === "blocked");
+      const end = record!.watch.since + 10 * 60_000;
+      expect(ended).toMatchObject({
+        outcome: "challenge",
+        times: {
+          totalMs: end - record!.timing.since,
+          personMs: end - record!.timing.personSince,
+        },
+      });
     });
   });
 });
