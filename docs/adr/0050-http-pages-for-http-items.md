@@ -49,8 +49,9 @@ the "Read and change all your data on all websites" warning for `https://*/*`, s
   Bitwarden's own warning case therefore never fills: no person is there to answer a
   warning during an automatic login.
 - A login on an `http:` page runs as on HTTPS, filling and submitting included, except
-  that it never takes the `passkey` route unless the page is a secure context, which for
-  HTTP means a loopback host (`localhost` or `127.0.0.1`; `secureOrigin` in
+  that it never takes the `passkey` route, since no passkey script runs there. Only the
+  synthetic probe build, whose own passkey scripts cover loopback HTTP, lets a loopback
+  page (a secure context) take it (`passkeyScriptsRun` in
   `apps/extension/src/passkeys/rp-id.ts`).
 - A login on an `http:` origin may count a move to an `http:` or `https:` page by the
   rules of [ADR 0022](0022-login-attempts-per-tab-and-origin.md) and

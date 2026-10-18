@@ -163,7 +163,7 @@ import type { AlertMiss } from "../page/sign-in-state";
 import type { LoginSites } from "./sites";
 import { linkRefusal, namesReturnPath, type OnSite } from "./entry";
 import type { ConditionalDecision, PasskeyItem } from "../passkeys/runtime";
-import { secureOrigin } from "../passkeys/rp-id";
+import { passkeyScriptsRun } from "../passkeys/rp-id";
 import {
   loginFillsUsername,
   loginSecretKind,
@@ -3374,8 +3374,11 @@ export function createLoginRuntime(
       itemFacts(resolved.connection, { ...resolved.account, origin: live.document.origin });
     const pageRequest =
       request.pageRequest === true && !chosen?.fillOnly && passkeyAnswersRequest(recipe);
-    // WebAuthn needs a secure context (ADR 0050).
-    if (secureOrigin(live.document.origin) && (recipeHasRoute(recipe, "passkey") || pageRequest)) {
+    // Only a page the passkey scripts run on can answer a passkey request (ADR 0050).
+    if (
+      passkeyScriptsRun(live.document.origin, probeMode) &&
+      (recipeHasRoute(recipe, "passkey") || pageRequest)
+    ) {
       const resolved = await resolveRoute({ route: "passkey" });
       if (resolved.ok) {
         facts = await factsOf(resolved);

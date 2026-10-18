@@ -76,3 +76,12 @@ export function secureOrigin(origin: string): boolean {
     /^127(?:\.\d{1,3}){3}$/u.test(host)
   );
 }
+
+/**
+ * Whether Pateat's passkey scripts run on a page of `origin`, so a login there may take the
+ * passkey route: HTTPS, and in the synthetic probe build also a loopback HTTP page, which
+ * its own passkey scripts cover. Production declares them for HTTPS only (ADR 0050).
+ */
+export function passkeyScriptsRun(origin: string, probe: boolean): boolean {
+  return URL.parse(origin)?.protocol === "https:" || (probe && secureOrigin(origin));
+}
