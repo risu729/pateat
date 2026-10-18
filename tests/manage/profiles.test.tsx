@@ -57,7 +57,7 @@ test("selecting another profile clears the old policy view and writes only to th
       states.set(id, structuredClone(next));
       return next;
     }),
-    recipes: vi.fn(async () => ({ version: 1 as const, recipes: [] })),
+    recipes: vi.fn(async () => ({ version: 1 as const, recipes: [], unreadable: [] })),
     revokeRecipe: vi.fn(),
   };
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
