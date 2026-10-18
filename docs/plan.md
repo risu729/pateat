@@ -555,8 +555,14 @@ than in this repository.
   code, not read on the live page. Since 2026-10-17 such an advance's next fields and
   buttons count only when they are also visible as the page's description reads them,
   before and after the advance (agent fix applying ADR 0013; since 2026-10-18 a probe
-  E2E spec on `/identifier-swap` drives that structure with synthetic values). Check
-  the UNSW sign-in page in the owner's Chrome.
+  E2E spec on `/identifier-swap` drives that structure with synthetic values). An
+  attempt in the owner's Chrome on build `6b1cc1d` (2026-10-18) still stopped after
+  Next. On build `4356c9a` (2026-10-18, 08:10 UTC), in a fresh foreground tab with the
+  window visible, the revision 4 recipe logged in end to end without a model call: the
+  password step continued about 2 s after Next, the login submitted, the TOTP handler
+  ran on the next page and the attempt ended `authenticated`. That the earlier stop
+  came from a tab Chrome was not rendering, so the password view's fade stayed at 0, is
+  inferred, not shown; the page navigated away before a timed read of it returned.
 - A login control that is a link whose `javascript:` URL alone submits never submitted:
   on 2026-10-17 (build `d29951d`, 01:55 UTC) the owner's Chrome filled SMBC Trust Bank's
   sign-on page and clicked サインオン, and Chrome refused the URL under the content
