@@ -1,4 +1,5 @@
 import {
+  manageDashboardSchema,
   manageDevicesSchema,
   manageErrorSchema,
   manageRecipeConflictSchema,
@@ -9,6 +10,7 @@ import {
   syncRecipeWriteResultSchema,
   syncSettingsStateSchema,
   type LocalSettings,
+  type ManageDashboardRange,
   type ManageErrorCode,
   type SyncSettingsState,
 } from "@pateat/contracts";
@@ -64,6 +66,10 @@ async function read<TSchema extends v.GenericSchema>(response: Response, schema:
 
 export function createManageClient(fetcher: ManageFetch = (input, init) => fetch(input, init)) {
   return {
+    /** The dashboard's aggregates over the range, ending now. */
+    async dashboard(range: ManageDashboardRange) {
+      return read(await call(fetcher, `/dashboard?range=${range}`), manageDashboardSchema);
+    },
     async devices() {
       return read(await call(fetcher, "/devices"), manageDevicesSchema);
     },

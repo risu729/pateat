@@ -1,6 +1,7 @@
 // The toolbar icon, emitted beside the bundle as the favicon is.
 import logo from "../../../apps/extension/icons/icon.svg?url";
 import type { ManageClient } from "./api";
+import { DashboardPage } from "./dashboard";
 import { DevicesPage } from "./devices";
 import { RequestLogPage } from "./request-log";
 import { SitePage } from "./site";
@@ -19,6 +20,7 @@ const licenseUrl = `https://github.com/risu729/pateat/blob/${sourceRef}/LICENSE-
  * serves the app only at these paths.
  */
 const PAGES = [
+  { path: "/manage/dashboard", title: "Dashboard", Page: DashboardPage },
   { path: "/manage/sites", title: "Sites", Page: SitesPage },
   { path: "/manage", title: "Devices", Page: DevicesPage },
   { path: "/manage/request-log", title: "Request log", Page: RequestLogPage },

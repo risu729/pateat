@@ -102,6 +102,7 @@ describe("Access verification", () => {
     const device = await pairDevice(viaPair);
     const pages = [
       "/manage",
+      "/manage/dashboard",
       "/manage/sites",
       "/manage/sites/https/bank.example",
       "/manage/assets/app.js",
@@ -131,9 +132,10 @@ describe("Access verification", () => {
       manageApi("/manage/api/devices", viaPair.token, "GET"),
       manageApi("/manage/api/settings", viaPair.token, "GET"),
       manageApi("/manage/api/recipes", viaPair.token, "GET"),
+      manageApi("/manage/api/dashboard", viaPair.token, "GET"),
       manageApi(`/manage/api/devices/${device.deviceId}/revoke`, viaPair.token, "POST"),
     ]);
-    expect(apiResponses.map((response) => response.status)).toEqual([403, 403, 403, 403]);
+    expect(apiResponses.map((response) => response.status)).toEqual([403, 403, 403, 403, 403]);
     expect(await Promise.all(apiResponses.map((response) => response.json()))).toEqual(
       apiResponses.map(() => ({ error: "forbidden" })),
     );

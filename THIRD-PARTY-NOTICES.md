@@ -9,8 +9,9 @@ license notices are kept in the
 [packaged notice](apps/extension/public/THIRD-PARTY-NOTICES.md), which WXT copies into
 the distributed extension.
 
-The service's owner web UI includes the same Button adaptation and bundles React,
-Base UI, TanStack Query, Valibot and Lucide icons. Its notices are in
+The service's owner web UI includes the same Button adaptation and the shadcn/ui Base
+UI Chart adaptation, and bundles React, Base UI, TanStack Query, Valibot, Lucide icons
+and, for the dashboard's charts, Recharts with its dependencies. Its notices are in
 [services/api/public/manage/assets/notices.md](services/api/public/manage/assets/notices.md)
 and the `licenses.md` its build generates, and the page links both.
 

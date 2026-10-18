@@ -40,6 +40,7 @@ type Listed = Omit<ManageRecipes, "unreadable"> & Partial<Pick<ManageRecipes, "u
 function mockClient(initial: Listed) {
   let current: ManageRecipes = { unreadable: [], ...initial };
   return {
+    dashboard: vi.fn<ManageClient["dashboard"]>(),
     devices: vi.fn<ManageClient["devices"]>(),
     revokeDevice: vi.fn<ManageClient["revokeDevice"]>(),
     settings: vi.fn<ManageClient["settings"]>(async () => ({
