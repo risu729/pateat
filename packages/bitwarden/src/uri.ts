@@ -106,7 +106,10 @@ function webUrl(value: string, allowBareHost: boolean): URL | undefined {
     // so it reads `bank.example\@evil.test` as `evil.test` where WHATWG (its Host match) reads
     // `bank.example`. After that point, and anywhere after an http(s) scheme, both end the
     // host at the backslash, as in `https://bank.example\@evil.test` for `bank.example`.
+    // tldts also skips slashes and backslashes after `https:/`, which WHATWG reads as host
+    // `https` here.
     if (/^[^/?#]*\\/u.test(candidate)) return undefined;
+    if (/^https?:/iu.test(candidate) && backslashBeforeQuery(candidate)) return undefined;
     candidate = `http://${candidate}`;
   }
   if (!/^https?:\/\/[^/]/iu.test(candidate)) return undefined;

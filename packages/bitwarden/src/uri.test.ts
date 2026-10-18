@@ -675,6 +675,7 @@ describe("strict destination and unsupported rule admission", () => {
     { uri: "https://@example.com/", reason: "invalid-uri" },
     { uri: "example.com\\@evil.test", reason: "invalid-uri" },
     { uri: "example.com\\@evil.test?q=a\\b", reason: "invalid-uri" },
+    { uri: "https:/\\evil.test", reason: "invalid-uri" },
     { uri: "https://example.com:99999", reason: "invalid-uri" },
     { uri: "androidapp://com.synthetic.app", reason: "unsupported-uri-scheme" },
     { uri: "file:///synthetic", reason: "unsupported-uri-scheme" },

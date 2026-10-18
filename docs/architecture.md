@@ -295,7 +295,8 @@ Deliberate differences from the official Bitwarden clients, to be reconsidered l
   reported invalid. The official clients match it as `evil.test` with Domain and as
   `bank.example` with Host. A backslash right after the scheme is also invalid: the
   official clients match `https://\bank.example` as `bank.example`, and
-  `https:\\bank.example` as `bank.example` with Domain but `https` with Host.
+  `https:\\bank.example` or `https:/\bank.example` as `bank.example` with Domain but
+  `https` with Host.
 
 A provider match and its descriptive target origin are not a credential-release
 grant. Raw StartsWith can match a different host with the same prefix. Live
