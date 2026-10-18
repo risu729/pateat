@@ -263,7 +263,7 @@ export function renderedText(
     ) {
       if (node instanceof HTMLBRElement) text += " ";
       else if (
-        node.tagName !== "WBR" &&
+        node.localName !== "wbr" &&
         (everyElement || !view?.getComputedStyle(node).display.startsWith("inline"))
       ) {
         text += " ";

@@ -80,7 +80,10 @@ export function showsOtherAccount(
   username: string,
   { masked }: { masked: boolean },
 ): boolean {
-  const name = username.normalize("NFKC").trim();
+  const name = username
+    .replace(/\p{Cf}+/gu, "")
+    .normalize("NFKC")
+    .trim();
   const email = name.includes("@");
   if (!email && !(masked && /^\d+$/u.test(name.replace(/[\s-]/gu, "")))) return false;
   const comparable = shown.filter((entry) => entry.includes("@") === email);

@@ -370,6 +370,9 @@ describe("pageSigns", () => {
       const username = html.includes("taro") ? "taro.yamada@example.com" : "me@example.com";
       expect.soft(pageSigns(document, { username }).username, html).toBe(true);
     }
+    // A username holding a format character, such as the ZWNJ of a Persian name.
+    document.body.innerHTML = "<nav>علی&zwnj;رضا</nav>";
+    expect(pageSigns(document, { username: "علی\u200Cرضا" }).username).toBe(true);
   });
 
   it("finds the username behind an open modal dialog that hid the page (2026-10-13)", () => {

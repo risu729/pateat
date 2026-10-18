@@ -426,6 +426,8 @@ describe("namesUsername", () => {
     expect(namesUsername("Continue as taro.yamada", "taro.yamada")).toBe(false);
     expect(namesUsername("taro***", "taro.yamada")).toBe(false);
     expect(namesUsername("taro@example.com", "taro@example.com")).toBe(false);
+    // Page text is read without format characters, such as the ZWNJ of a Persian name.
+    expect(namesUsername("علیرضا", "علی\u200Cرضا")).toBe(true);
   });
 });
 
