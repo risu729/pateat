@@ -2263,9 +2263,10 @@ Remaining M4 AI work:
   `history.pushState` that keeps the path, and a page that shows the password form from
   the start never continuing) and one on `/identifier-swap` (one button and a kept
   password input across a view swap) cover that with synthetic values only. A
-  generated recipe that ends in an `advance` is continued too: after its final `advance`, a page that has
-  loaded, shows a password, username or email input for a slot the recipe does not fill
-  yet, and stays on one path for a second is sent once per step; the running login takes
+  generated recipe that ends in an `advance` is continued too: after its final
+  `advance`, a page that has loaded, shows a password, username or email input for a
+  slot the recipe does not fill yet, and stays on one path for a second is sent once per
+  step; the running login takes
   the continued revision over and runs its new steps, then the page after the submission
   is judged for `completion`, and the account choice saved after `authenticated` covers
   both pages' slots. A page that fills one of the recipe's slots again is refused by the
