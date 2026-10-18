@@ -2319,13 +2319,14 @@ cross-user learning are deferred to a separate design.
 Stored heads are revalidated on every read. An active head whose document no longer
 passes the recipe contract, for example after a contract tightened without a migration
 that rewrites it, is read as revoked at its revision (owner, 2026-10-18): the change
-feed sends `{ recipeId, revision, state: "revoked" }`, devices drop their copy and move
-their cursor past it, and generation and completion treat it as revoked, so a device can
-generate the recipe again over it. On the service it stays active, counting toward the
-recipe limits, until it is revoked or replaced. `GET /manage/api/recipes` lists it in
-`unreadable` (`{ recipeId, revision, updatedAt }`) instead of `recipes`, and the Sites
-list shows it under Unreadable recipes with Revoke. A head whose recipe ID or revision
-itself fails its contract still answers 500.
+feed sends `{ recipeId, revision, state: "revoked" }`, devices that read it drop their
+copy and move their cursor past it, and generation and completion treat it as revoked,
+so a device can generate the recipe again over it. On the service it stays active,
+counting toward the recipe limits, until it is revoked or replaced; an owner at a limit
+gets `recipe-limit` for that generation until the web UI revokes it.
+`GET /manage/api/recipes` lists it in `unreadable` (`{ recipeId, revision, updatedAt }`)
+instead of `recipes`, and the Sites list shows it under Unreadable recipes with Revoke.
+A head whose recipe ID or revision itself fails its contract still answers 500.
 
 Keep provider selection independent of recipe contracts: Claude for bounded generation
 and Clef-flash, Clef and Jev for finite choices are evaluation candidates, not fixed
@@ -2431,8 +2432,8 @@ planned change. Each is current behavior that the service does not handle.
 - One invalid stored head. A recipe document that no longer validates is read as
   revoked (see above), but a head whose recipe ID or revision fails its contract still
   makes its change-feed page and the web UI's recipe list answer 500 on every retry, and
-  devices cannot move their cursor past it. Only a direct database edit or a migration
-  that changes those contracts can produce one.
+  devices cannot move their cursor past it. A direct database edit, or a change to the
+  recipe ID or revision contracts without a migration, can produce one.
 - Requests without limits. `OWNER_LIMITER` runs after authentication, so `/v1`
   requests with unknown credentials are not limited by the Worker; owner pages, their
   assets, `/pair/signed-in` and `/manage/claude` (whose test button makes one token

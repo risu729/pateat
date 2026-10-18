@@ -496,11 +496,10 @@ describe("recipe sync", () => {
       .run();
     const response = await api(device, "/v1/recipes");
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({
-      changes: [
-        { recipeId: "bank-login", revision: 1, state: "revoked" },
-        { recipeId: "shop-login", revision: 1, state: "active" },
-      ],
+    const page: SyncRecipeChanges = await response.json();
+    expect(page.changes[0]).toEqual({ recipeId: "bank-login", revision: 1, state: "revoked" });
+    expect(page).toMatchObject({
+      changes: [{}, { recipeId: "shop-login", revision: 1, state: "active" }],
       cursor: 2,
       complete: true,
     });

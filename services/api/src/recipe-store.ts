@@ -62,9 +62,10 @@ export function readChange(row: Omit<HeadRow, "sequence" | "updatedAt">): {
       recipe: row.document,
     });
     if (active.success) return { change: active.output, unreadable: false };
-    console.error("Stored recipe document is unreadable; it is read as revoked");
   }
-  return { change: v.parse(syncRecipeChangeSchema, tombstone), unreadable: row.state === "active" };
+  const change = v.parse(syncRecipeChangeSchema, tombstone);
+  if (row.state === "active") console.error("Stored recipe document no longer validates");
+  return { change, unreadable: row.state === "active" };
 }
 
 export function toChange(row: Omit<HeadRow, "sequence" | "updatedAt">): SyncRecipeChange {
@@ -235,5 +236,14 @@ export async function writeRecipe(
       (current ? current.revision === write.expectedRevision : write.expectedRevision === 0);
     return limited ? { ok: false, limited } : { ok: false, limited, current };
   }
-  return { ok: true, change: toChange({ recipeId, revision, state: write.state, document }) };
+  // A document written just now must validate; only stored rows read back may be unreadable.
+  return {
+    ok: true,
+    change: v.parse(
+      syncRecipeChangeSchema,
+      document === null
+        ? { recipeId, revision, state: write.state }
+        : { recipeId, revision, state: write.state, recipe: document },
+    ),
+  };
 }

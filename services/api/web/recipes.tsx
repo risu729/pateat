@@ -164,12 +164,13 @@ type RevokeTarget = { recipeId: string; revision: number };
 /**
  * Revocation of the recipes one list shows. Revocation cannot be undone here, so it
  * takes a second, explicit confirmation of the revision the owner saw when they asked.
- * `ids.heading` takes focus after a revocation and when the control the owner used is gone.
+ * `ids.heading` takes focus after a revocation and when the control the owner used is gone;
+ * `ids.fallback` does when the heading is gone too.
  */
 function useRecipeRevoke(
   client: ManageClient,
   announce: (message: string) => void,
-  ids: { heading: string; error: string },
+  ids: { heading: string; error: string; fallback?: string },
 ) {
   const queryClient = useQueryClient();
   const recipes = useRecipes(client);
@@ -198,7 +199,11 @@ function useRecipeRevoke(
   useEffect(() => {
     const target = focusTarget.current;
     if (!target || revoke.isPending || (target.afterRefresh && recipes.isFetching)) return;
-    (document.getElementById(target.id) ?? document.getElementById(ids.heading))?.focus();
+    (
+      document.getElementById(target.id) ??
+      document.getElementById(ids.heading) ??
+      (ids.fallback ? document.getElementById(ids.fallback) : null)
+    )?.focus();
     focusTarget.current = null;
   });
 
@@ -322,34 +327,39 @@ export function UnreadableRecipes({
   client: ManageClient;
   announce: (message: string) => void;
 }) {
-  // A revoked recipe moves to the Revoked recipes list, whose heading takes focus.
+  // A revoked recipe moves to Revoked recipes, whose heading takes focus once this list is gone.
   const { recipes, control, error } = useRecipeRevoke(client, announce, {
-    heading: "revoked-heading",
+    heading: "unreadable-heading",
     error: "unreadable-error",
+    fallback: "revoked-heading",
   });
   const unreadable = recipes.data?.unreadable ?? [];
   if (unreadable.length === 0 && !error) return null;
   return (
     <section aria-labelledby="unreadable-heading" className="space-y-4">
-      <h2 id="unreadable-heading" className="text-xl/7 font-[650]">
+      <h2 id="unreadable-heading" tabIndex={-1} className="text-xl/7 font-[650] outline-none">
         Unreadable recipes
       </h2>
       {error}
-      <p>
-        The service can no longer read these recipes, so devices do not use them. Revoke them to
-        free their place.
-      </p>
-      <RowList id="unreadable-recipes">
-        {unreadable.map((entry) => (
-          <li key={entry.recipeId} className={ROW_CLASSES}>
-            <RowMain
-              title={<span className="font-mono">{entry.recipeId}</span>}
-              sub={`Revision ${entry.revision}, updated ${formatTime(entry.updatedAt)}`}
-            />
-            {control(entry)}
-          </li>
-        ))}
-      </RowList>
+      {unreadable.length > 0 && (
+        <>
+          <p>
+            The service can no longer read these recipes, so devices do not use them. Revoke them to
+            free their place.
+          </p>
+          <RowList id="unreadable-recipes">
+            {unreadable.map((entry) => (
+              <li key={entry.recipeId} className={ROW_CLASSES}>
+                <RowMain
+                  title={<span className="font-mono">{entry.recipeId}</span>}
+                  sub={`Revision ${entry.revision}, updated ${formatTime(entry.updatedAt)}`}
+                />
+                {control(entry)}
+              </li>
+            ))}
+          </RowList>
+        </>
+      )}
     </section>
   );
 }

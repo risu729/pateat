@@ -1686,12 +1686,13 @@ revocable device credential; request paths and bodies never select an owner. Set
 writes and recipe heads use conditional revision writes, and a recipe's history row
 is recorded in the same D1 batch only when that request won the head.
 
-Local Miniflare tests cover unknown, malformed and revoked credentials, owner and
-device isolation, stale and concurrent writes, tombstones, cursor paging, strict
-schema rejection, media type and body limits, and fail-closed handling of corrupt
-stored documents. Concurrent cases interleave within one local runtime, not hosted
-D1. A migration check regenerates SQL from the Drizzle schema. The D1 database was
-created on 2026-10-11 and the service is deployed at `pateat.takuk.me` (see
+Local Miniflare tests cover unknown, malformed and revoked credentials, owner and device
+isolation, stale and concurrent writes, tombstones, cursor paging, strict schema
+rejection, media type and body limits, fail-closed handling of corrupt stored documents,
+and stored recipes that no longer validate, which devices receive as revoked. Concurrent
+cases interleave within one local runtime, not hosted D1. A migration check regenerates
+SQL from the Drizzle schema. The D1 database was created on 2026-10-11 and the service
+is deployed at `pateat.takuk.me` (see
 [delivery](delivery.md)).
 
 The second slice adds the service side of
