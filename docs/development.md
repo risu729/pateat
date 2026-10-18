@@ -488,7 +488,7 @@ holds:
 - `mediation`: the request's mediation when it names one (`optional`, `conditional`,
   `required`, `silent`, `immediate` or `other`), whatever the outcome;
 - `uiMode`: `immediate` for Chrome's Immediate UI, separately from mediation
-  ([ADR 0051](adr/0051-immediate-ui-stored-passkeys.md)). Its admission requires
+  ([ADR 0052](adr/0052-immediate-ui-stored-passkeys.md)). Its admission requires
   transient activation, an active, focused top document outside incognito and an
   empty allowlist. Unsupported document state delegates as
   `immediate-document-not-active`, a supplied allowlist as
