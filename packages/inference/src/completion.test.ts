@@ -301,6 +301,9 @@ describe("password button on a page that asks how to verify (ADR 0048)", () => {
     expect(completionInstructions).toMatch(
       /passwordButton is the button on such a page that goes on to typing the account's existing password, .*never one that uses a phone, mobile, push notification, SMS, email, an app, a passkey or security key, sends or enters a code, creates, resets or changes a password, says Forgot password, tries another way or cancels, and never a link\./u,
     );
+    expect(completionInstructions).toMatch(
+      /Nor is it a button that uses the device's biometrics or platform sign-in, such as Touch ID, Face ID, a fingerprint or Windows Hello, even one whose label also names the password\./u,
+    );
   });
 });
 

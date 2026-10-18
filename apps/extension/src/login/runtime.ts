@@ -4236,7 +4236,8 @@ export function createLoginRuntime(
    * no room for it. At a login's stop before its item's missing password (`stop`, ADR
    * 0036), only a `passkey` handler is entered, before the stop step, and the login ends
    * there with `stop.end` instead. A `password` handler goes first, and only for a login
-   * that types its password and has not filled it yet (ADR 0048).
+   * that types its password and has not filled it yet; one shown but refused ends the login
+   * as `challenge` rather than letting another handler beside it be entered (ADR 0048).
    */
   async function enterHandler(
     run: Execution,
@@ -4396,7 +4397,13 @@ export function createLoginRuntime(
           : entry.handler.kind === "totp" && attemptUsesCode(run.recipe, run.metadata)
             ? ("code-used" as const)
             : undefined;
-    const fresh = shown.find((entry) => refusal(entry) === undefined);
+    // A `password` handler goes first; refused, as when its button shows again after its
+    // press, it ends the login there, so the passkey button beside it is never pressed by a
+    // login that types its password (ADR 0048).
+    const fresh =
+      shown[0]!.handler.kind === "password" && refusal(shown[0]!) !== undefined
+        ? undefined
+        : shown.find((entry) => refusal(entry) === undefined);
     if (!fresh) {
       reportHandler(shown[0]!, refusal(shown[0]!)!);
       await challenge();
@@ -4818,9 +4825,9 @@ export function createLoginRuntime(
    * continued on the page it leads to (ADR 0018): a `password` route login on the recipe's
    * own steps (variant 0), in the tab's own page, with recipe generation configured, whose
    * recipe has no completion and no alternatives. A login of an item without a password
-   * asks only when its stop lies just past that advance (ADR 0036). The click of a
-   * `password` handler entered right after that advance, the plan's last step, counts as
-   * that advance (ADR 0048).
+   * asks only when its stop lies just past that advance (ADR 0036). A `password` handler's
+   * click counts as that advance when it is the plan's last step and the recipe's own last
+   * step is an advance (ADR 0048).
    */
   function continuable(run: Execution): boolean {
     const { metadata, recipe } = run;
@@ -5743,6 +5750,13 @@ export function createLoginRuntime(
           after?.kind === "click"
             ? after.target
             : undefined;
+        const ownHandler = attemptPlan(run.recipe, run.metadata)?.[operation.stepIndex]?.handler;
+        // A `password` handler's button is pressed only while its rendered text, read in the
+        // same task as the press, still names the password choice (ADR 0048).
+        const passwordChoice =
+          operation.step.kind === "click" &&
+          ownHandler !== undefined &&
+          run.recipe.handlers?.[ownHandler]?.kind === "password";
         run.delivered = true;
         const { tabId } = run.live.document;
         if (
@@ -5754,7 +5768,6 @@ export function createLoginRuntime(
           operation.step.kind === "click" ||
           (operation.step.kind === "fill" && operation.step.effect !== "prepare")
         ) {
-          const handler = attemptPlan(run.recipe, run.metadata)?.[operation.stepIndex]?.handler;
           const at = Date.now();
           effects.set(tabId, {
             attemptId: run.metadata.id,
@@ -5763,7 +5776,7 @@ export function createLoginRuntime(
             submits: loginStepEffect(operation.step) === "submit",
             passkey:
               run.metadata.route === "passkey" ||
-              (handler !== undefined && run.recipe.handlers?.[handler]?.kind === "passkey"),
+              (ownHandler !== undefined && run.recipe.handlers?.[ownHandler]?.kind === "passkey"),
             ...(codeStep(run.recipe, run.metadata, operation.stepIndex) ? { code: at } : {}),
           });
           // A passkey handler's click asks for the passkey; it does not submit the password.
@@ -5799,6 +5812,7 @@ export function createLoginRuntime(
             : {}),
           // A `totp` handler's code fill watches for the page submitting the code itself.
           ...(codeSubmit ? { code: { submit: codeSubmit } } : {}),
+          ...(passwordChoice ? { passwordChoice: true as const } : {}),
           // An advance whose next step is on its path has the document measure that step
           // just before its effect, in the same task (ADR 0013).
           ...(inPlace ? { next: inPlace } : {}),

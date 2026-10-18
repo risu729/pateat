@@ -321,6 +321,13 @@ export const commandSchema = v.variant("type", [
      */
     code: v.optional(v.strictObject({ submit: loginTargetSchema })),
     /**
+     * With a `password` handler's click (ADR 0048): the button is pressed only while its
+     * rendered text, read in the same task as the press, names the password as the way to
+     * confirm the sign-in (`namesPasswordChoice`); otherwise nothing is pressed and the step
+     * fails as one whose target is missing.
+     */
+    passwordChoice: v.optional(v.literal(true)),
+    /**
      * With an advance whose next step is on its own path (ADR 0013): that step's elements,
      * measured in the same task as the click or the fill's first input, just before it. The
      * answer reports them as `before`.
@@ -476,7 +483,8 @@ export const executionResultSchema = v.strictObject({
    * Why a step was `cancelled` or failed, for the local log only (ADR 0019): the worker did
    * not authorize it, this document was cancelled, the operation was used or expired, the
    * page moved to another path, a field changed under the fill, the step threw; or, for a
-   * failure, the form was replaced, the target is missing or not writable, the form
+   * failure, the form was replaced, the target is missing or not writable (or, for a
+   * `password` handler's click, its text no longer names the password, ADR 0048), the form
    * changed before a click, an `assert` did not hold, the step was sent values it does not
    * fill, its fields are in different forms, an input refused its secret, the page's inputs
    * have no value setter, or a code field's submission watch could not start.

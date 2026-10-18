@@ -30,7 +30,7 @@ export function clickable(element: Element | undefined): element is HTMLElement 
   );
 }
 /** A shown button whose text names the password as the way to confirm the sign-in. */
-function passwordChoice(element: Element | undefined): boolean {
+export function passwordChoice(element: Element | undefined): boolean {
   const text = element instanceof HTMLElement && visible(element) ? buttonText(element) : undefined;
   return text !== undefined && namesPasswordChoice(text);
 }

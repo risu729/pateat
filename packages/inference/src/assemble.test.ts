@@ -543,6 +543,8 @@ describe("judged password handler (ADR 0048)", () => {
     ["Mobile", "another channel"],
     ["Send a one-time password", "a code"],
     ["パスワードを忘れた方", "Japanese forgot"],
+    ["Use Touch ID or password", "a platform sign-in"],
+    ["Update password", "another task"],
   ])("refuses a button labelled %s (%s)", (label) => {
     const labelled = { ...choice(), candidates: [{ ...candidate("password", choose), label }] };
     expect(addHandler(recipe, labelled, password())).toEqual({

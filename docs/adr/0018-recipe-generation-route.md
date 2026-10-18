@@ -190,12 +190,12 @@ Implementation choices for the page after a recipe's final `advance` step, made 
   last step, an `advance`, and never a login that only fills the form after a logout,
   which stops before the advance (ADR 0021 D). Since 2026-10-18
   ([ADR 0048](0048-password-method-button.md)) the step in flight may also be the click
-  of a `password` handler entered right after that advance, the last step of the
-  login's plan; its page is checked for a password input before the click's hold, and
-  the continued steps follow the handler's. Once the result would settle as unknown,
-  confirmed sign-in evidence still completes the login before the continuation's own
-  rule applies (ADR 0029). A recipe with a completion has already reached a signed-in
-  page; its later pages are judged as before
+  of a `password` handler when that click is the last step of the login's plan and the
+  recipe's own last step is an `advance`; its page is checked for a password input
+  before the click's hold, and the continued steps follow the handler's. Once the result
+  would settle as unknown, confirmed sign-in evidence still completes the login before
+  the continuation's own rule applies (ADR 0029). A recipe with a completion has
+  already reached a signed-in page; its later pages are judged as before
   ([ADR 0027](0027-per-account-login-routes.md)).
 - **Which page.** The page qualifies once it has finished loading
   (`document.readyState` is `complete`) and has shown, on one path for a second within

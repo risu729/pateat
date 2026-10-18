@@ -857,7 +857,8 @@ export async function judgeCompletion(
   }
   const judgement = outcome.value;
   // A stop's page keeps a `passkey` handler and nothing else: no rejection, no marker and
-  // no `totp` or `password` handler. Its other answers are kept as undecided, under the stop's version.
+  // no `totp` or `password` handler. Its other answers are kept as undecided, under the
+  // stop's version.
   if (stop && judgement.decision !== "challenge") {
     await keepVerdict("unclear");
     return { version: 1, status: "unclear" };

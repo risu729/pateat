@@ -87,8 +87,10 @@ the owner has not confirmed them separately.
   `passwordButton` is a button that goes on to typing the account's existing password,
   never one that uses a phone, a push notification, SMS, email, an app or a passkey,
   sends or enters a code, makes, resets or changes a password, says "Forgot password",
-  tries another way or cancels, and never a link. A named element that is not a button
-  of the page adds nothing. The judge's prompt version changes. The stop's prompt
+  tries another way or cancels, and never a link; nor one that uses the device's
+  biometrics or platform sign-in, such as Touch ID, Face ID, a fingerprint or Windows
+  Hello, even when its label also names the password. A named element that is not a
+  button of the page adds nothing. The judge's prompt version changes. The stop's prompt
   ([ADR 0036](0036-passkey-after-the-identifier.md)) keeps only a `passkey` handler, so
   a `passwordButton` from a stop's page is logged and dropped.
 - **Checked on the service.** `addHandler` keeps the button only when it is a button of
@@ -99,31 +101,43 @@ the owner has not confirmed them separately.
   variant fills the `password` slot. A recipe that already types the password has
   passed the page that asks for it, so a "Use password instead" button on a later
   second-factor page is never learned. The log `Judged page handlers` names the kind
-  and the refusal (`not-password`, `password-filled`, `step-target`, `duplicate`).
+  and the refusal (`not-password`, `password-filled`, `step-target`, `duplicate`,
+  `not-on-page`, `origin-mismatch`, `invalid-recipe`, or `stop` for a stop's page).
 - **The word list.** `namesPasswordChoice` in `packages/contracts` (shared by the
   service and the extension) holds the words per language: English (`password`,
   `passphrase`, as whole words) and Japanese (パスワード). It refuses text that also
-  reads as another way or another task: forgot, reset, change, create, new, set up,
-  without, one-time, temporary, send, code, SMS, text, email, phone, mobile, app, push,
-  link, passkey, security key, register, sign up, cancel, another or other, help or
-  trouble, and in Japanese 忘れ, 再設定, リセット, 変更, 作成, 登録, 設定, 新規, 新しい,
-  発行, お困り, わから, 不要, なし, 使わ, ワンタイム, 一時, 送信, 送る, コード, メール,
-  SMS, 電話, 携帯, アプリ, パスキー, キャンセル, 別, 他. So "Password", "Use your
-  password", "パスワードでログイン" qualify; "Forgot password?", "One-time password",
-  "Sign in without a password", "パスワードを忘れた方" and "ワンタイムパスワード" do
-  not. Other languages are added to the same list, never per site.
+  reads as another way or another task: forgot, reset, change, update, renew, expired,
+  create, new, different, set up, without, one-time, temporary, send, code, SMS, text,
+  email, phone, mobile, app, push, link, passkey, security key, Touch ID, Face ID,
+  fingerprint, biometric, Windows Hello, register, sign up, cancel, another or other,
+  help or trouble, and in Japanese 忘れ, 再設定, リセット, 変更, 更新, 作成, 登録, 設定,
+  新規, 新しい, 発行, 仮, 初期, お困り, わから, 不要, なし, 使わ, ワンタイム, 一時,
+  送信, 送る, コード, メール, SMS, 電話, 携帯, アプリ, パスキー, 生体, 指紋, 顔,
+  キャンセル, 別, 他. So "Password", "Use your password", "パスワードでログイン"
+  qualify; "Forgot password?", "One-time password", "Sign in without a password", "Use
+  Touch ID or password", "Update password", "パスワードを忘れた方",
+  "仮パスワードでログイン" and "ワンタイムパスワード" do not: a button that offers a
+  biometric or platform sign-in beside the password is left to the person. Other
+  languages are added to the same list, never per site.
 - **Entering.** A `password` handler is entered after an effect step like any handler,
   only by a login on the `password` route without a stop (ADR 0036), that is not
   fill-only, in the tab's top document on the recipe's own origin, and that has not
   filled its password yet in this login. Its button must be shown and its rendered
   text, read by the content script at that moment (`password-choice`), must pass the
   word list; a button that fails is not pressed, and the page goes on as one no handler
-  explains. It is not entered while one of the route's fill fields on that path shows
-  writable, so a page that shows the password field gets the password, and so does a
-  page whose route already continues there: the route's next step is checked before
-  handlers. When several handlers show, a `password` handler goes first for such a
-  login, so a login that types its password never presses a passkey button beside it;
-  the order of `passkey` and `totp` handlers is unchanged.
+  explains. The content script reads the text again in the click's own task, just
+  before the press (`passwordChoice` on the click); a button the page rendered again
+  with other text in between, under the same id, name or test ID, is not pressed, and
+  the step fails as one whose target is missing (`target-missing`). It is not entered
+  while one of the route's fill fields on that path shows writable, so a page that
+  shows the password field gets the password, and so does a page whose route already
+  continues there: the route's next step is checked before handlers. When several
+  handlers show, a `password` handler goes first for such a login, so a login that
+  types its password never presses a passkey button beside it; the order of `passkey`
+  and `totp` handlers is unchanged. A `password` handler that shows but is passed over,
+  as when its button shows again after its press (`shown-again`), ends the login
+  `challenge` there instead of letting another handler shown with it be entered, so a
+  passkey button beside it stays unpressed.
 - **After the press.** Its click is held like any handler's
   ([ADR 0027](0027-per-account-login-routes.md), "Held click"): while the button still
   shows in the document that pressed it, the page is neither judged nor settled for up
@@ -132,13 +146,13 @@ the owner has not confirmed them separately.
   handler. On a later login, the route's next step on the same path, such as the
   continued password field, confirms the press as an `advance` on its own path does
   (ADR 0013): only when it was not ready just before the click.
-- **The continuation.** A `password` handler's click that follows the recipe's final
-  `advance`, as the last step of the login's plan, is continued like that advance: once
-  its page shows a password input, the page is sent with the recipe's revision as the
-  base (one request per click), before the click's hold is checked, and the continued
-  steps follow the handler's steps in the plan. The service appends them to the route
-  as for any continuation; the handler stays. Later logins run the identifier, Next,
-  the button when its page shows, then the password.
+- **The continuation.** A `password` handler's click that is the last step of the
+  login's plan, in a recipe whose own last step is an `advance`, is continued like that
+  advance: once its page shows a password input, the page is sent with the recipe's
+  revision as the base (one request per click), before the click's hold is checked, and
+  the continued steps follow the handler's steps in the plan. The service appends them
+  to the route as for any continuation; the handler stays. Later logins run the
+  identifier, Next, the button when its page shows, then the password.
 - **Logs.** `login.handler` names `kind` `password` with the usual outcomes.
 
 ### Unchanged
@@ -156,16 +170,19 @@ amendment). This ADR does not amend ADR 0036.
 - UniSuper-like pages (identifier, then a choice of how to verify) can log in end to
   end: the first login is judged on the choice page, presses the button, continues on
   the password page and signs in; later logins make no model call.
-- A site that sometimes skips the choice page still logs in: the handler waits for its
-  button and the route's next step comes first.
+- A site that sometimes skips the choice page still logs in: a handler is entered only
+  when its button shows after an effect step, so a page that shows the password field
+  instead gets the route's next step.
 - Each recipe's pages are judged once more after the prompt changes, within the
   existing limits (20 a recipe a day, $5 a day, $100 a month).
 - A wrong button that passes both guards is pressed once per login until the recipe is
   revoked; a press that does nothing ends `challenge` and is watched, so it costs the
   person one press, as before this ADR.
-- The extension checks the live text just before the handler is entered, not in the
-  same task as the click; a page that changes the button's text in between is pressed
-  by its locator.
+- The extension checks the live text when the handler is entered and again in the same
+  task as the click, so a button the page renders again with other text under the same
+  locator is not pressed; that login fails as one whose button went missing.
+- When the `password` handler already ran and its button shows again beside a learned
+  passkey button, the login ends `challenge` rather than pressing the passkey button.
 
 ## Alternatives
 
