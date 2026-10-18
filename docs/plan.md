@@ -1021,6 +1021,11 @@ items the owner mentioned and gates still open on 2026-10-11.
   approval for real-account use.
 - Proposed: the remaining checks, namely pairing while signed out of Access and the
   Access cookie settings, real sites that wrap `get`, and a navigation during signing.
+  The packaged synthetic browser suite also covers a page-owned `get` wrapper that
+  clones request options: Pateat answers an eligible request once, native fallback
+  remains reachable, and caller cancellation survives the copied options. This added
+  coverage passed in isolated cloud Chromium on 2026-10-17; it does not close the
+  real-site wrapper gate.
 
 ### Research
 

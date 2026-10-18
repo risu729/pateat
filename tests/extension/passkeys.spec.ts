@@ -71,6 +71,7 @@ async function addVirtualAuthenticator(context: BrowserContext, page: Page, rpId
       signCount: 0,
     },
   });
+  return { session, authenticatorId };
 }
 
 async function openRelyingParty(context: BrowserContext, origin: string, path = "/") {
@@ -594,6 +595,61 @@ test("Pateat answers first when another provider wraps get later or restores it"
       );
       expect(await providerCalls(fallback)).toBe(1);
       expect(await probe.signatures()).toBe(3);
+    });
+  } finally {
+    server.close();
+  }
+});
+
+test("a page wrapper cloning request options preserves native fallback and caller cancellation", async () => {
+  const { server, origin } = await startRelyingParty();
+  try {
+    await withLoginExtension(async (context, _worker, extensionId) => {
+      const probe = await probeControls(context, extensionId);
+      await probe.configure();
+      const page = await context.newPage();
+      const { session, authenticatorId } = await addVirtualAuthenticator(context, page);
+      await page.goto(`${origin}/page-wrapper`);
+      const calls = () =>
+        page.evaluate(() => (window as unknown as { pageWrapperCalls: number }).pageWrapperCalls);
+      const claimed = challengeHex();
+      expectPateatAssertion(await clickRequest(page, { challenge: claimed }), origin, claimed);
+      expect(await probe.signatures()).toBe(1);
+      expect(await calls()).toBe(0);
+
+      await probe.configure({ enabled: false });
+      const fallback = challengeHex();
+      expectNativeAssertion(await clickRequest(page, { challenge: fallback }), origin, fallback);
+      expect(await calls()).toBe(1);
+
+      // Hold native user presence so the request stays pending after delegation.
+      // An unknown allowlist would let Chromium reject before the caller can abort.
+      await session.send("WebAuthn.setAutomaticPresenceSimulation", {
+        authenticatorId,
+        enabled: false,
+      });
+      await page.evaluate(
+        (spec) => {
+          (window as unknown as { nextSpec: Spec }).nextSpec = spec;
+        },
+        {
+          challenge: challengeHex(),
+          allow: [virtualCredentialId.toString("hex")],
+          timeout: 30_000,
+        },
+      );
+      await page.getByRole("button", { name: "Sign in with a passkey" }).click();
+      await expect.poll(calls).toBe(2);
+      await page.evaluate(() => {
+        const state = window as unknown as { controller: AbortController; abortReason: object };
+        state.abortReason = { source: "synthetic caller" };
+        state.controller.abort(state.abortReason);
+      });
+      expect(
+        await page.evaluate(() => (window as unknown as { pending: Promise<Serialized> }).pending),
+      ).toEqual({ error: "caller-reason" });
+      expect(await calls()).toBe(2);
+      expect(await probe.signatures()).toBe(1);
     });
   } finally {
     server.close();
