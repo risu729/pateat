@@ -127,7 +127,10 @@ function gap(): Promise<void> {
  * one to type into. A stopped typing leaves the characters typed so far in the field.
  * `beforeInput` runs once the last character is in, just before its `input` event. A
  * page that moved focus elsewhere meanwhile keeps it: `blur` only leaves the input when
- * it still has focus. Resolves to the cause when the typing stopped, else `undefined`.
+ * it still has focus. A field that already holds `value`, as a password field the page or
+ * an earlier fill filled does behind its mask, is left as it is: no focus, no key and no
+ * event, and `beforeInput` runs at once (owner decision, 2026-10-18). Resolves to the
+ * cause when the typing stopped, else `undefined`.
  */
 export async function typeValue<Cause extends string>(
   input: HTMLInputElement,
@@ -142,6 +145,10 @@ export async function typeValue<Cause extends string>(
   } = {},
 ): Promise<Cause | "refused" | undefined> {
   const current = () => (valueProperty?.get ? valueProperty.get.call(input) : input.value);
+  if (current() === value) {
+    beforeInput?.();
+    return undefined;
+  }
   let refused = false;
   focusElement(input);
   if (current() !== "") {

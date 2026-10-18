@@ -323,6 +323,30 @@ describe("typeValue", () => {
     expect(inputs).toEqual(["deleteContentBackward:", "insertText:a", "insertText:ab"]);
   });
 
+  it("leaves a field that already holds the value as it is, masked or not", async () => {
+    document.body.innerHTML =
+      '<input id="before"><input id="field" type="password" value="pa55"><input id="other" value="pa5">';
+    const before = document.getElementById("before") as HTMLInputElement;
+    const field = document.getElementById("field") as HTMLInputElement;
+    const other = document.getElementById("other") as HTMLInputElement;
+    before.focus();
+    const events: string[] = [];
+    for (const type of ["focus", "keydown", "beforeinput", "input", "change", "blur"])
+      field.addEventListener(type, () => events.push(type));
+    let typed = 0;
+    expect(await typeValue(field, "pa55", setter, { beforeInput: () => typed++ })).toBeUndefined();
+    expect(events).toEqual([]);
+    expect(typed).toBe(1);
+    expect(field.value).toBe("pa55");
+    expect(document.activeElement).toBe(before);
+    // A field holding other text, even a prefix of the value, is cleared and typed into.
+    const inputs: string[] = [];
+    other.addEventListener("input", (event) => inputs.push((event as InputEvent).inputType));
+    await typeValue(other, "pa55", setter);
+    expect(other.value).toBe("pa55");
+    expect(inputs[0]).toBe("deleteContentBackward");
+  });
+
   it("stops between characters with the cause the check gives", async () => {
     document.body.innerHTML = '<input id="field">';
     const field = document.getElementById("field") as HTMLInputElement;

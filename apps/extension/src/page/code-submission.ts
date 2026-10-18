@@ -70,8 +70,8 @@ const busySelector = '[aria-busy="true"], [role="progressbar"], progress';
  * whose timers Chrome throttles, or on a busy page, nor an enable that lasts only until the
  * page disables the button again to check the code, is missed. Polling reads the rest and
  * stands in for the observer. `typed` marks the code going in, just before its input event
- * (for a split code, its last digit's), from when the button's states and the busy
- * indicators are read afresh;
+ * (for a split code, its last digit's) or at once for a field that already holds it, from
+ * when the button's states and the busy indicators are read afresh;
  * `submitted` reads the page; `stop` disconnects the observer and removes the listeners.
  */
 export function watchCodeSubmission(
