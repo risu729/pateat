@@ -143,9 +143,11 @@ export const diagnosticsJa = {
   "{{id}} vault synced {{age}} ago": "{{id}} 保管庫の同期: {{age}}前",
   "{{synced}}; checked {{age}} ago{{outcome}}": "{{synced}}；確認: {{age}}前{{outcome}}",
   // Untranslated: English from main until a Japanese translation is added.
-  "https://*/* and http://*/* site access granted": "https://*/* and http://*/* site access granted",
+  "https://*/* and http://*/* site access granted":
+    "https://*/* and http://*/* site access granted",
   // Untranslated: English from main until a Japanese translation is added.
-  "https://*/* or http://*/* site access withheld": "https://*/* or http://*/* site access withheld",
+  "https://*/* or http://*/* site access withheld":
+    "https://*/* or http://*/* site access withheld",
   "crypto host ready": "暗号処理の準備完了",
   "crypto host idle (starts on demand)": "暗号処理は待機中（必要時に起動）",
   "connections unreadable": "接続情報を読み取れません",

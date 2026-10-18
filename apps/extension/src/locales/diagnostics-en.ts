@@ -137,8 +137,10 @@ export const diagnosticsEn = {
   "{{label}}; Sync needs auto-unlock": "{{label}}; Sync needs auto-unlock",
   "{{id}} vault synced {{age}} ago": "{{id}} vault synced {{age}} ago",
   "{{synced}}; checked {{age}} ago{{outcome}}": "{{synced}}; checked {{age}} ago{{outcome}}",
-  "https://*/* and http://*/* site access granted": "https://*/* and http://*/* site access granted",
-  "https://*/* or http://*/* site access withheld": "https://*/* or http://*/* site access withheld",
+  "https://*/* and http://*/* site access granted":
+    "https://*/* and http://*/* site access granted",
+  "https://*/* or http://*/* site access withheld":
+    "https://*/* or http://*/* site access withheld",
   "crypto host ready": "crypto host ready",
   "crypto host idle (starts on demand)": "crypto host idle (starts on demand)",
   "connections unreadable": "connections unreadable",
