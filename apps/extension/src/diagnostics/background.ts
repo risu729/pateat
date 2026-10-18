@@ -7,6 +7,7 @@ import type { SetupReply } from "../connections/types";
 import type { LoginReport } from "../login/runtime";
 import type { PasskeyCreateReport } from "../passkeys/create";
 import type { PasskeyRequestReport } from "../passkeys/runtime";
+import type { LoginOutcomeSent } from "../service/outcomes";
 import type { RecipeSyncChanges, RecipeSyncOutcome } from "../service/recipes";
 import {
   KNOWN_ERROR_CODES,
@@ -260,6 +261,24 @@ export function createDiagnosticsLog(options: {
             : outcome === "unreachable" || outcome === "busy"
               ? "info"
               : "warn",
+        },
+      );
+    },
+    /**
+     * A first login's result code sent to the service: `kept` is info, anything else warn,
+     * except an unreachable service, which an offline device meets routinely.
+     */
+    loginOutcome(sent: LoginOutcomeSent) {
+      void logger.log(
+        "service.outcome",
+        {
+          recipe: sent.recipeId,
+          recipeRevision: sent.revision,
+          branch: sent.branch,
+          result: sent.result,
+        },
+        {
+          level: sent.result === "kept" || sent.result === "failed:unreachable" ? "info" : "warn",
         },
       );
     },

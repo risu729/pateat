@@ -11,6 +11,10 @@ labelled, for at most one year, and rows gain the recipe ID and revision. Amende
 [rows for a real-page corpus](#amendment-2026-10-18-rows-for-a-real-page-corpus) gain
 the recipe, branch and revisions, the build, an observation hash and the model's own
 answer; every row is kept one year; and the web UI deletes them all. Implemented.
+Amended on 2026-10-18 by the same decision
+([login result codes](#amendment-2026-10-18-login-result-codes), with
+[ADR 0019](0019-local-diagnostics-and-logs.md)): the service keeps the result code of
+each recipe revision's first login beside the log. Implemented.
 
 Date: 2026-10-10
 
@@ -75,11 +79,35 @@ evaluation corpus needs later, without waiting for phase 1 to finish ("今入れ
   Request log page deletes all of the owner's rows after a confirmation; recipes,
   settings and the spend the limits count stay.
 
-Not part of this amendment: sending the extension's login outcome codes to the service,
-filling in earlier rows, and exporting the corpus. The column names (`recipe_page` and
-the others in `services/api/src/db/schema.ts`) and the Request log tab at
-`/manage/request-log` (the web UI has no settings page for it) were the agent's choice,
-not confirmed by the owner.
+Not part of this amendment: sending the extension's login outcome codes to the service
+(see the next amendment), filling in earlier rows, and exporting the corpus. The column
+names (`recipe_page` and the others in `services/api/src/db/schema.ts`) and the Request
+log tab at `/manage/request-log` (the web UI has no settings page for it) were the
+agent's choice, not confirmed by the owner.
+
+## Amendment 2026-10-18: login result codes
+
+With the same decision cards (06:08 UTC, "送る"), devices send how the first login of
+each recipe revision ended, as codes only
+([ADR 0019](0019-local-diagnostics-and-logs.md#amendment-2026-10-18-first-login-results-for-evaluation)),
+so a corpus entry joins the generation row with its result without the device's 14-day
+local log:
+
+- A new owner-scoped table `login_outcomes` keeps the recipe ID, branch (empty without
+  one), revision, `outcome`, `cause` (null without one), step index and the service's
+  own time, one row per revision: the first report is kept and later ones are ignored.
+  The route accepts only a recipe the owner holds, at a revision up to its head that is
+  not a tombstone.
+- Its rows are kept one year like the log's and deleted with expired log rows. The
+  Request log page counts them beside the requests, and Delete all deletes them too.
+- A row is the first report the service received for its revision, not always the
+  revision's first login: a revision that ran before the build that sends these codes
+  reports its next login instead. The corpus builder drops outcome rows whose revision's
+  generation row (the `inference_log` row with that `revision`) has no `build`, or a
+  `build` that is not a descendant of the first service commit that accepts these
+  reports. That commit also builds the extension that sends them. A revision whose
+  first login ran on an extension older than that commit is not caught, as no row
+  records the extension's build.
 
 ## Consequences
 

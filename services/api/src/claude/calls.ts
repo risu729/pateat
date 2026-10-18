@@ -14,6 +14,7 @@ import {
   inferenceLocks,
   inferenceLog,
   inferenceSpend,
+  loginOutcomes,
   type inferenceLogRecipePages,
 } from "../db/schema";
 import { resolveClaudeCredential } from "./credentials";
@@ -34,7 +35,7 @@ export const CLAUDE_CALL_LIMITS = {
   dailyMicroUsd: 5_000_000,
   /** Longer than the token exchange and the model timeout together. */
   lockMs: 90_000,
-  /** Every request log row, for evaluation (owner decision, 2026-10-18). */
+  /** Every request log row and login result code, for evaluation (owner decision, 2026-10-18). */
   logRetentionMs: INFERENCE_LOG_RETENTION_MS,
 };
 
@@ -130,13 +131,16 @@ export async function limitReached(db: Db, ownerId: string, now: number) {
 }
 
 /**
- * Deletes log rows past the one-year retention. Routine releases do not apply cron
- * triggers, so this runs whenever a call is logged and on every recipe sync read.
+ * Deletes request log rows and login result codes past the one-year retention. Routine
+ * releases do not apply cron triggers, so this runs whenever a call or a login result is
+ * logged and on every recipe sync read.
  */
-export function purgeExpiredLog(db: Db, now: number) {
-  return db
-    .delete(inferenceLog)
-    .where(lt(inferenceLog.createdAt, now - CLAUDE_CALL_LIMITS.logRetentionMs));
+export async function purgeExpiredLog(db: Db, now: number) {
+  const before = now - CLAUDE_CALL_LIMITS.logRetentionMs;
+  await db.batch([
+    db.delete(inferenceLog).where(lt(inferenceLog.createdAt, before)),
+    db.delete(loginOutcomes).where(lt(loginOutcomes.createdAt, before)),
+  ]);
 }
 
 /** 12 hex digits of the SHA-256 of an observation as JSON, to count repeated pages. */

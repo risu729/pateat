@@ -1576,6 +1576,7 @@ kind's check is left out and a string over 512 characters becomes `"[truncated]"
 | `vault.check` | debug for `unchanged`, `skipped` and the same outcome as the connection's last stored check other than `synced`, also after the worker restarted (such as a sign-in that still needs the password, where no request is sent); otherwise info for `synced` and `deferred` (the replacement waits for a login or passkey request), else warn | connection pseudonym and the automatic check's outcome (ADR 0025): `unchanged`, `synced`, `deferred`, `rate-limited`, `failed`, `reauthentication-required`, `account-deleted` or `skipped` |
 | `vault.refresh` | debug for `refreshed`, info for `not-sent`, else warn | connection pseudonym; `not-sent` when no usable session was refreshed and no refresh was sent, with why: `no-session`, `no-refresh-token`, `claimed` (another refresh in this worker holds it), `provider-permission-required`, `cancelled` or the store's error code; `refreshed`, `restored` (the session was put back after a network failure, timeout, 429 or 5xx), `rejected`, `account-mismatch` or `failed` (a non-retryable error drops the claim's refresh token so the sync sign-in needs the password; a store error leaves the claim to resume; a conflict means forget or a password sign-in replaced it); the transport or store error code and HTTP status when there is one |
 | `service.sync` | debug for `synced`, `incomplete`, `not-connected` unless a recipe was added, updated or removed, then info; info for `unreachable`, since a device offline for a while would otherwise fill the warnings, and `busy` (a settings write that waits for a login, a sync superseded by a later one, or attempts that ran out); else warn | recipe and settings sync outcome; `full`, or `recipes` for a recipes-only run after a judged page; recipes added, updated and removed in the cache |
+| `service.outcome` | info for `kept` and `failed:unreachable`, else warn | recipe ID and revision (`recipeRevision`), the chooser branch, and the result of one [first login result](#first-login-results-on-the-service) request: `kept`, `refused`, `rejected` or `failed:<code>` |
 | `settings.changed` | info | `synced` (a settings sync wrote local settings) or `saved` (the settings page); the settings revision when the entry is written. Running logins and passkey requests stop; a watched login stops only if the new settings no longer allow its account |
 | `login.attempt` | debug when a new page resumes the attempt without changing its state or outcome; otherwise info for `authenticated` and `retryable`, for a route change and for the end of a fill-only login after a logout, warn for other `blocked`, for `watching` and when the result settles as unknown (`unknown-submit`, marked `settled`), so a login that did not finish counts as a warning, info for `document-gone` with a reason other than `no-receiver` and for `captcha-shown`, else debug | origin, recipe ID and revision (`recipeRevision`), route and `password` variant, state, step, step count, the current step's kind (`fill`, `click`, `wait`, `assert`) and effect (`prepare`, `advance`, `submit`), the entered handler the step belongs to, outcome (`challenge-abandoned` or `watch-abandoned` when a watched login's first step showed again before it signed in, [ADR 0027](adr/0027-per-account-login-routes.md#watching-after-a-challenge)); for `policy-changed`, its cause and a refused plan's reason; else `fill-only` as the reason for a login that only fills the form after a logout (ADR 0021 D); `routeChange` when the login changed route ([ADR 0034](adr/0034-answer-page-passkey-requests.md)): `page-request` (to the `passkey` route, because the page asked for a passkey), or back to the `password` route as `request-missing`, `answer-failed`, `sign-in-rejected` or `sign-in-shown`; `stop` (`password`) on every entry of a login that stops before its item's missing password, also one whose stop lies just past its route's last step, and `password-empty` as the reason when it ends `challenge` at that stop, or `password-empty:<why>` (such as `password-empty:fills-lacking`) when a continuation of a stop past the plan's last step could not take the stop over ([ADR 0036](adr/0036-passkey-after-the-identifier.md)); the item's lack of a password shows as the `no-route` detail does, never a value. A result that settles as unknown (`unknown-submit`) on a page that still shows a sign-in element of the route, with no failure that acted (S1, [ADR 0029](adr/0029-local-sign-in-state.md)), names `sign-in-shown` as its `cause`. A login that failed or was cancelled names its `cause` when one is known (a plain wait timeout or a cancel without a reason has none): the step's elements did not show in time (`elements-timeout`), a code page neither submitted the code nor took the click (`code-not-submitted`), no operation could be built (`no-operation`), the login's item could not answer the page's passkey request (`answer-failed`), the operation no longer validated (`operation-invalid`), a field had no vault binding (`slot-unbound`), the page did not answer or its answer failed its check (`no-answer`), a code page said it submitted the code itself but no check confirmed it (`page-submitted`), the page showed a CAPTCHA, so the click was left to the person and the attempt waits in `awaiting-result` (`captcha-shown`), the document stopped answering, as when a submit replaced it, so the attempt waits in `reconciling` for the next document to resume it (`document-gone`, with what the browser said as the reason: `no-receiver` when no listener was left or the page went into the back/forward cache, logged at debug as a submit's usual navigation, else `port-closed` when the listener did not answer or `send-failed`, logged at info as they may hide a fault), or the page's own reason: the worker did not authorize the step (`not-authorized`), the document was cancelled (`document-cancelled`), the operation was used (`operation-used`) or expired (`operation-expired`), the page moved to another path (`page-changed`, also with a `timeout` outcome when the wait ended on another path), a field changed under the fill (`field-changed`), the step threw (`threw`), the form was replaced (`form-replaced`), the target is missing or not writable, or a `password` handler's button no longer names the password at the press ([ADR 0048](adr/0048-password-method-button.md)) (`target-missing`), the form changed before a click (`form-changed`), an `assert` did not hold (`assert-failed`), the step was sent values it does not fill (`unexpected-values`), its fields are in different forms (`fields-split`), an input refused its secret (`secret-refused`), the page's inputs have no value setter (`unsupported-input`), a code field's submission watch could not start (`code-watch-failed`), or the form or the clicked button would send the form off the document's origin (`form-off-origin`); `unconfirmed` for an undecided completion without a confirmed sign-in (ADR 0029) |
 | `login.handler` | info | origin, recipe ID and revision (`recipeRevision`), handler index, kind (`passkey`, `password` or `totp`), step count; `entered`, `shown-again` (left to the person after this login ran it), `missing-fact` (the item lacks what the handler needs, including a `totp` handler's built-in TOTP field), `code-used` (a `totp` handler in a login that already types a TOTP code) or `no-room` (the attempt's step or submission budget is spent) |
@@ -1660,6 +1661,36 @@ many entries it copied. The export shows sites and recipe IDs as logged. When
 **Hide site addresses and recipe IDs** is checked, every origin, pseudonymized origin
 and RP ID becomes `site-N` and every recipe ID `recipe-N`, numbered within that export.
 **Clear logs** deletes every entry and replaces the pseudonym key.
+
+### First login results on the service
+
+Status: the owner's decision of 2026-10-18 (06:08 UTC,
+[ADR 0019](adr/0019-local-diagnostics-and-logs.md#amendment-2026-10-18-first-login-results-for-evaluation));
+implemented and tested locally, not deployed. The log stays on the device; this is the
+one thing that leaves it. When a login on a service recipe revision first ends on this
+device, signed in or blocked, or settles as unknown without being watched, the worker
+(`apps/extension/src/service/outcomes.ts`) sends `POST /v1/recipes/:recipeId/outcome`
+with the revision, the chooser branch when there is one, the `login.attempt` outcome,
+its cause when it is one of a fixed list (the worker's stop causes and the page's step
+reasons; `settled` or `unconfirmed` only when there is no listed cause) and the step
+index. A watched login ([ADR 0027](adr/0027-per-account-login-routes.md)) reports when
+its watch ends, signed in or blocked with the outcome the watch left, not where it first
+stopped. No URL, origin, reason text, label, value or username is sent, and the service
+adds the time. A login without a recipe revision, a fill-only login, any login of an
+item without a password (even one that fails before its stop), and a `policy-changed`,
+`account-switched` or cause-less `cancelled` end send nothing and leave the revision for
+its next login. `pateat.login-outcomes.v1` in `storage.local` records each reported
+revision per service and device (at most 500, oldest dropped) before the request, so a
+device reports each revision once. Every ended login and every successful recipe sync
+sends what is still pending, at most five at a time; a repeat report (a new document of
+a tab whose login state did not change) sends nothing unless it is its revision's first.
+A report the service refuses (404, 400) is dropped. The first failure (unreachable,
+rate-limited, a rejected device, or an unexpected answer such as a 5xx or an HTML error
+page) stops the run and keeps the rest, and no run starts for a minute after it
+(`OUTCOME_RETRY_MS`). An unexpected answer also moves that report behind the others. A
+report still pending after 14 days, the local log's retention, is dropped unsent. Each
+request logs a value-free `service.outcome` line. Sending never waits on, throws into or
+changes the login.
 
 ## Declarative recipes and AI
 
@@ -2369,8 +2400,10 @@ and middleware. Owner scope, conditional revision writes and D1 batch behavior
 remain explicit application responsibilities. The current Worker implements the
 sync, pairing and device management routes and the recipe generation routes of
 [ADR 0018](adr/0018-recipe-generation-route.md), with their limits and the
-[ADR 0012](adr/0012-inference-request-log.md) request log, as described in
-[its README](../services/api/README.md).
+[ADR 0012](adr/0012-inference-request-log.md) request log, and keeps the result codes
+devices send for the first login of each recipe revision
+([first login results](#first-login-results-on-the-service)) in `login_outcomes`, as
+described in [its README](../services/api/README.md).
 
 Initial human service authentication uses Cloudflare Access, validated through a
 supported integration or verified JWT, not an untrusted email header. Access-free
@@ -2445,7 +2478,8 @@ people.
   verified Access identity on `/manage/api`. The check runs right after authentication
   and before any body is read; a refused request gets 429 `rate_limited` with
   `Retry-After: 60`. The hosted limiter is approximate and counts per Cloudflare
-  location. `/pair` keeps its own 10 a minute per verified Access identity. Recipe
+  location. `/pair` keeps its own 10 a minute per verified Access identity. A login
+  result code is at most 1 KiB, and the service keeps one per recipe revision. Recipe
   generation is also bounded by spend and one call at a time
   ([ADR 0018](adr/0018-recipe-generation-route.md)).
 - Recipes. An owner holds at most 1,000 active recipes. Creating a recipe or
@@ -2492,8 +2526,9 @@ people.
   `MAX_RECIPE_CACHE_BYTES` are defined together in the contracts; no migration is
   required.
 - Unchanged. Settings are one document of at most 120 KiB per owner. The inference
-  request log is kept one year (owner, 2026-10-18) and bounded by the $5 daily spend
-  limit; the owner deletes it all on the web UI's Request log page. Devices are not
+  request log and the login result codes are kept one year (owner, 2026-10-18); the log
+  is bounded by the $5 daily spend limit and the codes by one per recipe revision, and
+  the owner deletes both on the web UI's Request log page. Devices are not
   counted: each pairing needs an interactive Access login.
 
 ### Unsupported service edge cases
@@ -2634,10 +2669,11 @@ field exclusions and custom-field review, which need the device's vault catalog
   only for these paths:
   - Devices (`/manage`): the current list and revocation, moved into the app.
   - Request log (`/manage/request-log`): how many requests the
-    [request log](adr/0012-inference-request-log.md) holds for the owner and since when,
-    that each is kept one year, and Delete all, which after a confirmation naming the
-    count deletes every one of the owner's rows. Recipes, settings, judged pages and the
-    spend the limits count stay.
+    [request log](adr/0012-inference-request-log.md) holds for the owner, and how many
+    [login result codes](#first-login-results-on-the-service), since when, that each is
+    kept one year, and Delete all, which after a confirmation naming the counts deletes
+    every one of the owner's rows of both. Recipes, settings, judged pages and the spend
+    the limits count stay.
   - Sites (`/manage/sites`): one list of every origin the service holds a recipe, a
     `siteDefaults` entry or a `bindings` entry for, each with badges for its recipe
     count, its default account ("<item> in <account>") and its binding count, and

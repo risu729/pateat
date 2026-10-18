@@ -428,7 +428,9 @@ than in this repository.
   revision landed ahead of it, and every row is kept one year (owner, 2026-10-18 06:08
   UTC,
   [ADR 0012](adr/0012-inference-request-log.md#amendment-2026-10-18-rows-for-a-real-page-corpus)),
-  so its retention rule needs no work.
+  so its retention rule needs no work. The first login result of each revision reaches
+  the service as codes
+  ([ADR 0035](adr/0035-page-kinds-per-site.md#amendment-2026-10-18-login-results-on-the-service)).
 - The toolbar badge counts the matching items on every HTTP(S) site (on an `http:` page
   only items saved with an `http://` URI;
   [ADR 0050](adr/0050-http-pages-for-http-items.md)): teal with the usable count, light
@@ -438,7 +440,10 @@ than in this repository.
 - The owner uses Pateat on many sites and reports bugs; Claude may also fix problems it
   finds on its own. Reading the extension's error logs without a report needs a way for
   them to leave the device, which [ADR 0019](adr/0019-local-diagnostics-and-logs.md)
-  keeps local; that is a design to bring to the owner first.
+  keeps local; that is a design to bring to the owner first. The one exception so far is
+  the value-free result code of each recipe revision's first login, which reaches the
+  service's `login_outcomes` table (owner, 2026-10-18 06:08 UTC,
+  [ADR 0019](adr/0019-local-diagnostics-and-logs.md#amendment-2026-10-18-first-login-results-for-evaluation)).
 - Moved from phase 1 (owner, 2026-10-12 20:35 UTC): the daily-use sites not tested
   yet, about 50 in the project's list. They are no longer tested in batches; the
   owner uses them, and Claude fixes what fails, from the owner's reports, the local log
@@ -1909,6 +1914,11 @@ tests cover it.
   model's reduced answer, and the web UI's Request log page deletes all of the owner's
   rows
   ([ADR 0012](adr/0012-inference-request-log.md#amendment-2026-10-18-rows-for-a-real-page-corpus)).
+- Done (local tests only, not deployed): the first login of each recipe revision on a
+  device sends its outcome, a cause from a fixed list and the step index to
+  `POST /v1/recipes/:recipeId/outcome`, kept one row per revision in `login_outcomes`
+  for a year and deleted with the request log
+  ([ADR 0019](adr/0019-local-diagnostics-and-logs.md#amendment-2026-10-18-first-login-results-for-evaluation)).
 - Done: the generation routes stop at
   $100 of estimated Claude spend per owner a month and $5 a day (`CLAUDE_CALL_LIMITS` in
   `services/api/src/claude/calls.ts`,

@@ -1265,6 +1265,8 @@ export type LoginReport = (
       recipeId: string;
       /** The recipe revision the login runs. */
       recipeRevision: number;
+      /** For a chooser login (ADR 0028): the branch whose route it runs. */
+      branch?: ChooserBranch;
       /** The route and password variant the login took when it started (ADR 0027). */
       route: LoginRoute;
       variant?: number;
@@ -1286,6 +1288,8 @@ export type LoginReport = (
       reason?: string;
       /** The result of the current effect step just settled as unknown (`unknown-submit`). */
       settled?: true;
+      /** The login is watched for its result (ADR 0027): its watch has not ended. */
+      watched?: true;
       /** A new document of the tab resumed the attempt without changing its state or outcome. */
       repeat?: true;
       /** Why the login just changed route (ADR 0034). */
@@ -1775,6 +1779,7 @@ export function createLoginRuntime(
       origin: metadata.document.origin,
       recipeId: metadata.recipeId,
       recipeRevision: metadata.recipeRevision,
+      ...(metadata.chooser ? { branch: chooserClickBranch(metadata.chooser.click) } : {}),
       route: metadata.route,
       ...(metadata.variant === undefined ? {} : { variant: metadata.variant }),
       state: metadata.state,
@@ -1785,6 +1790,7 @@ export function createLoginRuntime(
       ...(handler === undefined ? {} : { handler }),
       ...(metadata.outcome ? { outcome: metadata.outcome } : {}),
       ...(metadata.unconfirmed ? { unconfirmed: true as const } : {}),
+      ...(metadata.watch ? { watched: true as const } : {}),
       ...(metadata.fillOnly ? { reason: "fill-only" } : {}),
       ...(metadata.stopAt === undefined ? {} : { stop: "password" as const }),
       ...(policy && metadata.outcome === "policy-changed" ? policy : {}),
