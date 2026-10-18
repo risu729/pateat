@@ -4,10 +4,10 @@ import { observedPath } from "../observation/path";
 import { findTargets } from "./targets";
 
 /**
- * Whether the element is rendered and not hidden by its own style. Content the browser
- * skips with `content-visibility: hidden`, as inside a closed `<details>` or under
- * `hidden="until-found"`, still has a box but counts as hidden; content that
- * `content-visibility: auto` skips off screen counts as shown.
+ * Whether the element is rendered and not hidden by its own or an ancestor's style.
+ * Content the browser skips with `content-visibility: hidden`, as inside a closed
+ * `<details>` or under `hidden="until-found"`, still has a box but counts as hidden;
+ * content that `content-visibility: auto` skips off screen counts as shown.
  */
 export function visible(element: HTMLElement): boolean {
   const style = getComputedStyle(element);
