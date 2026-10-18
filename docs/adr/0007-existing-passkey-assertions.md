@@ -61,6 +61,10 @@ Amended on 2026-10-14 by
 only confirmed completion counts as a successful sign-in (implemented); see the dated
 amendment below.
 
+Corrected on 2026-10-17: the bridge snapshot relays `timeout`, which only bounds the
+chooser window ([ADR 0021](0021-account-choice-outside-settings.md)); see the dated
+amendment below.
+
 Date: 2026-10-10
 
 ## Context
@@ -368,3 +372,12 @@ with `unconfirmed: true` adds no sign-in record, so it cannot cause a later regi
 request to be refused. A request with no qualifying record is handed on. Records from
 Pateat's returned assertions and confirmed logins still count under the same origin,
 RP ID, tab and five-minute rules. The earlier accepted text above remains as history.
+
+## Amendment: the relayed `timeout` (2026-10-17)
+
+Admission above says the bridge snapshot drops `timeout`. Since
+[ADR 0021](0021-account-choice-outside-settings.md) the snapshot keeps a numeric
+`timeout` of 0 to 2^32 - 1 milliseconds, truncated to an integer, and the background
+uses it only to bound how long the chooser window may keep the request open. `hints`
+and `extensions` are still dropped. This records the implemented behavior; no decision
+changed. The earlier accepted text above remains as history.
