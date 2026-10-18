@@ -94,17 +94,18 @@ describe("host policy and URL validation", () => {
     },
   );
 
-  it.each(["https://bank.example\\@evil.test/login", "https://bank.example\\@evil.test?next=a\\b"])(
-    "still rejects a backslash in the authority of %s",
-    (url) => {
-      expect(parseSiteUrl(url)).toBeUndefined();
-      expect(isSiteExcluded(createDefaultSettings(), url)).toBe(true);
-      expect(resolveSiteAccount(withDefault(), DUMMY_VAULT_CATALOG, url)).toEqual({
-        ok: false,
-        reason: "invalid-url",
-      });
-    },
-  );
+  it.each([
+    "https://bank.example\\@evil.test/login",
+    "https://bank.example\\@evil.test?next=a\\b",
+    "https://bank.example/a\\b/login?next=a\\b",
+  ])("still rejects a backslash in the authority or path of %s", (url) => {
+    expect(parseSiteUrl(url)).toBeUndefined();
+    expect(isSiteExcluded(createDefaultSettings(), url)).toBe(true);
+    expect(resolveSiteAccount(withDefault(), DUMMY_VAULT_CATALOG, url)).toEqual({
+      ok: false,
+      reason: "invalid-url",
+    });
+  });
 
   it("canonicalizes IDN, trailing dots and IP host forms without accepting URLs as hosts", () => {
     expect(normalizeHostname("BANK.EXAMPLE.")).toBe("bank.example");

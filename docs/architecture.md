@@ -262,7 +262,12 @@ Host, raw-string Exact and StartsWith, and Never. Regex returns an explicit
 unsupported result without executing a pattern. Domain matching uses tldts after
 WHATWG URL parsing, including private suffixes and direct equivalent-domain
 groups from the same account. Host includes the parsed port; Exact and StartsWith
-preserve the original strings. Malformed or unsupported individual stored URIs
+preserve the original strings. A backslash is refused before the query, in a page URL
+and in a stored URI alike: WHATWG reads `https://bank.example\@evil.test` as host
+`bank.example` where other parsers, such as Python's `urlsplit`, read `evil.test`, and
+WHATWG rewrites one in the path to `/`. In the query or fragment, as in
+`https://bank.example/login?next=a\b`, it is kept, and such a page and URI match like
+any other. Malformed or unsupported individual stored URIs
 receive unavailable metadata without blocking unrelated valid candidates.
 Equivalent groups and the effective default mode are retained with the prepared
 account snapshot; an unavailable or conflicting context makes the affected URIs
@@ -283,6 +288,10 @@ Deliberate differences from the official Bitwarden clients, to be reconsidered l
   not such a case: it is ignored, as the official clients effectively do.
 - The official clients' device-local default match setting is not visible to Pateat;
   Domain is used unless an enforced organization policy applies.
+- A stored URI with a backslash before its query, such as
+  `https://bank.example\@evil.test` or `https://bank.example/a\b`, is reported invalid.
+  The official clients parse it with WHATWG URL and tldts, which both read the host as
+  `bank.example`, and match it.
 
 A provider match and its descriptive target origin are not a credential-release
 grant. Raw StartsWith can match a different host with the same prefix. Live

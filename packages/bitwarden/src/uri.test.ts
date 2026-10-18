@@ -597,18 +597,19 @@ describe("strict destination and unsupported rule admission", () => {
     },
   );
 
-  it.each(["https://example.com\\@evil.test/?q=a\\b", "https://example.com\\@evil.test/#a\\b"])(
-    "still rejects a backslash in the target authority, %s",
-    (targetUrl) => {
-      expect(matchBitwardenLoginUris(saved(), targetUrl)).toEqual({
-        ok: false,
-        error: { code: "invalid-uri-input" },
-      });
-      expect(
-        createBitwardenUriMatcher(targetUrl, { equivalentDomains: [], defaultMatch: 0 }),
-      ).toEqual({ ok: false, error: { code: "invalid-uri-input" } });
-    },
-  );
+  it.each([
+    "https://example.com\\@evil.test/?q=a\\b",
+    "https://example.com\\@evil.test/#a\\b",
+    "https://example.com/a\\b#a\\b",
+  ])("still rejects a backslash in the target authority or path, %s", (targetUrl) => {
+    expect(matchBitwardenLoginUris(saved(), targetUrl)).toEqual({
+      ok: false,
+      error: { code: "invalid-uri-input" },
+    });
+    expect(
+      createBitwardenUriMatcher(targetUrl, { equivalentDomains: [], defaultMatch: 0 }),
+    ).toEqual({ ok: false, error: { code: "invalid-uri-input" } });
+  });
 
   it.each([
     { uri: "https://example.com/\n", reason: "invalid-uri" },
@@ -617,6 +618,7 @@ describe("strict destination and unsupported rule admission", () => {
     { uri: "https://@example.com/", reason: "invalid-uri" },
     { uri: "https://example.com\\@evil.test", reason: "invalid-uri" },
     { uri: "https://example.com\\@evil.test/?q=a\\b", reason: "invalid-uri" },
+    { uri: "https://example.com/a\\b/?q=a\\b", reason: "invalid-uri" },
     { uri: "https://example.com:99999", reason: "invalid-uri" },
     { uri: "androidapp://com.synthetic.app", reason: "unsupported-uri-scheme" },
     { uri: "file:///synthetic", reason: "unsupported-uri-scheme" },

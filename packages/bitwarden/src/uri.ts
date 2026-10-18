@@ -84,7 +84,10 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null &&
   !Array.isArray(value) &&
   (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null);
-const ambiguous = (value: string) => /\p{Cc}/u.test(value) || value.includes("\\");
+// Parsers disagree on a backslash in the authority and WHATWG rewrites it in the path, but
+// it stays as is in the query and fragment, where the pinned client compares raw strings.
+const ambiguous = (value: string) =>
+  /\p{Cc}/u.test(value) || (value.split(/[?#]/u, 1)[0] ?? "").includes("\\");
 const hasHostnameLabels = (hostname: string) =>
   hostname.startsWith("[") ||
   hostname
