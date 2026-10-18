@@ -86,6 +86,6 @@ owner-wide revision prevents stale writes after reassignment.
 The ADR 0023 lists and ADR 0035 permission fields remain independent, unmerged
 work and are not claimed as delivered here. Their implementations must add their
 fields to the explicit service profile projection and extension merge logic.
-[ADR 0044](0044-settings-profile-delivery.md) records temporary implementation
+[ADR 0053](0053-settings-profile-delivery.md) records temporary implementation
 proposals that have not been accepted by the owner. This amendment records
 implementation scope and does not change the accepted owner decisions above.
