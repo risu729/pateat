@@ -1949,7 +1949,12 @@ describe("page judgement (ADR 0027)", () => {
     element("key", "button", "Use security key"),
     element("recovery", "link", "Use a recovery code"),
   ]);
-  const dayStart = () => Date.now() - (Date.now() % DAY_MS);
+  // One clock read: the clock can tick between two, which gives the previous day's last
+  // millisecond and lets the judgement purge delete a row seeded as today's.
+  const dayStart = () => {
+    const now = Date.now();
+    return now - (now % DAY_MS);
+  };
   const judgements = (device: Device) =>
     rows(
       "SELECT recipe_id, revision, path FROM page_judgements WHERE owner_id = ? ORDER BY recipe_id, revision, path",
@@ -4950,7 +4955,8 @@ describe("requests answered without a model call (ADR 0012)", () => {
       role: "judge",
       ask: async (device: Device) => {
         const change = await twoPageRecipe(device);
-        const dayStart = Date.now() - (Date.now() % DAY_MS);
+        const now = Date.now();
+        const dayStart = now - (now % DAY_MS);
         await env.DB.batch(
           Array.from({ length: 20 }, (_, index) =>
             env.DB.prepare(
