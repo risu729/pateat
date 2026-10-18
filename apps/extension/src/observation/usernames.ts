@@ -72,6 +72,12 @@ function decoded(segment: string): string {
 const lookedFor = (username: string) => [...foldName(username)].length >= minUsernameLength;
 
 /**
+ * A path segment or locator value folded as {@link foldName} folds a username: without
+ * format characters, NFKC.
+ */
+const folded = (text: string) => text.replace(/\p{Cf}+/gu, "").normalize("NFKC");
+
+/**
  * Whether a segment of `path` holds one of `usernames` as {@link withoutUsernames} looks
  * for it, which refuses such a page as `username-shown`. A list of accounts on such a
  * page, as a signed-in page under the account's own name, is not read (ADR 0028, owner
@@ -83,10 +89,7 @@ export function pathShowsUsername(path: string, usernames: readonly string[]): b
   const holds = new RegExp(source, "iu");
   return path
     .split("/")
-    .some(
-      (segment) =>
-        holds.test(segment.normalize("NFKC")) || holds.test(decoded(segment).normalize("NFKC")),
-    );
+    .some((segment) => holds.test(folded(segment)) || holds.test(folded(decoded(segment))));
 }
 
 /**
@@ -123,7 +126,7 @@ export function withoutUsernames(
   const pattern = new RegExp(source, "giu");
   const cut = cutPattern(forms);
   const refused = { ok: false, reason: "username-shown" } as const;
-  const shows = (text: string) => holds.test(text.normalize("NFKC"));
+  const shows = (text: string) => holds.test(folded(text));
   const hide = (text: string, limit = maxText): string => {
     const normal = text.normalize("NFKC");
     let hidden = holds.test(normal) ? normal.replace(pattern, "[account]") : text;
