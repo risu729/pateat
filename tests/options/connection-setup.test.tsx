@@ -1044,6 +1044,39 @@ test("a connection registered after a stopped first sign-in clears the draft on 
   await expect.element(page.getByLabelText("Email", { exact: true })).toHaveValue("");
 });
 
+test("a failed sync of another connection keeps a stopped add pending", async () => {
+  const client = mockClient();
+  const other = {
+    ...registered,
+    connectionId: "other",
+    label: "Other vault",
+    state: "ready" as const,
+    providerSession: "active" as const,
+  };
+  client.list
+    .mockResolvedValueOnce({ ...status(), connections: [other] })
+    .mockResolvedValueOnce({ ...status(), connections: [other] })
+    .mockResolvedValueOnce({ ...status(), connections: [other] })
+    .mockResolvedValue({ ...status(), connections: [other, registered] });
+  client.begin.mockReturnValue(held<SetupReply>().promise);
+  client.sync.mockResolvedValue({ ok: false, error: { code: "resource-limit" } });
+  await mount(client);
+  await page.getByText("Add a connection", { exact: true }).first().click();
+  await fillNew();
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  await vi.waitFor(() => expect(client.begin).toHaveBeenCalledTimes(1));
+  await page.getByRole("button", { name: "Cancel setup", exact: true }).click();
+  await vi.waitFor(() => expect(client.list).toHaveBeenCalledTimes(2));
+  await page.getByRole("button", { name: "Other vault: Sync", exact: true }).click();
+  await vi.waitFor(() => expect(client.list).toHaveBeenCalledTimes(3));
+  await expect.element(page.getByLabelText("Name", { exact: true })).toHaveValue("Synthetic vault");
+  await page.getByRole("button", { name: "Refresh connections", exact: true }).click();
+  await expect
+    .element(page.getByRole("button", { name: "Synthetic vault: Sign in again", exact: true }))
+    .toBeVisible();
+  await expect.element(page.getByLabelText("Name", { exact: true })).toHaveValue("");
+});
+
 test("Cancel setup with nothing running lets an earlier stop's re-read land", async () => {
   const client = mockClient();
   const reread = held<SetupReply>();

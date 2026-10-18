@@ -239,6 +239,8 @@ export function BitwardenSetup({
   const generation = useRef(0);
   // This page's add of a new connection: the IDs listed before it and what it sent.
   const pendingAdd = useRef<{ before: Set<string>; label: string; email: string }>(undefined);
+  // Whether the running sign-in, and so its challenge, is that add.
+  const adding = useRef(false);
   const draft = useRef({ name, email });
   draft.current = { name, email };
   const passwordInput = useRef<HTMLInputElement>(null);
@@ -310,7 +312,8 @@ export function BitwardenSetup({
     // This lifetime belongs to the exact client; metadata loads are never automatic retries.
     // oxlint-disable-next-line react/exhaustive-deps
   }, [client]);
-  async function receive(result: SetupReply, epoch: number) {
+  /** `endsAdd`: the reply answers this page's add, so its read is the add's last chance. */
+  async function receive(result: SetupReply, epoch: number, endsAdd = false) {
     if (epoch !== generation.current) return;
     if (!result.ok) {
       setChallenge(undefined);
@@ -318,7 +321,7 @@ export function BitwardenSetup({
       // A resolved error may follow a durable cache/configuration change.
       // Preserve the draft and require a fresh catalog before another settings save.
       onCatalogChanged();
-      await rereadConnections(epoch, true);
+      await rereadConnections(epoch, endsAdd);
       return;
     }
     if (result.kind === "mfa-required" || result.kind === "new-device-verification-required") {
@@ -345,13 +348,13 @@ export function BitwardenSetup({
       );
       setExisting(undefined);
       catalogChanged.current();
-      await readConnections(epoch, true);
+      await readConnections(epoch, endsAdd);
     } else if (result.kind === "interaction-required") {
       setMessage(`Setup is incomplete: ${result.reason}. This interaction is not supported here.`);
-      await rereadConnections(epoch, true);
+      await rereadConnections(epoch, endsAdd);
     } else if (result.kind === "cancelled") {
       setMessage("Setup cancelled.");
-      await rereadConnections(epoch, true);
+      await rereadConnections(epoch, endsAdd);
     } else if (result.kind === "status") setConnections(result.connections);
     else if (result.kind === "forgotten") {
       setMessage(
@@ -433,15 +436,15 @@ export function BitwardenSetup({
         setMessage("Provider access was not granted. No sign-in request was sent.");
         return;
       }
-      pendingAdd.current =
-        input.kind === "new"
-          ? {
-              before: new Set(connections.map((c) => c.connectionId)),
-              label: input.label,
-              email: normalEmail(input.email),
-            }
-          : undefined;
-      await receive(await client.begin(input), epoch);
+      // A sign-in again leaves an add still pending after a stop in place.
+      adding.current = input.kind === "new";
+      if (input.kind === "new")
+        pendingAdd.current = {
+          before: new Set(connections.map((c) => c.connectionId)),
+          label: input.label,
+          email: normalEmail(input.email),
+        };
+      await receive(await client.begin(input), epoch, adding.current);
     });
   }
   function continueSetup() {
@@ -452,7 +455,7 @@ export function BitwardenSetup({
         : { flowId: challenge.flowId, newDeviceOtp: code };
     clearSecrets();
     start(async (epoch) => {
-      await receive(await client.continue(input), epoch);
+      await receive(await client.continue(input), epoch, adding.current);
     });
   }
   function cancel(stopped = "Setup stopped. Refresh to confirm the latest state.") {
