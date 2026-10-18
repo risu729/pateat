@@ -825,6 +825,11 @@ Once the fixes have settled:
   whatever replaces it must still read the stored `DEBUG_UNTIL_TURNED_OFF` deadline as
   off, or reset it, so a published build never inherits debug logging left on;
   [ADR 0019](adr/0019-local-diagnostics-and-logs.md#amendment-debug-logging-stays-on-before-publishing)).
+- Before Pateat has other users, revisit sending a record of every login (its result,
+  times, site and time on the service side) to the service, and keep logs from ever
+  going from the service to a device (owner, 2026-10-18 08:38 UTC:
+  「リリース前の考慮事項として記録はしておいて。一旦ユーザー私だけなので大丈夫」;
+  [ADR 0055](adr/0055-login-records-sent-to-the-service.md)).
 - Next, before the rest of the work below that makes Pateat public: Japanese alongside
   English for Pateat itself (owner, 2026-10-12 13:59 UTC): the README, the docs and the
   extension's UI text. The service's pages, such as `/manage`, come later. The owner
@@ -1940,8 +1945,23 @@ tests cover it.
   their count per day (only the first login with each recipe revision is reported for
   now), and failures by result code apart from the
   logins that needed the person, over 24 hours, 7 days or 30 days, with Recharts charts
-  each repeated as a table ([owner web UI](architecture.md#owner-web-ui)). Login times
-  sent from the extension come in a later slice.
+  each repeated as a table ([owner web UI](architecture.md#owner-web-ui)).
+- Done (local tests only, not deployed): every login on a recipe revision that ends,
+  signed in or blocked, sends its result code, cause, extension build and total,
+  service, network, person and site time to `POST /v1/recipes/:recipeId/logins`, once
+  and without retry; the service adds the recipe's origin and keeps one row per login in
+  `login_timings` for a year, deleted with the request log
+  ([ADR 0055](adr/0055-login-records-sent-to-the-service.md)). The dashboard's speed
+  section starts with login time (total less the person's) of signed-in logins, apart
+  for those that waited on the service, its parts, by day, site and extension build; its
+  login counts and login failures come from these records, and the first-login codes are
+  listed apart. The site time (`pageMs`) was split from the rest after a real login in
+  the owner's Chrome on build
+  [a0a4c2e](https://github.com/risu729/pateat/commit/a0a4c2e) (2026-10-18) logged 10.4 s
+  of `otherMs` around a page navigation, which could not be told from Pateat's own time;
+  the same login's `networkMs` of 0 came from the production service not yet sending
+  `Server-Timing`, so 0 there means unknown
+  ([timing](architecture.md#request-and-login-timing)).
 - Done: the first login of each recipe revision on a
   device sends its outcome, a cause from a fixed list and the step index to
   `POST /v1/recipes/:recipeId/outcome`, kept one row per revision in `login_outcomes`

@@ -7,6 +7,7 @@ import type { SetupReply } from "../connections/types";
 import type { LoginReport } from "../login/runtime";
 import type { PasskeyCreateReport } from "../passkeys/create";
 import type { PasskeyRequestReport } from "../passkeys/runtime";
+import type { LoginRecordSent } from "../service/login-records";
 import type { LoginOutcomeSent } from "../service/outcomes";
 import type { RecipeSyncChanges, RecipeSyncOutcome } from "../service/recipes";
 import type { ServiceTiming } from "../service/transport";
@@ -55,6 +56,9 @@ const WARN_STATES: ReadonlySet<string> = new Set([
   "review-required",
   "reauthentication-required",
 ]);
+
+/** Results of a login record's send that are expected, so logged at info (ADR 0055). */
+const QUIET_LOGIN_RECORDS: ReadonlySet<string> = new Set(["kept", "refused", "failed:unreachable"]);
 
 /** A service request's timing as log fields (ADR 0019); none for a request not sent. */
 const requestTimes = (timing: ServiceTiming | undefined) => ({
@@ -293,6 +297,23 @@ export function createDiagnosticsLog(options: {
         {
           level: sent.result === "kept" || sent.result === "failed:unreachable" ? "info" : "warn",
         },
+      );
+    },
+    /**
+     * One login's record sent to the service (ADR 0055): info when kept, refused (as by a
+     * service without the route) or the service was unreachable, else warn, as for a record
+     * the contract refused (`failed:invalid-record`). The record is not sent again.
+     */
+    loginRecord(sent: LoginRecordSent) {
+      void logger.log(
+        "service.login",
+        {
+          recipe: sent.recipeId,
+          recipeRevision: sent.revision,
+          branch: sent.branch,
+          result: sent.result,
+        },
+        { level: QUIET_LOGIN_RECORDS.has(sent.result) ? "info" : "warn" },
       );
     },
     /**

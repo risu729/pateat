@@ -236,5 +236,48 @@ export const loginOutcomeReportSchema = v.strictObject({
   /** The attempt's step index when it ended: route steps and entered handlers' (at most 40). */
   step: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(40)),
 });
+/** The longest time a login record carries: a day; no login takes that long. */
+export const MAX_LOGIN_RECORD_MS = 86_400_000;
+const loginMilliseconds = v.pipe(
+  v.number(),
+  v.integer(),
+  v.minValue(0),
+  v.maxValue(MAX_LOGIN_RECORD_MS),
+);
+/**
+ * `POST /v1/recipes/:recipeId/logins`: one login on a recipe revision that ended, signed in
+ * or blocked (ADR 0055), with its result code, a cause from the fixed list, the extension
+ * build and how long it took, for the owner's dashboard. Codes and whole milliseconds
+ * only: never a URL, origin, page text, reason text, label, value, username or typing
+ * time. The service adds the site, from the recipe revision, and the time.
+ */
+export const loginRecordSchema = v.strictObject({
+  version: v.literal(1),
+  revision: writtenRevision,
+  /** For a chooser recipe (ADR 0028): the branch the login took. */
+  branch: v.optional(chooserBranchSchema),
+  outcome: loginOutcomeSchema,
+  cause: v.optional(loginOutcomeCauseSchema),
+  /** The extension's build: its commit, or `development` for a build outside git. */
+  extensionBuild: v.pipe(v.string(), v.regex(/^(?:[0-9a-f]{7,40}|development)$/u)),
+  /** From when the extension saw the login's first page until the login ended. */
+  totalMs: loginMilliseconds,
+  /** Waiting for the service: generation, judging and the recipe sync after them. */
+  serviceMs: loginMilliseconds,
+  /**
+   * Of `serviceMs`, the network part: each request's round trip less the service's own time
+   * from its `Server-Timing` header. A request whose answer did not name that time, or that
+   * got no answer, adds nothing.
+   */
+  networkMs: loginMilliseconds,
+  /** Waiting for the person: a code or approval, a click left to them, an account pick. */
+  personMs: loginMilliseconds,
+  /**
+   * Waiting for the site: from a step that may change the page, or the sign-in entry press
+   * before the login, until the login read the page's answer, a page load included.
+   */
+  pageMs: loginMilliseconds,
+});
 export type LoginOutcomeCause = v.InferOutput<typeof loginOutcomeCauseSchema>;
 export type LoginOutcomeReport = v.InferOutput<typeof loginOutcomeReportSchema>;
+export type LoginRecord = v.InferOutput<typeof loginRecordSchema>;

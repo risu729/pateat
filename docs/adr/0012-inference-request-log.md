@@ -25,7 +25,10 @@ are kept too, which amends [ADR 0018](0018-recipe-generation-route.md); invalid 
 and requests answered 400 or 404 are not. Implemented.
 Amended on 2026-10-18 by the owner (08:38 UTC):
 [request timings](#amendment-2026-10-18-request-timings) record how long each logged
-request took before, in and after the model call. Implemented.
+request took before, in and after the model call. Implemented. Amended on 2026-10-18 by
+[ADR 0055](0055-login-records-sent-to-the-service.md) (owner, 08:38 UTC): the service
+also keeps [a record of every login](#amendment-2026-10-18-login-records) beside the
+log. Implemented.
 
 Date: 2026-10-10
 
@@ -206,6 +209,17 @@ Agent choices not confirmed by the owner: the times start before device authenti
 and the request limit, `model_ms` includes the role's local output checks, a request
 refused at the credential step or by the role's local checks reports `token` alone, and
 a failed `server_ms` update leaves it null.
+
+## Amendment 2026-10-18: login records
+
+With [ADR 0055](0055-login-records-sent-to-the-service.md) (owner, 08:38 UTC), devices
+send a record of every login on a recipe revision that ends. A new owner-scoped table
+`login_timings` keeps one row per report: the recipe ID, branch, revision, the recipe's
+`origin` as the service reads it from the revision, `outcome`, `cause`, the extension
+build, `total_ms`, `service_ms`, `network_ms`, `person_ms` and the service's own time.
+Its rows are kept one year like the log's and deleted with expired log rows, and the
+Request log page counts them and deletes them with Delete all. They are for the owner
+dashboard, not the corpus, whose result comes from `login_outcomes`.
 
 ## Consequences
 

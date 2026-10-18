@@ -684,7 +684,7 @@ describe("production login document admission", () => {
     );
     expect(await h.hello()).toEqual({ ok: true });
     await vi.waitFor(() =>
-      expect(fake.state.storage["pateat.login-attempts.v4"]).toMatchObject([
+      expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
         { state: "blocked", outcome: "wrong-account", submissions: 0, retries: 0 },
       ]),
     );
@@ -705,7 +705,7 @@ describe("production login document admission", () => {
     h.fields.mockImplementation(async ({ fieldId }) =>
       fieldId === "login.username" ? "my2@example.com" : "synthetic-secret",
     );
-    const attempts = () => fake.state.storage["pateat.login-attempts.v4"];
+    const attempts = () => fake.state.storage["pateat.login-attempts.v5"];
     const types = () => fake.state.messages.map((entry) => entry.type);
     expect(await h.hello()).toEqual({ ok: true });
     await vi.waitFor(() => expect(types()).toContain("login.switch"));
@@ -742,7 +742,7 @@ describe("production login document admission", () => {
     const executes = () => fake.state.messages.filter((entry) => entry.type === "login.execute");
     expect(await h.hello()).toEqual({ ok: true });
     await vi.waitFor(() =>
-      expect(fake.state.storage["pateat.login-attempts.v4"]).toMatchObject([
+      expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
         { state: "blocked", outcome: "wrong-account", submissions: 0 },
       ]),
     );
@@ -757,7 +757,7 @@ describe("production login document admission", () => {
     const h = harness();
     expect(await h.hello()).toEqual({ ok: true });
     await vi.waitFor(() =>
-      expect(fake.state.storage["pateat.login-attempts.v4"]).toMatchObject([
+      expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
         { state: "blocked", outcome: "value-mismatch", submissions: 0, retries: 0 },
       ]),
     );
@@ -780,7 +780,7 @@ describe("production login document admission", () => {
   );
   describe("telling of a login that signed in (ADR 0007)", () => {
     const attempts = () =>
-      (fake.state.storage["pateat.login-attempts.v4"] ?? []) as { state: string }[];
+      (fake.state.storage["pateat.login-attempts.v5"] ?? []) as { state: string }[];
     it("tells once when a login reaches signed in, and not again on the tab's next page", async () => {
       const signedIn = vi.fn<(tabId: number, origin: string) => void>();
       const h = harness({}, { signedIn });
@@ -849,7 +849,7 @@ describe("production login document admission", () => {
     const h = harness();
     expect(await h.hello()).toEqual({ ok: true });
     await vi.waitFor(() =>
-      expect(fake.state.storage["pateat.login-attempts.v4"]).toMatchObject([
+      expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
         { state: "blocked", outcome: "fill-rejected", submissions: 0, retries: 0 },
       ]),
     );
@@ -1344,7 +1344,7 @@ describe("production login document admission", () => {
     };
     expect(await h.hello()).toEqual({ ok: true });
     await vi.waitFor(() =>
-      expect(fake.state.storage["pateat.login-attempts.v4"]).toMatchObject([
+      expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
         { state: "reconciling", stepIndex: 1 },
       ]),
     );
@@ -1359,7 +1359,7 @@ describe("production login document admission", () => {
     // The page it led to proves the sign-in.
     expect(await h.hello({ documentId: "next-document" }, false)).toEqual({ ok: true });
     await vi.waitFor(() =>
-      expect(fake.state.storage["pateat.login-attempts.v4"]).toMatchObject([
+      expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
         { state: "authenticated" },
       ]),
     );
@@ -1400,7 +1400,7 @@ describe("production login document admission", () => {
     };
     expect(await h.hello()).toEqual({ ok: true });
     await vi.waitFor(() =>
-      expect(fake.state.storage["pateat.login-attempts.v4"]).toMatchObject([
+      expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
         { state: "blocked", outcome: "policy-changed", usedOperationIds: [] },
       ]),
     );
@@ -1435,7 +1435,7 @@ describe("production login document admission", () => {
     const h = harness({}, { report });
     expect(await h.hello()).toEqual({ ok: true });
     await vi.waitFor(() =>
-      expect(fake.state.storage["pateat.login-attempts.v4"]).toMatchObject([
+      expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
         {
           state: "blocked",
           outcome: "retry-limit",
@@ -1471,7 +1471,7 @@ describe("production login document admission", () => {
     const h = harness();
     expect(await h.hello()).toEqual({ ok: true });
     await vi.waitFor(() =>
-      expect(fake.state.storage["pateat.login-attempts.v4"]).toMatchObject([
+      expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
         { state: "authenticated", retries: 1 },
       ]),
     );
@@ -1485,7 +1485,7 @@ describe("production login document admission", () => {
     const clock = vi.spyOn(Date, "now").mockImplementation(() => now() + offset);
     const set = fake.browser.storage.local.set;
     fake.browser.storage.local.set = async (values: Record<string, unknown>) => {
-      const [record] = (values["pateat.login-attempts.v4"] ?? []) as Record<string, unknown>[];
+      const [record] = (values["pateat.login-attempts.v5"] ?? []) as Record<string, unknown>[];
       if (offset === 0 && record?.["state"] === "executing" && record["mutationIntent"])
         offset = 16_000;
       await set(values);
@@ -1495,7 +1495,7 @@ describe("production login document admission", () => {
       const h = harness({}, { report });
       expect(await h.hello()).toEqual({ ok: true });
       await vi.waitFor(() =>
-        expect(fake.state.storage["pateat.login-attempts.v4"]).toMatchObject([
+        expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
           { state: "authenticated", retries: 1, submissions: 1 },
         ]),
       );
@@ -1524,12 +1524,12 @@ describe("production login document admission", () => {
     const first = harness();
     expect(await first.hello()).toEqual({ ok: true });
     await vi.waitFor(() =>
-      expect(fake.state.storage["pateat.login-attempts.v4"]).toMatchObject([
+      expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
         { state: "blocked", outcome: "retry-limit" },
       ]),
     );
-    const [record] = fake.state.storage["pateat.login-attempts.v4"] as Record<string, unknown>[];
-    fake.state.storage["pateat.login-attempts.v4"] = [
+    const [record] = fake.state.storage["pateat.login-attempts.v5"] as Record<string, unknown>[];
+    fake.state.storage["pateat.login-attempts.v5"] = [
       {
         ...record,
         state: "retryable",
@@ -1551,7 +1551,7 @@ describe("production login document admission", () => {
       const restarted = harness();
       expect(await restarted.hello({ documentId: "after-restart" })).toEqual({ ok: true });
       await vi.waitFor(() =>
-        expect(fake.state.storage["pateat.login-attempts.v4"]).toMatchObject([
+        expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
           { state: "authenticated", retries: 2 },
         ]),
       );
@@ -1577,19 +1577,48 @@ describe("production login document admission", () => {
       const reports = attemptReports(report);
       expect(reports.filter((entry) => entry.times)).toHaveLength(1);
       const { times } = reports.find((entry) => entry.state === "authenticated")!;
-      // Nothing waited for the service or the person: all of it is the page and Pateat.
+      // Nothing waited for the service or the person: all of it is the site and Pateat.
       expect(times).toEqual({
         totalMs: expect.any(Number),
         serviceMs: 0,
         networkMs: 0,
         personMs: 0,
-        otherMs: times!.totalMs,
+        pageMs: expect.any(Number),
+        otherMs: times!.totalMs - times!.pageMs,
       });
       expect(times!.totalMs).toBeLessThanOrEqual(Date.now() - before);
       // The record keeps its stamps, never a value's typing time.
-      expect(fake.state.storage["pateat.login-attempts.v4"]).toMatchObject([
+      expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
         { state: "authenticated", timing: { since: expect.any(Number), serviceMs: 0 } },
       ]);
+    });
+    it("counts the wait for the site's answer to a click apart from Pateat's own time", async () => {
+      // The site shows the signed-in page 400 ms after the click.
+      fake.state.present = new Set(["password", "login"]);
+      fake.state.onExecute = async (message) => {
+        if ((message["operation"] as { step: LoginStep }).step.kind === "click")
+          setTimeout(() => {
+            fake.state.present = new Set(["authenticated"]);
+          }, 400);
+      };
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = harness({}, { report });
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() =>
+        expect(attemptReports(report).map((entry) => entry.state)).toContain("authenticated"),
+      );
+      const { times } = attemptReports(report).find((entry) => entry.state === "authenticated")!;
+      expect(times!.pageMs).toBeGreaterThanOrEqual(300);
+      expect(times!.serviceMs + times!.personMs + times!.pageMs + times!.otherMs).toBe(
+        times!.totalMs,
+      );
+      // The record no longer waits for the site.
+      expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
+        { state: "authenticated", timing: { pageMs: times!.pageMs } },
+      ]);
+      expect(fake.state.storage["pateat.login-attempts.v5"]).not.toHaveProperty(
+        "0.timing.pageSince",
+      );
     });
     it("takes over the time of the sign-in entry pressed just before, once", async () => {
       // The entry page was seen five seconds ago; its generation took 2 s, 0.3 s of it on
@@ -1616,7 +1645,9 @@ describe("production login document admission", () => {
       const { times } = attemptReports(report).find((entry) => entry.state === "authenticated")!;
       expect(times).toMatchObject({ serviceMs: 2_000, networkMs: 300, personMs: 0 });
       expect(times!.totalMs).toBeGreaterThanOrEqual(5_000);
-      expect(times!.otherMs).toBe(times!.totalMs - 2_000);
+      // From the press until the next page was seen, the login waited for the site.
+      expect(times!.pageMs).toBeGreaterThanOrEqual(1_000);
+      expect(times!.otherMs).toBe(times!.totalMs - 2_000 - times!.pageMs);
       // The press keeps no time, so no later login takes it again.
       const { timing: _taken, ...untimed } = press;
       expect(fake.state.session["pateat.login-entry-presses.v1"]).toEqual([untimed]);
@@ -1626,22 +1657,22 @@ describe("production login document admission", () => {
       const first = harness();
       expect(await first.hello()).toEqual({ ok: true });
       await vi.waitFor(() =>
-        expect(fake.state.storage["pateat.login-attempts.v4"]).toMatchObject([
+        expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
           { state: "blocked", outcome: "retry-limit" },
         ]),
       );
-      const [record] = fake.state.storage["pateat.login-attempts.v4"] as Record<string, unknown>[];
+      const [record] = fake.state.storage["pateat.login-attempts.v5"] as Record<string, unknown>[];
       // The stopped worker had spent a minute on the login: 5 s on the service, of which
       // 0.8 s on the network, and 1 s waiting for the person.
       const since = Date.now() - 60_000;
-      fake.state.storage["pateat.login-attempts.v4"] = [
+      fake.state.storage["pateat.login-attempts.v5"] = [
         {
           ...record,
           state: "retryable",
           outcome: "structural-mismatch",
           retries: 1,
           retryRequired: true,
-          timing: { since, serviceMs: 5_000, networkMs: 800, personMs: 1_000 },
+          timing: { since, serviceMs: 5_000, networkMs: 800, personMs: 1_000, pageMs: 0 },
         },
       ];
       fake.state.awaited = { ok: true };
@@ -1662,7 +1693,7 @@ describe("production login document admission", () => {
         const { times } = attemptReports(report).find((entry) => entry.state === "authenticated")!;
         expect(times).toMatchObject({ serviceMs: 5_000, networkMs: 800, personMs: 1_000 });
         expect(times!.totalMs).toBeGreaterThanOrEqual(60_000);
-        expect(times!.otherMs).toBe(times!.totalMs - 6_000);
+        expect(times!.otherMs).toBe(times!.totalMs - 6_000 - times!.pageMs);
       } finally {
         fake.browser.tabs.query = query;
       }
@@ -1750,7 +1781,7 @@ describe("production login document admission", () => {
       const h = harness({}, { allowedOrigins: [], uris, signedIn });
       expect(await h.hello(framed("https://portal.example/account"))).toEqual({ ok: true });
       await vi.waitFor(() =>
-        expect(fake.state.storage["pateat.login-attempts.v4"]).toMatchObject([
+        expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
           { state: "authenticated" },
         ]),
       );
@@ -1797,7 +1828,7 @@ describe("production login document admission", () => {
       expect(answers).toContainEqual({ ok: true });
       expect(answers).toContainEqual({ ok: false, reason: "tab-busy" });
       await vi.waitFor(() => expect(executes()).toHaveLength(1));
-      expect(fake.state.storage["pateat.login-attempts.v4"]).toHaveLength(1);
+      expect(fake.state.storage["pateat.login-attempts.v5"]).toHaveLength(1);
     });
     it("keeps one attempt per tab and lets only a new page end a frame's attempt", async () => {
       fake.state.onExecute = () => new Promise(() => undefined);
@@ -1842,7 +1873,7 @@ describe("production login document admission", () => {
       fake.state.tabUrls[1] = "https://login.example/signin";
       await h.hello({ documentId: "next-page" });
       await vi.waitFor(() =>
-        expect(fake.state.storage["pateat.login-attempts.v4"]).toMatchObject([
+        expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
           { state: "blocked", outcome: "cancelled" },
         ]),
       );
@@ -1856,7 +1887,7 @@ describe("production login document admission", () => {
       return { frameId: 3, documentId: "frame-document", tab: { id: 1, url: top }, ...overrides };
     };
     const stored = () =>
-      fake.state.storage["pateat.login-attempts.v4"] as { state: string; outcome?: string }[];
+      fake.state.storage["pateat.login-attempts.v5"] as { state: string; outcome?: string }[];
     it("lets a new page's frame that announced first keep its document", async () => {
       fake.state.onExecute = () => new Promise(() => undefined);
       const h = harness();
@@ -1935,7 +1966,7 @@ describe("production login document admission", () => {
       account: { origin: string };
       document: { tabId: number; documentId: string };
     };
-    const stored = () => (fake.state.storage["pateat.login-attempts.v4"] ?? []) as Stored[];
+    const stored = () => (fake.state.storage["pateat.login-attempts.v5"] ?? []) as Stored[];
     const at = (from: string) => stored().find((entry) => entry.account.origin === from);
     /** Both origins have their own recipe, binding and saved default for the same item. */
     const twoSites = (live: Parameters<typeof harness>[1] = {}) => {
@@ -3186,7 +3217,7 @@ describe("production login document admission", () => {
         const query = fake.browser.tabs.query;
         fake.browser.tabs.query = async () => [{ id: 1 }, { id: 2 }] as never;
         try {
-          fake.state.storage["pateat.login-attempts.v4"] = [
+          fake.state.storage["pateat.login-attempts.v5"] = [
             {
               ...record!,
               state,
@@ -3274,7 +3305,7 @@ describe("production login document admission", () => {
         const query = fake.browser.tabs.query;
         fake.browser.tabs.query = async () => [{ id: 1 }] as never;
         try {
-          fake.state.storage["pateat.login-attempts.v4"] = [
+          fake.state.storage["pateat.login-attempts.v5"] = [
             {
               ...record!,
               state: "blocked",
@@ -3337,7 +3368,7 @@ describe("production login document admission", () => {
       const query = fake.browser.tabs.query;
       fake.browser.tabs.query = async () => [{ id: 1 }, { id: 2 }] as never;
       try {
-        fake.state.storage["pateat.login-attempts.v4"] = [
+        fake.state.storage["pateat.login-attempts.v5"] = [
           {
             ...record!,
             state: "blocked",
@@ -3392,7 +3423,7 @@ describe("production login document admission", () => {
       const query = fake.browser.tabs.query;
       fake.browser.tabs.query = async () => [{ id: 1 }, { id: 2 }] as never;
       try {
-        fake.state.storage["pateat.login-attempts.v4"] = [
+        fake.state.storage["pateat.login-attempts.v5"] = [
           {
             ...record!,
             state: "blocked",
@@ -3433,7 +3464,7 @@ describe("production login document admission", () => {
       const query = fake.browser.tabs.query;
       fake.browser.tabs.query = async () => [{ id: 1 }] as never;
       try {
-        fake.state.storage["pateat.login-attempts.v4"] = [
+        fake.state.storage["pateat.login-attempts.v5"] = [
           {
             ...record!,
             state: "blocked",
@@ -3472,7 +3503,7 @@ describe("production login document admission", () => {
         expect(at(origin)).toMatchObject({ id: record!.id, outcome: "challenge" });
         // A login that stopped before any submission is not the hold's case: a restarted
         // worker resumes it in its own page without this line.
-        fake.state.storage["pateat.login-attempts.v4"] = [
+        fake.state.storage["pateat.login-attempts.v5"] = [
           { ...stored()[0]!, submissions: 0, document: { ...record!.document } },
         ];
         const again = twoSites({ report });
@@ -3494,7 +3525,7 @@ describe("production login document admission", () => {
       try {
         // The login was stopped by a challenge 6 minutes ago and its tab was left open.
         const changedAt = Date.now() - 6 * 60_000;
-        fake.state.storage["pateat.login-attempts.v4"] = [
+        fake.state.storage["pateat.login-attempts.v5"] = [
           {
             ...record!,
             state: "blocked",
@@ -3531,7 +3562,7 @@ describe("production login document admission", () => {
         try {
           // The result stayed unknown 6 minutes ago and its tab was left open.
           const changedAt = Date.now() - 6 * 60_000;
-          fake.state.storage["pateat.login-attempts.v4"] = [
+          fake.state.storage["pateat.login-attempts.v5"] = [
             {
               ...record!,
               state: "reconciling",
@@ -3668,7 +3699,7 @@ describe("production login document admission", () => {
       expect(await h.hello()).toEqual({ ok: true });
       await vi.waitFor(() => expect(at(origin)).toMatchObject({ state: "authenticated" }));
       const [record] = stored();
-      fake.state.storage["pateat.login-attempts.v4"] = [
+      fake.state.storage["pateat.login-attempts.v5"] = [
         record,
         { ...record, id: crypto.randomUUID(), document: { ...record!.document, documentId: "x" } },
       ];
@@ -3842,7 +3873,7 @@ describe("production login document admission", () => {
       expect(h.settings.settings.siteDefaults).toHaveLength(1);
       // Checked against the saved revision, it is not stopped as a policy change.
       await vi.waitFor(() =>
-        expect(fake.state.storage["pateat.login-attempts.v4"]).toMatchObject([
+        expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
           { state: "authenticated", document: { tabId: 1 } },
           { state: "authenticated", document: { tabId: 2 } },
         ]),
@@ -4171,7 +4202,7 @@ describe("production login document admission", () => {
       );
       fake.state.tabUrls[2] = `${second}/signin`;
       const attempts = () =>
-        (fake.state.storage["pateat.login-attempts.v4"] ?? []) as Record<string, unknown>[];
+        (fake.state.storage["pateat.login-attempts.v5"] ?? []) as Record<string, unknown>[];
       expect(await h.hello({ tab: { id: 2 }, url: `${second}/signin` })).toEqual({ ok: true });
       // The record stays until its tab closes; it must not hold the choice off for as long.
       await vi.waitFor(
@@ -4590,7 +4621,7 @@ describe("production login document admission", () => {
         };
         expect(await h.hello()).toEqual({ ok: true });
         await vi.waitFor(() =>
-          expect(fake.state.storage["pateat.login-attempts.v4"]).toMatchObject([
+          expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
             { state: "blocked", outcome: "policy-changed" },
           ]),
         );
@@ -4599,12 +4630,12 @@ describe("production login document admission", () => {
         h.settings.revision += 1;
         const next = { documentId: "synthetic-next" };
         expect(await h.hello(next)).toEqual({ ok: false, reason: "account-ambiguous" });
-        expect(fake.state.storage["pateat.login-attempts.v4"]).toEqual([]);
+        expect(fake.state.storage["pateat.login-attempts.v5"]).toEqual([]);
         expect(await ask(h)).toEqual({ ...offered, documentId: "synthetic-next" });
         fake.state.onReconnect = () => h.hello(next);
         expect(await pick(h, next)).toEqual({ ok: true });
         await vi.waitFor(() =>
-          expect(fake.state.storage["pateat.login-attempts.v4"]).toMatchObject([
+          expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
             { account: { itemId: otherItemId }, document: { documentId: "synthetic-next" } },
           ]),
         );
@@ -4808,7 +4839,7 @@ describe("production login document admission", () => {
           expect(await pick(h, { makeDefault: true })).toEqual({ ok: true });
           await vi.waitFor(
             () =>
-              expect(fake.state.storage["pateat.login-attempts.v4"]).toMatchObject([
+              expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
                 { state: "authenticated" },
               ]),
             { timeout: 12_000 },
@@ -4895,7 +4926,7 @@ describe("production login document admission", () => {
         fake.state.observed = ["missing", "unique"];
         expect(await pick(h, { makeDefault: true })).toEqual({ ok: true });
         await vi.waitFor(() =>
-          expect(fake.state.storage["pateat.login-attempts.v4"]).toMatchObject([
+          expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
             { state: "blocked", outcome: "credential-rejected" },
           ]),
         );
@@ -4903,7 +4934,7 @@ describe("production login document admission", () => {
         // The page announces again on the result, then once its form's first step shows.
         expect(await h.hello({}, false)).toMatchObject({ ok: false });
         expect(await h.hello()).toEqual({ ok: false, reason: "logged-out" });
-        expect(fake.state.storage["pateat.login-attempts.v4"]).toEqual([]);
+        expect(fake.state.storage["pateat.login-attempts.v5"]).toEqual([]);
         expect(await ask(h)).toEqual(rejectedOffer);
         expect(fake.state.badges[1]).toEqual({ text: "2", title: rejectedTitle });
         // The other tab's popup chooses no account either.
@@ -4921,7 +4952,7 @@ describe("production login document admission", () => {
         fake.state.onReconnect = () => h.hello();
         expect(await pick(h, { itemId })).toEqual({ ok: true });
         await vi.waitFor(() =>
-          expect(fake.state.storage["pateat.login-attempts.v4"]).toMatchObject([
+          expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
             { state: "authenticated", account: { itemId } },
           ]),
         );
@@ -4960,7 +4991,7 @@ describe("production login document admission", () => {
         };
         expect(await pick(h, { makeDefault: true })).toEqual({ ok: true });
         await vi.waitFor(() =>
-          expect(fake.state.storage["pateat.login-attempts.v4"]).toMatchObject([
+          expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
             {
               state: "blocked",
               outcome: "credential-rejected",
@@ -4976,7 +5007,7 @@ describe("production login document admission", () => {
           reason: "recipe-not-found",
           generate: true,
         });
-        expect(fake.state.storage["pateat.login-attempts.v4"]).toEqual([]);
+        expect(fake.state.storage["pateat.login-attempts.v5"]).toEqual([]);
         // Once a recipe starts on that path, its form offers the accounts.
         const session = {
           ...recipe,
@@ -4999,7 +5030,7 @@ describe("production login document admission", () => {
         fake.state.observed = ["missing", "unique"];
         expect(await h.hello()).toEqual({ ok: true });
         await vi.waitFor(() =>
-          expect(fake.state.storage["pateat.login-attempts.v4"]).toMatchObject([
+          expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
             { state: "blocked", outcome: "credential-rejected" },
           ]),
         );
@@ -5015,7 +5046,7 @@ describe("production login document admission", () => {
         const next = { documentId: "synthetic-next" };
         expect(await h.hello(next)).toEqual({ ok: true });
         await vi.waitFor(() =>
-          expect(fake.state.storage["pateat.login-attempts.v4"]).toMatchObject([
+          expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
             { fillOnly: true, document: { documentId: "synthetic-next" } },
           ]),
         );
@@ -5081,7 +5112,7 @@ describe("production login document admission", () => {
           ok: true,
         });
         await vi.waitFor(() =>
-          expect(fake.state.storage["pateat.login-attempts.v4"]).toHaveLength(1),
+          expect(fake.state.storage["pateat.login-attempts.v5"]).toHaveLength(1),
         );
         // The other tab stays open, so its record outlives this worker's start.
         const query = fake.browser.tabs.query;
@@ -5243,7 +5274,7 @@ describe("production login document admission", () => {
         const [{ waitedMs }] = fake.state.session["pateat.login-picks.v1"] as [
           { waitedMs: number },
         ];
-        expect(fake.state.storage["pateat.login-attempts.v4"]).toMatchObject([
+        expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
           { timing: { personMs: waitedMs } },
         ]);
         for (const listener of fake.state.removed) listener(1);
@@ -5284,7 +5315,7 @@ describe("production login document admission", () => {
         fake.state.tabUrls[1] = `${second}/signin`;
         expect(await h.hello({ url: `${second}/signin` })).toEqual({ ok: true });
         await vi.waitFor(() =>
-          expect(fake.state.storage["pateat.login-attempts.v4"]).toMatchObject([
+          expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
             { state: "authenticated", account: { origin: second } },
           ]),
         );
@@ -5312,7 +5343,7 @@ describe("production login document admission", () => {
           fieldId === "login.username" ? "my2@example.com" : "synthetic-secret",
         );
         const stored = () =>
-          fake.state.storage["pateat.login-attempts.v4"] as { id: string; state: string }[];
+          fake.state.storage["pateat.login-attempts.v5"] as { id: string; state: string }[];
         const picks = () => fake.state.session["pateat.login-picks.v1"] as { attemptId?: string }[];
         expect(await h.hello()).toEqual({ ok: false, reason: "account-ambiguous" });
         fake.state.onReconnect = () => h.hello();
@@ -5365,7 +5396,7 @@ describe("production login document admission", () => {
           expect(await h.hello(from)).toEqual({ ok: false, reason: "logged-out" });
         };
         const attempts = () =>
-          fake.state.storage["pateat.login-attempts.v4"] as {
+          fake.state.storage["pateat.login-attempts.v5"] as {
             state: string;
             account: { itemId: string };
           }[];
@@ -5756,7 +5787,7 @@ describe("production login document admission", () => {
           );
           // The fill-only login took the page's time before it; the picked one counts from
           // the fill-only login's start, with the time the choice waited as the person's.
-          const [record] = fake.state.storage["pateat.login-attempts.v4"] as {
+          const [record] = fake.state.storage["pateat.login-attempts.v5"] as {
             timing: { since: number; personMs: number };
           }[];
           expect(record!.timing.since).toBe(formShown);
@@ -5808,7 +5839,7 @@ describe("production login document admission", () => {
           expect(await h.hello({ documentId: "signed-out" })).toEqual({ ok: true });
           await vi.waitFor(async () => expect(await h.login.active()).toBe(false));
           // As a worker that stopped after ending the fill, before forgetting it, leaves it.
-          fake.state.storage["pateat.login-attempts.v4"] = [
+          fake.state.storage["pateat.login-attempts.v5"] = [
             { ...done, fillOnly: true, state: "blocked", outcome: "cancelled" },
           ];
           const restarted = harness(
@@ -6160,7 +6191,7 @@ describe("production login document admission", () => {
       };
     }
     const uris = async () => ({ ok: true as const, data: uriMatch() });
-    const status = () => fake.state.storage["pateat.login-attempts.v4"];
+    const status = () => fake.state.storage["pateat.login-attempts.v5"];
 
     it("sends a matching sign-in page for generation and runs the returned recipe", async () => {
       fake.state.extracted = { login: loginPage };
@@ -6667,7 +6698,7 @@ describe("production login document admission", () => {
         cache(h, recipe);
         expect(await h.hello({ tab: { id: 2 }, documentId: "done" })).toEqual({ ok: true });
         await vi.waitFor(() =>
-          expect(fake.state.storage["pateat.login-attempts.v4"]).toMatchObject([
+          expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
             { state: "authenticated" },
           ]),
         );
@@ -7807,15 +7838,15 @@ describe("production login document admission", () => {
           const login = harness();
           expect(await login.hello({ tab: { id: 2 }, documentId: "tab-2" })).toEqual({ ok: true });
           await vi.waitFor(() =>
-            expect(fake.state.storage["pateat.login-attempts.v4"]).toMatchObject([
+            expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
               { state: "authenticated", document: { tabId: 2 } },
             ]),
           );
-          const [record] = fake.state.storage["pateat.login-attempts.v4"] as Record<
+          const [record] = fake.state.storage["pateat.login-attempts.v5"] as Record<
             string,
             unknown
           >[];
-          fake.state.storage["pateat.login-attempts.v4"] = [
+          fake.state.storage["pateat.login-attempts.v5"] = [
             { ...record, changedAt: Date.now() - age },
           ];
           const query = fake.browser.tabs.query;
@@ -8377,7 +8408,7 @@ describe("production login document admission", () => {
             },
           ]);
           // The press is no attempt: nothing is recorded, held or read from the vault.
-          expect(fake.state.storage["pateat.login-attempts.v4"] ?? []).toEqual([]);
+          expect(fake.state.storage["pateat.login-attempts.v5"] ?? []).toEqual([]);
           expect(h.fields).not.toHaveBeenCalled();
         });
 
@@ -8597,7 +8628,7 @@ describe("production login document admission", () => {
             fake.state.tabUrls[1] = signin;
             expect(await h.hello({ documentId: "login", url: signin })).toEqual({ ok: true });
             await vi.waitFor(() =>
-              expect(fake.state.storage["pateat.login-attempts.v4"]).toMatchObject([
+              expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
                 { state: "authenticated" },
               ]),
             );
@@ -11129,7 +11160,7 @@ describe("production login document admission", () => {
           });
           expect(answer).toEqual({ ok: true });
           await vi.waitFor(() =>
-            expect(fake.state.storage["pateat.login-attempts.v4"]).toMatchObject([
+            expect(fake.state.storage["pateat.login-attempts.v5"]).toMatchObject([
               { state: "blocked", outcome: "retry-limit", retries: 2, submissions: 0 },
             ]),
           );
@@ -11390,7 +11421,7 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
     { id: "c1", role: "button", target: target("logout"), label: "Sign out" },
   ]);
   const status = () =>
-    fake.state.storage["pateat.login-attempts.v4"] as Record<string, unknown>[] | undefined;
+    fake.state.storage["pateat.login-attempts.v5"] as Record<string, unknown>[] | undefined;
   const executed = () =>
     fake.state.messages
       .filter((entry) => entry.type === "login.execute")
@@ -11674,7 +11705,9 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       // A minute at least was the person's, and never more than the login took.
       expect(times["personMs"]).toBeGreaterThanOrEqual(60_000);
       expect(times["personMs"]! + times["serviceMs"]!).toBeLessThanOrEqual(times["totalMs"]!);
-      expect(times["otherMs"]).toBe(times["totalMs"]! - times["personMs"]! - times["serviceMs"]!);
+      expect(times["otherMs"]).toBe(
+        times["totalMs"]! - times["personMs"]! - times["serviceMs"]! - times["pageMs"]!,
+      );
       expect(status()![0]).not.toHaveProperty("timing.personSince");
     });
 
@@ -14546,7 +14579,7 @@ describe("password route variants (ADR 0027)", () => {
     ],
   });
   const status = () =>
-    fake.state.storage["pateat.login-attempts.v4"] as Record<string, unknown>[] | undefined;
+    fake.state.storage["pateat.login-attempts.v5"] as Record<string, unknown>[] | undefined;
   /** The targets each executed fill wrote. */
   const filled = () =>
     fake.state.messages
@@ -15025,7 +15058,7 @@ describe("the start page's passkey route (ADR 0027)", () => {
     { id: "c1", role: "link", target: target("help"), label: "Help" },
   ]);
   const status = () =>
-    fake.state.storage["pateat.login-attempts.v4"] as Record<string, unknown>[] | undefined;
+    fake.state.storage["pateat.login-attempts.v5"] as Record<string, unknown>[] | undefined;
   const executed = () =>
     fake.state.messages
       .filter((entry) => entry.type === "login.execute")
@@ -15798,7 +15831,7 @@ describe("an advance whose next step is on the same path (ADR 0013)", () => {
       maxSubmissions: 2,
     });
   const status = () =>
-    fake.state.storage["pateat.login-attempts.v4"] as Record<string, unknown>[] | undefined;
+    fake.state.storage["pateat.login-attempts.v5"] as Record<string, unknown>[] | undefined;
   /** The steps the document was asked to run, as `kind:element`. */
   const executed = () =>
     fake.state.messages
@@ -16689,7 +16722,7 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
     { id: "c1", role: "button", target: target("logout"), label: "Sign out" },
   ]);
   const status = () =>
-    fake.state.storage["pateat.login-attempts.v4"] as Record<string, unknown>[] | undefined;
+    fake.state.storage["pateat.login-attempts.v5"] as Record<string, unknown>[] | undefined;
   const executed = () =>
     fake.state.messages
       .filter((entry) => entry.type === "login.execute")
@@ -17030,7 +17063,7 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
     const { set } = fake.browser.storage.local;
     // The record naming the continued revision cannot be stored.
     fake.browser.storage.local.set = async (values: Record<string, unknown>) => {
-      const records = values["pateat.login-attempts.v4"] as { recipeRevision?: number }[];
+      const records = values["pateat.login-attempts.v5"] as { recipeRevision?: number }[];
       if (records?.some((record) => record.recipeRevision === 2)) throw new Error("quota");
       return set(values);
     };
@@ -20417,7 +20450,7 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
         const { watch: _watch, outcome: _outcome, ...record } = status()![0]!;
         expect(record).toMatchObject({ stepIndex: 1, stopAt: 1, submissions: 1 });
         // The worker stopped while the login stood at its stop.
-        fake.state.storage["pateat.login-attempts.v4"] = [{ ...record, state: "ready" }];
+        fake.state.storage["pateat.login-attempts.v5"] = [{ ...record, state: "ready" }];
         fake.state.messages = [];
         const url = `${origin}/password`;
         fake.state.tabUrls[1] = url;
@@ -20614,7 +20647,7 @@ describe("the start page's own passkey request (ADR 0034)", () => {
   const discoverable = () => vi.fn(async () => ({ passkey: true, discoverable: true }));
   const secondFactor = () => vi.fn(async () => ({ passkey: true, discoverable: false }));
   const status = () =>
-    fake.state.storage["pateat.login-attempts.v4"] as Record<string, unknown>[] | undefined;
+    fake.state.storage["pateat.login-attempts.v5"] as Record<string, unknown>[] | undefined;
   const executed = () =>
     fake.state.messages
       .filter((entry) => entry.type === "login.execute")
@@ -21502,7 +21535,7 @@ describe("the start page's own passkey request (ADR 0034)", () => {
       const query = fake.browser.tabs.query;
       fake.browser.tabs.query = async () => [{ id: 1 }] as never;
       try {
-        fake.state.storage["pateat.login-attempts.v4"] = [
+        fake.state.storage["pateat.login-attempts.v5"] = [
           {
             ...record!,
             state: "blocked",
@@ -22366,7 +22399,7 @@ describe("an item without a password, up to its password (ADR 0036)", () => {
     maxSubmissions: 2,
   });
   const status = () =>
-    fake.state.storage["pateat.login-attempts.v4"] as Record<string, unknown>[] | undefined;
+    fake.state.storage["pateat.login-attempts.v5"] as Record<string, unknown>[] | undefined;
   const executed = () =>
     fake.state.messages
       .filter((entry) => entry.type === "login.execute")
@@ -22857,7 +22890,7 @@ describe("an item without a password, up to its password (ADR 0036)", () => {
     await until(() => status()?.[0]?.["state"] === "watching");
     const { watch: _watch, outcome: _outcome, ...record } = status()![0] as Record<string, unknown>;
     expect(record).toMatchObject({ stepIndex: 2, stopAt: 2, maxSubmissions: 2 });
-    fake.state.storage["pateat.login-attempts.v4"] = [
+    fake.state.storage["pateat.login-attempts.v5"] = [
       { ...record, state: "ready", submissions: 2 },
     ];
     fake.state.messages = [];
@@ -23669,7 +23702,7 @@ describe("a login that starts at a later step its page shows (ADR 0049)", () => 
     slots: used.slots.map((slot) => ({ slot, field: slot as "username" | "password" })),
   });
   const status = () =>
-    fake.state.storage["pateat.login-attempts.v4"] as Record<string, unknown>[] | undefined;
+    fake.state.storage["pateat.login-attempts.v5"] as Record<string, unknown>[] | undefined;
   const executed = () =>
     fake.state.messages
       .filter((entry) => entry.type === "login.execute")

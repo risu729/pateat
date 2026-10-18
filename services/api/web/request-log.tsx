@@ -11,17 +11,22 @@ export const REQUEST_LOG_QUERY_KEY = ["request-log"] as const;
 
 const RETENTION_DAYS = INFERENCE_LOG_RETENTION_MS / (24 * 60 * 60 * 1000);
 const requests = (n: number) => `${n} request${n === 1 ? "" : "s"}`;
-const results = (n: number) => `${n} login result${n === 1 ? "" : "s"}`;
-/** The requests and login results there are, or `0 requests` when there are neither. */
-const held = (entries: number, outcomes: number) =>
-  [entries ? requests(entries) : "", outcomes ? results(outcomes) : ""]
-    .filter(Boolean)
-    .join(" and ") || requests(0);
+const results = (n: number) => `${n} first login result${n === 1 ? "" : "s"}`;
+const logins = (n: number) => `${n} login record${n === 1 ? "" : "s"}`;
+/** The requests, login results and records there are, or `0 requests` when there are none. */
+const held = (counts: { entries: number; outcomes: number; logins: number }) =>
+  new Intl.ListFormat("en", { type: "conjunction" }).format(
+    [
+      counts.entries ? requests(counts.entries) : "",
+      counts.outcomes ? results(counts.outcomes) : "",
+      counts.logins ? logins(counts.logins) : "",
+    ].filter(Boolean),
+  ) || requests(0);
 
 /**
- * The service's log of the generation and judgement requests it received (ADR 0012) and the
- * login result codes devices sent (ADR 0019), and deleting all of it. Deletion cannot be undone,
- * so it takes a second, explicit confirmation.
+ * The service's log of the generation and judgement requests it received (ADR 0012), the login
+ * result codes (ADR 0019) and login records (ADR 0055) devices sent, and deleting all of it.
+ * Deletion cannot be undone, so it takes a second, explicit confirmation.
  */
 export function RequestLogPage({ client }: { client: ManageClient }) {
   const queryClient = useQueryClient();
@@ -49,8 +54,11 @@ export function RequestLogPage({ client }: { client: ManageClient }) {
     focusTarget.current = null;
   });
 
-  const entries = log.data?.entries ?? 0;
-  const outcomes = log.data?.outcomes ?? 0;
+  const counts = {
+    entries: log.data?.entries ?? 0,
+    outcomes: log.data?.outcomes ?? 0,
+    logins: log.data?.logins ?? 0,
+  };
   return (
     <section aria-labelledby="request-log-heading" className="space-y-4">
       <h1 id="request-log-heading" tabIndex={-1} className={`${PAGE_TITLE_CLASSES} outline-none`}>
@@ -61,11 +69,14 @@ export function RequestLogPage({ client }: { client: ManageClient }) {
         the instructions and what Claude answered. A request answered without Claude, such as one
         over a spend limit, is kept with its reason. For the first login with each recipe version,
         it also keeps how the login ended, as a result code without any page text or value. They are
-        used to evaluate and improve generation.
+        used to evaluate and improve generation. For every login with a recipe, it keeps a record of
+        how it ended and how long it took, with the site and time, for the dashboard.
       </p>
       <SuccessNotice
         id="request-log-deleted"
-        message={remove.isSuccess && `${held(remove.data.deleted, remove.data.outcomes)} deleted`}
+        message={
+          remove.isSuccess && `${held({ ...remove.data, entries: remove.data.deleted })} deleted`
+        }
       />
       {remove.isError && (
         <ErrorNotice id="request-log-error">{describeError(remove.error)}</ErrorNotice>
@@ -80,12 +91,12 @@ export function RequestLogPage({ client }: { client: ManageClient }) {
         <p id="request-log-status">
           {log.data.oldestAt === null
             ? "No requests are logged."
-            : `${held(log.data.entries, log.data.outcomes)} logged since ${formatTime(log.data.oldestAt)}.`}
+            : `${held(log.data)} logged since ${formatTime(log.data.oldestAt)}.`}
         </p>
       )}
       {!log.data ? null : confirming ? (
         <div className="flex flex-wrap items-center gap-2">
-          <span>Delete all {held(entries, outcomes)}? This cannot be undone.</span>
+          <span>Delete all {held(counts)}? This cannot be undone.</span>
           <Button
             id="request-log-confirm"
             variant="danger"
@@ -109,7 +120,7 @@ export function RequestLogPage({ client }: { client: ManageClient }) {
         <Button
           id="request-log-delete"
           variant="danger"
-          disabled={entries + outcomes === 0 || remove.isPending}
+          disabled={counts.entries + counts.outcomes + counts.logins === 0 || remove.isPending}
           onClick={() => {
             setConfirming(true);
             focusTarget.current = "request-log-confirm";
@@ -120,7 +131,7 @@ export function RequestLogPage({ client }: { client: ManageClient }) {
       )}
       <Lines>
         <Line icon={<Clock size={16} aria-hidden />}>
-          Each request and login result is kept for {RETENTION_DAYS} days
+          Each request, login result and login record is kept for {RETENTION_DAYS} days
         </Line>
         <Line icon={<FileText size={16} aria-hidden />}>
           Vault values are never sent, so they are never logged

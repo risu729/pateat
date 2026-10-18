@@ -135,6 +135,7 @@ export const app = new Hono<ApiEnv>()
   .all("/v1/recipes/:recipeId", methodNotAllowed("PUT"))
   .all("/v1/recipes/:recipeId/completion", methodNotAllowed("POST"))
   .all("/v1/recipes/:recipeId/outcome", methodNotAllowed("POST"))
+  .all("/v1/recipes/:recipeId/logins", methodNotAllowed("POST"))
   .notFound((c) => apiError(c, 404, { error: "not_found" }))
   .onError((error, c) => {
     const ownerPage =

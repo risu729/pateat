@@ -611,6 +611,51 @@ describe("reportOutcome", () => {
   });
 });
 
+describe("reportLogin", () => {
+  const record = {
+    version: 1,
+    revision: 3,
+    outcome: "authenticated",
+    extensionBuild: "1c42ad3",
+    totalMs: 4210,
+    serviceMs: 0,
+    networkMs: 0,
+    personMs: 0,
+    pageMs: 0,
+  } as const;
+  const send = (fetch: typeof globalThis.fetch) =>
+    createServiceTransport({ fetch }).reportLogin(ORIGIN, CREDENTIAL, "gen-0123", record);
+
+  it("posts only the record with the device credential, no cookies and no redirects", async () => {
+    const fetch = respond(204);
+    expect(await send(fetch)).toEqual({ kind: "kept" });
+    const [url, init] = fetch.mock.calls[0]!;
+    expect(url).toBe(`${ORIGIN}/v1/recipes/gen-0123/logins`);
+    expect(init).toMatchObject({
+      method: "POST",
+      redirect: "error",
+      credentials: "omit",
+      cache: "no-store",
+      referrerPolicy: "no-referrer",
+    });
+    expect(init!.headers).toEqual({
+      Authorization: `Bearer ${CREDENTIAL}`,
+      "Content-Type": "application/json",
+    });
+    expect(JSON.parse(init!.body as string)).toEqual(record);
+  });
+
+  it.each([
+    [404, { error: "not_found" }, { kind: "refused" }],
+    [413, { error: "payload_too_large" }, { kind: "refused" }],
+    [401, { error: "device_revoked" }, { kind: "rejected" }],
+    [429, { error: "rate_limited" }, { kind: "failed", error: "rate-limited" }],
+    [503, { error: "internal_error" }, { kind: "failed", error: "unexpected-response" }],
+  ])("answers %i as its kind", async (status, body, expected) => {
+    expect(await send(respond(status, body))).toEqual(expected);
+  });
+});
+
 describe("service timing", () => {
   const request = {
     version: 1 as const,

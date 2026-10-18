@@ -13,8 +13,10 @@ and on 2026-10-18 (see
 and
 [Amendment 2026-10-18: first login results for evaluation](#amendment-2026-10-18-first-login-results-for-evaluation)
 and
-[Amendment 2026-10-18: how long requests and logins take](#amendment-2026-10-18-how-long-requests-and-logins-take),
-implemented).
+[Amendment 2026-10-18: how long requests and logins take](#amendment-2026-10-18-how-long-requests-and-logins-take)
+and
+[Amendment 2026-10-18: every login's record sent to the service](#amendment-2026-10-18-every-logins-record-sent-to-the-service),
+by [ADR 0055](0055-login-records-sent-to-the-service.md), implemented).
 The diagnostics page, the logs, the Bitwarden server information, recent log lines and
 the Pateat service's record for the device are implemented.
 
@@ -467,3 +469,36 @@ Not confirmed by the owner (the agent's choices):
   judged, counts as service time only, so the times add up to `totalMs`.
 - The network part of the recipe sync after a generated answer is not split out; that
   sync's own `service.sync` entry has it.
+
+## Amendment 2026-10-18: every login's record sent to the service
+
+On 2026-10-18 at 08:38 UTC the owner chose to send every login's result and times to
+the service ("毎回送る"), and wrote that logs going from the service to a device should
+stay off while those going from a device to the service are fine for now
+([ADR 0055](0055-login-records-sent-to-the-service.md)). So "logs are never synced" now
+means: no log goes from the service to a device, and a device sends only the two
+value-free records below, never its log.
+
+- The first-login result code above, unchanged.
+- One record of each login on a recipe revision that ends, signed in or blocked: its
+  result code, cause, the extension build and its `totalMs`, `serviceMs`, `networkMs`,
+  `personMs` and `pageMs` (`POST /v1/recipes/:recipeId/logins`). It is sent once after
+  the login ended and never retried; each send logs a `service.login` line with the
+  recipe, revision, branch and result.
+
+Not confirmed by the owner (the agent's choices):
+
+- So that the owner can tell what to speed up, `login.attempt` and the record also carry
+  `pageMs`, the time the login waited for the site: while the attempt waits for the
+  result of a step that may have changed the page (`awaiting-result` and `reconciling`),
+  until it read that result in the same page or the next one, a page load included, and
+  from a sign-in entry press until the next page was seen. `otherMs` is then the rest
+  less `pageMs` too: Pateat's own work and waits.
+- The wait for the site never runs while the person is waited for or after the login's
+  result settled as unknown, watched or not, and service time during it counts as
+  service time only, so the parts still add up to `totalMs`; `pageMs` is cut where a
+  clock that moved back would make them add up to more.
+- Waiting for a step's elements before the step runs stays in `otherMs`.
+- `networkMs` stays 0 rather than unknown when no answer named the service's time, as
+  from a service deployed before it sent `Server-Timing`
+  ([ADR 0055](0055-login-records-sent-to-the-service.md)).

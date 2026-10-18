@@ -87,26 +87,32 @@ export const manageRecipeConflictSchema = v.strictObject({
 });
 
 /**
- * How long the service keeps each request log row and each login result code (ADR 0012;
- * owner, 2026-10-18).
+ * How long the service keeps each request log row, login result code and login record
+ * (ADR 0012, ADR 0055; owner, 2026-10-18).
  */
 export const INFERENCE_LOG_RETENTION_MS = 365 * 24 * 60 * 60 * 1000;
 const rowCount = v.pipe(v.number(), v.integer(), v.minValue(0));
 /**
  * The owner's request log (ADR 0012): how many requests it holds, how many login result
- * codes devices sent (ADR 0019, amended 2026-10-18), and the oldest row's time of either.
+ * codes devices sent (ADR 0019, amended 2026-10-18), how many login records (ADR 0055),
+ * and the oldest row's time of any of them.
  */
 export const manageRequestLogSchema = v.strictObject({
   version: v.literal(1),
   entries: rowCount,
   outcomes: rowCount,
+  logins: rowCount,
   oldestAt: v.nullable(timestamp),
 });
-/** Deleting the whole request log: how many requests and login result codes it removed. */
+/**
+ * Deleting the whole request log: how many requests, login result codes and login records
+ * it removed.
+ */
 export const manageRequestLogDeletedSchema = v.strictObject({
   version: v.literal(1),
   deleted: rowCount,
   outcomes: rowCount,
+  logins: rowCount,
 });
 
 /** The periods the dashboard summarizes, ending now. */
@@ -131,11 +137,10 @@ export const manageDurationsSchema = v.strictObject({
   p90: v.optional(milliseconds),
   values: v.optional(v.array(milliseconds)),
 });
-/** One request log row or login result code in a failure group, newest first. */
+/** One request log row or login record in a failure group, newest first. */
 export const manageDashboardEventSchema = v.strictObject({
   at: timestamp,
-  /** Null when neither the row nor any kept recipe revision names it. */
-  origin: v.nullable(v.string()),
+  origin: v.string(),
   recipeId: v.nullable(v.string()),
   revision: v.nullable(v.pipe(v.number(), v.integer(), v.minValue(0))),
   /** The request's role; null for a login result. */
@@ -145,20 +150,35 @@ export const manageDashboardEventSchema = v.strictObject({
 });
 /** One result code: how often it came, the last time and site, and its latest 20 rows. */
 export const manageDashboardFailureSchema = v.strictObject({
-  /** `request`: a request log `outcome`; `login`: a login result code. */
+  /** `request`: a request log `outcome`; `login`: a login record's result code. */
   kind: v.picklist(["request", "login"]),
   code: v.string(),
   count: rowCount,
   lastAt: timestamp,
-  lastOrigin: v.nullable(v.string()),
+  lastOrigin: v.string(),
   lastRecipeId: v.nullable(v.string()),
   latest: v.array(manageDashboardEventSchema),
 });
 const microUsd = v.pipe(v.number(), v.integer(), v.minValue(0));
 /**
+ * The median of each part of a login's time over `n` signed-in logins: the network part of
+ * the service time (only for answers that named the service's own time, so a lower bound),
+ * the rest of the service time, the wait for the site's answer to the login's steps (page
+ * loads included), and the rest of the login (Pateat's own work and waits, reading pages,
+ * filling and clicking). The person's time is apart, never in the login time.
+ */
+export const manageLoginPartsSchema = v.strictObject({
+  n: rowCount,
+  networkMs: v.nullable(milliseconds),
+  serviceOtherMs: v.nullable(milliseconds),
+  pageMs: v.nullable(milliseconds),
+  otherMs: v.nullable(milliseconds),
+  personMs: v.nullable(milliseconds),
+});
+/**
  * The owner dashboard over one range, aggregated by the service from the request log, the
- * login result codes, recipes and spend. Latency counts only the recorded times; rows
- * logged before they were recorded have none.
+ * login records and result codes devices sent, recipes and spend. Latency counts only the
+ * recorded times; request log rows logged before they were recorded have none.
  */
 export const manageDashboardSchema = v.strictObject({
   version: v.literal(1),
@@ -166,6 +186,42 @@ export const manageDashboardSchema = v.strictObject({
   /** The range's start and end (now). */
   from: timestamp,
   to: timestamp,
+  /**
+   * Login speed from the login records devices sent (ADR 0055). A login's time is its
+   * total less the person's time, over the logins that signed in; one waited on the
+   * service when its service time is above 0.
+   */
+  logins: v.strictObject({
+    /** Login records in the range, whatever their result. */
+    count: rowCount,
+    /** Login time of every signed-in login. */
+    loginMs: manageDurationsSchema,
+    /** Login time of the signed-in logins that waited on the service, and of the rest. */
+    withService: manageDurationsSchema,
+    recipeOnly: manageDurationsSchema,
+    parts: v.strictObject({
+      withService: manageLoginPartsSchema,
+      recipeOnly: manageLoginPartsSchema,
+    }),
+    /** Logins per site (the recipe's origin), slowest median login time first. */
+    perSite: v.array(
+      v.strictObject({
+        origin: v.string(),
+        logins: rowCount,
+        signedIn: rowCount,
+        loginMs: manageDurationsSchema,
+      }),
+    ),
+    /** Logins per extension build, most recently used first. */
+    perBuild: v.array(
+      v.strictObject({
+        build: v.string(),
+        logins: rowCount,
+        lastAt: timestamp,
+        loginMs: manageDurationsSchema,
+      }),
+    ),
+  }),
   /** Per role, generation first. */
   llm: v.array(
     v.strictObject({
@@ -197,8 +253,8 @@ export const manageDashboardSchema = v.strictObject({
   ),
   /**
    * Every UTC day the range touches, oldest first; a median is null on a day without one.
-   * `logins` counts login result codes, which are only the first login with each recipe
-   * revision, and `authenticatedLogins` those that signed in.
+   * `logins` counts login records, `authenticatedLogins` those that signed in, and
+   * `loginP50` is their median login time.
    */
   daily: v.array(
     v.strictObject({
@@ -209,6 +265,7 @@ export const manageDashboardSchema = v.strictObject({
       judgeModelP50: v.nullable(milliseconds),
       logins: rowCount,
       authenticatedLogins: rowCount,
+      loginP50: v.nullable(milliseconds),
     }),
   ),
   /** The 10 requests that called the model with the longest server time, slowest first. */
@@ -254,13 +311,16 @@ export const manageDashboardSchema = v.strictObject({
     requests: v.array(
       v.strictObject({ role: dashboardRole, outcome: v.string(), count: rowCount }),
     ),
-    /**
-     * Login result codes by outcome, most frequent first: only the first login with each
-     * recipe revision is reported, so these are not every login.
-     */
+    /** Login records by outcome, most frequent first: every login a device reported. */
     logins: v.array(v.strictObject({ outcome: v.string(), count: rowCount })),
     /** How many of those signed in (`authenticated`); the success rate is this of their sum. */
     loginsAuthenticated: rowCount,
+    /**
+     * Login result codes by outcome, most frequent first: only the first login with each
+     * recipe revision, kept for the evaluation corpus (ADR 0012).
+     */
+    firstLogins: v.array(v.strictObject({ outcome: v.string(), count: rowCount })),
+    firstLoginsAuthenticated: rowCount,
     inputTokens: rowCount,
     outputTokens: rowCount,
     /** Estimated spend in this UTC day and month, whatever the range, and their limits. */
@@ -280,10 +340,10 @@ export const manageDashboardSchema = v.strictObject({
     recipesGenerated: rowCount,
   }),
   /**
-   * Request outcomes other than `ok` and login results other than `authenticated`, by
-   * code, most frequent first; `needsPerson` holds the login results that waited for or
-   * were stopped by the person (`challenge`, `challenge-abandoned`, `watch-abandoned`,
-   * `cancelled`), which are not failures.
+   * Request outcomes other than `ok` and login records whose result is not
+   * `authenticated`, by code, most frequent first; `needsPerson` holds the logins that
+   * waited for or were stopped by the person (`challenge`, `challenge-abandoned`,
+   * `watch-abandoned`, `cancelled`), which are not failures.
    */
   failures: v.array(manageDashboardFailureSchema),
   needsPerson: v.array(manageDashboardFailureSchema),
@@ -319,6 +379,7 @@ export type ManageRequestLog = v.InferOutput<typeof manageRequestLogSchema>;
 export type ManageRequestLogDeleted = v.InferOutput<typeof manageRequestLogDeletedSchema>;
 export type ManageDashboardRange = v.InferOutput<typeof manageDashboardRangeSchema>;
 export type ManageDurations = v.InferOutput<typeof manageDurationsSchema>;
+export type ManageLoginParts = v.InferOutput<typeof manageLoginPartsSchema>;
 export type ManageDashboardEvent = v.InferOutput<typeof manageDashboardEventSchema>;
 export type ManageDashboardFailure = v.InferOutput<typeof manageDashboardFailureSchema>;
 export type ManageDashboard = v.InferOutput<typeof manageDashboardSchema>;

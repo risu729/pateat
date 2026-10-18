@@ -37,6 +37,7 @@ import {
   addAttemptTime,
   attemptTimes,
   awaitPerson,
+  followPage,
   personAnswered,
   type AttemptTimes,
   resolveBindingFields,
@@ -183,7 +184,7 @@ import { newId } from "@pateat/contracts/ids";
 import { loginMoveFits } from "@pateat/contracts/site";
 import { isoTime, isoTimeMs, isoTimeSchema } from "../time";
 
-const STORAGE_KEY = "pateat.login-attempts.v4";
+const STORAGE_KEY = "pateat.login-attempts.v5";
 /** Accounts picked in the toolbar popup, per tab; session storage survives a worker restart. */
 const PICKS_KEY = "session:pateat.login-picks.v1";
 const CHOICES_KEY = "session:pateat.login-choices.v1";
@@ -416,7 +417,10 @@ type UnsavedChoice = {
  */
 const withChoice = (value: SettingsSnapshot["settings"], choice: UnsavedChoice) =>
   saveLoginChoice(value, choice.binding, { replace: choice.replace === true });
-/** A login's time before its attempt exists (ADR 0019): `AttemptTiming` without a running wait. */
+/**
+ * A document's time before its login's attempt exists (ADR 0019): `AttemptTiming` without
+ * a running wait or a wait for the site.
+ */
 type StartTiming = { since: number; serviceMs: number; networkMs: number; personMs: number };
 /** A document's path before its token-like segments are replaced (ADR 0039). */
 const rawPath = (live: LiveDocument) => new URL(live.url).pathname;
@@ -2597,15 +2601,16 @@ export function createLoginRuntime(
   }
   /**
    * The time a new login took before it started (ADR 0019): since its page was seen, or the
-   * sign-in entry pressed just before it was, with the service time spent on them and the
-   * person's time picking its account in the popup. An entry press's time is taken once.
+   * sign-in entry pressed just before it was, with the service time spent on them, the
+   * person's time picking its account in the popup and, after a press, the wait for the site
+   * from the press until its page was seen. An entry press's time is taken once.
    */
   function startTiming(
     live: LiveDocument,
     chosen: { connectionId: string; itemId: string },
-  ): StartTiming {
+  ): StartTiming & { pageMs: number } {
     const { tabId, documentId, frameId } = live.document;
-    const timing = { ...live.timing };
+    const timing = { ...live.timing, pageMs: 0 };
     const press = entryPresses.get(tabId);
     const pressedAt = press && isoTimeMs(press.pressedAt);
     if (
@@ -2616,6 +2621,7 @@ export function createLoginRuntime(
       timing.since >= pressedAt &&
       timing.since - pressedAt <= ENTRY_NEXT_PAGE_MS + LOGIN_STEP_WAIT_MS
     ) {
+      timing.pageMs = timing.since - pressedAt;
       timing.since = Math.min(timing.since, press.timing.since);
       timing.serviceMs += press.timing.serviceMs;
       timing.networkMs += press.timing.networkMs;
@@ -5611,8 +5617,9 @@ export function createLoginRuntime(
       const settle = Date.now() >= until;
       const held = await reconcile(run, settle);
       if (!current(run) || !observing()) return;
-      // A held button gone means the person pressed it (ADR 0019).
-      if (!held) run.metadata = personAnswered(run.metadata);
+      // A held button gone means the person pressed it (ADR 0019); the site's answer to the
+      // press is then waited for.
+      if (!held) run.metadata = followPage(personAnswered(run.metadata));
       if (held) {
         if (Date.now() >= holdUntil) {
           await change(run, { type: "OBSERVED", result: "challenge", document: run.live.document });
@@ -8490,8 +8497,9 @@ export function createLoginRuntime(
         type: "NAVIGATED",
         document,
       });
-      // A new page ends a wait for the person's click, as their press led to it (ADR 0019).
-      if (!metadata.watch) metadata = personAnswered(metadata);
+      // A new page ends a wait for the person's click, as their press led to it, and the
+      // login waits for the site until it read that page (ADR 0019).
+      if (!metadata.watch) metadata = followPage(personAnswered(metadata));
       if (revised)
         metadata = transitionLoginAttempt(metadata, {
           type: "REVISED",

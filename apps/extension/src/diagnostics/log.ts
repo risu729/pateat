@@ -138,6 +138,11 @@ export const LOG_EVENTS = {
     level: "info",
     fields: { recipe: "recipe", recipeRevision: "count", branch: "code", result: "code" },
   },
+  // A login's result and times sent to the service (ADR 0055).
+  "service.login": {
+    level: "info",
+    fields: { recipe: "recipe", recipeRevision: "count", branch: "code", result: "code" },
+  },
   "settings.changed": { level: "info", fields: { source: "code", revision: "count" } },
   "login.attempt": {
     level: "info",
@@ -165,6 +170,7 @@ export const LOG_EVENTS = {
       serviceMs: "count",
       networkMs: "count",
       personMs: "count",
+      pageMs: "count",
       otherMs: "count",
       url: "url",
     },

@@ -1156,3 +1156,205 @@ describe("login outcomes", () => {
     expect((await stored(device.ownerId)).map((row) => row["revision"])).toEqual([2, 3]);
   });
 });
+
+// ADR 0055: every ended login's result and times, with the site the service reads itself.
+describe("login records", () => {
+  const record = {
+    version: 1,
+    revision: 1,
+    outcome: "authenticated",
+    extensionBuild: "1c42ad3",
+    totalMs: 9000,
+    serviceMs: 2600,
+    networkMs: 200,
+    personMs: 4000,
+    pageMs: 1800,
+  };
+  const send = (device: Device | undefined, id: string, body: unknown, type = "application/json") =>
+    api(device, `/v1/recipes/${id}/logins`, {
+      method: "POST",
+      headers: { "Content-Type": type },
+      body: typeof body === "string" ? body : JSON.stringify(body),
+    });
+  const stored = async (ownerId: string) =>
+    (
+      await env.DB.prepare(
+        "SELECT recipe_id, branch, revision, origin, outcome, cause, extension_build, total_ms, service_ms, network_ms, person_ms, page_ms FROM login_timings WHERE owner_id = ? ORDER BY created_at, total_ms",
+      )
+        .bind(ownerId)
+        .all()
+    ).results;
+
+  it("keeps one row per login, from any of the owner's devices, with the recipe's own site", async () => {
+    const device = await enrollOwner();
+    const other = await addDevice(device.ownerId);
+    expect((await publish(device, "bank-login", 0)).status).toBe(200);
+    expect((await publish(device, "bank-login", 1)).status).toBe(200);
+    const before = Date.now();
+    const first = await send(device, "bank-login", record);
+    expect(first.status).toBe(204);
+    expect(await first.text()).toBe("");
+    // The same login sent again, or another login of the same revision, is another row.
+    expect((await send(device, "bank-login", record)).status).toBe(204);
+    expect(
+      (
+        await send(other, "bank-login", {
+          ...record,
+          revision: 2,
+          branch: "other",
+          outcome: "structural-mismatch",
+          cause: "target-missing",
+          totalMs: 12_000,
+        })
+      ).status,
+    ).toBe(204);
+    const rows = await stored(device.ownerId);
+    expect(rows).toHaveLength(3);
+    expect(rows[0]).toEqual({
+      recipe_id: "bank-login",
+      branch: "",
+      revision: 1,
+      origin: "https://bank.example",
+      outcome: "authenticated",
+      cause: null,
+      extension_build: "1c42ad3",
+      total_ms: 9000,
+      service_ms: 2600,
+      network_ms: 200,
+      person_ms: 4000,
+      page_ms: 1800,
+    });
+    expect(rows.find((row) => row["revision"] === 2)).toMatchObject({
+      branch: "other",
+      origin: "https://bank.example",
+      outcome: "structural-mismatch",
+      cause: "target-missing",
+    });
+    // The service stamps the time and the row's ID itself.
+    const { results } = await env.DB.prepare(
+      "SELECT id, created_at FROM login_timings WHERE owner_id = ?",
+    )
+      .bind(device.ownerId)
+      .all<{ id: string; created_at: number }>();
+    expect(new Set(results.map((row) => row.id)).size).toBe(3);
+    expect(results.every((row) => row.created_at >= before && row.created_at <= Date.now())).toBe(
+      true,
+    );
+    // Login records are apart from the first login result codes.
+    expect(
+      (
+        await env.DB.prepare("SELECT COUNT(*) AS n FROM login_outcomes WHERE owner_id = ?")
+          .bind(device.ownerId)
+          .first<{ n: number }>()
+      )?.n,
+    ).toBe(0);
+  });
+
+  it("refuses a recipe or revision the owner never had, and a revoked head", async () => {
+    const device = await enrollOwner();
+    const stranger = await enrollOwner();
+    expect((await publish(device, "bank-login", 0)).status).toBe(200);
+    expect((await publish(stranger, "other-login", 0)).status).toBe(200);
+    const statuses = await Promise.all([
+      send(device, "missing-login", record),
+      send(device, "other-login", record),
+      send(stranger, "bank-login", record),
+      send(device, "bank-login", { ...record, revision: 2 }),
+    ]);
+    expect(statuses.map((response) => response.status)).toEqual([404, 404, 404, 404]);
+    expect(await statuses[0]!.json()).toEqual({ error: "not_found" });
+    expect(
+      (
+        await put(device, "/v1/recipes/bank-login", {
+          version: 1,
+          expectedRevision: 1,
+          state: "revoked",
+        })
+      ).status,
+    ).toBe(200);
+    // Revision 2 is the tombstone. Revision 1 ran before the revocation, but a revoked
+    // recipe keeps no document, so the service can no longer name its site.
+    expect((await send(device, "bank-login", { ...record, revision: 2 })).status).toBe(404);
+    expect((await send(device, "bank-login", record)).status).toBe(404);
+    expect(await stored(device.ownerId)).toEqual([]);
+    expect(await stored(stranger.ownerId)).toEqual([]);
+  });
+
+  it("takes the site from the newest kept revision once the reported one is pruned", async () => {
+    const device = await enrollOwner();
+    expect((await publish(device, "bank-login", 0)).status).toBe(200);
+    expect((await publish(device, "bank-login", 1)).status).toBe(200);
+    await env.DB.prepare(
+      "DELETE FROM recipe_revisions WHERE owner_id = ? AND recipe_id = 'bank-login' AND revision = 1",
+    )
+      .bind(device.ownerId)
+      .run();
+    expect((await send(device, "bank-login", record)).status).toBe(204);
+    expect((await stored(device.ownerId)).map((row) => [row["revision"], row["origin"]])).toEqual([
+      [1, "https://bank.example"],
+    ]);
+  });
+
+  it("refuses a site, values, typing time and anything beyond the record, without echoing it", async () => {
+    const device = await enrollOwner();
+    expect((await publish(device, "bank-login", 0)).status).toBe(200);
+    const bodies: unknown[] = [
+      { ...record, origin: "https://bank.example" },
+      { ...record, url: "https://bank.example/login?user=someone" },
+      { ...record, reason: "Password for someone@example.com was wrong" },
+      { ...record, typingMs: 120 },
+      { ...record, otherMs: 2400 },
+      { ...record, createdAt: 1 },
+      { ...record, outcome: "wrong password" },
+      { ...record, cause: "Wrong password" },
+      { ...record, extensionBuild: "someone@example.com" },
+      { ...record, totalMs: -1 },
+      { ...record, totalMs: 86_400_001 },
+      { ...record, serviceMs: 1.5 },
+      { ...record, pageMs: -1 },
+      { ...record, pageMs: undefined },
+      { ...record, branch: "list" },
+      { ...record, revision: 0 },
+      { ...record, version: 2 },
+      "{",
+    ];
+    const responses = await Promise.all(bodies.map((body) => send(device, "bank-login", body)));
+    expect(responses.map((response) => response.status)).toEqual(bodies.map(() => 400));
+    expect(await Promise.all(responses.map((response) => response.json()))).toEqual(
+      bodies.map(() => ({ error: "bad_request" })),
+    );
+    expect((await send(device, "bank-login", record, "text/plain")).status).toBe(415);
+    expect(
+      (await send(device, "bank-login", { ...record, padding: "x".repeat(2_000) })).status,
+    ).toBe(413);
+    expect((await send(device, "not a recipe", record)).status).toBe(400);
+    expect(await stored(device.ownerId)).toEqual([]);
+  });
+
+  it("requires a device credential and answers other methods with 405", async () => {
+    const device = await enrollOwner();
+    expect((await publish(device, "bank-login", 0)).status).toBe(200);
+    const anonymous = await send(undefined, "bank-login", record);
+    expect(anonymous.status).toBe(401);
+    expect(await anonymous.json()).toEqual({ error: "unauthorized" });
+    const wrong = await api(device, "/v1/recipes/bank-login/logins", { method: "GET" });
+    expect(wrong.status).toBe(405);
+    expect(wrong.headers.get("Allow")).toBe("POST");
+    expect(await stored(device.ownerId)).toEqual([]);
+  });
+
+  it("deletes records older than a year when recipes are read or a record is kept", async () => {
+    const device = await enrollOwner();
+    expect((await publish(device, "bank-login", 0)).status).toBe(200);
+    const insert = (totalMs: number, age: number) =>
+      env.DB.prepare(
+        "INSERT INTO login_timings (id, owner_id, recipe_id, branch, revision, origin, outcome, extension_build, total_ms, service_ms, network_ms, person_ms, page_ms, created_at) VALUES (?, ?, 'bank-login', '', 1, 'https://bank.example', 'authenticated', 'development', ?, 0, 0, 0, 0, ?)",
+      ).bind(`login-${crypto.randomUUID()}`, device.ownerId, totalMs, Date.now() - age);
+    await env.DB.batch([insert(1, 366 * DAY_MS), insert(2, 364 * DAY_MS)]);
+    expect((await api(device, "/v1/recipes")).status).toBe(200);
+    expect((await stored(device.ownerId)).map((row) => row["total_ms"])).toEqual([2]);
+    await insert(3, 366 * DAY_MS).run();
+    expect((await send(device, "bank-login", record)).status).toBe(204);
+    expect((await stored(device.ownerId)).map((row) => row["total_ms"])).toEqual([2, 9000]);
+  });
+});

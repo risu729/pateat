@@ -10,6 +10,7 @@ import {
   durations,
   summarizeDashboard,
   type DashboardInput,
+  type DashboardLogin,
   type DashboardRequest,
 } from "../src/dashboard";
 import {
@@ -51,6 +52,24 @@ function row(overrides: Partial<DashboardRequest> = {}): DashboardRequest {
   };
 }
 
+function login(overrides: Partial<DashboardLogin> = {}): DashboardLogin {
+  return {
+    recipeId: "gen-bank",
+    revision: 1,
+    origin: "https://bank.example",
+    outcome: "authenticated",
+    cause: null,
+    extensionBuild: "b".repeat(40),
+    totalMs: 4000,
+    serviceMs: 0,
+    networkMs: 0,
+    personMs: 0,
+    pageMs: 0,
+    createdAt: NOW - HOUR_MS,
+    ...overrides,
+  };
+}
+
 function summarize(overrides: Partial<DashboardInput> = {}): ManageDashboard {
   return v.parse(
     manageDashboardSchema,
@@ -59,7 +78,7 @@ function summarize(overrides: Partial<DashboardInput> = {}): ManageDashboard {
       now: NOW,
       requests: [],
       logins: [],
-      recipeOrigins: new Map(),
+      firstLogins: [],
       spend: { dayMicroUsd: 0, monthMicroUsd: 0 },
       activeRecipes: 0,
       ...overrides,
@@ -147,27 +166,9 @@ describe("dashboard aggregation", () => {
         row({ createdAt: NOW - 5 * DAY_MS, modelMs: null }),
       ],
       logins: [
-        {
-          recipeId: "gen-a",
-          revision: 1,
-          outcome: "authenticated",
-          cause: null,
-          createdAt: NOW - HOUR_MS,
-        },
-        {
-          recipeId: "gen-b",
-          revision: 1,
-          outcome: "timeout",
-          cause: null,
-          createdAt: NOW - 2 * HOUR_MS,
-        },
-        {
-          recipeId: "gen-c",
-          revision: 1,
-          outcome: "authenticated",
-          cause: null,
-          createdAt: NOW - 3 * DAY_MS,
-        },
+        login({ recipeId: "gen-a", createdAt: NOW - HOUR_MS, totalMs: 9000, personMs: 6000 }),
+        login({ recipeId: "gen-b", outcome: "timeout", createdAt: NOW - 2 * HOUR_MS }),
+        login({ recipeId: "gen-c", createdAt: NOW - 3 * DAY_MS, totalMs: 5000 }),
       ],
     });
     expect(data.from).toBe(NOW - 7 * DAY_MS);
@@ -192,12 +193,15 @@ describe("dashboard aggregation", () => {
       judgeModelP50: 2000,
       logins: 2,
       authenticatedLogins: 1,
+      // The signed-in login's time less the person's; the timed-out one is not timed.
+      loginP50: 3000,
     });
     expect(byDay.get("2026-10-15")).toMatchObject({
       generateModelP50: 8000,
       judgeModelP50: null,
       logins: 1,
       authenticatedLogins: 1,
+      loginP50: 5000,
     });
     // A request without model time counts as a request but leaves the median a gap.
     expect(byDay.get("2026-10-13")).toMatchObject({ judgeRequests: 1, judgeModelP50: null });
@@ -205,6 +209,7 @@ describe("dashboard aggregation", () => {
       judgeRequests: 0,
       judgeModelP50: null,
       logins: 0,
+      loginP50: null,
     });
   });
 
@@ -259,36 +264,24 @@ describe("dashboard aggregation", () => {
         row({ role: "generate", recipePage: "continuation", revision: 2 }),
       ],
       logins: [
-        {
+        login({
           recipeId: "gen-kept",
           revision: 2,
+          origin: "https://kept.example",
           outcome: "unknown-submit",
           cause: "settled",
           createdAt: NOW - HOUR_MS,
-        },
-        {
-          recipeId: "gen-bank",
-          revision: 1,
-          outcome: "challenge",
-          cause: null,
-          createdAt: NOW - HOUR_MS,
-        },
-        {
+        }),
+        login({ outcome: "challenge", createdAt: NOW - HOUR_MS }),
+        login({
           recipeId: "gen-gone",
-          revision: 1,
+          origin: "https://gone.example",
           outcome: "watch-abandoned",
-          cause: null,
           createdAt: NOW - 2 * HOUR_MS,
-        },
-        {
-          recipeId: "gen-bank",
-          revision: 2,
-          outcome: "authenticated",
-          cause: null,
-          createdAt: NOW,
-        },
+        }),
+        login({ revision: 2, createdAt: NOW }),
       ],
-      recipeOrigins: new Map([["gen-kept", "https://kept.example"]]),
+      firstLogins: [{ outcome: "unknown-submit" }, { outcome: "authenticated" }],
     });
     expect(data.failures.map((group) => [group.kind, group.code, group.count])).toEqual([
       ["request", "timeout", 2],
@@ -301,7 +294,7 @@ describe("dashboard aggregation", () => {
       "https://b.example",
       "https://a.example",
     ]);
-    // The origin comes from a kept revision of the recipe.
+    // A login's site is the one its record holds.
     expect(data.failures[1]!.latest).toEqual([
       {
         at: NOW - HOUR_MS,
@@ -312,15 +305,100 @@ describe("dashboard aggregation", () => {
         cause: "settled",
       },
     ]);
-    // Else from a request for the same recipe, else none: the recipe ID shows instead.
     expect(
       data.needsPerson.map((group) => [group.code, group.lastOrigin, group.lastRecipeId]),
     ).toEqual([
       ["challenge", "https://bank.example", "gen-bank"],
-      ["watch-abandoned", null, "gen-gone"],
+      ["watch-abandoned", "https://gone.example", "gen-gone"],
     ]);
     expect(data.stats.recipesGenerated).toBe(1);
+    // Every login counts; the first logins are counted apart.
     expect(data.stats.logins).toContainEqual({ outcome: "authenticated", count: 1 });
+    expect(data.stats.loginsAuthenticated).toBe(1);
+    expect(data.stats.firstLogins).toEqual([
+      { outcome: "authenticated", count: 1 },
+      { outcome: "unknown-submit", count: 1 },
+    ]);
+    expect(data.stats.firstLoginsAuthenticated).toBe(1);
+  });
+
+  it("times signed-in logins less the person's time, apart for those that waited on the service", () => {
+    const data = summarize({
+      logins: [
+        // Recipe only: of each login, 2000, 1500 and 2500 waited for the site.
+        login({ totalMs: 3000, pageMs: 2000, createdAt: NOW - 4 * HOUR_MS }),
+        login({
+          totalMs: 2000,
+          pageMs: 1500,
+          origin: "https://mail.example",
+          createdAt: NOW - 3 * HOUR_MS,
+        }),
+        login({ totalMs: 34_000, personMs: 30_000, pageMs: 2500, createdAt: NOW - 2 * HOUR_MS }),
+        // Waited on the service: network 300 of service 9000, the site 600, the rest 400.
+        login({
+          totalMs: 10_000,
+          serviceMs: 9000,
+          networkMs: 300,
+          pageMs: 600,
+          extensionBuild: "development",
+          createdAt: NOW - HOUR_MS,
+        }),
+        // A failed login is counted but never timed.
+        login({
+          outcome: "timeout",
+          totalMs: 60_000,
+          origin: "https://mail.example",
+          createdAt: NOW,
+        }),
+      ],
+    });
+    expect(data.logins.count).toBe(5);
+    expect(data.logins.loginMs).toEqual({ n: 4, p50: 3000, values: [2000, 3000, 4000, 10_000] });
+    expect(data.logins.withService).toEqual({ n: 1, p50: 10_000, values: [10_000] });
+    expect(data.logins.recipeOnly).toEqual({ n: 3, p50: 3000, values: [2000, 3000, 4000] });
+    expect(data.logins.parts.withService).toEqual({
+      n: 1,
+      networkMs: 300,
+      serviceOtherMs: 8700,
+      pageMs: 600,
+      otherMs: 400,
+      personMs: 0,
+    });
+    expect(data.logins.parts.recipeOnly).toEqual({
+      n: 3,
+      networkMs: 0,
+      serviceOtherMs: 0,
+      pageMs: 2000,
+      otherMs: 1000,
+      personMs: 0,
+    });
+    expect(data.logins.perSite).toEqual([
+      {
+        origin: "https://bank.example",
+        logins: 3,
+        signedIn: 3,
+        loginMs: { n: 3, p50: 4000, values: [3000, 4000, 10_000] },
+      },
+      {
+        origin: "https://mail.example",
+        logins: 2,
+        signedIn: 1,
+        loginMs: { n: 1, p50: 2000, values: [2000] },
+      },
+    ]);
+    // Most recently used first.
+    expect(data.logins.perBuild.map((build) => [build.build, build.logins])).toEqual([
+      ["b".repeat(40), 4],
+      ["development", 1],
+    ]);
+    expect(data.stats.loginsAuthenticated).toBe(4);
+  });
+
+  it("counts a wait for the site only up to the login's own time less the service's", () => {
+    const data = summarize({
+      logins: [login({ totalMs: 3500, personMs: 500, serviceMs: 1000, pageMs: 9000 })],
+    });
+    expect(data.logins.parts.withService).toMatchObject({ pageMs: 2000, otherMs: 0 });
   });
 
   it("keeps the latest 20 of a code", () => {
@@ -379,6 +457,37 @@ const insertLog = (
     fields.modelMs === undefined ? 2000 : fields.modelMs,
     fields.serverMs === undefined ? 2600 : fields.serverMs,
     fields.createdAt,
+  );
+
+/** A synthetic login record a device sent (ADR 0055). */
+const insertLogin = (
+  ownerId: string,
+  fields: {
+    origin?: string;
+    outcome?: string;
+    cause?: string;
+    totalMs?: number;
+    serviceMs?: number;
+    networkMs?: number;
+    personMs?: number;
+    pageMs?: number;
+    createdAt?: number;
+  },
+) =>
+  env.DB.prepare(
+    "INSERT INTO login_timings (id, owner_id, recipe_id, branch, revision, origin, outcome, cause, extension_build, total_ms, service_ms, network_ms, person_ms, page_ms, created_at) VALUES (?, ?, 'gen-synthetic', '', 1, ?, ?, ?, 'development', ?, ?, ?, ?, ?, ?)",
+  ).bind(
+    `login-${crypto.randomUUID()}`,
+    ownerId,
+    fields.origin ?? "https://mine.example",
+    fields.outcome ?? "authenticated",
+    fields.cause ?? null,
+    fields.totalMs ?? 4000,
+    fields.serviceMs ?? 0,
+    fields.networkMs ?? 0,
+    fields.personMs ?? 0,
+    fields.pageMs ?? 0,
+    fields.createdAt ?? Date.now() - 2 * HOUR_MS,
   );
 
 async function readDashboard(by: Owner, query = "") {
@@ -463,24 +572,26 @@ describe("owner web UI dashboard", () => {
       env.DB.prepare(
         "INSERT INTO inference_spend (owner_id, period, calls, cost_micro_usd) VALUES (?, ?, 2, 420000), (?, ?, 9, 7000000), (?, ?, 1, 999)",
       ).bind(mine, day, mine, day.slice(0, 7), theirs, day),
-      // The same recipe ID under each owner, for different origins; the other owner also
-      // has more active recipes.
+      // The other owner has more active recipes.
       env.DB.prepare(
         "INSERT INTO recipe_heads (owner_id, recipe_id, revision, state, sequence, write_id, updated_at) VALUES (?, 'gen-synthetic', 1, 'active', 1, 'w1', ?), (?, 'gen-synthetic', 1, 'active', 1, 'w2', ?), (?, 'gen-theirs', 1, 'active', 2, 'w3', ?)",
       ).bind(mine, now, theirs, now, theirs, now),
-      env.DB.prepare(
-        "INSERT INTO recipe_revisions (owner_id, recipe_id, revision, state, document, created_at) VALUES (?, 'gen-synthetic', 1, 'active', ?, ?), (?, 'gen-synthetic', 1, 'active', ?, ?), (?, 'gen-theirs', 1, 'active', ?, ?)",
-      ).bind(
-        mine,
-        JSON.stringify({ origin: "https://mine.example" }),
-        now,
-        theirs,
-        JSON.stringify({ origin: "https://theirs.example" }),
-        now,
-        theirs,
-        JSON.stringify({ origin: "https://theirs.example" }),
-        now,
-      ),
+      insertLogin(mine, {
+        outcome: "structural-mismatch",
+        cause: "target-missing",
+        createdAt: now - HOUR_MS,
+      }),
+      insertLogin(mine, {
+        totalMs: 9000,
+        serviceMs: 6000,
+        networkMs: 400,
+        personMs: 2000,
+        pageMs: 700,
+      }),
+      insertLogin(mine, { totalMs: 3000 }),
+      // Outside the 7-day range.
+      insertLogin(mine, { totalMs: 1000, createdAt: now - 10 * DAY_MS }),
+      insertLogin(theirs, { origin: "https://theirs.example", outcome: "timeout" }),
     ]);
 
     const week = await readDashboard(first);
@@ -498,13 +609,31 @@ describe("owner web UI dashboard", () => {
       ["request", "timeout", 1],
       ["request", "busy", 1],
     ]);
-    // The login's origin is the signed-in owner's recipe revision's, not the other owner's.
+    // A login failure comes from the login records, with the site its record holds.
     expect(week.failures[0]).toMatchObject({
       lastOrigin: "https://mine.example",
       lastRecipeId: "gen-synthetic",
     });
+    expect(week.failures[0]!.latest[0]!.cause).toBe("target-missing");
     expect(week.stats.activeRecipes).toBe(1);
-    expect(week.stats.logins).toEqual([{ outcome: "structural-mismatch", count: 1 }]);
+    expect(week.stats.logins).toEqual([
+      { outcome: "authenticated", count: 2 },
+      { outcome: "structural-mismatch", count: 1 },
+    ]);
+    expect(week.stats.loginsAuthenticated).toBe(2);
+    // The first-login codes are counted apart.
+    expect(week.stats.firstLogins).toEqual([{ outcome: "structural-mismatch", count: 1 }]);
+    expect(week.logins.count).toBe(3);
+    expect(week.logins.loginMs).toEqual({ n: 2, p50: 3000, values: [3000, 7000] });
+    expect(week.logins.withService).toEqual({ n: 1, p50: 7000, values: [7000] });
+    expect(week.logins.parts.withService).toMatchObject({
+      networkMs: 400,
+      serviceOtherMs: 5600,
+      pageMs: 700,
+      otherMs: 300,
+      personMs: 2000,
+    });
+    expect(week.logins.perSite.map((site) => site.origin)).toEqual(["https://mine.example"]);
     expect(week.stats.spend).toMatchObject({ dayMicroUsd: 420_000, monthMicroUsd: 7_000_000 });
     expect(week.daily).toHaveLength(8);
     const timedDays = new Set(
@@ -518,6 +647,7 @@ describe("owner web UI dashboard", () => {
       1000, 3000, 7000,
     ]);
     expect(month.daily).toHaveLength(31);
+    expect(month.logins.count).toBe(4);
     const hours = await readDashboard(first, "?range=24h");
     expect(hours.llm.find((role) => role.role === "generate")!.calls).toBe(0);
   });

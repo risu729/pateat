@@ -100,6 +100,7 @@ another also updates the other's `Status:`. Number a new ADR after the highest o
 - [0049: A login may start at a later step its page shows](adr/0049-start-at-a-later-step.md)
 - [0050: Plain HTTP pages log in with items saved for `http://`](adr/0050-http-pages-for-http-items.md)
 - [0051: A form may submit to another host of the site its item matches](adr/0051-form-destinations-by-item-uri-match.md)
+- [0055: Every login's result and times are sent to the service](adr/0055-login-records-sent-to-the-service.md)
 
 This layout follows the useful separation in
 [Kogane ADR 0041](https://github.com/risu729/kogane/blob/main/docs/adr/0041-documentation-scope.md),
