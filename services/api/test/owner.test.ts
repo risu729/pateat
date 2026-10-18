@@ -753,6 +753,15 @@ describe("owner web UI request log", () => {
     env.DB.prepare(
       "INSERT INTO inference_log (id, owner_id, role, provider, model_id, origin, path, request, outcome, recipe_id, cost_micro_usd, created_at) VALUES (?, ?, 'generate', 'anthropic', 'm', 'https://bank.example', '/login', '{}', 'ok', 'gen-synthetic', 0, ?)",
     ).bind(`log-${crypto.randomUUID()}`, ownerId, createdAt);
+  /** A synthetic login result code a device sent (ADR 0019, amended 2026-10-18). */
+  const insertOutcome = (ownerId: string, revision: number, createdAt: number) =>
+    env.DB.prepare(
+      "INSERT INTO login_outcomes (owner_id, recipe_id, branch, revision, outcome, cause, step, created_at) VALUES (?, 'gen-synthetic', '', ?, 'unknown-submit', 'settled', 1, ?)",
+    ).bind(ownerId, revision, createdAt);
+  const outcomeCount = async (ownerId: string) =>
+    (await env.DB.prepare("SELECT COUNT(*) AS n FROM login_outcomes WHERE owner_id = ?")
+      .bind(ownerId)
+      .first<{ n: number }>())!.n;
   const logCount = async (ownerId: string) =>
     (await env.DB.prepare("SELECT COUNT(*) AS n FROM inference_log WHERE owner_id = ?")
       .bind(ownerId)
@@ -774,7 +783,7 @@ describe("owner web UI request log", () => {
     );
   });
 
-  it("counts and deletes only the signed-in owner's rows, keeping recipes, settings and spend", async () => {
+  it("counts and deletes only the signed-in owner's rows and codes, keeping recipes, settings and spend", async () => {
     const first = await owner();
     const second = await owner();
     await Promise.all([pairDevice(first), pairDevice(second)]);
@@ -782,11 +791,14 @@ describe("owner web UI request log", () => {
       ownerIdFor(first.subject),
       ownerIdFor(second.subject),
     ]);
-    const oldest = Date.now() - 30 * DAY_MS;
+    const oldest = Date.now() - 40 * DAY_MS;
     await env.DB.batch([
-      insertLog(mine!, oldest),
+      insertLog(mine!, Date.now() - 30 * DAY_MS),
       insertLog(mine!, Date.now()),
       insertLog(theirs!, Date.now() - 60 * DAY_MS),
+      // The oldest row may be a login result code.
+      insertOutcome(mine!, 1, oldest),
+      insertOutcome(theirs!, 1, Date.now()),
       env.DB.prepare(
         "INSERT INTO inference_spend (owner_id, period, calls, cost_micro_usd) VALUES (?, '2026-10', 2, 900)",
       ).bind(mine),
@@ -805,16 +817,18 @@ describe("owner web UI request log", () => {
       }),
     });
     expect(settings.status).toBe(200);
-    expect(await read(first)).toEqual({ version: 1, entries: 2, oldestAt: oldest });
+    expect(await read(first)).toEqual({ version: 1, entries: 2, outcomes: 1, oldestAt: oldest });
 
     const deleted = await manageApi("/manage/api/request-log", first.token, "DELETE");
     expect(deleted.status).toBe(200);
     expect(v.parse(manageRequestLogDeletedSchema, await deleted.json())).toEqual({
       version: 1,
       deleted: 2,
+      outcomes: 1,
     });
-    expect(await read(first)).toEqual({ version: 1, entries: 0, oldestAt: null });
+    expect(await read(first)).toEqual({ version: 1, entries: 0, outcomes: 0, oldestAt: null });
     expect(await logCount(theirs!)).toBe(1);
+    expect(await outcomeCount(theirs!)).toBe(1);
     // Only the log goes: the spend the limits count, judged pages and settings stay.
     const kept = await env.DB.batch([
       env.DB.prepare("SELECT calls FROM inference_spend WHERE owner_id = ?").bind(mine),
@@ -829,14 +843,14 @@ describe("owner web UI request log", () => {
     // Deleting an empty log is harmless.
     expect(
       await (await manageApi("/manage/api/request-log", first.token, "DELETE")).json(),
-    ).toEqual({ version: 1, deleted: 0 });
+    ).toEqual({ version: 1, deleted: 0, outcomes: 0 });
   });
 
   it("shows an identity without a paired device an empty log and creates no owner", async () => {
     const by = await owner();
-    expect(await read(by)).toEqual({ version: 1, entries: 0, oldestAt: null });
+    expect(await read(by)).toEqual({ version: 1, entries: 0, outcomes: 0, oldestAt: null });
     const deleted = await manageApi("/manage/api/request-log", by.token, "DELETE");
-    expect(await deleted.json()).toEqual({ version: 1, deleted: 0 });
+    expect(await deleted.json()).toEqual({ version: 1, deleted: 0, outcomes: 0 });
     expect(await ownerIdFor(by.subject)).toBeNull();
   });
 
@@ -844,7 +858,7 @@ describe("owner web UI request log", () => {
     const by = await owner();
     await pairDevice(by);
     const ownerId = await ownerIdFor(by.subject);
-    await insertLog(ownerId!, Date.now()).run();
+    await env.DB.batch([insertLog(ownerId!, Date.now()), insertOutcome(ownerId!, 1, Date.now())]);
     const forged = await forgedAccess(claims(newSubject()));
     const responses = await Promise.all([
       manageApi("/manage/api/request-log", undefined, "DELETE"),
@@ -855,6 +869,7 @@ describe("owner web UI request log", () => {
     ]);
     expect(responses.map((response) => response.status)).toEqual([401, 403, 403, 403, 405]);
     expect(await logCount(ownerId!)).toBe(1);
+    expect(await outcomeCount(ownerId!)).toBe(1);
     expect((await request("/manage/api/request-log")).status).toBe(401);
   });
 });

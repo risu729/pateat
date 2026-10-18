@@ -86,18 +86,27 @@ export const manageRecipeConflictSchema = v.strictObject({
   current: v.nullable(syncRecipeChangeSchema),
 });
 
-/** How long the service keeps each request log row (ADR 0012; owner, 2026-10-18). */
+/**
+ * How long the service keeps each request log row and each login result code (ADR 0012;
+ * owner, 2026-10-18).
+ */
 export const INFERENCE_LOG_RETENTION_MS = 365 * 24 * 60 * 60 * 1000;
-/** The owner's request log (ADR 0012): how many requests it holds, and the oldest's time. */
+const rowCount = v.pipe(v.number(), v.integer(), v.minValue(0));
+/**
+ * The owner's request log (ADR 0012): how many requests it holds, how many login result
+ * codes devices sent (ADR 0019, amended 2026-10-18), and the oldest row's time of either.
+ */
 export const manageRequestLogSchema = v.strictObject({
   version: v.literal(1),
-  entries: v.pipe(v.number(), v.integer(), v.minValue(0)),
+  entries: rowCount,
+  outcomes: rowCount,
   oldestAt: v.nullable(timestamp),
 });
-/** Deleting the whole request log: how many requests it removed. */
+/** Deleting the whole request log: how many requests and login result codes it removed. */
 export const manageRequestLogDeletedSchema = v.strictObject({
   version: v.literal(1),
-  deleted: v.pipe(v.number(), v.integer(), v.minValue(0)),
+  deleted: rowCount,
+  outcomes: rowCount,
 });
 
 export const manageErrorCodeSchema = v.picklist([

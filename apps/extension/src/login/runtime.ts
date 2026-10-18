@@ -1265,6 +1265,8 @@ export type LoginReport = (
       recipeId: string;
       /** The recipe revision the login runs. */
       recipeRevision: number;
+      /** For a chooser login (ADR 0028): the branch whose route it runs. */
+      branch?: ChooserBranch;
       /** The route and password variant the login took when it started (ADR 0027). */
       route: LoginRoute;
       variant?: number;
@@ -1775,6 +1777,7 @@ export function createLoginRuntime(
       origin: metadata.document.origin,
       recipeId: metadata.recipeId,
       recipeRevision: metadata.recipeRevision,
+      ...(metadata.chooser ? { branch: chooserClickBranch(metadata.chooser.click) } : {}),
       route: metadata.route,
       ...(metadata.variant === undefined ? {} : { variant: metadata.variant }),
       state: metadata.state,

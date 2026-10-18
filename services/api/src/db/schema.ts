@@ -232,6 +232,36 @@ export const inferenceLog = sqliteTable(
 );
 
 /**
+ * How the first login of each recipe revision ended, as a device reported it (ADR 0019 and
+ * ADR 0012, amended 2026-10-18): result codes only, never a URL, page text or value. The
+ * first report of a revision is kept and later ones from any device are ignored. Kept one
+ * year like the request log, and deleted with it.
+ */
+export const loginOutcomes = sqliteTable(
+  "login_outcomes",
+  {
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => owners.id),
+    recipeId: text("recipe_id").notNull(),
+    /** The chooser branch the login took (ADR 0028), or empty for any other recipe. */
+    branch: text("branch").notNull().default(""),
+    revision: integer("revision").notNull(),
+    /** A `loginOutcomeSchema` code. */
+    outcome: text("outcome").notNull(),
+    /** A `loginOutcomeCauseSchema` code, or null when the login named none. */
+    cause: text("cause"),
+    /** The attempt's step index when it ended. */
+    step: integer("step").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.ownerId, table.recipeId, table.branch, table.revision] }),
+    index("login_outcomes_created").on(table.createdAt),
+  ],
+);
+
+/**
  * Model calls and estimated spend per owner and period: a `YYYY-MM` row for the monthly
  * spend stop and a `YYYY-MM-DD` row for the daily one (UTC).
  */

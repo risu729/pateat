@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { LoginRecipe } from "./login";
 import { createDefaultSettings } from "./settings";
 import {
+  loginOutcomeReportSchema,
   syncRecipeChangeSchema,
   syncRecipeWriteSchema,
   syncSettingsStateSchema,
@@ -88,5 +89,36 @@ describe("recipe sync contract", () => {
     expect(
       accepts(syncRecipeWriteSchema, { version: 1, expectedRevision: 0, state: "revoked" }),
     ).toBe(false);
+  });
+});
+
+describe("login outcome report contract", () => {
+  const report = { version: 1, revision: 3, outcome: "unknown-submit", cause: "settled", step: 1 };
+
+  it("accepts codes and numbers only", () => {
+    expect(accepts(loginOutcomeReportSchema, report)).toBe(true);
+    expect(accepts(loginOutcomeReportSchema, { ...report, branch: "other" })).toBe(true);
+    const { cause: _cause, ...withoutCause } = report;
+    expect(accepts(loginOutcomeReportSchema, withoutCause)).toBe(true);
+  });
+
+  it("refuses free text, unknown codes and anything beyond the codes", () => {
+    for (const extra of [
+      { url: "https://bank.example/login" },
+      { reason: "Sign in failed for user@example.com" },
+      { recipeId: "gen-0123" },
+      { at: 1 },
+    ])
+      expect(accepts(loginOutcomeReportSchema, { ...report, ...extra })).toBe(false);
+    for (const changed of [
+      { outcome: "failed" },
+      { cause: "Wrong password" },
+      { branch: "" },
+      { revision: 0 },
+      { step: 41 },
+      { step: 1.5 },
+      { version: 2 },
+    ])
+      expect(accepts(loginOutcomeReportSchema, { ...report, ...changed })).toBe(false);
   });
 });

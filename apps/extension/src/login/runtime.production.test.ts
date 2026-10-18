@@ -18326,6 +18326,13 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
         submissions: 2,
       });
       expect(reports.find((entry) => entry.type === "start")).toMatchObject({ click: "entry" });
+      // Its attempt reports name the branch, which its first result's code carries
+      // (ADR 0019, amended 2026-10-18).
+      expect(reports.filter((entry) => entry.type === "attempt").at(-1)).toMatchObject({
+        state: "authenticated",
+        recipeRevision: 2,
+        branch: "account",
+      });
     });
 
     it("continues through the other button when no profile fits", async () => {

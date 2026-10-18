@@ -9,7 +9,10 @@ Status: accepted by the owner on 2026-10-11 and amended the same day (see
 (see
 [Amendment: URLs keep parameter names, not values](#amendment-urls-keep-parameter-names-not-values))
 and on 2026-10-18 (see
-[Amendment: debug logging stays on before publishing](#amendment-debug-logging-stays-on-before-publishing)).
+[Amendment: debug logging stays on before publishing](#amendment-debug-logging-stays-on-before-publishing)
+and
+[Amendment 2026-10-18: first login results for evaluation](#amendment-2026-10-18-first-login-results-for-evaluation),
+implemented).
 The diagnostics page, the logs, the Bitwarden server information, recent log lines and
 the Pateat service's record for the device are implemented.
 
@@ -347,3 +350,38 @@ logging to stay on for now, removed before publishing or kept behind a feature f
 - Before publishing the flag is set to false or removed (see the
   [roadmap](../plan.md#phase-3-public-release)); a build without it turns off debug
   logging left on until turned off.
+
+## Amendment 2026-10-18: first login results for evaluation
+
+On 2026-10-18 at 06:08 UTC the owner chose on a decision card ("送る", option B of the
+corpus design note's section 2.3) that failures of generated plans reach the service for
+the evaluation corpus ([ADR 0012](0012-inference-request-log.md)), where the local log
+keeps them only 14 days. Logs are still never synced; this narrow, value-free result
+code is the one exception:
+
+- For the first login of each recipe revision on a device that ends (signed in, blocked,
+  watched after a step left to the person, or settled as unknown), the worker sends
+  `POST /v1/recipes/:recipeId/outcome` with the revision, the chooser branch when there
+  is one, the `login.attempt` outcome, a cause from a fixed list, and the step index.
+  The service adds the time. Never the URL, origin, reason text, labels, values,
+  usernames or page text.
+- The cause list is the worker's stop causes, the page's reasons for a failed or
+  cancelled step, `settled` for a result that settled as unknown and `unconfirmed` for a
+  sign-in on an undecided page (`loginOutcomeCauseSchema`). Any other cause, and the
+  `reason` field, is not sent.
+- The device records each revision before sending, so it reports each one once; the
+  service keeps the first report of a revision from any of the owner's
+  devices, so "first" means the first time the revision ran, whichever device generated
+  it. One the service could not take stays pending and goes with the next ended login or
+  recipe sync, a few at a time; sending never affects the login.
+- A login without a recipe revision sends nothing. Not confirmed by the owner (the
+  agent's choice): a fill-only login, one that stops before an item's missing password,
+  and `policy-changed` or `account-switched` ends send nothing and leave the revision to
+  its next login; a watched login reports where it first stopped, not how the watch
+  ended; the route is `POST /v1/recipes/:recipeId/outcome` with the recipe ID in the
+  path, as `/completion` has it, and `branch` is left out without one rather than sent
+  as `""`. The design note planned its own ADR; it is recorded as amendments here and in
+  ADR 0012 instead.
+- No host permission is added: the service origin is already allowed. The service side,
+  retention and delete-all are recorded in
+  [ADR 0012](0012-inference-request-log.md#amendment-2026-10-18-login-result-codes).

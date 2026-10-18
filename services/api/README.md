@@ -29,6 +29,7 @@ framed. Contracts live in `packages/contracts/src/sync.ts`, `pairing.ts` and
 | `PUT /v1/recipes/:recipeId` | Publish an active revision or a tombstone when `expectedRevision` matches |
 | `POST /v1/recipes/generate` | Generate or extend this origin's recipe from one login page observation |
 | `POST /v1/recipes/:recipeId/completion` | Judge the page after a recipe's final submission and learn its completion |
+| `POST /v1/recipes/:recipeId/outcome` | Keep how the first login of a revision ended, as result codes only; 204 |
 | `GET /v1/device` | The calling device's paired time, the owner's live recipe count and settings revision, and whether recipe generation would run now, for the diagnostics page |
 | `DELETE /v1/device` | Revoke the calling device's own credential |
 | `POST /pair` | Create a device for the signed-in owner from an allowed extension; 201 with the credential, once |
@@ -41,8 +42,8 @@ framed. Contracts live in `packages/contracts/src/sync.ts`, `pairing.ts` and
 | `PUT /manage/api/settings` | Replace them like `PUT /v1/settings`; `connections` must be empty and the document at most 120 KiB |
 | `GET /manage/api/recipes` | Every recipe head with its document, most recently changed first; active heads whose document no longer validates are listed apart in `unreadable` |
 | `POST /manage/api/recipes/:recipeId/revoke` | Revoke one recipe if `expectedRevision` is its head; otherwise 409 with the current head |
-| `GET /manage/api/request-log` | How many request log rows the owner has (`entries`) and the oldest one's time (`oldestAt`, null when none) |
-| `DELETE /manage/api/request-log` | Delete every request log row of the owner, and nothing else; answers how many (`deleted`) |
+| `GET /manage/api/request-log` | How many request log rows (`entries`) and login result codes (`outcomes`) the owner has, and the oldest one's time (`oldestAt`, null when none) |
+| `DELETE /manage/api/request-log` | Delete every request log row and login result code of the owner, and nothing else; answers how many (`deleted`, `outcomes`) |
 | `GET /manage/claude` | Access page showing the Console values and the owner's WIF identifiers |
 | `POST /manage/claude` | Save the owner's four WIF identifiers |
 | `POST /manage/claude/test` | Exchange one assertion and show only the outcome, never the token |
@@ -390,6 +391,19 @@ gives that object's issue instead. Rows older than one year are deleted whenever
 is logged and on every `GET /v1/recipes`, because routine releases do not apply cron
 triggers. `DELETE /manage/api/request-log` deletes all of the owner's rows; a call still
 running then logs its row afterwards.
+
+`POST /v1/recipes/:recipeId/outcome` takes
+`{ version: 1, revision, branch?, outcome, cause?, step }`: how the first login of that
+revision on a device ended
+([ADR 0019](../../docs/adr/0019-local-diagnostics-and-logs.md#amendment-2026-10-18-first-login-results-for-evaluation)).
+`outcome` is a `loginOutcomeSchema` code, `cause` one of `loginOutcomeCauseSchema`'s
+fixed codes and `step` the attempt's step index; any other field, a URL or free text
+answers 400, a body over 1 KiB 413. A recipe the owner does not hold, a revision above
+its head or a revoked head's tombstone answers 404. The `login_outcomes` row keeps the
+owner, recipe, branch (empty without one), revision, the codes and the service's own
+time; the first report of a revision is kept and any later one, from any device, is
+answered 204 and ignored. Its rows follow the request log's one-year retention (deleted
+with the expired log rows, also on each report) and its delete-all.
 
 ## Schema and tests
 

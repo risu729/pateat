@@ -11,10 +11,15 @@ export const REQUEST_LOG_QUERY_KEY = ["request-log"] as const;
 
 const RETENTION_DAYS = INFERENCE_LOG_RETENTION_MS / (24 * 60 * 60 * 1000);
 const requests = (n: number) => `${n} request${n === 1 ? "" : "s"}`;
+const results = (n: number) => `${n} login result${n === 1 ? "" : "s"}`;
+/** Requests, and login results when there are any. */
+const held = (entries: number, outcomes: number) =>
+  outcomes ? `${requests(entries)} and ${results(outcomes)}` : requests(entries);
 
 /**
- * The service's log of the requests it sent to Claude (ADR 0012), and deleting all of it.
- * Deletion cannot be undone, so it takes a second, explicit confirmation.
+ * The service's log of the requests it sent to Claude (ADR 0012) and the login result codes
+ * devices sent (ADR 0019), and deleting all of it. Deletion cannot be undone, so it takes a
+ * second, explicit confirmation.
  */
 export function RequestLogPage({ client }: { client: ManageClient }) {
   const queryClient = useQueryClient();
@@ -43,6 +48,7 @@ export function RequestLogPage({ client }: { client: ManageClient }) {
   });
 
   const entries = log.data?.entries ?? 0;
+  const outcomes = log.data?.outcomes ?? 0;
   return (
     <section aria-labelledby="request-log-heading" className="space-y-4">
       <h1 id="request-log-heading" tabIndex={-1} className={`${PAGE_TITLE_CLASSES} outline-none`}>
@@ -50,12 +56,13 @@ export function RequestLogPage({ client }: { client: ManageClient }) {
       </h1>
       <p>
         The service keeps each request it sent to Claude to generate a recipe or judge a page: the
-        page as described, the instructions and what Claude answered. They are used to evaluate and
-        improve generation.
+        page as described, the instructions and what Claude answered. For the first login with each
+        recipe version, it also keeps how the login ended, as a result code without any page text or
+        value. They are used to evaluate and improve generation.
       </p>
       <SuccessNotice
         id="request-log-deleted"
-        message={remove.isSuccess && `${requests(remove.data.deleted)} deleted`}
+        message={remove.isSuccess && `${held(remove.data.deleted, remove.data.outcomes)} deleted`}
       />
       {remove.isError && (
         <ErrorNotice id="request-log-error">{describeError(remove.error)}</ErrorNotice>
@@ -70,12 +77,12 @@ export function RequestLogPage({ client }: { client: ManageClient }) {
         <p id="request-log-status">
           {log.data.oldestAt === null
             ? "No requests are logged."
-            : `${requests(log.data.entries)} logged since ${formatTime(log.data.oldestAt)}.`}
+            : `${held(log.data.entries, log.data.outcomes)} logged since ${formatTime(log.data.oldestAt)}.`}
         </p>
       )}
       {!log.data ? null : confirming ? (
         <div className="flex flex-wrap items-center gap-2">
-          <span>Delete all {requests(entries)}? This cannot be undone.</span>
+          <span>Delete all {held(entries, outcomes)}? This cannot be undone.</span>
           <Button
             id="request-log-confirm"
             variant="danger"
@@ -99,7 +106,7 @@ export function RequestLogPage({ client }: { client: ManageClient }) {
         <Button
           id="request-log-delete"
           variant="danger"
-          disabled={entries === 0 || remove.isPending}
+          disabled={entries + outcomes === 0 || remove.isPending}
           onClick={() => {
             setConfirming(true);
             focusTarget.current = "request-log-confirm";
@@ -110,7 +117,7 @@ export function RequestLogPage({ client }: { client: ManageClient }) {
       )}
       <Lines>
         <Line icon={<Clock size={16} aria-hidden />}>
-          Each request is kept for {RETENTION_DAYS} days
+          Each request and login result is kept for {RETENTION_DAYS} days
         </Line>
         <Line icon={<FileText size={16} aria-hidden />}>
           Vault values are never sent, so they are never logged

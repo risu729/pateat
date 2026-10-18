@@ -10,6 +10,7 @@ import {
   type DevicePairResult,
   type EntryGenerationRequest,
   type EntryGenerationResult,
+  type LoginOutcomeReport,
   type RecipeCompletionRequest,
   type RecipeCompletionResult,
   type RecipeGenerationRequest,
@@ -68,6 +69,17 @@ export type InferenceResult<T> =
   | { kind: "rejected" }
   | { kind: "failed"; error: TransportFailure | "timeout" };
 
+/**
+ * `POST /v1/recipes/:recipeId/outcome`'s answer: `kept` for a 204 (a repeat is one too),
+ * `refused` for any other answer below 500 the service gives a request it will never take,
+ * such as a recipe it does not hold.
+ */
+export type OutcomeResult =
+  | { kind: "kept" }
+  | { kind: "refused" }
+  | { kind: "rejected" }
+  | { kind: "failed"; error: TransportFailure };
+
 export interface ServiceTransport {
   /**
    * `POST /pair` with the browser's login session to the service. The only call that
@@ -102,6 +114,16 @@ export interface ServiceTransport {
     credential: string,
     request: EntryGenerationRequest,
   ): Promise<InferenceResult<EntryGenerationResult>>;
+  /**
+   * `POST /v1/recipes/:recipeId/outcome`: how the first login of a recipe revision ended,
+   * as codes only (ADR 0019, amended 2026-10-18).
+   */
+  reportOutcome(
+    origin: string,
+    credential: string,
+    recipeId: string,
+    report: LoginOutcomeReport,
+  ): Promise<OutcomeResult>;
   /** `POST /v1/recipes/:recipeId/completion`: the page after a recipe's final submission. */
   judgeCompletion(
     origin: string,
@@ -381,6 +403,24 @@ export function createServiceTransport(
         request,
         entryGenerationResultSchema,
       );
+    },
+    async reportOutcome(origin, credential, recipeId, report) {
+      const response = await call(
+        origin,
+        `/v1/recipes/${encodeURIComponent(recipeId)}/outcome`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${credential}`, "Content-Type": "application/json" },
+          body: JSON.stringify(report),
+        },
+        { timeout: Math.min(timeoutMs, DEVICE_TIMEOUT_MS) },
+      );
+      if ("failed" in response) return { kind: "failed", error: response.failed };
+      if (response.status === 204) return { kind: "kept" };
+      if (rejected(response)) return { kind: "rejected" };
+      if (response.status === 429) return { kind: "failed", error: "rate-limited" };
+      if (response.status >= 400 && response.status < 500) return { kind: "refused" };
+      return { kind: "failed", error: "unexpected-response" };
     },
     judgeCompletion(origin, credential, recipeId, request) {
       return infer(

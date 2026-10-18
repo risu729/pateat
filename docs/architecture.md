@@ -1661,6 +1661,28 @@ many entries it copied. The export shows sites and recipe IDs as logged. When
 and RP ID becomes `site-N` and every recipe ID `recipe-N`, numbered within that export.
 **Clear logs** deletes every entry and replaces the pseudonym key.
 
+### First login results on the service
+
+Status: the owner's decision of 2026-10-18 (06:08 UTC,
+[ADR 0019](adr/0019-local-diagnostics-and-logs.md#amendment-2026-10-18-first-login-results-for-evaluation));
+implemented and tested locally, not deployed. The log stays on the device; this is the
+one thing that leaves it. When a login on a service recipe revision first ends on this
+device (signed in, blocked, watched after a step left to the person, or settled as
+unknown), the worker (`apps/extension/src/service/outcomes.ts`) sends
+`POST /v1/recipes/:recipeId/outcome` with the revision, the chooser branch when there is
+one, the `login.attempt` outcome, its cause when it is one of a fixed list (the worker's
+stop causes, the page's step reasons, `settled`, `unconfirmed`) and the step index. No
+URL, origin, reason text, label, value or username is sent, and the service adds the
+time. A login without a recipe revision, a fill-only login, one that stops before an
+item's missing password, and a `policy-changed` or `account-switched` end send nothing
+and leave the revision for its next login. `pateat.login-outcomes.v1` in `storage.local`
+records each reported revision per service and device (at most 500, oldest dropped)
+before the request, so a device reports each revision once; one the service
+could not take (unreachable, 429, 5xx, a rejected device) stays pending and is sent at
+the next ended login or successful recipe sync, at most five at a time and stopping at
+the first failure, never in a retry loop. A report the service refuses (404, 400) is
+dropped. Sending never waits on, throws into or changes the login.
+
 ## Declarative recipes and AI
 
 Recipes come from the AI's judgement of a page, never from recording what the person
@@ -2369,8 +2391,10 @@ and middleware. Owner scope, conditional revision writes and D1 batch behavior
 remain explicit application responsibilities. The current Worker implements the
 sync, pairing and device management routes and the recipe generation routes of
 [ADR 0018](adr/0018-recipe-generation-route.md), with their limits and the
-[ADR 0012](adr/0012-inference-request-log.md) request log, as described in
-[its README](../services/api/README.md).
+[ADR 0012](adr/0012-inference-request-log.md) request log, and keeps the result codes
+devices send for the first login of each recipe revision
+([first login results](#first-login-results-on-the-service)) in `login_outcomes`, as
+described in [its README](../services/api/README.md).
 
 Initial human service authentication uses Cloudflare Access, validated through a
 supported integration or verified JWT, not an untrusted email header. Access-free
@@ -2445,7 +2469,8 @@ people.
   verified Access identity on `/manage/api`. The check runs right after authentication
   and before any body is read; a refused request gets 429 `rate_limited` with
   `Retry-After: 60`. The hosted limiter is approximate and counts per Cloudflare
-  location. `/pair` keeps its own 10 a minute per verified Access identity. Recipe
+  location. `/pair` keeps its own 10 a minute per verified Access identity. A login
+  result code is at most 1 KiB, and the service keeps one per recipe revision. Recipe
   generation is also bounded by spend and one call at a time
   ([ADR 0018](adr/0018-recipe-generation-route.md)).
 - Recipes. An owner holds at most 1,000 active recipes. Creating a recipe or
@@ -2492,8 +2517,9 @@ people.
   `MAX_RECIPE_CACHE_BYTES` are defined together in the contracts; no migration is
   required.
 - Unchanged. Settings are one document of at most 120 KiB per owner. The inference
-  request log is kept one year (owner, 2026-10-18) and bounded by the $5 daily spend
-  limit; the owner deletes it all on the web UI's Request log page. Devices are not
+  request log and the login result codes are kept one year (owner, 2026-10-18); the log
+  is bounded by the $5 daily spend limit and the codes by one per recipe revision, and
+  the owner deletes both on the web UI's Request log page. Devices are not
   counted: each pairing needs an interactive Access login.
 
 ### Unsupported service edge cases
@@ -2634,10 +2660,11 @@ field exclusions and custom-field review, which need the device's vault catalog
   only for these paths:
   - Devices (`/manage`): the current list and revocation, moved into the app.
   - Request log (`/manage/request-log`): how many requests the
-    [request log](adr/0012-inference-request-log.md) holds for the owner and since when,
-    that each is kept one year, and Delete all, which after a confirmation naming the
-    count deletes every one of the owner's rows. Recipes, settings, judged pages and the
-    spend the limits count stay.
+    [request log](adr/0012-inference-request-log.md) holds for the owner, and how many
+    [login result codes](#first-login-results-on-the-service), since when, that each is
+    kept one year, and Delete all, which after a confirmation naming the counts deletes
+    every one of the owner's rows of both. Recipes, settings, judged pages and the spend
+    the limits count stay.
   - Sites (`/manage/sites`): one list of every origin the service holds a recipe, a
     `siteDefaults` entry or a `bindings` entry for, each with badges for its recipe
     count, its default account ("<item> in <account>") and its binding count, and

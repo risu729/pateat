@@ -34,12 +34,14 @@ import {
   type VaultPasskeyCandidate,
 } from "../src/passkeys/vault";
 import { createLoginGeneration } from "../src/service/generation";
+import { createLoginOutcomes } from "../src/service/outcomes";
 import { createRecipeSync } from "../src/service/recipes";
 import { createServiceRuntime } from "../src/service/runtime";
 import { createSettingsSync } from "../src/service/settings-sync";
 import {
   createBrowserGeneratedSlotStorage,
   createBrowserGenerationAttemptStorage,
+  createBrowserLoginOutcomeStorage,
   createBrowserRecipeCacheStorage,
   createBrowserRecipeScheduleStorage,
   createBrowserServiceStorage,
@@ -143,6 +145,13 @@ export default defineBackground(() => {
       return current.ok ? current.catalog : undefined;
     },
   });
+  // ADR 0019, amended 2026-10-18: the first login of each recipe revision sends its result
+  // code; one the service could not take goes with the next recipe sync that reached it.
+  const loginOutcomes = createLoginOutcomes({
+    service,
+    transport: serviceTransport,
+    storage: createBrowserLoginOutcomeStorage(),
+  });
   const recipeCacheStorage = createBrowserRecipeCacheStorage();
   const recipeScheduleStorage = createBrowserRecipeScheduleStorage();
   const recipeSync = createRecipeSync({
@@ -151,7 +160,10 @@ export default defineBackground(() => {
     storage: recipeCacheStorage,
     schedule: recipeScheduleStorage,
     settings: settingsSync,
-    report: diagnosticsLog.recipeSync,
+    report: (outcome, changes) => {
+      diagnosticsLog.recipeSync(outcome, changes);
+      if (outcome === "synced") void loginOutcomes.flush();
+    },
   });
   // Workers stop when idle, so the persisted schedule, not each start, paces syncs.
   recipeSync.refreshIfStale();
@@ -227,6 +239,7 @@ export default defineBackground(() => {
     report: (report) => {
       diagnosticsLog.login(report);
       loginBadge.observe(report);
+      loginOutcomes.observe(report);
     },
     signedIn: (tabId, origin) => noteSignIn(tabId, origin),
     badge: loginBadge,
