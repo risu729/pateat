@@ -35,8 +35,10 @@ function recipe(id: string, revision: number): LoginRecipe {
   };
 }
 
-function mockClient(initial: ManageRecipes) {
-  let current = initial;
+type Listed = Omit<ManageRecipes, "unreadable"> & Partial<Pick<ManageRecipes, "unreadable">>;
+
+function mockClient(initial: Listed) {
+  let current: ManageRecipes = { unreadable: [], ...initial };
   return {
     devices: vi.fn<ManageClient["devices"]>(),
     revokeDevice: vi.fn<ManageClient["revokeDevice"]>(),
@@ -49,18 +51,21 @@ function mockClient(initial: ManageRecipes) {
     recipes: vi.fn<ManageClient["recipes"]>(async () => structuredClone(current)),
     revokeRecipe: vi.fn<ManageClient["revokeRecipe"]>(async (recipeId, expectedRevision) => {
       const change = { recipeId, revision: expectedRevision + 1, state: "revoked" as const };
+      const revoked = { change, updatedAt: UPDATED + 60_000 };
       current = {
         version: 1,
-        recipes: current.recipes.map((entry) =>
-          entry.change.recipeId === recipeId ? { change, updatedAt: UPDATED + 60_000 } : entry,
-        ),
+        recipes: [
+          ...(current.unreadable.some((entry) => entry.recipeId === recipeId) ? [revoked] : []),
+          ...current.recipes.map((entry) => (entry.change.recipeId === recipeId ? revoked : entry)),
+        ],
+        unreadable: current.unreadable.filter((entry) => entry.recipeId !== recipeId),
       };
       return { version: 1, change };
     }),
-    replace(next: ManageRecipes) {
-      current = next;
+    replace(next: Listed) {
+      current = { unreadable: [], ...next };
     },
-  } satisfies ManageClient & { replace(next: ManageRecipes): void };
+  } satisfies ManageClient & { replace(next: Listed): void };
 }
 
 // Recipes are listed on their site's page; revoked ones on the Sites list.
@@ -151,6 +156,41 @@ test("shows a recipe's steps, targets and JSON, then revokes it", async () => {
     .element(revoked)
     .toMatchTextContent("old-signinRevision 3, revoked 2026-10-11 08:15 UTC");
   await expect.element(revoked).not.toMatchTextContent("shop-signin");
+});
+
+test("lists recipes the service can no longer read on the Sites list and revokes them", async () => {
+  const client = mockClient({
+    version: 1,
+    recipes: [active("shop-signin")],
+    unreadable: [{ recipeId: "bank-signin", revision: 2, updatedAt: UPDATED }],
+  });
+  await mount(client, "/manage/sites");
+  const unreadable = page.getByRole("region", { name: "Unreadable recipes" });
+  await expect
+    .element(unreadable)
+    .toMatchTextContent("bank-signinRevision 2, updated 2026-10-11 08:15 UTC");
+  await expect.element(unreadable).not.toMatchTextContent("shop-signin");
+
+  await page.getByRole("button", { name: "Revoke recipe bank-signin" }).click();
+  await expect.element(page.getByText("Revoke bank-signin, revision 2?")).toBeVisible();
+  await page.getByRole("button", { name: "Confirm" }).click();
+  await expect.poll(() => client.revokeRecipe).toHaveBeenCalledWith("bank-signin", 2);
+  await expect.element(page.getByRole("status")).toHaveTextContent("bank-signin revoked");
+  // The list goes once empty; the recipe is now a tombstone, whose heading takes focus.
+  await expect.element(unreadable).not.toBeInTheDocument();
+  const revoked = page.getByRole("region", { name: "Revoked recipes" });
+  await expect
+    .element(revoked)
+    .toMatchTextContent("bank-signinRevision 3, revoked 2026-10-11 08:16 UTC");
+  await expect.element(page.getByRole("heading", { name: "Revoked recipes" })).toHaveFocus();
+});
+
+test("shows no unreadable recipes section when there are none", async () => {
+  await mount(mockClient({ version: 1, recipes: [active("shop-signin")] }), "/manage/sites");
+  await expect.element(page.getByRole("heading", { name: "Revoked recipes" })).toBeVisible();
+  await expect
+    .element(page.getByRole("heading", { name: "Unreadable recipes" }))
+    .not.toBeInTheDocument();
 });
 
 test("lists only the recipes of the site the page is for", async () => {
@@ -333,7 +373,7 @@ test("moves focus between Revoke and Confirm while the list is refreshing", asyn
   const held = new Promise<void>((resolve) => (release = resolve));
   client.recipes.mockImplementationOnce(async () => {
     await held;
-    return { version: 1, recipes: [active("bank-signin")] };
+    return { version: 1, recipes: [active("bank-signin")], unreadable: [] };
   });
   void queryClient.invalidateQueries();
   await page.getByRole("button", { name: "Revoke recipe bank-signin" }).click();
@@ -406,7 +446,7 @@ test("says when a recipe to revoke no longer exists", async () => {
   const held = new Promise<void>((resolve) => (release = resolve));
   client.recipes.mockImplementationOnce(async () => {
     await held;
-    return { version: 1, recipes: [] };
+    return { version: 1, recipes: [], unreadable: [] };
   });
   await page.getByRole("button", { name: "Revoke recipe bank-signin" }).click();
   await page.getByRole("button", { name: "Confirm" }).click();

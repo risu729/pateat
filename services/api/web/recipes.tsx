@@ -159,35 +159,31 @@ function RecipeDetails({ entry }: { entry: ActiveRecipe }) {
   );
 }
 
+type RevokeTarget = { recipeId: string; revision: number };
+
 /**
- * One site's active recipes with their revocation. Revocation cannot be undone here, so it
+ * Revocation of the recipes one list shows. Revocation cannot be undone here, so it
  * takes a second, explicit confirmation of the revision the owner saw when they asked.
+ * `ids.heading` takes focus after a revocation and when the control the owner used is gone;
+ * `ids.fallback` does when the heading is gone too.
  */
-export function SiteRecipes({
-  client,
-  origin,
-  announce,
-  shownError,
-}: {
-  client: ManageClient;
-  origin: string;
-  announce: (message: string) => void;
-  /** An error the page already shows, such as a signed-out owner's; it is not repeated. */
-  shownError?: string | undefined;
-}) {
+function useRecipeRevoke(
+  client: ManageClient,
+  announce: (message: string) => void,
+  ids: { heading: string; error: string; fallback?: string },
+) {
   const queryClient = useQueryClient();
   const recipes = useRecipes(client);
-  const [confirming, setConfirming] = useState<{ recipeId: string; revision: number } | null>(null);
+  const [confirming, setConfirming] = useState<RevokeTarget | null>(null);
   // The element to focus once the control the owner used has gone away.
   // A write's target waits for the refresh it starts, which may remove the recipe.
   const focusTarget = useRef<{ id: string; afterRefresh: boolean } | null>(null);
   const revoke = useMutation({
-    mutationFn: (entry: { recipeId: string; revision: number }) =>
-      client.revokeRecipe(entry.recipeId, entry.revision),
+    mutationFn: (entry: RevokeTarget) => client.revokeRecipe(entry.recipeId, entry.revision),
     onMutate: () => announce(""),
     onSuccess: (_result, entry) => {
       announce(`${entry.recipeId} revoked`);
-      focusTarget.current = { id: "recipes-heading", afterRefresh: true };
+      focusTarget.current = { id: ids.heading, afterRefresh: true };
     },
     onError: (_error, entry) => {
       focusTarget.current = { id: `revoke-${entry.recipeId}`, afterRefresh: true };
@@ -203,8 +199,83 @@ export function SiteRecipes({
   useEffect(() => {
     const target = focusTarget.current;
     if (!target || revoke.isPending || (target.afterRefresh && recipes.isFetching)) return;
-    (document.getElementById(target.id) ?? document.getElementById("recipes-heading"))?.focus();
+    (
+      document.getElementById(target.id) ??
+      document.getElementById(ids.heading) ??
+      (ids.fallback ? document.getElementById(ids.fallback) : null)
+    )?.focus();
     focusTarget.current = null;
+  });
+
+  /** The Revoke button of one recipe, or its confirmation while the owner is asked. */
+  function control({ recipeId, revision }: RevokeTarget) {
+    return confirming?.recipeId === recipeId ? (
+      <div className="flex flex-wrap items-center gap-2">
+        <span>
+          Revoke {recipeId}, revision {confirming.revision}?
+        </span>
+        <Button
+          id={`confirm-${recipeId}`}
+          variant="danger"
+          disabled={revoke.isPending}
+          onClick={() => revoke.mutate(confirming)}
+        >
+          Confirm
+        </Button>
+        <Button
+          variant="outline"
+          disabled={revoke.isPending}
+          onClick={() => {
+            setConfirming(null);
+            focusTarget.current = { id: `revoke-${recipeId}`, afterRefresh: false };
+          }}
+        >
+          Cancel
+        </Button>
+      </div>
+    ) : (
+      <Button
+        variant="danger"
+        aria-label={`Revoke recipe ${recipeId}`}
+        id={`revoke-${recipeId}`}
+        disabled={revoke.isPending}
+        onClick={() => {
+          setConfirming({ recipeId, revision });
+          focusTarget.current = { id: `confirm-${recipeId}`, afterRefresh: false };
+        }}
+      >
+        Revoke
+      </Button>
+    );
+  }
+
+  const error = revoke.isError ? (
+    <ErrorNotice id={ids.error}>
+      {revoke.error instanceof ManageApiError && revoke.error.code === "not_found"
+        ? "That recipe no longer exists. The page now shows the current recipes."
+        : describeError(revoke.error)}
+    </ErrorNotice>
+  ) : null;
+
+  return { recipes, control, error };
+}
+
+/** One site's active recipes with their revocation. */
+export function SiteRecipes({
+  client,
+  origin,
+  announce,
+  shownError,
+}: {
+  client: ManageClient;
+  origin: string;
+  announce: (message: string) => void;
+  /** An error the page already shows, such as a signed-out owner's; it is not repeated. */
+  shownError?: string | undefined;
+}) {
+  const { recipes, control, error } = useRecipeRevoke(client, announce, {
+    heading: "recipes-heading",
+    error: "recipes-error",
   });
   const active = (recipes.data?.recipes ?? [])
     .filter(isActive)
@@ -212,13 +283,7 @@ export function SiteRecipes({
 
   return (
     <Panel id="recipes-heading" title="Recipes">
-      {revoke.isError && (
-        <ErrorNotice id="recipes-error">
-          {revoke.error instanceof ManageApiError && revoke.error.code === "not_found"
-            ? "That recipe no longer exists. The page now shows the current recipes."
-            : describeError(revoke.error)}
-        </ErrorNotice>
-      )}
+      {error}
       {recipes.isPending ? (
         <output id="recipes-status" className="block">
           Loading recipes…
@@ -233,60 +298,69 @@ export function SiteRecipes({
         <p>No recipes</p>
       ) : (
         <ul id="recipes" className="divide-y divide-border">
-          {active.map((entry) => {
-            const { recipeId, revision } = entry.change;
-            return (
-              <li key={recipeId} className="space-y-4 py-4 first:pt-0 last:pb-0">
-                <div className="flex flex-wrap items-center gap-3">
-                  <h3 className="min-w-0 flex-1 font-mono font-[650] [overflow-wrap:anywhere]">
-                    {recipeId}
-                  </h3>
-                  {confirming?.recipeId === recipeId ? (
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span>
-                        Revoke {recipeId}, revision {confirming.revision}?
-                      </span>
-                      <Button
-                        id={`confirm-${recipeId}`}
-                        variant="danger"
-                        disabled={revoke.isPending}
-                        onClick={() => revoke.mutate(confirming)}
-                      >
-                        Confirm
-                      </Button>
-                      <Button
-                        variant="outline"
-                        disabled={revoke.isPending}
-                        onClick={() => {
-                          setConfirming(null);
-                          focusTarget.current = { id: `revoke-${recipeId}`, afterRefresh: false };
-                        }}
-                      >
-                        Cancel
-                      </Button>
-                    </div>
-                  ) : (
-                    <Button
-                      variant="danger"
-                      aria-label={`Revoke recipe ${recipeId}`}
-                      id={`revoke-${recipeId}`}
-                      disabled={revoke.isPending}
-                      onClick={() => {
-                        setConfirming({ recipeId, revision });
-                        focusTarget.current = { id: `confirm-${recipeId}`, afterRefresh: false };
-                      }}
-                    >
-                      Revoke
-                    </Button>
-                  )}
-                </div>
-                <RecipeDetails entry={entry} />
-              </li>
-            );
-          })}
+          {active.map((entry) => (
+            <li key={entry.change.recipeId} className="space-y-4 py-4 first:pt-0 last:pb-0">
+              <div className="flex flex-wrap items-center gap-3">
+                <h3 className="min-w-0 flex-1 font-mono font-[650] [overflow-wrap:anywhere]">
+                  {entry.change.recipeId}
+                </h3>
+                {control(entry.change)}
+              </div>
+              <RecipeDetails entry={entry} />
+            </li>
+          ))}
         </ul>
       )}
     </Panel>
+  );
+}
+
+/**
+ * Active recipes whose stored document the service can no longer read. Devices already
+ * drop them; they keep no readable origin, so they are listed apart from the sites, and
+ * revoking one frees its place in the recipe limits.
+ */
+export function UnreadableRecipes({
+  client,
+  announce,
+}: {
+  client: ManageClient;
+  announce: (message: string) => void;
+}) {
+  // A revoked recipe moves to Revoked recipes, whose heading takes focus once this list is gone.
+  const { recipes, control, error } = useRecipeRevoke(client, announce, {
+    heading: "unreadable-heading",
+    error: "unreadable-error",
+    fallback: "revoked-heading",
+  });
+  const unreadable = recipes.data?.unreadable ?? [];
+  if (unreadable.length === 0 && !error) return null;
+  return (
+    <section aria-labelledby="unreadable-heading" className="space-y-4">
+      <h2 id="unreadable-heading" tabIndex={-1} className="text-xl/7 font-[650] outline-none">
+        Unreadable recipes
+      </h2>
+      {error}
+      {unreadable.length > 0 && (
+        <>
+          <p>
+            The service can no longer read these recipes, so devices do not use them. Revoke them to
+            free their place.
+          </p>
+          <RowList id="unreadable-recipes">
+            {unreadable.map((entry) => (
+              <li key={entry.recipeId} className={ROW_CLASSES}>
+                <RowMain
+                  title={<span className="font-mono">{entry.recipeId}</span>}
+                  sub={`Revision ${entry.revision}, updated ${formatTime(entry.updatedAt)}`}
+                />
+                {control(entry)}
+              </li>
+            ))}
+          </RowList>
+        </>
+      )}
+    </section>
   );
 }
 
@@ -295,7 +369,7 @@ export function RevokedRecipes({ recipes }: { recipes: ManageRecipe[] }) {
   const revoked = recipes.filter((entry) => entry.change.state === "revoked");
   return (
     <section aria-labelledby="revoked-heading" className="space-y-4">
-      <h2 id="revoked-heading" className="text-xl/7 font-[650]">
+      <h2 id="revoked-heading" tabIndex={-1} className="text-xl/7 font-[650] outline-none">
         Revoked recipes
       </h2>
       {revoked.length === 0 ? (
