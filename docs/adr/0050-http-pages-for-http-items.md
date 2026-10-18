@@ -1,0 +1,68 @@
+# ADR 0050: Plain HTTP pages log in with items saved for `http://`
+
+Status: accepted by the owner on 2026-10-18 at 01:41 UTC. Asked why Pateat skips
+`http:` pages, and offered the options of filling without submitting there or limiting
+them to items whose URI is saved as `http://`, the owner answered 「ok sure. then follow
+bw. vault の URI が http で保存されている項目に限る、で、自動送信は入れる」 (follow
+Bitwarden; limit it to items whose vault URI is saved with `http`, and include the
+automatic submit). Implemented (local tests only; not yet checked on a real site).
+Amends [ADR 0009](0009-install-time-https-site-access.md), whose "plain HTTP pages are
+never admitted" rule had no recorded reason.
+
+Date: 2026-10-18
+
+## Context
+
+Until this ADR, Pateat declared only `https://*/*`, its login content scripts matched
+only HTTPS pages, and the background refused any other page as `not-https`. Some sites
+the owner uses, such as a router's or an old service's sign-in page, only serve plain
+HTTP, so Pateat did nothing there.
+
+Bitwarden's browser extension fills on HTTP pages and warns first when the item's saved
+URI is `https://` but the page is `http:`
+([Bitwarden help](https://bitwarden.com/help/auto-fill-browser/)). Chrome already shows
+the "Read and change all your data on all websites" warning for `https://*/*`, so adding
+`http://*/*` does not change that wording.
+
+## Decision
+
+- Production declares `http://*/*` beside `https://*/*`, and the login scripts
+  (`login.js`, `login-main.js`) run on every HTTP(S) page and frame. The passkey scripts
+  of [ADR 0007](0007-existing-passkey-assertions.md) stay on HTTPS, since WebAuthn needs
+  a secure context. The synthetic probe build keeps the shared login scripts on HTTPS;
+  its own script covers loopback HTTP.
+- An `http:` document is admitted as an `https:` one is: on a non-excluded site whose
+  host access is still granted for that scheme (`http://host/*`), with a cached recipe
+  for its exact origin. Anything else is refused as `not-web`.
+- On an `http:` page a vault item matches only through a URI saved with an explicit
+  `http://` scheme, under any of Bitwarden's match modes
+  (`apps/extension/src/crypto/http-page.ts`). An `https://` URI or a bare host such as
+  `example.com` never matches an `http:` page. Since every account choice goes through
+  that match (or an item's static `allowedOrigins`, which name exact origins), a saved
+  default, a single URI match, the popup's list, the badge count and the recipe
+  generation trigger on an `http:` page all see only those items. Bitwarden's own warning
+  case therefore never fills: no person is there to answer a warning during an automatic
+  login.
+- A login on an `http:` page runs as on HTTPS, filling and submitting included.
+- A login on an `http:` origin may count a move to an `http:` or `https:` page by the
+  rules of [ADR 0022](0022-login-attempts-per-tab-and-origin.md) and
+  [ADR 0027](0027-per-account-login-routes.md) (`loginMoveFits`). A login on an
+  `https:` origin still counts only `https:` pages; a move to an `http:` page ends it
+  `left-origin`, as a move to another site does.
+- On an `http:` page a sign-in entry link or a return path
+  ([ADR 0031](0031-sign-in-entry-pages.md)) may be `http:` on the site; on an `https:`
+  page it must still be `https:` (`link-not-https`).
+- HTTPS pages are unchanged: an item whose only URI is `http://` still matches an
+  `https:` page of its domain, as in Bitwarden.
+
+## Consequences
+
+A password Pateat fills on an `http:` page travels unencrypted, and anyone on the network
+path can read it or change the page, including inserting a form Pateat then fills and
+submits. Limiting `http:` pages to items saved for `http://` keeps an item saved for an
+HTTPS site from ever being sent that way; the user opts an item in by saving its URI as
+`http://`.
+
+The login scripts now run on every HTTP page too. Admission, the recipe lookup and every
+policy check stay as for HTTPS, so a page without a cached recipe still gets no attempt,
+observation or vault access.

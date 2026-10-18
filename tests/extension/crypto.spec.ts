@@ -25,7 +25,7 @@ test("crypto host packages native WASM under MV3 CSP while its synthetic probe s
       );
       expect(manifest.optional_host_permissions).toBeUndefined();
       expect(manifest.host_permissions).toEqual(
-        directory === probe ? ["https://*/*", "http://127.0.0.1/*"] : ["https://*/*"],
+        directory === probe ? ["https://*/*", "http://127.0.0.1/*"] : ["https://*/*", "http://*/*"],
       );
       // Only production pins its ID (ADR 0020); the probe keeps a path-derived one.
       expect(manifest.key).toBe(directory === production ? MANIFEST_KEY : undefined);

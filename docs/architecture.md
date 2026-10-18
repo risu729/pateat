@@ -526,7 +526,8 @@ belongs to a passkey Pateat has just answered and its page shows no sign-in, or 
 `password` login's tab moves, within 30 seconds of the login's last step that may have
 submitted (a fill or click), to another HTTPS origin of the same registrable domain,
 or within 30 seconds of a second factor (a TOTP code it submitted, or a passkey Pateat
-answered after the item's password) to an HTTPS origin of any site, whose
+answered after the item's password) to an HTTPS origin of any site (for a login on an
+`http:` origin, an HTTP origin counts too; [ADR 0050](adr/0050-http-pages-for-http-items.md)), whose
 page shows the account's username and no sign-in or, when it shows no username, a
 signed-in marker learned on that origin or the judge, asked once. An ended record of a
 site the tab left, including a frame's login on that site's page, never holds the new
@@ -602,9 +603,12 @@ only the one recorded document that was refused for several matches, through
 check after a page with a recipe found no matching item likewise reconnects only that
 refused document, once the check applied a new snapshot within ten seconds
 ([ADR 0025](adr/0025-automatic-vault-sync.md#after-no-item-matches)). A static content
-script runs on every HTTPS page and frame; the background admits non-excluded sites with
+script runs on every HTTP(S) page and frame; the background admits non-excluded sites with
 host access and needs a cached recipe for the exact origin before any policy or vault
-access ([ADR 0009](adr/0009-install-time-https-site-access.md)). A frame also needs the
+access ([ADR 0009](adr/0009-install-time-https-site-access.md)). On an `http:` page only a
+vault URI saved with an explicit `http://` scheme matches, so only those items can be
+chosen, counted or trigger generation there
+([ADR 0050](adr/0050-http-pages-for-http-items.md)). A frame also needs the
 tab's page admitted, and its account must match the tab's URL as well as the frame's
 ([ADR 0017](adr/0017-login-forms-in-frames.md)). The exception is recipe generation: a
 tab's own page on whose path no recipe starts that shows a login field within 10 seconds
@@ -1595,7 +1599,8 @@ the tab's next page after a submitted password form and a vault item matches, an
 the page's shown, enabled buttons and links with rendered text outside forms with
 fields, header and navigation first, up to 48, without slots. The content script lists
 the hosts the page's URL and links name, and the worker answers which are on the site,
-so a link to another site, `http:`, to the page itself or only another fragment of it,
+so a link to another site, `http:` (unless the page is `http:` too, ADR 0050), to the page
+itself or only another fragment of it,
 opening another window (by its own `target` or the document's `<base target>`),
 downloading, or with a query key or value that leads to another site is never described.
 The URL parser reads each query key and value on its own and resolved against the link,
@@ -1761,7 +1766,7 @@ isolated world has the extension's own policy. So a click Pateat makes on an `<a
 whose URL, as the browser parses it, is `javascript:` (`src/page/script-url-click.ts`;
 `data:` and `vbscript:` links take the same path, though Chrome follows neither) is made
 in the page's main world by `login-main.js`, which runs at document start in the
-MAIN world wherever the login script runs (every HTTPS page and frame), with no
+MAIN world wherever the login script runs (every HTTP(S) page and frame), with no
 permission or host access of its own. The isolated script dispatches a fixed,
 non-bubbling event that carries nothing on the link itself; the main-world listener
 clicks that link once, only when it is such a link, and cancels the event. When nothing

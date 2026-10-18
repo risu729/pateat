@@ -48,7 +48,7 @@ test("production diagnostics show the build, checks and a value-free bug report"
     await expect(page.locator("#diagnostics-browser")).toHaveText(/^(Chrome|Chromium) \d+\./u);
     await expect(page.locator("#diagnostics-sdk")).toHaveText(/^0\.2\.0-main\.\d+$/u);
     await expect(page.locator("#diagnostics-checks")).toContainText(
-      "https://*/* site access granted",
+      "https://*/* and http://*/* site access granted",
     );
     await expect(page.locator("#diagnostics-checks")).toContainText("Pateat service not paired");
     await expect(page.locator("#diagnostics-service")).toHaveText("not-configured");

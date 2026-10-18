@@ -120,7 +120,7 @@ afterEach(() => cleanup());
 test("only HTTPS pages with a valid hostname are a site the popup edits", () => {
   expect(popupOrigin("https://bank.example/login?next=1")).toBe("https://bank.example");
   expect(popupOrigin("https://bank.example:8443/")).toBe("https://bank.example:8443");
-  expect(popupOrigin("http://bank.example/")).toBeUndefined();
+  expect(popupOrigin("http://bank.example/")).toBe("http://bank.example");
   expect(popupOrigin("chrome://extensions/")).toBeUndefined();
   expect(popupOrigin(undefined)).toBeUndefined();
 });
@@ -128,9 +128,7 @@ test("only HTTPS pages with a valid hostname are a site the popup edits", () => 
 test("a tab Pateat cannot run on offers only the settings page", async () => {
   const { client } = store();
   const host = await mount(client, "chrome://newtab/");
-  await expect
-    .element(page.getByText("Pateat works on HTTPS websites.", { exact: false }))
-    .toBeVisible();
+  await expect.element(page.getByText("Pateat works on websites", { exact: false })).toBeVisible();
   await expect
     .element(page.getByRole("button", { name: "Use as default" }))
     .not.toBeInTheDocument();
@@ -372,13 +370,14 @@ test("a tab whose address Pateat cannot read says so", async () => {
   expect(client.findSiteAccounts).not.toHaveBeenCalled();
 });
 
-test("an HTTP page is not a site Pateat runs on", async () => {
-  const { client } = store();
+test("an HTTP page lists the accounts for its own origin (ADR 0050)", async () => {
+  const { client, current } = store();
   await mount(client, "http://bank.example/");
-  await expect
-    .element(page.getByText("Pateat works on HTTPS websites.", { exact: false }))
-    .toBeVisible();
-  expect(client.findSiteAccounts).not.toHaveBeenCalled();
+  await expect.poll(() => client.findSiteAccounts.mock.calls.length).toBeGreaterThan(0);
+  expect(client.findSiteAccounts).toHaveBeenCalledWith(
+    "http://bank.example",
+    current().snapshot.settings,
+  );
 });
 
 test("the saved default is selected and marked, and an incomplete search is flagged", async () => {
@@ -1185,9 +1184,7 @@ test("a tab Pateat cannot run on asks nothing about its page", async () => {
   const { client } = store();
   const choices = noChoice();
   await mount(client, "chrome://newtab/", choices);
-  await expect
-    .element(page.getByText("Pateat works on HTTPS websites.", { exact: false }))
-    .toBeVisible();
+  await expect.element(page.getByText("Pateat works on websites", { exact: false })).toBeVisible();
   expect(choices.status).not.toHaveBeenCalled();
 });
 

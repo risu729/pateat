@@ -490,7 +490,7 @@ describe("diagnostics status", () => {
     expect(overdue.checks).toContainEqual({
       id: "site-access",
       level: "error",
-      detail: "https://*/* site access withheld",
+      detail: "https://*/* or http://*/* site access withheld",
     });
     expect(overdue.checks).toContainEqual({
       id: "recipe-sync",

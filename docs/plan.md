@@ -425,7 +425,8 @@ than in this repository.
   page's kind, recipes generated as `confirm` neither run nor count as logouts, a
   passkey re-verification after Pateat's login in the tab is handed on, and the logs for
   judging whether `confirm` can be split are kept.
-- The toolbar badge counts the matching items on every HTTPS site: teal with the usable
+- The toolbar badge counts the matching items on every HTTP(S) site (on an `http:` page
+  only items saved with an `http://` URI; [ADR 0050](adr/0050-http-pages-for-http-items.md)): teal with the usable
   count, light gray when every match is excluded, amber while a login waits for a choice
   (owner, 2026-10-13 14:42 UTC;
   [ADR 0021](adr/0021-account-choice-outside-settings.md#site-count-badge)).
@@ -443,6 +444,9 @@ than in this repository.
   there is not decided.
 - Installed-Chrome checks moved from phase 1 (owner, 2026-10-12 20:35 UTC), checked
   when daily use reaches them:
+  - A plain HTTP site whose item is saved with an `http://` URI logs in, submit included,
+    and an item saved only for `https://` is not offered there (owner, 2026-10-18 01:41
+    UTC; [ADR 0050](adr/0050-http-pages-for-http-items.md); synthetic tests only).
   - On 三菱UFJ銀行, after an expired QR code, the sign-in page in the same tab is filled
     without pressing anything, while a new tab logs in as before (owner, 2026-10-13:
     「このタブだけ」; ADR 0027).
@@ -1567,7 +1571,8 @@ real Bitwarden Cloud US account in their Chrome
   immediately before a fill. An unavailable connection or an item awaiting field review
   is refused before an attempt starts. A denied, locked or failed field read, or a
   replacement snapshot before delivery, blocks the attempt as `policy-changed` without
-  filling. Production admits HTTPS documents on a non-excluded site with
+  filling. Production admits HTTP(S) documents
+  ([ADR 0050](adr/0050-http-pages-for-http-items.md)) on a non-excluded site with
   granted host access (a frame also needs its tab's page admitted;
   [ADR 0017](adr/0017-login-forms-in-frames.md)), with or without a saved default
   ([ADR 0009](adr/0009-install-time-https-site-access.md)); without a cached recipe they
@@ -2700,7 +2705,7 @@ owner added account choice outside the settings page to initial delivery
 current site's default and exclusion, choosing among several password matches there
 (once or as the default), a passkey chooser window, and choosing again after a logout in
 the same tab. They land as separate PRs in that order. The toolbar popup is implemented:
-clicking the icon opens `popup.html` for the active HTTPS tab, whose "Pateat on this
+clicking the icon opens `popup.html` for the active HTTP(S) tab, whose "Pateat on this
 site" switch shows whether the site is excluded and which lists the vault items that
 match its origin as the default account. A rule that includes subdomains is shown but
 changed only in settings, because it also covers other sites. On 2026-10-11 the popup

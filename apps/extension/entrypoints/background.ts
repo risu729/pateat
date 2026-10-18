@@ -356,7 +356,8 @@ export default defineBackground(() => {
     },
     permissions: () => browser.permissions.getAll(),
     declaredOrigins: browser.runtime.getManifest().host_permissions ?? [],
-    hasAllSiteAccess: () => browser.permissions.contains({ origins: ["https://*/*"] }),
+    hasAllSiteAccess: () =>
+      browser.permissions.contains({ origins: ["https://*/*", "http://*/*"] }),
     connections: {
       status: () => connections.service.status(),
       check: async (connectionId) => (await vaultSyncRecords.read()).connections[connectionId],
