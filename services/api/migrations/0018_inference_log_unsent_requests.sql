@@ -1,7 +1,5 @@
 -- ADR 0012 (owner's choice on 2026-10-18 at 08:04 UTC): a generation or judgement request
--- answered without a model call is logged too, with no provider or model. Skipping 0017
--- only avoids a file name clash with the login outcomes table of a change stacked beside
--- this one; whichever of the two lands second redoes its snapshot chain.
+-- answered without a model call is logged too, with no provider or model.
 PRAGMA foreign_keys=OFF;--> statement-breakpoint
 CREATE TABLE `__new_inference_log` (
 	`id` text PRIMARY KEY NOT NULL,
