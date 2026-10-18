@@ -62,13 +62,46 @@ describe("formRefusal", () => {
       otherHost(),
       "//attacker.example/collect",
       // Not a URL a submission can send values to on this origin.
-      "javascript:alert(1)",
       "data:text/html,collected",
+      "vbscript:collect",
       "http://[unparsable/",
     ]) {
       form(`<form action="${action}"><input name="password"></form>`);
       expect(formRefusal(control(), "fill"), action).toBe("form-off-origin");
     }
+  });
+
+  it("allows a form whose destination is a javascript: URL", () => {
+    // A legacy form whose own handler posts the values; submitting it sends them nowhere.
+    for (const action of [
+      "javascript:void(0)",
+      "javascript:;",
+      " JavaScript:login()",
+      "java&#9;script:void(0)",
+    ]) {
+      form(`<form action="${action}"><input name="password"><button>Log in</button></form>`);
+      expect(formRefusal(control(), "fill"), action).toBeUndefined();
+      expect(formRefusal(control("button"), "click"), action).toBeUndefined();
+    }
+    // A javascript: formaction stands in for an off-origin action on a click only.
+    form(
+      `<form action="${attacker}"><input name="password"><button formaction="javascript:void(0)">Log in</button></form>`,
+    );
+    expect(formRefusal(control("button"), "click")).toBeUndefined();
+    expect(formRefusal(control(), "fill")).toBe("form-off-origin");
+    // An off-origin formaction still refuses the click on a javascript: form.
+    form(
+      `<form action="javascript:void(0)"><input name="password"><button formaction="${attacker}">Log in</button></form>`,
+    );
+    expect(formRefusal(control(), "fill")).toBeUndefined();
+    expect(formRefusal(control("button"), "click")).toBe("form-off-origin");
+    // A <base href> does not move a javascript: URL, which is absolute.
+    document.head.insertAdjacentHTML(
+      "beforeend",
+      '<base data-test href="https://attacker.example/">',
+    );
+    form('<form action="javascript:void(0)"><input name="password"></form>');
+    expect(formRefusal(control(), "fill")).toBeUndefined();
   });
 
   it("resolves a relative action against the document's base URL", () => {

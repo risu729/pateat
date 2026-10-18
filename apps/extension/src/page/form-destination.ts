@@ -50,9 +50,12 @@ function destination(
 /**
  * Why the values in `control`'s form may not be sent: the submission, through `control`'s
  * own `formaction` when a `click` on it sends the form, does not stay on the document's
- * origin (`form-off-origin`): another host of the same site, a `javascript:` URL and an
- * unparsable value all count. A `fill` sends nothing through the control, so only the
- * form's `action` counts there. A control outside any form has no submission to check.
+ * origin (`form-off-origin`): another host of the same site and an unparsable value both
+ * count. A `javascript:` destination is allowed: submitting to it runs the URL as script
+ * and sends the form's values nowhere, as legacy forms with `action="javascript:void(0)"`
+ * rely on, whose own handlers then post the values. A `fill` sends nothing through the
+ * control, so only the form's `action` counts there. A control outside any form has no
+ * submission to check.
  */
 export function formRefusal(
   control: HTMLButtonElement | HTMLInputElement,
@@ -62,7 +65,10 @@ export function formRefusal(
   if (!form) return undefined;
   // An opaque origin reads "null" on both sides, which is no match.
   const { origin } = new URL(documentUrl(control));
-  return origin !== "null" && destination(control, form, action === "click")?.origin === origin
+  if (origin === "null") return "form-off-origin";
+  const target = destination(control, form, action === "click");
+  // The parsed scheme: case, surrounding spaces and tabs inside do not matter.
+  return target?.protocol === "javascript:" || target?.origin === origin
     ? undefined
     : "form-off-origin";
 }

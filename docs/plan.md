@@ -910,8 +910,9 @@ Once the fixes have settled:
     (2026-10-16 19:14 UTC): a fill into a form, or a click on a submit control, is
     refused unless the submission's destination (the `formaction` or `action`, resolved
     against the base URL) has the document's own origin
-    ([architecture](architecture.md#background-execution)). Same origin rather than
-    same site is the default chosen while the owner's choice is pending.
+    ([architecture](architecture.md#background-execution)). A `javascript:`
+    destination is allowed (owner, 2026-10-18 04:19 UTC). Same origin rather than same
+    site is the default chosen while the owner's choice is pending.
 
 ### Phase 4: issues and work as needed
 

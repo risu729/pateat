@@ -1527,6 +1527,13 @@ test("values never go into or submit a form bound for another origin", async () 
       await expect(same.locator("#authenticated")).toBeVisible();
       expect(await clicks(same)).toBe(1);
       await same.close();
+      // A form whose action is a javascript: URL sends the values nowhere, so it is filled
+      // and submitted too.
+      const script = await context.newPage();
+      await script.goto(`${fixture.origin}/single?form=script`);
+      await expect(script.locator("#authenticated")).toBeVisible();
+      expect(await clicks(script)).toBe(1);
+      await script.close();
       // A button outside any form submits nothing, so its click proceeds.
       const outside = await context.newPage();
       await outside.goto(`${fixture.origin}/single`);

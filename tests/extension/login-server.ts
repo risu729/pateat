@@ -558,18 +558,22 @@ export async function startLoginFixture(
       // `?maxlength` limits the password input, such as below the synthetic password.
       const maxLength = fixtureUrl.searchParams.get("maxlength");
       // `?form` puts the login in a form: `same-origin` posts to this page with its submit
-      // button, `off-origin` holds the password in a form posting to another origin, and
+      // button, `script` does the same in a form whose action is a `javascript:` URL,
+      // `off-origin` holds the password in a form posting to another origin, and
       // `submit-off-origin` leaves the password outside while the submit button's
       // `formaction` names another origin. Nothing submits: the page keeps every form.
       const form = fixtureUrl.searchParams.get("form");
       const elsewhere = "http://127.0.0.1:1/collect";
       const formStart =
-        { "same-origin": '<form action="/single">', "off-origin": `<form action="${elsewhere}">` }[
-          form ?? ""
-        ] ?? "";
+        {
+          "same-origin": '<form action="/single">',
+          script: '<form action="javascript:void(0)">',
+          "off-origin": `<form action="${elsewhere}">`,
+        }[form ?? ""] ?? "";
       const loginButton =
         {
           "same-origin": '<button id="login">Log in</button></form>',
+          script: '<button id="login">Log in</button></form>',
           "off-origin": '<button id="login" type="button">Log in</button></form>',
           "submit-off-origin": `<form action="/single"><button id="login" formaction="${elsewhere}">Log in</button></form>`,
         }[form ?? ""] ?? '<button id="login" type="button">Log in</button>';
