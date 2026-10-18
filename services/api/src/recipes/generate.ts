@@ -60,6 +60,7 @@ import {
   MAX_OUTPUT_TOKENS,
   ROLE_LIMITS,
   type ClaudeCall,
+  type UnsentOutcome,
   type UnsentRequest,
 } from "../claude/calls";
 import { generationAttempts, pageJudgements, type PageJudgementVerdict } from "../db/schema";
@@ -81,6 +82,11 @@ const utcDayStart = (now: number) => now - (now % DAY_MS);
 type AttemptDb = Parameters<NonNullable<ClaudeCall<unknown>["gate"]>>[0];
 type GenerationEnv = { DB: D1Database; OIDC_ISSUER?: string; OIDC_SIGNING_KEYS?: string };
 type Failure = Extract<RecipeGenerationResult, { status: "failed" }>["error"];
+/** An answer given without a model call: a refusal, a failure, or a stored recipe. */
+type UnsentAnswer = Extract<
+  RecipeGenerationResult | EntryGenerationResult | RecipeCompletionResult,
+  { status: "unavailable" | "failed" | "recipe" }
+>;
 
 const roleConfig = {
   limits: ROLE_LIMITS,
@@ -106,10 +112,13 @@ export async function generatedRecipeId(origin: string, startPath: string) {
  * owner 2026-10-18 08:04 UTC): the reason or failure code, or `recipe` for a recipe
  * another request stored.
  */
-async function answerUnsent<
-  Answer extends RecipeGenerationResult | EntryGenerationResult | RecipeCompletionResult,
->(env: GenerationEnv, ownerId: string, unsent: UnsentRequest, answer: Answer) {
-  const code =
+async function answerUnsent<Answer extends UnsentAnswer>(
+  env: GenerationEnv,
+  ownerId: string,
+  unsent: UnsentRequest,
+  answer: Answer,
+) {
+  const code: UnsentOutcome =
     answer.status === "unavailable"
       ? answer.reason
       : answer.status === "failed"
@@ -254,8 +263,9 @@ const sameRoute = (left: LoginRecipe | undefined, right: LoginRecipe | undefined
     JSON.stringify({ ...left, revision: 0 }) === JSON.stringify({ ...right, revision: 0 }));
 
 /**
- * `POST /v1/recipes/generate`. Returns `undefined` when `base` names a recipe other
- * than one generated for this origin, which the route answers as a bad request.
+ * `POST /v1/recipes/generate`. Returns `undefined` when `base` names a recipe ID that is
+ * not a generated one (`gen-…`), which the route answers as a bad request; a generated ID
+ * of another origin or start path answers `recipe-conflict`.
  *
  * A page that lists accounts (ADR 0028) starts a chooser recipe; a page sent with a
  * `branch` is the next page of that chooser branch: its first, after the click on the
@@ -295,7 +305,7 @@ export async function generateRecipe(
       page: base ? "continuation" : "first",
     },
   } satisfies UnsentRequest;
-  const unsent = (answer: RecipeGenerationResult) =>
+  const unsent = (answer: Extract<RecipeGenerationResult, UnsentAnswer>) =>
     answerUnsent(env, scope.ownerId, logged, answer);
   if (!observation.complete) return unsent(failed("incomplete-observation"));
   // A list of accounts is only ever a recipe's first page.
@@ -317,7 +327,7 @@ export async function generateRecipe(
   const decide = async (
     head: SyncRecipeChange | null,
   ): Promise<
-    | { answer: RecipeGenerationResult }
+    | { answer: Extract<RecipeGenerationResult, { status: "recipe" | "unavailable" }> }
     | {
         base: LoginRecipe | undefined;
         chooser?: LoginChooserRecipe;
@@ -378,7 +388,7 @@ export async function generateRecipe(
   const chooser = before.chooser;
   // The attempt key and the write follow the revision the new one replaces.
   const baseRevision = revisionOf(before);
-  let raced: RecipeGenerationResult | undefined;
+  let raced: Extract<RecipeGenerationResult, { status: "recipe" | "unavailable" }> | undefined;
 
   const call = await callClaude(env, scope.ownerId, {
     ...logged,
@@ -425,8 +435,12 @@ export async function generateRecipe(
   if (call.status === "unavailable") return unsent(raced ?? unavailable(call.reason));
   const { logId } = call;
   const result = unsettled(call.outcome);
-  // A request the role refused locally, as one too large, was never sent.
-  if ("answer" in result) return call.outcome.calls === 0 ? unsent(result.answer) : result.answer;
+  // A request the role refused locally, as one too large, was never sent; the roles refuse
+  // locally only with a failure.
+  if ("answer" in result)
+    return call.outcome.calls === 0 && result.answer.status === "failed"
+      ? unsent(result.answer)
+      : result.answer;
   /**
    * Writes the recipe after `baseRevision` and answers with it, with `customSlots` when
    * given, or with what won the race: only the recipe this call wrote has a mapping to
@@ -574,7 +588,7 @@ export async function generateEntry(
     request: { instructions: entryGenerationInstructions, observation },
     recipe: { recipeId, branch: "", baseRevision: headAtStart?.revision ?? 0, page: "first" },
   } satisfies UnsentRequest;
-  const unsent = (answer: EntryGenerationResult) =>
+  const unsent = (answer: Extract<EntryGenerationResult, UnsentAnswer>) =>
     answerUnsent(env, scope.ownerId, logged, answer);
   if (!observation.complete) return unsent(failed("incomplete-observation"));
 
@@ -584,7 +598,10 @@ export async function generateEntry(
    */
   const decide = async (
     head: SyncRecipeChange | null,
-  ): Promise<{ answer: EntryGenerationResult } | { revision: number }> => {
+  ): Promise<
+    | { answer: Extract<EntryGenerationResult, { status: "recipe" | "unavailable" }> }
+    | { revision: number }
+  > => {
     const current = active(head);
     if (current) {
       // Only the entry recipe generated here answers; a login or chooser recipe on its path,
@@ -609,7 +626,7 @@ export async function generateEntry(
   const before = await decide(headAtStart);
   if ("answer" in before) return unsent(before.answer);
   const baseRevision = before.revision;
-  let raced: EntryGenerationResult | undefined;
+  let raced: Extract<EntryGenerationResult, { status: "recipe" | "unavailable" }> | undefined;
 
   const call = await callClaude(env, scope.ownerId, {
     ...logged,
@@ -632,8 +649,12 @@ export async function generateEntry(
   });
   if (call.status === "unavailable") return unsent(raced ?? unavailable(call.reason));
   const result = unsettled(call.outcome);
-  // A request the role refused locally, as one too large, was never sent.
-  if ("answer" in result) return call.outcome.calls === 0 ? unsent(result.answer) : result.answer;
+  // A request the role refused locally, as one too large, was never sent; the roles refuse
+  // locally only with a failure.
+  if ("answer" in result)
+    return call.outcome.calls === 0 && result.answer.status === "failed"
+      ? unsent(result.answer)
+      : result.answer;
   // A recipe generated again follows its tombstone's revision.
   const built = entryRecipe({
     id: recipeId,
@@ -721,7 +742,7 @@ export async function judgeCompletion(
       },
       recipe: { recipeId, branch: judgedBranch, baseRevision: head.revision },
     }) satisfies UnsentRequest;
-  const unsent = (answer: RecipeCompletionResult, loginPaths?: string[]) =>
+  const unsent = (answer: Extract<RecipeCompletionResult, UnsentAnswer>, loginPaths?: string[]) =>
     answerUnsent(env, scope.ownerId, logged(loginPaths), answer);
   if (head.state === "revoked") return unsent(unavailable("recipe-revoked"));
   // Only a page of the revision that ran, on a route the stored recipe has, is judged: the

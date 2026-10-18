@@ -80,6 +80,38 @@ const homePage = observation("/home", [
   element("help", "link", "Help"),
 ]);
 
+/**
+ * A page with every field at its bound: a request for it fits the route's 128 KiB body
+ * limit but not a role's 64 KiB input bound.
+ */
+const WIDE = "\u3042".repeat(120);
+const bigPage = (): LoginObservation => ({
+  ...observation("/" + "a".repeat(200), [
+    {
+      id: "p".repeat(64),
+      role: "password",
+      target: { by: "name", value: "n".repeat(120) },
+      label: WIDE,
+      placeholder: WIDE,
+      autocomplete: "current-password",
+      group: "g".repeat(64),
+      maxLength: 1024,
+      minLength: 1000,
+      inputMode: "text",
+    },
+    ...Array.from({ length: 47 }, (_, index) => ({
+      id: `${"b".repeat(60)}${String(index).padStart(4, "0")}`,
+      role: "button" as const,
+      target: { by: "text" as const, value: `${"\u3044".repeat(116)}${index}` },
+      label: WIDE,
+      placeholder: WIDE,
+      group: "g".repeat(64),
+    })),
+  ]),
+  title: WIDE,
+  headings: Array.from({ length: 8 }, () => WIDE),
+});
+
 /** A stored recipe that must be a route recipe, as every form page's answer is. */
 const route = (recipe: StoredLoginRecipe): LoginRecipe => {
   if (!isLoginRouteRecipe(recipe)) throw new Error("Expected a route recipe");
@@ -936,39 +968,11 @@ describe("recipe generation", () => {
 
   it("refuses an oversized page locally: no call and no charge, and logs it unsent", async () => {
     const device = await owner();
-    // Every field at its bound: the request fits the route's 128 KiB body limit but not
-    // the role's 64 KiB input bound.
-    const wide = "\u3042".repeat(120);
-    const big: LoginObservation = {
-      ...observation("/" + "a".repeat(200), [
-        {
-          id: "p".repeat(64),
-          role: "password",
-          target: { by: "name", value: "n".repeat(120) },
-          label: wide,
-          placeholder: wide,
-          autocomplete: "current-password",
-          group: "g".repeat(64),
-          maxLength: 1024,
-          minLength: 1000,
-          inputMode: "text",
-        },
-        ...Array.from({ length: 47 }, (_, index) => ({
-          id: `${"b".repeat(60)}${String(index).padStart(4, "0")}`,
-          role: "button" as const,
-          target: { by: "text" as const, value: `${"\u3044".repeat(116)}${index}` },
-          label: wide,
-          placeholder: wide,
-          group: "g".repeat(64),
-        })),
-      ]),
-      title: wide,
-      headings: Array.from({ length: 8 }, () => wide),
-    };
+    const big = bigPage();
     const bigSlots = Array.from({ length: 8 }, (_, index) => ({
       id: `${"s".repeat(62)}${index}`,
       kind: "identifier" as const,
-      description: wide,
+      description: WIDE,
       // Each offer names a different vault field.
       fieldName: `${"\u3042".repeat(119)}${index}`,
     }));
@@ -4857,6 +4861,133 @@ describe("requests answered without a model call (ADR 0012)", () => {
     }
     expect(await rows("SELECT * FROM inference_log WHERE owner_id = ?", device.ownerId)).toEqual(
       [],
+    );
+  });
+
+  it("logs the same page offered with other slots again", async () => {
+    const device = await owner();
+    await holdLock(device.ownerId);
+    const otherSlots: SemanticSlot[] = [
+      ...slots,
+      { id: "member", kind: "identifier", description: "membership number" },
+    ];
+    expect(await generate(device, emailPage)).toMatchObject({ reason: "busy" });
+    const response = await post(device, "/v1/recipes/generate", {
+      version: 1,
+      observation: emailPage,
+      slots: otherSlots,
+    });
+    expect(await response.json()).toMatchObject({ reason: "busy" });
+    expect((await unsentRows(device.ownerId)).map((row) => row.request)).toEqual([
+      { instructions: generationInstructions, slots, observation: emailPage },
+      { instructions: generationInstructions, slots: otherSlots, observation: emailPage },
+    ]);
+  });
+
+  it("logs at most 500 requests answered without a call per owner and UTC day", async () => {
+    const device = await owner();
+    await holdLock(device.ownerId);
+    const now = Date.now();
+    const insert = (id: string, at: number, modelId: string | null) =>
+      env.DB.prepare(
+        "INSERT INTO inference_log (id, owner_id, role, provider, model_id, origin, path, request, outcome, cost_micro_usd, created_at) VALUES (?, ?, 'generate', NULL, ?, ?, '/', '{}', 'busy', 0, ?)",
+      ).bind(id, device.ownerId, modelId, ORIGIN, at);
+    // 499 of today count; yesterday's and a model call's do not.
+    await env.DB.batch([
+      ...Array.from({ length: 499 }, (_, index) => insert(`today-${index}`, now - 1, null)),
+      insert("yesterday", now - (now % DAY_MS) - 1, null),
+      insert("called", now - 1, "claude-opus-5-5"),
+    ]);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      expect(await generate(device, emailPage)).toMatchObject({ reason: "busy" });
+      expect(warn).not.toHaveBeenCalled();
+      // The 501st row of the day is not written, and the answer stays the same.
+      expect(await generate(device, passwordPage)).toEqual({
+        version: 1,
+        status: "unavailable",
+        reason: "busy",
+      });
+      expect(warn.mock.calls).toEqual([
+        ["Inference log row over the daily cap", { role: "generate", outcome: "busy" }],
+      ]);
+    } finally {
+      warn.mockRestore();
+    }
+    expect(
+      await rows(
+        "SELECT path FROM inference_log WHERE owner_id = ? AND model_id IS NULL AND path != '/'",
+        device.ownerId,
+      ),
+    ).toEqual([{ path: "/login" }]);
+  });
+
+  it.each([
+    {
+      outcome: "recently-tried",
+      role: "generate",
+      ask: async (device: Device) => {
+        replies.push({
+          text: JSON.stringify({ result: { decision: "abstain", reason: "ambiguous" } }),
+        });
+        await generate(device, emailPage);
+        return generate(device, emailPage);
+      },
+    },
+    {
+      outcome: "incomplete-observation",
+      role: "generate",
+      ask: (device: Device) => generate(device, { ...emailPage, complete: false }),
+    },
+    {
+      outcome: "credentials-not-configured",
+      role: "generate",
+      claude: false,
+      ask: (device: Device) => generate(device, emailPage),
+    },
+    {
+      outcome: "judgement-limit",
+      role: "judge",
+      ask: async (device: Device) => {
+        const change = await twoPageRecipe(device);
+        const dayStart = Date.now() - (Date.now() % DAY_MS);
+        await env.DB.batch(
+          Array.from({ length: 20 }, (_, index) =>
+            env.DB.prepare(
+              "INSERT INTO page_judgements (owner_id, recipe_id, revision, origin, path, prompt_version, judged_at) VALUES (?, ?, 1, ?, ?, '', ?)",
+            ).bind(device.ownerId, change.recipeId, ORIGIN, `/p${index}`, dayStart + index),
+          ),
+        );
+        return (await complete(device, change.recipeId, 2)).body;
+      },
+    },
+    {
+      outcome: "input-too-large",
+      role: "judge",
+      ask: async (device: Device) => {
+        const change = await twoPageRecipe(device);
+        return (await complete(device, change.recipeId, 2, bigPage())).body;
+      },
+    },
+  ])("logs one row for $outcome", async ({ outcome, role, claude, ask }) => {
+    const device = await owner({ claude: claude ?? true });
+    const calls = sent.length;
+    const answer = await ask(device);
+    expect(answer).toMatchObject(
+      outcome === "incomplete-observation" || outcome === "input-too-large"
+        ? { status: "failed", error: outcome }
+        : { status: "unavailable", reason: outcome },
+    );
+    const unsentOfRole = (await unsentRows(device.ownerId)).filter((row) => row.role === role);
+    expect(unsentOfRole).toMatchObject([{ ...unsent, outcome }]);
+    // Only the calls the case itself made reached the model.
+    expect(sent.length - calls).toBe(
+      (
+        await rows(
+          "SELECT id FROM inference_log WHERE owner_id = ? AND model_id IS NOT NULL",
+          device.ownerId,
+        )
+      ).length,
     );
   });
 });

@@ -2568,8 +2568,9 @@ people.
   request log and the login result codes are kept one year (owner, 2026-10-18). The
   log's calls are bounded by the $5 daily spend limit; requests answered without a call
   are logged too (owner, 08:04 UTC) within the request limit above, the same request
-  answered the same way once in 10 minutes; and the codes are bounded by one per recipe
-  revision. The owner deletes both on the web UI's Request log page. Devices are not
+  answered the same way once in 10 minutes and at most 500 such rows per owner a UTC
+  day; and the codes are bounded by one per recipe revision. The owner deletes both on
+  the web UI's Request log page. Devices are not
   counted: each pairing needs an interactive Access login.
 
 ### Unsupported service edge cases

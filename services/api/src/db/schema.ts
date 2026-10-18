@@ -203,7 +203,7 @@ export const inferenceLog = sqliteTable(
     /**
      * The recipe's head revision when the call was made: 0 when it had none, the
      * tombstone's for a revoked recipe generated again, the judged one for the judge. A
-     * request answered without a call has the head it was answered on.
+     * request answered without a call has the head read when it arrived.
      */
     baseRevision: integer("base_revision"),
     /**

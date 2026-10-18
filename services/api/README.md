@@ -398,11 +398,15 @@ stored. Its `outcome` is the answer's code (`recipe` for a stored recipe); `prov
 `model_id`, `result`, `answer` and the token counts are null, the cost is 0 and nothing
 is charged. `request` is what the model would have received; a judgement refused before
 its route is found (`recipe-revoked`, `recipe-conflict`) has no `loginPaths`.
-`base_revision` is the head the request was answered on. A request answered the same way
-within 10 minutes, with the same role, prompt version, origin, path, recipe, branch,
-base revision and observation hash, adds no row; a failed write is logged as
+`base_revision` is the head read when the request arrived. A request answered the same
+way within 10 minutes, with the same whole `request`, role, prompt version, origin,
+path, recipe, branch and base revision, adds no row (the check and the insert are not
+atomic, so two identical requests at once can both land), and past
+`CLAUDE_CALL_LIMITS.unsentRowsPerDay` (500) such rows an owner's UTC day adds none,
+logged as `Inference log row over the daily cap`. A failed write is logged as
 `Inference log row not kept` with the role and outcome and never changes the answer.
-Requests answered 400 or 404, invalid bodies included, are not logged.
+Invalid bodies and requests answered 400 or 404 are not logged: a `base` ID not in the
+`gen-…` form, a judged page of an origin no move reaches, a missing recipe.
 
 Rows older than one year are deleted whenever a request is logged and on every
 `GET /v1/recipes`, because routine releases do not apply cron triggers.

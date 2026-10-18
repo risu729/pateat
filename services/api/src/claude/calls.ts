@@ -1,4 +1,8 @@
-import { INFERENCE_LOG_RETENTION_MS, type GenerationUnavailableReason } from "@pateat/contracts";
+import {
+  INFERENCE_LOG_RETENTION_MS,
+  type GenerationUnavailableReason,
+  type RecipeGenerationResult,
+} from "@pateat/contracts";
 import {
   claudeGeneration,
   createClaudeGenerationModel,
@@ -7,7 +11,7 @@ import {
   unknownUsage,
   type InferenceOutcome,
 } from "@pateat/inference";
-import { and, eq, gt, inArray, isNull, lt, lte, sql } from "drizzle-orm";
+import { and, count, eq, gt, gte, inArray, isNull, lt, lte, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
 import {
@@ -39,6 +43,11 @@ export const CLAUDE_CALL_LIMITS = {
   logRetentionMs: INFERENCE_LOG_RETENTION_MS,
   /** The same request answered the same way without a call is logged once in this long. */
   unsentRepeatMs: 10 * 60 * 1000,
+  /**
+   * Rows of requests answered without a call per owner and UTC day, since spend no longer
+   * bounds them (agent's choice, not confirmed by the owner).
+   */
+  unsentRowsPerDay: 500,
 };
 
 /**
@@ -51,6 +60,7 @@ const RESERVED_MICRO_USD =
   MAX_OUTPUT_TOKENS * claudeGeneration.rates.output;
 
 type Db = DrizzleD1Database<Record<string, never>>;
+const DAY_MS = 24 * 60 * 60 * 1000;
 type CallEnv = { DB: D1Database; OIDC_ISSUER?: string; OIDC_SIGNING_KEYS?: string };
 type ClaudeModel = ReturnType<typeof createClaudeGenerationModel>;
 type RecipePage = (typeof inferenceLogRecipePages)[number];
@@ -85,6 +95,15 @@ export type UnsentRequest = Pick<
   ClaudeCall<unknown>,
   "role" | "promptVersion" | "origin" | "path" | "request" | "recipe"
 >;
+
+/**
+ * The code a request answered without a model call is logged under: its unavailable
+ * reason or failure code, or `recipe` for a recipe another request stored.
+ */
+export type UnsentOutcome =
+  | GenerationUnavailableReason
+  | Extract<RecipeGenerationResult, { status: "failed" }>["error"]
+  | "recipe";
 
 export type ClaudeCallResult<T> =
   | { status: "unavailable"; reason: GenerationUnavailableReason }
@@ -191,27 +210,36 @@ export async function keepLogRevision(
  * under `outcome`, the code of that answer: the request as the model would have received
  * it, no provider, model, usage, result or answer, and no cost. The same request answered
  * the same way within ten minutes adds no row, so a client repeating a page refused as
- * `busy` or over a limit cannot fill the log. A failed write never changes the answer.
+ * `busy` or over a limit cannot fill the log, and past `unsentRowsPerDay` rows an owner's
+ * UTC day adds none. The checks and the insert are not atomic, so two identical requests
+ * at once can both be logged. A failed write never changes the answer.
  */
 export async function logUnsent(
   d1: D1Database,
   ownerId: string,
   unsent: UnsentRequest,
-  outcome: string,
+  outcome: UnsentOutcome,
 ) {
   const db = drizzle(d1);
   const now = Date.now();
   const { recipeId, branch, baseRevision, page } = unsent.recipe;
   try {
-    const hash = await observationHash(unsent.request.observation);
+    const unsentOfOwner = and(eq(inferenceLog.ownerId, ownerId), isNull(inferenceLog.modelId));
+    const [today] = await db
+      .select({ rows: count() })
+      .from(inferenceLog)
+      .where(and(unsentOfOwner, gte(inferenceLog.createdAt, now - (now % DAY_MS))));
+    if ((today?.rows ?? 0) >= CLAUDE_CALL_LIMITS.unsentRowsPerDay) {
+      console.warn("Inference log row over the daily cap", { role: unsent.role, outcome });
+      return;
+    }
     const [repeated] = await db
       .select({ id: inferenceLog.id })
       .from(inferenceLog)
       .where(
         and(
-          eq(inferenceLog.ownerId, ownerId),
+          unsentOfOwner,
           gt(inferenceLog.createdAt, now - CLAUDE_CALL_LIMITS.unsentRepeatMs),
-          isNull(inferenceLog.modelId),
           eq(inferenceLog.outcome, outcome),
           eq(inferenceLog.role, unsent.role),
           eq(inferenceLog.promptVersion, unsent.promptVersion),
@@ -220,7 +248,8 @@ export async function logUnsent(
           eq(inferenceLog.recipeId, recipeId),
           eq(inferenceLog.branch, branch),
           eq(inferenceLog.baseRevision, baseRevision),
-          eq(inferenceLog.observationHash, hash),
+          // The whole request as stored, so other slots or another judged route count.
+          eq(inferenceLog.request, unsent.request),
         ),
       )
       .limit(1);
@@ -243,7 +272,7 @@ export async function logUnsent(
       baseRevision,
       recipePage: page ?? null,
       build: PATEAT_BUILD_REVISION,
-      observationHash: hash,
+      observationHash: await observationHash(unsent.request.observation),
       inputTokens: null,
       outputTokens: null,
       costMicroUsd: 0,
