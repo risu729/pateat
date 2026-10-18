@@ -834,7 +834,16 @@ Once the fixes have settled:
   forbid "building an interpreter to run complex commands fetched from a remote source,
   even if those commands are fetched as data". A reviewer may count service-held recipes
   (`fill`, `click` and handler steps) as such commands and reject the item; then
-  GitHub Releases stays the only channel.
+  GitHub Releases stays the only channel. The
+  [research note](research/2026-10-17-chrome-web-store-remote-code.md) (2026-10-17)
+  finds the risk real but undecidable from the documentation: recipes have no control
+  flow and are the user's own synced data, which the policy allows, but AdGuard reports
+  rejections that cited scriptlets and their parameters. Proposed, not decided by the
+  owner: keep the recipe vocabulary closed (no control flow, expressions, selectors,
+  URLs beyond exact same-origin paths, or values), explain recipes, their schema and
+  how to test them in the submission, have the owner submit a Private trusted-tester
+  item early to get a review verdict, and consider an unminified store build. A mode
+  without the service that gets recipes from a model API directly reopens the question.
 - Proposed: the checks that matter once other people install Pateat: the install-time
   site-access warning and the prompt after site access was withheld, installed-Chrome
   dummy-account tests and measured limits.
@@ -1105,6 +1114,11 @@ items the owner mentioned and gates still open on 2026-10-11.
   an external list, adopted, not adopted or experimental, under the
   [platform feature rules](development.md#platform-features), and the issues for the
   adopted ones.
+- Whether a Chrome Web Store reviewer may count service-held recipes as remote commands
+  (2026-10-17): the [note](research/2026-10-17-chrome-web-store-remote-code.md) reads
+  the MV3 code rule, the review process and AdGuard's precedent against the recipe
+  schema, and proposes what would lower the risk
+  ([phase 3](#phase-3-public-release)).
 - Earlier research kept as dated notes:
   [identity provider screens](research/2026-10-11-identity-provider-screens.md) behind
   [ADR 0026](adr/0026-sign-in-through-identity-providers.md);
