@@ -580,6 +580,15 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
         clear(taken);
         if (owned === taken) owned = undefined;
       };
+      /** Whether this page's challenge still waits. One that permission removal or another
+       * page already ended no longer holds the page. */
+      const waiting = () => {
+        if (owned && !alive(owned)) {
+          clear(owned);
+          owned = undefined;
+        }
+        return owned !== undefined;
+      };
       const run = async (job: () => Promise<SetupReply>): Promise<SetupReply> => {
         if (closed) return error("setup-unavailable");
         if (busy) return error("resource-limit");
@@ -632,7 +641,7 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
           return run(async () => {
             const checked = v.safeParse(setupBeginSchema, structuredClone(input));
             if (!checked.success) return error("invalid-request");
-            if (owned) return error("resource-limit");
+            if (waiting()) return error("resource-limit");
             const value = checked.output;
             let configuration: BitwardenConnectionConfiguration;
             const capturedEpoch =
@@ -730,10 +739,11 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
           });
         },
         async cancel(flowId: string): Promise<SetupReply> {
-          if (!owned || owned.id !== flowId) return error("invalid-request");
-          clear(owned);
-          await owned.retirement;
-          owned = undefined;
+          const current = owned;
+          if (!current || current.id !== flowId) return error("invalid-request");
+          clear(current);
+          await current.retirement;
+          if (owned === current) owned = undefined;
           return busy ? error("storage-uncertain") : { ok: true, kind: "cancelled" };
         },
         status,
@@ -741,7 +751,7 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
           let releaseAuto: (() => void) | undefined;
           return run(async () => {
             // A sign-in waiting for its code keeps this page's one flow.
-            if (owned) return error("resource-limit");
+            if (waiting()) return error("resource-limit");
             // An automatic check in progress finishes first; the button then always sends
             // a full sync.
             releaseAuto = await excludeAuto(connectionId, false);

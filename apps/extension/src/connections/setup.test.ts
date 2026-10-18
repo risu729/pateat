@@ -1096,6 +1096,31 @@ describe("durable provider sessions", () => {
       expect((await h.caller.sync(accountProfile.connectionId)).ok).toBe(true);
     },
   );
+  it("a code for a two-step method not offered ends the sign-in and frees the connection", async () => {
+    const h = harness({ existing: true });
+    await connected(h);
+    const challenge = await waitingForCode(h, {
+      kind: "existing",
+      connectionId: accountProfile.connectionId,
+      password: v1Password,
+      autoUnlock: "preserve",
+    });
+    expect(
+      await h.caller.continue({
+        flowId: challenge.flowId,
+        twoFactor: { provider: 1, code: "000123" },
+      }),
+    ).toEqual({ ok: false, error: { code: "invalid-request" } });
+    expect((await h.caller.sync(accountProfile.connectionId)).ok).toBe(true);
+  });
+  it("a challenge that permission removal ended no longer blocks the page", async () => {
+    const h = harness();
+    await waitingForCode(h, newInput());
+    h.permission(false);
+    await h.service.permissionsRemoved();
+    h.permission(true);
+    expect(await h.caller.begin(newInput())).toMatchObject({ ok: true, kind: "ready" });
+  });
   it("a second sign-in while one waits for its code is refused and keeps the first", async () => {
     const h = harness();
     const challenge = await waitingForCode(h, newInput());

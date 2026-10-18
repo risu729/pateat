@@ -413,7 +413,8 @@ code on 2026-10-17; each ends in a refusal rather than a guess:
   or sync while that page's verification challenge waits (the challenge stays usable),
   a sign-in or sync of a connection that already has one, or a fifth at once across
   settings pages: the worker answers `resource-limit`. Forget sync sign-in and Delete
-  connection answer it too while a password sign-in of that connection runs.
+  connection answer it too while a password sign-in of that connection runs or waits
+  for its code.
 - Changes made in another settings tab or by automatic sync while the page is open: the
   connection rows show them only after Refresh.
 
