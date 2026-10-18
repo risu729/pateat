@@ -77,8 +77,8 @@ the service and the AI prompts are unchanged.
    button, a passkey request the page itself makes (ADR 0034) is still answered for an
    item that also holds a password: the answer waits on the later step's page, and a
    fallback to the `password` route returns to that step. An item with a passkey and no
-   password, an item whose variant has no showing later step, or one that would stop
-   before it (ADR 0036), does not start.
+   password (unless the button shows, below), an item whose variant has no showing later
+   step, or one that would stop before it (ADR 0036), does not start.
 4. **Pressing.** The same as a login that starts at its first step: if another account
    shows on the page, the login ends `wrong-account` (and presses the recipe's
    `accountSwitch` if it has one); otherwise it fills to the end and presses. This keeps
