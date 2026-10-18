@@ -2276,6 +2276,14 @@ export function createLoginRuntime(
       if (waiting && live) clearChoice(tabId);
       return { ok: false, reason: "no-choice" };
     }
+    // An excluded site runs no login, so its choice ends; a default saved since the refusal
+    // decides the page's next login instead.
+    const snapshot = await settings.handle({ version: 1, type: "settings.get" });
+    if (pending.get(tabId) !== waiting) return { ok: false, reason: "no-choice" };
+    if (snapshot.ok && choiceExcluded(snapshot.snapshot.settings, waiting)) {
+      clearChoice(tabId);
+      return { ok: false, reason: "no-choice" };
+    }
     const held = heldElsewhere(tabId, waiting.document.origin) ? { held: true as const } : {};
     if (waiting.logout)
       return {
@@ -2289,9 +2297,6 @@ export function createLoginRuntime(
           ? { rejectedElsewhere: true as const }
           : {}),
       };
-    // A default saved since the refusal decides the page's next login instead.
-    const snapshot = await settings.handle({ version: 1, type: "settings.get" });
-    if (pending.get(tabId) !== waiting) return { ok: false, reason: "no-choice" };
     if (
       !snapshot.ok ||
       snapshot.snapshot.settings.siteDefaults.some(
@@ -2311,6 +2316,14 @@ export function createLoginRuntime(
         ? { rejectedElsewhere: true as const }
         : {}),
     };
+  }
+  /** Whether the settings exclude a choice's site, or the tab's site around its frame. */
+  function choiceExcluded(saved: LocalSettings, waiting: PendingChoice): boolean {
+    const topUrl = documents.get(frameKey(waiting.document))?.topUrl;
+    return (
+      isSiteExcluded(saved, waiting.document.origin) ||
+      (topUrl !== undefined && isSiteExcluded(saved, topUrl))
+    );
   }
   /** By tab: the popup's last logged answer, so an open popup asking each second logs once. */
   const popupAnswers = new Map<number, string>();
@@ -8984,6 +8997,21 @@ export function createLoginRuntime(
     }
     // A site default saved for a page's origin ends its popup choice (ADR 0034).
     void choiceDefaults();
+    void choiceExclusions();
+  }
+  /**
+   * Ends each popup choice whose site is excluded by now, so the tab's badge stops asking:
+   * the popup asks for no choice on an excluded site, so it never ends one there itself.
+   */
+  async function choiceExclusions(): Promise<void> {
+    await sessionLoaded;
+    if (!pending.size) return;
+    const snapshot = await settings
+      .handle({ version: 1, type: "settings.get" })
+      .catch(() => undefined);
+    if (!snapshot?.ok) return;
+    for (const [tabId, waiting] of [...pending])
+      if (choiceExcluded(snapshot.snapshot.settings, waiting)) clearChoice(tabId);
   }
   /**
    * Ends each popup choice whose origin has a site default by now, so the page's own

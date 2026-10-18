@@ -471,8 +471,10 @@ and the popup links each such rule to the settings page. While the tab's page wa
 an account choice, the choice is the popup's only list (the owner asked for one list on
 2026-10-13 at 03:54 UTC): its cards mark the saved default, its "Make it the default"
 checkbox makes the picked account the default once that login succeeds, and a saved
-default can still be removed there. An excluded site offers no choice, even one the
-worker still keeps from before the exclusion, since it would start no login. The
+default can still be removed there. An excluded site offers no choice, since it would
+start no login: once saved or synced settings exclude the page's site, or the site of
+the tab around its frame, the worker drops the waiting choice, the badge stops asking,
+and no pick is taken for it. The
 default-account list, where a default is chosen without logging in, returns once the
 page no longer waits. An open popup reads the settings again from the worker whenever
 the stored settings change, so a default saved by a picked login that succeeds while it
