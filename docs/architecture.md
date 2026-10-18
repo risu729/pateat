@@ -231,8 +231,9 @@ outlasts its budget (`resource-limit`), never reaches the Worker and leaves the 
 open. Locking or closing the session fails its waiting jobs with `crypto-locked`, and
 the pending limit still refuses extra jobs with `resource-limit`. The vault manager
 forgets a live session the host has ended (a timeout, cancellation, Worker failure or a
-lost offscreen document), so the next vault read restores it from the retained key
-instead of failing until the service worker restarts. The initial caller
+lost offscreen document), so while automatic unlock is enabled the next vault read
+restores it from the retained key instead of failing until the service worker restarts;
+with it off, the restore fails `auto-unlock-disabled`. The initial caller
 remains a synthetic compatibility probe. Durable cache, retained unlock material and
 production connection setup are separate gates. More than one staged session may exist
 for a connection. Opening a new snapshot does not itself accept it or retire older
@@ -278,7 +279,8 @@ Deliberate differences from the official Bitwarden clients, to be reconsidered l
   block that Worker. Such URIs are reported as unsupported and never match.
 - When equivalent domains or the organization default-match policy cannot be read
   consistently, affected URIs are reported unavailable. The official clients would
-  continue with Domain matching.
+  continue with Domain matching. One string entry of a group that is not a hostname is
+  not such a case: it is ignored, as the official clients effectively do.
 - The official clients' device-local default match setting is not visible to Pateat;
   Domain is used unless an enforced organization policy applies.
 
@@ -388,9 +390,15 @@ code on 2026-10-17; each ends in a refusal rather than a guess:
 - A self-hosted server under a path (`https://example.com/bitwarden`) or with separate
   identity and API addresses: the address must be an HTTPS origin
   (`normalizeBitwardenProfile` in `packages/bitwarden/src/environment.ts`).
-- Accounts without a master password sign-in: SSO-required organizations, Key Connector
-  and trusted-device encryption, passkey and login-with-device sign-in. Setup ends with
-  an interaction-required error naming the reason.
+- Accounts that cannot sign in and unlock with a master password. A sign-in refused
+  because an organization requires SSO ends `interaction-required` with reason `sso`
+  (`packages/bitwarden/src/auth-models.ts`), or `unsupported-challenge` when the answer
+  names no organization; the page shows "Setup is incomplete: sso. This interaction is
+  not supported here." Key Connector, a forced password reset or a sync without
+  master-password unlock data ends with `unsupported-unlock`
+  (`packages/bitwarden/src/account.ts`), shown as "Connection operation unavailable
+  (unsupported-unlock)". Trusted-device encryption has no path of its own. Passkey and
+  login-with-device sign-in are not offered: setup sends only the password grant.
 - Two-step methods other than an authenticator app (provider 0) and email (provider 1),
   such as Duo, YubiKey OTP, FIDO2/WebAuthn or a recovery code. The page cannot ask
   Bitwarden to send an email code, so email needs a code already received, and it never
@@ -401,8 +409,11 @@ code on 2026-10-17; each ends in a refusal rather than a guess:
 - A sign-in or sync that takes longer than 120 seconds: the settings page's request
   times out and closes its connection to the worker, which cancels the work. A
   verification challenge expires after 5 minutes without a countdown.
-- More than one operation at a time from one settings page, or more than four sign-ins
-  at once across settings pages: the worker answers `resource-limit`.
+- A second sign-in step or sync from one settings page while one runs, a new sign-in
+  while that page's verification challenge waits, a sign-in or sync of a connection
+  that already has one, or a fifth at once across settings pages: the worker answers
+  `resource-limit`. Forget sync sign-in and Delete connection answer it too while a
+  password sign-in of that connection runs.
 - Changes made in another settings tab or by automatic sync while the page is open: the
   connection rows show them only after Refresh.
 
@@ -422,14 +433,21 @@ fails as stated rather than retrying:
   computer sleeps, or when the system clock jumps forward past the budget, ends with
   `timeout`, and a job on an open vault ends that vault's session with it.
 - Cancelling a job the Worker has already received ends the whole session, because
-  terminating the Worker is the only way to stop it. Only the settings page's sync
-  passes such a cancellation for an open vault today.
+  terminating the Worker is the only way to stop it. On an open vault, only the
+  catalog read after an accepted password sign-in, settings-page sync or automatic sync
+  passes such a cancellation (`acceptSync` in
+  `apps/extension/src/connections/setup.ts`), so stopping that work then, as closing
+  the settings page or a password sign-in that stops an automatic sync does, ends the
+  session it just accepted. Logins and passkeys pass none.
 - A Worker that fails while it has no job is noticed only by its next job, which
   fails `crypto-locked`.
-- One vault manager runs one open at a time. A restore or sync of a connection that
-  starts while another restore or sync of the same connection runs fails
-  `resource-limit`: the page sees the vault as unavailable, or the sync reports the
-  limit and is not retried by itself.
+- One vault manager runs one open at a time. A restore, sync or password sign-in of a
+  connection that reaches the vault while another of the same connection is opening it
+  fails `resource-limit`: the page sees the vault as unavailable, a settings-page sync
+  or sign-in reports the limit and is not retried by itself, and an automatic sync
+  counts as failed and runs again at a later check. An automatic sync never meets
+  settings-page work of the same connection this way: it is skipped while that work
+  runs, a password sign-in stops it, and a settings-page sync waits for it.
 - When the offscreen document's creation outlasts its 30-second budget, the host
   creates no other document until Chrome settles that call; if it never settles,
   vault work fails until the service worker restarts.
@@ -2054,8 +2072,10 @@ Recipe steps, markers and page descriptions name a page by its exact canonical p
 (`loginPathSchema` in `packages/contracts/src/login.ts`), so Pateat neither describes
 nor runs a recipe on a page whose path:
 
-- is longer than 300 characters once percent-encoded, which non-ASCII paths reach
-  early: each Japanese character takes nine, so a path of 34 of them exceeds it;
+- is longer than 300 characters once percent-encoded and with token-like segments
+  replaced by `[id]` ([ADR 0039](adr/0039-redacted-token-path-segments.md)), which
+  non-ASCII paths reach early: each Japanese character takes nine, so a path of 34 of
+  them exceeds it;
 - starts with `//`, such as `https://example.com//login`.
 
 Such a page is not sent for generation and is logged as `unsupported-page`.
@@ -2077,10 +2097,11 @@ as stated, never as a guessed recipe:
   checked before any model call) while it passes the request's 128 KiB body limit, as
   48 candidates with long Japanese labels, descriptions and placeholders do. The
   extension does not trim such a page.
-- Redaction does not catch every personal value in page text: an address written with
-  spaces around `@` or as `[at]`, digits of other scripts such as `٤٥٦٧`, digit
-  groups split by spaces and token-like text outside the path are sent as shown, unless
-  they are a matching item's username.
+- Redaction does not catch every personal value in a login page's text (a signed-in
+  page hides every number): an address written with spaces around `@` or as `[at]`,
+  digits of other scripts such as `٤٥٦٧`, digit runs shorter than four (only the `1234`
+  and `5678` of `090-1234-5678` become `[number]`) and token-like text outside the path
+  are sent as shown, unless they are a matching item's username.
 - The local plan check does not compare the action's `advance` or `submit` with the
   slots the plan fills, so a password page answered with `advance` waits for a next page
   ([ADR 0018](adr/0018-recipe-generation-route.md#continuing-after-an-advance)) instead
@@ -2207,10 +2228,15 @@ browser's own handling would differ.
   passkeys include one for that RP ID that Pateat cannot read is unavailable: an item
   with more than one passkey, a key other than ECDSA P-256, a discoverable passkey
   without a user handle, or a credential ID, user handle or counter in a form Bitwarden
-  does not write. Its presence makes the search incomplete, so only the site default
-  answers for that RP ID and every other request is handed on as `vault-incomplete`,
-  even one whose allow list does not name that item. A passkey stored with an RP ID in
-  uppercase, Unicode or with a trailing dot never matches a request and is skipped.
+  does not write. An item whose passkeys cannot be decrypted at all is unavailable for
+  every RP ID, since its RP ID is unknown. Such an item makes the search incomplete, so
+  only the site default answers for the requested RP ID and every other request is
+  handed on as `vault-incomplete`, even one whose allow list does not name that item. A
+  username-less request in a tab where Pateat signed for that RP ID before, or after a
+  logout click, opens the chooser even for the site default
+  ([ADR 0021](adr/0021-account-choice-outside-settings.md)), so it is handed on too. A
+  passkey stored with an RP ID in uppercase, Unicode or with a trailing dot never
+  matches a request and is skipped.
 - **Nonzero counters.** A passkey with a nonzero counter is never offered or signed. If
   the site default's passkey has one, the request is handed on even when another match
   could sign; two matches of which only one can sign are handed on as
@@ -2399,9 +2425,9 @@ planned change. Each is current behavior that the service does not handle.
   an unknown path under `/manage` answers the JSON 404 `not_found`, not an HTML page.
   The change feed refuses any query parameter but `after` and `limit` with 400, and a
   cursor above the owner's newest change answers an empty, complete page.
-  `Authorization` must be `Bearer`, one space and the credential. A misconfigured
-  `ACCESS_AUD` or `ACCESS_PAIR_AUD` (for example with stray whitespace) refuses every
-  token with 403.
+  `Authorization` must be `Bearer` in any letter case, one space and the credential.
+  A misconfigured `ACCESS_AUD` or `ACCESS_PAIR_AUD` (for example with stray
+  whitespace) refuses every token with 403.
 
 ### Device enrollment
 

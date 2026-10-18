@@ -22,10 +22,11 @@ credentials and deployment authorization; the read-only diagnosis below does not
    gh run view RUN_ID --repo risu729/pateat --log-failed
    ```
 
-   Replace `RUN_ID` with the failing run's numeric ID. Keep the run URL and the
-   **Server release verified** summary's revision, version and deployment IDs. A
-   200 health response proves that revision is serving; it does not prove Access,
-   pairing, D1, smoke checks or model credentials work. Do not paste an unreviewed
+   Replace `RUN_ID` with the failing run's numeric ID. Keep the run URL and, when the
+   run has one (it is written only after hosted health passes), the **Server release
+   verified** summary's revision, version and deployment IDs. A 200 health response
+   proves that revision is serving; it does not prove Access, pairing, D1, smoke checks
+   or model credentials work. Do not paste an unreviewed
    full job log into a public issue.
 3. Identify the failing boundary: local vault, browser permission, service device,
    Access, recipe, model/budget or release. Avoid resetting a healthy local cache
@@ -43,15 +44,16 @@ credentials and deployment authorization; the read-only diagnosis below does not
 | Disconnect could not contact the service | The extension forgets the credential locally. Revoke the device separately in `/manage`; the UI reports when remote revocation was unconfirmed. |
 | Pairing asks for sign-in repeatedly | Check the service origin, Chrome permission, Access session and allowed production extension ID. `/pair` needs Access and must stay outside the Bypass application. A store-assigned extension ID needs its own allowed ID and fresh pairing. |
 | `/manage` cannot open without WARP | The owner's management Access policy requires WARP. The pairing-only application permits the separate One-time PIN path; that does not grant management access. |
-| A recipe is wrong or structurally mismatched | Inspect that site's recipe in `/manage`; revoke the specific revision rather than replacing the Worker or changing credentials. Sync the extension. Cached/offline devices cannot learn the revocation until they reconnect; disable that site locally when an immediate stop is needed. Automatic repair of an existing mismatched recipe is not implemented. |
+| A recipe is wrong or structurally mismatched | Inspect that site's recipe in `/manage`; revoke that recipe rather than replacing the Worker or changing credentials. Sync the extension. Cached/offline devices cannot learn the revocation until they reconnect; disable that site locally when an immediate stop is needed. Automatic repair of an existing mismatched recipe is not implemented. |
 | `cacheFull` or a held settings sync | The extension has refused an update, not silently accepted a truncated cache. Check the diagnostics reason and [configured limits](architecture.md#service-limits). Reduce/revoke unnecessary service recipes or resolve the settings conflict before retrying. Do not remove restrictions just to make a merge fit. |
 | Generation says `busy`, `daily-limit` or `monthly-limit` | Wait for the owner's in-flight call or the next UTC budget period. Cached compatible recipes can still run. Do not reset spend rows to bypass the cap. |
 | Generation credentials fail | Inspect `/manage/claude` and the diagnostics outcome. Its token-exchange test calls no model; real inference is separately paid and authorized. Check WIF identifiers and issuer/JWKS configuration using the [API guide](../services/api/README.md#claude-credentials). Never put tokens or private signing JWKs in a report. |
 
-**Delete connection** removes the connection's local vault/session state and its
-settings entry. Use it for deliberate removal, not as an initial troubleshooting
-step. **Forget sync sign-in** removes only the local provider session; it is not a
-Bitwarden server logout. Revoke a lost service device and secure the browser/profile
+**Delete connection** removes the connection from this device with its local vault
+cache, unlock key and sync sign-in; synced settings that name it stay and show it as
+unavailable. Use it for deliberate removal, not as an initial troubleshooting step.
+**Forget sync sign-in** removes only the local provider session; it is not a Bitwarden
+server logout. Revoke a lost service device and secure the browser/profile
 separately: service revocation cannot erase offline secrets.
 
 ## A failed server release
