@@ -368,6 +368,19 @@ export const LOG_EVENTS = {
       url: "url",
     },
   },
+  // A repeat login's signed-in page sample (ADR 0029): codes only, never the page.
+  "recipe.sample": {
+    level: "info",
+    fields: {
+      origin: "origin",
+      recipe: "recipe",
+      recipeRevision: "count",
+      route: "code",
+      outcome: "code",
+      reason: "code",
+      url: "url",
+    },
+  },
   "passkey.request": {
     level: "info",
     fields: {

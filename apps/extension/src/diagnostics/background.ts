@@ -515,6 +515,31 @@ export function createDiagnosticsLog(options: {
               : {}),
           },
         );
+      else if (report.type === "sample")
+        void logger.log(
+          "recipe.sample",
+          {
+            origin: report.origin,
+            url: report.url,
+            recipe: report.recipeId,
+            recipeRevision: report.recipeRevision,
+            route: report.route,
+            outcome: report.outcome,
+            reason: report.reason,
+          },
+          // `sent` is what is left when no answer came; a sample the service already had, or
+          // of a recipe it no longer holds (`gone`), changed nothing; a page it turned away
+          // (`refused`) is worth seeing, and a failed request is a problem (ADR 0019).
+          {
+            source,
+            level:
+              report.outcome === "kept" || report.outcome === "refused"
+                ? "info"
+                : report.outcome === "failed"
+                  ? "warn"
+                  : "debug",
+          },
+        );
       else if (report.type === "move")
         void logger.log(
           "login.move",

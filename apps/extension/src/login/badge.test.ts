@@ -116,6 +116,27 @@ describe("badgeResult", () => {
     });
   });
 
+  it("ignores a signed-in page sample (ADR 0029)", () => {
+    const sample = {
+      type: "sample" as const,
+      tabId: 1,
+      origin: "https://login.example",
+      recipeId: "synthetic-recipe",
+      recipeRevision: 1,
+      route: "password" as const,
+    };
+    for (const outcome of [
+      "sent",
+      "kept",
+      "recent",
+      "gone",
+      "refused",
+      "not-sent",
+      "failed",
+    ] as const)
+      expect(badgeResult({ ...sample, outcome }, now)).toBeUndefined();
+  });
+
   it("shows an unconfirmed completion as unsettled for four seconds", () => {
     expect(badgeResult(attempt({ state: "authenticated", unconfirmed: true }), now)).toEqual({
       kind: "unsettled",

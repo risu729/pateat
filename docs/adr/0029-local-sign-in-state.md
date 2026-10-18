@@ -47,6 +47,12 @@ Amended on 2026-10-14 (07:24 UTC, owner's decision in
 ends the login, but only a confirmed completion counts as success (implemented); see the
 amendment below. This also amends ADR 0013, ADR 0021, ADR 0038 and ADR 0007.
 
+Amended on 2026-10-18 (08:05 UTC, owner's decision): the signed-in page of a login its
+marker completed is sent as a sample, once in 30 days per recipe and branch; see
+[the amendment below](#amendment-signed-in-page-samples-2026-10-18) (implemented, local
+tests only). This also amends [ADR 0012](0012-inference-request-log.md) and
+[ADR 0016](0016-recipe-generation-trigger.md).
+
 Date: 2026-10-12
 
 ## Context
@@ -499,3 +505,50 @@ could not be confirmed ([ADR 0038](0038-login-status-badge.md)); it does not rec
 stays, and `login.attempt` carries `unconfirmed`. The attempt and popup status retain
 that flag across a worker restart. Synthetic tests verify these distinctions; no new
 real-account verification is claimed.
+
+## Amendment: signed-in page samples (2026-10-18)
+
+Context: E2 and the page text never left the device for a page that was not judged, so
+the request log ([ADR 0012](0012-inference-request-log.md)) held only pages the model
+found hard. An evaluation corpus also needs pages that are easy for it.
+
+The owner chose on a decision card on 2026-10-18 at 08:05 UTC, asked "2
+回目以降のログインのページも送って残しますか?", the option "絞って入れる", whose stated
+consequence was "レシピのパスごとに 30 日に 1
+回だけ、サインイン後のページを抽き出して送ります。ADR 0029 を改めます。" (once in 30
+days per recipe path, the page after the sign-in is extracted and sent; ADR 0029 is
+amended).
+
+What leaves the device, and how often:
+
+- After a login whose recipe's signed-in marker completed it (the completion check after
+  an effect step), the page it ended on is described exactly as for the judge: the same
+  extractor and redaction, `headerText`, the account's usernames hidden as `[account]`
+  ([ADR 0016](0016-recipe-generation-trigger.md#username-shape)), complete descriptions
+  only. A page the judge would not get (`username-shown`, `username-unread`, an
+  incomplete description) is not sent. E2's username comparison itself still never
+  leaves the device.
+- At most once in 30 days (`PAGE_SAMPLE_INTERVAL_MS`) per service, device, recipe and
+  chooser branch, recorded on the device before the request; the service keeps at most
+  one per owner, recipe and branch in 30 days and answers a later one 204 without a row.
+- It goes in the background after the login ended and never changes the login, its
+  badge or its timing. The service logs it as a `judge` row with the outcome `sampled`,
+  the request built as the judge's would be (the judge route answers such a page
+  `not-judgeable` and never sends it), no model call and no cost.
+
+The agent's choices, not confirmed by the owner: "per recipe path" is read as per recipe
+and chooser branch; the route `POST /v1/recipes/:recipeId/page-sample` (with `route`, as
+the judge is told it, so the logged request has its login paths); the device key
+`pateat.page-samples.v1`, capped at 200 entries; the `recipe.sample` log event; and, to
+stay conservative, no sample for a login that sent a page to the judge or for
+continuation, was watched or settled as unknown before, ended through E1 to E3 rather
+than the completion check, ran in a frame, filled only, stops at a missing password
+(ADR 0036), ended on another origin, or whose page left out a disabled field, nor for a
+site excluded since the login started (checked when the page is described and again
+after the sample is recorded, just before it is sent; a sample stopped then stays
+recorded), an unpaired device, or a page that changed before it was described. The
+service refuses (400, no row) a page that still shows one of the password route's fill
+fields, as the judge does, so a sign-in page never holds off the recipe's next sample.
+The sampled rows do not count toward the service's daily cap of 500 rows answered
+without a model call, and that cap does not stop them: the 30-day rule already bounds
+them to one per recipe and branch.

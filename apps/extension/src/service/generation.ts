@@ -2,6 +2,7 @@ import {
   chooserBranchSchema,
   genericSlotIdSchema,
   isLoginRouteRecipe,
+  PAGE_SAMPLE_INTERVAL_MS,
   storedRecipeSlots,
   slotsForPage,
   syncRecipeIdSchema,
@@ -23,6 +24,7 @@ import type {
   GenerationHold,
   GenerationOutcome,
   LoginGeneration,
+  PageSampleOutcome,
 } from "../login/runtime";
 import type { ServiceConnection } from "./runtime";
 import type { InferenceResult, ServiceTiming, ServiceTransport } from "./transport";
@@ -117,6 +119,36 @@ export interface GeneratedSlotStorage {
   write(maps: GeneratedSlotMaps): Promise<void>;
 }
 
+/** Signed-in page samples remembered at once; the oldest go first. */
+export const MAX_PAGE_SAMPLES = 200;
+/**
+ * When this device last sent a repeat login's signed-in page of a recipe and branch (ADR
+ * 0029, owner 2026-10-18 08:05 UTC), per service and device as the slot maps are. A sample
+ * is recorded before it is sent, so a request lost with its worker is not sent again
+ * within `PAGE_SAMPLE_INTERVAL_MS` either.
+ */
+const samplesSchema = v.strictObject({
+  version: v.literal(1),
+  samples: v.pipe(
+    v.array(
+      v.strictObject({
+        service: v.pipe(v.string(), v.maxLength(2048)),
+        deviceId: v.pipe(v.string(), v.maxLength(200)),
+        recipeId: syncRecipeIdSchema,
+        branch: v.optional(chooserBranchSchema),
+        at: v.pipe(v.number(), v.integer(), v.minValue(0)),
+      }),
+    ),
+    v.maxLength(MAX_PAGE_SAMPLES),
+  ),
+});
+type PageSamples = v.InferOutput<typeof samplesSchema>;
+
+export interface PageSampleStorage {
+  read(): Promise<unknown>;
+  write(samples: PageSamples): Promise<void>;
+}
+
 /**
  * The fields the request's offers named for each slot the service mapped, or nothing when
  * any mapped slot was not a custom-field offer of this request.
@@ -201,10 +233,13 @@ function notRecipe(
  */
 export function createLoginGeneration(options: {
   service: { connection(): Promise<ServiceConnection | undefined> };
-  transport: Pick<ServiceTransport, "generateRecipe" | "generateEntry" | "judgeCompletion">;
+  transport: Pick<ServiceTransport, "generateRecipe" | "generateEntry" | "judgeCompletion"> &
+    Partial<Pick<ServiceTransport, "samplePage">>;
   storage: GenerationAttemptStorage;
   /** Generated slot maps, written before a generated recipe is reported. */
   slotStorage: GeneratedSlotStorage;
+  /** Signed-in page samples sent (ADR 0029); without it and `samplePage`, none is sent. */
+  sampleStorage?: PageSampleStorage;
   /** A full sync of recipes and settings; resolves once the recipe cache holds them. */
   sync(): Promise<unknown>;
   /**
@@ -214,7 +249,7 @@ export function createLoginGeneration(options: {
   refresh(): Promise<unknown>;
   now?: () => number;
 }): LoginGeneration {
-  const { service, transport, storage, slotStorage, sync, refresh } = options;
+  const { service, transport, storage, slotStorage, sampleStorage, sync, refresh } = options;
   const now = options.now ?? Date.now;
   // Writes are serialized so two pages sent together are both remembered.
   let queue: Promise<unknown> = Promise.resolve();
@@ -223,6 +258,7 @@ export function createLoginGeneration(options: {
   // not parse count as none, since no older format is kept (ADR 0027).
   let slotMaps: Promise<GeneratedSlotMaps["maps"] | undefined> | undefined;
   let slotQueue: Promise<unknown> = Promise.resolve();
+  let sampleQueue: Promise<unknown> = Promise.resolve();
 
   function readSlotMaps(): Promise<GeneratedSlotMaps["maps"] | undefined> {
     if (slotMaps) return slotMaps;
@@ -318,6 +354,53 @@ export function createLoginGeneration(options: {
       entry.base?.recipeId === base?.recipeId &&
       entry.base?.revision === base?.revision &&
       entry.branch === branch;
+
+  /** This device's samples of the last `PAGE_SAMPLE_INTERVAL_MS`; unreadable ones count as none. */
+  async function recentSamples(): Promise<PageSamples["samples"]> {
+    const parsed = v.safeParse(samplesSchema, await sampleStorage!.read());
+    const at = now();
+    return parsed.success
+      ? parsed.output.samples.filter((entry) => entry.at > at - PAGE_SAMPLE_INTERVAL_MS)
+      : [];
+  }
+  const sameSample =
+    (connection: ServiceConnection, recipeId: string, branch: ChooserBranch | undefined) =>
+    (entry: PageSamples["samples"][number]) =>
+      entry.service === connection.origin &&
+      entry.deviceId === connection.deviceId &&
+      entry.recipeId === recipeId &&
+      entry.branch === branch;
+  /**
+   * Records a sample of the recipe and branch now, unless one is recorded within the
+   * interval: `claimed` once it is written, `recent` for one already there, `unavailable`
+   * when storage cannot be read or written, so a sample is never sent unrecorded.
+   */
+  function claimSample(
+    connection: ServiceConnection,
+    recipeId: string,
+    branch: ChooserBranch | undefined,
+  ): Promise<"claimed" | "recent" | "unavailable"> {
+    const next = sampleQueue.then(async () => {
+      const samples = await recentSamples();
+      if (samples.some(sameSample(connection, recipeId, branch))) return "recent" as const;
+      await sampleStorage!.write({
+        version: 1,
+        samples: [
+          ...samples,
+          {
+            service: connection.origin,
+            deviceId: connection.deviceId,
+            recipeId,
+            ...(branch ? { branch } : {}),
+            at: now(),
+          },
+        ].slice(-MAX_PAGE_SAMPLES),
+      });
+      return "claimed" as const;
+    });
+    sampleQueue = next.catch(() => undefined);
+    return next.catch(() => "unavailable" as const);
+  }
 
   async function connected() {
     const connection = await service.connection().catch(() => undefined);
@@ -480,6 +563,42 @@ export function createLoginGeneration(options: {
           map.deviceId === connection.deviceId &&
           map.recipeId === recipeId,
       )?.slots;
+    },
+    async samplePage(sample, describe, sending): Promise<PageSampleOutcome> {
+      if (!transport.samplePage || !sampleStorage) return { outcome: "not-due" };
+      const connection = await connected();
+      if (!connection) return { outcome: "not-due", reason: "not-connected" };
+      const { recipeId, branch } = sample;
+      await sampleQueue;
+      const due = await recentSamples().then(
+        (samples) => !samples.some(sameSample(connection, recipeId, branch)),
+        () => false,
+      );
+      if (!due) return { outcome: "not-due" };
+      // The page is described only once a sample is due.
+      const described = await describe();
+      if ("unsent" in described) return { outcome: "not-sent", reason: described.unsent };
+      const claim = await claimSample(connection, recipeId, branch);
+      if (claim === "recent") return { outcome: "not-due" };
+      if (claim === "unavailable") return { outcome: "not-sent", reason: "storage-unavailable" };
+      // Checked again once recorded; a stopped sample stays recorded.
+      const stop = await sending?.().catch(() => "settings-unavailable");
+      if (stop) return { outcome: "not-sent", reason: stop };
+      const answer = await transport.samplePage(
+        connection.origin,
+        connection.credential,
+        recipeId,
+        {
+          version: 1,
+          revision: sample.revision,
+          route: sample.route,
+          ...(branch ? { branch } : {}),
+          observation: described.observation,
+        },
+      );
+      if (answer.kind === "rejected") return { outcome: "failed", reason: "device-rejected" };
+      if (answer.kind === "failed") return { outcome: "failed", reason: answer.error };
+      return { outcome: answer.kind };
     },
     async judge(
       recipeId: string,

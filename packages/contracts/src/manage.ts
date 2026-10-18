@@ -91,6 +91,11 @@ export const manageRecipeConflictSchema = v.strictObject({
  * (ADR 0012, ADR 0055; owner, 2026-10-18).
  */
 export const INFERENCE_LOG_RETENTION_MS = 365 * 24 * 60 * 60 * 1000;
+/**
+ * A recipe and branch get one signed-in page sample in this long (ADR 0029, owner
+ * 2026-10-18 08:05 UTC: once in 30 days), on the service and on each device.
+ */
+export const PAGE_SAMPLE_INTERVAL_MS = 30 * 24 * 60 * 60 * 1000;
 const rowCount = v.pipe(v.number(), v.integer(), v.minValue(0));
 /**
  * The owner's request log (ADR 0012): how many requests it holds, how many login result

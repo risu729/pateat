@@ -36,13 +36,14 @@ checks reports `token` alone. Parse it by metric name, as Cloudflare may add ent
 | `POST /v1/recipes/:recipeId/completion` | Judge the page after a recipe's final submission and learn its completion |
 | `POST /v1/recipes/:recipeId/outcome` | Keep how the first login of a revision ended, as result codes only; 204 |
 | `POST /v1/recipes/:recipeId/logins` | Keep one record of a login that ended: its result codes, extension build and times, with the recipe's origin; 204 |
+| `POST /v1/recipes/:recipeId/page-sample` | Log a repeat login's signed-in page for evaluation, without a model call; 201 when kept, 204 when a sample of the recipe and branch is from the last 30 days |
 | `GET /v1/device` | The calling device's paired time, the owner's live recipe count and settings revision, and whether recipe generation would run now, for the diagnostics page |
 | `DELETE /v1/device` | Revoke the calling device's own credential |
 | `POST /pair` | Create a device for the signed-in owner from an allowed extension; 201 with the credential, once |
 | `GET /pair/signed-in` | The page the extension opens when pairing needs a sign-in; it asks the user to go back to Pateat's settings |
 | `GET /manage/dashboard`, `/manage`, `/manage/sites`, `/manage/sites/:scheme/:host`, `/manage/request-log` | Owner web UI (React app): the dashboard of login and request speed, counts, spend and failures; devices; the sites list with excluded sites, unreadable and revoked recipes; one origin's default account, recipes and bindings; the request log with Delete all |
 | `GET /manage/assets/*` | The web UI's built script, styles and notices |
-| `GET /manage/api/dashboard?range=24h\|7d\|30d` | The dashboard's aggregates over the range ending now (default `7d`; another value is 400 `bad_request`), computed in the Worker from only the owner's rows: login time (total less the person's) of the signed-in login records, apart for those that waited on the service, with the median of each part (network, the rest of the service, waiting for the site, the rest, and the person apart) and per site and extension build; model, token, pre-model and server times per role, site and build (of requests that called the model; a request answered without a call counts only as a request and, unless its outcome is `recipe`, a failure), the median login and model time per UTC day (null on a day without one), the 10 slowest requests, counts, every login's result with how many signed in (in total and per day), the first-login result codes apart, tokens, this UTC day's and month's spend with the limits, active recipes, recipes generated, and failures by code with their latest 20; every set of durations has `n`, and below 20 its values instead of a p90 |
+| `GET /manage/api/dashboard?range=24h\|7d\|30d` | The dashboard's aggregates over the range ending now (default `7d`; another value is 400 `bad_request`), computed in the Worker from only the owner's rows: login time (total less the person's) of the signed-in login records, apart for those that waited on the service, with the median of each part (network, the rest of the service, waiting for the site, the rest, and the person apart) and per site and extension build; model, token, pre-model and server times per role, site and build (of requests that called the model; a request answered without a call counts only as a request and, unless its outcome is `recipe`, a failure; a signed-in page sample, outcome `sampled`, is left out), the median login and model time per UTC day (null on a day without one), the 10 slowest requests, counts, every login's result with how many signed in (in total and per day), the first-login result codes apart, tokens, this UTC day's and month's spend with the limits, active recipes, recipes generated, and failures by code with their latest 20; every set of durations has `n`, and below 20 its values instead of a p90 |
 | `GET /manage/api/devices` | The owner's devices with their last use, newest first |
 | `POST /manage/api/devices/:deviceId/revoke` | Revoke one of the owner's devices; 204 |
 | `GET /manage/api/settings` | The settings `/v1/settings` serves; revision 0 before the first write; 404 `not_paired` without a paired device |
@@ -430,6 +431,30 @@ logged as `Inference log row over the daily cap`. A failed write is logged as
 Invalid bodies and requests answered 400 or 404 are not logged: a `base` ID not in the
 `gen-…` form, a judged page of an origin no move reaches, a missing recipe. Such a row
 has `server_ms` but no `pre_model_ms`, `token_ms` or `model_ms`.
+
+`POST /v1/recipes/:recipeId/page-sample` takes `{ version: 1, revision, route, branch?,
+observation }`: the signed-in page of a login that the recipe's marker completed
+([ADR 0029](../../docs/adr/0029-local-sign-in-state.md#amendment-signed-in-page-samples-2026-10-18),
+owner 2026-10-18 08:05 UTC). The revision must be a kept, active revision of the owner's
+recipe (404 otherwise, a tombstone, another owner's recipe and a revoked recipe's
+earlier revisions included), with the route and branch, and the page on the recipe's
+origin, complete, with no list of accounts and none of the password route's fill fields,
+as the judge requires (400). The route then writes one `judge` row with the outcome
+`sampled` (`logPageSample`): `request` is built as the judge's request would be
+(`instructions`, `recipeId`, `route`, `loginPaths` from that revision, `observation`),
+though the judge route answers such a page `not-judgeable` and never sends it, under the
+judge's prompt version, `base_revision` is that revision, and `provider`, `model_id`,
+`result`, `answer`, `revision`, `recipe_page`, the token counts, `pre_model_ms`,
+`token_ms` and `model_ms` are null, at cost 0; `server_ms` is set as on every logged
+row.
+No model is called and no spend or judgement row is written. One statement writes it
+only while the owner has no `sampled` row of the recipe and branch from the last
+`PAGE_SAMPLE_INTERVAL_MS` (30 days, in `packages/contracts/src/manage.ts`), across
+devices; otherwise the answer is 204 and nothing is written. Invalid bodies, 400 and 404
+answers are not logged. Sampled rows are not limited by the ten-minute rule or
+`unsentRowsPerDay` for requests answered without a call, and do not count toward that
+daily cap; the dashboard leaves them out, so they count neither as requests nor as
+failures (agent's choices, not confirmed by the owner).
 
 Rows older than one year are deleted whenever a request is logged and on every
 `GET /v1/recipes`, because routine releases do not apply cron triggers.

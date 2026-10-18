@@ -152,11 +152,14 @@ export const inferenceLogRecipePages = ["first", "continuation"] as const;
 /**
  * Every generation and judgement request the service received and its local outcome (ADR
  * 0012), kept for one year (owner, 2026-10-18) unless the owner deletes them all from the
- * web UI. A request answered without a model call (owner, 2026-10-18 08:04 UTC) has no
- * provider, model, usage, result or answer and costs 0. `request` is the instructions and
- * input exactly as sent, or as they would have been sent; vault values never reach
- * inference, so they are never here. The recipe columns, `build`, `observation_hash`,
- * `answer` and the timing columns are null on rows logged before they were recorded.
+ * web UI. A request answered without a model call (owner, 2026-10-18 08:04 UTC) and a
+ * repeat login's signed-in page sample (ADR 0029, owner 2026-10-18 08:05 UTC; a `judge`
+ * row with the outcome `sampled`) have no provider, model, usage, result or answer and
+ * cost 0. `request` is the instructions and input exactly as sent, or as they would have
+ * been sent (for a sample, built as the judge's request would be); vault values never
+ * reach inference, so they are never here. The recipe columns, `build`,
+ * `observation_hash`, `answer` and the timing columns are null on rows logged before they
+ * were recorded.
  */
 export const inferenceLog = sqliteTable(
   "inference_log",
@@ -193,7 +196,8 @@ export const inferenceLog = sqliteTable(
     /**
      * `ok`, `abstained` or the failure code; for a request answered without a model call,
      * the code it was answered with (`busy`, `daily-limit`, `input-too-large`…), or `recipe`
-     * for a recipe another request already stored.
+     * for a recipe another request already stored; `sampled` for a signed-in page sample
+     * (ADR 0029), at most one per owner, recipe and branch in 30 days.
      */
     outcome: text("outcome").notNull(),
     /** The generated recipe the call is for: the one it starts or continues, or judges. */
@@ -203,7 +207,8 @@ export const inferenceLog = sqliteTable(
     /**
      * The recipe's head revision when the call was made: 0 when it had none, the
      * tombstone's for a revoked recipe generated again, the judged one for the judge. A
-     * request answered without a call has the head read when it arrived.
+     * request answered without a call has the head read when it arrived, and a signed-in
+     * page sample the revision it sampled.
      */
     baseRevision: integer("base_revision"),
     /**

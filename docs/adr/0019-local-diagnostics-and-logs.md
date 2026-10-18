@@ -16,7 +16,9 @@ and
 [Amendment 2026-10-18: how long requests and logins take](#amendment-2026-10-18-how-long-requests-and-logins-take)
 and
 [Amendment 2026-10-18: every login's record sent to the service](#amendment-2026-10-18-every-logins-record-sent-to-the-service),
-by [ADR 0055](0055-login-records-sent-to-the-service.md), implemented).
+by [ADR 0055](0055-login-records-sent-to-the-service.md), implemented, and
+[Amendment: signed-in page samples](#amendment-signed-in-page-samples), implemented,
+local tests only).
 The diagnostics page, the logs, the Bitwarden server information, recent log lines and
 the Pateat service's record for the device are implemented.
 
@@ -502,3 +504,20 @@ Not confirmed by the owner (the agent's choices):
 - `networkMs` stays 0 rather than unknown when no answer named the service's time, as
   from a service deployed before it sent `Server-Timing`
   ([ADR 0055](0055-login-records-sent-to-the-service.md)).
+
+## Amendment: signed-in page samples
+
+On 2026-10-18 the owner chose (08:05 UTC,
+[ADR 0029](0029-local-sign-in-state.md#amendment-signed-in-page-samples-2026-10-18)) to
+send a repeat login's signed-in page as a sample once in 30 days per recipe and branch.
+It is another request that leaves the device: `recipe.sample` logs `sent` (debug) just
+before it, then the answer, `kept` (info), `recent` (debug, the service had one), `gone`
+(debug, a 404: the service no longer holds the recipe revision, as when it was revoked
+meanwhile), `refused` (info, a 400: the service turned the page away, as one still
+showing a fill field of the route) or `failed` with the transport's code (warn), and
+`not-sent` with a code (debug) when one was due but the page could not be described, the
+sample recorded, or the site was excluded before it left. Nothing is logged when none is
+due. Like `service.outcome`, it records no request time
+([how long requests and logins take](#amendment-2026-10-18-how-long-requests-and-logins-take)):
+it goes after the login ended, so it is not part of the login's time. The event name,
+levels and the missing timing are the agent's choice, not confirmed by the owner.

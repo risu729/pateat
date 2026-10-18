@@ -557,6 +557,15 @@ describe("owner web UI dashboard", () => {
         outcome: "busy",
         unsent: true,
       }),
+      // A signed-in page sample (ADR 0029): neither a request nor a failure.
+      insertLog(mine, {
+        createdAt: now - 6 * HOUR_MS,
+        modelMs: null,
+        serverMs: 80_000,
+        origin: "https://sampled.example",
+        outcome: "sampled",
+        unsent: true,
+      }),
       // Outside the 7-day range, and inside the 30-day one.
       insertLog(mine, { createdAt: now - 10 * DAY_MS, modelMs: 7000 }),
       // Another owner's rows never appear.
@@ -604,6 +613,9 @@ describe("owner web UI dashboard", () => {
     expect(judge.serverMs.values).not.toContain(90_000);
     expect(week.slowest.map((entry) => entry.serverMs)).not.toContain(90_000);
     expect(week.stats.requests).toContainEqual({ role: "judge", outcome: "busy", count: 1 });
+    expect(week.stats.requests.map((entry) => entry.outcome)).not.toContain("sampled");
+    expect(week.perBuild).toMatchObject([{ build: "test-build", requests: 5 }]);
+    expect(week.daily.reduce((sum, entry) => sum + entry.judgeRequests, 0)).toBe(4);
     expect(week.failures.map((group) => [group.kind, group.code, group.count])).toEqual([
       ["login", "structural-mismatch", 1],
       ["request", "timeout", 1],

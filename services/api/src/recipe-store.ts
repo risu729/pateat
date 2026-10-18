@@ -77,6 +77,36 @@ export async function readHead(db: D1Database, ownerId: string, recipeId: string
   return row ? toChange(row) : null;
 }
 
+/**
+ * One kept revision of the owner's recipe, read as a sync change is: `null` when the
+ * revision is not kept, is a tombstone or no longer validates.
+ */
+export async function readRevision(
+  db: D1Database,
+  ownerId: string,
+  recipeId: string,
+  revision: number,
+) {
+  const [row] = await drizzle(db)
+    .select({
+      recipeId: recipeRevisions.recipeId,
+      revision: recipeRevisions.revision,
+      state: recipeRevisions.state,
+      document: recipeRevisions.document,
+    })
+    .from(recipeRevisions)
+    .where(
+      and(
+        eq(recipeRevisions.ownerId, ownerId),
+        eq(recipeRevisions.recipeId, recipeId),
+        eq(recipeRevisions.revision, revision),
+      ),
+    );
+  if (row?.state !== "active") return null;
+  const { change } = readChange(row);
+  return change.state === "active" ? change : null;
+}
+
 /** The owner's active recipe count, inside a statement so a batch checks it atomically. */
 export function activeRecipes(ownerId: string) {
   return sql<number>`(SELECT COUNT(*) FROM ${recipeHeads} WHERE ${recipeHeads.ownerId} = ${ownerId} AND ${recipeHeads.state} = 'active')`;

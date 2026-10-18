@@ -8,7 +8,7 @@ import {
   type ManageDurations,
   type ManageLoginParts,
 } from "@pateat/contracts";
-import { and, count, desc, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray, ne, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { CLAUDE_CALL_LIMITS } from "./claude/calls";
 import {
@@ -377,7 +377,9 @@ export function summarizeDashboard(input: DashboardInput): ManageDashboard {
 
 /**
  * Reads the owner's rows for the range, only the columns the dashboard needs, and
- * aggregates them. An identity without an owner sees an empty dashboard.
+ * aggregates them. An identity without an owner sees an empty dashboard. A signed-in page
+ * sample (ADR 0029, outcome `sampled`) is no request a device waited on, so it is left out:
+ * it counts neither as a request nor as a failure.
  */
 export async function readDashboard(
   d1: D1Database,
@@ -419,7 +421,13 @@ export async function readDashboard(
         createdAt: inferenceLog.createdAt,
       })
       .from(inferenceLog)
-      .where(and(eq(inferenceLog.ownerId, ownerId), gte(inferenceLog.createdAt, from)))
+      .where(
+        and(
+          eq(inferenceLog.ownerId, ownerId),
+          gte(inferenceLog.createdAt, from),
+          ne(inferenceLog.outcome, "sampled"),
+        ),
+      )
       .orderBy(desc(inferenceLog.createdAt)),
     db
       .select({

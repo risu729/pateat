@@ -847,6 +847,21 @@ export const noLoginRecipes: LoginRecipes = {
  */
 export type GenerationHold = "not-connected" | "sending" | "sent";
 /**
+ * What came of a repeat login's signed-in page sample (ADR 0029, owner 2026-10-18 08:05
+ * UTC): `not-due` when none is due (this device sent one of the recipe and branch in the
+ * last 30 days, or no service is paired), `not-sent` with why when one was due but the page
+ * could not be described, the sample recorded, or the site was excluded before it left,
+ * `kept`, `recent`, `gone` or `refused` for the service's answer (it logged the page, had a
+ * sample already, no longer holds the recipe revision, or turned the page away), `failed`
+ * with the transport's code.
+ */
+export type PageSampleOutcome =
+  | { outcome: "not-due"; reason?: string }
+  | { outcome: "not-sent"; reason: string }
+  | { outcome: "kept" | "recent" | "gone" | "refused" }
+  | { outcome: "failed"; reason: string };
+
+/**
  * What came of one page offered for generation: the model's recipe, with the fields its
  * custom slots name remembered for `slotFields` and the recipe cache pulled once (a failed
  * pull is not reported, so the cache may not hold it yet: a continuation's login takes the
@@ -1023,6 +1038,20 @@ export interface LoginGeneration {
     /** How long the request took, when one was sent (ADR 0019). */
     timing?: ServiceTiming;
   }>;
+  /**
+   * Sends a repeat login's signed-in page, which the service logs for evaluation without a
+   * model call (ADR 0029, owner 2026-10-18 08:05 UTC), when this device sent none of the
+   * recipe and branch in the last 30 days and a service is paired. `describe` is called
+   * only then; the sample is recorded on the device before it is sent. `sending` is called
+   * after that, just before the request leaves the device: a reason it answers, such as a
+   * site excluded meanwhile, stops the request and leaves the record. Absent, no page is
+   * sampled.
+   */
+  samplePage?(
+    sample: { recipeId: string; revision: number; route: LoginRoute; branch?: ChooserBranch },
+    describe: () => Promise<{ observation: LoginObservation } | { unsent: string }>,
+    sending?: () => Promise<string | undefined>,
+  ): Promise<PageSampleOutcome>;
 }
 
 /**
@@ -1561,6 +1590,20 @@ export type LoginReport = (
       stop?: "password";
       /** How long the request took, once it was answered or failed (ADR 0019). */
       timing?: ServiceTiming;
+    }
+  | {
+      /**
+       * A repeat login's signed-in page sample (ADR 0029): `sent` just before it leaves the
+       * device, then the answer, or `not-sent` with why when one was due.
+       */
+      type: "sample";
+      tabId: number;
+      origin: string;
+      recipeId: string;
+      recipeRevision: number;
+      route: LoginRoute;
+      outcome: "sent" | Exclude<PageSampleOutcome["outcome"], "not-due">;
+      reason?: string;
     }
   | ({
       type: "state";
@@ -3928,7 +3971,10 @@ export function createLoginRuntime(
     if (!observed) return undefined;
     // Without a marker only the sign-in state below proves a sign-in.
     if (proof.proves(observed.targets)) {
+      const before = run.metadata;
       await change(run, { type: "OBSERVED", result: "authenticated", document: run.live.document });
+      // A repeat login's page may be sampled, in the background (ADR 0029).
+      sampleSignedIn(run, before, observed.path);
       return undefined;
     }
     const rejectionIndex = proof.targets.length;
@@ -4839,6 +4885,104 @@ export function createLoginRuntime(
     if (!current(run)) return undefined;
     if ("reason" in hidden) return { unsent: hidden.reason };
     return { observation: hidden.observation, disabledLeftOut };
+  }
+  /**
+   * Sends the page a login ended on, once its recipe's signed-in marker completed it with no
+   * model call in the login, as a sample for evaluation (ADR 0029, owner 2026-10-18 08:05
+   * UTC): described as for the judge, with the same usernames hidden, at most once in 30
+   * days per recipe and branch on this device. It runs in the background after the login
+   * ended and never changes it, its badge or its timing; any failure only loses the sample.
+   * Conservatively (agent's choice), a login that sent a page to the judge or for
+   * continuation, was watched or settled as unknown before, was in a frame, filled only, or
+   * stopped at a missing password, is never sampled, nor is a page described with a
+   * disabled field left out, or a site excluded since the login started.
+   */
+  function sampleSignedIn(run: Execution, before: LoginAttemptMetadata, path: string): void {
+    const { metadata, recipe, live } = run;
+    const sample = generation?.samplePage?.bind(generation);
+    if (
+      !sample ||
+      !current(run) ||
+      metadata.state !== "authenticated" ||
+      metadata.outcome !== "authenticated" ||
+      metadata.unconfirmed ||
+      before.state === "authenticated" ||
+      live.document.frameId !== 0 ||
+      metadata.pageOrigin !== undefined ||
+      live.document.origin !== recipe.origin ||
+      before.fillOnly ||
+      before.judged !== undefined ||
+      before.watch !== undefined ||
+      before.settled ||
+      before.stopAt !== undefined ||
+      before.stopJudged ||
+      before.continuation !== undefined
+    )
+      return;
+    const branch = metadata.chooser ? chooserClickBranch(metadata.chooser.click) : undefined;
+    const reportSample = (
+      outcome: Extract<LoginReport, { type: "sample" }>["outcome"],
+      reason?: string,
+    ) =>
+      report(live.document, {
+        type: "sample",
+        tabId: live.document.tabId,
+        origin: live.document.origin,
+        recipeId: recipe.id,
+        recipeRevision: recipe.revision,
+        route: metadata.route,
+        outcome,
+        ...(reason ? { reason } : {}),
+      });
+    /** Why the saved settings no longer allow the sample: the site was excluded meanwhile. */
+    const excluded = async (): Promise<string | undefined> => {
+      const snapshot = await settings.handle({ version: 1, type: "settings.get" });
+      if (!snapshot.ok) return "settings-unavailable";
+      const saved = snapshot.snapshot.settings;
+      return isSiteExcluded(saved, live.document.origin) ||
+        (live.topUrl !== undefined && isSiteExcluded(saved, live.topUrl))
+        ? "site-excluded"
+        : undefined;
+    };
+    /** The page as the judge would get it, while it is still the one the login ended on. */
+    const describe = async (): Promise<{ observation: LoginObservation } | { unsent: string }> => {
+      const ended = () =>
+        current(run) && run.metadata.id === metadata.id && run.metadata.state === "authenticated";
+      if (!ended()) return { unsent: "page-changed" };
+      const stop = await excluded();
+      if (stop) return { unsent: stop };
+      if (!ended()) return { unsent: "page-changed" };
+      const described = await describeForJudge(run, path);
+      if (!described || !ended()) return { unsent: "page-changed" };
+      if ("unsent" in described) return described;
+      if (described.disabledLeftOut) return { unsent: "disabled-left-out" };
+      return { observation: described.observation };
+    };
+    void sample(
+      {
+        recipeId: recipe.id,
+        revision: recipe.revision,
+        // As the judge is told it (`learn`).
+        route:
+          metadata.route === "passkey" && passkeyAnswersRequest(recipe)
+            ? "password"
+            : metadata.route,
+        ...(branch ? { branch } : {}),
+      },
+      describe,
+      // An exclusion saved while the page was described or the sample recorded still stops it.
+      async () => {
+        const stop = await excluded();
+        if (!stop) reportSample("sent");
+        return stop;
+      },
+    )
+      .then((answer) =>
+        answer.outcome === "not-due"
+          ? undefined
+          : reportSample(answer.outcome, "reason" in answer ? answer.reason : undefined),
+      )
+      .catch(() => undefined);
   }
   async function learn(run: Execution, reading?: SignInReading): Promise<boolean> {
     const { recipe, metadata } = run;

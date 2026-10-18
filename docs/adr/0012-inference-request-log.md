@@ -28,7 +28,10 @@ Amended on 2026-10-18 by the owner (08:38 UTC):
 request took before, in and after the model call. Implemented. Amended on 2026-10-18 by
 [ADR 0055](0055-login-records-sent-to-the-service.md) (owner, 08:38 UTC): the service
 also keeps [a record of every login](#amendment-2026-10-18-login-records) beside the
-log. Implemented.
+log. Implemented. Amended on 2026-10-18 by
+[ADR 0029](0029-local-sign-in-state.md#amendment-signed-in-page-samples-2026-10-18)
+(owner, 08:05 UTC): the log also keeps a repeat login's signed-in page as a `sampled`
+row, see [below](#amendment-2026-10-18-signed-in-page-samples). Implemented.
 
 Date: 2026-10-10
 
@@ -220,6 +223,22 @@ build, `total_ms`, `service_ms`, `network_ms`, `person_ms` and the service's own
 Its rows are kept one year like the log's and deleted with expired log rows, and the
 Request log page counts them and deletes them with Delete all. They are for the owner
 dashboard, not the corpus, whose result comes from `login_outcomes`.
+
+## Amendment 2026-10-18: signed-in page samples
+
+By the owner's decision of 08:05 UTC
+([ADR 0029](0029-local-sign-in-state.md#amendment-signed-in-page-samples-2026-10-18)),
+the service also receives, at most once in 30 days per recipe and branch, the signed-in
+page of a login its marker completed, described as for the judge. It is logged as a
+`judge` row with the outcome `sampled`, `request` built as the judge's would be (with
+`loginPaths`), `base_revision` the sampled revision, no provider, model, usage, result
+or answer, and cost 0. No model is called. Like a request answered without a model
+call, it records `server_ms` alone of the
+[request timings](#amendment-2026-10-18-request-timings). The year's retention and
+Delete all cover it. These rows neither count toward nor are stopped by the daily cap
+of 500 rows answered without a model call, since the 30-day rule bounds them, and the
+owner dashboard leaves them out, as neither requests nor failures (agent's choices, not
+confirmed by the owner).
 
 ## Consequences
 
