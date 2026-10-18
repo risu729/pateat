@@ -960,7 +960,7 @@ items the owner mentioned and gates still open on 2026-10-11.
   sites (an allowlist), and a choice of how long the vault stays unlocked, as the
   official Bitwarden extension offers.
 - Provisional implementation (2026-10-17; owner confirmation remains open in
-  [ADR 0045](adr/0045-immediate-ui-stored-passkeys.md)): answering Chrome's Immediate UI
+  [ADR 0051](adr/0051-immediate-ui-stored-passkeys.md)): answering Chrome's Immediate UI
   requests (`navigator.credentials.get` with `uiMode: "immediate"`, made when the
   person presses a site's sign-in button). The narrow stored-passkey path uses the
   existing account selection, requires transient activation and an active, focused

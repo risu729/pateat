@@ -2172,7 +2172,7 @@ made after its first submission
 requires separate compatibility tests.
 
 The provisional Immediate UI implementation
-([ADR 0045](adr/0045-immediate-ui-stored-passkeys.md), not confirmed by the owner)
+([ADR 0051](adr/0051-immediate-ui-stored-passkeys.md), not confirmed by the owner)
 keeps `uiMode: "immediate"` distinct from mediation. It answers public-key-only
 discoverable requests without a supplied signal, in an active, focused top document
 outside incognito with transient activation. Existing account and credential scope
