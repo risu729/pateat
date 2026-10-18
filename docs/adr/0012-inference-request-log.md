@@ -14,7 +14,10 @@ answer; every row is kept one year; and the web UI deletes them all. Implemented
 Amended on 2026-10-18 by the same decision
 ([login result codes](#amendment-2026-10-18-login-result-codes), with
 [ADR 0019](0019-local-diagnostics-and-logs.md)): the service keeps the result code of
-each recipe revision's first login beside the log. Implemented.
+each recipe revision's first login beside the log. Implemented. On 2026-10-18 (owner,
+08:58 UTC) the
+[earlier rows were filled in](#amendment-2026-10-18-earlier-rows-filled-in) where the
+stored records decide each value.
 
 Date: 2026-10-10
 
@@ -80,7 +83,8 @@ evaluation corpus needs later, without waiting for phase 1 to finish ("今入れ
   settings and the spend the limits count stay.
 
 Not part of this amendment: sending the extension's login outcome codes to the service
-(see the next amendment), filling in earlier rows, and exporting the corpus. The column
+(see the next amendment), filling in earlier rows (see the amendment after it), and
+exporting the corpus. The column
 names (`recipe_page` and the others in `services/api/src/db/schema.ts`) and the Request
 log tab at `/manage/request-log` (the web UI has no settings page for it) were the
 agent's choice, not confirmed by the owner.
@@ -108,6 +112,29 @@ local log:
   reports. That commit also builds the extension that sends them. A revision whose
   first login ran on an extension older than that commit is not caught, as no row
   records the extension's build.
+
+## Amendment 2026-10-18: earlier rows filled in
+
+The owner chose on a decision card at 08:58 UTC to write the new columns of the 154 rows
+logged before them ("書く"). The values come from the stored records: each row's own
+`request` and `result`, the recipe revisions and tombstones, the recipe heads, the page
+judgements, and when each row and revision was written. A value was written only where
+those records decide it, one row per statement by `id`, and only into an empty column of
+a row with no `build` from before the columns were added.
+
+- `observation_hash` and `recipe_id` are set on every earlier row.
+- `revision` stays empty where the recipe was revoked later and the revision the row
+  wrote is gone, and on rows that wrote none.
+- `answer` stays empty where the model's own answer cannot be rebuilt exactly: a
+  generated plan whose dropped passkey button left no trace, or a challenge judgement
+  whose code source or dropped field was not recorded.
+- `build` stays empty on every earlier row and `prompt_version` where it was empty;
+  their values at the time are not known.
+
+So on a row with no `build`, an empty column means unknown, not none: a generation row
+there may have no `branch`, `recipe_page` or `base_revision` although it had one.
+Undoing the fill sets the same columns of those rows back to empty; D1 Time Travel
+restores the whole database, recipes and settings included, and is the last resort.
 
 ## Consequences
 

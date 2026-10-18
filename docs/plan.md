@@ -1909,12 +1909,13 @@ tests cover it.
   and JSON API behind Access, with the devices, sites, account bindings and recipes
   pages. Settings edits and recipe revocations there use the same revision checks as
   device sync, and a stale page changes nothing.
-- Done (local tests only, not deployed): the request log keeps each row one year with
-  its recipe, branch, base and written revisions, build, observation hash and the
-  model's reduced answer, and the web UI's Request log page deletes all of the owner's
-  rows
+- Done: the request log keeps each row one year with its recipe, branch, base and
+  written revisions, build, observation hash and the model's reduced answer, and the web
+  UI's Request log page deletes all of the owner's rows
   ([ADR 0012](adr/0012-inference-request-log.md#amendment-2026-10-18-rows-for-a-real-page-corpus)).
-- Done (local tests only, not deployed): the first login of each recipe revision on a
+  The 154 earlier rows were filled in where the stored records decide each value
+  ([ADR 0012](adr/0012-inference-request-log.md#amendment-2026-10-18-earlier-rows-filled-in)).
+- Done: the first login of each recipe revision on a
   device sends its outcome, a cause from a fixed list and the step index to
   `POST /v1/recipes/:recipeId/outcome`, kept one row per revision in `login_outcomes`
   for a year and deleted with the request log
