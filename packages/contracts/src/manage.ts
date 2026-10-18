@@ -86,6 +86,20 @@ export const manageRecipeConflictSchema = v.strictObject({
   current: v.nullable(syncRecipeChangeSchema),
 });
 
+/** How long the service keeps each request log row (ADR 0012; owner, 2026-10-18). */
+export const INFERENCE_LOG_RETENTION_MS = 365 * 24 * 60 * 60 * 1000;
+/** The owner's request log (ADR 0012): how many requests it holds, and the oldest's time. */
+export const manageRequestLogSchema = v.strictObject({
+  version: v.literal(1),
+  entries: v.pipe(v.number(), v.integer(), v.minValue(0)),
+  oldestAt: v.nullable(timestamp),
+});
+/** Deleting the whole request log: how many requests it removed. */
+export const manageRequestLogDeletedSchema = v.strictObject({
+  version: v.literal(1),
+  deleted: v.pipe(v.number(), v.integer(), v.minValue(0)),
+});
+
 export const manageErrorCodeSchema = v.picklist([
   "bad_request",
   /** No Access token: the page must be reloaded through Access. */
@@ -112,5 +126,7 @@ export type ManageSettingsWrite = v.InferOutput<typeof manageSettingsWriteSchema
 export type ManageRecipe = v.InferOutput<typeof manageRecipeSchema>;
 export type ManageUnreadableRecipe = v.InferOutput<typeof manageUnreadableRecipeSchema>;
 export type ManageRecipes = v.InferOutput<typeof manageRecipesSchema>;
+export type ManageRequestLog = v.InferOutput<typeof manageRequestLogSchema>;
+export type ManageRequestLogDeleted = v.InferOutput<typeof manageRequestLogDeletedSchema>;
 export type ManageErrorCode = v.InferOutput<typeof manageErrorCodeSchema>;
 export type ManageError = v.InferOutput<typeof manageErrorSchema>;

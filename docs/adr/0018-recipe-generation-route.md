@@ -28,6 +28,10 @@ Amended on 2026-10-18 by [ADR 0048](0048-password-method-button.md) (owner, 01:3
 the click of a learned `password` handler that follows the recipe's final `advance` is
 continued like that advance
 ([Continuing after an advance](#continuing-after-an-advance)); implemented.
+Amended on 2026-10-18 by
+[ADR 0012](0012-inference-request-log.md#amendment-2026-10-18-rows-for-a-real-page-corpus)
+(owner, 06:08 UTC): [request log retention](#request-log-retention-of-one-year) is one
+year for every row, and the web UI's delete-all action exists; implemented.
 
 Date: 2026-10-11
 
@@ -300,6 +304,14 @@ Implementation choices for the page after a recipe's final `advance` step, made 
 The owner chose this amendment on 2026-10-14 at 07:24 UTC
 ([issue #543](https://github.com/risu729/pateat/issues/543)): a failed purge is logged
 without request or error values and never fails recipe sync or the call log.
+
+### Request log retention of one year
+
+The owner chose on 2026-10-18 at 06:08 UTC
+([ADR 0012](0012-inference-request-log.md#amendment-2026-10-18-rows-for-a-real-page-corpus)):
+every row of the request log is kept one year instead of 90 days, and rows older than
+that are deleted at the same two points. The delete-all action is the web UI's Request
+log page (`DELETE /manage/api/request-log`).
 
 ## Consequences
 

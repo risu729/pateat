@@ -180,6 +180,36 @@ function totpCode(
   return { totp: { field: field.target, target: submit.target } };
 }
 
+/**
+ * The judge's answer as the request log keeps it (ADR 0012, owner 2026-10-18): every
+ * decision, `unclear` and one the local checks refuse included, with each ID that is not
+ * a candidate of the page replaced by `?`. The judge has no slots.
+ */
+function loggedAnswer(
+  page: Pick<LoginObservation, "candidates">,
+  { result }: v.InferOutput<typeof judgedPageSchema>,
+): unknown {
+  const candidate = (id: string) => (page.candidates.some((entry) => entry.id === id) ? id : "?");
+  if (result.decision === "signed-in")
+    return { decision: result.decision, marker: candidate(result.marker) };
+  if (result.decision !== "challenge") return { decision: result.decision };
+  const { passkeyButton, passwordButton, code } = result;
+  return {
+    decision: result.decision,
+    ...(passkeyButton === undefined ? {} : { passkeyButton: candidate(passkeyButton) }),
+    ...(passwordButton === undefined ? {} : { passwordButton: candidate(passwordButton) }),
+    ...(code === undefined
+      ? {}
+      : {
+          code: {
+            field: candidate(code.field),
+            submit: candidate(code.submit),
+            source: code.source,
+          },
+        }),
+  };
+}
+
 export type CompletionRequest = {
   /** The page shown after an effect step that no recipe check explained. */
   observation: unknown;
@@ -247,6 +277,7 @@ export function createCompletionJudge(config: {
       maxOutputTokens,
       abortSignal: request.abortSignal,
       refusalCategory: config.refusalCategory,
+      answer: (output) => loggedAnswer(page, output),
       interpret: (output): Interpreted<SignInJudgement> => {
         const draft = output.result;
         if (draft.decision === "unclear")

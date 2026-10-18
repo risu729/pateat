@@ -33,7 +33,7 @@ framed. Contracts live in `packages/contracts/src/sync.ts`, `pairing.ts` and
 | `DELETE /v1/device` | Revoke the calling device's own credential |
 | `POST /pair` | Create a device for the signed-in owner from an allowed extension; 201 with the credential, once |
 | `GET /pair/signed-in` | The page the extension opens when pairing needs a sign-in; it asks the user to go back to Pateat's settings |
-| `GET /manage`, `/manage/sites`, `/manage/sites/:scheme/:host` | Owner web UI (React app): devices; the sites list with excluded sites, unreadable and revoked recipes; one origin's default account, recipes and bindings |
+| `GET /manage`, `/manage/sites`, `/manage/sites/:scheme/:host`, `/manage/request-log` | Owner web UI (React app): devices; the sites list with excluded sites, unreadable and revoked recipes; one origin's default account, recipes and bindings; the request log with Delete all |
 | `GET /manage/assets/*` | The web UI's built script, styles and notices |
 | `GET /manage/api/devices` | The owner's devices with their last use, newest first |
 | `POST /manage/api/devices/:deviceId/revoke` | Revoke one of the owner's devices; 204 |
@@ -41,6 +41,8 @@ framed. Contracts live in `packages/contracts/src/sync.ts`, `pairing.ts` and
 | `PUT /manage/api/settings` | Replace them like `PUT /v1/settings`; `connections` must be empty and the document at most 120 KiB |
 | `GET /manage/api/recipes` | Every recipe head with its document, most recently changed first; active heads whose document no longer validates are listed apart in `unreadable` |
 | `POST /manage/api/recipes/:recipeId/revoke` | Revoke one recipe if `expectedRevision` is its head; otherwise 409 with the current head |
+| `GET /manage/api/request-log` | How many request log rows the owner has (`entries`) and the oldest one's time (`oldestAt`, null when none) |
+| `DELETE /manage/api/request-log` | Delete every request log row of the owner, and nothing else; answers how many (`deleted`) |
 | `GET /manage/claude` | Access page showing the Console values and the owner's WIF identifiers |
 | `POST /manage/claude` | Save the owner's four WIF identifiers |
 | `POST /manage/claude/test` | Exchange one assertion and show only the outcome, never the token |
@@ -357,7 +359,23 @@ newline and its response format's JSON Schema, computed once per set of instruct
 the generate role has one for a form, one for an entry request and one for a list of
 accounts, whose instructions add one list line), the instructions
 and input as sent, the structured result, the outcome code, usage and estimated cost; a
-request refused locally before any model call is not logged. For `invalid-output`,
+request refused locally before any model call is not logged. Since 2026-10-18
+([ADR 0012](../../docs/adr/0012-inference-request-log.md#amendment-2026-10-18-rows-for-a-real-page-corpus))
+it also records the recipe the call is for (`recipe_id`, `branch`, empty without one),
+`base_revision` (the head revision when the call was made: 0 for none, the tombstone's
+for a revoked recipe generated again, the judged one for the judge), `recipe_page` for
+generation (`first` for a page sent without a base: a new recipe, one generated again,
+a list of accounts or an entry page; `continuation` for one sent with a base, a chooser
+branch's pages included), `build` (`PATEAT_BUILD_REVISION`) and `observation_hash` (12
+hex digits of the SHA-256 of the request's observation as JSON). `callClaude` returns
+the row's ID, and once the answer's recipe write succeeds `keepLogRevision` sets
+`revision`; a write refused or lost to a device leaves it null, and a failed update is
+logged as `Inference log revision not kept` and never fails the request. `answer` holds
+the model's own answer for every decision, `unclear` and refused output included, before
+the local checks: `{ "decision": "signed-in", "marker": "c7" }`, or a generated plan
+with a passkey button the plan check dropped. A candidate or slot it names that is not
+one of the request's IDs is `?` and each generated name `name-N`, as for a refused plan
+below; output the response format refused has no answer. For `invalid-output`,
 the result is `{ rejection }` when a check named it (the judge role's
 check of its marker refuses without one, leaving the result empty) and, when the plan
 check refused a plan, that plan as `output`: a candidate or slot that is not one of the
@@ -368,9 +386,10 @@ stored, and the Worker logs only `Model output refused` with the role, its promp
 version and the `rejection`. A schema `path` resolves each key where the output format
 defines it, so a key the format defines only in another object also ends the path as
 `unknown-key`; the options of a variant are read together, so a key of a sibling option
-gives that object's issue instead. Rows older than 90 days are deleted whenever a call
+gives that object's issue instead. Rows older than one year are deleted whenever a call
 is logged and on every `GET /v1/recipes`, because routine releases do not apply cron
-triggers.
+triggers. `DELETE /manage/api/request-log` deletes all of the owner's rows; a call still
+running then logs its row afterwards.
 
 ## Schema and tests
 

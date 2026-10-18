@@ -6,6 +6,10 @@ every request its generation routes send; the delete-all action comes with the w
 Amended on 2026-10-12 by [ADR 0035](0035-page-kinds-per-site.md) (not implemented):
 rows of `confirm` or `unclear` pages, or sent with `signedIn` true, are kept past 90
 days until labelled, for at most one year, and rows gain the recipe ID and revision.
+Amended on 2026-10-18 by the owner (06:08 UTC):
+[rows for a real-page corpus](#amendment-2026-10-18-rows-for-a-real-page-corpus) gain
+the recipe, branch and revisions, the build, an observation hash and the model's own
+answer; every row is kept one year; and the web UI deletes them all. Implemented.
 
 Date: 2026-10-10
 
@@ -46,6 +50,33 @@ Evaluation data:
   private evaluation and never committed. The candidates and their terms are listed in
   [AI evaluation harness progress](../plan.md#ai-evaluation-harness-progress).
 - Reusing existing per-site recipes (for example Bitwarden map-the-web) is later scope.
+
+## Amendment 2026-10-18: rows for a real-page corpus
+
+The owner chose on decision cards at 06:08 UTC that the log keeps what a real-page
+evaluation corpus needs later, without waiting for phase 1 to finish ("今入れる"):
+
+- Each row records the recipe it is for, the chooser branch (empty without one), the
+  head revision when the call was made, the revision the call wrote (set after that
+  write succeeds; none when it wrote nothing), for generation whether the page starts
+  its recipe (`first`) or continues one (`continuation`), the service build, and the
+  first 12 hex digits of the SHA-256 of the observation sent. `request` stays the
+  instructions and input as sent.
+- `answer` keeps the model's own answer next to `result`, for both roles and every
+  decision, `unclear` and refused output included ("残す"): a generated plan before
+  local changes, so a dropped passkey button still shows. Any ID that is not a candidate
+  or slot of the request becomes `?` and each generated name `name-N`, so no page text
+  quoted by the model and no vault field name is kept.
+- Every row is kept one year instead of 90 days ("全部 1 年"), which covers ADR 0035's
+  year for `confirm`, `unclear` and `signedIn` rows. Since rows hold custom field names
+  and username shapes for longer, the delete-all action is built now: the web UI's
+  Request log page deletes all of the owner's rows after a confirmation; recipes,
+  settings and the spend the limits count stay.
+
+Not part of this amendment: sending the extension's login outcome codes to the service,
+filling in earlier rows, and exporting the corpus. The column names (`recipe_page` and
+the others in `services/api/src/db/schema.ts`) were the agent's choice, not confirmed by
+the owner.
 
 ## Consequences
 
