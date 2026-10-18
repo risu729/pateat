@@ -373,7 +373,7 @@ is logged and on every `GET /v1/recipes`, because routine releases do not apply 
 triggers.
 
 A passkey-only first page sends `passkeyOnly: true` with `slots: []`
-([provisional ADR 0046](../../docs/adr/0046-passkey-only-generation.md)). It cannot
+([provisional ADR 0052](../../docs/adr/0052-passkey-only-generation.md)). It cannot
 supply `base` or `branch` and its observation has no fill fields or account list.
 The model must select one existing-passkey sign-in button, locally checked against
 the observed button and registration wording. The stored recipe explicitly has only

@@ -1261,7 +1261,7 @@ waits for it. Coexistence tests must include overlapping actions; avoid claiming
 race-free operation before a wait/ownership mechanism is established.
 
 Passkey-only start generation is implemented under the provisional policy in
-[ADR 0046](adr/0046-passkey-only-generation.md). After the existing ten-second wait, a
+[ADR 0052](adr/0052-passkey-only-generation.md). After the existing ten-second wait, a
 top document with no fill fields may offer an enabled, locatable button naming a passkey
 or security key, excluding registration and management. A matching eligible vault item
 must also hold a usable discoverable passkey. The value-free request uses

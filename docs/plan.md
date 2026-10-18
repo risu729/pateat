@@ -1049,7 +1049,7 @@ items the owner mentioned and gates still open on 2026-10-11.
   more settings profiles ([ADR 0024](adr/0024-settings-profiles.md)), the ADR 0025 later
   work, the ADR 0027 cases it does not handle. Generation for passkey-only start pages
   has an implementation under the provisional policy in
-  [ADR 0046](adr/0046-passkey-only-generation.md): a button-only page needs a matching
+  [ADR 0052](adr/0052-passkey-only-generation.md): a button-only page needs a matching
   eligible item with a discoverable usable passkey, and its recipe has no password
   fallback. Owner confirmation of the detailed policy and real-site verification remain
   open; no paid inference or deployment is included.
