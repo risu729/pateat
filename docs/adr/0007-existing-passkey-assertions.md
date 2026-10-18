@@ -61,7 +61,7 @@ Amended on 2026-10-14 by
 only confirmed completion counts as a successful sign-in (implemented); see the dated
 amendment below.
 
-Corrected on 2026-10-17: the bridge snapshot relays `timeout`, which only bounds the
+Amended on 2026-10-17: the bridge snapshot relays `timeout`, which only bounds the
 chooser window ([ADR 0021](0021-account-choice-outside-settings.md)); see the dated
 amendment below.
 

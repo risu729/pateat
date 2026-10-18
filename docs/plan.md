@@ -558,6 +558,11 @@ than in this repository.
 - Known faults moved from phase 1 (owner, 2026-10-12 20:35 UTC), fixed when a real site
   shows them again: the `reconciling` exception seen on SBI証券, and `generate` ignoring
   a failed sync after generation (both recorded under phase 1).
+- Proposed: the worker drops a waiting account choice once its site is excluded.
+  `choiceFor` in `apps/extension/src/login/runtime.ts` drops one for a site default
+  saved since the refusal, but not for an exclusion, so the worker still answers the
+  popup with it and would take a pick; since
+  [#683](https://github.com/risu729/pateat/pull/683) the popup shows none.
 - Claude also watches the service's D1 records, such as the inference request log
   ([ADR 0012](adr/0012-inference-request-log.md)), not only logs the owner sends from
   the device (owner, 2026-10-11 18:45 UTC).
@@ -891,6 +896,10 @@ Once the fixes have settled:
     such as a page served with a CSP `sandbox` header or a sandboxed frame, is refused
     for logins, recipe generation and passkeys
     ([architecture](architecture.md#components-and-trust-boundaries)).
+  - [#639](https://github.com/risu729/pateat/issues/639) fixed by
+    [#644](https://github.com/risu729/pateat/pull/644): the passkey decoder strips at
+    most two trailing `=` without a regex, as Bitwarden's clients avoid a backtracking
+    pattern, and accepts the same inputs as before.
 
 ### Phase 4: issues and work as needed
 

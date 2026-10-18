@@ -159,8 +159,9 @@ Checked against `packages/contracts/src/login.ts`, `recipes.ts`, `sync.ts` and
 - Recipes are generated with Claude on the owner's service
   ([ADR 0014](../adr/0014-claude-generation-provider.md)) and stored as owner-scoped
   rows in its D1 database
-  ([ADR 0013](../adr/0013-service-held-recipes-and-settings.md)). The service "is not
-  opened to other people", so for a store user recipes would come from a service they
+  ([ADR 0013](../adr/0013-service-held-recipes-and-settings.md)). The
+  [plan](../plan.md#phase-3-public-release) says "The service is not opened to other
+  people", so for a store user recipes would come from a service they
   run, or from the planned mode without the service and with direct AI calls, which is
   not designed yet and might get recipes from a model API directly.
 
@@ -203,7 +204,7 @@ ends with Chrome disabling the extension for its users.
 
 ## What would lower the risk
 
-In order of value for the effort:
+Proposals; none is decided by the owner. In order of value for the effort:
 
 1. **Keep the vocabulary closed.** Add no control flow, expressions, variables, CSS or
    XPath selectors, URLs beyond exact same-origin paths, typed values or script names
