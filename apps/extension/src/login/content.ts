@@ -98,13 +98,18 @@ function ready(readiness: LoginReadiness): boolean {
       (readiness.targets.some((target) => listControls(document, target).length === 1) ||
         listsAccounts())
     );
-  return readiness.targets.every((target) => {
-    const found = matches(target);
-    if (found.length !== 1) return false;
-    if (readiness.require === "writable") return writable(found[0]);
-    if (readiness.require === "clickable") return clickable(found[0]);
-    return true;
-  });
+  return (
+    readiness.targets.every((target) => {
+      const found = matches(target);
+      if (found.length !== 1) return false;
+      if (readiness.require === "writable") return writable(found[0]);
+      if (readiness.require === "clickable") return clickable(found[0]);
+      return true;
+    }) &&
+    // A later step is no start while the page also asks for an identifier the step does not
+    // fill, as a form for another account with its own email input (ADR 0049).
+    !(readiness.later && credentialInputs(readiness.targets).identifier)
+  );
 }
 /**
  * Whether the page shows a visible password input, or one marked for a username or a

@@ -21,6 +21,7 @@ import {
   recipeHasRoute,
   recipeSlots,
   recipeStartSteps,
+  laterStartSteps,
   routeFillTargets,
   routePaths,
   routeSignInPaths,
@@ -2698,5 +2699,60 @@ describe("the stop before a missing password (ADR 0036)", () => {
         [],
       ),
     ).toEqual({ miss: "no-password-step" });
+  });
+});
+
+describe("later steps a login may start at (ADR 0049)", () => {
+  const field = (slot: string, value: string) => ({ slot, target: { by: "id" as const, value } });
+  const remembered = parseLoginRecipe({
+    version: 1,
+    id: "synthetic-later",
+    revision: 1,
+    origin: "https://login.example",
+    slots: ["username", "password", "totp"],
+    steps: [
+      { kind: "fill", path: "/signin", fields: [field("username", "email")] },
+      { kind: "click", path: "/signin", target: { by: "id", value: "next" }, purpose: "advance" },
+      { kind: "fill", path: "/password", fields: [field("password", "password")] },
+      {
+        kind: "click",
+        path: "/password",
+        target: { by: "id", value: "login" },
+        purpose: "advance",
+      },
+      { kind: "fill", path: "/code", fields: [field("totp", "code")] },
+      { kind: "click", path: "/code", target: { by: "id", value: "verify" }, purpose: "submit" },
+    ],
+    alternatives: [
+      {
+        slots: ["contract", "password"],
+        steps: [
+          { kind: "fill", path: "/signin", fields: [field("contract", "contract")] },
+          {
+            kind: "click",
+            path: "/signin",
+            target: { by: "id", value: "next" },
+            purpose: "advance",
+          },
+          { kind: "fill", path: "/password", fields: [field("password", "password")] },
+          {
+            kind: "click",
+            path: "/password",
+            target: { by: "id", value: "login" },
+            purpose: "submit",
+          },
+        ],
+      },
+    ],
+    maxSubmissions: 3,
+  });
+
+  it("lists every variant's later fill steps, but not a first step or a code alone", () => {
+    expect(
+      laterStartSteps(remembered).map(({ variant, index, step }) => [variant, index, step.path]),
+    ).toEqual([
+      [0, 2, "/password"],
+      [1, 2, "/password"],
+    ]);
   });
 });

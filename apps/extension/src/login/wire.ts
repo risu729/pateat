@@ -63,6 +63,11 @@ export const loginReadinessSchema = v.strictObject({
    * one of `targets` shows or the page lists an account by its email, masked or not.
    */
   accounts: v.optional(v.literal(true)),
+  /**
+   * A later `fill` step a new login may start at (ADR 0049): ready only while the page
+   * shows no other identifier input, as an email form beside its password input would.
+   */
+  later: v.optional(v.literal(true)),
 });
 export type LoginReadiness = v.InferOutput<typeof loginReadinessSchema>;
 /** What a step waits for; a `wait` or `assert`-absent step does its own waiting. */

@@ -1013,6 +1013,25 @@ export function recipeStartSteps(recipe: LoginRecipe): LoginStep[] {
   ];
 }
 /**
+ * The later steps a new login may start at when none of the recipe's first steps shows
+ * (ADR 0049): each `password` variant's `fill` steps after its first, other than one that
+ * fills only a TOTP code, which a running login's handler or route step answers. `index`
+ * is the step's position in its variant.
+ */
+export function laterStartSteps(
+  recipe: LoginRecipe,
+): { variant: number; index: number; step: Extract<LoginStep, { kind: "fill" }> }[] {
+  return passwordVariants(recipe).flatMap((variant, variantIndex) =>
+    variant.steps.flatMap((step, index) =>
+      index > 0 &&
+      step.kind === "fill" &&
+      step.fields.some((field) => field.slot !== TOTP_HANDLER_SLOT)
+        ? [{ variant: variantIndex, index, step }]
+        : [],
+    ),
+  );
+}
+/**
  * Whether the recipe offers the route; every recipe has the `password` route, since a
  * start page without a password input is never generated (ADR 0016).
  */

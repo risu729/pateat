@@ -29,6 +29,10 @@ Amended on 2026-10-14 by
 a binding and an automatic or popup account choice are saved only after a confirmed
 `authenticated` login, never after an unconfirmed completion (implemented).
 
+Amended on 2026-10-18 by [ADR 0049](0049-start-at-a-later-step.md) (owner, 01:40 UTC,
+implemented): an attempt may also start at a later `fill` step the page shows when no
+first step does ([Recipe lookup](#recipe-lookup)).
+
 Date: 2026-10-10
 
 ## Context
@@ -126,6 +130,9 @@ picks the recipe and the step a new attempt starts on. For now it allows only a
 recipe's first step and refuses when more than one recipe starts on the page, so a
 site that goes straight to its password page does not start an attempt. On-screen
 step detection can replace the selector later without changing the stored format.
+Since [ADR 0049](0049-start-at-a-later-step.md) (2026-10-18) the selector also starts
+at a later `fill` step the page shows when no recipe's first step does, with the stored
+format unchanged.
 
 The owner decided on 2026-10-11 when an attempt starts and how long it waits:
 

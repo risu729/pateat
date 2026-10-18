@@ -240,6 +240,7 @@ export const LOG_EVENTS = {
       candidates: "count",
       item: "item",
       fillOnly: "flag",
+      startStep: "count",
       list: "code",
       listUsername: "code",
       listEntries: "count",

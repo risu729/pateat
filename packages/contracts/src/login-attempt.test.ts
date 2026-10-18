@@ -3771,3 +3771,66 @@ describe("a login that stops before a missing password (ADR 0036)", () => {
     });
   });
 });
+
+describe("a login that starts at a later step (ADR 0049)", () => {
+  /** An identifier page and a password page, as a site that remembers the account skips. */
+  const twoPages: LoginRecipe = {
+    ...recipe,
+    slots: ["username", "password"],
+    steps: [
+      {
+        kind: "fill",
+        effect: "prepare",
+        path: "/login",
+        fields: [{ slot: "username", target: { by: "id", value: "email" } }],
+      },
+      { kind: "click", path: "/login", target: { by: "id", value: "next" }, purpose: "advance" },
+      ...recipe.steps.map((step) => ({ ...step, path: "/password" })),
+    ],
+    maxSubmissions: 2,
+  };
+  const create = (change: Partial<Parameters<typeof createAttemptMetadata>[0]> = {}) =>
+    createAttemptMetadata({
+      id: "attempt-later",
+      recipe: twoPages,
+      policyRevision: 3,
+      account: { origin: document.origin, connectionId: "demo-personal", itemId: "primary" },
+      choice: { route: "password", variant: 0 },
+      facts: { ...facts, passkey: true, discoverablePasskey: true },
+      document,
+      ...change,
+    });
+
+  it("starts at the step and issues it first", () => {
+    const ready = transitionLoginAttempt(create({ startAt: 2 }), { type: "RESOLVE" });
+    expect(ready).toMatchObject({ stepIndex: 2, stepCount: 4, startStep: 2 });
+    expect(nextLoginOperation(ready, twoPages, document, "fill-password")).toMatchObject({
+      stepIndex: 2,
+      step: { kind: "fill", path: "/password" },
+    });
+  });
+
+  it("goes back to that step, not the first, after an answered passkey request falls back", () => {
+    const ready = transitionLoginAttempt(create({ startAt: 2 }), { type: "RESOLVE" });
+    const switched = transitionLoginAttempt(ready, { type: "ROUTE", route: "passkey", steps: 1 });
+    expect(switched).toMatchObject({ route: "passkey", stepIndex: 0, startStep: 2 });
+    expect(
+      transitionLoginAttempt(switched, { type: "ROUTE", route: "password", steps: 4 }),
+    ).toMatchObject({ route: "password", stepIndex: 2, stepCount: 4 });
+    // A passkey answer that falls back to the variant records the step too.
+    expect(create({ choice: { route: "passkey" }, fallback: 0, startAt: 2 })).toMatchObject({
+      route: "passkey",
+      stepIndex: 0,
+      startStep: 2,
+    });
+  });
+
+  it("refuses a start outside the plan, at or past a stop, or on a chooser's branch", () => {
+    expect(() => create({ startAt: 4 })).toThrow();
+    expect(() =>
+      create({ startAt: 2, stopAt: 2, document: { ...document, frameId: 0 } }),
+    ).toThrow();
+    expect(() => create({ startAt: 2, chooser: "other-shown" })).toThrow();
+    expect(() => create({ choice: { route: "passkey" }, startAt: 2 })).toThrow();
+  });
+});

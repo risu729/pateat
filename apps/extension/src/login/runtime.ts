@@ -32,6 +32,7 @@ import {
   passwordVariants,
   recipeHasRoute,
   recipeStartSteps,
+  laterStartSteps,
   recoverLoginAttempt,
   resolveBindingFields,
   resolveLoginPlan,
@@ -766,7 +767,13 @@ const watchOver = (metadata: LoginAttemptMetadata, now: number) =>
  * list's own buttons, when it shows the list of accounts, and as its steps the first step
  * of its `other` branch when that starts on the list's path.
  */
-export type LoginRecipeStart = { path: string; steps: LoginStep[]; list?: LoginTarget[] };
+export type LoginRecipeStart = {
+  path: string;
+  steps: LoginStep[];
+  list?: LoginTarget[];
+  /** The later steps a login may start at when no first step shows (ADR 0049). */
+  later?: LoginStep[];
+};
 /**
  * Cached recipes. Account bindings come from synced settings (`settings.bindings`,
  * ADR 0013); neither carries values.
@@ -776,6 +783,8 @@ export interface LoginRecipes {
   recipe(origin: string, path: string, recipeId?: string): Promise<LoginRecipe | undefined>;
   /** Where every recipe for the origin starts; a document watches for its first steps. */
   starts(origin: string): Promise<LoginRecipeStart[]>;
+  /** The origin's login recipes with a later step on the path a login may start at (ADR 0049). */
+  later?(origin: string, path: string): Promise<LoginRecipe[]>;
   /**
    * The chooser recipe (ADR 0028) whose list shows on the path, or a chooser login's own
    * recipe by ID after navigation.
@@ -1320,6 +1329,8 @@ export type LoginReport = (
       itemId?: string;
       /** The login fills the page without pressing anything, after a logout (ADR 0021 D). */
       fillOnly?: true;
+      /** The later step of its variant the login started at (ADR 0049). */
+      startStep?: number;
       /**
        * For a login on a chooser's list (ADR 0028): what it clicks there, or `none` when
        * it ends `account-not-listed`; `other-shown` when its path showed the `other`
@@ -3220,6 +3231,11 @@ export function createLoginRuntime(
       handlerSlots?: readonly string[];
       /** The document asked for a passkey by itself, with conditional mediation (ADR 0034). */
       pageRequest?: boolean;
+      /**
+       * The login starts at a later step (ADR 0049): the `passkey` route's button, on the
+       * first page, is not there to click.
+       */
+      later?: boolean;
     } = {},
   ) {
     let catalog: VaultCatalog;
@@ -3374,17 +3390,19 @@ export function createLoginRuntime(
       itemFacts(resolved.connection, { ...resolved.account, origin: live.document.origin });
     const pageRequest =
       request.pageRequest === true && !chosen?.fillOnly && passkeyAnswersRequest(recipe);
+    const { passkey: _button, ...buttonless } = recipe;
+    const routeRecipe: LoginRecipe = request.later ? buttonless : recipe;
     // Only a page the passkey scripts run on can answer a passkey request (ADR 0050).
     if (
       passkeyScriptsRun(live.document.origin, probeMode) &&
-      (recipeHasRoute(recipe, "passkey") || pageRequest)
+      (recipeHasRoute(routeRecipe, "passkey") || pageRequest)
     ) {
       const resolved = await resolveRoute({ route: "passkey" });
       if (resolved.ok) {
         facts = await factsOf(resolved);
         // No binding matters on this route, so a password variant that does not fit never
         // refuses such a login.
-        if (chooseLoginRoute(recipe, facts, [], pageRequest)?.route === "passkey") {
+        if (chooseLoginRoute(routeRecipe, facts, [], pageRequest)?.route === "passkey") {
           if (!pageRequest) return { ...resolved, facts };
           // Answering the page's request falls back to the variant that fits (ADR 0034),
           // never to one that stops before the password the item lacks (ADR 0036).
@@ -3487,7 +3505,7 @@ export function createLoginRuntime(
           continue;
         }
         fits[index] = true;
-        const taken = chooseLoginRoute(recipe, known, fits);
+        const taken = chooseLoginRoute(routeRecipe, known, fits);
         if (taken?.route === "password" && taken.variant === index)
           return { ...resolved, facts: known };
         // The first variant that fits decides; without the item's password none is taken.
@@ -5941,7 +5959,12 @@ export function createLoginRuntime(
           : []),
         ...start.steps.map(loginReadiness),
       ]);
-    const unique = new Map(readiness.map((entry) => [JSON.stringify(entry), entry]));
+    // Later steps come after every first step, so the bound for the wire drops them first
+    // (ADR 0049); a path several recipes start on keeps them, as another recipe may own them.
+    const later = all.flatMap((start) =>
+      (start.later ?? []).map((step) => ({ ...loginReadiness(step), later: true as const })),
+    );
+    const unique = new Map([...readiness, ...later].map((entry) => [JSON.stringify(entry), entry]));
     return [...unique.values()].slice(0, 32);
   }
   /**
@@ -7620,6 +7643,51 @@ export function createLoginRuntime(
         shownOther = true;
       }
     }
+    // A page that shows a later `fill` step of a recipe and none of the recipe's first
+    // steps, as a password page shown again after a logout for an account the site
+    // remembers, starts a new login at that step (ADR 0049, owner 2026-10-18). A first step
+    // that shows goes first, another recipe's too; a chooser's branches never start there.
+    let later: { variants: Map<number, number[]> } | undefined;
+    if (
+      !previous &&
+      !chooser &&
+      start?.path === live.path &&
+      !(probeMode && document.origin === origin) &&
+      recipes.later
+    ) {
+      const candidates = await recipes.later(document.origin, live.path).catch(() => []);
+      if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+      if (candidates.length) {
+        let firstShows = false;
+        /* eslint-disable no-await-in-loop */
+        for (const step of recipe ? recipeStartSteps(recipe) : []) {
+          firstShows = await showsNow(live, loginReadiness(step));
+          if (firstShows) break;
+        }
+        const showing: { recipe: LoginRecipe; variants: Map<number, number[]> }[] = [];
+        if (!firstShows)
+          for (const candidate of candidates) {
+            const variants = new Map<number, number[]>();
+            for (const { variant, index, step } of laterStartSteps(candidate)) {
+              if (step.path !== live.path) continue;
+              if (await showsNow(live, { ...loginReadiness(step), later: true })) {
+                variants.set(variant, [...(variants.get(variant) ?? []), index]);
+              }
+            }
+            if (variants.size) showing.push({ recipe: candidate, variants });
+          }
+        /* eslint-enable no-await-in-loop */
+        if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+        // Two recipes whose later steps show start neither, as two first steps do (ADR 0013).
+        if (showing.length === 1) {
+          recipe = showing[0]!.recipe;
+          later = { variants: showing[0]!.variants };
+        } else if (!firstShows && showing.length === 0)
+          // The step that announced the page no longer shows: the document tries again.
+          return { ok: false, reason: "stale-document" };
+        else if (!firstShows) recipe = undefined;
+      }
+    }
     // A new attempt starts only once the document reports a first step of its recipe ready:
     // any route's or variant's, or the path alone when one of them needs no element. Until
     // then it watches the first steps of every recipe for its origin; this reads no
@@ -7908,10 +7976,11 @@ export function createLoginRuntime(
       fill,
       ...(previous ? { route: attemptRouteChoice(previous) } : {}),
       ...(pageRequest ? { pageRequest } : {}),
+      ...(later ? { later: true } : {}),
     });
     if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
     if (plan.ok && "fillOnly" in plan && plan.route.route !== "password") {
-      plan = await planFor(snapshot, live, recipe, { asking });
+      plan = await planFor(snapshot, live, recipe, { asking, ...(later ? { later: true } : {}) });
       if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
     }
     // A passkey-only item on a list whose account branch cannot take the stop (ADR 0036,
@@ -8091,6 +8160,20 @@ export function createLoginRuntime(
     } else {
       // A new login's plan carries the facts it chose its route with.
       if (!("facts" in plan)) return refuse("no-route");
+      // A login that starts at a later step takes the first one that shows in the variant
+      // its account fits, or a passkey answer that falls back to that variant (ADR 0049); an
+      // item without a password goes no further than the step before its password.
+      const startVariant =
+        plan.route.route === "password"
+          ? plan.route.variant
+          : "fallback" in plan && typeof plan.fallback === "number"
+            ? plan.fallback
+            : undefined;
+      const startAt =
+        later && startVariant !== undefined ? later.variants.get(startVariant)?.[0] : undefined;
+      if (later && startAt === undefined) return refuse("no-route", "later-variant");
+      if (later && "stopAt" in plan && typeof plan.stopAt === "number" && plan.stopAt <= startAt!)
+        return refuse("no-route", "password-empty:later-start");
       metadata = transitionLoginAttempt(
         createAttemptMetadata({
           id: newId(),
@@ -8113,6 +8196,7 @@ export function createLoginRuntime(
             : {}),
           // An item without a password stops before it (ADR 0036).
           ...("stopAt" in plan && typeof plan.stopAt === "number" ? { stopAt: plan.stopAt } : {}),
+          ...(startAt === undefined ? {} : { startAt }),
         }),
         { type: "RESOLVE" },
       );
@@ -8164,6 +8248,7 @@ export function createLoginRuntime(
             }
           : {}),
         ...(metadata.fillOnly ? { fillOnly: true as const } : {}),
+        ...(metadata.startStep === undefined ? {} : { startStep: metadata.startStep }),
         ...(click ? { click } : {}),
         ...(listMiss ? { listMiss } : {}),
       });

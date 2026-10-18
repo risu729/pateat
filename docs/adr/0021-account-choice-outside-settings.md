@@ -85,6 +85,11 @@ Amended on 2026-10-14 by
 only confirmed completion counts as a successful sign-in (implemented); see the dated
 amendment below.
 
+Amended on 2026-10-18 by [ADR 0049](0049-start-at-a-later-step.md) (owner, 01:40 UTC,
+implemented): in D, a later step a login may start at counts as the first step does,
+and a fill-only login after a logout starts at it; this closes the known gap for sites
+that show only a password step after a logout.
+
 Date: 2026-10-11
 
 ## Context
@@ -327,7 +332,8 @@ Known gaps:
 
 - Frame logins are not detected (ADR 0017).
 - Sites that show only a password step after logout are not detected, because no
-  recipe's first step appears.
+  recipe's first step appears. (Closed on 2026-10-18 by
+  [ADR 0049](0049-start-at-a-later-step.md): such a step counts as the first step does.)
 - A login form that stays in the page after login, or a re-authentication form shaped
   like the first step, can ask for a choice while still logged in.
 
