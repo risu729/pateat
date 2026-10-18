@@ -561,7 +561,8 @@ export async function startLoginFixture(
       // button, `script` does the same in a form whose action is a `javascript:` URL,
       // `off-origin` holds the password in a form posting to another origin, and
       // `submit-off-origin` leaves the password outside while the submit button's
-      // `formaction` names another origin. Nothing submits: the page keeps every form.
+      // `formaction` names another origin. Nothing submits: the page keeps every form, and
+      // the `script` form's `javascript:` action does nothing.
       const form = fixtureUrl.searchParams.get("form");
       const elsewhere = "http://127.0.0.1:1/collect";
       const formStart =
@@ -636,7 +637,7 @@ export async function startLoginFixture(
                 "document.getElementById('password').addEventListener('change', (event) => { event.target.value = ''; document.getElementById('security').hidden = false; });",
             }[fixtureUrl.searchParams.get("reject-fill") ?? ""] ?? ""
           }
-          ${form === null ? "" : "document.getElementById('login').form?.addEventListener('submit', (event) => event.preventDefault());"}
+          ${form === null || form === "script" ? "" : "document.getElementById('login').form?.addEventListener('submit', (event) => event.preventDefault());"}
           document.getElementById('login').addEventListener('click', () => {
           sessionStorage.setItem('submitClicks', String(Number(sessionStorage.getItem('submitClicks') || 0) + 1));
           sessionStorage.setItem('passwordMatched', String(document.getElementById('password').value === ${JSON.stringify(password)}));

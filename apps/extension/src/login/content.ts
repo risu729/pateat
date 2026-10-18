@@ -14,7 +14,7 @@ import {
   watchCodeSubmission,
 } from "../page/code-submission";
 import { fillBaseline, inputValueMismatch, rejectsFill, unreadyForm } from "../page/fill-checks";
-import { formRefusal, submitsForm } from "../page/form-destination";
+import { activatedBy, formRefusal, submitsForm } from "../page/form-destination";
 import { FIELD_GAP_MS, typeValue } from "../page/enter-value";
 import {
   extractAccountListObservation,
@@ -1072,8 +1072,10 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           element = only;
         }
         // A click that submits a form sends it, through the button's own `formaction` too,
-        // only to this document's origin. Any other click submits no form.
-        const submitRefused = submitsForm(element) ? formRefusal(element, "click") : undefined;
+        // only to this document's origin, also when the element sits inside the submit
+        // button or labels it. Any other click submits no form.
+        const submitter = activatedBy(element);
+        const submitRefused = submitsForm(submitter) ? formRefusal(submitter, "click") : undefined;
         if (submitRefused) return fail("structural-mismatch", submitRefused);
         // The click's form's inputs, or the page's for an element outside a form.
         const form = isButton(element) ? element.form : element.closest("form");

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { formRefusal, submitsForm } from "./form-destination";
+import { activatedBy, formRefusal, submitsForm } from "./form-destination";
 
 afterEach(() => {
   document.body.innerHTML = "";
@@ -334,5 +334,30 @@ describe("submitsForm", () => {
       "orphan",
     ])
       expect(submitsForm(document.getElementById(id)!), id).toBe(false);
+  });
+});
+
+describe("activatedBy", () => {
+  it("is the submit button around or labelled by the clicked element", () => {
+    document.body.innerHTML = `<form action="${attacker}"><input name="password"><button id="submit"><span id="inner" role="button">Log in</span></button><label id="label" for="other" role="button">Log in</label><input id="other" type="submit"><label id="wrapping" role="button"><span id="in-label">Log in</span><input id="wrapped" type="image" alt="Log in"></label></form>`;
+    expect(activatedBy(document.getElementById("inner")!).id).toBe("submit");
+    expect(activatedBy(document.getElementById("label")!).id).toBe("other");
+    expect(activatedBy(document.getElementById("in-label")!).id).toBe("wrapped");
+    for (const id of ["inner", "label", "in-label"]) {
+      const submitter = activatedBy(document.getElementById(id)!);
+      expect(submitsForm(submitter), id).toBe(true);
+      if (submitsForm(submitter))
+        expect(formRefusal(submitter, "click"), id).toBe("form-off-origin");
+    }
+  });
+
+  it("is the element itself, or the link around it, when no control takes the click", () => {
+    document.body.innerHTML =
+      '<form action="/login"><div id="div" role="button">Log in</div><a id="link" href="/next"><span id="in-link">Next</span></a><label id="bare" role="button">Log in</label></form>';
+    expect(activatedBy(document.getElementById("div")!).id).toBe("div");
+    expect(activatedBy(document.getElementById("in-link")!).id).toBe("link");
+    expect(activatedBy(document.getElementById("bare")!).id).toBe("bare");
+    for (const id of ["div", "in-link", "bare"])
+      expect(submitsForm(activatedBy(document.getElementById(id)!)), id).toBe(false);
   });
 });

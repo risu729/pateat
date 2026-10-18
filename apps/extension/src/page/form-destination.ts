@@ -22,6 +22,17 @@ export function submitsForm(
   );
 }
 
+/**
+ * The element a click on `element` activates: the nearest one from it up that a click
+ * acts on (a link, a button, an input or a label), with a label standing for its labeled
+ * control. A `role="button"` inside a `<button>`, or a label of a submit button, submits
+ * that button's form; `element` itself when nothing around it acts on a click.
+ */
+export function activatedBy(element: Element): Element {
+  const activated = element.closest("a[href], area[href], button, input, label") ?? element;
+  return activated instanceof HTMLLabelElement ? (activated.control ?? activated) : activated;
+}
+
 /** The URL of `control`'s document, read past any element the document names `URL`. */
 function documentUrl(control: Element): string {
   return Reflect.get(Document.prototype, "URL", control.ownerDocument) as string;
@@ -67,8 +78,10 @@ export function formRefusal(
   const { origin } = new URL(documentUrl(control));
   if (origin === "null") return "form-off-origin";
   const target = destination(control, form, action === "click");
-  // The parsed scheme: case, surrounding spaces and tabs inside do not matter.
-  return target?.protocol === "javascript:" || target?.origin === origin
-    ? undefined
-    : "form-off-origin";
+  if (!target) return "form-off-origin";
+  // The parsed scheme: case, surrounding spaces and tabs inside do not matter. A `data:`
+  // destination is a document the markup wrote, not the page, and `vbscript:` never runs.
+  if (target.protocol === "data:" || target.protocol === "vbscript:") return "form-off-origin";
+  if (target.protocol === "javascript:") return undefined;
+  return target.origin === origin ? undefined : "form-off-origin";
 }
