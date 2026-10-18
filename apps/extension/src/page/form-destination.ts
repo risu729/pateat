@@ -23,14 +23,28 @@ export function submitsForm(
 }
 
 /**
- * The element a click on `element` activates: the nearest one from it up that a click
- * acts on (a link, a button, an input or a label), with a label standing for its labeled
- * control. A `role="button"` inside a `<button>`, or a label of a submit button, submits
- * that button's form; `element` itself when nothing around it acts on a click.
+ * The controls a click on `element` can submit a form through: the nearest link, area,
+ * button or input from it up (a `role="button"` inside a `<button>` submits the button's
+ * form), else `element` itself, and the control of a `<label>` around it. A label does
+ * not take the click from a button around it, so both count.
  */
-export function activatedBy(element: Element): Element {
-  const activated = element.closest("a[href], area[href], button, input, label") ?? element;
-  return activated instanceof HTMLLabelElement ? (activated.control ?? activated) : activated;
+function clickedControls(element: Element): Element[] {
+  const control = element.closest("a[href], area[href], button, input") ?? element;
+  const labelled = element.closest("label")?.control;
+  return labelled && labelled !== control ? [control, labelled] : [control];
+}
+
+/**
+ * Why a click on `element` may not run: a control it submits a form through would send
+ * that form off the document's origin ({@link formRefusal}). A click that submits no form
+ * has nothing to check.
+ */
+export function clickRefusal(element: Element): FormRefusal | undefined {
+  for (const control of clickedControls(element)) {
+    const refused = submitsForm(control) ? formRefusal(control, "click") : undefined;
+    if (refused) return refused;
+  }
+  return undefined;
 }
 
 /** The URL of `control`'s document, read past any element the document names `URL`. */

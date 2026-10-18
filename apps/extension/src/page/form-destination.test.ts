@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { activatedBy, formRefusal, submitsForm } from "./form-destination";
+import { clickRefusal, formRefusal, submitsForm } from "./form-destination";
 
 afterEach(() => {
   document.body.innerHTML = "";
@@ -337,27 +337,26 @@ describe("submitsForm", () => {
   });
 });
 
-describe("activatedBy", () => {
-  it("is the submit button around or labelled by the clicked element", () => {
-    document.body.innerHTML = `<form action="${attacker}"><input name="password"><button id="submit"><span id="inner" role="button">Log in</span></button><label id="label" for="other" role="button">Log in</label><input id="other" type="submit"><label id="wrapping" role="button"><span id="in-label">Log in</span><input id="wrapped" type="image" alt="Log in"></label></form>`;
-    expect(activatedBy(document.getElementById("inner")!).id).toBe("submit");
-    expect(activatedBy(document.getElementById("label")!).id).toBe("other");
-    expect(activatedBy(document.getElementById("in-label")!).id).toBe("wrapped");
-    for (const id of ["inner", "label", "in-label"]) {
-      const submitter = activatedBy(document.getElementById(id)!);
-      expect(submitsForm(submitter), id).toBe(true);
-      if (submitsForm(submitter))
-        expect(formRefusal(submitter, "click"), id).toBe("form-off-origin");
+describe("clickRefusal", () => {
+  it("checks the submit button around or labelled by the clicked element", () => {
+    for (const [action, refusal] of [
+      [attacker, "form-off-origin"],
+      ["/login", undefined],
+    ] as const) {
+      document.body.innerHTML = `<form action="${action}"><input id="q" name="q"><button id="submit"><span id="inner" role="button">Log in</span><label id="bare-in-button" role="button">Log in</label><label id="text-in-button" for="q" role="button">Log in</label></button><label id="label" for="other" role="button">Log in</label><input id="other" type="submit"><label role="button"><span id="in-label">Log in</span><input type="image" alt="Log in"></label></form>`;
+      for (const id of ["inner", "bare-in-button", "text-in-button", "label", "in-label"])
+        expect(clickRefusal(document.getElementById(id)!), `${action} ${id}`).toBe(refusal);
     }
   });
 
-  it("is the element itself, or the link around it, when no control takes the click", () => {
-    document.body.innerHTML =
-      '<form action="/login"><div id="div" role="button">Log in</div><a id="link" href="/next"><span id="in-link">Next</span></a><label id="bare" role="button">Log in</label></form>';
-    expect(activatedBy(document.getElementById("div")!).id).toBe("div");
-    expect(activatedBy(document.getElementById("in-link")!).id).toBe("link");
-    expect(activatedBy(document.getElementById("bare")!).id).toBe("bare");
-    for (const id of ["div", "in-link", "bare"])
-      expect(submitsForm(activatedBy(document.getElementById(id)!)), id).toBe(false);
+  it("checks a label's submit button in another form", () => {
+    document.body.innerHTML = `<form action="/login"><label id="label" for="other" role="button">Log in</label></form><form action="${attacker}"><input id="other" type="submit"></form>`;
+    expect(clickRefusal(document.getElementById("label")!)).toBe("form-off-origin");
+  });
+
+  it("has nothing to check for a click that submits no form", () => {
+    document.body.innerHTML = `<form action="${attacker}"><div id="div" role="button">Log in</div><a id="link" href="/next"><span id="in-link">Next</span></a><label id="bare" role="button">Log in</label><button id="button" type="button">Next</button></form>`;
+    for (const id of ["div", "in-link", "bare", "button"])
+      expect(clickRefusal(document.getElementById(id)!), id).toBeUndefined();
   });
 });
