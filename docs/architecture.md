@@ -257,25 +257,29 @@ need an explicit support test; missing support is reported, never guessed.
 
 The isolated URI matcher evaluates provider candidates only, following the
 [pinned provider modes](https://github.com/bitwarden/clients/blob/8246ae9c9a484a0a69f8b27203034555fb872523/libs/common/src/vault/models/view/login-uri.view.ts#L132-L207).
-It supports Domain,
-Host, raw-string Exact and StartsWith, and Never. Regex returns an explicit
-unsupported result without executing a pattern. Domain matching uses tldts after
-WHATWG URL parsing, including private suffixes and direct equivalent-domain
-groups from the same account. Host includes the parsed port; Exact and StartsWith
-preserve the original strings. A backslash is refused before the query, in a page URL
-and in a stored URI alike: WHATWG reads `https://bank.example\@evil.test` as host
-`bank.example` where other parsers, such as Python's `urlsplit`, read `evil.test`, and
-WHATWG rewrites one in the path to `/`. In the query or fragment, as in
-`https://bank.example/login?next=a\b`, it is kept, and such a page and URI match like
-any other. Malformed or unsupported individual stored URIs
-receive unavailable metadata without blocking unrelated valid candidates.
-Equivalent groups and the effective default mode are retained with the prepared
-account snapshot; an unavailable or conflicting context makes the affected URIs
-unavailable instead of falling back. A group entry that is not a hostname, such as
-a URL, `host:port`, an empty entry or a name over 253 characters, is ignored and the
-rest of its group applies, as in the official clients; malformed group structure
-still marks the groups unavailable.
-Decrypted URI rules stay in the crypto Worker.
+It supports Domain, Host, raw-string Exact and StartsWith, and Never. Regex returns an
+explicit unsupported result without executing a pattern. Domain matching uses tldts
+after WHATWG URL parsing, including private suffixes and direct equivalent-domain groups
+from the same account. Host includes the parsed port; Exact and StartsWith preserve the
+original strings. A backslash in the query or fragment, as in
+`https://bank.example/login?next=a\b`, is kept in a page URL and a stored URI, and they
+match like any other. Before the query or fragment, a page URL with one is refused:
+WHATWG reads `https://bank.example\@evil.test` as host `bank.example` where other
+parsers, such as Python's `urlsplit`, read `evil.test`, and WHATWG rewrites one in the
+path to `/`, so a tab URL never holds one there. A stored URI with an `http://` or
+`https://` scheme is read there as the pinned client reads it: WHATWG URL (its Host
+match) and tldts (its Domain match) both end the host at the backslash, so
+`https://bank.example\@evil.test` and `https://bank.example/a\b` match `bank.example`. A
+bare-host stored URI with one, such as `bank.example\@evil.test`, is invalid, because
+there the pinned client's two readings differ (tldts reads `evil.test`). Malformed or
+unsupported individual stored URIs receive unavailable metadata without blocking
+unrelated valid candidates. Equivalent groups and the effective default mode are
+retained with the prepared account snapshot; an unavailable or conflicting context makes
+the affected URIs unavailable instead of falling back. A group entry that is not a
+hostname, such as a URL, `host:port`, an empty entry or a name over 253 characters, is
+ignored and the rest of its group applies, as in the official clients; malformed group
+structure still marks the groups unavailable. Decrypted URI rules stay in the crypto
+Worker.
 
 Deliberate differences from the official Bitwarden clients, to be reconsidered later:
 
@@ -288,10 +292,9 @@ Deliberate differences from the official Bitwarden clients, to be reconsidered l
   not such a case: it is ignored, as the official clients effectively do.
 - The official clients' device-local default match setting is not visible to Pateat;
   Domain is used unless an enforced organization policy applies.
-- A stored URI with a backslash before its query, such as
-  `https://bank.example\@evil.test` or `https://bank.example/a\b`, is reported invalid.
-  The official clients parse it with WHATWG URL and tldts, which both read the host as
-  `bank.example`, and match it.
+- A bare-host stored URI with a backslash before its query or fragment, such as
+  `bank.example\@evil.test`, is reported invalid. The official clients match it as
+  `evil.test` with Domain and as `bank.example` with Host.
 
 A provider match and its descriptive target origin are not a credential-release
 grant. Raw StartsWith can match a different host with the same prefix. Live

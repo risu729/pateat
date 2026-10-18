@@ -15,8 +15,8 @@ const revision = v.pipe(
 
 /**
  * Only explicit HTTP(S) URLs are policy inputs; no credentials or ambiguous separators.
- * A backslash is ambiguous only before the query: parsers disagree on it in the authority,
- * and WHATWG rewrites it to `/` in the path, but keeps it as is in the query and fragment.
+ * A backslash is ambiguous only before the query or fragment: parsers disagree on it in the
+ * authority, and WHATWG rewrites it to `/` in the path, but keeps it in the query and fragment.
  */
 export function parseSiteUrl(value: string): URL | undefined {
   if (/\s/.test(value) || (value.split(/[?#]/, 1)[0] ?? "").includes("\\")) return undefined;

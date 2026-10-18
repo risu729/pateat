@@ -84,10 +84,11 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null &&
   !Array.isArray(value) &&
   (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null);
-// Parsers disagree on a backslash in the authority and WHATWG rewrites it in the path, but
-// it stays as is in the query and fragment, where the pinned client compares raw strings.
-const ambiguous = (value: string) =>
-  /\p{Cc}/u.test(value) || (value.split(/[?#]/u, 1)[0] ?? "").includes("\\");
+const controlled = (value: string) => /\p{Cc}/u.test(value);
+// Parsers disagree on a backslash in the authority and WHATWG rewrites it in the path; it
+// stays as is in the query and fragment, where the pinned client compares raw strings.
+const backslashBeforeQuery = (value: string) => (value.split(/[?#]/u, 1)[0] ?? "").includes("\\");
+const ambiguous = (value: string) => controlled(value) || backslashBeforeQuery(value);
 const hasHostnameLabels = (hostname: string) =>
   hostname.startsWith("[") ||
   hostname
@@ -96,15 +97,18 @@ const hasHostnameLabels = (hostname: string) =>
     .every((label) => label.length > 0);
 
 function webUrl(value: string, allowBareHost: boolean): URL | undefined {
-  if (!value || value.length > maxUrlLength || ambiguous(value)) return undefined;
+  if (!value || value.length > maxUrlLength || controlled(value)) return undefined;
   if (!allowBareHost && /\s/u.test(value)) return undefined;
-  let candidate = value;
-  if (allowBareHost) {
-    candidate = candidate.trim();
-    if (!candidate.includes("://") && candidate.includes(".")) candidate = `http://${candidate}`;
-  }
+  let candidate = value.trim();
+  const bareHost = allowBareHost && !candidate.includes("://") && candidate.includes(".");
+  if (bareHost) candidate = `http://${candidate}`;
+  // A stored URI with its own scheme may hold a backslash before the query: WHATWG URL (the
+  // pinned client's Host match) and tldts (its Domain match) both end the authority there, as
+  // in `https://bank.example\@evil.test` for `bank.example`. For a bare host they disagree,
+  // as tldts reads `bank.example\@evil.test` as `evil.test`; a target never holds one.
+  if ((!allowBareHost || bareHost) && backslashBeforeQuery(candidate)) return undefined;
   if (!/^https?:\/\/[^/]/iu.test(candidate)) return undefined;
-  const authority = /^https?:\/\/([^/?#]*)/iu.exec(candidate)?.[1];
+  const authority = /^https?:\/\/([^/\\?#]*)/iu.exec(candidate)?.[1];
   if (!authority || authority.includes("@")) return undefined;
   const url = URL.parse(candidate);
   if (!url) return undefined;
