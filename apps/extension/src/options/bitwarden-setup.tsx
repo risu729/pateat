@@ -245,7 +245,8 @@ export function BitwardenSetup({
     if (passwordInput.current) passwordInput.current.value = "";
     if (codeInput.current) codeInput.current.value = "";
   }
-  async function readConnections(epoch: number) {
+  /** `added` is the snapshot of this page's own add; only the read after it ends may clear the form. */
+  async function readConnections(epoch: number, added?: Set<string>) {
     const result = await client.list();
     if (epoch !== generation.current) return;
     if (!result.ok || result.kind !== "status") throw new Error("Connection metadata unavailable.");
@@ -253,16 +254,20 @@ export function BitwardenSetup({
     setStatusKnown(true);
     // The background keeps a new connection even when its first sign-in fails; once its
     // row is listed, "Sign in again" completes it and the add form must not register it twice.
-    const before = addedFrom.current;
-    if (before && result.connections.some((connection) => !before.has(connection.connectionId))) {
-      addedFrom.current = undefined;
+    if (added && result.connections.some((connection) => !added.has(connection.connectionId))) {
       setName("");
       setEmail("");
     }
   }
   /** Rows may have changed after an error or cancellation; a failed read keeps the message. */
-  function rereadConnections(epoch: number) {
-    return readConnections(epoch).catch(() => undefined);
+  function rereadConnections(epoch: number, added?: Set<string>) {
+    return readConnections(epoch, added).catch(() => undefined);
+  }
+  /** Ends this page's add: a later read, such as Refresh, must not clear a draft edited since. */
+  function takeAdded() {
+    const added = addedFrom.current;
+    addedFrom.current = undefined;
+    return added;
   }
   useEffect(() => {
     const epoch = ++generation.current;
@@ -301,7 +306,7 @@ export function BitwardenSetup({
       // A resolved error may follow a durable cache/configuration change.
       // Preserve the draft and require a fresh catalog before another settings save.
       onCatalogChanged();
-      await rereadConnections(epoch);
+      await rereadConnections(epoch, takeAdded());
       return;
     }
     if (result.kind === "mfa-required" || result.kind === "new-device-verification-required") {
@@ -320,6 +325,7 @@ export function BitwardenSetup({
       return;
     }
     setChallenge(undefined);
+    const added = takeAdded();
     if (result.kind === "ready") {
       setMessage(
         result.policyReviewItemIds.length
@@ -328,13 +334,13 @@ export function BitwardenSetup({
       );
       setExisting(undefined);
       catalogChanged.current();
-      await readConnections(epoch);
+      await readConnections(epoch, added);
     } else if (result.kind === "interaction-required") {
       setMessage(`Setup is incomplete: ${result.reason}. This interaction is not supported here.`);
-      await rereadConnections(epoch);
+      await rereadConnections(epoch, added);
     } else if (result.kind === "cancelled") {
       setMessage("Setup cancelled.");
-      await rereadConnections(epoch);
+      await rereadConnections(epoch, added);
     } else if (result.kind === "status") setConnections(result.connections);
     else if (result.kind === "forgotten") {
       setMessage(
@@ -366,6 +372,7 @@ export function BitwardenSetup({
     void action(epoch)
       .catch(() => {
         if (epoch !== generation.current) return;
+        addedFrom.current = undefined;
         setChallenge(undefined);
         setMessage(
           "The operation could not be confirmed. Refresh and reload saved settings. Your previous draft is preserved.",
@@ -435,6 +442,7 @@ export function BitwardenSetup({
   function cancel(stopped = "Setup stopped. Refresh to confirm the latest state.") {
     const running = operation.current || !!challenge;
     const epoch = ++generation.current;
+    const added = takeAdded();
     operation.current = false;
     clearSecrets();
     setChallenge(undefined);
@@ -447,7 +455,7 @@ export function BitwardenSetup({
     client.close();
     setMessage(stopped);
     catalogChanged.current();
-    void rereadConnections(epoch);
+    void rereadConnections(epoch, added);
   }
   function syncConnection(connection: Connection) {
     if (operation.current) return;
