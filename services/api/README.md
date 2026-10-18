@@ -214,37 +214,39 @@ the path ending before it), or `{ check: "plan", reason }` with the plan check's
   recipe back, a `base` whose recipe is revoked answers `recipe-revoked` while the
   revoked recipe's start page is generated again as the revision after its tombstone, a
   `base` whose recipe was not generated for this origin and its start path answers
-  `recipe-conflict`. A first page needs room under the active recipe count limit;
-  every generated page, including continuations and entry pages, needs at least 32 KiB
-  of byte room before the model call. A refused write after the call also answers
-  `recipe-limit`. A judge write refused for bytes keeps the page's answer
-  (`challenge`, or `signed-in` once the recipe has a marker or the page is on another
-  origin of the site) and is logged; only a first marker on the recipe's own origin
-  refused for bytes answers `recipe-limit`. A `base` that is not a
-  generated recipe ID is 400. The model maps the
-  slots, the plan is checked with `validatePagePlan`, and the steps are stored with a
-  conditional write. Up to 20 slots are accepted; a slot with a `fieldName` (and
-  `fieldPosition` for a duplicate name) is a custom-field offer, and each offer names a
-  different field ([ADR 0027](../../docs/adr/0027-per-account-login-routes.md)). The
-  model gives each offer it uses a generic ID in lowercase words, such as
-  `branch-number`, which the steps store instead of the request's slot ID. The answer
-  that wrote the recipe adds `customSlots: [{ slot, offered }]` for those slots; an
-  answer with a recipe another request stored has none. On a continuation, a generic ID
-  the `base` recipe already uses answers `failed` with `recipe-invalid`. A start page
-  that offers several identifier sets (such as branch and account numbers, or a contract
+  `recipe-conflict`. A first page needs room under the active recipe count limit; every
+  generated page, including continuations and entry pages, needs at least 32 KiB of byte
+  room before the model call. A refused write after the call also answers
+  `recipe-limit`. A judge write refused for bytes keeps the page's answer (`challenge`,
+  or `signed-in` once the recipe has a marker or the page is on another origin of the
+  site) and is logged; only a first marker on the recipe's own origin refused for bytes
+  answers `recipe-limit`. A `base` that is not a generated recipe ID is 400. The model
+  maps the slots, the plan is checked with `validateGeneratedPage`, and the steps are
+  stored with a conditional write. Up to 20 slots are accepted; a slot with a
+  `fieldName` (and `fieldPosition` for a duplicate name) is a custom-field offer, and
+  each offer names a different field
+  ([ADR 0027](../../docs/adr/0027-per-account-login-routes.md)). Each offer the plan
+  uses is named from the page's text for its element, such as `店番号`
+  (`customSlotNames` in `packages/inference`), and the steps store that name instead of
+  the request's slot ID; the model gives no names. The answer that wrote the recipe adds
+  `customSlots: [{ slot, offered }]` for those slots; an answer with a recipe another
+  request stored has none. On a continuation, a name the `base` recipe already uses,
+  compared without case, answers `failed` with `recipe-invalid`. A start page that
+  offers several identifier sets (such as branch and account numbers, or a contract
   number) may get up to 3 `alternatives`, each with its own `slots` and `steps`, stored
   as further variants of the recipe's `password` route; the top-level `slots` and
   `steps` are its first variant. Each variant fills exactly its slots, starts on the
   start path and submits, so a recipe with alternatives is never continued. No element
   is filled as different slots in different variants, and no two variants fill the same
-  elements. A continuation's answer has its alternatives dropped before assembly.
-  `customSlots` covers the custom slots of every variant, and the request log records
-  the alternatives with the plan. The answer may also name the start page's passkey
-  sign-in button (`passkeyButton`); a candidate with the button role whose label or
-  locator names a passkey or security key, not named like a registration and not used by
-  any set or the account switch is stored as the recipe's `passkey` route, any other is
-  dropped without failing the call, and a continuation's is ignored. The request log
-  records the kept button.
+  elements. A continuation's answer, or a chooser branch page's, has its alternatives
+  checked and dropped before its slots are named, so they name none. `customSlots`
+  covers the custom slots of every variant, and the request log records the alternatives
+  with the plan (on a continuation or chooser-branch page, only in `answer`). The answer
+  may also name the start page's passkey sign-in button (`passkeyButton`); a candidate
+  with the button role whose label or locator names a passkey or security key, not named
+  like a registration and not used by any set or the account switch is stored as the
+  recipe's `passkey` route, any other is dropped without failing the call, and a
+  continuation's is dropped. The request log records the kept button.
 - `POST /v1/recipes/generate` also takes `{ version: 1, observation }` without `slots`:
   an entry request ([ADR 0031](../../docs/adr/0031-sign-in-entry-pages.md)) for a page
   without a login form, whose observation has no fill candidate and no `accounts`, and
@@ -376,8 +378,8 @@ Since 2026-10-18
 it also records the recipe the call is for (`recipe_id`, `branch`, empty without one),
 `base_revision` (the head revision when the call was made: 0 for none, the tombstone's
 for a revoked recipe generated again, the judged one for the judge), `recipe_page` for
-generation (`first` for a page sent without a base: a new recipe, one generated again,
-a list of accounts or an entry page; `continuation` for one sent with a base, a chooser
+generation (`first` for a page sent without a base: a new recipe, one generated again, a
+list of accounts or an entry page; `continuation` for one sent with a base, a chooser
 branch's pages included), `build` (`PATEAT_BUILD_REVISION`) and `observation_hash` (12
 hex digits of the SHA-256 of the request's observation as JSON). `callClaude` returns
 the row's ID, and once the answer's recipe write succeeds `keepLogRevision` sets
@@ -398,19 +400,16 @@ and adds the call's `token` and `model` to `Server-Timing`. `answer` holds
 the model's own answer for every decision, `unclear` and refused output included, before
 the local checks: `{ "decision": "signed-in", "marker": "c7" }`, or a generated plan
 with a passkey button the plan check dropped. A candidate or slot it names that is not
-one of the request's IDs is `?` and each generated name `name-N`, as for a refused plan
-below; output the response format refused has no answer. For `invalid-output`,
-the result is `{ rejection }` when a check named it (the judge role's
-check of its marker refuses without one, leaving the result empty) and, when the plan
-check refused a plan, that plan as `output`: a candidate or slot that is not one of the
-request's IDs becomes `?`, and each name the model gave that is not a request slot ID
-becomes `name-1`, `name-2` and so on by first appearance, so equal names stay visible.
-An unchecked string may quote the page or a field name, so the model's text is never
-stored, and the Worker logs only `Model output refused` with the role, its prompt
-version and the `rejection`. A schema `path` resolves each key where the output format
-defines it, so a key the format defines only in another object also ends the path as
-`unknown-key`; the options of a variant are read together, so a key of a sibling option
-gives that object's issue instead.
+one of the request's IDs is `?`, as for a refused plan below; output the response format
+refused has no answer. For `invalid-output`, the result is `{ rejection }` when a check
+named it (the judge role's check of its marker refuses without one, leaving the result
+empty) and, when the plan check refused a plan, that plan as `output`: a candidate or
+slot that is not one of the request's IDs becomes `?`. An unchecked string may quote the
+page or a field name, so the model's text is never stored, and the Worker logs only
+`Model output refused` with the role, its prompt version and the `rejection`. A schema
+`path` resolves each key where the output format defines it, so a key the format defines
+only in another object also ends the path as `unknown-key`; the options of a variant are
+read together, so a key of a sibling option gives that object's issue instead.
 
 A request answered without a model call is logged too
 ([ADR 0012](../../docs/adr/0012-inference-request-log.md#amendment-2026-10-18-requests-answered-without-a-model-call)),

@@ -114,7 +114,7 @@ test("shows a recipe's steps, targets and JSON, then revokes it", async () => {
   const details = recipeItem("bank-signin");
   for (const text of [
     "Revision2, updated 2026-10-11 08:15 UTC",
-    'Fill username into id "username", password into name "pass" (prepare)',
+    'Fill "username" into id "username", "password" into name "pass" (prepare)',
     'Click test-id "go" to submit',
     'id "welcome" on any page',
     'Rejectionid "login-error"',
@@ -205,17 +205,19 @@ test("lists only the recipes of the site the page is for", async () => {
 });
 
 test("lists each identifier set of a recipe with several (ADR 0027)", async () => {
+  // A custom-field slot named from the page's text, which may hold brackets.
+  const member = "会員番号 (ログインID)";
   const varied = recipe("bank-signin", 1);
   varied.alternatives = [
     {
-      slots: ["contract-number", "password"],
+      slots: [member, "password"],
       steps: [
         {
           kind: "fill",
           effect: "prepare",
           path: "/login",
           fields: [
-            { slot: "contract-number", target: { by: "id", value: "contract" } },
+            { slot: member, target: { by: "id", value: "contract" } },
             { slot: "password", target: { by: "name", value: "pass" } },
           ],
         },
@@ -240,13 +242,16 @@ test("lists each identifier set of a recipe with several (ADR 0027)", async () =
   await mount(client);
   const details = recipeItem("bank-signin");
   for (const text of [
-    "Slotsusername, password, contract-number",
-    "Identifier set 1 (username, password)",
-    "Identifier set 2 (contract-number, password)",
-    'Fill contract-number into id "contract", password into name "pass" (prepare)',
+    `Slots"username", "password", "${member}"`,
+    'Identifier set 1 ("username", "password")',
+    `Identifier set 2 ("${member}", "password")`,
+    `Fill "${member}" into id "contract", "password" into name "pass" (prepare)`,
   ])
     // oxlint-disable-next-line no-await-in-loop -- one element, checked in order
     await expect.element(details).toMatchTextContent(text);
+  // Each name is isolated from the text around it.
+  const isolated = [...details.element().querySelectorAll("bdi")].map((node) => node.textContent);
+  expect(isolated.filter((text) => text === member)).toHaveLength(3);
 });
 
 test("shows a recipe's passkey sign-in route (ADR 0027)", async () => {

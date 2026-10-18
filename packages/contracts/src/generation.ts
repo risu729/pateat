@@ -1,7 +1,7 @@
 import * as v from "valibot";
 import {
+  customSlotIdSchema,
   fillRoles,
-  genericSlotIdSchema,
   loginObservationSchema,
   semanticSlotsSchema,
   type LoginObservation,
@@ -236,13 +236,14 @@ export const recipeGenerationResultSchema = v.pipe(
       status: v.literal("recipe"),
       change: activeChange,
       /**
-       * Each recipe slot this call named for a custom-field offer, and the request slot it
-       * fills (ADR 0027). The extension turns it into a binding; the recipe itself never
-       * carries field names. Absent when the answer is a recipe another request produced.
+       * Each recipe slot this call named from the page's text for a custom-field offer, and
+       * the request slot it fills (ADR 0027). The extension turns it into a binding; the
+       * recipe itself never carries field names. Absent when the answer is a recipe another
+       * request produced.
        */
       customSlots: v.optional(
         v.pipe(
-          v.array(v.strictObject({ slot: genericSlotIdSchema, offered: slotReference })),
+          v.array(v.strictObject({ slot: customSlotIdSchema, offered: slotReference })),
           v.minLength(1),
           // One page plan fills at most 8 fields in each of up to 4 variants, and a request
           // offers at most 16 custom fields (ADR 0027).

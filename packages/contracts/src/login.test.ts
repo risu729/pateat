@@ -444,6 +444,26 @@ describe("declarative login boundaries", () => {
     ).toBe(false);
   });
 
+  it("takes a custom-field slot named from the page's text (ADR 0027)", () => {
+    const rename = (slot: string) => {
+      const named = recipe();
+      named.slots[0] = slot;
+      const fill = named.steps[0] as Extract<LoginRecipe["steps"][number], { kind: "fill" }>;
+      fill.fields[0]!.slot = slot;
+      const bound = binding();
+      bound.slots[0]!.slot = slot;
+      return [named, bound] as const;
+    };
+    const [named, bound] = rename("会員番号 (ログインID)");
+    expect(parseLoginRecipe(named)).toEqual(named);
+    expect(parseLoginAccountBinding(bound)).toEqual(bound);
+    for (const slot of ["店番  号", " 店番号", "店番\u3000号", "Ｂｒａｎｃｈ", "a".repeat(61)]) {
+      const [recipeWith, bindingWith] = rename(slot);
+      expect(() => parseLoginRecipe(recipeWith), slot).toThrow();
+      expect(() => parseLoginAccountBinding(bindingWith), slot).toThrow();
+    }
+  });
+
   it("rejects duplicate bindings and secret-shaped extras", () => {
     const valid = binding();
     for (const malformed of [

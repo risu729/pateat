@@ -260,6 +260,19 @@ describe("synced account bindings", () => {
     );
   });
 
+  it("saves a slot named from the page's text, as the recipe slot schema allows (ADR 0027)", () => {
+    const field = { custom: "支店番号" };
+    for (const [slot, valid] of [
+      ["店番号", true],
+      ["会員番号 (ログインID)", true],
+      ["店番  号", false],
+      ["Ｂｒａｎｃｈ", false],
+    ] as const)
+      expect(v.is(savedLoginBindingSchema, binding({ slots: [{ slot, field }] })), slot).toBe(
+        valid,
+      );
+  });
+
   it("rejects duplicate slots in one binding", () => {
     const field = "password" as const;
     expect(

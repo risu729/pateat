@@ -26,10 +26,3 @@ export const slots = {
   },
   code: { id: "one-time-code", kind: "one-time-code", description: "one-time authentication code" },
 } as const satisfies Record<string, SemanticSlot>;
-
-/** The generic recipe slot ID a careful mapping gives each custom-field slot above. */
-export const customSlotNames: Readonly<Record<string, string>> = {
-  "custom-1": "branch-number",
-  "custom-2": "account-number",
-  "custom-3": "contract-number",
-};

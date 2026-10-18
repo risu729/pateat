@@ -1568,7 +1568,7 @@ describe("custom-field slots (ADR 0027)", () => {
     element("sign-in", "button", "Sign in"),
   ]);
   const named = (
-    fields: { slot: string; candidate: string; name?: string }[],
+    fields: { slot: string; candidate: string }[],
     action: string,
     purpose: "advance" | "submit",
   ) =>
@@ -1586,13 +1586,13 @@ describe("custom-field slots (ADR 0027)", () => {
     return (await response.json()) as RecipeGenerationResult;
   }
 
-  it("stores the generic name and answers the mapping only to the call that wrote it", async () => {
+  it("stores the page's name for the field and answers the mapping only to the call that wrote it", async () => {
     const device = await owner();
     replies.push({
       text: named(
         [
           { slot: "email", candidate: "email" },
-          { slot: "custom-1", candidate: "branch", name: "branch-number" },
+          { slot: "custom-1", candidate: "branch" },
         ],
         "next",
         "advance",
@@ -1601,8 +1601,8 @@ describe("custom-field slots (ADR 0027)", () => {
     const first = await generateCustom(device, branchPage);
     expect(first).toMatchObject({
       status: "recipe",
-      change: { revision: 1, recipe: { slots: ["email", "branch-number"] } },
-      customSlots: [{ slot: "branch-number", offered: "custom-1" }],
+      change: { revision: 1, recipe: { slots: ["email", "Branch"] } },
+      customSlots: [{ slot: "Branch", offered: "custom-1" }],
     });
     if (first.status !== "recipe") return;
     // The recipe never carries the vault field names.
@@ -1610,7 +1610,7 @@ describe("custom-field slots (ADR 0027)", () => {
     expect(route(first.change.recipe).steps[0]).toMatchObject({
       fields: [
         { slot: "email", target: { by: "id", value: "email" } },
-        { slot: "branch-number", target: { by: "id", value: "branch" } },
+        { slot: "Branch", target: { by: "id", value: "branch" } },
       ],
     });
     // A request answered with the stored recipe gets no mapping.
@@ -1620,7 +1620,7 @@ describe("custom-field slots (ADR 0027)", () => {
 
     // A continuation maps only its own page's custom slots.
     replies.push({
-      text: named([{ slot: "custom-2", candidate: "pin", name: "pin-code" }], "sign-in", "submit"),
+      text: named([{ slot: "custom-2", candidate: "pin" }], "sign-in", "submit"),
     });
     const second = await generateCustom(device, pinPage, {
       recipeId: first.change.recipeId,
@@ -1628,45 +1628,47 @@ describe("custom-field slots (ADR 0027)", () => {
     });
     expect(second).toMatchObject({
       status: "recipe",
-      change: { revision: 2, recipe: { slots: ["email", "branch-number", "pin-code"] } },
-      customSlots: [{ slot: "pin-code", offered: "custom-2" }],
+      change: { revision: 2, recipe: { slots: ["email", "Branch", "PIN"] } },
+      customSlots: [{ slot: "PIN", offered: "custom-2" }],
     });
   });
 
-  it("drops the alternatives of a continuation's answer", async () => {
+  it("drops the alternatives of a continuation's answer, which name no slot", async () => {
     const device = await owner();
     replies.push({
-      text: named(
-        [{ slot: "custom-1", candidate: "branch", name: "branch-number" }],
-        "next",
-        "advance",
-      ),
+      text: named([{ slot: "custom-1", candidate: "branch" }], "next", "advance"),
     });
     const first = await generateCustom(device, branchPage);
     if (first.status !== "recipe") throw new Error(first.status);
+    // An earlier field named the same, which only the dropped alternative fills, would
+    // have taken the name and left `PIN 2` stored without a `PIN`.
+    const twoPinPage = observation("/password", [
+      element("old-pin", "text", "PIN"),
+      ...pinPage.candidates,
+    ]);
     replies.push({
       text: JSON.stringify({
         result: {
           decision: "plan",
-          fields: [{ slot: "custom-2", candidate: "pin", name: "pin-code" }],
+          fields: [{ slot: "custom-2", candidate: "pin" }],
           action: { candidate: "sign-in", purpose: "submit" },
           alternatives: [
             {
-              fields: [{ slot: "custom-1", candidate: "again", name: "branch-number" }],
+              fields: [{ slot: "custom-1", candidate: "old-pin" }],
               action: { candidate: "sign-in", purpose: "submit" },
             },
           ],
         },
       }),
     });
-    const second = await generateCustom(device, pinPage, {
+    const second = await generateCustom(device, twoPinPage, {
       recipeId: first.change.recipeId,
       revision: 1,
     });
     expect(second).toMatchObject({
       status: "recipe",
-      change: { revision: 2, recipe: { slots: ["branch-number", "pin-code"] } },
-      customSlots: [{ slot: "pin-code", offered: "custom-2" }],
+      change: { revision: 2, recipe: { slots: ["Branch", "PIN"] } },
+      customSlots: [{ slot: "PIN", offered: "custom-2" }],
     });
     if (second.status !== "recipe") return;
     expect(second.change.recipe).not.toHaveProperty("alternatives");
@@ -1683,24 +1685,22 @@ describe("custom-field slots (ADR 0027)", () => {
   it("fails a continuation that reuses a slot name the recipe already has", async () => {
     const device = await owner();
     replies.push({
-      text: named(
-        [{ slot: "custom-1", candidate: "branch", name: "branch-number" }],
-        "next",
-        "advance",
-      ),
+      text: named([{ slot: "custom-1", candidate: "branch" }], "next", "advance"),
     });
     const first = await generateCustom(device, branchPage);
     if (first.status !== "recipe") throw new Error(first.status);
-    // Another offered field under the same generic name would merge two fields.
-    replies.push({
-      text: named(
-        [{ slot: "custom-2", candidate: "pin", name: "branch-number" }],
-        "sign-in",
-        "submit",
-      ),
-    });
+    // Another offered field the next page names the same, in any case, would merge two
+    // fields; it is refused, not numbered apart (ADR 0018).
+    const branchPinPage = observation("/password", [
+      { ...element("pin", "tel", "BRANCH"), maxLength: 4 },
+      element("sign-in", "button", "Sign in"),
+    ]);
+    replies.push({ text: named([{ slot: "custom-2", candidate: "pin" }], "sign-in", "submit") });
     expect(
-      await generateCustom(device, pinPage, { recipeId: first.change.recipeId, revision: 1 }),
+      await generateCustom(device, branchPinPage, {
+        recipeId: first.change.recipeId,
+        revision: 1,
+      }),
     ).toEqual({ version: 1, status: "failed", error: "recipe-invalid" });
     const head = await rows(
       "SELECT revision FROM recipe_revisions WHERE owner_id = ? AND recipe_id = ?",
@@ -1718,7 +1718,7 @@ describe("custom-field slots (ADR 0027)", () => {
       id: recipeId,
       revision: 1,
       origin: ORIGIN,
-      slots: ["email", "branch-number"],
+      slots: ["email", "Branch"],
       steps: [
         {
           kind: "fill",
@@ -1726,7 +1726,7 @@ describe("custom-field slots (ADR 0027)", () => {
           effect: "prepare",
           fields: [
             { slot: "email", target: { by: "id", value: "email" } },
-            { slot: "branch-number", target: { by: "id", value: "branch" } },
+            { slot: "Branch", target: { by: "id", value: "branch" } },
           ],
         },
         { kind: "click", path: "/login", target: { by: "id", value: "next" }, purpose: "advance" },
@@ -1746,7 +1746,7 @@ describe("custom-field slots (ADR 0027)", () => {
       text: named(
         [
           { slot: "email", candidate: "email" },
-          { slot: "custom-1", candidate: "branch", name: "branch-number" },
+          { slot: "custom-1", candidate: "branch" },
         ],
         "next",
         "advance",
@@ -3272,12 +3272,12 @@ describe("password route variants (ADR 0027)", () => {
     element("sign-in", "button", "Sign in"),
   ]);
   const byBranch = [
-    { slot: "custom-1", candidate: "branch", name: "branch-number" },
-    { slot: "custom-2", candidate: "account", name: "account-number" },
+    { slot: "custom-1", candidate: "branch" },
+    { slot: "custom-2", candidate: "account" },
     { slot: "password", candidate: "password" },
   ];
   const byContract = [
-    { slot: "custom-3", candidate: "contract", name: "contract-number" },
+    { slot: "custom-3", candidate: "contract" },
     { slot: "password", candidate: "password" },
   ];
   const twoSets = (alternative = byContract, purpose: "advance" | "submit" = "submit") =>
@@ -3308,29 +3308,35 @@ describe("password route variants (ADR 0027)", () => {
       change: {
         revision: 1,
         recipe: {
-          slots: ["branch-number", "account-number", "password"],
-          alternatives: [{ slots: ["contract-number", "password"] }],
+          slots: ["Branch", "Account", "password"],
+          alternatives: [{ slots: ["Or contract number", "password"] }],
           maxSubmissions: 1,
         },
       },
       // The password slot is named in both sets but is no custom slot; each name once.
       customSlots: [
-        { slot: "branch-number", offered: "custom-1" },
-        { slot: "account-number", offered: "custom-2" },
-        { slot: "contract-number", offered: "custom-3" },
+        { slot: "Branch", offered: "custom-1" },
+        { slot: "Account", offered: "custom-2" },
+        { slot: "Or contract number", offered: "custom-3" },
       ],
     });
     if (result.status !== "recipe") return;
     expect(JSON.stringify(result.change)).not.toContain("Synthetic");
-    // The request log keeps the sets the model returned.
+    // The request log keeps the sets the model returned, with the names the page gave.
     const [logged] = await rows(
       "SELECT result FROM inference_log WHERE owner_id = ? AND role = 'generate'",
       device.ownerId,
     );
+    const [branch, account, password] = byBranch;
     expect(JSON.parse(String(logged!.result))).toEqual({
-      fields: byBranch,
+      fields: [{ ...branch, name: "Branch" }, { ...account, name: "Account" }, password],
       action: { candidate: "sign-in", purpose: "submit" },
-      alternatives: [{ fields: byContract, action: { candidate: "sign-in", purpose: "submit" } }],
+      alternatives: [
+        {
+          fields: [{ ...byContract[0], name: "Or contract number" }, byContract[1]],
+          action: { candidate: "sign-in", purpose: "submit" },
+        },
+      ],
     });
     // A recipe whose sets all submit is never continued.
     expect(
@@ -3351,11 +3357,14 @@ describe("password route variants (ADR 0027)", () => {
     const other = await owner();
     replies.push({
       text: twoSets([
-        { slot: "custom-3", candidate: "contract", name: "branch-number" },
+        { slot: "custom-3", candidate: "branch" },
         { slot: "password", candidate: "password" },
       ]),
     });
-    expect(await generateVariants(other)).toMatchObject({ status: "failed" });
+    expect(await generateVariants(other)).toMatchObject({
+      status: "failed",
+      rejection: { check: "plan", reason: "inconsistent-candidate" },
+    });
     expect(
       await rows(
         "SELECT * FROM recipe_revisions WHERE owner_id IN (?, ?)",
@@ -3397,7 +3406,7 @@ describe("password route variants (ADR 0027)", () => {
         revision: 2,
         recipe: {
           completion: [{ target: { by: "id", value: "logout" } }],
-          alternatives: [{ slots: ["contract-number", "password"] }],
+          alternatives: [{ slots: ["Or contract number", "password"] }],
         },
       },
     });
@@ -3418,8 +3427,8 @@ describe("password route variants (ADR 0027)", () => {
     // the account number.
     replies.push({
       text: twoSets([
-        { slot: "custom-1", candidate: "branch", name: "branch-number" },
-        { slot: "custom-3", candidate: "contract", name: "contract-number" },
+        { slot: "custom-1", candidate: "branch" },
+        { slot: "custom-3", candidate: "contract" },
         { slot: "password", candidate: "password" },
       ]),
     });
@@ -3427,14 +3436,14 @@ describe("password route variants (ADR 0027)", () => {
       status: "recipe",
       change: {
         recipe: {
-          slots: ["branch-number", "account-number", "password"],
-          alternatives: [{ slots: ["branch-number", "contract-number", "password"] }],
+          slots: ["Branch", "Account", "password"],
+          alternatives: [{ slots: ["Branch", "Or contract number", "password"] }],
         },
       },
       customSlots: [
-        { slot: "branch-number", offered: "custom-1" },
-        { slot: "account-number", offered: "custom-2" },
-        { slot: "contract-number", offered: "custom-3" },
+        { slot: "Branch", offered: "custom-1" },
+        { slot: "Account", offered: "custom-2" },
+        { slot: "Or contract number", offered: "custom-3" },
       ],
     });
   });

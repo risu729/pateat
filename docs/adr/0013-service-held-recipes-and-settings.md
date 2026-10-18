@@ -22,8 +22,11 @@ recipe is reused by name
 ([ADR 0027](0027-per-account-login-routes.md#implementation-choices)).
 
 Amended on 2026-10-14: the implemented cache-overflow behavior below applies
-revocations without advancing past skipped active changes. A second amendment on
-2026-10-14 adds non-growing active updates and durable bounded lookahead recovery.
+revocations without advancing past skipped active changes
+([revocations while the cache is full](#amendment-revocations-while-the-cache-is-full-2026-10-14)).
+A second amendment on 2026-10-14 adds non-growing active updates and durable bounded
+lookahead recovery
+([durable recovery](#amendment-durable-recovery-under-cache-pressure-2026-10-14)).
 
 Amended on 2026-10-14 by
 [ADR 0029](0029-local-sign-in-state.md#amendment-unconfirmed-completion-2026-10-14):
@@ -33,6 +36,12 @@ a binding and an automatic or popup account choice are saved only after a confir
 Amended on 2026-10-18 by [ADR 0049](0049-start-at-a-later-step.md) (owner, 01:40 UTC,
 implemented): an attempt may also start at a later `fill` step the page shows when no
 first step does ([Recipe lookup](#recipe-lookup)).
+
+Amended on 2026-10-18 by
+[ADR 0027](0027-per-account-login-routes.md#amendment-2026-10-18-slot-names-from-the-page)
+(owner, 08:58:31 UTC): custom-field slot names come from the page's text, so the check
+before recipes are shared covers them
+([sharing review](#amendment-2026-10-18-slot-names-in-the-sharing-review)).
 
 Date: 2026-10-10
 
@@ -273,3 +282,11 @@ continuous service changes, unavailable storage or failed requests. Until a
 whole page fits, the outcome remains `cache-full`; successful partial normal
 progress beyond one run's budget remains `incomplete`. Logged changes count
 only successfully written additions, updates and removals.
+
+## Amendment 2026-10-18: slot names in the sharing review
+
+Recipe slot names other than `username`, `password` and `totp` are now page text
+([ADR 0027](0027-per-account-login-routes.md#amendment-2026-10-18-slot-names-from-the-page)),
+such as `店番号` or a label that shows a person's display name. The personal-data check
+before a recipe is shared covers them as it covers paths and locators. Recipe sharing is
+not built yet.

@@ -422,10 +422,10 @@ describe("custom slots in a generated recipe (ADR 0027)", () => {
     expect(answer([{ slot: "contract-number", offered: "custom-2" }])).toBe(false);
   });
 
-  it("refuses a slot the recipe lacks, a non-generic slot or an unsafe offered ID", () => {
+  it("refuses a slot the recipe lacks, a built-in slot or an unsafe offered ID", () => {
     expect(answer([{ slot: "region", offered: "custom-1" }])).toBe(false);
-    // Built-in slots and field names never come back as custom slots.
-    for (const slot of ["password", "Branch number", "branch-2"])
+    // Built-in slots never come back as custom slots, in any case.
+    for (const slot of ["password", "Password"])
       expect(answer([{ slot, offered: "custom-1" }])).toBe(false);
     for (const offered of ["", "custom 1", "x".repeat(65)])
       expect(answer([{ slot: "branch-number", offered }])).toBe(false);

@@ -50,7 +50,7 @@ export type InferenceOutcome<T> = {
   /**
    * The model's own answer once its output passed the response format, before any local
    * check or adjustment, for the request log: each ID that is not a candidate or slot of
-   * the request is `?` and each generated name `name-N` (ADR 0012).
+   * the request is `?` (ADR 0012).
    */
   answer?: unknown;
 } & (

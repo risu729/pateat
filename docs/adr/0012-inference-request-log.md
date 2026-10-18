@@ -15,10 +15,7 @@ answer; every row is kept one year; and the web UI deletes them all. Implemented
 Amended on 2026-10-18 by the same decision
 ([login result codes](#amendment-2026-10-18-login-result-codes), with
 [ADR 0019](0019-local-diagnostics-and-logs.md)): the service keeps the result code of
-each recipe revision's first login beside the log. Implemented. On 2026-10-18 (owner,
-08:58 UTC) the
-[earlier rows were filled in](#amendment-2026-10-18-earlier-rows-filled-in) where the
-stored records decide each value.
+each recipe revision's first login beside the log. Implemented.
 Amended on 2026-10-18 by the owner (08:04 UTC):
 [requests answered without a model call](#amendment-2026-10-18-requests-answered-without-a-model-call)
 are kept too, which amends [ADR 0018](0018-recipe-generation-route.md); invalid bodies
@@ -31,7 +28,13 @@ also keeps [a record of every login](#amendment-2026-10-18-login-records) beside
 log. Implemented. Amended on 2026-10-18 by
 [ADR 0029](0029-local-sign-in-state.md#amendment-signed-in-page-samples-2026-10-18)
 (owner, 08:05 UTC): the log also keeps a repeat login's signed-in page as a `sampled`
-row, see [below](#amendment-2026-10-18-signed-in-page-samples). Implemented.
+row, see [below](#amendment-2026-10-18-signed-in-page-samples). Implemented. On
+2026-10-18 (owner, 08:58 UTC) the
+[earlier rows were filled in](#amendment-2026-10-18-earlier-rows-filled-in) where the
+stored records decide each value. Since
+[ADR 0027](0027-per-account-login-routes.md#amendment-2026-10-18-slot-names-from-the-page)
+was amended on 2026-10-18 (owner, 08:58:31 UTC), the model gives no slot names, so no
+answer has a name to become `name-N`.
 
 Date: 2026-10-10
 

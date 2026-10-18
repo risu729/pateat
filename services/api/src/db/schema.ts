@@ -188,9 +188,9 @@ export const inferenceLog = sqliteTable(
     result: text("result", { mode: "json" }),
     /**
      * The model's own answer before any local check or adjustment, for every decision and
-     * for a refused one too: candidate and slot IDs the request does not hold are `?` and
-     * generated names `name-N`, so it quotes no page text or vault field name. Null when the
-     * output failed the response format or no answer came.
+     * for a refused one too: candidate and slot IDs the request does not hold are `?`, so
+     * it quotes no page text or vault field name. Null when the output failed the response
+     * format or no answer came.
      */
     answer: text("answer", { mode: "json" }),
     /**

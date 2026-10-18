@@ -42,17 +42,8 @@ const correct = { "slot:email": "c:email", "slot:password": "c:password", action
 describe("finite-choice decision role", () => {
   it("scores the oracle fake as fully correct on the corpus", async () => {
     const decide = decider(oracleDecider());
-    // The decider names no custom-field slot (ADR 0027), so it abstains on pages that use one.
-    const cases = evaluationCorpus.filter(
-      (entry) =>
-        entry.expected.kind === "abstain" ||
-        !entry.slots.some(
-          (slot) =>
-            slot.fieldName !== undefined &&
-            entry.expected.kind === "plan" &&
-            slot.id in entry.expected.fields,
-        ),
-    );
+    // Pages with custom-field slots too, which are named from the page (ADR 0027).
+    const cases = evaluationCorpus;
     const report = await evaluateRole({
       cases,
       run: (entry) => decide({ observation: entry.observation, slots: entry.slots }),
@@ -104,8 +95,8 @@ describe("finite-choice decision role", () => {
     ).toMatchObject({ description: "半角数字3桁" });
     const model = oracleDecider();
     const outcome = await decider(model)({ observation: bank.observation, slots: bank.slots });
-    // It cannot name the custom-field slots, so it fails closed (ADR 0027).
-    expect(outcome.status).toBe("abstained");
+    // The custom-field slots are named from the page, never by the model (ADR 0027).
+    expect(outcome.status).toBe("ok");
     const sent = JSON.stringify(model.calls[0]);
     expect(sent).toContain("支店番号");
     expect(sent).toContain('"valueShape":{"length":3,"classes":["ascii-digit"],"email":false}');
