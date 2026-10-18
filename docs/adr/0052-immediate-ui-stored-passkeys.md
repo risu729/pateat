@@ -1,4 +1,4 @@
-# ADR 0051: Stored passkeys for Chrome Immediate UI
+# ADR 0052: Stored passkeys for Chrome Immediate UI
 
 Status: proposed, not confirmed by the owner. The owner requested finishing uncovered
 plan work and recording questions with a suggested choice while implementation

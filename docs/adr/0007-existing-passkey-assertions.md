@@ -67,7 +67,7 @@ amendment below.
 
 Date: 2026-10-10
 
-Provisional follow-up, 2026-10-17: [ADR 0051](0051-immediate-ui-stored-passkeys.md)
+Provisional follow-up, 2026-10-17: [ADR 0052](0052-immediate-ui-stored-passkeys.md)
 records the narrow `uiMode: "immediate"` stored-passkey implementation and an open
 question with its suggested choice. It is not confirmed by the owner and does not
 record acceptance of a change to this ADR's earlier Immediate UI decision.
