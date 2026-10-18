@@ -8,6 +8,7 @@ import { useForm, useSelector } from "@tanstack/react-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bug, Globe, Info, Link, Shield, Vault, type LucideIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import * as v from "valibot";
 import { Logo } from "../logo";
 import { Button } from "./button";
 import { SETTINGS_QUERY_KEY, type SettingsClient } from "./client";
@@ -79,12 +80,19 @@ export function SettingsApp({
   const form = useForm({
     // Match reset's accepted defaults so a later hook update cannot restore the empty draft.
     defaultValues: accepted?.snapshot.settings ?? emptySettings,
-    validators: { onSubmit: localSettingsSchema },
+    // Validated here, not as a form validator: TanStack Form keeps a failed submit's errors after
+    // later edits, so handleSubmit would skip onSubmit even once a change fixes the draft.
     onSubmit: async ({ value }) => {
       const previous = acceptedRef.current;
       if (!previous || operation.current !== "save" || saveBlockedRef.current) return;
+      if (!v.safeParse(localSettingsSchema, value).success) {
+        setMessage(
+          "Invalid settings. Your unsaved draft has been preserved. Review this draft; the next change saves it again.",
+        );
+        return;
+      }
       const submitted = submittedEdits.current;
-      // The catalog this draft was edited against, read before validation could yield.
+      // The catalog this draft was edited against, read before the save request yields.
       const epoch = submittedCatalog.current;
       try {
         const result = await saveMutation.mutateAsync({
@@ -243,10 +251,6 @@ export function SettingsApp({
         // Sequential: each save expects the revision the previous one produced.
         // eslint-disable-next-line no-await-in-loop
         await form.handleSubmit();
-        if (!form.state.isValid)
-          setMessage(
-            "Invalid settings. Your unsaved draft has been preserved. Review this draft; the next change saves it again.",
-          );
         // A failure is never retried as is; an edit made meanwhile is a new draft to save.
         if (
           !lastSaveSucceeded.current &&
