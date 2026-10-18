@@ -100,13 +100,15 @@ function webUrl(value: string, allowBareHost: boolean): URL | undefined {
   if (!value || value.length > maxUrlLength || controlled(value)) return undefined;
   if (!allowBareHost && /\s/u.test(value)) return undefined;
   let candidate = value.trim();
-  const bareHost = allowBareHost && !candidate.includes("://") && candidate.includes(".");
-  if (bareHost) candidate = `http://${candidate}`;
-  // A stored URI with its own scheme may hold a backslash before the query: WHATWG URL (the
-  // pinned client's Host match) and tldts (its Domain match) both end the authority there, as
-  // in `https://bank.example\@evil.test` for `bank.example`. For a bare host they disagree,
-  // as tldts reads `bank.example\@evil.test` as `evil.test`; a target never holds one.
-  if ((!allowBareHost || bareHost) && backslashBeforeQuery(candidate)) return undefined;
+  if (!allowBareHost && backslashBeforeQuery(candidate)) return undefined;
+  if (allowBareHost && !candidate.includes("://") && candidate.includes(".")) {
+    // The pinned client's tldts (its Domain match) ends a bare host only at `/`, `?` or `#`,
+    // so it reads `bank.example\@evil.test` as `evil.test` where WHATWG (its Host match) reads
+    // `bank.example`. After that point, and anywhere after an http(s) scheme, both end the
+    // host at the backslash, as in `https://bank.example\@evil.test` for `bank.example`.
+    if (/^[^/?#]*\\/u.test(candidate)) return undefined;
+    candidate = `http://${candidate}`;
+  }
   if (!/^https?:\/\/[^/]/iu.test(candidate)) return undefined;
   const authority = /^https?:\/\/([^/\\?#]*)/iu.exec(candidate)?.[1];
   if (!authority || authority.includes("@")) return undefined;
