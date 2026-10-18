@@ -574,11 +574,14 @@ than in this repository.
 - Known faults moved from phase 1 (owner, 2026-10-12 20:35 UTC), fixed when a real site
   shows them again: the `reconciling` exception seen on SBI証券, and `generate` ignoring
   a failed sync after generation (both recorded under phase 1).
-- Proposed: the worker drops a waiting account choice once its site is excluded.
-  `choiceFor` in `apps/extension/src/login/runtime.ts` drops one for a site default
-  saved since the refusal, but not for an exclusion, so the worker still answers the
-  popup with it and would take a pick; since
-  [#683](https://github.com/risu729/pateat/pull/683) the popup shows none.
+- Since 2026-10-18 the worker drops a waiting account choice, a choice after a logout
+  included, once its site is excluded: saved or synced settings clear it and the tab's
+  badge, and `choiceFor` in `apps/extension/src/login/runtime.ts` answers the popup and
+  a pick with `no-choice` (agent fix, owner's word 2026-10-18 04:29 UTC; local tests
+  only). Before, only the popup hid it
+  ([#683](https://github.com/risu729/pateat/pull/683)) and the badge kept asking until
+  the page reloaded. Check in the owner's Chrome that excluding a site whose page shows
+  the choice badge clears the badge.
 - Claude also watches the service's D1 records, such as the inference request log
   ([ADR 0012](adr/0012-inference-request-log.md)), not only logs the owner sends from
   the device (owner, 2026-10-11 18:45 UTC).

@@ -4781,6 +4781,79 @@ describe("production login document admission", () => {
         expect(fake.state.badges[1]).toEqual({ text: "", title: "Pateat" });
         expect(fake.state.reconnects).toEqual([]);
       });
+      it("ends the choice and clears the badge once the site is excluded", async () => {
+        const h = await refused();
+        expect(fake.state.badges[1]?.text).toBe("2");
+        h.settings.settings.excludedSites = [
+          { hostname: "login.example", includeSubdomains: false },
+        ];
+        // The popup asks for no choice on an excluded site, so the saved settings end it.
+        h.login.settingsChanged("saved");
+        await vi.waitFor(() => expect(fake.state.badges[1]).toEqual({ text: "", title: "Pateat" }));
+        expect(fake.state.session["pateat.login-choices.v1"]).toEqual([]);
+        expect(await ask(h)).toEqual({ ok: false, reason: "no-choice" });
+        expect(await pick(h)).toEqual({ ok: false, reason: "no-choice" });
+        expect(fake.state.reconnects).toEqual([]);
+      });
+      it("takes no pick once the site is excluded, before the settings change is handled", async () => {
+        const h = await refused();
+        h.settings.settings.excludedSites = [{ hostname: "example", includeSubdomains: true }];
+        expect(await pick(h)).toEqual({ ok: false, reason: "no-choice" });
+        expect(fake.state.badges[1]).toEqual({ text: "", title: "Pateat" });
+        expect(fake.state.reconnects).toEqual([]);
+        expect(h.fields).not.toHaveBeenCalled();
+      });
+      it("keeps the choice when another site is excluded", async () => {
+        const h = await refused();
+        h.settings.settings.excludedSites = [
+          { hostname: "other.example", includeSubdomains: false },
+        ];
+        h.login.settingsChanged("saved");
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(fake.state.badges[1]?.text).toBe("2");
+        expect(await ask(h)).toEqual(offered);
+      });
+      it("ends a choice decided from settings read before the site was excluded", async () => {
+        let h: ReturnType<typeof harness> | undefined;
+        h = harness(unsaved, {
+          allowedOrigins: [],
+          // The site is excluded while the vault is searched, before the choice is offered.
+          uris: async () => {
+            h!.settings.settings.excludedSites = [
+              { hostname: "login.example", includeSubdomains: false },
+            ];
+            h!.login.settingsChanged("saved");
+            return { ok: true, data: both };
+          },
+        });
+        expect(await h.hello()).toEqual({ ok: false, reason: "account-ambiguous" });
+        await vi.waitFor(() => expect(fake.state.badges[1]).toEqual({ text: "", title: "Pateat" }));
+        expect(await ask(h)).toEqual({ ok: false, reason: "no-choice" });
+      });
+      it("ends a frame's choice once the tab's site around it is excluded", async () => {
+        // Both the frame's and the tab's URL match each item, so the frame is refused.
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris: async (_connection, url) => ({
+            ok: true,
+            data: { ...both, targetOrigin: new URL(url).origin },
+          }),
+        });
+        fake.state.tabUrls[1] = "https://portal.example/account";
+        const frame = {
+          frameId: 3,
+          documentId: "synthetic-document",
+          tab: { id: 1, url: "https://portal.example/account" },
+        };
+        expect(await h.hello(frame)).toEqual({ ok: false, reason: "account-ambiguous" });
+        expect(fake.state.badges[1]?.text).toBe("2");
+        h.settings.settings.excludedSites = [
+          { hostname: "portal.example", includeSubdomains: false },
+        ];
+        h.login.settingsChanged("synced");
+        await vi.waitFor(() => expect(fake.state.badges[1]).toEqual({ text: "", title: "Pateat" }));
+        expect(await ask(h)).toEqual({ ok: false, reason: "no-choice" });
+      });
       it("keeps the pick with the attempt it started and forgets it when the tab closes", async () => {
         const h = await refused();
         expect(await pick(h)).toEqual({ ok: true });
@@ -5124,6 +5197,30 @@ describe("production login document admission", () => {
           // The fill-only record is forgotten and the tab asks.
           expect(attempts()).toEqual([]);
           expect(fake.state.badges[1]?.text).toBe("2");
+        });
+        it("ends the account choice after a logout once the site is excluded", async () => {
+          const h = await loggedOut();
+          expect(fake.state.badges[1]?.text).toBe("2");
+          h.settings.settings.excludedSites = [
+            { hostname: "login.example", includeSubdomains: false },
+          ];
+          expect(await ask(h)).toEqual({ ok: false, reason: "no-choice" });
+          expect(await pick(h, { documentId: "signed-out" })).toEqual({
+            ok: false,
+            reason: "no-choice",
+          });
+          expect(fake.state.badges[1]).toEqual({ text: "", title: "Pateat" });
+        });
+        it("clears the badge after a logout once saved settings exclude the site", async () => {
+          const h = await loggedOut();
+          h.settings.settings.excludedSites = [
+            { hostname: "login.example", includeSubdomains: false },
+          ];
+          h.login.settingsChanged("saved");
+          await vi.waitFor(() =>
+            expect(fake.state.badges[1]).toEqual({ text: "", title: "Pateat" }),
+          );
+          expect(fake.state.session["pateat.login-choices.v1"]).toEqual([]);
         });
         it("asks with the saved default first and releases only this tab's record", async () => {
           const h = await loggedOut();
