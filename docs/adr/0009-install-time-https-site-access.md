@@ -19,7 +19,10 @@ even without a recipe. Amended on 2026-10-17 by the agent (implementing the owne
 carries `login-main.js`, a MAIN-world document-start script in every HTTPS page and
 frame that clicks a `javascript:` link the login script names, so Chrome runs its URL
 under the page's own policy ([architecture](../architecture.md)). It needs no
-permission of its own and receives no values.
+permission of its own and receives no values. Amended on 2026-10-18 by
+[ADR 0050](0050-http-pages-for-http-items.md): `http://*/*` is declared too, the login
+scripts run on plain HTTP pages, and an `http:` page matches only items saved with an
+`http://` URI.
 
 Date: 2026-10-10
 

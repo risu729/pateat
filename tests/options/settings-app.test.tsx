@@ -595,6 +595,29 @@ test("a rejected draft is not saved again until the next change", async () => {
   });
 });
 
+test("a draft that fails local validation is saved by the change that fixes it", async () => {
+  const client = mockClient();
+  const response = saved(1);
+  // The schema allows at most 1000 excluded sites.
+  for (let index = 0; index < 1000; index += 1)
+    response.snapshot.settings.excludedSites.push({
+      hostname: `site${index}.example`,
+      includeSubdomains: false,
+    });
+  client.getSettings.mockResolvedValue(response);
+  await mount(client);
+  await addSite("extra.example");
+  await expect.element(control("settings-status")).toMatchTextContent("Invalid settings");
+  expect(client.saveSettings).not.toHaveBeenCalled();
+  await page.getByRole("button", { name: "Allow site0.example", exact: true }).click();
+  await expect.element(control("settings-status")).toMatchTextContent("saved locally. Revision 2");
+  expect(client.saveSettings).toHaveBeenCalledTimes(1);
+  const excluded = client.saveSettings.mock.calls[0]?.[0].settings.excludedSites;
+  expect(excluded).toHaveLength(1000);
+  expect(excluded).toContainEqual({ hostname: "extra.example", includeSubdomains: false });
+  expect(excluded).not.toContainEqual({ hostname: "site0.example", includeSubdomains: false });
+});
+
 test("an edit made during a save that conflicts stays in the draft unsaved", async () => {
   const client = mockClient();
   const write = deferred<SettingsResponse>();

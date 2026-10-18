@@ -16,13 +16,14 @@ export type RealPageCase = {
 };
 
 /**
- * One public Japanese login page observed with no account signed in. `slots` names the
- * vault item the case sends: `login` for a username and a password, `bank` for branch
- * and account number custom fields and a password.
+ * One public Japanese login page observed with no account signed in, on the date and at
+ * the commit `source` records. `slots` names the vault item the case sends: `login` for a
+ * username and a password, `bank` for branch and account number custom fields and a
+ * password.
  */
 export type JapanesePageCase = {
   id: string;
-  source: { dataset: "japanese"; url: string };
+  source: { dataset: "japanese"; url: string; observed: string; commit: string };
   slots: "login" | "bank";
   observation: LoginObservation;
   expected: ExpectedResult;

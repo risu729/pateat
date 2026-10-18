@@ -79,6 +79,16 @@ describe("whether a link may be pressed as an entry (ADR 0031)", () => {
   ])("%s", (_label, href, refusal) => {
     expect(linkRefusal(new URL(href), onSite)).toBe(refusal);
   });
+
+  it("takes an `http:` link or return path only from an `http:` page (ADR 0050)", () => {
+    const http = new URL("http://www.pixiv.example/en/?return_to=http://www.pixiv.example/x");
+    const href = new URL("http://accounts.pixiv.example/login");
+    expect(linkRefusal(href, onSite, http)).toBeUndefined();
+    expect(linkRefusal(new URL("https://www.pixiv.example/login"), onSite, http)).toBeUndefined();
+    expect(linkRefusal(href, onSite, page(""))).toBe("link-not-https");
+    expect(namesReturnPath(http, onSite)).toBe(true);
+    expect(namesReturnPath(page("?return_to=http://www.pixiv.example/x"), onSite)).toBe(false);
+  });
 });
 
 describe("the hosts a page names", () => {

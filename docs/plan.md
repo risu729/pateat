@@ -425,9 +425,11 @@ than in this repository.
   page's kind, recipes generated as `confirm` neither run nor count as logouts, a
   passkey re-verification after Pateat's login in the tab is handed on, and the logs for
   judging whether `confirm` can be split are kept.
-- The toolbar badge counts the matching items on every HTTPS site: teal with the usable
-  count, light gray when every match is excluded, amber while a login waits for a choice
-  (owner, 2026-10-13 14:42 UTC;
+- The toolbar badge counts the matching items on every HTTP(S) site (on an `http:` page
+  only items saved with an `http://` URI;
+  [ADR 0050](adr/0050-http-pages-for-http-items.md)): teal with the usable count, light
+  gray when every match is excluded, amber while a login waits for a choice (owner,
+  2026-10-13 14:42 UTC;
   [ADR 0021](adr/0021-account-choice-outside-settings.md#site-count-badge)).
 - The owner uses Pateat on many sites and reports bugs; Claude may also fix problems it
   finds on its own. Reading the extension's error logs without a report needs a way for
@@ -443,6 +445,10 @@ than in this repository.
   there is not decided.
 - Installed-Chrome checks moved from phase 1 (owner, 2026-10-12 20:35 UTC), checked
   when daily use reaches them:
+  - A plain HTTP site whose item is saved with an `http://` URI logs in, submit
+    included, and an item saved only for `https://` is not offered there (owner,
+    2026-10-18 01:41 UTC; [ADR 0050](adr/0050-http-pages-for-http-items.md); synthetic
+    tests only).
   - On 三菱UFJ銀行, after an expired QR code, the sign-in page in the same tab is filled
     without pressing anything, while a new tab logs in as before (owner, 2026-10-13:
     「このタブだけ」; ADR 0027).
@@ -484,8 +490,10 @@ than in this repository.
   `unsupported-page`. Since 2026-10-16 every observed page sends such a segment as
   `[id]`, a recipe is stored and matched under that path, and a handler may be learned
   there ([ADR 0039](adr/0039-redacted-token-path-segments.md), owner, 14:10 UTC; local
-  tests only, and a synthetic browser test not yet run). Check both sites in the owner's
-  Chrome.
+  tests only; the synthetic browser test now also covers an opaque authorization-server
+  ID in a middle path segment and verifies recipe reuse without another model call.
+  Both cases passed in isolated cloud Chromium on 2026-10-17). Check both sites in the
+  owner's Chrome.
 - UniSuper's login stopped on the page after its username and Next (2026-10-17, 01:33
   UTC, build `d29951d`): "Let's confirm it's you", on the same path, offered only a
   "Password" and a "Mobile" button, the judge answered `unclear`, and the owner pressed
@@ -566,6 +574,11 @@ than in this repository.
 - Known faults moved from phase 1 (owner, 2026-10-12 20:35 UTC), fixed when a real site
   shows them again: the `reconciling` exception seen on SBI証券, and `generate` ignoring
   a failed sync after generation (both recorded under phase 1).
+- Proposed: the worker drops a waiting account choice once its site is excluded.
+  `choiceFor` in `apps/extension/src/login/runtime.ts` drops one for a site default
+  saved since the refusal, but not for an exclusion, so the worker still answers the
+  popup with it and would take a pick; since
+  [#683](https://github.com/risu729/pateat/pull/683) the popup shows none.
 - Claude also watches the service's D1 records, such as the inference request log
   ([ADR 0012](adr/0012-inference-request-log.md)), not only logs the owner sends from
   the device (owner, 2026-10-11 18:45 UTC).
@@ -804,7 +817,9 @@ Once the fixes have settled:
 - The docs website (VitePress 2, see
   [decisions still requiring evidence](#decisions-still-requiring-evidence)) with
   user-facing pages for installation, setup and permissions, plus the M6 operational
-  docs.
+  docs. The [operations runbook](operations.md) now documents current retry/revert
+  procedures and the unverified D1 restore and rollback-automation boundaries; this
+  does not complete installed-Chrome or disaster-recovery acceptance.
 - A mode without the service. Where recipes, settings and AI calls come from without the
   service, which [ADR 0013](adr/0013-service-held-recipes-and-settings.md) makes their
   source of truth, needs a design the owner approves before implementation.
@@ -842,7 +857,16 @@ Once the fixes have settled:
   forbid "building an interpreter to run complex commands fetched from a remote source,
   even if those commands are fetched as data". A reviewer may count service-held recipes
   (`fill`, `click` and handler steps) as such commands and reject the item; then
-  GitHub Releases stays the only channel.
+  GitHub Releases stays the only channel. The
+  [research note](research/2026-10-17-chrome-web-store-remote-code.md) (2026-10-17)
+  finds the risk real but undecidable from the documentation: recipes have no control
+  flow and are the user's own synced data, which the policy allows, but AdGuard reports
+  rejections that cited scriptlets and their parameters. Proposed, not decided by the
+  owner: keep the recipe vocabulary closed (no control flow, expressions, selectors,
+  URLs beyond exact same-origin paths, or values), explain recipes, their schema and
+  how to test them in the submission, have the owner submit a Private trusted-tester
+  item early to get a review verdict, and consider an unminified store build. A mode
+  without the service that gets recipes from a model API directly reopens the question.
 - Proposed: the checks that matter once other people install Pateat: the install-time
   site-access warning and the prompt after site access was withheld, installed-Chrome
   dummy-account tests and measured limits.
@@ -875,11 +899,23 @@ Once the fixes have settled:
     deviation (medium), and [#639](https://github.com/risu729/pateat/issues/639) a
     quadratic padding regex in the Bitwarden passkey decoder (low). Which scans run
     later, and when, is still open.
+  - The owner's triage (2026-10-16 19:14 UTC):
+    [#638](https://github.com/risu729/pateat/issues/638) is by design (ADR 0007) and was
+    closed without a change; fix [#636](https://github.com/risu729/pateat/issues/636)
+    and [#637](https://github.com/risu729/pateat/issues/637) first, then
+    [#639](https://github.com/risu729/pateat/issues/639) if Bitwarden's own
+    extension shows a simple way to avoid it. The scan's report is committed as
+    [2026-10-16-claude-security](research/2026-10-16-claude-security/CLAUDE-SECURITY-RESULTS.md),
+    reformatted for the repository's Markdown and JSON checks.
   - [#637](https://github.com/risu729/pateat/issues/637) fixed at the owner's request
     (2026-10-16 19:14 UTC): a document whose browser-reported origin is not its URL's,
     such as a page served with a CSP `sandbox` header or a sandboxed frame, is refused
     for logins, recipe generation and passkeys
     ([architecture](architecture.md#components-and-trust-boundaries)).
+  - [#639](https://github.com/risu729/pateat/issues/639) fixed by
+    [#644](https://github.com/risu729/pateat/pull/644): the passkey decoder strips at
+    most two trailing `=` without a regex, as Bitwarden's clients avoid a backtracking
+    pattern, and accepts the same inputs as before.
 
 ### Phase 4: issues and work as needed
 
@@ -1029,6 +1065,11 @@ items the owner mentioned and gates still open on 2026-10-11.
   approval for real-account use.
 - Proposed: the remaining checks, namely pairing while signed out of Access and the
   Access cookie settings, real sites that wrap `get`, and a navigation during signing.
+  The packaged synthetic browser suite also covers a page-owned `get` wrapper that
+  clones request options: Pateat answers an eligible request once, native fallback
+  remains reachable, and caller cancellation survives the copied options. This added
+  coverage passed in isolated cloud Chromium on 2026-10-17; it does not close the
+  real-site wrapper gate.
 
 ### Research
 
@@ -1100,6 +1141,11 @@ items the owner mentioned and gates still open on 2026-10-11.
   an external list, adopted, not adopted or experimental, under the
   [platform feature rules](development.md#platform-features), and the issues for the
   adopted ones.
+- Whether a Chrome Web Store reviewer may count service-held recipes as remote commands
+  (2026-10-17): the [note](research/2026-10-17-chrome-web-store-remote-code.md) reads
+  the MV3 code rule, the review process and AdGuard's precedent against the recipe
+  schema, and proposes what would lower the risk
+  ([phase 3](#phase-3-public-release)).
 - Earlier research kept as dated notes:
   [identity provider screens](research/2026-10-11-identity-provider-screens.md) behind
   [ADR 0026](adr/0026-sign-in-through-identity-providers.md);
@@ -1370,9 +1416,11 @@ an enforced organization URI-match-defaults policy applies, using the pinned SDK
 exemptions for owners, admins and provider users. Pateat cannot see the official
 clients' local default setting. Differing enforced defaults, or malformed policy or
 domain data, mark that part unavailable; affected URIs report unavailable rather than
-falling back. A retained context that no longer readmits, for example after an IDNA
-table change, is dropped: fields keep working, and URI matching reports unavailable
-until the next accepted sync.
+falling back. An equivalent-domain entry that is not a hostname, including an empty or
+overlong one, is ignored, as in the official clients, while the rest of its group still
+applies. A retained context that no longer readmits, for example after an IDNA table
+change, is dropped: fields keep working, and URI matching reports unavailable until the
+next accepted sync.
 
 The owner asked for official-client URI rules. The remaining differences (Regex, no
 Domain fallback on unavailable context, no access to the local default setting) are
@@ -1544,7 +1592,8 @@ real Bitwarden Cloud US account in their Chrome
   immediately before a fill. An unavailable connection or an item awaiting field review
   is refused before an attempt starts. A denied, locked or failed field read, or a
   replacement snapshot before delivery, blocks the attempt as `policy-changed` without
-  filling. Production admits HTTPS documents on a non-excluded site with
+  filling. Production admits HTTP(S) documents
+  ([ADR 0050](adr/0050-http-pages-for-http-items.md)) on a non-excluded site with
   granted host access (a frame also needs its tab's page admitted;
   [ADR 0017](adr/0017-login-forms-in-frames.md)), with or without a saved default
   ([ADR 0009](adr/0009-install-time-https-site-access.md)); without a cached recipe they
@@ -1647,12 +1696,13 @@ revocable device credential; request paths and bodies never select an owner. Set
 writes and recipe heads use conditional revision writes, and a recipe's history row
 is recorded in the same D1 batch only when that request won the head.
 
-Local Miniflare tests cover unknown, malformed and revoked credentials, owner and
-device isolation, stale and concurrent writes, tombstones, cursor paging, strict
-schema rejection, media type and body limits, and fail-closed handling of corrupt
-stored documents. Concurrent cases interleave within one local runtime, not hosted
-D1. A migration check regenerates SQL from the Drizzle schema. The D1 database was
-created on 2026-10-11 and the service is deployed at `pateat.takuk.me` (see
+Local Miniflare tests cover unknown, malformed and revoked credentials, owner and device
+isolation, stale and concurrent writes, tombstones, cursor paging, strict schema
+rejection, media type and body limits, fail-closed handling of corrupt stored documents,
+and stored recipes that no longer validate, which devices receive as revoked. Concurrent
+cases interleave within one local runtime, not hosted D1. A migration check regenerates
+SQL from the Drizzle schema. The D1 database was created on 2026-10-11 and the service
+is deployed at `pateat.takuk.me` (see
 [delivery](delivery.md)).
 
 The second slice adds the service side of
@@ -2321,7 +2371,11 @@ Remaining M4 AI work:
   ([Background execution](architecture.md#background-execution)).
 - More Japanese pages. The owner chose on 2026-10-11 to take them from both public
   login pages opened in Chrome on the owner's PC and the request log; six public pages
-  are in (below). On 2026-10-11 the request log held one Japanese row, a MyJCB
+  are in (below). Next, in a browser that can reach the sites (a cloud environment whose
+  network access allows them, or the owner's PC): refresh the six with the current
+  extractor, and observe more public login pages of banks, securities firms, card
+  issuers, shops and telecom carriers, retrying the twelve that gave no or an incomplete
+  observation. On 2026-10-11 the request log held one Japanese row, a MyJCB
   generation that abstained (`insufficient-evidence`) on an observation from before
   #206 with no login control, so it adds no case. The finite-choice provider waited
   for a Claude baseline, which now exists for both page sets.
@@ -2476,6 +2530,19 @@ After the re-keying (2026-10-11, `1ddf138`) the heuristic scores 3 correct, 1 mi
 and `ja-paypay-bank`), accuracy 0.5. The Claude results on this corpus and on the
 synthetic corpus were measured with the old descriptive slot IDs; a Claude rerun on the
 bank cases is a paid run and needs the owner's approval.
+
+`mise run //packages/inference:corpus:japanese` repeats the observation of the Japanese
+pages in Playwright's Chromium, or in another browser named with `--chromium <path>`
+such as the installed Chrome. `--refresh` observes each case's page again and moves its
+label to the new observation by the role and locator of each labelled candidate. A case
+keeps its old observation and is reported for a person to relabel when the new one is of
+another path, is incomplete, shows other fields to fill, or lacks a labelled control or
+has it in another role. Listed URLs are observed into a local report for labelling by
+hand. Each case records the date and the commit of its observation, and refreshed page
+text is reviewed for personal data again before it is committed. A cloud session on
+2026-10-15 reached none of the pages: the cloud environment's network policy refused
+every site (`ERR_TUNNEL_CONNECTION_FAILED`), so the six pages of 2026-10-11 are still
+the corpus.
 
 The same import measured the extractor on real markup (2026-10-11, main `9cf8356`). Of
 the 241 pages with an annotated login form, 6 gave no observation and 109 an incomplete
@@ -2660,7 +2727,7 @@ owner added account choice outside the settings page to initial delivery
 current site's default and exclusion, choosing among several password matches there
 (once or as the default), a passkey chooser window, and choosing again after a logout in
 the same tab. They land as separate PRs in that order. The toolbar popup is implemented:
-clicking the icon opens `popup.html` for the active HTTPS tab, whose "Pateat on this
+clicking the icon opens `popup.html` for the active HTTP(S) tab, whose "Pateat on this
 site" switch shows whether the site is excluded and which lists the vault items that
 match its origin as the default account. A rule that includes subdomains is shown but
 changed only in settings, because it also covers other sites. On 2026-10-11 the popup
@@ -2720,7 +2787,10 @@ submission with its sign-in form again (its password input and no other sign, ev
 the result stays unknown) or the login ends `credential-rejected`; its record is
 released then, so other tabs of the site ask instead of being held, and the badge and
 popup say the site did not accept the login (`pateat.login-rejected-asks.v1`). Frame
-logins and sites whose logout page shows only a password step are not detected. By the
+logins are not detected. Since 2026-10-18 (owner, 01:40 UTC;
+[ADR 0049](adr/0049-start-at-a-later-step.md); local tests only, not yet on a real site)
+a later password step a login may start at counts as the first step does, so a site
+whose logout page shows only a password step is detected. By the
 owner's constraint (2026-10-12) a session that only expired never needs a manual press,
 so a logout of a session carried over from another tab's login or an earlier browser
 session is not detected by the form alone. Since 2026-10-16 (owner, after

@@ -2,6 +2,7 @@ import * as v from "valibot";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import {
   createSettingsStore,
+  laterStartSteps,
   parseLoginRecipe,
   recipeStartSteps,
   type LocalSettings,
@@ -857,6 +858,7 @@ describe("production login document admission", () => {
     ["an origin without a saved default", "https://other.example/signin"],
     ["a subdomain of the saved origin", "https://sub.login.example/signin"],
     ["a different port of the saved origin", "https://login.example:8443/signin"],
+    ["a plain HTTP page of the saved host (ADR 0050)", "http://login.example/signin"],
   ])("stops %s without a recipe before any policy or vault access", async (_name, url) => {
     fake.state.pageUrl = url;
     const h = harness();
@@ -867,15 +869,13 @@ describe("production login document admission", () => {
   });
   it.each([
     [
-      "plain HTTP even with a saved HTTP default",
-      "http://login.example/signin",
-      {
-        siteDefaults: [{ origin: "http://login.example", provider: "bitwarden", userId, itemId }],
-      },
-    ],
-    [
       "an excluded site",
       "https://login.example/signin",
+      { excludedSites: [{ hostname: "login.example", includeSubdomains: false }] },
+    ],
+    [
+      "an excluded site's plain HTTP page",
+      "http://login.example/signin",
       { excludedSites: [{ hostname: "login.example", includeSubdomains: false }] },
     ],
   ])("ignores %s before any policy, vault or page access", async (_name, url, overrides) => {
@@ -903,13 +903,14 @@ describe("production login document admission", () => {
     expect(h.fields).not.toHaveBeenCalled();
     expect(fake.state.messages).toEqual([]);
   });
-  it("never admits the loopback probe origin outside the probe build", async () => {
+  it("treats the loopback probe origin as any HTTP page outside the probe build", async () => {
     fake.state.storage["pateat.login-probe-origin.v1"] = { origin: "http://127.0.0.1:3847" };
     fake.state.pageUrl = "http://127.0.0.1:3847/signin";
     const h = harness({ siteDefaults: [] });
-    expect(await h.hello()).toEqual({ ok: false, reason: "unauthorized-document" });
-    expect(h.recipes.recipe).not.toHaveBeenCalled();
-    expect(fake.state.messages).toEqual([]);
+    // No probe recipe or binding: without a cached recipe the page stops there.
+    expect(await h.hello()).toEqual({ ok: false, reason: "recipe-not-found" });
+    expect(h.store.handle).not.toHaveBeenCalled();
+    expect(fake.state.messages.map((entry) => entry.type)).toEqual(["login.status"]);
   });
   it("refuses a fill authorization once site access is withdrawn mid-attempt", async () => {
     const h = harness();
@@ -2694,12 +2695,13 @@ describe("production login document admission", () => {
       });
       it("never completes on an http page of the site", async () => {
         const h = await submitted();
-        // An http page is not admitted, so the move is not seen and the login is unchanged.
+        // An http page is admitted (ADR 0050) but never stands for a login on HTTPS: the
+        // login left its origin, as for a page of another site.
         expect(await navigate(h, "http://www.login.example/home", "home-document", false)).toEqual({
           ok: false,
-          reason: "unauthorized-document",
+          reason: "recipe-not-found",
         });
-        expect(at(origin)).toMatchObject({ state: "submit-intent" });
+        expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
         expect(reads()).toEqual([]);
       });
     });
@@ -10570,8 +10572,14 @@ describe("production login document admission", () => {
     const badge = () =>
       createLoginBadge({ setBadge: vi.fn(async () => undefined), storage: memoryBadgeStorage() });
 
+    it("answers for an HTTP page as for an HTTPS one (ADR 0050)", async () => {
+      fake.state.tabUrls[1] = "http://login.example/signin";
+      const h = harness();
+      expect(await ask(h)).toMatchObject({ ok: true, origin: "http://login.example" });
+    });
+
     it.each([
-      ["an HTTP page", "http://login.example/signin"],
+      ["an FTP page", "ftp://login.example/signin"],
       ["a browser page", "chrome://settings/"],
       ["a malformed URL", "not a url"],
       ["an empty URL", ""],
@@ -22954,5 +22962,327 @@ describe("an item without a password, up to its password (ADR 0036)", () => {
       expect(executed()).toEqual([]);
       expect(status() ?? []).toEqual([]);
     });
+  });
+});
+
+describe("a login that starts at a later step its page shows (ADR 0049)", () => {
+  afterEach(() => {
+    for (const listener of fake.state.removed.splice(0))
+      for (const tabId of [1, 2]) listener(tabId);
+    fake.state.awaitReply = undefined;
+  });
+  beforeEach(() => {
+    fake.state.storage = {};
+    fake.state.session = {};
+    fake.state.badges = {};
+    fake.state.reconnects = [];
+    fake.state.onReconnect = undefined;
+    fake.state.messages = [];
+    fake.state.granted = true;
+    fake.state.pageUrl = "https://login.example/signin/pwd";
+    fake.state.onExecute = undefined;
+    fake.state.tabUrls = {};
+    fake.state.observed = ["unique", "missing"];
+    fake.state.observedPath = "/signin/pwd";
+    fake.state.unusable = new Set();
+    fake.state.awaited = { ok: true };
+    fake.state.onAwait = undefined;
+    fake.state.executeReply = undefined;
+    fake.state.switchReply = { ok: true };
+    fake.state.chosen = { ok: true, click: "entry" };
+    fake.state.gone = new Set();
+    fake.state.extracted = {};
+    fake.state.signs = undefined;
+    fake.state.loaded = true;
+  });
+
+  /** An email page, then a password page that a site remembering the account shows alone. */
+  const twoPages = (passwordPath = "/signin/pwd", id = recipe.id) =>
+    parseLoginRecipe({
+      ...recipe,
+      id,
+      slots: ["username", "password"],
+      steps: [
+        {
+          kind: "fill",
+          path: "/signin/id",
+          fields: [{ slot: "username", target: target("email") }],
+        },
+        { kind: "click", path: "/signin/id", target: target("next"), purpose: "advance" },
+        {
+          kind: "fill",
+          path: passwordPath,
+          fields: [{ slot: "password", target: target("password") }],
+        },
+        { kind: "click", path: passwordPath, target: target("login"), purpose: "submit" },
+      ],
+      maxSubmissions: 2,
+    });
+  const bindingOf = (used: LoginRecipe): SavedLoginBinding => ({
+    ...savedBinding,
+    recipeId: used.id,
+    slots: used.slots.map((slot) => ({ slot, field: slot as "username" | "password" })),
+  });
+  const status = () =>
+    fake.state.storage["pateat.login-attempts.v4"] as Record<string, unknown>[] | undefined;
+  const executed = () =>
+    fake.state.messages
+      .filter((entry) => entry.type === "login.execute")
+      .map((entry) => {
+        const step = (entry as unknown as { operation: { step: LoginStep } }).operation.step;
+        return step.kind === "fill"
+          ? `fill:${step.fields.map((field) => field.target.value).join(",")}`
+          : `${step.kind}:${step.kind === "click" ? step.target.value : ""}`;
+      });
+  /**
+   * The page shows `shown`; every step's wait and readiness check answers from it, and the
+   * submit click leads to the signed-in page.
+   */
+  const shows = (shown: string[]) => {
+    fake.state.present = new Set(shown);
+    fake.state.awaitReply = (readiness) => ({
+      ok: (readiness as unknown as { targets: { value: string }[] }).targets.every((entry) =>
+        fake.state.present!.has(entry.value),
+      ),
+    });
+    fake.state.onExecute = async (message) => {
+      const step = (message["operation"] as { step: LoginStep }).step;
+      if (step.kind !== "click" || step.purpose !== "submit") return;
+      fake.state.observedPath = "/home";
+      fake.state.present = new Set(["authenticated"]);
+    };
+  };
+  function start(
+    recipes: LoginRecipe[],
+    overrides: Partial<LocalSettings> = {},
+    reports: LoginReport[] = [],
+    live: Parameters<typeof harness>[1] = {},
+  ) {
+    const h = harness(
+      { bindings: recipes.map(bindingOf), ...overrides },
+      { username: true, report: (entry) => reports.push(entry), ...live },
+    );
+    h.fields.mockImplementation(async ({ fieldId }) =>
+      fieldId === "login.username" ? "me@example.com" : "synthetic-secret",
+    );
+    const at = (path: string) => recipes.filter((used) => used.steps[0]!.path === path);
+    h.recipes.recipe.mockImplementation(async (_origin, path) =>
+      at(path).length === 1 ? at(path)[0] : undefined,
+    );
+    h.recipes.starts.mockResolvedValue(
+      recipes.map((used) => ({
+        path: used.steps[0]!.path,
+        steps: [used.steps[0]!],
+        later: laterStartSteps(used).map(({ step }) => step),
+      })),
+    );
+    const later = vi.fn(async (_origin: string, path: string) =>
+      recipes.filter((used) => laterStartSteps(used).some(({ step }) => step.path === path)),
+    );
+    Object.assign(h.recipes, { later });
+    return { h, reports, later };
+  }
+
+  it("logs in from the password page a site shows for the account it remembers", async () => {
+    shows(["password", "login"]);
+    const used = twoPages();
+    const { h, reports } = start([used]);
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]));
+    expect(executed()).toEqual(["fill:password", "click:login"]);
+    expect(status()![0]).toMatchObject({ stepCount: 4, startStep: 2, submissions: 1 });
+    expect(reports.find((entry) => entry.type === "start")).toMatchObject({ startStep: 2 });
+    // The password fill names the account, so a page showing another one stops it.
+    expect(fake.state.messages.find((entry) => entry.type === "login.execute")?.account).toEqual({
+      username: "me@example.com",
+    });
+  });
+
+  it("starts on the same path at the step that shows, as a page that keeps its path", async () => {
+    fake.state.pageUrl = "https://login.example/signin/id";
+    fake.state.observedPath = "/signin/id";
+    shows(["password", "login"]);
+    const used = twoPages("/signin/id");
+    const { h } = start([used]);
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]));
+    expect(executed()).toEqual(["fill:password", "click:login"]);
+    expect(status()![0]).toMatchObject({ startStep: 2 });
+  });
+
+  it("starts at the first step while it shows, also beside the later one", async () => {
+    fake.state.pageUrl = "https://login.example/signin/id";
+    fake.state.observedPath = "/signin/id";
+    shows(["email", "next", "password", "login"]);
+    const used = twoPages("/signin/id");
+    const { h, reports } = start([used]);
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(executed().length).toBeGreaterThanOrEqual(2));
+    expect(executed().slice(0, 2)).toEqual(["fill:email", "click:next"]);
+    expect(status()![0]!["startStep"]).toBeUndefined();
+    expect(reports.find((entry) => entry.type === "start")!).not.toHaveProperty("startStep");
+  });
+
+  it("starts neither recipe when two recipes' later steps show", async () => {
+    shows(["password", "login"]);
+    const { h } = start([twoPages(), twoPages("/signin/pwd", "synthetic-other")]);
+    expect(await h.hello()).toMatchObject({ ok: false });
+    expect(executed()).toEqual([]);
+    expect(status()).toBeUndefined();
+  });
+
+  it("asks the document again when the step that announced it no longer shows", async () => {
+    shows([]);
+    const { h } = start([twoPages()]);
+    expect(await h.hello()).toEqual({ ok: false, reason: "stale-document" });
+    expect(executed()).toEqual([]);
+  });
+
+  it("only fills the later step for the default after a logout", async () => {
+    // This tab logged out of the site (ADR 0021 D); the item is the site default.
+    fake.state.session["pateat.login-logouts.v1"] = [{ tabId: 1, origin }];
+    shows(["password", "login"]);
+    const { h, reports } = start([twoPages()]);
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(reports.at(-1)).toMatchObject({ type: "refused", reason: "logged-out" }),
+    );
+    expect(executed()).toEqual(["fill:password"]);
+    expect(reports.find((entry) => entry.type === "start")).toMatchObject({
+      fillOnly: true,
+      startStep: 2,
+    });
+  });
+
+  it("takes the later step shown again after this tab's login as a logout", async () => {
+    shows(["password", "login"]);
+    const { h, reports } = start([twoPages()]);
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]));
+    // The site logs out and shows the password page of the account it remembers.
+    shows(["password", "login"]);
+    fake.state.observedPath = "/signin/pwd";
+    expect(await h.hello({ documentId: "synthetic-document-2" })).toEqual({ ok: true });
+    await vi.waitFor(() =>
+      expect(reports.at(-1)).toMatchObject({ type: "refused", reason: "logged-out" }),
+    );
+    expect(reports.filter((entry) => entry.type === "logout")).toHaveLength(1);
+    expect(executed()).toEqual(["fill:password", "click:login", "fill:password"]);
+    expect(reports.filter((entry) => entry.type === "start").at(-1)).toMatchObject({
+      fillOnly: true,
+      startStep: 2,
+    });
+  });
+
+  it("starts at the later step beside the start page's passkey button for a password", async () => {
+    fake.state.pageUrl = "https://login.example/signin/id";
+    fake.state.observedPath = "/signin/id";
+    // A page that shows its passkey button at each stage, here beside the password input of
+    // the account it remembers; the item holds a password and no passkey.
+    shows(["password", "login", "passkey"]);
+    const used = parseLoginRecipe({
+      ...twoPages("/signin/id"),
+      passkey: { path: "/signin/id", target: target("passkey") },
+    });
+    const { h, reports } = start([used]);
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]));
+    expect(executed()).toEqual(["fill:password", "click:login"]);
+    expect(status()![0]).toMatchObject({ route: "password", startStep: 2 });
+    expect(reports.find((entry) => entry.type === "start")).toMatchObject({
+      route: "password",
+      startStep: 2,
+    });
+  });
+
+  it("presses the passkey button beside the later step for an item with a passkey", async () => {
+    fake.state.pageUrl = "https://login.example/signin/id";
+    fake.state.observedPath = "/signin/id";
+    shows(["password", "login", "passkey"]);
+    const used = parseLoginRecipe({
+      ...twoPages("/signin/id"),
+      passkey: { path: "/signin/id", target: target("passkey") },
+    });
+    const passkeys = vi.fn(async () => ({ passkey: true, discoverable: true }));
+    const { h } = start([used], {}, [], { passkeys });
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(executed()).toEqual(["click:passkey"]));
+    expect(status()![0]).toMatchObject({ route: "passkey" });
+    expect(status()![0]!["startStep"]).toBeUndefined();
+  });
+
+  it("still starts at the passkey button when it shows alone", async () => {
+    fake.state.pageUrl = "https://login.example/signin/id";
+    fake.state.observedPath = "/signin/id";
+    shows(["passkey"]);
+    const used = parseLoginRecipe({
+      ...twoPages("/signin/id"),
+      passkey: { path: "/signin/id", target: target("passkey") },
+    });
+    const passkeys = vi.fn(async () => ({ passkey: true, discoverable: true }));
+    const { h } = start([used], {}, [], { passkeys });
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(executed()).toEqual(["click:passkey"]));
+    expect(status()![0]).toMatchObject({ route: "passkey" });
+    expect(status()![0]!["startStep"]).toBeUndefined();
+  });
+
+  it("starts nothing while the page shows a signed-in marker, as a password prompt in an app", async () => {
+    // The app asks for the password again before a sensitive action, on the path of the
+    // recipe's password step, and still shows the recipe's signed-in marker.
+    shows(["password", "login", "authenticated"]);
+    const { h } = start([twoPages()]);
+    expect(await h.hello()).toEqual({ ok: false, reason: "stale-document" });
+    expect(executed()).toEqual([]);
+    expect(status()).toBeUndefined();
+  });
+
+  it("still starts beside a marker whose missing elements show, as ADR 0029 reads it", async () => {
+    // The marker was learned on a page that signs in on its own path, so it proves a sign-in
+    // only while the password input is gone.
+    shows(["password", "login", "authenticated"]);
+    const used = parseLoginRecipe({
+      ...twoPages(),
+      completion: [{ target: target("authenticated"), absent: [target("password")] }],
+    });
+    const { h } = start([used]);
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(executed()).toEqual(["fill:password", "click:login"]));
+    expect(status()![0]).toMatchObject({ startStep: 2 });
+  });
+
+  it("starts the recipe whose first step shows over another recipe's later step", async () => {
+    shows(["password", "login"]);
+    // Generated before ADR 0049 for the password page shown alone.
+    const own = parseLoginRecipe({
+      ...recipe,
+      id: "synthetic-password-page",
+      slots: ["password"],
+      steps: [
+        {
+          kind: "fill",
+          path: "/signin/pwd",
+          fields: [{ slot: "password", target: target("password") }],
+        },
+        { kind: "click", path: "/signin/pwd", target: target("login"), purpose: "submit" },
+      ],
+    });
+    const { h, reports } = start([twoPages(), own]);
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]));
+    expect(status()![0]).toMatchObject({ recipeId: own.id, stepCount: 2 });
+    expect(executed()).toEqual(["fill:password", "click:login"]);
+    expect(status()![0]!["startStep"]).toBeUndefined();
+    expect(reports.find((entry) => entry.type === "start")).not.toHaveProperty("startStep");
+  });
+
+  it("lists the later steps for the document to watch, after the first steps", async () => {
+    shows([]);
+    const { h } = start([twoPages()]);
+    const answer = (await h.hello({}, false)) as { starts?: unknown[] };
+    expect(answer.starts).toEqual([
+      { path: "/signin/id", require: "writable", targets: [target("email")] },
+      { path: "/signin/pwd", require: "writable", targets: [target("password")], later: true },
+    ]);
   });
 });

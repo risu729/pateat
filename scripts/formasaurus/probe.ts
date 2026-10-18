@@ -1,5 +1,6 @@
-// Bundled into each Formasaurus page: runs the extension's own extractor and maps every
-// observed candidate back to its form and field name, which the annotations key on.
+// Bundled into each Formasaurus page and each live Japanese page: runs the extension's own
+// extractor and maps every observed candidate back to its form and field name, which the
+// Formasaurus annotations key on.
 import { extractLoginObservation } from "../../apps/extension/src/observation/extract";
 import { findTargets } from "../../apps/extension/src/page/targets";
 import { shown } from "../../apps/extension/src/page/text";
@@ -17,6 +18,8 @@ export type ProbeResult =
   | {
       ok: true;
       observation: unknown;
+      /** Why the observation is incomplete, when it is. */
+      gap?: string;
       candidates: ProbedCandidate[];
       /** Field names per form, to check the annotations line up with these forms. */
       formNames: string[][];
@@ -74,7 +77,14 @@ function probe(): ProbeResult {
       ];
     },
   );
-  return { ok: true, observation: result.observation, candidates, formNames, unsupported };
+  return {
+    ok: true,
+    observation: result.observation,
+    ...(result.gap ? { gap: result.gap } : {}),
+    candidates,
+    formNames,
+    unsupported,
+  };
 }
 
 (globalThis as { pateatProbe?: typeof probe }).pateatProbe = probe;

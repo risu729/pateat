@@ -1607,8 +1607,8 @@ const enabled = (element: HTMLElement) =>
  * observation incomplete, since one control is all such a page needs. Fields are never
  * described, so the page is sent without slots.
  *
- * A link is left out unless it could be pressed: its parsed `href` must be `https:` on the
- * page's site (`onSite`, the worker's answer for the hosts `entryHosts` lists), no query
+ * A link is left out unless it could be pressed: its parsed `href` must be `https:` (or
+ * `http:` on an `http:` page) on the page's site (`onSite`, the worker's answer for the hosts `entryHosts` lists), no query
  * key or value of it may lead to another site, it must lead to another page than this one
  * (not only another fragment), and it opens in the same tab without downloading. So a
  * sign-in through another site never reaches the model. Labels are redacted as in every

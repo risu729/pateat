@@ -15,7 +15,12 @@ import {
   validateLoginOperation,
   withdrawAccountSwitch,
 } from "./login-attempt";
-import { CHOOSER_ENTRY_TARGET, type LoginDocument, type LoginRecipe } from "./login";
+import {
+  CHOOSER_ENTRY_TARGET,
+  type LoginDocument,
+  type LoginRecipe,
+  type LoginStep,
+} from "./login";
 
 const facts = { password: true, totp: false, passkey: false, discoverablePasskey: false };
 const document: LoginDocument = {
@@ -3053,6 +3058,46 @@ describe("a login that stops before a missing password (ADR 0036)", () => {
     ).toEqual(stopped);
   });
 
+  // A move to another origin of the site after the stop: ADR 0027 (2026-10-13) ends a
+  // watched login where it stopped, and ADR 0036 rule 5 completes a move after an answer.
+  describe("a stop the tab leaves for another origin", () => {
+    const moved = { ...top, origin: "https://www.bank.example", documentId: "x" };
+    const watchingAtStop = () =>
+      transitionLoginAttempt(
+        atStop(),
+        { type: "OBSERVED", result: "challenge", document: top },
+        1000,
+      );
+
+    it("ends a watched stop where it stopped, not interrupted", () => {
+      const watching = watchingAtStop();
+      expect(watching).toMatchObject({ state: "watching", submissions: 1 });
+      expect(watching.operationKind).toBeUndefined();
+      expect(
+        transitionLoginAttempt(watching, { type: "NAVIGATED", document: moved }),
+      ).toMatchObject({ state: "blocked", outcome: "challenge" });
+    });
+
+    it("completes a watched stop whose move shows a sign-in", () => {
+      expect(
+        transitionLoginAttempt(watchingAtStop(), {
+          type: "NAVIGATED",
+          document: moved,
+          signedIn: true,
+        }),
+      ).toMatchObject({ state: "authenticated", outcome: "authenticated" });
+    });
+
+    // The bridge's answer can reach the page before STOP_ANSWERED is recorded.
+    it("completes a ready stop whose move shows a sign-in", () => {
+      const stopped = atStop();
+      expect(stopped).toMatchObject({ state: "ready", submissions: 1 });
+      expect(
+        transitionLoginAttempt(stopped, { type: "NAVIGATED", document: moved, signedIn: true }),
+      ).toMatchObject({ state: "authenticated", outcome: "authenticated" });
+    });
+  });
+
   it("counts an answer at the stop as a submission and goes on no further", () => {
     const answered = transitionLoginAttempt(atStop(), answer);
     expect(answered).toMatchObject({
@@ -3729,5 +3774,80 @@ describe("a login that stops before a missing password (ADR 0036)", () => {
         stopAt: 1,
       });
     });
+  });
+});
+
+describe("a login that starts at a later step (ADR 0049)", () => {
+  /** An identifier page and a password page, as a site that remembers the account skips. */
+  const twoPages: LoginRecipe = {
+    ...recipe,
+    slots: ["username", "password"],
+    steps: [
+      {
+        kind: "fill",
+        effect: "prepare",
+        path: "/login",
+        fields: [{ slot: "username", target: { by: "id", value: "email" } }],
+      },
+      { kind: "click", path: "/login", target: { by: "id", value: "next" }, purpose: "advance" },
+      ...recipe.steps.map((step) => ({ ...step, path: "/password" })),
+    ],
+    maxSubmissions: 2,
+  };
+  const create = (change: Partial<Parameters<typeof createAttemptMetadata>[0]> = {}) =>
+    createAttemptMetadata({
+      id: "attempt-later",
+      recipe: twoPages,
+      policyRevision: 3,
+      account: { origin: document.origin, connectionId: "demo-personal", itemId: "primary" },
+      choice: { route: "password", variant: 0 },
+      facts: { ...facts, passkey: true, discoverablePasskey: true },
+      document,
+      ...change,
+    });
+
+  it("starts at the step and issues it first", () => {
+    const ready = transitionLoginAttempt(create({ startAt: 2 }), { type: "RESOLVE" });
+    expect(ready).toMatchObject({ stepIndex: 2, stepCount: 4, startStep: 2 });
+    expect(nextLoginOperation(ready, twoPages, document, "fill-password")).toMatchObject({
+      stepIndex: 2,
+      step: { kind: "fill", path: "/password" },
+    });
+  });
+
+  it("goes back to that step, not the first, after an answered passkey request falls back", () => {
+    const ready = transitionLoginAttempt(create({ startAt: 2 }), { type: "RESOLVE" });
+    const switched = transitionLoginAttempt(ready, { type: "ROUTE", route: "passkey", steps: 1 });
+    expect(switched).toMatchObject({ route: "passkey", stepIndex: 0, startStep: 2 });
+    expect(
+      transitionLoginAttempt(switched, { type: "ROUTE", route: "password", steps: 4 }),
+    ).toMatchObject({ route: "password", stepIndex: 2, stepCount: 4 });
+    // A passkey answer that falls back to the variant records the step too.
+    const answering = create({ choice: { route: "passkey" }, fallback: 0, startAt: 2 });
+    expect(answering).toMatchObject({ route: "passkey", stepIndex: 0, startStep: 2 });
+    // The answer stands on that step's page and element, where the form it waits on shows.
+    expect(attemptPlan(twoPages, answering)).toEqual([
+      {
+        step: {
+          kind: "click",
+          path: "/password",
+          target: (twoPages.steps[2] as Extract<LoginStep, { kind: "fill" }>).fields[0]!.target,
+          purpose: "submit",
+        },
+      },
+    ]);
+    expect(attemptPlan(twoPages, { ...answering, startStep: undefined })?.[0]?.step).toMatchObject({
+      path: "/login",
+      target: { by: "id", value: "email" },
+    });
+  });
+
+  it("refuses a start outside the plan, at or past a stop, or on a chooser's branch", () => {
+    expect(() => create({ startAt: 4 })).toThrow();
+    expect(() =>
+      create({ startAt: 2, stopAt: 2, document: { ...document, frameId: 0 } }),
+    ).toThrow();
+    expect(() => create({ startAt: 2, chooser: "other-shown" })).toThrow();
+    expect(() => create({ choice: { route: "passkey" }, startAt: 2 })).toThrow();
   });
 });

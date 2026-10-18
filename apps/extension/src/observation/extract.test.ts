@@ -3324,6 +3324,9 @@ describe("extractEntryObservation (ADR 0031)", () => {
       ["button", "Show more"],
       ["link", "Create account"],
       ["link", "Login"],
+      // This test page is served over plain HTTP, so an `http:` link on the site is kept
+      // (ADR 0050); `entry.test.ts` covers its refusal on an HTTPS page.
+      ["link", "Plain login"],
       ["link", "Same tab login"],
       // A script link is described as the button it acts as; only a link is ever pressed.
       ["button", "Script link"],

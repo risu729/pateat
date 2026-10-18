@@ -33,13 +33,13 @@ framed. Contracts live in `packages/contracts/src/sync.ts`, `pairing.ts` and
 | `DELETE /v1/device` | Revoke the calling device's own credential |
 | `POST /pair` | Create a device for the signed-in owner from an allowed extension; 201 with the credential, once |
 | `GET /pair/signed-in` | The page the extension opens when pairing needs a sign-in; it asks the user to go back to Pateat's settings |
-| `GET /manage`, `/manage/sites`, `/manage/sites/:scheme/:host` | Owner web UI (React app): devices; the sites list with excluded sites and revoked recipes; one origin's default account, recipes and bindings |
+| `GET /manage`, `/manage/sites`, `/manage/sites/:scheme/:host` | Owner web UI (React app): devices; the sites list with excluded sites, unreadable and revoked recipes; one origin's default account, recipes and bindings |
 | `GET /manage/assets/*` | The web UI's built script, styles and notices |
 | `GET /manage/api/devices` | The owner's devices with their last use, newest first |
 | `POST /manage/api/devices/:deviceId/revoke` | Revoke one of the owner's devices; 204 |
 | `GET /manage/api/settings` | The settings `/v1/settings` serves; revision 0 before the first write; 404 `not_paired` without a paired device |
 | `PUT /manage/api/settings` | Replace them like `PUT /v1/settings`; `connections` must be empty and the document at most 120 KiB |
-| `GET /manage/api/recipes` | Every recipe head with its document, most recently changed first |
+| `GET /manage/api/recipes` | Every recipe head with its document, most recently changed first; active heads whose document no longer validates are listed apart in `unreadable` |
 | `POST /manage/api/recipes/:recipeId/revoke` | Revoke one recipe if `expectedRevision` is its head; otherwise 409 with the current head |
 | `GET /manage/claude` | Access page showing the Console values and the owner's WIF identifiers |
 | `POST /manage/claude` | Save the owner's four WIF identifiers |
@@ -54,7 +54,9 @@ day; migration 0007 started existing devices at their pairing time. Bodies must 
 `application/json` and at most 128 KiB. Synced settings are server-readable policy
 metadata; device-local field policies, vault values and provider sessions are rejected
 by the strict schemas. Stored documents are revalidated on read and fail closed with a
-500 `internal_error`.
+500 `internal_error`, except an active recipe whose document no longer validates, which
+devices receive as revoked
+([minimal service](../../docs/architecture.md#minimal-service)).
 
 One Cloudflare Access application covers the whole host, and a more specific Bypass
 application exempts `/v1/*`, `/health`, `/.well-known/openid-configuration` and
@@ -73,8 +75,9 @@ subject, never by email. The
 ([ADR 0020](../../docs/adr/0020-direct-device-pairing.md)). The extension's background
 sends `{ "version": 1, "label": "…" }` with the browser's login session. The Worker
 checks, in this order, the Access token, the `Origin`, the rate limit and then the body;
-it creates the owner on an identity's first pairing, stores only the credential's
-SHA-256 and answers 201 `{ version: 1, deviceId, credential }`. `Origin` must equal
+it creates the owner on an identity's first pairing in the same transaction as the
+device (a failed pairing leaves no owner), stores only the credential's SHA-256 and
+answers 201 `{ version: 1, deviceId, credential }`. `Origin` must equal
 `chrome-extension://<id>` exactly for an ID in `PAIRING_EXTENSION_IDS`, a JSON array
 committed in `cloudflare.config.ts` (Pateat's own production ID; a self-hosted extension
 build with its own key lists its ID instead). It is not a secret. The `PAIR_LIMITER`

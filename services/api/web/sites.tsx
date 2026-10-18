@@ -3,7 +3,7 @@ import { Ban, ChevronRight, RefreshCw, User } from "lucide-react";
 import { useId, useRef, useState, type FormEvent } from "react";
 import { describeError, type ManageClient } from "./api";
 import { Button } from "./button";
-import { isActive, RevokedRecipes, useRecipes } from "./recipes";
+import { isActive, RevokedRecipes, UnreadableRecipes, useRecipes } from "./recipes";
 import {
   allowSite,
   defaultAccountLabel,
@@ -242,7 +242,8 @@ export function SitesPage({ client }: { client: ManageClient }) {
         </form>
       )}
       {recipes.data && (
-        <div className="pt-4">
+        <div className="space-y-8 pt-4">
+          <UnreadableRecipes client={client} announce={setNotice} />
           <RevokedRecipes recipes={recipes.data.recipes} />
         </div>
       )}

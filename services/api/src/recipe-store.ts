@@ -44,14 +44,32 @@ export function selectHeads(db: D1Database, ownerId: string, ...conditions: SQL[
     .$dynamic();
 }
 
-/** Stored rows are revalidated; a corrupt row fails closed as an internal error. */
+/**
+ * Stored rows are revalidated. An active head whose document no longer validates is
+ * read as revoked, so devices drop it and sync moves past it, and is `unreadable` so the
+ * web UI can list it for revocation. A head whose ID or revision is invalid fails closed
+ * as an internal error.
+ */
+export function readChange(row: Omit<HeadRow, "sequence" | "updatedAt">): {
+  change: SyncRecipeChange;
+  unreadable: boolean;
+} {
+  const tombstone = { recipeId: row.recipeId, revision: row.revision, state: "revoked" as const };
+  if (row.state === "active") {
+    const active = v.safeParse(syncRecipeChangeSchema, {
+      ...tombstone,
+      state: row.state,
+      recipe: row.document,
+    });
+    if (active.success) return { change: active.output, unreadable: false };
+  }
+  const change = v.parse(syncRecipeChangeSchema, tombstone);
+  if (row.state === "active") console.error("Stored recipe document no longer validates");
+  return { change, unreadable: row.state === "active" };
+}
+
 export function toChange(row: Omit<HeadRow, "sequence" | "updatedAt">): SyncRecipeChange {
-  return v.parse(
-    syncRecipeChangeSchema,
-    row.state === "active"
-      ? { recipeId: row.recipeId, revision: row.revision, state: row.state, recipe: row.document }
-      : { recipeId: row.recipeId, revision: row.revision, state: row.state },
-  );
+  return readChange(row).change;
 }
 
 export async function readHead(db: D1Database, ownerId: string, recipeId: string) {
@@ -218,5 +236,14 @@ export async function writeRecipe(
       (current ? current.revision === write.expectedRevision : write.expectedRevision === 0);
     return limited ? { ok: false, limited } : { ok: false, limited, current };
   }
-  return { ok: true, change: toChange({ recipeId, revision, state: write.state, document }) };
+  // A document written just now must validate; only stored rows read back may be unreadable.
+  return {
+    ok: true,
+    change: v.parse(
+      syncRecipeChangeSchema,
+      document === null
+        ? { recipeId, revision, state: write.state }
+        : { recipeId, revision, state: write.state, recipe: document },
+    ),
+  };
 }

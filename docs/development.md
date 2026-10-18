@@ -170,6 +170,7 @@ Focused tasks are available for diagnosis:
 | `mise run //packages/inference:test` | Score AI role adapters on the synthetic corpus with fake providers and check the real-page corpus |
 | `mise run //packages/inference:typecheck` | Check AI adapter, corpus and harness types |
 | `mise run //packages/inference:corpus:formasaurus <checkout>` | Regenerate the real-page corpus from a local Formasaurus checkout ([plan](plan.md#ai-evaluation-harness-progress)) |
+| `mise run //packages/inference:corpus:japanese (--refresh \| --report <file> <url>...)` | Observe public Japanese login pages live: refresh the Japanese corpus, or report listed pages to label ([plan](plan.md#ai-evaluation-harness-progress)) |
 | `mise run //packages/inference:bench --paid [--corpus real\|japanese] [--from n --count n]` | Run the paid Claude benchmark on the synthetic corpus, the Formasaurus real-page corpus or the Japanese pages, whole or one batch; needs `ANTHROPIC_API_KEY` (in cloud sessions, `PATEAT_ANTHROPIC_API_KEY`) and owner approval for each run |
 | `mise run //packages/inference:bench --provider heuristic [--corpus real\|japanese] [--from n --count n]` | Score the free model-free comparator on the same cases, whole or one batch |
 | `mise run test:tools` | Test artifact/provenance helpers |
@@ -506,7 +507,10 @@ holds:
 For example, `siteDefault: 1` with `siteDefaultAccepted: 0` means the default item's
 passkey is not one the request accepts. No entry at all means the request never reached
 Pateat's background: the page's options were not ones the bridge copies, another
-provider's wrapper did not call Pateat's, or the request came from a subframe. Entries
+provider's wrapper did not call Pateat's, the request came from a subframe, or the relay
+refused the document on its own (an insecure context, a permissions policy that refuses
+`publickey-credentials-get`, a document without `document.featurePolicy`, or copied
+options longer than 131,072 characters). Entries
 never hold credential IDs, user handles or item IDs, and the page is never told the
 reason. The origin and RP ID are named only for sites your settings or recipes name;
 other sites appear as `origin:7d2b91aa` and `rp:7d2b91aa`.

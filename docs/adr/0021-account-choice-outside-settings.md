@@ -85,6 +85,11 @@ Amended on 2026-10-14 by
 only confirmed completion counts as a successful sign-in (implemented); see the dated
 amendment below.
 
+Amended on 2026-10-18 by [ADR 0049](0049-start-at-a-later-step.md) (owner, 01:40 UTC,
+implemented): in D, a later step a login may start at counts as the first step does,
+and a fill-only login after a logout starts at it; this closes the known gap for sites
+that show only a password step after a logout.
+
 Date: 2026-10-11
 
 ## Context
@@ -327,7 +332,8 @@ Known gaps:
 
 - Frame logins are not detected (ADR 0017).
 - Sites that show only a password step after logout are not detected, because no
-  recipe's first step appears.
+  recipe's first step appears. (Closed on 2026-10-18 by
+  [ADR 0049](0049-start-at-a-later-step.md): such a step counts as the first step does.)
 - A login form that stays in the page after login, or a re-authentication form shaped
   like the first step, can ask for a choice while still logged in.
 
@@ -414,7 +420,8 @@ expires within 10 minutes after such a click.
   this tab" (`passkey.request` marked `logoutClicked`), while the click waits and, once
   used, while the tab keeps a logout state for an origin of the site, so a "Sign in with
   a passkey" press on the sign-in page asks too.
-- No permission is added: the login content script already runs on every HTTPS page.
+- No permission is added: the login content script already runs on every HTTPS page (and
+  HTTP page since [ADR 0050](0050-http-pages-for-http-items.md)).
 - Also counted, by the words alone: a link or button whose name holds them without
   logging out, such as "Auto sign out settings", "Logout history" or "How do I log
   out?". Such a click only makes the tab ask when the site's first step shows in it
@@ -460,11 +467,12 @@ switch starts only from the person's choice in the popup; Pateat still never swi
 such an account on its own ([plan](../plan.md#phase-4-issues-and-work-as-needed)).
 
 The owner also asked on 2026-10-11 (17:05 UTC) to record, not build, a toolbar badge
-that counts the matching items on every HTTPS site with at least one match, not only
-while a login waits for a choice (part B). The owner expects it to help two later
-features: the automatic account switching above, by showing whether there is another
-account to switch to, and replacing the official Bitwarden extension, whose own badge
-counts matching logins.
+that counts the matching items on every HTTPS site (HTTP too since
+[ADR 0050](0050-http-pages-for-http-items.md), with its `http://` rule) with at least
+one match, not only while a login waits for a choice (part B). The owner expects it to
+help two later features: the automatic account switching above, by showing whether there
+is another account to switch to, and replacing the official Bitwarden extension, whose
+own badge counts matching logins.
 
 ### Site count badge
 
@@ -481,7 +489,7 @@ Each write sets the badge text, background, text colour and title for one tab:
 
 | State                                  | Badge                           | Colours (background / text)        |
 | -------------------------------------- | ------------------------------- | ---------------------------------- |
-| Not HTTPS, or no matching item         | none                            |                                    |
+| Not HTTP(S), or no matching item       | none                            |                                    |
 | At least one usable item               | the usable count, e.g. `2`      | teal `#115e59` / white             |
 | Matching items, none usable            | the matching count, e.g. `3`    | light gray `#cbd5e1` / `#1e293b`   |
 | A login waits for a choice             | the candidates, e.g. `2`        | amber `#8a5a00` / white            |

@@ -973,6 +973,25 @@ describe("cancellation, deadlines and host loss", () => {
     });
   });
 
+  it.each(["timeout", "cancel", "disconnect"] as const)(
+    "reports a session as no longer open after a %s ends it",
+    async (cause) => {
+      const h = harness({ timeoutMs: cause === "timeout" ? 30 : 500 });
+      const session = await h.open();
+      expect(h.host.isOpen(session)).toBe(true);
+      expect(h.host.isOpen({ ...session, sessionId: crypto.randomUUID() })).toBe(false);
+      if (cause === "disconnect") h.onDisconnect.emit();
+      else {
+        const controller = new AbortController();
+        const pending = h.host.listFields(session, itemId, controller.signal);
+        await h.command(1);
+        if (cause === "cancel") controller.abort();
+        expect((await pending).ok).toBe(false);
+      }
+      expect(h.host.isOpen(session)).toBe(false);
+    },
+  );
+
   it("dispose synchronously locks access and settles pending work even when document cleanup fails", async () => {
     const h = harness();
     const pending = h.host.deriveAuthentication(auth());

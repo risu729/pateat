@@ -109,11 +109,12 @@ recipe, or is generated, as any login page is today; on pixiv that is the
   the control to press,
   `{"origin":"https://www.pixiv.net","entry":{"path":"/en/","target":{"by":"text","value":"Login"}}}`.
   ADR 0028's `chooser` needs the same kind of recipe, one whose start has no fill step.
-- **When the page is sent.** A top-level HTTPS page of a site that is not excluded, with
-  a vault item whose URI matches its origin, on whose path no recipe starts, and that 10
-  seconds after loading shows no sign-in input. Its URL must carry a query value naming
-  another path of the same site, such as `return_to=/bookmark_new_illust.php`. ADR
-  0016's 10-minute retry window applies.
+- **When the page is sent.** A top-level HTTPS page (or HTTP page, whose item must be
+  saved with an `http://` URI; [ADR 0050](0050-http-pages-for-http-items.md)) of a site
+  that is not excluded, with a vault item whose URI matches its origin, on whose path no
+  recipe starts, and that 10 seconds after loading shows no sign-in input. Its URL must
+  carry a query value naming another path of the same site, such as
+  `return_to=/bookmark_new_illust.php`. ADR 0016's 10-minute retry window applies.
 - **What the AI sees and answers.** The visible, enabled buttons and links that carry
   text, outside forms with fields. Links to another site are dropped on the device, so
   off-site social sign-ins never reach the model. It names one of them as `entry`, or

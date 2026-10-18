@@ -942,10 +942,11 @@ export function passkeyAnswersRequest(recipe: LoginRecipe): boolean {
 /**
  * The one step of a `passkey` route that answers the start page's own request (ADR 0034):
  * it stands for that answer as a submit on the password route's first element, on the
- * start path, and is never sent to the page.
+ * start path, and is never sent to the page. A login that started at a later step answers
+ * on that step's page, so `from` is that step (ADR 0049).
  */
-function requestStep(recipe: LoginRecipe): LoginStep {
-  const first = recipe.steps[0]!;
+function requestStep(recipe: LoginRecipe, from?: LoginStep): LoginStep {
+  const first = from ?? recipe.steps[0]!;
   return {
     kind: "click",
     path: first.path,
@@ -955,11 +956,16 @@ function requestStep(recipe: LoginRecipe): LoginStep {
 }
 /**
  * The chosen route's steps. The `passkey` route clicks its button, or without one answers
- * the start page's own request (ADR 0034).
+ * the start page's own request (ADR 0034), on the page of `from` when the login started at
+ * that later step (ADR 0049).
  */
-export function routeSteps(recipe: LoginRecipe, choice: LoginRouteChoice): LoginStep[] {
+export function routeSteps(
+  recipe: LoginRecipe,
+  choice: LoginRouteChoice,
+  from?: LoginStep,
+): LoginStep[] {
   if (choice.route === "passkey")
-    return [recipe.passkey ? passkeyStep(recipe.passkey) : requestStep(recipe)];
+    return [recipe.passkey ? passkeyStep(recipe.passkey) : requestStep(recipe, from)];
   return passwordVariants(recipe)[choice.variant]?.steps ?? [];
 }
 /**
@@ -1033,6 +1039,25 @@ export function recipeStartSteps(recipe: LoginRecipe): LoginStep[] {
     ...(recipe.passkey ? [passkeyStep(recipe.passkey)] : []),
     ...passwordVariants(recipe).map((variant) => variant.steps[0]!),
   ];
+}
+/**
+ * The later steps a new login may start at when none of the recipe's first steps shows
+ * (ADR 0049): each `password` variant's `fill` steps after its first, other than one that
+ * fills only a TOTP code, which a running login's handler or route step answers. `index`
+ * is the step's position in its variant.
+ */
+export function laterStartSteps(
+  recipe: LoginRecipe,
+): { variant: number; index: number; step: Extract<LoginStep, { kind: "fill" }> }[] {
+  return passwordVariants(recipe).flatMap((variant, variantIndex) =>
+    variant.steps.flatMap((step, index) =>
+      index > 0 &&
+      step.kind === "fill" &&
+      step.fields.some((field) => field.slot !== TOTP_HANDLER_SLOT)
+        ? [{ variant: variantIndex, index, step }]
+        : [],
+    ),
+  );
 }
 /**
  * Whether the recipe offers the route; every recipe has the `password` route, since a

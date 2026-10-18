@@ -35,11 +35,12 @@ the frame's URL and the tab's URL match the chosen vault item:
 | `https://www.bank.example/` | `https://login.bank.example/frame` | `bank.example` | fills |
 | `https://evil.example/` | `https://login.bank.example/frame` | `bank.example` | refused with `frame-top-mismatch` |
 
-- The login content script runs in every HTTPS frame (`all_frames: true`). A frame is
-  admitted only when its own site and the tab's page are both admitted under ADR 0009:
-  HTTPS, not excluded, and site access granted. An excluded site on either side stops
-  it before any recipe, policy catalog or vault access. Intermediate frames of nested
-  frames are not checked, as in the Bitwarden client.
+- The login content script runs in every HTTPS frame (`all_frames: true`; HTTP frames
+  too since [ADR 0050](0050-http-pages-for-http-items.md)). A frame is admitted only
+  when its own site and the tab's page are both admitted under ADR 0009: HTTP(S), not
+  excluded, and site access granted. An excluded site on either side stops it before any
+  recipe, policy catalog or vault access. Intermediate frames of nested frames are not
+  checked, as in the Bitwarden client.
 - The recipe's `origin` and step `path`s are the frame's own. The recipe format does
   not change. A saved site default (`siteDefaults[].origin`) is also the frame's origin.
 - The chosen item must match the tab's URL as well, either by its static allowed origins

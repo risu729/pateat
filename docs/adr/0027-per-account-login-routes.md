@@ -65,6 +65,11 @@ asks how to confirm the sign-in, stored as a third handler kind, `password`, ent
 only by a `password` login that has not filled its password, before other handlers
 shown with it, and only when its text names a password choice (implemented).
 
+Amended on 2026-10-18 by [ADR 0049](0049-start-at-a-later-step.md) (owner, 01:40 UTC,
+implemented): a later step a login may start at releases a watched login as its first
+step does, and the start page's `passkey` button is not offered to a login that starts
+at a later step.
+
 Date: 2026-10-11
 
 ## Context
