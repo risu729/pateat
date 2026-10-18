@@ -7,7 +7,9 @@ Status: accepted by the owner on 2026-10-11 and amended the same day (see
 [Amendment: a page limit per level](#amendment-a-page-limit-per-level) and
 [Amendment: what the log records](#amendment-what-the-log-records)) and on 2026-10-13
 (see
-[Amendment: URLs keep parameter names, not values](#amendment-urls-keep-parameter-names-not-values)).
+[Amendment: URLs keep parameter names, not values](#amendment-urls-keep-parameter-names-not-values))
+and on 2026-10-18 (see
+[Amendment: debug logging stays on before publishing](#amendment-debug-logging-stays-on-before-publishing)).
 The diagnostics page, the logs, the Bitwarden server information, recent log lines and
 the Pateat service's record for the device are implemented.
 
@@ -268,7 +270,8 @@ URLs:
 Debug logging:
 
 - The diagnostics page turns debug logging on and off. Turning it on lasts 24 hours,
-  then it turns itself off.
+  then it turns itself off. (Amended below: until publishing, it stays on until turned
+  off.)
 
 Limits:
 
@@ -329,3 +332,18 @@ and `state`. The owner chose (15:17 UTC) to keep only the parameters' names:
   shape stays on the device but is left out of downloads. A stored query or fragment
   that was a single token ending in `=` (`?dG9rZW4=`) has this shape and still leaves in
   a download. The diagnostics page's clear removes such lines.
+
+## Amendment: debug logging stays on before publishing
+
+On 2026-10-18 (01:50 UTC) the owner asked, while testing logins in Chrome, for debug
+logging to stay on for now, removed before publishing or kept behind a feature flag:
+
+- While `DEBUG_STAYS_ON` in `apps/extension/src/diagnostics/log.ts` is true, as it is
+  in every build until publishing, **Turn on debug logging** keeps it on until
+  **Turn off debug logging**, across browser and worker restarts. A 24-hour window
+  still open when a build with the flag starts stays on as well.
+- The page and the bug report say "on until turned off".
+- `debug` entries are still deleted after 24 hours, and the entry limits are unchanged.
+- Before publishing the flag is set to false or removed (see the
+  [roadmap](../plan.md#phase-3-public-release)); a build without it turns off debug
+  logging left on until turned off.

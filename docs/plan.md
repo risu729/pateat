@@ -773,6 +773,12 @@ Once the fixes have settled:
   rejection. The review comes before the Japanese text below, so that the English text
   is settled before it is translated (owner, 2026-10-13 15:17 UTC). Not started without
   the owner's confirmation (owner, 2026-10-13 15:10 UTC).
+- Before publishing, turn off or remove `DEBUG_STAYS_ON` in
+  `apps/extension/src/diagnostics/log.ts`, which keeps debug logging on until it is
+  turned off, or keep it only behind a feature flag (owner, 2026-10-18 01:50 UTC;
+  whatever replaces it must still read the stored `DEBUG_UNTIL_TURNED_OFF` deadline as
+  off, or reset it, so a published build never inherits debug logging left on;
+  [ADR 0019](adr/0019-local-diagnostics-and-logs.md#amendment-debug-logging-stays-on-before-publishing)).
 - Next, before the rest of the work below that makes Pateat public: Japanese alongside
   English for Pateat itself (owner, 2026-10-12 13:59 UTC): the README, the docs and the
   extension's UI text. The service's pages, such as `/manage`, come later. The owner

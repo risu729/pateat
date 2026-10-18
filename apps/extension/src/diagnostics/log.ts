@@ -32,6 +32,14 @@ export const LOG_RETENTION_MS = 14 * 24 * HOUR_MS;
 export const DEBUG_RETENTION_MS = 24 * HOUR_MS;
 export const DEBUG_LOGGING_MS = 24 * HOUR_MS;
 /**
+ * Until Pateat is published, debug logging once turned on stays on until it is turned off
+ * rather than for {@link DEBUG_LOGGING_MS}, so the detail of a login that goes wrong is
+ * there (owner, 2026-10-18). It is turned off, or removed, before publishing.
+ */
+export const DEBUG_STAYS_ON = true;
+/** The stored deadline of debug logging that stays on until it is turned off. */
+export const DEBUG_UNTIL_TURNED_OFF = 8_640_000_000_000_000;
+/**
  * `debug` and `info` entries kept at most; the oldest `debug` entries go first. About 14
  * days at an estimated 1,000 a day on a testing day (ADR 0019).
  */
@@ -471,6 +479,8 @@ export type LoggerDependencies = {
   console?: Pick<Console, "debug" | "info" | "warn" | "error">;
   /** Smaller limits for tests. */
   limits?: { entries: number; problems: number; pruneEvery: number };
+  /** {@link DEBUG_STAYS_ON} unless a test says otherwise. */
+  debugStaysOn?: boolean;
 };
 
 export type LogSummary = {
@@ -517,6 +527,7 @@ export function createLogger(deps: LoggerDependencies) {
   const now = deps.now ?? Date.now;
   const name = deps.databaseName ?? DIAGNOSTICS_DATABASE_NAME;
   const out = deps.console ?? console;
+  const debugStaysOn = deps.debugStaysOn ?? DEBUG_STAYS_ON;
   const limits = deps.limits ?? {
     entries: LOG_ENTRY_LIMIT,
     problems: LOG_PROBLEM_LIMIT,
@@ -570,10 +581,27 @@ export function createLogger(deps: LoggerDependencies) {
     await (await open()).put(META_STORE, value, key);
   }
 
+  /** Stores {@link DEBUG_UNTIL_TURNED_OFF} in place of `from` and returns what is stored. */
+  async function keepDebugOn(from: number): Promise<number> {
+    // One read-write transaction, so a turn-off written meanwhile is never overwritten.
+    const transaction = (await open()).transaction(META_STORE, "readwrite");
+    const stored = await transaction.store.get(DEBUG_KEY);
+    if (stored === from) await transaction.store.put(DEBUG_UNTIL_TURNED_OFF, DEBUG_KEY);
+    await transaction.done;
+    return stored === from ? DEBUG_UNTIL_TURNED_OFF : v.is(integer, stored) ? stored : 0;
+  }
+
   function debugDeadline(): Promise<number> {
     debugUntil ??= meta(DEBUG_KEY, integer)
       .then((value) => value ?? 0)
       .catch(() => 0)
+      .then(async (value) => {
+        if (!debugStaysOn) return value === DEBUG_UNTIL_TURNED_OFF ? 0 : value;
+        if (value <= now() || value === DEBUG_UNTIL_TURNED_OFF) return value;
+        // A 24-hour window still open now stays on until it is turned off, unless it was
+        // turned off or on meanwhile.
+        return keepDebugOn(value).catch(() => DEBUG_UNTIL_TURNED_OFF);
+      })
       .then((value) => (knownDebugUntil = value));
     return debugUntil;
   }
@@ -879,10 +907,10 @@ export function createLogger(deps: LoggerDependencies) {
         windows.clear();
         await deps.pseudonym.rotate();
       }),
-    /** Records `debug` entries for the next 24 hours. */
+    /** Records `debug` entries for the next 24 hours, or until turned off while they stay on. */
     enableDebug: () =>
       serial(async () => {
-        const until = now() + DEBUG_LOGGING_MS;
+        const until = debugStaysOn ? DEBUG_UNTIL_TURNED_OFF : now() + DEBUG_LOGGING_MS;
         await putMeta(DEBUG_KEY, until);
         debugUntil = Promise.resolve(until);
         knownDebugUntil = until;

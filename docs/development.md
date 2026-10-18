@@ -433,9 +433,11 @@ For a problem that happened earlier, click **Download logs** on the same page, c
 preview and click **Save file**, then attach the `.jsonl` file, or click **Copy all**
 and paste the whole text. Site addresses and recipe IDs are included; check
 **Hide site addresses and recipe IDs** to replace them with `site-1` and `recipe-1`. To
-record more detail, click **Turn on debug logging for 24 hours**, reproduce the problem,
-then download the logs ([local log](architecture.md#local-log)). Debug logging turns
-itself off after 24 hours; **Turn off debug logging** turns it off sooner.
+record more detail, click **Turn on debug logging**, reproduce the problem, then
+download the logs ([local log](architecture.md#local-log)). Until Pateat is published,
+debug logging stays on until **Turn off debug logging** turns it off; a published build
+turns it off after 24 hours, and its button reads
+**Turn on debug logging for 24 hours**.
 
 ### Why a passkey request was delegated
 
