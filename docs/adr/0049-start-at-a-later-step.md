@@ -67,20 +67,18 @@ the service and the AI prompts are unchanged.
    was.
 2. **Order.** A recipe's first step ready on the page wins, also over another recipe's
    later step, so a recipe generated for `/signin/pwd` before this ADR still starts
-   there. The start page's passkey button does not count here: a page that shows it at
-   each stage, beside the password input of the account it remembers, starts at the
-   later step, and the button alone still starts the `passkey` route. Otherwise the
-   recipe whose later step shows starts at the earliest such step of the variant chosen
-   for the account. When later steps of two recipes show, nothing starts, as for two
-   first steps.
+   there. Otherwise the recipe whose later step shows starts at the earliest such step
+   of the variant chosen for the account. When later steps of two recipes show, nothing
+   starts, as for two first steps.
 3. **Route.** The route and variant are chosen from the item as for a first step, among
-   that variant's steps. The start page's passkey button (ADR 0027) is not offered for
-   such a start: an item with a passkey and a password starts at the later step with its
-   password. On a recipe without a passkey button, a passkey request the page itself
-   makes (ADR 0034) is still answered for an item that also holds a password: the
-   answer waits on the later step's page, and a fallback to the `password` route returns
-   to that step. An item with a passkey and no password, an item whose variant has no
-   showing later step, or one that would stop before it (ADR 0036), does not start.
+   that variant's steps. The start page's passkey button (ADR 0027), which is on the
+   first page, is not offered when it does not show: an item with a passkey and a
+   password starts at the later step with its password. On a recipe without a passkey
+   button, a passkey request the page itself makes (ADR 0034) is still answered for an
+   item that also holds a password: the answer waits on the later step's page, and a
+   fallback to the `password` route returns to that step. An item with a passkey and no
+   password, an item whose variant has no showing later step, or one that would stop
+   before it (ADR 0036), does not start.
 4. **Pressing.** The same as a login that starts at its first step: if another account
    shows on the page, the login ends `wrong-account` (and presses the recipe's
    `accountSwitch` if it has one); otherwise it fills to the end and presses. This keeps
@@ -99,13 +97,19 @@ the service and the AI prompts are unchanged.
 
 Details added in implementation, not confirmed by the owner:
 
+- On a page that shows the start page's passkey button beside a later step, as a page
+  that shows the button at each stage, the button does not count as a first step that
+  holds the later start back. The account is planned with the button as on the first
+  page: one whose route is the button (ADR 0027) presses it, and any other starts at the
+  later step. The button alone still starts the `passkey` route.
 - A visible writable username or email input blocks a later start even when it already
   holds a value (the proposal said an empty one), since its value may name another
   account.
-- No later start happens while the page visibly shows one of the recipe's signed-in
-  markers (ADR 0029) learned on its origin, as a single-page app does when it asks for
-  the password again before a sensitive action; the page announces again up to its
-  limit and is logged as `login.refused` `stale-document` (`gave-up` once it stops).
+- No later start happens while one of the recipe's signed-in markers proves a sign-in on
+  the page as ADR 0029 reads it (visible once, with its `absent` elements missing), as a
+  single-page app does when it asks for the password again before a sensitive action;
+  the page announces again up to its limit and is logged as `login.refused`
+  `stale-document` (`gave-up` once it stops).
 - The content script watches at most 32 steps, first steps before later ones.
 - A refused later start is logged as `login.refused` `no-route` with `later-variant`
   (the chosen variant shows no later step) or `password-empty:later-start` (the login
@@ -127,9 +131,11 @@ Details added in implementation, not confirmed by the owner:
   lives on one path. [ADR 0035](0035-page-kinds-per-site.md) does not prevent it, since
   such a page uses the existing `sign-in` recipe and is never sent to be judged
   `confirm`. Accepted with the recommendation. The signed-in marker check above stops a
-  new login on such a page once the recipe has a marker that shows there; a recipe
-  without one, a prompt that hides the marker, and the logout in a tab with a login
-  (which fills without pressing) are not covered.
+  new login on such a page once the recipe has a marker that proves a sign-in there; a
+  recipe without one, a marker learned with the password input among its `absent`
+  elements (as on a site that signs in on its own path, the single-path app above), a
+  prompt that hides the marker, and the logout in a tab with a login (which fills
+  without pressing) are not covered.
 - Not fixed: a recipe whose one `fill` step fills both the username and the password, on
   a page that later shows only the password input (the step is only partly ready), and a
   page no step of any recipe matches.

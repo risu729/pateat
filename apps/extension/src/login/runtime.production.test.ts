@@ -22795,18 +22795,17 @@ describe("a login that starts at a later step its page shows (ADR 0049)", () => 
     });
   });
 
-  it("starts at the later step beside the start page's passkey button, with the password", async () => {
+  it("starts at the later step beside the start page's passkey button for a password", async () => {
     fake.state.pageUrl = "https://login.example/signin/id";
     fake.state.observedPath = "/signin/id";
     // A page that shows its passkey button at each stage, here beside the password input of
-    // the account it remembers; the item holds a passkey and a password.
+    // the account it remembers; the item holds a password and no passkey.
     shows(["password", "login", "passkey"]);
     const used = parseLoginRecipe({
       ...twoPages("/signin/id"),
       passkey: { path: "/signin/id", target: target("passkey") },
     });
-    const passkeys = vi.fn(async () => ({ passkey: true, discoverable: true }));
-    const { h, reports } = start([used], {}, [], { passkeys });
+    const { h, reports } = start([used]);
     expect(await h.hello()).toEqual({ ok: true });
     await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]));
     expect(executed()).toEqual(["fill:password", "click:login"]);
@@ -22815,6 +22814,22 @@ describe("a login that starts at a later step its page shows (ADR 0049)", () => 
       route: "password",
       startStep: 2,
     });
+  });
+
+  it("presses the passkey button beside the later step for an item with a passkey", async () => {
+    fake.state.pageUrl = "https://login.example/signin/id";
+    fake.state.observedPath = "/signin/id";
+    shows(["password", "login", "passkey"]);
+    const used = parseLoginRecipe({
+      ...twoPages("/signin/id"),
+      passkey: { path: "/signin/id", target: target("passkey") },
+    });
+    const passkeys = vi.fn(async () => ({ passkey: true, discoverable: true }));
+    const { h } = start([used], {}, [], { passkeys });
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(executed()).toEqual(["click:passkey"]));
+    expect(status()![0]).toMatchObject({ route: "passkey" });
+    expect(status()![0]!["startStep"]).toBeUndefined();
   });
 
   it("still starts at the passkey button when it shows alone", async () => {
@@ -22841,6 +22856,20 @@ describe("a login that starts at a later step its page shows (ADR 0049)", () => 
     expect(await h.hello()).toEqual({ ok: false, reason: "stale-document" });
     expect(executed()).toEqual([]);
     expect(status()).toBeUndefined();
+  });
+
+  it("still starts beside a marker whose missing elements show, as ADR 0029 reads it", async () => {
+    // The marker was learned on a page that signs in on its own path, so it proves a sign-in
+    // only while the password input is gone.
+    shows(["password", "login", "authenticated"]);
+    const used = parseLoginRecipe({
+      ...twoPages(),
+      completion: [{ target: target("authenticated"), absent: [target("password")] }],
+    });
+    const { h } = start([used]);
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(executed()).toEqual(["fill:password", "click:login"]));
+    expect(status()![0]).toMatchObject({ startStep: 2 });
   });
 
   it("starts the recipe whose first step shows over another recipe's later step", async () => {

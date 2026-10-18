@@ -6264,34 +6264,31 @@ export function createLoginRuntime(
     }
     return { username, others, othersComplete };
   }
-  /** Whether the document shows a step's elements now, without waiting for them. */
   /**
-   * Whether the page visibly shows one of the recipe's signed-in markers learned on its own
-   * origin (ADR 0029), whatever else it shows: a later step there is no start (ADR 0049).
+   * Whether one of the recipe's signed-in markers proves a sign-in on the page as ADR 0029
+   * reads it: a later step there is no start (ADR 0049).
    */
   async function showsMarker(live: LiveDocument, recipe: LoginRecipe): Promise<boolean> {
-    const markers = (recipe.completion ?? []).filter((marker) => marker.origin === undefined);
-    if (!markers.length) return false;
+    const proof = markerProof(recipe);
+    if (!proof.targets.length) return false;
     try {
       const parsed = v.safeParse(
         observationSchema,
         await send(live, {
           type: "login.observe",
           path: live.path,
-          targets: markers.map((marker) => marker.target),
-          require: markers.map(() => "shown" as const),
-          links: markers.map(() => true),
+          targets: proof.targets,
+          require: proof.shown,
+          links: proof.links,
         }),
       );
       // A page that cannot be read starts nothing either.
-      return (
-        !parsed.success ||
-        parsed.output.targets.some((state) => state === "unique" || state === "ambiguous")
-      );
+      return !parsed.success || proof.proves(parsed.output.targets);
     } catch {
       return true;
     }
   }
+  /** Whether the document shows a step's elements now, without waiting for them. */
   async function showsNow(live: LiveDocument, readiness: LoginReadiness): Promise<boolean> {
     try {
       const parsed = v.safeParse(
@@ -7674,7 +7671,7 @@ export function createLoginRuntime(
     // steps, as a password page shown again after a logout for an account the site
     // remembers, starts a new login at that step (ADR 0049, owner 2026-10-18). A first step
     // that shows goes first, another recipe's too; a chooser's branches never start there.
-    let later: { variants: Map<number, number[]> } | undefined;
+    let later: { variants: Map<number, number[]>; button: boolean } | undefined;
     if (
       !previous &&
       !chooser &&
@@ -7686,8 +7683,8 @@ export function createLoginRuntime(
       if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
       if (candidates.length) {
         // The start page's passkey button may stay beside a later step, as on a page that
-        // shows it at each stage: only a `password` variant's first step goes first, and a
-        // later start is never offered the button.
+        // shows it at each stage: only a `password` variant's first step goes first, and the
+        // button is offered to the account as on the first page (ADR 0027).
         let firstShows = false;
         /* eslint-disable no-await-in-loop */
         for (const variant of recipe ? passwordVariants(recipe) : []) {
@@ -7712,18 +7709,16 @@ export function createLoginRuntime(
           }
         /* eslint-enable no-await-in-loop */
         if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+        const buttonShows = async (button: LoginRecipe | undefined) =>
+          button?.passkey !== undefined &&
+          button.passkey.path === live.path &&
+          (await showsNow(live, loginReadiness(routeSteps(button, { route: "passkey" })[0]!)));
         // Two recipes whose later steps show start neither, as two first steps do (ADR 0013).
         if (showing.length === 1) {
           recipe = showing[0]!.recipe;
-          later = { variants: showing[0]!.variants };
+          later = { variants: showing[0]!.variants, button: await buttonShows(recipe) };
         } else if (showing.length > 1) recipe = undefined;
-        else if (
-          !firstShows &&
-          !(
-            recipe?.passkey &&
-            (await showsNow(live, loginReadiness(routeSteps(recipe, { route: "passkey" })[0]!)))
-          )
-        )
+        else if (!firstShows && !(await buttonShows(recipe)))
           // No step that may start a login shows, as when the one that announced the page
           // went, or it shows beside a signed-in marker: the document tries again, up to
           // its limit (START_TRIES).
@@ -8019,11 +8014,14 @@ export function createLoginRuntime(
       fill,
       ...(previous ? { route: attemptRouteChoice(previous) } : {}),
       ...(pageRequest ? { pageRequest } : {}),
-      ...(later ? { later: true } : {}),
+      ...(later && !later.button ? { later: true } : {}),
     });
     if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
     if (plan.ok && "fillOnly" in plan && plan.route.route !== "password") {
-      plan = await planFor(snapshot, live, recipe, { asking, ...(later ? { later: true } : {}) });
+      plan = await planFor(snapshot, live, recipe, {
+        asking,
+        ...(later && !later.button ? { later: true } : {}),
+      });
       if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
     }
     // A passkey-only item on a list whose account branch cannot take the stop (ADR 0036,
@@ -8203,6 +8201,9 @@ export function createLoginRuntime(
     } else {
       // A new login's plan carries the facts it chose its route with.
       if (!("facts" in plan)) return refuse("no-route");
+      // An account whose route is the passkey button that shows beside the later step
+      // presses it, as on the first page (ADR 0027).
+      if (later?.button && plan.route.route === "passkey") later = undefined;
       // A login that starts at a later step takes the first one that shows in the variant
       // its account fits, or a passkey answer that falls back to that variant (ADR 0049); an
       // item without a password goes no further than the step before its password.

@@ -688,12 +688,12 @@ after a same-document URL change, and each later fill or click waits a bounded t
 its elements ([ADR 0013](adr/0013-service-held-recipes-and-settings.md#recipe-lookup)).
 When no recipe's first step is ready, a login may start at a later `fill` step of a
 `password` variant on the page's path that fills more than a one-time code, while the
-page shows no other visible writable username or email input and none of the recipe's
-signed-in markers; the start page's passkey button showing beside it does not count as a
-first step. It starts at the earliest such step of the variant chosen for the account,
-presses as a first-step login does, is never offered the passkey button (a page's own
-passkey request is answered on that step's page), and never starts in a chooser's
-branches.
+page shows no other visible writable username or email input and no signed-in marker
+of the recipe proves a sign-in; the start page's passkey button showing beside it does
+not count as a first step, and an account whose route is that button presses it as on
+the first page. It starts at the earliest such step of the variant chosen for the
+account, presses as a first-step login does, answers a page's own passkey request on
+that step's page, and never starts in a chooser's branches.
 Later steps of two recipes start nothing. Such a step counts as a first step for logout,
 watch and stopped-login detection and keeps the page from being sent for generation
 ([ADR 0049](adr/0049-start-at-a-later-step.md)).
