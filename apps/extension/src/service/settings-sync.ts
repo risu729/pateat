@@ -14,7 +14,7 @@ import {
 } from "@pateat/contracts";
 import * as v from "valibot";
 import type { ServiceConnection } from "./runtime";
-import type { ServiceTransport, TransportFailure } from "./transport";
+import type { ServiceTiming, ServiceTransport, TransportFailure } from "./transport";
 
 /** Conflicting writes are retried this many times in one sync before giving up. */
 export const MAX_SETTINGS_SYNC_ATTEMPTS = 3;
@@ -268,17 +268,20 @@ export function createSettingsSync(options: {
 
   /**
    * One three-way merge of local and service settings for this paired device. `stale`
-   * reports a disconnect meanwhile; nothing is written for a device that is gone.
+   * reports a disconnect meanwhile; nothing is written for a device that is gone. `timed`
+   * is told how long each request took, for the sync's log entry (ADR 0019).
    */
   async function run(
     connection: ServiceConnection,
     stale: () => boolean,
+    timed?: (timing: ServiceTiming | undefined) => void,
   ): Promise<SettingsSyncOutcome> {
     const { origin, credential, deviceId } = connection;
     // A wait that started for an earlier login does not shorten the wait for a later one.
     if (!(await options.deferred?.())) await release();
     const stored = await loadBase(connection);
     const fetched = await transport.settings(origin, credential);
+    timed?.(fetched.timing);
     if (fetched.kind === "rejected") return "rejected";
     if (fetched.kind === "failed") return fetched.error;
     if (fetched.kind !== "state") return "unexpected-response";
@@ -342,6 +345,7 @@ export function createSettingsSync(options: {
           expectedRevision: service.revision,
           settings: serviceDocument(merged),
         });
+        timed?.(saved.timing);
         if (saved.kind === "rejected") return "rejected";
         if (saved.kind === "failed") return saved.error;
         if (saved.kind === "conflict") {

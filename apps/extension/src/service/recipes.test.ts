@@ -152,7 +152,9 @@ function setup(
     ),
   };
   const settingsSync = {
-    run: vi.fn(async () => options.settings ?? "synced"),
+    run: vi.fn<NonNullable<Parameters<typeof createRecipeSync>[0]["settings"]>["run"]>(
+      async () => options.settings ?? "synced",
+    ),
     clear: vi.fn(async () => undefined),
   };
   const report = vi.fn();
@@ -932,8 +934,43 @@ describe("settings in the same sync", () => {
     expect(settingsSync.run).toHaveBeenCalledWith(
       { origin: SERVICE, deviceId: DEVICE, credential: CREDENTIAL, rejected: false },
       expect.any(Function),
+      expect.any(Function),
     );
     expect(service.recordSync).toHaveBeenCalledExactlyOnceWith(DEVICE, { syncedAt: 5_000 });
+  });
+
+  it("adds up how long the run's requests took for its log entry (ADR 0019)", async () => {
+    const { sync, settingsSync, report } = setup({
+      settings: "synced",
+      pages: [
+        { ...page([], 1, false), timing: { roundTripMs: 300, serverMs: 120, networkMs: 180 } },
+        { ...page([], 2), timing: { roundTripMs: 200, serverMs: 50, networkMs: 150 } },
+      ],
+    });
+    settingsSync.run.mockImplementation(async (_connection, _stale, timed) => {
+      timed?.({ roundTripMs: 100, serverMs: 40, networkMs: 60 });
+      return "synced";
+    });
+    expect(await sync.sync()).toBe("synced");
+    expect(report).toHaveBeenCalledExactlyOnceWith("synced", {
+      scope: "full",
+      added: 0,
+      updated: 0,
+      removed: 0,
+      timing: { roundTripMs: 600, serverMs: 210, networkMs: 390 },
+    });
+  });
+
+  it("keeps only the round trip when a request had no service time", async () => {
+    const { sync, report } = setup({
+      pages: [
+        { ...page([], 1, false), timing: { roundTripMs: 300, serverMs: 120, networkMs: 180 } },
+        { ...page([], 2), timing: { roundTripMs: 200 } },
+      ],
+    });
+    expect(await sync.sync()).toBe("synced");
+    expect(report.mock.calls[0]![1]).toMatchObject({ timing: { roundTripMs: 500 } });
+    expect(report.mock.calls[0]![1].timing).not.toHaveProperty("serverMs");
   });
 
   it("does not record a complete sync when settings did not sync", async () => {
