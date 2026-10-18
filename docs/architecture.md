@@ -1061,7 +1061,12 @@ so after a worker restart such an advance settles that way too. As on another pa
 next step comes before the recipe's handlers: a page that shows the password form beside
 a handler's elements on that path gets the password, not the handler. "Shown" is the
 content script's visibility check, which ignores occlusion, opacity, off-screen
-position, `aria-hidden` and `inert`; the description's visibility still ignores
+position, `aria-hidden` and `inert`; content the browser skips with
+`content-visibility: hidden` (inside a closed `<details>`, under `hidden="until-found"`
+or the property itself) counts as hidden, as the description reads it, also for the
+sign-in signs that use this check; unlike the description, content
+`content-visibility: auto` skips off screen counts as shown (2026-10-18, agent fix).
+The description's visibility still ignores
 occlusion, so a password form revealed under a captcha or consent overlay counts as
 ready unless the overlay hides the rest of the page with `aria-hidden` or `inert`, when
 it is ready only once the overlay closes: a known limitation. A click that submits never
