@@ -15,11 +15,15 @@ const maskedPattern =
 
 /**
  * Account identifiers a page shows: email addresses (masked or not) and masked IDs that
- * show at least two characters (`****1234`, `ab***yz`; not `5***`). Fullwidth forms are
- * folded to ASCII and `●` `•` to `*` first.
+ * show at least two characters (`****1234`, `ab***yz`; not `5***`). Format characters
+ * such as a zero-width space or soft hyphen are removed, fullwidth forms are folded to
+ * ASCII and `●` `•` to `*` first.
  */
 export function shownAccounts(text: string): string[] {
-  const folded = text.normalize("NFKC").replace(/[●•]/gu, "*");
+  const folded = text
+    .replace(/\p{Cf}+/gu, "")
+    .normalize("NFKC")
+    .replace(/[●•]/gu, "*");
   // Sentence punctuation after an address is not part of it: "as my2@example.com."
   const emails = (folded.match(emailPattern) ?? []).map((email) => email.replace(/[.-]+$/u, ""));
   const masked = (folded.replace(emailPattern, " ").match(maskedPattern) ?? []).filter(
