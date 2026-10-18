@@ -8,6 +8,10 @@ evaluation, and the answers to the proposal's seven questions). The proposal was
 reviewed against the code by subagents before each round. Not implemented. Amends
 [ADR 0012](0012-inference-request-log.md) (retention of evaluation rows) and
 [ADR 0024](0024-settings-profiles.md) (two more profile parts).
+Amended on 2026-10-18 by
+[ADR 0012](0012-inference-request-log.md#amendment-2026-10-18-rows-for-a-real-page-corpus)
+([below](#amendment-2026-10-18-request-log-rows)): the request log's recipe ID and
+revision are implemented ahead of delivery 1, and every row is kept one year.
 
 Date: 2026-10-12
 
@@ -196,6 +200,16 @@ For the evaluation that decides whether `confirm` can be split (owner, 21:22 UTC
 3. Filling `confirm` pages: run in a tab whose login finished, use that login's
    account (not the site default or a pick), and never take the page as a logout.
 4. `personal-details`, with the personal-data autofill feature.
+
+## Amendment 2026-10-18: request log rows
+
+By the owner's decision of 2026-10-18 at 06:08 UTC
+([ADR 0012](0012-inference-request-log.md#amendment-2026-10-18-rows-for-a-real-page-corpus)),
+the request log's recipe ID and revision landed ahead of delivery 1, so rows can already
+be joined with the local log by `recipe` and `recipeRevision`. Every row is now kept one
+year, which covers this ADR's year for rows of `confirm` or `unclear` pages and rows
+sent with `signedIn` true; delivery 1 needs no retention rule of its own. `pageKind` and
+`irreversible` get their columns when they are built.
 
 ## Consequences
 

@@ -424,7 +424,11 @@ than in this repository.
   [ADR 0035](adr/0035-page-kinds-per-site.md) delivery 1. Generation answers each
   page's kind, recipes generated as `confirm` neither run nor count as logouts, a
   passkey re-verification after Pateat's login in the tab is handed on, and the logs for
-  judging whether `confirm` can be split are kept.
+  judging whether `confirm` can be split are kept. The request log's recipe ID and
+  revision landed ahead of it, and every row is kept one year (owner, 2026-10-18 06:08
+  UTC,
+  [ADR 0012](adr/0012-inference-request-log.md#amendment-2026-10-18-rows-for-a-real-page-corpus)),
+  so its retention rule needs no work.
 - The toolbar badge counts the matching items on every HTTP(S) site (on an `http:` page
   only items saved with an `http://` URI;
   [ADR 0050](adr/0050-http-pages-for-http-items.md)): teal with the usable count, light
@@ -947,10 +951,9 @@ items the owner mentioned and gates still open on 2026-10-11.
 
 - From the [external review](research/2026-10-13-external-review.md): decrypted item
   copies in the crypto Worker that hold only the fields a request needs instead of the
-  whole item; a scheduled purge of the inference log, reconsidered once
-  [ADR 0035](adr/0035-page-kinds-per-site.md) changes which rows the purge keeps (a
-  trigger is a deployment change the owner approves); and syncing which recipes exist
-  and which are revoked separately from their bodies, if
+  whole item; a scheduled purge of the inference log, which since 2026-10-18 keeps
+  every row one year (a trigger is a deployment change the owner approves); and syncing
+  which recipes exist and which are revoked separately from their bodies, if
   [#544](https://github.com/risu729/pateat/issues/544) and the recipe limits are not
   enough.
 - Signing in through an identity provider
@@ -1895,6 +1898,11 @@ tests cover it.
   and JSON API behind Access, with the devices, sites, account bindings and recipes
   pages. Settings edits and recipe revocations there use the same revision checks as
   device sync, and a stale page changes nothing.
+- Done (local tests only, not deployed): the request log keeps each row one year with
+  its recipe, branch, base and written revisions, build, observation hash and the
+  model's reduced answer, and the web UI's Request log page deletes all of the owner's
+  rows
+  ([ADR 0012](adr/0012-inference-request-log.md#amendment-2026-10-18-rows-for-a-real-page-corpus)).
 - Done: the generation routes stop at
   $100 of estimated Claude spend per owner a month and $5 a day (`CLAUDE_CALL_LIMITS` in
   `services/api/src/claude/calls.ts`,

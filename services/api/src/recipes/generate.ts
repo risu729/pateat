@@ -53,7 +53,13 @@ import { and, count, eq, gt, gte, lt, notInArray, or } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import * as v from "valibot";
 import type { DeviceScope } from "../auth";
-import { callClaude, MAX_OUTPUT_TOKENS, ROLE_LIMITS, type ClaudeCall } from "../claude/calls";
+import {
+  callClaude,
+  keepLogRevision,
+  MAX_OUTPUT_TOKENS,
+  ROLE_LIMITS,
+  type ClaudeCall,
+} from "../claude/calls";
 import { generationAttempts, pageJudgements, type PageJudgementVerdict } from "../db/schema";
 import { hasRecipeByteRoom, hasRecipeRoom, readHead, writeRecipe } from "../recipe-store";
 
@@ -341,6 +347,14 @@ export async function generateRecipe(
       slots,
       observation,
     },
+    // A recipe generated again after its revocation has a tombstone but no base: its page
+    // starts the recipe, as a new one's does.
+    recipe: {
+      recipeId,
+      branch: attemptBranch,
+      baseRevision,
+      page: base ? "continuation" : "first",
+    },
     ...attemptWindow(
       scope.ownerId,
       { recipeId, branch: attemptBranch, origin, path, baseRevision },
@@ -381,6 +395,7 @@ export async function generateRecipe(
     },
   });
   if (call.status === "unavailable") return raced ?? unavailable(call.reason);
+  const { logId } = call;
   const result = unsettled(call.outcome);
   if ("answer" in result) return result.answer;
   /**
@@ -406,6 +421,8 @@ export async function generateRecipe(
         scope.deviceId,
       );
       if (written.ok) {
+        // eslint-disable-next-line no-await-in-loop
+        await keepLogRevision(env.DB, scope.ownerId, logId, written.change.revision);
         const change = answerable(written.change);
         if (!change) return unavailable("recipe-conflict");
         return {
@@ -559,6 +576,7 @@ export async function generateEntry(
     origin,
     path,
     request: { instructions: entryGenerationInstructions, observation },
+    recipe: { recipeId, branch: "", baseRevision, page: "first" },
     ...attemptWindow(
       scope.ownerId,
       { recipeId, branch: "", origin, path, baseRevision },
@@ -600,6 +618,7 @@ export async function generateEntry(
     const lost = await decide(written.current);
     return "answer" in lost ? lost.answer : unavailable("recipe-conflict");
   }
+  await keepLogRevision(env.DB, scope.ownerId, call.logId, written.change.revision);
   const change = active(written.change);
   return change && "entry" in change.recipe
     ? { version: 1, status: "recipe", change: { ...change, recipe: change.recipe } }
@@ -730,6 +749,7 @@ export async function judgeCompletion(
       observation,
       ...(stop ? { stop } : {}),
     },
+    recipe: { recipeId, branch: judgedBranch, baseRevision: head.revision },
     // Each revision, origin and path is judged once per judge prompt version, and a recipe
     // 20 times a UTC day (ADR 0027), counting a stop's pages.
     gate: async (db, now) => {
@@ -905,6 +925,8 @@ export async function judgeCompletion(
       { version: 1, state: "active", expectedRevision: head.revision, recipe: withHandlers },
       scope.deviceId,
     );
+    if (written.ok)
+      await keepLogRevision(env.DB, scope.ownerId, call.logId, written.change.revision);
     // The page is a challenge whether or not its handlers fit the owner's recipe bytes.
     if (!written.ok && written.limited)
       console.warn("Judged page handlers refused by the recipe limit", { recipeId });
@@ -928,6 +950,7 @@ export async function judgeCompletion(
     { version: 1, state: "active", expectedRevision: head.revision, recipe: learnedRecipe },
     scope.deviceId,
   );
+  if (written.ok) await keepLogRevision(env.DB, scope.ownerId, call.logId, written.change.revision);
   const limited = !written.ok && written.limited;
   if (limited) console.warn("Signed-in marker refused by the recipe limit", { recipeId });
   const change = written.ok ? answerable(written.change) : undefined;

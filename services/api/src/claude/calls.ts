@@ -1,4 +1,4 @@
-import type { GenerationUnavailableReason } from "@pateat/contracts";
+import { INFERENCE_LOG_RETENTION_MS, type GenerationUnavailableReason } from "@pateat/contracts";
 import {
   claudeGeneration,
   createClaudeGenerationModel,
@@ -10,19 +10,23 @@ import {
 import { and, eq, inArray, lt, lte, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
-import { inferenceLocks, inferenceLog, inferenceSpend } from "../db/schema";
+import {
+  inferenceLocks,
+  inferenceLog,
+  inferenceSpend,
+  type inferenceLogRecipePages,
+} from "../db/schema";
 import { resolveClaudeCredential } from "./credentials";
 import { newId } from "@pateat/contracts/ids";
 
 // Every Claude call the service makes goes through here (ADR 0018): one call at a time
 // per owner, the monthly and daily spend stops, and the ADR 0012 request
-// log with its 90-day retention.
+// log with its one-year retention.
 
 /** Request bounds shared by both roles; the same as the approved benchmark run. */
 export const ROLE_LIMITS = { timeoutMs: 60_000, maxInputBytes: 64 * 1024, maxRetries: 0 };
 export const MAX_OUTPUT_TOKENS = 8_192;
 
-const DAY_MS = 24 * 60 * 60 * 1000;
 export const CLAUDE_CALL_LIMITS = {
   /** $100 a month (ADR 0014), estimated from returned usage. */
   monthlyMicroUsd: 100_000_000,
@@ -30,7 +34,8 @@ export const CLAUDE_CALL_LIMITS = {
   dailyMicroUsd: 5_000_000,
   /** Longer than the token exchange and the model timeout together. */
   lockMs: 90_000,
-  logRetentionMs: 90 * DAY_MS,
+  /** Every request log row, for evaluation (owner decision, 2026-10-18). */
+  logRetentionMs: INFERENCE_LOG_RETENTION_MS,
 };
 
 /**
@@ -45,6 +50,7 @@ const RESERVED_MICRO_USD =
 type Db = DrizzleD1Database<Record<string, never>>;
 type CallEnv = { DB: D1Database; OIDC_ISSUER?: string; OIDC_SIGNING_KEYS?: string };
 type ClaudeModel = ReturnType<typeof createClaudeGenerationModel>;
+type RecipePage = (typeof inferenceLogRecipePages)[number];
 
 export type ClaudeCall<T> = {
   role: "generate" | "judge";
@@ -56,7 +62,12 @@ export type ClaudeCall<T> = {
   origin: string;
   path: string;
   /** What is sent: the instructions and the input, as ADR 0012 requires. */
-  request: unknown;
+  request: { instructions: string; observation: unknown; [key: string]: unknown };
+  /**
+   * The recipe the call is for, logged beside the request: the head revision it starts
+   * from (0 for none) and, for generation, whether the page starts the recipe.
+   */
+  recipe: { recipeId: string; branch: string; baseRevision: number; page?: RecipePage };
   /** Checked under the owner's lock, before credentials are resolved. */
   gate?: (db: Db, now: number) => Promise<GenerationUnavailableReason | undefined>;
   /** Written together with the spend reservation, once a call is certain. */
@@ -68,7 +79,8 @@ export type ClaudeCall<T> = {
 
 export type ClaudeCallResult<T> =
   | { status: "unavailable"; reason: GenerationUnavailableReason }
-  | { status: "called"; outcome: InferenceOutcome<T> };
+  /** `logId` names the request log row, which a call refused locally does not have. */
+  | { status: "called"; outcome: InferenceOutcome<T>; logId?: string };
 
 const periods = (now: number) => {
   const day = new Date(now).toISOString().slice(0, 10);
@@ -118,13 +130,45 @@ export async function limitReached(db: Db, ownerId: string, now: number) {
 }
 
 /**
- * Deletes log rows past the 90-day retention. Routine releases do not apply cron
+ * Deletes log rows past the one-year retention. Routine releases do not apply cron
  * triggers, so this runs whenever a call is logged and on every recipe sync read.
  */
 export function purgeExpiredLog(db: Db, now: number) {
   return db
     .delete(inferenceLog)
     .where(lt(inferenceLog.createdAt, now - CLAUDE_CALL_LIMITS.logRetentionMs));
+}
+
+/** 12 hex digits of the SHA-256 of an observation as JSON, to count repeated pages. */
+async function observationHash(observation: unknown) {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(JSON.stringify(observation)),
+  );
+  return new Uint8Array(digest).toHex().slice(0, 12);
+}
+
+/**
+ * Records the recipe revision a logged call's answer wrote on its request log row. The
+ * row is written before the recipe, which may then be refused or lose to a device, so the
+ * revision is set only once the write succeeded. A failed update leaves the row without
+ * it and never fails the request.
+ */
+export async function keepLogRevision(
+  db: D1Database,
+  ownerId: string,
+  logId: string | undefined,
+  revision: number,
+) {
+  if (logId === undefined) return;
+  try {
+    await drizzle(db)
+      .update(inferenceLog)
+      .set({ revision })
+      .where(and(eq(inferenceLog.id, logId), eq(inferenceLog.ownerId, ownerId)));
+  } catch {
+    console.warn("Inference log revision not kept");
+  }
 }
 
 const credentialUnavailable = {
@@ -209,10 +253,12 @@ export async function callClaude<T>(
         promptVersion: call.promptVersion,
         rejection,
       });
+    const logId = newId();
+    const { recipeId, branch, baseRevision, page } = call.recipe;
     await db.batch([
       ...corrections,
       db.insert(inferenceLog).values({
-        id: newId(),
+        id: logId,
         ownerId,
         role: call.role,
         provider: "anthropic",
@@ -222,7 +268,14 @@ export async function callClaude<T>(
         path: call.path,
         request: call.request,
         result: loggedResult(call, outcome),
+        answer: outcome.answer ?? null,
         outcome: outcome.status === "failed" ? outcome.error : outcome.status,
+        recipeId,
+        branch,
+        baseRevision,
+        recipePage: page ?? null,
+        build: PATEAT_BUILD_REVISION,
+        observationHash: await observationHash(call.request.observation),
         inputTokens: outcome.usage.inputTokens,
         outputTokens: outcome.usage.outputTokens,
         costMicroUsd: micro,
@@ -234,7 +287,7 @@ export async function callClaude<T>(
     } catch {
       console.error("Inference log purge failed");
     }
-    return { status: "called", outcome };
+    return { status: "called", outcome, logId };
   } finally {
     await db
       .delete(inferenceLocks)

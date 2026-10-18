@@ -589,7 +589,7 @@ new owner decision:
   or deceptive text can at worst store a `totp` handler that fills the current TOTP code
   into that site's checked field on every login until the recipe is revoked; the code
   never leaves the site and the field checks still apply. The added text (at most 360
-  characters) is in the request log for 90 days (ADR 0012); as with the header text of
+  characters) is in the request log for a year (ADR 0012); as with the header text of
   ADR 0029, it is allowed while Pateat is for the owner's own use and decided again
   before the public release (phase 3). The judge's prompt version changed with it, so
   judged pages are judged again once.
@@ -625,7 +625,7 @@ new owner decision:
   store a `passkey` handler that clicks a button of that path once per login, only for
   an item that holds a passkey, until the recipe is revoked; the handler checks of
   `addHandler` still apply. The added text, at most 360 characters, stays in the
-  request log for 90 days under the same terms as `nearCode`. The judge's prompt version
+  request log for a year under the same terms as `nearCode`. The judge's prompt version
   changed with it.
 - **Entering handlers.** A handler that has not run is entered when all its elements
   are unique and usable on its path: a `totp` handler's field a shown writable input,
@@ -876,7 +876,7 @@ new tab while an old logout is still recorded elsewhere.
   routes.
 - The signed-in or challenge page of each new account path now reaches the service and
   Anthropic, within the limits above, not only once per new recipe. The request log
-  keeps them for 90 days ([ADR 0012](0012-inference-request-log.md)).
+  keeps them for a year ([ADR 0012](0012-inference-request-log.md)).
 - Custom-field names, and the Text shapes all matching items agree on, now reach the
   service and Anthropic with each generation request, and the request log keeps them.
 - A site that asks for a security key as its second factor signs in with no human

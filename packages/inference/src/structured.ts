@@ -52,6 +52,8 @@ export async function runStructuredRole<O, T>(config: {
   /** Reads the provider's refusal category code from the last attempt's metadata. */
   refusalCategory?: ((providerMetadata: unknown) => string | undefined) | undefined;
   interpret: (output: O) => Interpreted<T>;
+  /** The output reduced for the request log, kept as the outcome's `answer`. */
+  answer?: ((output: O) => unknown) | undefined;
 }): Promise<InferenceOutcome<T>> {
   let calls = 0;
   let lastMetadata: unknown;
@@ -86,6 +88,7 @@ export async function runStructuredRole<O, T>(config: {
     result:
       | Interpreted<T>
       | { status: "failed"; error: InferenceErrorCode; schemaIssue?: OutputSchemaIssue },
+    answer?: unknown,
   ): InferenceOutcome<T> => {
     const category =
       result.status === "failed" && result.error === "refused"
@@ -94,6 +97,7 @@ export async function runStructuredRole<O, T>(config: {
     return {
       ...result,
       ...(category === undefined ? {} : { refusalCategory: category }),
+      ...(answer === undefined ? {} : { answer }),
       calls,
       usage: meter.total(),
     };
@@ -113,7 +117,7 @@ export async function runStructuredRole<O, T>(config: {
     if (result.finishReason === "length") return outcome({ status: "failed", error: "truncated" });
     if (result.finishReason === "content-filter")
       return outcome({ status: "failed", error: "refused" });
-    return outcome(config.interpret(result.output));
+    return outcome(config.interpret(result.output), config.answer?.(result.output));
   } catch (error) {
     const code = classifyInferenceError(error, { timeout, caller: config.abortSignal });
     const issue =

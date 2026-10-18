@@ -2,6 +2,7 @@
 import logo from "../../../apps/extension/icons/icon.svg?url";
 import type { ManageClient } from "./api";
 import { DevicesPage } from "./devices";
+import { RequestLogPage } from "./request-log";
 import { SitePage } from "./site";
 import { siteOrigin, SitesPage } from "./sites";
 import { ThemeSelect } from "./theme-select";
@@ -20,6 +21,7 @@ const licenseUrl = `https://github.com/risu729/pateat/blob/${sourceRef}/LICENSE-
 const PAGES = [
   { path: "/manage/sites", title: "Sites", Page: SitesPage },
   { path: "/manage", title: "Devices", Page: DevicesPage },
+  { path: "/manage/request-log", title: "Request log", Page: RequestLogPage },
 ] as const;
 
 const linkClasses = "text-accent-ink underline hover:text-accent-hover";

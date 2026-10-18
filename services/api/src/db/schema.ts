@@ -147,11 +147,15 @@ export const inferenceCredentials = sqliteTable(
   (table) => [check("inference_credentials_kind_check", sql`${table.kind} IN ('wif')`)],
 );
 
+/** Where a generated page sits in its recipe, for the request log (ADR 0012). */
+export const inferenceLogRecipePages = ["first", "continuation"] as const;
 /**
  * Every inference request the service sent and its local outcome (ADR 0012), kept for
- * 90 days (ADR 0018). A request refused locally before any model call is not logged.
- * `request` is the instructions and input exactly as sent; vault values never reach
- * inference, so they are never here.
+ * one year (owner, 2026-10-18) unless the owner deletes them all from the web UI. A
+ * request refused locally before any model call is not logged. `request` is the
+ * instructions and input exactly as sent; vault values never reach inference, so they
+ * are never here. The recipe columns, `build`, `observation_hash` and `answer` are null on
+ * rows logged before they were recorded.
  */
 export const inferenceLog = sqliteTable(
   "inference_log",
@@ -177,8 +181,42 @@ export const inferenceLog = sqliteTable(
      * references (`{ rejection, output? }`); otherwise null.
      */
     result: text("result", { mode: "json" }),
+    /**
+     * The model's own answer before any local check or adjustment, for every decision and
+     * for a refused one too: candidate and slot IDs the request does not hold are `?` and
+     * generated names `name-N`, so it quotes no page text or vault field name. Null when the
+     * output failed the response format or no answer came.
+     */
+    answer: text("answer", { mode: "json" }),
     /** `ok`, `abstained` or the failure code. */
     outcome: text("outcome").notNull(),
+    /** The generated recipe the call is for: the one it starts or continues, or judges. */
+    recipeId: text("recipe_id"),
+    /** The chooser branch (ADR 0028), or empty for any other page. */
+    branch: text("branch"),
+    /**
+     * The recipe's head revision when the call was made: 0 when it had none, the
+     * tombstone's for a revoked recipe generated again, the judged one for the judge.
+     */
+    baseRevision: integer("base_revision"),
+    /**
+     * The revision this call's answer wrote, set once that write succeeded; null when it
+     * wrote none, as for a judged page that kept no handler or a write lost to a device.
+     */
+    revision: integer("revision"),
+    /**
+     * For generation: `first` for a page that starts its recipe (a new one, one generated
+     * again after its revocation, a list of accounts or an entry page), `continuation` for
+     * a page sent with a base (a later page, a chooser branch's pages included).
+     */
+    recipePage: text("recipe_page", { enum: inferenceLogRecipePages }),
+    /** The service commit that made the call (`PATEAT_BUILD_REVISION`). */
+    build: text("build"),
+    /**
+     * 12 hex digits of the SHA-256 of the request's observation as JSON, to count the
+     * same page sent more than once.
+     */
+    observationHash: text("observation_hash"),
     inputTokens: integer("input_tokens"),
     outputTokens: integer("output_tokens"),
     costMicroUsd: integer("cost_micro_usd").notNull(),
@@ -186,6 +224,8 @@ export const inferenceLog = sqliteTable(
   },
   (table) => [
     index("inference_log_owner_created").on(table.ownerId, table.createdAt),
+    // Joins a recipe's rows with its revisions, for the backfill and the corpus.
+    index("inference_log_owner_recipe").on(table.ownerId, table.recipeId),
     index("inference_log_created").on(table.createdAt),
     check("inference_log_role_check", sql`${table.role} IN ('generate', 'judge')`),
   ],

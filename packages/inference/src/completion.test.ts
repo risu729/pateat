@@ -92,6 +92,41 @@ describe("sign-in judge", () => {
     ).toMatchObject({ status: "ok", value: { target: { by: "href", value: "/my" } } });
   });
 
+  // Owner, 2026-10-18: the request log keeps the model's own answer beside the result.
+  it("keeps every decision as the answer, with IDs the page lacks as ?", async () => {
+    const answerOf = async (result: unknown) =>
+      (await judgeReturning(result).judge(request)).answer;
+    expect(await answerOf({ decision: "unclear" })).toEqual({ decision: "unclear" });
+    expect(await answerOf({ decision: "rejected" })).toEqual({ decision: "rejected" });
+    expect(await answerOf({ decision: "signed-in", marker: "logout" })).toEqual({
+      decision: "signed-in",
+      marker: "logout",
+    });
+    // A marker the page lacks fails closed, and its answer keeps no page text.
+    const refused = await judgeReturning({ decision: "signed-in", marker: "Sign out" }).judge(
+      request,
+    );
+    expect(refused).toMatchObject({
+      status: "failed",
+      error: "invalid-output",
+      answer: { decision: "signed-in", marker: "?" },
+    });
+    // A challenge whose named elements fail the checks keeps them as named.
+    expect(
+      await answerOf({
+        decision: "challenge",
+        passkeyButton: "help",
+        passwordButton: "Use your password",
+        code: { field: "search", submit: "Verify", source: "email" },
+      }),
+    ).toEqual({
+      decision: "challenge",
+      passkeyButton: "help",
+      passwordButton: "?",
+      code: { field: "search", submit: "?", source: "email" },
+    });
+  });
+
   it("fails closed on an unknown or non-clickable marker", async () => {
     expect(
       await judgeReturning({ decision: "signed-in", marker: "missing" }).judge(request),

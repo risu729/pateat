@@ -2,6 +2,8 @@ import {
   devicePairResultSchema,
   manageDevicesSchema,
   manageRecipesSchema,
+  manageRequestLogDeletedSchema,
+  manageRequestLogSchema,
   type DevicePairResult,
   type LoginRecipe,
 } from "@pateat/contracts";
@@ -740,6 +742,120 @@ describe("owner web UI recipes", () => {
   it("refuses other methods on the recipes API", async () => {
     const { token } = await owner();
     expect((await manageApi("/manage/api/recipes", token, "PUT")).status).toBe(405);
+  });
+});
+
+// ADR 0012: the owner deletes their whole request log from the web UI (owner, 2026-10-18).
+describe("owner web UI request log", () => {
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  /** Writes a synthetic request log row, judgement or spend row for an owner. */
+  const insertLog = (ownerId: string, createdAt: number) =>
+    env.DB.prepare(
+      "INSERT INTO inference_log (id, owner_id, role, provider, model_id, origin, path, request, outcome, recipe_id, cost_micro_usd, created_at) VALUES (?, ?, 'generate', 'anthropic', 'm', 'https://bank.example', '/login', '{}', 'ok', 'gen-synthetic', 0, ?)",
+    ).bind(`log-${crypto.randomUUID()}`, ownerId, createdAt);
+  const logCount = async (ownerId: string) =>
+    (await env.DB.prepare("SELECT COUNT(*) AS n FROM inference_log WHERE owner_id = ?")
+      .bind(ownerId)
+      .first<{ n: number }>())!.n;
+  const read = async (by: Owner) => {
+    const response = await request("/manage/api/request-log", { access: by.token });
+    expect(response.status).toBe(200);
+    return v.parse(manageRequestLogSchema, await response.json());
+  };
+
+  it("serves its page", async () => {
+    const { token } = await owner();
+    const page = await request("/manage/request-log", { access: token });
+    expect(page.status).toBe(200);
+    expect(await page.text()).toContain("Pateat test app");
+    expect((await request("/manage/request-log")).status).toBe(401);
+    expect((await request("/manage/request-log", { access: token, method: "POST" })).status).toBe(
+      405,
+    );
+  });
+
+  it("counts and deletes only the signed-in owner's rows, keeping recipes, settings and spend", async () => {
+    const first = await owner();
+    const second = await owner();
+    await Promise.all([pairDevice(first), pairDevice(second)]);
+    const [mine, theirs] = await Promise.all([
+      ownerIdFor(first.subject),
+      ownerIdFor(second.subject),
+    ]);
+    const oldest = Date.now() - 30 * DAY_MS;
+    await env.DB.batch([
+      insertLog(mine!, oldest),
+      insertLog(mine!, Date.now()),
+      insertLog(theirs!, Date.now() - 60 * DAY_MS),
+      env.DB.prepare(
+        "INSERT INTO inference_spend (owner_id, period, calls, cost_micro_usd) VALUES (?, '2026-10', 2, 900)",
+      ).bind(mine),
+      env.DB.prepare(
+        "INSERT INTO page_judgements (owner_id, recipe_id, branch, revision, origin, path, prompt_version, judged_at, verdict) VALUES (?, 'gen-synthetic', '', 1, 'https://bank.example', '/home', 'v', ?, 'signed-in')",
+      ).bind(mine, Date.now()),
+    ]);
+    const settings = await request("/manage/api/settings", {
+      method: "PUT",
+      access: first.token,
+      headers: { "Content-Type": "application/json", Origin: ORIGIN },
+      body: JSON.stringify({
+        version: 1,
+        expectedRevision: 0,
+        settings: { connections: [], excludedSites: [], siteDefaults: [], bindings: [] },
+      }),
+    });
+    expect(settings.status).toBe(200);
+    expect(await read(first)).toEqual({ version: 1, entries: 2, oldestAt: oldest });
+
+    const deleted = await manageApi("/manage/api/request-log", first.token, "DELETE");
+    expect(deleted.status).toBe(200);
+    expect(v.parse(manageRequestLogDeletedSchema, await deleted.json())).toEqual({
+      version: 1,
+      deleted: 2,
+    });
+    expect(await read(first)).toEqual({ version: 1, entries: 0, oldestAt: null });
+    expect(await logCount(theirs!)).toBe(1);
+    // Only the log goes: the spend the limits count, judged pages and settings stay.
+    const kept = await env.DB.batch([
+      env.DB.prepare("SELECT calls FROM inference_spend WHERE owner_id = ?").bind(mine),
+      env.DB.prepare("SELECT verdict FROM page_judgements WHERE owner_id = ?").bind(mine),
+      env.DB.prepare("SELECT revision FROM settings WHERE owner_id = ?").bind(mine),
+    ]);
+    expect(kept.map((result) => result.results)).toEqual([
+      [{ calls: 2 }],
+      [{ verdict: "signed-in" }],
+      [{ revision: 1 }],
+    ]);
+    // Deleting an empty log is harmless.
+    expect(
+      await (await manageApi("/manage/api/request-log", first.token, "DELETE")).json(),
+    ).toEqual({ version: 1, deleted: 0 });
+  });
+
+  it("shows an identity without a paired device an empty log and creates no owner", async () => {
+    const by = await owner();
+    expect(await read(by)).toEqual({ version: 1, entries: 0, oldestAt: null });
+    const deleted = await manageApi("/manage/api/request-log", by.token, "DELETE");
+    expect(await deleted.json()).toEqual({ version: 1, deleted: 0 });
+    expect(await ownerIdFor(by.subject)).toBeNull();
+  });
+
+  it("refuses deletion without Access, from another origin or without one", async () => {
+    const by = await owner();
+    await pairDevice(by);
+    const ownerId = await ownerIdFor(by.subject);
+    await insertLog(ownerId!, Date.now()).run();
+    const forged = await forgedAccess(claims(newSubject()));
+    const responses = await Promise.all([
+      manageApi("/manage/api/request-log", undefined, "DELETE"),
+      manageApi("/manage/api/request-log", forged, "DELETE"),
+      manageApi("/manage/api/request-log", by.token, "DELETE", "https://attacker.example"),
+      manageApi("/manage/api/request-log", by.token, "DELETE", null),
+      manageApi("/manage/api/request-log", by.token, "POST"),
+    ]);
+    expect(responses.map((response) => response.status)).toEqual([401, 403, 403, 403, 405]);
+    expect(await logCount(ownerId!)).toBe(1);
+    expect((await request("/manage/api/request-log")).status).toBe(401);
   });
 });
 

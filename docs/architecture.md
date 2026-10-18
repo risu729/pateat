@@ -2492,7 +2492,8 @@ people.
   `MAX_RECIPE_CACHE_BYTES` are defined together in the contracts; no migration is
   required.
 - Unchanged. Settings are one document of at most 120 KiB per owner. The inference
-  request log is kept 90 days and bounded by the $5 daily spend limit. Devices are not
+  request log is kept one year (owner, 2026-10-18) and bounded by the $5 daily spend
+  limit; the owner deletes it all on the web UI's Request log page. Devices are not
   counted: each pairing needs an interactive Access login.
 
 ### Unsupported service edge cases
@@ -2610,7 +2611,10 @@ the typed code on 2026-10-11. Credential idle expiry has local tests only so far
 ### Owner web UI
 
 Status: design approved by the owner on 2026-10-11, and its reorganisation into Sites
-and Devices tabs with a page per site on 2026-10-12 (21:08 UTC). The app, its
+and Devices tabs with a page per site on 2026-10-12 (21:08 UTC). The Request log tab
+follows the owner's decision of 2026-10-18 (06:08 UTC) to build the request log's
+delete-all action ([ADR 0012](adr/0012-inference-request-log.md)); implemented and
+tested locally, not deployed. The app, its
 Access-checked assets and API, and the devices, sites and site pages are implemented and
 tested locally; the deployed service still has the earlier sites, account bindings and
 recipes pages until the next deployment. It replaces the extension's settings page
@@ -2621,13 +2625,19 @@ field exclusions and custom-field review, which need the device's vault catalog
 
 - Pages. A React app under `/manage`, built with the same approved stack as the
   extension's pages ([ADR 0004](adr/0004-library-composition.md)) and served by the
-  Worker as static assets. Its header shows the logo and two tabs, Sites and Devices,
-  and its footer the version, links to the source and the GPL text at the built commit
-  and to the third-party notices, and the Theme select. React's rendered `<title>` sets
-  the tab title to `Devices – Pateat`, `Sites – Pateat` or `<origin> – Pateat`; the
-  static HTML keeps `Pateat` before the app renders. Each page is its own path, a full
-  page load that the Worker serves only for these paths:
+  Worker as static assets. Its header shows the logo and three tabs, Sites, Devices and
+  Request log, and its footer the version, links to the source and the GPL text at the
+  built commit and to the third-party notices, and the Theme select. React's rendered
+  `<title>` sets the tab title to `Devices – Pateat`, `Sites – Pateat`,
+  `Request log – Pateat` or `<origin> – Pateat`; the static HTML keeps `Pateat` before
+  the app renders. Each page is its own path, a full page load that the Worker serves
+  only for these paths:
   - Devices (`/manage`): the current list and revocation, moved into the app.
+  - Request log (`/manage/request-log`): how many requests the
+    [request log](adr/0012-inference-request-log.md) holds for the owner and since when,
+    that each is kept one year, and Delete all, which after a confirmation naming the
+    count deletes every one of the owner's rows. Recipes, settings, judged pages and the
+    spend the limits count stay.
   - Sites (`/manage/sites`): one list of every origin the service holds a recipe, a
     `siteDefaults` entry or a `bindings` entry for, each with badges for its recipe
     count, its default account ("<item> in <account>") and its binding count, and
