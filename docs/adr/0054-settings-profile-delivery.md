@@ -1,4 +1,4 @@
-# ADR 0053: Settings profile delivery details
+# ADR 0054: Settings profile delivery details
 
 Status: temporary proposal by the implementation agent, not accepted by the owner.
 Implements the already accepted profile behavior in
