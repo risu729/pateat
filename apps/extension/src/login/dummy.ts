@@ -34,6 +34,7 @@ const PROBE_PATHS = [
   "/passkey",
   "/totp",
   "/identifier-first",
+  "/identifier-swap",
 ];
 /** Where every synthetic recipe starts, which a fixture document watches for. */
 export function probeStarts(origin: string): LoginRecipeStart[] {
@@ -97,12 +98,13 @@ function totpRecipe(origin: string, path: string): LoginRecipe {
 /**
  * An identifier-first form (ADR 0013): Next hides the account form and shows the password
  * form in the same document and on the same path, so only the password form's elements
- * confirm the advance.
+ * confirm the advance. With `swap`, one button is both Next and Sign in, and the account
+ * view keeps the password input hidden for the browser to fill (`/identifier-swap`).
  */
-function identifierFirstRecipe(origin: string, path: string): LoginRecipe {
+function identifierFirstRecipe(origin: string, path: string, swap = false): LoginRecipe {
   return parseLoginRecipe({
     version: 1,
-    id: "demo-identifier-first",
+    id: swap ? "demo-identifier-swap" : "demo-identifier-first",
     revision: 1,
     origin,
     slots: ["account", "password"],
@@ -110,7 +112,7 @@ function identifierFirstRecipe(origin: string, path: string): LoginRecipe {
       { kind: "fill", path, fields: [{ slot: "account", target: target("account") }] },
       { kind: "click", path, target: target("next"), purpose: "advance" },
       { kind: "fill", path, fields: [{ slot: "password", target: target("password") }] },
-      { kind: "click", path, target: target("login"), purpose: "submit" },
+      { kind: "click", path, target: target(swap ? "next" : "login"), purpose: "submit" },
     ],
     completion: [{ target: target("authenticated") }],
     rejection: target("rejected"),
@@ -122,6 +124,7 @@ export function probeRecipe(origin: string, path: string): LoginRecipe | undefin
   if (path === "/variants") return variantsRecipe(origin, path);
   if (path === "/totp") return totpRecipe(origin, path);
   if (path === "/identifier-first") return identifierFirstRecipe(origin, path);
+  if (path === "/identifier-swap") return identifierFirstRecipe(origin, path, true);
   const multi = path === "/identity";
   const inputAdvance = path === "/input-advance";
   const inputSubmit = path === "/input-submit" || path === "/change-submit";

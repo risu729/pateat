@@ -532,7 +532,8 @@ than in this repository.
   password locator named that input on the email view is inferred from the log and the
   code, not read on the live page. Since 2026-10-17 such an advance's next fields and
   buttons count only when they are also visible as the page's description reads them,
-  before and after the advance (agent fix applying ADR 0013, local tests only). Check
+  before and after the advance (agent fix applying ADR 0013; since 2026-10-18 a probe
+  E2E spec on `/identifier-swap` drives that structure with synthetic values). Check
   the UNSW sign-in page in the owner's Chrome.
 - A login control that is a link whose `javascript:` URL alone submits never submitted:
   on 2026-10-17 (build `d29951d`, 01:55 UTC) the owner's Chrome filled SMBC Trust Bank's
@@ -2271,10 +2272,12 @@ Remaining M4 AI work:
   ([architecture](architecture.md#background-execution)). Runtime tests and three probe
   E2E specs on `/identifier-first` (the password form shown in place, the same after a
   `history.pushState` that keeps the path, and a page that shows the password form from
-  the start never continuing) cover that with synthetic values only. A generated recipe
-  that ends in an `advance` is continued too: after its final `advance`, a page that has
-  loaded, shows a password, username or email input for a slot the recipe does not fill
-  yet, and stays on one path for a second is sent once per step; the running login takes
+  the start never continuing) and one on `/identifier-swap` (one button and a kept
+  password input across a view swap) cover that with synthetic values only. A
+  generated recipe that ends in an `advance` is continued too: after its final
+  `advance`, a page that has loaded, shows a password, username or email input for a
+  slot the recipe does not fill yet, and stays on one path for a second is sent once per
+  step; the running login takes
   the continued revision over and runs its new steps, then the page after the submission
   is judged for `completion`, and the account choice saved after `authenticated` covers
   both pages' slots. A page that fills one of the recipe's slots again is refused by the

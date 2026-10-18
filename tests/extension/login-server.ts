@@ -273,6 +273,65 @@ export async function startLoginFixture(
         });`,
         ),
       );
+    } else if (path === "/identifier-swap") {
+      // An identifier-first form that swaps its views in one document on one path (ADR
+      // 0013), as some identity providers do: the form fades in, and the email view keeps
+      // the password input for the browser to fill, transparent, small, fixed to a corner,
+      // hidden from assistive technology and out of the tab order. Its one button reads
+      // "Next"; half a second after it is pressed, as after a lookup request, the email
+      // input loses its id and becomes such a hidden input in turn, the password input
+      // shows as its view slides and fades in, and the same button, keeping its id, reads
+      // "Sign in". Pressing it then signs in to /authenticated. The query is never read.
+      response.end(
+        html(
+          `<style>.kept{position:fixed;right:24px;bottom:24px;width:10px;height:13px;opacity:0}</style><div id="box"><h1 id="title">Sign in</h1><form id="sign-in-form" novalidate><div id="view"><label id="account-label">Account<input id="account" name="account" autocomplete="username"></label><input id="password" name="password" type="password" class="kept" tabindex="-1" aria-hidden="true" autocomplete="off"></div><input id="next" type="submit" value="Next"></form></div>`,
+          `const box = document.getElementById('box');
+        const view = document.getElementById('view');
+        const account = document.getElementById('account');
+        const password = document.getElementById('password');
+        const button = document.getElementById('next');
+        box.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 600, easing: 'ease-out' });
+        let stage = 'account';
+        document.getElementById('sign-in-form').addEventListener('submit', (event) => {
+          event.preventDefault();
+          if (stage === 'account') {
+            stage = 'lookup';
+            sessionStorage.setItem('identityClicks', String(Number(sessionStorage.getItem('identityClicks') || 0) + 1));
+            sessionStorage.setItem('identityMatched', String(account.value === '00001234'));
+            updateFixtureStatus();
+            setTimeout(() => {
+              account.removeAttribute('id');
+              account.className = 'kept';
+              account.tabIndex = -1;
+              account.setAttribute('aria-hidden', 'true');
+              document.getElementById('account-label').before(account);
+              document.getElementById('account-label').remove();
+              const label = document.createElement('label');
+              label.append('Password');
+              view.append(label);
+              password.removeAttribute('class');
+              password.removeAttribute('tabindex');
+              password.removeAttribute('aria-hidden');
+              password.setAttribute('autocomplete', 'current-password');
+              label.append(password);
+              document.getElementById('title').textContent = 'Enter password';
+              button.value = 'Sign in';
+              view.animate(
+                [{ opacity: 0, transform: 'translateY(34px)' }, { opacity: 1, transform: 'none' }],
+                { duration: 500, easing: 'ease-out' },
+              );
+              stage = 'password';
+            }, 500);
+          } else if (stage === 'password') {
+            sessionStorage.setItem('submitClicks', String(Number(sessionStorage.getItem('submitClicks') || 0) + 1));
+            sessionStorage.setItem('passwordMatched', String(password.value === ${JSON.stringify(password)}));
+            location.href = '/authenticated';
+          } else {
+            sessionStorage.setItem('lookupClicks', String(Number(sessionStorage.getItem('lookupClicks') || 0) + 1));
+          }
+        });`,
+        ),
+      );
     } else if (path === "/identifier" || path === "/identifier/again") {
       // An identifier page whose Next opens the password page as a new document (ADR 0018).
       // `?again` opens /identifier/again instead, which shows the identifier form again

@@ -741,6 +741,48 @@ for (const [name, query] of [
     }
   });
 
+test("continues an identifier-first form that swaps its views in place and keeps a hidden password input for the browser (ADR 0013)", async () => {
+  const fixture = await startLoginFixture();
+  try {
+    await withLoginExtension(async (context, _worker, id) => {
+      const options = await context.newPage();
+      await configure(options, id, fixture.origin);
+      const page = await context.newPage();
+      await page.goto(`${fixture.origin}/identifier-swap`);
+      // One Next and one Sign in on the same button; the kept password input was never
+      // taken for the password view.
+      await expect(page.locator("#authenticated")).toBeVisible({ timeout: 15_000 });
+      expect(
+        await page.evaluate(() => ({
+          identityClicks: Number(sessionStorage.getItem("identityClicks") || 0),
+          submitClicks: Number(sessionStorage.getItem("submitClicks") || 0),
+          lookupClicks: Number(sessionStorage.getItem("lookupClicks") || 0),
+          identityMatched: sessionStorage.getItem("identityMatched"),
+          passwordMatched: sessionStorage.getItem("passwordMatched"),
+        })),
+      ).toEqual({
+        identityClicks: 1,
+        submitClicks: 1,
+        lookupClicks: 0,
+        identityMatched: "true",
+        passwordMatched: "true",
+      });
+      await expect
+        .poll(async () =>
+          JSON.stringify(await send(options, { version: 1, type: "login.probe.status" })),
+        )
+        .toContain('"authenticated"');
+      const status = JSON.stringify(
+        await send(options, { version: 1, type: "login.probe.status" }),
+      );
+      expect(status).toContain('"recipeId":"demo-identifier-swap"');
+      expect(status).not.toContain("Pateat-synthetic-only!");
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
 test("an identifier-first page that shows the password form from the start never continues after Next (ADR 0013)", async () => {
   const fixture = await startLoginFixture();
   try {
