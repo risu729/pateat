@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createDiagnosticsLog } from "./background";
 import {
   DEBUG_LOGGING_MS,
+  DEBUG_UNTIL_TURNED_OFF,
   LOG_EVENTS,
   LOG_RETENTION_MS,
   PAGE_ATTEMPT_EVENTS_PER_MINUTE,
@@ -41,6 +42,8 @@ function setup(overrides: Partial<LoggerDependencies> = {}) {
     build: { version: "0.1.0", revision: "1c42ad3" },
     now: () => now,
     console: quiet,
+    // The 24-hour window a published build has; one test covers debug that stays on.
+    debugStaysOn: false,
     ...overrides,
   };
   return {
@@ -360,6 +363,42 @@ describe("diagnostics log", () => {
     await restarted.log("service.sync", { outcome: "synced" }, { level: "debug" });
     expect(await restarted.entries()).toHaveLength(2);
     expect((await restarted.summary()).debugUntil).toBeUndefined();
+  });
+
+  it("keeps debug logging on until turned off before publishing, across workers", async () => {
+    const { logger, deps, advance } = setup({ debugStaysOn: true });
+    expect(await logger.enableDebug()).toBe(DEBUG_UNTIL_TURNED_OFF);
+    advance(DEBUG_LOGGING_MS * 30);
+    const restarted = createLogger(deps);
+    await restarted.log("service.sync", { outcome: "synced" }, { level: "debug" });
+    expect((await restarted.entries()).map((entry) => entry.event)).toEqual([
+      "log.debug",
+      "service.sync",
+    ]);
+    expect((await restarted.summary()).debugUntil).toBe(DEBUG_UNTIL_TURNED_OFF);
+    await restarted.disableDebug();
+    await createLogger(deps).log("service.sync", { outcome: "synced" }, { level: "debug" });
+    expect(await createLogger(deps).entries()).toHaveLength(3);
+    expect((await createLogger(deps).summary()).debugUntil).toBeUndefined();
+  });
+
+  it("keeps a 24-hour window still open on until turned off once debug stays on", async () => {
+    const { logger, deps, advance } = setup();
+    await logger.enableDebug();
+    advance(DEBUG_LOGGING_MS / 2);
+    const staying = { ...deps, debugStaysOn: true };
+    expect((await createLogger(staying).summary()).debugUntil).toBe(DEBUG_UNTIL_TURNED_OFF);
+    advance(DEBUG_LOGGING_MS);
+    expect((await createLogger(staying).summary()).debugUntil).toBe(DEBUG_UNTIL_TURNED_OFF);
+    // A published build turns it off.
+    expect((await createLogger(deps).summary()).debugUntil).toBeUndefined();
+    // A window that already ended stays off.
+    const ended = setup();
+    await ended.logger.enableDebug();
+    ended.advance(DEBUG_LOGGING_MS);
+    expect(
+      (await createLogger({ ...ended.deps, debugStaysOn: true }).summary()).debugUntil,
+    ).toBeUndefined();
   });
 
   it("turns debug logging off before the 24 hours end, across workers", async () => {
