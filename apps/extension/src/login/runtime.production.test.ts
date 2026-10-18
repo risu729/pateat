@@ -17266,7 +17266,12 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
       await until(() => checkedChoice().length > 0 && status()?.[0]?.["state"] !== "executing");
       await vi.advanceTimersByTimeAsync(20_000);
       expect(executed()).toEqual(withPress.slice(0, 3));
-      expect(status()![0]).not.toMatchObject({ state: "authenticated" });
+      // The click failed without acting: the attempt waits for the page as after any
+      // failed click, never pressing the button again.
+      expect(status()![0]).toMatchObject({
+        state: "reconciling",
+        outcome: "structural-mismatch",
+      });
     });
 
     it("never presses it once the login filled its password", async () => {

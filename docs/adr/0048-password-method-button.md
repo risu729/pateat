@@ -180,7 +180,9 @@ amendment). This ADR does not amend ADR 0036.
   person one press, as before this ADR.
 - The extension checks the live text when the handler is entered and again in the same
   task as the click, so a button the page renders again with other text under the same
-  locator is not pressed; that login fails as one whose button went missing.
+  locator is not pressed: the click fails as `target-missing` (outcome
+  `structural-mismatch`) without acting, and when the page reports again with the
+  button still showing, the login ends `challenge`.
 - When the `password` handler already ran and its button shows again beside a learned
   passkey button, the login ends `challenge` rather than pressing the passkey button.
 
