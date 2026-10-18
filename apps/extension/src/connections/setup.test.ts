@@ -1053,6 +1053,88 @@ describe("durable provider sessions", () => {
     expect((await manual).ok).toBe(true);
     expect(h.fetch).toHaveBeenCalledTimes(before + 1);
   });
+  async function waitingForCode(h: ReturnType<typeof harness>, input: SetupBegin) {
+    h.tokenResponses.push({
+      status: 400,
+      body: { error: "invalid_grant", TwoFactorProviders2: { "0": null } },
+    });
+    const challenge = await h.caller.begin(input);
+    if (!challenge.ok || challenge.kind !== "mfa-required")
+      throw new Error("Synthetic MFA challenge failed");
+    return challenge;
+  }
+  it.each([
+    { label: "another", input: newInput },
+    {
+      label: "the same",
+      input: (): SetupBegin => ({
+        kind: "existing",
+        connectionId: accountProfile.connectionId,
+        password: v1Password,
+        autoUnlock: "preserve",
+      }),
+    },
+  ])(
+    "a Sync of $label connection while a sign-in waits for its code is refused and keeps it",
+    async ({ input }) => {
+      const h = harness({ existing: true });
+      await connected(h);
+      const challenge = await waitingForCode(h, input());
+      const fetches = h.fetch.mock.calls.length;
+      expect(await h.caller.sync(accountProfile.connectionId)).toEqual({
+        ok: false,
+        error: { code: "resource-limit" },
+      });
+      expect(h.fetch).toHaveBeenCalledTimes(fetches);
+      expect(
+        await h.caller.continue({
+          flowId: challenge.flowId,
+          twoFactor: { provider: 0, code: "000123" },
+        }),
+      ).toMatchObject({ ok: true, kind: "ready" });
+      // Nothing of the refused Sync or the finished sign-in keeps the connection busy.
+      expect((await h.caller.sync(accountProfile.connectionId)).ok).toBe(true);
+    },
+  );
+  it("a code for a two-step method not offered ends the sign-in and frees the connection", async () => {
+    const h = harness({ existing: true });
+    await connected(h);
+    const challenge = await waitingForCode(h, {
+      kind: "existing",
+      connectionId: accountProfile.connectionId,
+      password: v1Password,
+      autoUnlock: "preserve",
+    });
+    expect(
+      await h.caller.continue({
+        flowId: challenge.flowId,
+        twoFactor: { provider: 1, code: "000123" },
+      }),
+    ).toEqual({ ok: false, error: { code: "invalid-request" } });
+    expect((await h.caller.sync(accountProfile.connectionId)).ok).toBe(true);
+  });
+  it("a challenge that permission removal ended no longer blocks the page", async () => {
+    const h = harness();
+    await waitingForCode(h, newInput());
+    h.permission(false);
+    await h.service.permissionsRemoved();
+    h.permission(true);
+    expect(await h.caller.begin(newInput())).toMatchObject({ ok: true, kind: "ready" });
+  });
+  it("a second sign-in while one waits for its code is refused and keeps the first", async () => {
+    const h = harness();
+    const challenge = await waitingForCode(h, newInput());
+    expect(await h.caller.begin(newInput())).toEqual({
+      ok: false,
+      error: { code: "resource-limit" },
+    });
+    expect(
+      await h.caller.continue({
+        flowId: challenge.flowId,
+        twoFactor: { provider: 0, code: "000123" },
+      }),
+    ).toMatchObject({ ok: true, kind: "ready" });
+  });
   it("an automatic check that has not claimed anything yields to a manual Sync", async () => {
     const h = harness({ existing: true });
     await connected(h);

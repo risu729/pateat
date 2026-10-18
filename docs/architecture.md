@@ -410,10 +410,11 @@ code on 2026-10-17; each ends in a refusal rather than a guess:
   times out and closes its connection to the worker, which cancels the work. A
   verification challenge expires after 5 minutes without a countdown.
 - A second sign-in step or sync from one settings page while one runs, a new sign-in
-  while that page's verification challenge waits, a sign-in or sync of a connection
-  that already has one, or a fifth at once across settings pages: the worker answers
-  `resource-limit`. Forget sync sign-in and Delete connection answer it too while a
-  password sign-in of that connection runs.
+  or sync while that page's verification challenge waits (the challenge stays usable),
+  a sign-in or sync of a connection that already has one, or a fifth at once across
+  settings pages: the worker answers `resource-limit`. Forget sync sign-in and Delete
+  connection answer it too while a password sign-in of that connection runs or waits
+  for its code.
 - Changes made in another settings tab or by automatic sync while the page is open: the
   connection rows show them only after Refresh.
 
