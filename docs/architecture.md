@@ -1115,6 +1115,47 @@ contract for a future trusted consumer, but do not assume Chrome use already
 waits for it. Coexistence tests must include overlapping actions; avoid claiming
 race-free operation before a wait/ownership mechanism is established.
 
+### Limits of the step executor
+
+Read from the code on 2026-10-17; none of these is handled today, and none is a
+decision to keep it. Generated recipes hold only preparing fills and clicks
+(`packages/inference/src/plan.ts`), so the cases about other step kinds arise only from
+recipes written by hand.
+
+- At most 100 login records, one per tab and origin, are kept. A record stays after its
+  login ended, until its tab closes or the record is released (a logout, the sign-in
+  form shown again after a rejection, or the end of a fill-only login), so with 100
+  records a new tab and origin pair is refused `attempt-limit`. So is the next login of
+  a tab whose record ended `account-switched`, though it reuses that record's place.
+- A step's operation is valid for 15 seconds from when the worker builds it. A `wait`
+  step therefore ends at whichever comes first, its own `timeoutMs` or that limit, so a
+  `wait` of 15,000 ms always ends a little early. A fill whose vault reads take longer
+  than the limit reaches the page expired, and the login ends `cancelled`
+  (`operation-expired`) without a retry.
+- A page that replaces or hides a field while a value is typed into it, or changes it
+  so that the value or secret no longer fits, or moves to another path meanwhile, ends
+  the login `cancelled` (`field-changed`, `page-changed`). Every `cancelled` answer ends
+  the login, even one caught before the first character went in, so it is not tried
+  again.
+- A `wait` step, or an `assert` that an element is absent, gives no element to look for,
+  so it cannot confirm that an `advance` on the same path went on; neither can a next
+  step that names the advance's own element, or a step of a handler. Such a login does
+  not go on to its next step: once the reconcile wait ends it is read as after a
+  submission (a signed-in marker or state, a rejection, the judge), and otherwise
+  settles as unknown.
+- Steps after a fill that submits through its own event (`effect: "submit"`) never run:
+  that fill ends the recipe's steps, while a submitting click may be followed by more.
+- The handlers that may be entered on one path, with the route's fields in the same
+  form, are observed in one bound of 24 elements, taken in recipe order. A handler whose
+  elements no longer fit is never entered there.
+- While a code is watched after it goes in (a `totp` handler's, or a route's code fill
+  followed by its submit click), any navigation of the document counts as the page
+  submitting the code, including a same-document URL change such as
+  `history.replaceState` or a new fragment on the same path; the button is then not
+  clicked.
+- A message to the page has no time limit of its own: a document whose content script
+  never answers keeps its login's step waiting until the document goes away.
+
 ## Extension icon
 
 The owner chose the logo on 2026-10-11: a Roman arch whose keystone completes it,
