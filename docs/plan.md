@@ -2313,7 +2313,11 @@ Remaining M4 AI work:
   ([Background execution](architecture.md#background-execution)).
 - More Japanese pages. The owner chose on 2026-10-11 to take them from both public
   login pages opened in Chrome on the owner's PC and the request log; six public pages
-  are in (below). On 2026-10-11 the request log held one Japanese row, a MyJCB
+  are in (below). Next, in a browser that can reach the sites (a cloud environment whose
+  network access allows them, or the owner's PC): refresh the six with the current
+  extractor, and observe more public login pages of banks, securities firms, card
+  issuers, shops and telecom carriers, retrying the twelve that gave no or an incomplete
+  observation. On 2026-10-11 the request log held one Japanese row, a MyJCB
   generation that abstained (`insufficient-evidence`) on an observation from before
   #206 with no login control, so it adds no case. The finite-choice provider waited
   for a Claude baseline, which now exists for both page sets.
@@ -2468,6 +2472,19 @@ After the re-keying (2026-10-11, `1ddf138`) the heuristic scores 3 correct, 1 mi
 and `ja-paypay-bank`), accuracy 0.5. The Claude results on this corpus and on the
 synthetic corpus were measured with the old descriptive slot IDs; a Claude rerun on the
 bank cases is a paid run and needs the owner's approval.
+
+`mise run //packages/inference:corpus:japanese` repeats the observation of the Japanese
+pages in Playwright's Chromium, or in another browser named with `--chromium <path>`
+such as the installed Chrome. `--refresh` observes each case's page again and moves its
+label to the new observation by the role and locator of each labelled candidate. A case
+keeps its old observation and is reported for a person to relabel when the new one is of
+another path, is incomplete, shows other fields to fill, or lacks a labelled control or
+has it in another role. Listed URLs are observed into a local report for labelling by
+hand. Each case records the date and the commit of its observation, and refreshed page
+text is reviewed for personal data again before it is committed. A cloud session on
+2026-10-15 reached none of the pages: the cloud environment's network policy refused
+every site (`ERR_TUNNEL_CONNECTION_FAILED`), so the six pages of 2026-10-11 are still
+the corpus.
 
 The same import measured the extractor on real markup (2026-10-11, main `9cf8356`). Of
 the 241 pages with an annotated login form, 6 gave no observation and 109 an incomplete
