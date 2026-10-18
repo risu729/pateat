@@ -612,19 +612,29 @@ length. Since 2026-10-13, when a bank's password field held one character fewer 
 typed value with no event cancelled and the login was sent and rejected, the length is
 checked after every typing; a value of the same length, such as a mask or a case the
 page changed, is kept, while a page that reformats a value, as by adding hyphens,
-refuses it. The length is checked again one wait after `change` and blur, whose handlers
-may rewrite the value, and a fill refused then has sent both; a field emptied then, as
-by a form that switches to other fields, is left to the checks before the click. A
-same-length change is a known limit: a page that turns a full-width character into a
-half-width one, or one symbol into another, still has its value submitted, as it would
-be from a person's typing. A page that cancels the clearing `beforeinput` and does not
-clear the field itself by that wait refuses the value the same way before any character
-is typed. A code split into one-digit inputs gets the same per digit, 25 ms apart. Typed
-keys are only a value's characters, so a page's Enter handler does not run. Each field's
-scope checks, and a split code's per-digit checks, run after the wait before it and
-again after each wait of its typing, including the waits after its last character; a
-typing they stop leaves the characters typed so far in the field and fails the step, so
-nothing is clicked, unless the code watch of
+refuses it. A value the page rewrote between full-width and half-width characters, as an
+address form turns `１－２－３` into `1-2-3` or a kana field turns `ガ` into `ｶﾞ`, is
+kept whatever its length, and also after a cancelled key, as when the page writes the
+rewritten character itself (owner, 2026-10-18 02:07 UTC), unless it no longer fits the
+field's `maxlength`. The held value and the typed one are compared with their full-width
+and half-width forms (U+3000 and U+FF01 to U+FFEF) folded as Unicode NFKC folds them and
+then composed, so `ｶﾞ` matches `ガ`; other compatibility characters, such as `①` or `…`,
+are not folded, so a page that rewrites one into characters of another length is still
+refused. Until then such a value was refused as `fill-rejected` whenever its length
+changed or a key was cancelled. A rewrite the fold does not cover, such as hiragana into
+katakana or `-` into `ー`, is kept only at the same length with no key cancelled. The
+length is checked again one wait after `change` and blur, whose handlers may rewrite the
+value, and a fill refused then has sent both; a field emptied then, as by a form that
+switches to other fields, is left to the checks before the click. A same-length change
+is a known limit: a page that turns one symbol into another still has its value
+submitted, as it would be from a person's typing. A page that cancels the clearing
+`beforeinput` and does not clear the field itself by that wait refuses the value the
+same way before any character is typed. A code split into one-digit inputs gets the same
+per digit, 25 ms apart. Typed keys are only a value's characters, so a page's Enter
+handler does not run. Each field's scope checks, and a split code's per-digit checks,
+run after the wait before it and again after each wait of its typing, including the
+waits after its last character; a typing they stop leaves the characters typed so far in
+the field and fails the step, so nothing is clicked, unless the code watch of
 [ADR 0027](adr/0027-per-account-login-routes.md) saw the page take the code, as a page
 that replaces its form once the last digit is in does: that ends as `submitted`. The 500
 ms check of [ADR 0010](adr/0010-inference-field-hints.md) follows the last field. A fill

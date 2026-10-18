@@ -186,6 +186,59 @@ describe("typeValue", () => {
     expect(upper.value).toBe("AB1");
   });
 
+  it("keeps a value the page rewrote between full-width and half-width, whatever its length", async () => {
+    // A kana field that holds only half-width katakana: `ガ` becomes the two characters `ｶﾞ`.
+    document.body.innerHTML = '<input id="kana"><input id="address"><input id="dropped">';
+    const kana = document.getElementById("kana") as HTMLInputElement;
+    const half = new Map([
+      ["ガ", "ｶﾞ"],
+      ["ン", "ﾝ"],
+      ["ナ", "ﾅ"],
+    ]);
+    kana.addEventListener("input", () => {
+      kana.value = [...kana.value].map((character) => half.get(character) ?? character).join("");
+    });
+    expect(await typeValue(kana, "ガンナ", setter)).toBeUndefined();
+    expect(kana.value).toBe("ｶﾞﾝﾅ");
+    // An address field that cancels each full-width key and writes its half-width form.
+    const address = document.getElementById("address") as HTMLInputElement;
+    address.addEventListener("keydown", (event) => {
+      if (event.key.length !== 1) return;
+      const narrow = event.key.normalize("NFKC");
+      if (narrow === event.key) return;
+      event.preventDefault();
+      address.value += narrow;
+    });
+    expect(await typeValue(address, "１－２－３　Ａ棟", setter)).toBeUndefined();
+    expect(address.value).toBe("1-2-3 A棟");
+    // A rewrite that also drops a character is still refused.
+    const dropped = document.getElementById("dropped") as HTMLInputElement;
+    dropped.addEventListener("input", () => {
+      dropped.value = dropped.value.normalize("NFKC").replaceAll("-", "");
+    });
+    expect(await typeValue(dropped, "１－２", setter)).toBe("refused");
+  });
+
+  it("keeps a half-width value the page made full-width, unless it outgrew `maxlength`", async () => {
+    document.body.innerHTML =
+      '<input id="wide"><input id="capped" maxlength="3"><input id="ellipsis">';
+    const wide = document.getElementById("wide") as HTMLInputElement;
+    wide.addEventListener("input", () => (wide.value = wide.value.normalize("NFKC")));
+    expect(await typeValue(wide, "ｶﾞﾝﾅ", setter)).toBeUndefined();
+    expect(wide.value).toBe("ガンナ");
+    // `ｶﾞﾝﾅ` is four characters a person could not type into three.
+    const capped = document.getElementById("capped") as HTMLInputElement;
+    capped.addEventListener("input", () => {
+      capped.value = capped.value.replaceAll("ガ", "ｶﾞ").replaceAll("ン", "ﾝ").replaceAll("ナ", "ﾅ");
+    });
+    expect(await typeValue(capped, "ガンナ", setter)).toBe("refused");
+    // Only width is folded: a page that turns `…` into `...` changes the value, though
+    // NFKC folds the two alike.
+    const ellipsis = document.getElementById("ellipsis") as HTMLInputElement;
+    ellipsis.addEventListener("input", () => (ellipsis.value = ellipsis.value.replace("…", "...")));
+    expect(await typeValue(ellipsis, "a…", setter)).toBe("refused");
+  });
+
   it("keeps out a character whose key the page cancels, and then refuses the value", async () => {
     document.body.innerHTML = '<input id="field" inputmode="numeric">';
     const field = document.getElementById("field") as HTMLInputElement;

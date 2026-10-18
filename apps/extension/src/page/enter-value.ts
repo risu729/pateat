@@ -93,6 +93,17 @@ export function nextTask(): Promise<void> {
 }
 
 /**
+ * `text` with its full-width and half-width forms (U+3000 and U+FF01 to U+FFEF) folded
+ * as Unicode NFKC folds them, and composed, so `ｶﾞ`, `ガ` and `１Ａ`, `1A` fold alike.
+ * Other compatibility characters, such as `①` or `ﬁ`, stay as they are.
+ */
+function widthFolded(text: string): string {
+  return text
+    .replace(/[\u3000\uFF01-\uFFEF]/gu, (character) => character.normalize("NFKC"))
+    .normalize("NFC");
+}
+
+/**
  * Waits for the page after a value's characters: {@link FIELD_GAP_MS} on a shown page, so
  * a framework's short timers run too, or one task on a hidden one.
  */
@@ -117,10 +128,13 @@ function gap(): Promise<void> {
  * a value the page changed is never submitted, when the field does not hold `value`
  * after a cancelled event, or holds a value of another length, as when the page's own
  * handlers dropped a character it does not allow. A value of the same length, such as a
- * mask or a case the page changed, is kept. After `change` and blur the page gets
- * another pause, and a value of another length then is `refused` too, unless the page
- * emptied the field, as a form that switches to other fields does; the caller's checks
- * see to that. A page that cancels the clearing `beforeinput` and does not clear the
+ * mask or a case the page changed, is kept, and so is one the page rewrote between
+ * full-width and half-width characters, whatever its length and after a cancelled key
+ * too (owner decision, 2026-10-18 02:07 UTC; see {@link widthFolded}), unless it no
+ * longer fits the field's `maxlength`. After `change` and blur the page gets another
+ * pause, and a value of another length then is `refused` too, unless the page emptied
+ * the field, as a form that switches to other fields does; the caller's checks see to
+ * that. A page that cancels the clearing `beforeinput` and does not clear the
  * field itself within such a pause refuses the value before any character is typed.
  * After each such wait, as between characters (see {@link gap} and {@link nextTask}), it
  * calls `between`, which stops the typing with its cause when the page is no longer the
@@ -223,7 +237,11 @@ export async function typeValue<Cause extends string>(
     const cause = between?.();
     if (cause) return cause;
     const held = current();
-    return held !== value &&
+    // A rewrite that made the value longer than the field allows is one a person's typing
+    // could not have left in it.
+    if (input.type !== "number" && input.maxLength >= 0 && held.length > input.maxLength)
+      return "refused";
+    return widthFolded(held) !== widthFolded(value) &&
       (cancelledKey || [...held].length !== [...value].length) &&
       !(cleared && held === "")
       ? "refused"
