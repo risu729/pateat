@@ -1,4 +1,4 @@
-# ADR 0052: Generation on passkey-only start pages
+# ADR 0053: Generation on passkey-only start pages
 
 Status: proposed, implementation in progress. The owner authorized agents to finish
 unstarted plan work autonomously, record questions as proposals and continue with the

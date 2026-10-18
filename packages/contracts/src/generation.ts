@@ -198,7 +198,7 @@ export const entryGenerationRequestSchema = v.pipe(
 /**
  * Every body `POST /v1/recipes/generate` takes: a page with slots, or an entry request.
  * Strict objects keep them apart: omitted slots name an entry request; an empty slots
- * array requires passkeyOnly and never continues a recipe (ADR 0052, proposed).
+ * array requires passkeyOnly and never continues a recipe (ADR 0053, proposed).
  */
 export const generationRequestSchema = v.union([
   recipeGenerationRequestSchema,
