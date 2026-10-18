@@ -276,7 +276,7 @@ export async function startLoginFixture(
     } else if (path === "/identifier-swap") {
       // An identifier-first form that swaps its views in one document on one path (ADR
       // 0013), as some identity providers do: the form fades in, and the email view keeps
-      // the password input for the browser to fill, transparent, tiny, fixed to a corner,
+      // the password input for the browser to fill, transparent, small, fixed to a corner,
       // hidden from assistive technology and out of the tab order. Its one button reads
       // "Next"; half a second after it is pressed, as after a lookup request, the email
       // input loses its id and becomes such a hidden input in turn, the password input
@@ -326,6 +326,8 @@ export async function startLoginFixture(
             sessionStorage.setItem('submitClicks', String(Number(sessionStorage.getItem('submitClicks') || 0) + 1));
             sessionStorage.setItem('passwordMatched', String(password.value === ${JSON.stringify(password)}));
             location.href = '/authenticated';
+          } else {
+            sessionStorage.setItem('lookupClicks', String(Number(sessionStorage.getItem('lookupClicks') || 0) + 1));
           }
         });`,
         ),

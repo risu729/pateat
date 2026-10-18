@@ -756,12 +756,14 @@ test("continues an identifier-first form that swaps its views in place and keeps
         await page.evaluate(() => ({
           identityClicks: Number(sessionStorage.getItem("identityClicks") || 0),
           submitClicks: Number(sessionStorage.getItem("submitClicks") || 0),
+          lookupClicks: Number(sessionStorage.getItem("lookupClicks") || 0),
           identityMatched: sessionStorage.getItem("identityMatched"),
           passwordMatched: sessionStorage.getItem("passwordMatched"),
         })),
       ).toEqual({
         identityClicks: 1,
         submitClicks: 1,
+        lookupClicks: 0,
         identityMatched: "true",
         passwordMatched: "true",
       });
