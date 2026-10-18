@@ -30,6 +30,8 @@ export const MAX_OUTCOME_SENDS = 5;
  * local log keeps its login this long too (`LOG_RETENTION_MS`, ADR 0019).
  */
 export const PENDING_OUTCOME_MS = 14 * 24 * 60 * 60 * 1000;
+/** After a run a failure stopped, no run starts for this long, so an outage costs little. */
+export const OUTCOME_RETRY_MS = 60 * 1000;
 
 /** One request that left the device, for the local log (ADR 0019): codes only. */
 export type LoginOutcomeSent = {
@@ -137,8 +139,9 @@ const sameRevision =
  * Sends the service the result code of the first login of each recipe revision on this
  * device (ADR 0019, amended 2026-10-18). A revision is recorded before its report is sent,
  * so it is reported once; a report the service could not take stays pending, and every
- * ended login and successful recipe sync sends what is pending, a few at a time, until it
- * is 14 days old. Nothing here throws into, waits on or changes a login.
+ * ended login that is not a repeat and every successful recipe sync sends what is pending,
+ * a few at a time and not within a minute of a failure, until it is 14 days old. Nothing
+ * here throws into, waits on or changes a login.
  */
 export function createLoginOutcomes(options: {
   service: { connection(): Promise<ServiceConnection | undefined> };
@@ -197,13 +200,19 @@ export function createLoginOutcomes(options: {
   /** The entry without its pending report: its revision stays reported. */
   const settledEntry = ({ pending: _pending, ...rest }: Entry): Entry => rest;
 
+  /** No run starts before this time: a failure stopped the last one (`OUTCOME_RETRY_MS`). */
+  let retryAt = 0;
+
   /**
    * Sends pending reports of this service and device, oldest first. A report older than
-   * `PENDING_OUTCOME_MS` is dropped unsent. An unreachable or rate-limited service or a
-   * rejected device stops the run and keeps the rest; an unexpected answer, such as a 5xx,
-   * skips that report only, so one bad entry never holds the others back.
+   * `PENDING_OUTCOME_MS` is dropped unsent. The first failure stops the run, keeps every
+   * report still pending and holds off the next run for `OUTCOME_RETRY_MS`, so an outage
+   * costs about one request a minute. An unexpected answer, such as a 5xx or an HTML
+   * error page, or a call that threw also moves its report behind the others, so one report
+   * the service cannot take never holds the others back.
    */
   async function send() {
+    if (now() < retryAt) return;
     const connection = await connected();
     if (!connection) return;
     let current = await entries();
@@ -249,10 +258,18 @@ export function createLoginOutcomes(options: {
       } catch {
         // The log never changes the sending.
       }
-      if (!result || (result.kind === "failed" && result.error === "unexpected-response")) continue;
-      if (result.kind !== "kept" && result.kind !== "refused") return;
-      const done = sameRevision(connection, entry.recipeId, entry.branch, entry.revision);
-      current = current.map((stored) => (done(stored) ? settledEntry(stored) : stored));
+      const same = sameRevision(connection, entry.recipeId, entry.branch, entry.revision);
+      if (result?.kind !== "kept" && result?.kind !== "refused") {
+        retryAt = now() + OUTCOME_RETRY_MS;
+        if (!result || (result.kind === "failed" && result.error === "unexpected-response"))
+          // oxlint-disable-next-line no-await-in-loop -- the run ends here
+          await write([
+            ...current.filter((stored) => !same(stored)),
+            ...current.filter((stored) => same(stored)),
+          ]);
+        return;
+      }
+      current = current.map((stored) => (same(stored) ? settledEntry(stored) : stored));
       // oxlint-disable-next-line no-await-in-loop -- recorded before the next request
       await write(current);
     }
@@ -267,13 +284,15 @@ export function createLoginOutcomes(options: {
       try {
         const found = loginOutcomeOf(report);
         // Every ended login also sends what is still pending, one it reports nothing for too.
+        // A repeat, a new document of a tab whose login already ended, sends nothing more.
+        const repeat = report.type === "attempt" && report.repeat === true;
         if (found)
           void enqueue(async () => {
-            await record(found);
-            await send();
+            if ((await record(found)) || !repeat) await send();
           });
         else if (
           report.type === "attempt" &&
+          !repeat &&
           (report.state === "authenticated" || report.state === "blocked")
         )
           void enqueue(send);

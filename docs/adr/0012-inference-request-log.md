@@ -103,7 +103,11 @@ local log:
 - A row is the first report the service received for its revision, not always the
   revision's first login: a revision that ran before the build that sends these codes
   reports its next login instead. The corpus builder drops outcome rows whose revision's
-  generation row (`inference_log.revision`) predates that build's deployment.
+  generation row (the `inference_log` row with that `revision`) has no `build`, or a
+  `build` that is not a descendant of the first service commit that accepts these
+  reports. That commit also builds the extension that sends them. A revision whose
+  first login ran on an extension older than that commit is not caught, as no row
+  records the extension's build.
 
 ## Consequences
 

@@ -377,13 +377,16 @@ code is the one exception:
   its first (see
   [ADR 0012](0012-inference-request-log.md#amendment-2026-10-18-login-result-codes)).
 - One the service could not take stays pending. Every ended login and every successful
-  recipe sync sends what is pending, at most five at a time: an unreachable or
-  rate-limited service or a rejected device stops the run, an unexpected answer such as
-  a 5xx skips only that report, and a report still pending after 14 days, the local
-  log's retention, is dropped unsent. Sending never affects the login. Each request
-  logs one `service.outcome` line with the recipe, revision, branch and result (`kept`,
-  `refused`, `rejected` or `failed:<code>`), as every request that leaves the device
-  does.
+  recipe sync sends what is pending, at most five at a time. A repeat report, a new
+  document of a tab whose login state did not change, sends nothing unless it is its
+  revision's first. The first failure stops the run, and no run starts for a minute
+  after it in that worker, so an outage costs about one request and one log line a
+  minute. An unexpected answer, such as a 5xx or an HTML
+  error page, also moves that report behind the others, so it never holds them back. A
+  report still pending after 14 days, the local log's retention, is dropped unsent.
+  Sending never affects the login. Each request logs one `service.outcome` line with the
+  recipe, revision, branch and result (`kept`, `refused`, `rejected` or
+  `failed:<code>`), as every request that leaves the device does.
 - A login without a recipe revision sends nothing. Not confirmed by the owner (the
   agent's choice):
   - A fill-only login, any login of an item without a password (every report of it names
@@ -397,6 +400,8 @@ code is the one exception:
   - The route is `POST /v1/recipes/:recipeId/outcome` with the recipe ID in the path, as
     `/completion` has it, and `branch` is left out without one rather than sent as
     `""`.
+  - The sending limits: five reports a run, a minute's hold-off after a failure, and
+    the 14-day drop.
   - The design note planned its own ADR; it is recorded as amendments here and in ADR
     0012 instead.
 - No host permission is added: the service origin is already allowed. The service side,

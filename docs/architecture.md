@@ -1682,12 +1682,15 @@ item without a password (even one that fails before its stop), and a `policy-cha
 its next login. `pateat.login-outcomes.v1` in `storage.local` records each reported
 revision per service and device (at most 500, oldest dropped) before the request, so a
 device reports each revision once. Every ended login and every successful recipe sync
-sends what is still pending, at most five at a time: an unreachable or rate-limited
-service or a rejected device stops the run and keeps the rest, an unexpected answer
-(such as a 5xx) skips that report until the next run, a report the service refuses (404,
-400) is dropped, and one still pending after 14 days, the local log's retention, is
-dropped unsent. Each request logs a value-free `service.outcome` line. Sending never
-waits on, throws into or changes the login.
+sends what is still pending, at most five at a time; a repeat report (a new document of
+a tab whose login state did not change) sends nothing unless it is its revision's first.
+A report the service refuses (404, 400) is dropped. The first failure (unreachable,
+rate-limited, a rejected device, or an unexpected answer such as a 5xx or an HTML error
+page) stops the run and keeps the rest, and no run starts for a minute after it
+(`OUTCOME_RETRY_MS`). An unexpected answer also moves that report behind the others. A
+report still pending after 14 days, the local log's retention, is dropped unsent. Each
+request logs a value-free `service.outcome` line. Sending never waits on, throws into or
+changes the login.
 
 ## Declarative recipes and AI
 
