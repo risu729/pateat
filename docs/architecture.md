@@ -279,8 +279,8 @@ Deliberate differences from the official Bitwarden clients, to be reconsidered l
   block that Worker. Such URIs are reported as unsupported and never match.
 - When equivalent domains or the organization default-match policy cannot be read
   consistently, affected URIs are reported unavailable. The official clients would
-  continue with Domain matching. One group entry that is not a hostname is not such a
-  case: it is ignored, as the official clients effectively do.
+  continue with Domain matching. One string entry of a group that is not a hostname is
+  not such a case: it is ignored, as the official clients effectively do.
 - The official clients' device-local default match setting is not visible to Pateat;
   Domain is used unless an enforced organization policy applies.
 
@@ -442,10 +442,12 @@ fails as stated rather than retrying:
 - A Worker that fails while it has no job is noticed only by its next job, which
   fails `crypto-locked`.
 - One vault manager runs one open at a time. A restore, sync or password sign-in of a
-  connection that starts while another of the same connection runs fails
-  `resource-limit`: the page sees the vault as unavailable, a settings-page sync or
-  sign-in reports the limit and is not retried by itself, and an automatic sync counts
-  as failed and runs again at a later check.
+  connection that reaches the vault while another of the same connection is opening it
+  fails `resource-limit`: the page sees the vault as unavailable, a settings-page sync
+  or sign-in reports the limit and is not retried by itself, and an automatic sync
+  counts as failed and runs again at a later check. An automatic sync never meets
+  settings-page work of the same connection this way: it is skipped while that work
+  runs, a password sign-in stops it, and a settings-page sync waits for it.
 - When the offscreen document's creation outlasts its 30-second budget, the host
   creates no other document until Chrome settles that call; if it never settles,
   vault work fails until the service worker restarts.
@@ -2228,8 +2230,8 @@ browser's own handling would differ.
   without a user handle, or a credential ID, user handle or counter in a form Bitwarden
   does not write. An item whose passkeys cannot be decrypted at all is unavailable for
   every RP ID, since its RP ID is unknown. Such an item makes the search incomplete, so
-  only the site default answers for that RP ID and every other request is handed on as
-  `vault-incomplete`, even one whose allow list does not name that item. A
+  only the site default answers for the requested RP ID and every other request is
+  handed on as `vault-incomplete`, even one whose allow list does not name that item. A
   username-less request in a tab where Pateat signed for that RP ID before, or after a
   logout click, opens the chooser even for the site default
   ([ADR 0021](adr/0021-account-choice-outside-settings.md)), so it is handed on too. A
