@@ -7,7 +7,7 @@ import {
   unknownUsage,
   type InferenceOutcome,
 } from "@pateat/inference";
-import { and, eq, inArray, lt, lte, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, lt, lte, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
 import {
@@ -22,7 +22,7 @@ import { newId } from "@pateat/contracts/ids";
 
 // Every Claude call the service makes goes through here (ADR 0018): one call at a time
 // per owner, the monthly and daily spend stops, and the ADR 0012 request
-// log with its one-year retention.
+// log with its one-year retention, which also keeps requests answered without a call.
 
 /** Request bounds shared by both roles; the same as the approved benchmark run. */
 export const ROLE_LIMITS = { timeoutMs: 60_000, maxInputBytes: 64 * 1024, maxRetries: 0 };
@@ -37,6 +37,8 @@ export const CLAUDE_CALL_LIMITS = {
   lockMs: 90_000,
   /** Every request log row and login result code, for evaluation (owner decision, 2026-10-18). */
   logRetentionMs: INFERENCE_LOG_RETENTION_MS,
+  /** The same request answered the same way without a call is logged once in this long. */
+  unsentRepeatMs: 10 * 60 * 1000,
 };
 
 /**
@@ -78,9 +80,18 @@ export type ClaudeCall<T> = {
   logValue: (value: T) => unknown;
 };
 
+/** What the request log keeps of a request answered without a model call (ADR 0012). */
+export type UnsentRequest = Pick<
+  ClaudeCall<unknown>,
+  "role" | "promptVersion" | "origin" | "path" | "request" | "recipe"
+>;
+
 export type ClaudeCallResult<T> =
   | { status: "unavailable"; reason: GenerationUnavailableReason }
-  /** `logId` names the request log row, which a call refused locally does not have. */
+  /**
+   * `logId` names the request log row. A call refused locally has none here: its route logs
+   * it with the answer it gives (`logUnsent`).
+   */
   | { status: "called"; outcome: InferenceOutcome<T>; logId?: string };
 
 const periods = (now: number) => {
@@ -175,6 +186,80 @@ export async function keepLogRevision(
   }
 }
 
+/**
+ * Logs a request answered without a model call (ADR 0012, owner 2026-10-18 08:04 UTC)
+ * under `outcome`, the code of that answer: the request as the model would have received
+ * it, no provider, model, usage, result or answer, and no cost. The same request answered
+ * the same way within ten minutes adds no row, so a client repeating a page refused as
+ * `busy` or over a limit cannot fill the log. A failed write never changes the answer.
+ */
+export async function logUnsent(
+  d1: D1Database,
+  ownerId: string,
+  unsent: UnsentRequest,
+  outcome: string,
+) {
+  const db = drizzle(d1);
+  const now = Date.now();
+  const { recipeId, branch, baseRevision, page } = unsent.recipe;
+  try {
+    const hash = await observationHash(unsent.request.observation);
+    const [repeated] = await db
+      .select({ id: inferenceLog.id })
+      .from(inferenceLog)
+      .where(
+        and(
+          eq(inferenceLog.ownerId, ownerId),
+          gt(inferenceLog.createdAt, now - CLAUDE_CALL_LIMITS.unsentRepeatMs),
+          isNull(inferenceLog.modelId),
+          eq(inferenceLog.outcome, outcome),
+          eq(inferenceLog.role, unsent.role),
+          eq(inferenceLog.promptVersion, unsent.promptVersion),
+          eq(inferenceLog.origin, unsent.origin),
+          eq(inferenceLog.path, unsent.path),
+          eq(inferenceLog.recipeId, recipeId),
+          eq(inferenceLog.branch, branch),
+          eq(inferenceLog.baseRevision, baseRevision),
+          eq(inferenceLog.observationHash, hash),
+        ),
+      )
+      .limit(1);
+    if (repeated) return;
+    await db.insert(inferenceLog).values({
+      id: newId(),
+      ownerId,
+      role: unsent.role,
+      provider: null,
+      modelId: null,
+      promptVersion: unsent.promptVersion,
+      origin: unsent.origin,
+      path: unsent.path,
+      request: unsent.request,
+      result: null,
+      answer: null,
+      outcome,
+      recipeId,
+      branch,
+      baseRevision,
+      recipePage: page ?? null,
+      build: PATEAT_BUILD_REVISION,
+      observationHash: hash,
+      inputTokens: null,
+      outputTokens: null,
+      costMicroUsd: 0,
+      createdAt: now,
+    });
+  } catch {
+    console.warn("Inference log row not kept", { role: unsent.role, outcome });
+    return;
+  }
+  try {
+    await purgeExpiredLog(db, now);
+  } catch {
+    console.error("Inference log purge failed");
+  }
+}
+
 const credentialUnavailable = {
   not_configured: "credentials-not-configured",
   rejected: "credentials-rejected",
@@ -197,7 +282,8 @@ function loggedResult<T>(call: ClaudeCall<T>, outcome: InferenceOutcome<T>): unk
 
 /**
  * Makes one role call for the authenticated owner. `ownerId` must come from the request
- * scope. Nothing is reserved, logged or sent unless every check passes.
+ * scope. Nothing is reserved, logged or sent unless every check passes; the route logs a
+ * call that was not sent with the answer it gives (`logUnsent`).
  */
 export async function callClaude<T>(
   env: CallEnv,
@@ -244,7 +330,7 @@ export async function callClaude<T>(
       addSpend(db, ownerId, month, outcome.calls - 1, micro - RESERVED_MICRO_USD),
       addSpend(db, ownerId, day, outcome.calls - 1, micro - RESERVED_MICRO_USD),
     ] as const;
-    // A request the role refused locally was never sent, so it is not logged (ADR 0012).
+    // A request the role refused locally was never sent: its route logs it (ADR 0012).
     if (outcome.calls === 0) {
       await db.batch(corrections);
       return { status: "called", outcome };

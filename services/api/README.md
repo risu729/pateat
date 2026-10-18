@@ -359,8 +359,8 @@ version (`prompt_version`: the first 12 hex digits of the SHA-256 of its instruc
 newline and its response format's JSON Schema, computed once per set of instructions:
 the generate role has one for a form, one for an entry request and one for a list of
 accounts, whose instructions add one list line), the instructions
-and input as sent, the structured result, the outcome code, usage and estimated cost; a
-request refused locally before any model call is not logged. Since 2026-10-18
+and input as sent, the structured result, the outcome code, usage and estimated cost.
+Since 2026-10-18
 ([ADR 0012](../../docs/adr/0012-inference-request-log.md#amendment-2026-10-18-rows-for-a-real-page-corpus))
 it also records the recipe the call is for (`recipe_id`, `branch`, empty without one),
 `base_revision` (the head revision when the call was made: 0 for none, the tombstone's
@@ -387,10 +387,27 @@ stored, and the Worker logs only `Model output refused` with the role, its promp
 version and the `rejection`. A schema `path` resolves each key where the output format
 defines it, so a key the format defines only in another object also ends the path as
 `unknown-key`; the options of a variant are read together, so a key of a sibling option
-gives that object's issue instead. Rows older than one year are deleted whenever a call
-is logged and on every `GET /v1/recipes`, because routine releases do not apply cron
-triggers. `DELETE /manage/api/request-log` deletes all of the owner's rows; a call still
-running then logs its row afterwards.
+gives that object's issue instead.
+
+A request answered without a model call is logged too
+([ADR 0012](../../docs/adr/0012-inference-request-log.md#amendment-2026-10-18-requests-answered-without-a-model-call)),
+by the route through `logUnsent`: one refused locally (`input-too-large`) or by any
+check above, `recently-tried`, a judgement gate, `not-judgeable`, a recipe state
+refusal, `incomplete-observation`, `invalid-request`, or a recipe another request
+stored. Its `outcome` is the answer's code (`recipe` for a stored recipe); `provider`,
+`model_id`, `result`, `answer` and the token counts are null, the cost is 0 and nothing
+is charged. `request` is what the model would have received; a judgement refused before
+its route is found (`recipe-revoked`, `recipe-conflict`) has no `loginPaths`.
+`base_revision` is the head the request was answered on. A request answered the same way
+within 10 minutes, with the same role, prompt version, origin, path, recipe, branch,
+base revision and observation hash, adds no row; a failed write is logged as
+`Inference log row not kept` with the role and outcome and never changes the answer.
+Requests answered 400 or 404, invalid bodies included, are not logged.
+
+Rows older than one year are deleted whenever a request is logged and on every
+`GET /v1/recipes`, because routine releases do not apply cron triggers.
+`DELETE /manage/api/request-log` deletes all of the owner's rows; a call still running
+then logs its row afterwards.
 
 `POST /v1/recipes/:recipeId/outcome` takes
 `{ version: 1, revision, branch?, outcome, cause?, step }`: how the first login of that

@@ -150,12 +150,13 @@ export const inferenceCredentials = sqliteTable(
 /** Where a generated page sits in its recipe, for the request log (ADR 0012). */
 export const inferenceLogRecipePages = ["first", "continuation"] as const;
 /**
- * Every inference request the service sent and its local outcome (ADR 0012), kept for
- * one year (owner, 2026-10-18) unless the owner deletes them all from the web UI. A
- * request refused locally before any model call is not logged. `request` is the
- * instructions and input exactly as sent; vault values never reach inference, so they
- * are never here. The recipe columns, `build`, `observation_hash` and `answer` are null on
- * rows logged before they were recorded.
+ * Every generation and judgement request the service received and its local outcome (ADR
+ * 0012), kept for one year (owner, 2026-10-18) unless the owner deletes them all from the
+ * web UI. A request answered without a model call (owner, 2026-10-18 08:04 UTC) has no
+ * provider, model, usage, result or answer and costs 0. `request` is the instructions and
+ * input exactly as sent, or as they would have been sent; vault values never reach
+ * inference, so they are never here. The recipe columns, `build`, `observation_hash` and
+ * `answer` are null on rows logged before they were recorded.
  */
 export const inferenceLog = sqliteTable(
   "inference_log",
@@ -165,8 +166,9 @@ export const inferenceLog = sqliteTable(
       .notNull()
       .references(() => owners.id),
     role: text("role", { enum: ["generate", "judge"] }).notNull(),
-    provider: text("provider").notNull(),
-    modelId: text("model_id").notNull(),
+    /** Null for a request answered without a model call. */
+    provider: text("provider"),
+    modelId: text("model_id"),
     /**
      * The role's prompt version: 12 hex digits of the SHA-256 of its instructions and
      * response format (`promptVersion`). Rows logged before it was recorded have none.
@@ -188,7 +190,11 @@ export const inferenceLog = sqliteTable(
      * output failed the response format or no answer came.
      */
     answer: text("answer", { mode: "json" }),
-    /** `ok`, `abstained` or the failure code. */
+    /**
+     * `ok`, `abstained` or the failure code; for a request answered without a model call,
+     * the code it was answered with (`busy`, `daily-limit`, `input-too-large`…), or `recipe`
+     * for a recipe another request already stored.
+     */
     outcome: text("outcome").notNull(),
     /** The generated recipe the call is for: the one it starts or continues, or judges. */
     recipeId: text("recipe_id"),
@@ -196,7 +202,8 @@ export const inferenceLog = sqliteTable(
     branch: text("branch"),
     /**
      * The recipe's head revision when the call was made: 0 when it had none, the
-     * tombstone's for a revoked recipe generated again, the judged one for the judge.
+     * tombstone's for a revoked recipe generated again, the judged one for the judge. A
+     * request answered without a call has the head it was answered on.
      */
     baseRevision: integer("base_revision"),
     /**
