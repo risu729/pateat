@@ -581,13 +581,15 @@ that sign-in does not finish, **Sign in again** completes the setup and keeps th
 choice. Sign-ins never change the entry; the policy is edited on the settings page.
 Like other saved settings, the entry stays after Delete connection.
 
-An error, cancellation or unsupported-interaction reply re-reads the rows, so a
-connection whose first sign-in failed shows at once with Sign in again instead of
-being added twice. Name and Email clear only when the read that ends this page's own
-add lists a new connection, after success or failure; a connection another settings
-page added, seen by a later Refresh, leaves this page's draft as typed. **Cancel
-setup** always leaves sign-in-again mode; when nothing is running it changes nothing
-else, so the saved settings draft is not reloaded.
+An error, cancellation or unsupported-interaction reply, and stopping setup, re-read
+the rows, so a connection whose first sign-in failed shows with Sign in again. Name
+and Email clear once a read lists a new connection with the label and email this
+page's add sent, and only while the form still holds them, so Connect does not add it
+twice. After a final reply only that reply's read can match; after a stop, whose read
+can come before the connection is saved, a later Refresh can. A connection another
+settings page added leaves this page's draft as typed. **Cancel setup** always leaves
+sign-in-again mode; when nothing is running it changes nothing else, so the saved
+settings draft is not reloaded.
 
 Connecting retains the local unlock key and encrypted cache. Disabling automatic
 unlock removes the retained key; signing in again does not implicitly re-enable

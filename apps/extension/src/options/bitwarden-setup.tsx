@@ -46,6 +46,10 @@ import {
 type StatusReply = Extract<SetupReply, { kind: "status" }>;
 type Challenge = Extract<SetupReply, { kind: "mfa-required" | "new-device-verification-required" }>;
 type Connection = StatusReply["connections"][number];
+/** The background stores a new connection's email in this form. */
+function normalEmail(email: string) {
+  return email.trim().toLowerCase();
+}
 const deleteDialog = AlertDialog.createHandle<Connection>();
 function errorMessage(code: string, check?: string): string {
   if (code === "account-mismatch")
@@ -233,8 +237,10 @@ export function BitwardenSetup({
   const [message, setMessage] = useState("Loading Bitwarden connections…");
   const operation = useRef(false);
   const generation = useRef(0);
-  // Connection IDs listed before a new connection's first sign-in started.
-  const addedFrom = useRef<Set<string>>(undefined);
+  // This page's add of a new connection: the IDs listed before it and what it sent.
+  const pendingAdd = useRef<{ before: Set<string>; label: string; email: string }>(undefined);
+  const draft = useRef({ name, email });
+  draft.current = { name, email };
   const passwordInput = useRef<HTMLInputElement>(null);
   const codeInput = useRef<HTMLInputElement>(null);
   const catalogChanged = useRef(onCatalogChanged);
@@ -245,8 +251,8 @@ export function BitwardenSetup({
     if (passwordInput.current) passwordInput.current.value = "";
     if (codeInput.current) codeInput.current.value = "";
   }
-  /** `added` is the snapshot of this page's own add; only the read after it ends may clear the form. */
-  async function readConnections(epoch: number, added?: Set<string>) {
+  /** `endsAdd`: the read after this page's add got its final reply. */
+  async function readConnections(epoch: number, endsAdd = false) {
     const result = await client.list();
     if (epoch !== generation.current) return;
     if (!result.ok || result.kind !== "status") throw new Error("Connection metadata unavailable.");
@@ -254,20 +260,26 @@ export function BitwardenSetup({
     setStatusKnown(true);
     // The background keeps a new connection even when its first sign-in fails; once its
     // row is listed, "Sign in again" completes it and the add form must not register it twice.
-    if (added && result.connections.some((connection) => !added.has(connection.connectionId))) {
+    // A stop or a lost reply can come before the row exists, so a later read may list it.
+    const add = pendingAdd.current;
+    if (!add) return;
+    const listed = result.connections.some(
+      (connection) =>
+        !add.before.has(connection.connectionId) &&
+        connection.label === add.label &&
+        connection.email === add.email,
+    );
+    if (listed || endsAdd) pendingAdd.current = undefined;
+    const { name: typedName, email: typedEmail } = draft.current;
+    // A draft edited since the add is a different connection and stays.
+    if (listed && typedName.trim() === add.label && normalEmail(typedEmail) === add.email) {
       setName("");
       setEmail("");
     }
   }
   /** Rows may have changed after an error or cancellation; a failed read keeps the message. */
-  function rereadConnections(epoch: number, added?: Set<string>) {
-    return readConnections(epoch, added).catch(() => undefined);
-  }
-  /** Ends this page's add: a later read, such as Refresh, must not clear a draft edited since. */
-  function takeAdded() {
-    const added = addedFrom.current;
-    addedFrom.current = undefined;
-    return added;
+  function rereadConnections(epoch: number, endsAdd = false) {
+    return readConnections(epoch, endsAdd).catch(() => undefined);
   }
   useEffect(() => {
     const epoch = ++generation.current;
@@ -306,7 +318,7 @@ export function BitwardenSetup({
       // A resolved error may follow a durable cache/configuration change.
       // Preserve the draft and require a fresh catalog before another settings save.
       onCatalogChanged();
-      await rereadConnections(epoch, takeAdded());
+      await rereadConnections(epoch, true);
       return;
     }
     if (result.kind === "mfa-required" || result.kind === "new-device-verification-required") {
@@ -325,7 +337,6 @@ export function BitwardenSetup({
       return;
     }
     setChallenge(undefined);
-    const added = takeAdded();
     if (result.kind === "ready") {
       setMessage(
         result.policyReviewItemIds.length
@@ -334,13 +345,13 @@ export function BitwardenSetup({
       );
       setExisting(undefined);
       catalogChanged.current();
-      await readConnections(epoch, added);
+      await readConnections(epoch, true);
     } else if (result.kind === "interaction-required") {
       setMessage(`Setup is incomplete: ${result.reason}. This interaction is not supported here.`);
-      await rereadConnections(epoch, added);
+      await rereadConnections(epoch, true);
     } else if (result.kind === "cancelled") {
       setMessage("Setup cancelled.");
-      await rereadConnections(epoch, added);
+      await rereadConnections(epoch, true);
     } else if (result.kind === "status") setConnections(result.connections);
     else if (result.kind === "forgotten") {
       setMessage(
@@ -372,7 +383,6 @@ export function BitwardenSetup({
     void action(epoch)
       .catch(() => {
         if (epoch !== generation.current) return;
-        addedFrom.current = undefined;
         setChallenge(undefined);
         setMessage(
           "The operation could not be confirmed. Refresh and reload saved settings. Your previous draft is preserved.",
@@ -423,8 +433,14 @@ export function BitwardenSetup({
         setMessage("Provider access was not granted. No sign-in request was sent.");
         return;
       }
-      addedFrom.current =
-        input.kind === "new" ? new Set(connections.map((c) => c.connectionId)) : undefined;
+      pendingAdd.current =
+        input.kind === "new"
+          ? {
+              before: new Set(connections.map((c) => c.connectionId)),
+              label: input.label,
+              email: normalEmail(input.email),
+            }
+          : undefined;
       await receive(await client.begin(input), epoch);
     });
   }
@@ -440,22 +456,21 @@ export function BitwardenSetup({
     });
   }
   function cancel(stopped = "Setup stopped. Refresh to confirm the latest state.") {
-    const running = operation.current || !!challenge;
-    const epoch = ++generation.current;
-    const added = takeAdded();
-    operation.current = false;
     clearSecrets();
-    setChallenge(undefined);
     setExisting(undefined);
-    setBusy(false);
-    if (!running) {
+    // With nothing running, a pending re-read from an earlier stop must still land.
+    if (!operation.current && !challenge) {
       setMessage("Setup cancelled.");
       return;
     }
+    const epoch = ++generation.current;
+    operation.current = false;
+    setChallenge(undefined);
+    setBusy(false);
     client.close();
     setMessage(stopped);
     catalogChanged.current();
-    void rereadConnections(epoch, added);
+    void rereadConnections(epoch);
   }
   function syncConnection(connection: Connection) {
     if (operation.current) return;
