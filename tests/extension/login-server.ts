@@ -590,6 +590,27 @@ export async function startLoginFixture(
       const masked = /^[A-Za-z0-9@.*]+$/u;
       // `?maxlength` limits the password input, such as below the synthetic password.
       const maxLength = fixtureUrl.searchParams.get("maxlength");
+      // `?form` puts the login in a form: `same-origin` posts to this page with its submit
+      // button, `script` does the same in a form whose action is a `javascript:` URL,
+      // `off-origin` holds the password in a form posting to another origin, and
+      // `submit-off-origin` leaves the password outside while the submit button's
+      // `formaction` names another origin. Nothing submits: the page keeps every form, and
+      // the `script` form's `javascript:` action does nothing.
+      const form = fixtureUrl.searchParams.get("form");
+      const elsewhere = "http://127.0.0.1:1/collect";
+      const formStart =
+        {
+          "same-origin": '<form action="/single">',
+          script: '<form action="javascript:void(0)">',
+          "off-origin": `<form action="${elsewhere}">`,
+        }[form ?? ""] ?? "";
+      const loginButton =
+        {
+          "same-origin": '<button id="login">Log in</button></form>',
+          script: '<button id="login">Log in</button></form>',
+          "off-origin": '<button id="login" type="button">Log in</button></form>',
+          "submit-off-origin": `<form action="/single"><button id="login" formaction="${elsewhere}">Log in</button></form>`,
+        }[form ?? ""] ?? '<button id="login" type="button">Log in</button>';
       response.end(
         html(
           `<h1>Synthetic single-page login</h1>${
@@ -607,7 +628,7 @@ export async function startLoginFixture(
             fixtureUrl.searchParams.get("reject-fill") === "shown"
               ? '<div id="notice"><p role="alert">Your session expired</p></div>'
               : ""
-          }<label>Password<input id="password" ${
+          }${formStart}<label>Password<input id="password" ${
             {
               text: 'type="text"',
               "text-current-password": 'type="text" autocomplete="current-password"',
@@ -619,7 +640,7 @@ export async function startLoginFixture(
             fixtureUrl.searchParams.get("reject-fill") === "switch-form"
               ? '<label>Security number<input id="security" type="password" hidden></label>'
               : ""
-          }<button id="login" type="button">Log in</button>${
+          }${loginButton}${
             // `?ad` embeds an unrelated frame beside the form, like an advertisement.
             fixtureUrl.searchParams.has("ad")
               ? '<iframe id="ad" title="Synthetic advertisement" src="/ad"></iframe>'
@@ -649,6 +670,7 @@ export async function startLoginFixture(
                 "document.getElementById('password').addEventListener('change', (event) => { event.target.value = ''; document.getElementById('security').hidden = false; });",
             }[fixtureUrl.searchParams.get("reject-fill") ?? ""] ?? ""
           }
+          ${form === null || form === "script" ? "" : "document.getElementById('login').form?.addEventListener('submit', (event) => event.preventDefault());"}
           document.getElementById('login').addEventListener('click', () => {
           sessionStorage.setItem('submitClicks', String(Number(sessionStorage.getItem('submitClicks') || 0) + 1));
           sessionStorage.setItem('passwordMatched', String(document.getElementById('password').value === ${JSON.stringify(password)}));

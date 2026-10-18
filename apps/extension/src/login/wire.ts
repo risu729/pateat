@@ -492,7 +492,8 @@ export const executionResultSchema = v.strictObject({
    * `password` handler's click, its text no longer names the password, ADR 0048), the form
    * changed before a click, an `assert` did not hold, the step was sent values it does not
    * fill, its fields are in different forms, an input refused its secret, the page's inputs
-   * have no value setter, or a code field's submission watch could not start.
+   * have no value setter, a code field's submission watch could not start, or the form or
+   * the clicked button would send the form off the document's origin.
    */
   detail: v.optional(
     v.picklist([
@@ -512,6 +513,7 @@ export const executionResultSchema = v.strictObject({
       "secret-refused",
       "unsupported-input",
       "code-watch-failed",
+      "form-off-origin",
     ]),
   ),
   /**
