@@ -494,6 +494,112 @@ describe("judged passkey handler (ADR 0027)", () => {
   });
 });
 
+describe("judged password handler (ADR 0048)", () => {
+  // An identifier page whose Next leads, on the same path, to a page that asks how to
+  // confirm the sign-in; the password page is not generated yet.
+  const recipe = built(page("/", "username", "advance"));
+  const choose = target("choose-password");
+  const choice = (...candidates: ObservedCandidate[]) => ({
+    origin,
+    path: "/",
+    candidates: [
+      { ...candidate("password", choose), label: "Password" },
+      { ...candidate("mobile", target("mobile")), label: "Mobile" },
+      ...candidates,
+    ],
+  });
+  const password = (locator: LoginTarget = choose) => ({
+    kind: "password" as const,
+    target: locator,
+  });
+
+  it("adds a handler for the page's button in the next revision, which the route continues", () => {
+    const added = addHandler(recipe, choice(), password());
+    if (!added.ok) throw new Error(added.reason);
+    expect(added.recipe).toEqual({
+      ...recipe,
+      revision: recipe.revision + 1,
+      handlers: [{ kind: "password", path: "/", target: choose }],
+    });
+    expect(extendsRecipe(recipe, added.recipe)).toBe(true);
+    // The password page that follows continues the route; the handler stays.
+    const continued = appendPageSteps(added.recipe, {
+      id: added.recipe.id,
+      origin,
+      steps: page("/", "password", "submit"),
+    });
+    if (!continued.ok) throw new Error(continued.reason);
+    expect(continued.recipe.handlers).toEqual(added.recipe.handlers);
+    expect(continuesRecipe(added.recipe, continued.recipe)).toBe(true);
+    // A second one on that path is refused.
+    expect(addHandler(added.recipe, choice(), password())).toEqual({
+      ok: false,
+      reason: "duplicate",
+    });
+  });
+
+  it.each([
+    ["Forgot password?", "forgot"],
+    ["Mobile", "another channel"],
+    ["Send a one-time password", "a code"],
+    ["パスワードを忘れた方", "Japanese forgot"],
+    ["Use Touch ID or password", "a platform sign-in"],
+    ["Update password", "another task"],
+  ])("refuses a button labelled %s (%s)", (label) => {
+    const labelled = { ...choice(), candidates: [{ ...candidate("password", choose), label }] };
+    expect(addHandler(recipe, labelled, password())).toEqual({
+      ok: false,
+      reason: "not-password",
+    });
+  });
+
+  it("checks the text locator too, and needs a label or a text locator", () => {
+    const text = { by: "text", value: "Reset password" } as const;
+    const reset = {
+      ...choice(),
+      candidates: [{ ...candidate("password", text), label: "Password" }],
+    };
+    expect(addHandler(recipe, reset, password(text))).toEqual({
+      ok: false,
+      reason: "not-password",
+    });
+    const unnamed = { ...choice(), candidates: [candidate("password", choose)] };
+    expect(addHandler(recipe, unnamed, password())).toEqual({
+      ok: false,
+      reason: "not-password",
+    });
+    const named = { by: "text", value: "Use your password" } as const;
+    expect(
+      addHandler(recipe, { ...choice(), candidates: [candidate("x", named)] }, password(named)).ok,
+    ).toBe(true);
+  });
+
+  it("refuses a recipe that already fills the password, a link and a route step's button", () => {
+    const typed = built([
+      ...page("/", "username", "advance"),
+      ...page("/pw", "password", "submit"),
+    ]);
+    expect(addHandler(typed, { ...choice(), path: "/mfa" }, password())).toEqual({
+      ok: false,
+      reason: "password-filled",
+    });
+    const link = {
+      ...choice(),
+      candidates: [{ ...candidate("password", choose, "link"), label: "Password" }],
+    };
+    expect(addHandler(recipe, link, password())).toEqual({ ok: false, reason: "not-on-page" });
+    const next = target("username-next");
+    const routed = {
+      ...choice(),
+      candidates: [{ ...candidate("password", next), label: "Password" }],
+    };
+    expect(addHandler(recipe, routed, password(next))).toEqual({
+      ok: false,
+      reason: "step-target",
+    });
+  });
+});
+
 describe("judged totp handler (ADR 0027)", () => {
   const signIn = { by: "text", value: "Sign in" } as const;
   const recipe = built([

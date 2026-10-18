@@ -328,7 +328,12 @@ export function showsCaptcha(document: Document): boolean {
  * read behind an open modal dialog too, as the signed-in page's description is.
  */
 function showsUsername(document: Document, username: string): boolean {
-  const name = username.normalize("NFKC").trim().toLowerCase();
+  // Page text is read without format characters, so the username is compared without them.
+  const name = username
+    .replace(/\p{Cf}+/gu, "")
+    .normalize("NFKC")
+    .trim()
+    .toLowerCase();
   if (name.length < minUsernameLength) return false;
   const texts = readBehindModal(document, () =>
     [...document.querySelectorAll(landmarkSelector)].map(

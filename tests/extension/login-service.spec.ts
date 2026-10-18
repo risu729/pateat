@@ -315,3 +315,53 @@ test("a page whose recipe finds no matching item checks the vault again and logs
     await fixture.close();
   }
 });
+
+test("a password page shown alone, as for an account the site remembers, logs in from its step, unless an email input shows beside it", async () => {
+  const fixture = await startLoginFixture(0, { password: "test_password" });
+  const service = await startSyncService();
+  try {
+    await withVaultProfile(
+      async (open) => {
+        const browser = await open();
+        await serveSite(browser.context, fixture);
+        await setupProbe(browser.page, { action: "configure", variant: "uri" });
+        const { options } = await prepare(browser, service);
+
+        // Beside an email input, as a form for another account, the password step starts
+        // nothing (ADR 0049).
+        const other = await browser.context.newPage();
+        await other.addInitScript(() => sessionStorage.setItem("identityMatched", "true"));
+        await other.goto(`${site}/password?email=1`);
+        await expect(other.locator("#password")).toBeVisible();
+        await other.waitForTimeout(3_000);
+        await expect(other.locator("#password")).toHaveValue("");
+        expect(await other.evaluate(() => sessionStorage.getItem("submitClicks"))).toBeNull();
+        expect(await send(options, { version: 1, type: "login.probe.status" })).toMatchObject({
+          attempts: [],
+        });
+        await other.close();
+
+        // The recipe starts on /identity; its password step shows here without it, and no
+        // other identifier input shows beside it (ADR 0049).
+        const page = await browser.context.newPage();
+        // The site already knows the account, as it would from an earlier sign-in.
+        await page.addInitScript(() => sessionStorage.setItem("identityMatched", "true"));
+        await page.goto(`${site}/password`);
+        await expect(page.locator("#authenticated")).toBeVisible();
+        expect(await page.evaluate(() => sessionStorage.getItem("passwordMatched"))).toBe("true");
+        expect(await page.evaluate(() => sessionStorage.getItem("identityClicks"))).toBeNull();
+        await expect
+          .poll(() => send(options, { version: 1, type: "login.probe.status" }))
+          .toMatchObject({
+            attempts: [
+              { state: "authenticated", outcome: "authenticated", startStep: 4, submissions: 1 },
+            ],
+          });
+      },
+      { args: ["--ignore-certificate-errors"] },
+    );
+  } finally {
+    await service.close();
+    await fixture.close();
+  }
+});

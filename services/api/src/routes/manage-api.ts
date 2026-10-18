@@ -14,7 +14,7 @@ import type { ApiEnv } from "../auth";
 import { devices, recipeHeads } from "../db/schema";
 import { apiError } from "../http";
 import { findOwner } from "../owners";
-import { selectHeads, toChange, writeRecipe } from "../recipe-store";
+import { readChange, selectHeads, writeRecipe } from "../recipe-store";
 import { readSettings, writeSettings } from "../settings-store";
 import { jsonBody, requireJsonBody, validate } from "../validation";
 
@@ -86,9 +86,20 @@ export const manageApiRoutes = new Hono<ApiEnv>()
       ? // Each head write takes the owner's next sequence number.
         await selectHeads(c.env.DB, ownerId).orderBy(desc(recipeHeads.sequence))
       : [];
+    const read = rows.map((row) => ({ ...readChange(row), updatedAt: row.updatedAt }));
     return c.json({
       version: 1,
-      recipes: rows.map((row) => ({ change: toChange(row), updatedAt: row.updatedAt })),
+      recipes: read
+        .filter((entry) => !entry.unreadable)
+        .map(({ change, updatedAt }) => ({ change, updatedAt })),
+      // Devices read these as revoked; the owner sees and revokes them here.
+      unreadable: read
+        .filter((entry) => entry.unreadable)
+        .map(({ change, updatedAt }) => ({
+          recipeId: change.recipeId,
+          revision: change.revision,
+          updatedAt,
+        })),
     } satisfies ManageRecipes);
   })
   .post(

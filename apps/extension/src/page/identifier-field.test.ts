@@ -54,4 +54,19 @@ describe("identifierInput", () => {
     expect(asks('<input type="search" name="q"><input name="login">')).toBe("sole");
     expect(asks('<input name="login"><input name="zip">')).toBe("sole");
   });
+
+  it("takes no identifier input whose content `content-visibility` skips", () => {
+    expect(
+      asks('<details><summary>Sign in</summary><input type="email" name="email"></details>'),
+    ).toBeUndefined();
+    expect(
+      asks('<div hidden="until-found"><input type="email" name="email"></div>'),
+    ).toBeUndefined();
+    expect(
+      asks('<div style="content-visibility: hidden"><input type="email" name="email"></div>'),
+    ).toBeUndefined();
+    expect(
+      asks('<details open><summary>Sign in</summary><input type="email" name="email"></details>'),
+    ).toBe("sole");
+  });
 });

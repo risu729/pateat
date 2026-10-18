@@ -857,7 +857,8 @@ export async function judgeCompletion(
   }
   const judgement = outcome.value;
   // A stop's page keeps a `passkey` handler and nothing else: no rejection, no marker and
-  // no `totp` handler. Its other answers are kept as undecided, under the stop's version.
+  // no `totp` or `password` handler. Its other answers are kept as undecided, under the
+  // stop's version.
   if (stop && judgement.decision !== "challenge") {
     await keepVerdict("unclear");
     return { version: 1, status: "unclear" };
@@ -865,33 +866,32 @@ export async function judgeCompletion(
   await keepVerdict(judgement.decision);
   if (judgement.decision === "rejected") return { version: 1, status: "rejected" };
   if (judgement.decision === "challenge") {
-    // A page may offer both a security key and a TOTP code; each handler
-    // that passes its checks is kept, in one revision (ADR 0027).
+    // A page may offer both a security key and a TOTP code, or a button that goes on to
+    // the password (ADR 0048); each handler that passes its checks is kept, in one revision
+    // (ADR 0027).
     let changed: LoginRecipe | undefined;
     // Kinds and refusal reasons only: never an element, label or value.
-    const handlers: { kind: "passkey" | "totp"; kept: boolean; reason?: string }[] = [];
-    if (judgement.passkey) {
-      const added = addHandler(recipe, observation, { kind: "passkey", target: judgement.passkey });
-      if (added.ok) changed = added.recipe;
-      handlers.push({
-        kind: "passkey",
-        kept: added.ok,
-        ...(added.ok ? {} : { reason: added.reason }),
-      });
-    }
-    // A code on a stop's page is never learned (ADR 0036).
-    if (judgement.totp && stop) handlers.push({ kind: "totp", kept: false, reason: "stop" });
-    else if (judgement.totp) {
+    const handlers: { kind: "passkey" | "password" | "totp"; kept: boolean; reason?: string }[] =
+      [];
+    /** The handler added to the revision after the judged one, with what came before. */
+    const keep = (handler: Parameters<typeof addHandler>[2]) => {
       const base = changed ?? recipe;
-      const added = addHandler(base, observation, { kind: "totp", ...judgement.totp });
-      // Both handlers land in the revision after the judged one.
+      const added = addHandler(base, observation, handler);
       if (added.ok) changed = changed ? { ...added.recipe, revision: base.revision } : added.recipe;
       handlers.push({
-        kind: "totp",
+        kind: handler.kind,
         kept: added.ok,
         ...(added.ok ? {} : { reason: added.reason }),
       });
-    }
+    };
+    if (judgement.passkey) keep({ kind: "passkey", target: judgement.passkey });
+    // A stop's page keeps only a `passkey` handler (ADR 0036).
+    if (judgement.password && stop)
+      handlers.push({ kind: "password", kept: false, reason: "stop" });
+    else if (judgement.password) keep({ kind: "password", target: judgement.password });
+    // A code on a stop's page is never learned (ADR 0036).
+    if (judgement.totp && stop) handlers.push({ kind: "totp", kept: false, reason: "stop" });
+    else if (judgement.totp) keep({ kind: "totp", ...judgement.totp });
     // A code the judge named but its local checks refused is logged with why (ADR 0027).
     if (judgement.totpDropped && !stop)
       handlers.push({ kind: "totp", kept: false, reason: judgement.totpDropped });

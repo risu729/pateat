@@ -341,6 +341,43 @@ describe("pageSigns", () => {
     expect(pageSigns(document, { reshown: inputs() })).not.toHaveProperty("alertMiss");
   });
 
+  it("reads no sign-in input or CAPTCHA whose content `content-visibility` skips", () => {
+    const captcha =
+      '<iframe width="300" height="80" src="https://www.google.com/recaptcha/api2/anchor?k=x"></iframe>';
+    for (const html of [
+      '<details><summary>Sign in</summary><form><input type="password"></form></details>',
+      '<details><summary>Code</summary><input autocomplete="one-time-code"></details>',
+      `<details><summary>Check</summary>${captcha}</details>`,
+      '<form><div hidden="until-found"><input type="password"></div></form>',
+      '<div style="content-visibility: hidden"><input type="password"></div>',
+      '<div style="content-visibility: hidden"><input inputmode="numeric" maxlength="6"></div>',
+    ]) {
+      document.body.innerHTML = html;
+      expect(pageSigns(document), html).toEqual(none);
+    }
+    // A closed `<details>` second password input does not make it a change form either.
+    document.body.innerHTML =
+      '<form><input type="password"><details><summary>More</summary><input type="password"></details></form>';
+    expect(pageSigns(document)).toEqual({ ...none, password: true });
+  });
+
+  it("still reads a sign-in input of an open `<details>`, `content-visibility: auto` or fading in", () => {
+    for (const html of [
+      '<details open><summary>Sign in</summary><form><input type="password"></form></details>',
+      '<div style="content-visibility: auto"><form><input type="password"></form></div>',
+      '<div style="height: 5000px"></div><div style="content-visibility: auto"><input type="password"></div>',
+    ]) {
+      document.body.innerHTML = html;
+      expect(pageSigns(document), html).toEqual({ ...none, password: true });
+    }
+    document.body.innerHTML = '<form style="opacity: 0"><input type="password"></form>';
+    document
+      .querySelector("form")!
+      .animate([{ opacity: 0 }, { opacity: 1 }], 5000)
+      .pause();
+    expect(pageSigns(document)).toEqual({ ...none, password: true });
+  });
+
   it("finds the username as a whole word in the header or navigation only", () => {
     document.body.innerHTML =
       "<header><a href=/me>Risu729</a></header><main>We sent a link to other@example.com</main>";
@@ -357,6 +394,22 @@ describe("pageSigns", () => {
     expect(pageSigns(document, { username: "risu729" }).username).toBe(false);
     expect(pageSigns(document, { username: "ab" }).username).toBe(false);
     expect(pageSigns(document)).not.toHaveProperty("username");
+  });
+
+  it("finds a username split by <wbr> or a format character in the navigation", () => {
+    for (const html of [
+      "<nav>me@<wbr>example.com</nav>",
+      "<nav>me@&#8203;example.com</nav>",
+      "<nav>me@example&shy;.com</nav>",
+      "<header><span>taro.yamada@<wbr>example.com</span></header>",
+    ]) {
+      document.body.innerHTML = html;
+      const username = html.includes("taro") ? "taro.yamada@example.com" : "me@example.com";
+      expect.soft(pageSigns(document, { username }).username, html).toBe(true);
+    }
+    // A username holding a format character, such as the ZWNJ of a Persian name.
+    document.body.innerHTML = "<nav>علی&zwnj;رضا</nav>";
+    expect(pageSigns(document, { username: "علی\u200Cرضا" }).username).toBe(true);
   });
 
   it("finds the username behind an open modal dialog that hid the page (2026-10-13)", () => {

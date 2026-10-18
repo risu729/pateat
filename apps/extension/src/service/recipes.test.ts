@@ -848,12 +848,16 @@ describe("recipe sync", () => {
     };
     const { sync } = setup({ stored, scheduled: { version: 1, startedAt: 0, retryAt: 9e9 } });
     expect(await sync.recipes.starts(SITE)).toEqual([
-      { path: "/login", steps: [single.steps[0]] },
+      // The password page after the login page, where a login may also start (ADR 0049).
+      { path: "/login", steps: [single.steps[0]], later: [single.steps[1]] },
       { path: "/app/login", steps: [varied.steps[0], varied.alternatives![0]!.steps[0]] },
     ]);
+    expect(await sync.recipes.later!(SITE, "/password")).toEqual([single]);
+    expect(await sync.recipes.later!(SITE, "/login")).toEqual([]);
     expect(await sync.recipes.starts("https://other.example")).toEqual([]);
     await sync.clear();
     expect(await sync.recipes.starts(SITE)).toEqual([]);
+    expect(await sync.recipes.later!(SITE, "/password")).toEqual([]);
   });
 
   it("finds a chooser (ADR 0028) by its list's path or its ID, never where a login starts", async () => {
@@ -914,6 +918,9 @@ describe("recipe sync", () => {
       expect(await sync.recipes.starts(SITE)).toEqual([
         { path: "/profiles", steps, list: [other] },
       ]);
+      // A branch's password page never starts a login by itself (ADR 0049).
+      // eslint-disable-next-line no-await-in-loop
+      expect(await sync.recipes.later!(SITE, "/password")).toEqual([]);
     }
   });
 });
@@ -1136,7 +1143,9 @@ describe("cached recipe lookup", () => {
     expect(await sync.recipes.recipe(SITE, "/login")).toEqual(signin);
     expect(await sync.recipes.recipe(SITE, "/")).toBeUndefined();
     expect(await sync.recipes.recipe(SITE, "/", "bank-home")).toBeUndefined();
-    expect(await sync.recipes.starts(SITE)).toEqual([{ path: "/login", steps: [signin.steps[0]] }]);
+    expect(await sync.recipes.starts(SITE)).toEqual([
+      { path: "/login", steps: [signin.steps[0]], later: [signin.steps[1]] },
+    ]);
   });
 
   it("lists an origin's own entry recipes (ADR 0031), as the sync revises or revokes them", async () => {

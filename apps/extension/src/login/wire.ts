@@ -28,6 +28,8 @@ export type TargetState = v.InferOutput<typeof targetStateSchema>;
  * must also be visible as the page's description reads it: not hidden from assistive
  * technology, transparent unless it fades in, tiny or moved before the page's start
  * (ADR 0018), as an advance's next step on its own path is measured (ADR 0013).
+ * `password-choice` takes a shown button whose rendered text names the password as the
+ * way to confirm the sign-in (`namesPasswordChoice`, ADR 0048), enabled or not.
  */
 export const targetRequirementSchema = v.picklist([
   "writable",
@@ -38,6 +40,7 @@ export const targetRequirementSchema = v.picklist([
   "present",
   "input",
   "shown-input",
+  "password-choice",
 ]);
 export type TargetRequirement = v.InferOutput<typeof targetRequirementSchema>;
 /**
@@ -63,6 +66,11 @@ export const loginReadinessSchema = v.strictObject({
    * one of `targets` shows or the page lists an account by its email, masked or not.
    */
   accounts: v.optional(v.literal(true)),
+  /**
+   * A later `fill` step a new login may start at (ADR 0049): ready only while the page
+   * shows no other identifier input, as an email form beside its password input would.
+   */
+  later: v.optional(v.literal(true)),
 });
 export type LoginReadiness = v.InferOutput<typeof loginReadinessSchema>;
 /** What a step waits for; a `wait` or `assert`-absent step does its own waiting. */
@@ -318,6 +326,13 @@ export const commandSchema = v.variant("type", [
      */
     code: v.optional(v.strictObject({ submit: loginTargetSchema })),
     /**
+     * With a `password` handler's click (ADR 0048): the button is pressed only while its
+     * rendered text, read in the same task as the press, names the password as the way to
+     * confirm the sign-in (`namesPasswordChoice`); otherwise nothing is pressed and the step
+     * fails as one whose target is missing.
+     */
+    passwordChoice: v.optional(v.literal(true)),
+    /**
      * With an advance whose next step is on its own path (ADR 0013): that step's elements,
      * measured in the same task as the click or the fill's first input, just before it. The
      * answer reports them as `before`.
@@ -473,7 +488,8 @@ export const executionResultSchema = v.strictObject({
    * Why a step was `cancelled` or failed, for the local log only (ADR 0019): the worker did
    * not authorize it, this document was cancelled, the operation was used or expired, the
    * page moved to another path, a field changed under the fill, the step threw; or, for a
-   * failure, the form was replaced, the target is missing or not writable, the form
+   * failure, the form was replaced, the target is missing or not writable (or, for a
+   * `password` handler's click, its text no longer names the password, ADR 0048), the form
    * changed before a click, an `assert` did not hold, the step was sent values it does not
    * fill, its fields are in different forms, an input refused its secret, the page's inputs
    * have no value setter, a code field's submission watch could not start, or the form or

@@ -632,7 +632,7 @@ describe("owner web UI recipes", () => {
 
   it("shows an identity without a paired device no recipes and creates no owner", async () => {
     const by = await owner();
-    expect(await list(by)).toEqual({ version: 1, recipes: [] });
+    expect(await list(by)).toEqual({ version: 1, recipes: [], unreadable: [] });
     expect((await revoke(by, "bank-signin", 1)).status).toBe(404);
     expect(await ownerIdFor(by.subject)).toBeNull();
   });
@@ -660,6 +660,39 @@ describe("owner web UI recipes", () => {
     expect(rows.results).toEqual([{ revision: 2, state: "revoked", created_by_device_id: null }]);
     // A device may still publish an explicit replacement after the tombstone.
     expect((await publish(device.credential, "bank-signin", 2)).status).toBe(200);
+  });
+
+  it("lists a recipe whose stored document no longer validates apart, and revokes it", async () => {
+    const by = await owner();
+    const device = await pairDevice(by);
+    expect((await publish(device.credential, "bank-signin", 0)).status).toBe(200);
+    expect((await publish(device.credential, "shop-signin", 0)).status).toBe(200);
+    const ownerId = await ownerIdFor(by.subject);
+    // Stands in for a stored document that a later, stricter contract refuses.
+    await env.DB.prepare(
+      "UPDATE recipe_revisions SET document = ? WHERE owner_id = ? AND recipe_id = 'bank-signin'",
+    )
+      .bind(JSON.stringify({ synthetic: "unreadable" }), ownerId)
+      .run();
+    await env.DB.prepare("UPDATE recipe_heads SET updated_at = 5 WHERE owner_id = ?")
+      .bind(ownerId)
+      .run();
+    const listed = await list(by);
+    expect(listed.recipes.map((entry) => entry.change.recipeId)).toEqual(["shop-signin"]);
+    expect(listed.unreadable).toEqual([{ recipeId: "bank-signin", revision: 1, updatedAt: 5 }]);
+    const response = await revoke(by, "bank-signin", 1);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      version: 1,
+      change: { recipeId: "bank-signin", revision: 2, state: "revoked" },
+    });
+    const after = await list(by);
+    expect(after.unreadable).toEqual([]);
+    expect(after.recipes.map((entry) => entry.change)).toContainEqual({
+      recipeId: "bank-signin",
+      revision: 2,
+      state: "revoked",
+    });
   });
 
   it("refuses a stale or repeated revocation and returns the current head", async () => {

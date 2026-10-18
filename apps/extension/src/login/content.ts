@@ -5,7 +5,7 @@ import { accountText, showsOtherAccount, shownAccounts } from "../page/accounts"
 import { isButton } from "../page/text";
 import { pressElement } from "../page/script-url-click";
 import { findTargets } from "../page/targets";
-import { clickable, targetState, writable } from "../page/target-state";
+import { clickable, passwordChoice, targetState, writable } from "../page/target-state";
 import { identifierInput } from "../page/identifier-field";
 import {
   CODE_SETTLE_MS,
@@ -99,13 +99,18 @@ function ready(readiness: LoginReadiness): boolean {
       (readiness.targets.some((target) => listControls(document, target).length === 1) ||
         listsAccounts())
     );
-  return readiness.targets.every((target) => {
-    const found = matches(target);
-    if (found.length !== 1) return false;
-    if (readiness.require === "writable") return writable(found[0]);
-    if (readiness.require === "clickable") return clickable(found[0]);
-    return true;
-  });
+  return (
+    readiness.targets.every((target) => {
+      const found = matches(target);
+      if (found.length !== 1) return false;
+      if (readiness.require === "writable") return writable(found[0]);
+      if (readiness.require === "clickable") return clickable(found[0]);
+      return true;
+    }) &&
+    // A later step is no start while the page also asks for an identifier the step does not
+    // fill, as a form for another account with its own email input (ADR 0049).
+    !(readiness.later && credentialInputs(readiness.targets).identifier)
+  );
 }
 /**
  * Whether the page shows a visible password input, or one marked for a username or a
@@ -1069,6 +1074,10 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           const found = matches(step.target);
           const only = found.length === 1 ? found[0] : undefined;
           if (!clickable(only)) return fail("structural-mismatch", "target-missing");
+          // A `password` handler's button whose text no longer names the password, as one
+          // the page rendered again with other text, is never pressed (ADR 0048).
+          if (command.passwordChoice && !passwordChoice(only))
+            return fail("structural-mismatch", "target-missing");
           element = only;
         }
         // A click that submits a form sends it, through the button's own `formaction` too,

@@ -12,6 +12,9 @@ extension's `advance` continuation of [ADR 0018](0018-recipe-generation-route.md
 sent), [ADR 0018](0018-recipe-generation-route.md) (a generated answer that is not a
 form plan) and the recipe contract in `packages/contracts/src/login.ts`.
 
+Amended on 2026-10-18 by [ADR 0049](0049-start-at-a-later-step.md) (owner, 01:40 UTC,
+implemented): a chooser's branches never start a login at a later step.
+
 Date: 2026-10-12
 
 Note added on 2026-10-12 with [ADR 0031](0031-sign-in-entry-pages.md): the retry window

@@ -316,6 +316,7 @@ export function createDiagnosticsLog(options: {
             candidates: report.candidates,
             item: report.itemId,
             fillOnly: report.fillOnly,
+            startStep: report.startStep,
             list: report.click,
             listUsername: report.listMiss?.username,
             listEntries: report.listMiss?.entries,

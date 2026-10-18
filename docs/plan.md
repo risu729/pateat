@@ -494,6 +494,16 @@ than in this repository.
   ID in a middle path segment and verifies recipe reuse without another model call.
   Both cases passed in isolated cloud Chromium on 2026-10-17). Check both sites in the
   owner's Chrome.
+- UniSuper's login stopped on the page after its username and Next (2026-10-17, 01:33
+  UTC, build `d29951d`): "Let's confirm it's you", on the same path, offered only a
+  "Password" and a "Mobile" button, the judge answered `unclear`, and the owner pressed
+  "Password" themselves. Since 2026-10-18 the judge may name such a page's button that
+  goes on to the password as a `password` handler, which a login presses only when the
+  button shows and its text names the password by a shared English and Japanese word
+  list, and the page after the press is continued as after a final `advance`
+  ([ADR 0048](adr/0048-password-method-button.md), owner, 01:38 UTC). Implemented with
+  local tests only (unit, service and a synthetic browser fixture); check UniSuper in
+  the owner's Chrome, which needs one more judge call and one continuation call.
 - UNSW's single sign-on page on Microsoft Entra
   (`login.microsoftonline.com/<tenant>/oauth2/authorize`) was logged `recipe.generate`
   `skipped` `incomplete-observation` with `unfillable-field` in the owner's Chrome on
@@ -1693,12 +1703,13 @@ revocable device credential; request paths and bodies never select an owner. Set
 writes and recipe heads use conditional revision writes, and a recipe's history row
 is recorded in the same D1 batch only when that request won the head.
 
-Local Miniflare tests cover unknown, malformed and revoked credentials, owner and
-device isolation, stale and concurrent writes, tombstones, cursor paging, strict
-schema rejection, media type and body limits, and fail-closed handling of corrupt
-stored documents. Concurrent cases interleave within one local runtime, not hosted
-D1. A migration check regenerates SQL from the Drizzle schema. The D1 database was
-created on 2026-10-11 and the service is deployed at `pateat.takuk.me` (see
+Local Miniflare tests cover unknown, malformed and revoked credentials, owner and device
+isolation, stale and concurrent writes, tombstones, cursor paging, strict schema
+rejection, media type and body limits, fail-closed handling of corrupt stored documents,
+and stored recipes that no longer validate, which devices receive as revoked. Concurrent
+cases interleave within one local runtime, not hosted D1. A migration check regenerates
+SQL from the Drizzle schema. The D1 database was created on 2026-10-11 and the service
+is deployed at `pateat.takuk.me` (see
 [delivery](delivery.md)).
 
 The second slice adds the service side of
@@ -2783,7 +2794,10 @@ submission with its sign-in form again (its password input and no other sign, ev
 the result stays unknown) or the login ends `credential-rejected`; its record is
 released then, so other tabs of the site ask instead of being held, and the badge and
 popup say the site did not accept the login (`pateat.login-rejected-asks.v1`). Frame
-logins and sites whose logout page shows only a password step are not detected. By the
+logins are not detected. Since 2026-10-18 (owner, 01:40 UTC;
+[ADR 0049](adr/0049-start-at-a-later-step.md); local tests only, not yet on a real site)
+a later password step a login may start at counts as the first step does, so a site
+whose logout page shows only a password step is detected. By the
 owner's constraint (2026-10-12) a session that only expired never needs a manual press,
 so a logout of a session carried over from another tab's login or an earlier browser
 session is not detected by the form alone. Since 2026-10-16 (owner, after

@@ -13,6 +13,7 @@ import {
   loginStepEffect,
   MAX_PASSWORD_ALTERNATIVES,
   parseLoginRecipe,
+  passwordVariants,
   routeSlots,
   routeSteps,
   sameLoginDocument,
@@ -211,7 +212,22 @@ export const attemptMetadataSchema = v.pipe(
      * most once per attempt, recorded before the request so a restart never sends it again.
      */
     stopJudged: v.optional(v.literal(true)),
+    /**
+     * A `password` login that started at a later step of its variant, because its page
+     * showed that step and none of the recipe's first steps (ADR 0049): that step's index,
+     * where the route starts again after an answered passkey request falls back to it.
+     */
+    startStep: v.optional(v.pipe(integer(MAX_ATTEMPT_STEPS), v.minValue(1))),
   }),
+  v.check(
+    (metadata) =>
+      metadata.startStep === undefined ||
+      (metadata.variant !== undefined &&
+        metadata.chooser === undefined &&
+        (metadata.route !== "password" || metadata.startStep < metadata.stepCount) &&
+        (metadata.stopAt === undefined || metadata.startStep < metadata.stopAt)),
+    "A later start needs a password variant, inside its plan and before any stop",
+  ),
   v.check(
     (metadata) =>
       metadata.unconfirmed === undefined ||
@@ -787,7 +803,8 @@ function record(
     case "ROUTE":
       return {
         route: event.route,
-        stepIndex: 0,
+        // A login that started at a later step goes back to it (ADR 0049).
+        stepIndex: event.route === "password" ? (context.startStep ?? 0) : 0,
         stepCount: event.steps,
         // The passkey answer does not spend the password route's budget. The submission a
         // stop past the plan's last step keeps for its answer stays with the password route.
@@ -1318,6 +1335,11 @@ export function createAttemptMetadata(input: {
   chooser?: ChooserClick;
   /** For an item without a password: where its `password` route stops (ADR 0036). */
   stopAt?: number;
+  /**
+   * The later step of the chosen `password` variant the login starts at, when its page
+   * shows that step and none of the recipe's first steps (ADR 0049).
+   */
+  startAt?: number;
 }): LoginAttemptMetadata {
   const recipe = parseLoginRecipe(input.recipe);
   if (input.account.origin !== recipe.origin)
@@ -1340,7 +1362,7 @@ export function createAttemptMetadata(input: {
     document: input.document,
     ...(input.pageOrigin === undefined ? {} : { pageOrigin: input.pageOrigin }),
     state: "detected",
-    stepIndex: 0,
+    stepIndex: input.choice.route === "password" ? (input.startAt ?? 0) : 0,
     stepCount: routeSteps(recipe, input.choice).length,
     submissions: 0,
     // A stop just past the route's last step keeps one more submission for its passkey
@@ -1361,6 +1383,7 @@ export function createAttemptMetadata(input: {
     ...(input.fillOnly ? { fillOnly: true } : {}),
     ...(input.chooser ? { chooser: { click: input.chooser } } : {}),
     ...(input.stopAt === undefined ? {} : { stopAt: input.stopAt }),
+    ...(input.startAt === undefined ? {} : { startStep: input.startAt }),
   });
 }
 /** A step that may advance or submit the page: a click, or a fill whose event may. */
@@ -1457,11 +1480,17 @@ export function attemptUsesCode(
  */
 export function attemptPlan(
   recipe: LoginRecipe,
-  metadata: Pick<LoginAttemptMetadata, "route" | "variant" | "handlers">,
+  metadata: Pick<LoginAttemptMetadata, "route" | "variant" | "handlers" | "startStep">,
 ): { step: LoginStep; handler?: number }[] | undefined {
+  // A page's own passkey request answered on a later start stands on that step (ADR 0049).
+  const from =
+    metadata.route === "passkey" && metadata.startStep !== undefined
+      ? passwordVariants(recipe)[metadata.variant ?? 0]?.steps[metadata.startStep]
+      : undefined;
   const plan: { step: LoginStep; handler?: number }[] = routeSteps(
     recipe,
     attemptRouteChoice(metadata),
+    from,
   ).map((step) => ({ step }));
   for (const entry of metadata.handlers) {
     const handler = recipe.handlers?.[entry.index];
