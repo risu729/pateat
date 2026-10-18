@@ -572,10 +572,19 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
       let closed = false;
       let busy = false;
       let owned: Flow | undefined;
+      /** The flow the running job started or continued. Only that flow ends with the job,
+       * so a refused request leaves a sign-in that waits for its code usable. */
+      let taken: Flow | undefined;
+      const end = () => {
+        if (!taken) return;
+        clear(taken);
+        if (owned === taken) owned = undefined;
+      };
       const run = async (job: () => Promise<SetupReply>): Promise<SetupReply> => {
         if (closed) return error("setup-unavailable");
         if (busy) return error("resource-limit");
         busy = true;
+        taken = undefined;
         try {
           const result = await job();
           if (
@@ -583,16 +592,14 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
               result.ok &&
               (result.kind === "mfa-required" || result.kind === "new-device-verification-required")
             )
-          ) {
-            if (owned) clear(owned);
-            owned = undefined;
-          }
+          )
+            end();
           return result;
         } catch {
-          if (owned) clear(owned);
-          owned = undefined;
+          end();
           return error("setup-unavailable");
         } finally {
+          taken = undefined;
           busy = false;
         }
       };
@@ -615,6 +622,7 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
           manual: {},
         };
         owned = current;
+        taken = current;
         active.set(configuration.profile.connectionId, current);
         return current;
       }
@@ -707,6 +715,7 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
             if (!checked.success) return error("invalid-request");
             const current = owned;
             if (!current || checked.output.flowId !== current.id) return error("invalid-request");
+            taken = current;
             if (!alive(current)) return error("setup-expired");
             const manual = checked.output;
             if (manual.twoFactor && !current.providers?.includes(manual.twoFactor.provider))
@@ -731,6 +740,8 @@ export function createConnectionSetupService(deps: ConnectionSetupDependencies) 
         sync(connectionId: string): Promise<SetupReply> {
           let releaseAuto: (() => void) | undefined;
           return run(async () => {
+            // A sign-in waiting for its code keeps this page's one flow.
+            if (owned) return error("resource-limit");
             // An automatic check in progress finishes first; the button then always sends
             // a full sync.
             releaseAuto = await excludeAuto(connectionId, false);
