@@ -309,15 +309,20 @@ const trusted = {
   id: "synthetic-extension",
   url: "chrome-extension://synthetic-extension/options.html",
 } as never;
-const sender = (overrides: Record<string, unknown> = {}) =>
-  ({
+/** A content script's sender; Chrome reports its document's origin, here its URL's. */
+const sender = (overrides: Record<string, unknown> = {}) => {
+  const { url = fake.state.pageUrl } = overrides;
+  const parsed = typeof url === "string" ? URL.parse(url) : null;
+  return {
     id: "synthetic-extension",
     tab: { id: 1 },
     frameId: 0,
     documentId: "synthetic-document",
-    url: fake.state.pageUrl,
+    ...(parsed ? { origin: parsed.origin } : {}),
+    url,
     ...overrides,
-  }) as never;
+  } as never;
+};
 const target = (value: string) => ({ by: "id" as const, value });
 /** One recipe start per step, as the recipe cache lists single-variant recipes. */
 const startsOf = (steps: LoginStep[]): LoginRecipeStart[] =>
@@ -886,10 +891,16 @@ describe("production login document admission", () => {
     // Chrome withholds the tab's URL without host access to the tab's page.
     ["a frame whose tab URL is withheld", { frameId: 1 }],
     ["a sender without a document id", { documentId: undefined }],
+    // A page the site serves with a CSP `sandbox` header has an opaque origin (#637).
+    ["a sandboxed document on the saved origin's URL", { origin: "null" }],
+    ["a sender without an origin", { origin: undefined }],
+    ["a sender whose origin is not its URL's", { origin: "https://other.example" }],
   ])("ignores %s on a saved-default origin", async (_name, overrides) => {
     const h = harness();
     expect(await h.hello(overrides)).toEqual({ ok: false, reason: "unauthorized-document" });
     expect(h.store.handle).not.toHaveBeenCalled();
+    expect(h.recipes.recipe).not.toHaveBeenCalled();
+    expect(h.fields).not.toHaveBeenCalled();
     expect(fake.state.messages).toEqual([]);
   });
   it("never admits the loopback probe origin outside the probe build", async () => {
@@ -924,6 +935,31 @@ describe("production login document admission", () => {
     expect(await h.hello()).toEqual({ ok: true });
     await vi.waitFor(() => expect(answers).toHaveLength(2));
     expect(answers).toEqual([true, false]);
+  });
+  it("refuses a fill authorization from a sandboxed document at the attempt's URL", async () => {
+    const h = harness();
+    const answers: unknown[] = [];
+    fake.state.onExecute = async (message) => {
+      const operation = message["operation"] as { attemptId: string; operationId: string };
+      const authorize = (from: Record<string, unknown>) =>
+        h.login.handle(
+          {
+            version: 1,
+            type: "login.operation.authorize",
+            token: "synthetic-token",
+            attemptId: operation.attemptId,
+            operationId: operation.operationId,
+          },
+          sender(from),
+        );
+      // The same tab, frame, document and URL, but an opaque origin (#637).
+      answers.push(await authorize({ origin: "null" }));
+      answers.push(await authorize({}));
+      fake.state.onExecute = undefined;
+    };
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(answers).toHaveLength(2));
+    expect(answers).toEqual([false, true]);
   });
   const signinStart = {
     path: "/signin",
@@ -1479,6 +1515,21 @@ describe("production login document admission", () => {
         [1, origin],
         [1, "https://portal.example"],
       ]);
+    });
+    it("ignores a sandboxed frame of an admitted page before any policy or vault access", async () => {
+      const h = harness();
+      const top = "https://login.example/home";
+      // `<iframe sandbox>` of the login page: its URL is the site's, its origin opaque (#637).
+      expect(await h.hello(framed(top, { origin: "null" }))).toEqual({
+        ok: false,
+        reason: "unauthorized-document",
+      });
+      expect(h.store.handle).not.toHaveBeenCalled();
+      expect(h.recipes.recipe).not.toHaveBeenCalled();
+      expect(fake.state.messages).toEqual([]);
+      // The same frame with the site's origin starts the login.
+      expect(await h.hello(framed(top))).toEqual({ ok: true });
+      await vi.waitFor(() => expect(executes()).toHaveLength(2));
     });
     it("ignores a frame on an excluded page before any policy or vault access", async () => {
       const h = harness({
