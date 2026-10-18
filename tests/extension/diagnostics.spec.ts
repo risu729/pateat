@@ -56,7 +56,7 @@ test("production diagnostics show the build, checks and a value-free bug report"
     expect(report).toMatch(
       /^Pateat 0\.1\.0 \(([0-9a-f]{7}|development)\) · production build · unpacked install \(development\)\n/u,
     );
-    expect(report).toContain("Permissions: alarms, storage, offscreen, https://*/*");
+    expect(report).toContain("Permissions: alarms, storage, offscreen, http://*/*, https://*/*");
     expect(report).toContain("Pateat service: not-configured");
     expect(report).toMatch(
       /\nLogs: \d+ entr(?:y|ies) \(\d+ KB\), 0 errors, \d+ warnings? in 24 h\n/u,
