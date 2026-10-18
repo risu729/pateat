@@ -857,6 +857,7 @@ describe("production login document admission", () => {
     ["an origin without a saved default", "https://other.example/signin"],
     ["a subdomain of the saved origin", "https://sub.login.example/signin"],
     ["a different port of the saved origin", "https://login.example:8443/signin"],
+    ["a plain HTTP page of the saved host (ADR 0050)", "http://login.example/signin"],
   ])("stops %s without a recipe before any policy or vault access", async (_name, url) => {
     fake.state.pageUrl = url;
     const h = harness();
@@ -867,15 +868,13 @@ describe("production login document admission", () => {
   });
   it.each([
     [
-      "plain HTTP even with a saved HTTP default",
-      "http://login.example/signin",
-      {
-        siteDefaults: [{ origin: "http://login.example", provider: "bitwarden", userId, itemId }],
-      },
-    ],
-    [
       "an excluded site",
       "https://login.example/signin",
+      { excludedSites: [{ hostname: "login.example", includeSubdomains: false }] },
+    ],
+    [
+      "an excluded site's plain HTTP page",
+      "http://login.example/signin",
       { excludedSites: [{ hostname: "login.example", includeSubdomains: false }] },
     ],
   ])("ignores %s before any policy, vault or page access", async (_name, url, overrides) => {
@@ -903,13 +902,14 @@ describe("production login document admission", () => {
     expect(h.fields).not.toHaveBeenCalled();
     expect(fake.state.messages).toEqual([]);
   });
-  it("never admits the loopback probe origin outside the probe build", async () => {
+  it("treats the loopback probe origin as any HTTP page outside the probe build", async () => {
     fake.state.storage["pateat.login-probe-origin.v1"] = { origin: "http://127.0.0.1:3847" };
     fake.state.pageUrl = "http://127.0.0.1:3847/signin";
     const h = harness({ siteDefaults: [] });
-    expect(await h.hello()).toEqual({ ok: false, reason: "unauthorized-document" });
-    expect(h.recipes.recipe).not.toHaveBeenCalled();
-    expect(fake.state.messages).toEqual([]);
+    // No probe recipe or binding: without a cached recipe the page stops there.
+    expect(await h.hello()).toEqual({ ok: false, reason: "recipe-not-found" });
+    expect(h.store.handle).not.toHaveBeenCalled();
+    expect(fake.state.messages.map((entry) => entry.type)).toEqual(["login.status"]);
   });
   it("refuses a fill authorization once site access is withdrawn mid-attempt", async () => {
     const h = harness();
@@ -2694,12 +2694,13 @@ describe("production login document admission", () => {
       });
       it("never completes on an http page of the site", async () => {
         const h = await submitted();
-        // An http page is not admitted, so the move is not seen and the login is unchanged.
+        // An http page is admitted (ADR 0050) but never stands for a login on HTTPS: the
+        // login left its origin, as for a page of another site.
         expect(await navigate(h, "http://www.login.example/home", "home-document", false)).toEqual({
           ok: false,
-          reason: "unauthorized-document",
+          reason: "recipe-not-found",
         });
-        expect(at(origin)).toMatchObject({ state: "submit-intent" });
+        expect(at(origin)).toMatchObject({ state: "blocked", outcome: "left-origin" });
         expect(reads()).toEqual([]);
       });
     });
@@ -10570,8 +10571,14 @@ describe("production login document admission", () => {
     const badge = () =>
       createLoginBadge({ setBadge: vi.fn(async () => undefined), storage: memoryBadgeStorage() });
 
+    it("answers for an HTTP page as for an HTTPS one (ADR 0050)", async () => {
+      fake.state.tabUrls[1] = "http://login.example/signin";
+      const h = harness();
+      expect(await ask(h)).toMatchObject({ ok: true, origin: "http://login.example" });
+    });
+
     it.each([
-      ["an HTTP page", "http://login.example/signin"],
+      ["an FTP page", "ftp://login.example/signin"],
       ["a browser page", "chrome://settings/"],
       ["a malformed URL", "not a url"],
       ["an empty URL", ""],

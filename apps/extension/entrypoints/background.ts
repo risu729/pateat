@@ -356,7 +356,11 @@ export default defineBackground(() => {
     },
     permissions: () => browser.permissions.getAll(),
     declaredOrigins: browser.runtime.getManifest().host_permissions ?? [],
-    hasAllSiteAccess: () => browser.permissions.contains({ origins: ["https://*/*"] }),
+    // The probe build declares loopback HTTP only.
+    hasAllSiteAccess: () =>
+      browser.permissions.contains({
+        origins: browser.runtime.getManifest().host_permissions ?? [],
+      }),
     connections: {
       status: () => connections.service.status(),
       check: async (connectionId) => (await vaultSyncRecords.read()).connections[connectionId],

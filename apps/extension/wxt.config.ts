@@ -44,11 +44,11 @@ export default defineConfig({
       default_icon: { 16: "icon-locked/16.png", 32: "icon-locked/32.png" },
     },
     permissions: ["storage", "offscreen", "alarms"],
-    // Owner-approved install-time HTTPS site access (ADR 0009). The login content script
-    // runs on every HTTPS page; only non-excluded sites with a cached recipe can execute.
-    // Chrome can still re-request these hosts if the user withholds site access, so no
-    // redundant optional entry is declared.
-    host_permissions: ["https://*/*"],
+    // Owner-approved install-time site access (ADR 0009, HTTP since ADR 0050). The login
+    // content script runs on every HTTP(S) page; only non-excluded sites with a cached
+    // recipe can execute. Chrome can still re-request these hosts if the user withholds
+    // site access, so no redundant optional entry is declared.
+    host_permissions: ["https://*/*", "http://*/*"],
     content_security_policy: {
       extension_pages:
         "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; connect-src 'self' https:",
@@ -70,6 +70,13 @@ export default defineConfig({
         if (index < 0) throw new Error(`Missing SDK source notice: ${record.relativeDest}`);
         files[index] = record;
       }
+    },
+    "build:manifestGenerated"(wxt, manifest) {
+      // The synthetic build keeps the shared login scripts on HTTPS: its own login script
+      // covers loopback HTTP, and two would announce the same document.
+      if (wxt.config.mode !== "probe") return;
+      for (const script of manifest.content_scripts ?? [])
+        script.matches = script.matches?.filter((match) => match !== "http://*/*");
     },
     "entrypoints:found"(wxt, entrypoints) {
       // These scripts are compatibility experiments, never production features.

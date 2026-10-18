@@ -18,6 +18,14 @@ describe("loginMoveFits", () => {
     expect(loginMoveFits("https://a.example.co.uk", "https://b.co.uk", false)).toBe(false);
   });
 
+  it("lets a login on an HTTP origin move to HTTP pages, never one on HTTPS (ADR 0050)", () => {
+    expect(loginMoveFits("http://router.example", "http://www.router.example", false)).toBe(true);
+    expect(loginMoveFits("http://router.example", "https://www.router.example", false)).toBe(true);
+    expect(loginMoveFits("http://router.example", "http://other.example", true)).toBe(true);
+    expect(loginMoveFits("http://router.example", "http://other.example", false)).toBe(false);
+    expect(loginMoveFits("https://router.example", "http://other.example", true)).toBe(false);
+  });
+
   it.each(["https://[", "https://example.com:99999", "/signin"])(
     "refuses an unparsable or relative destination %s",
     (value) => {

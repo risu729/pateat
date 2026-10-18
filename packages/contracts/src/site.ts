@@ -17,10 +17,10 @@ function siteKey(value: string): string | undefined {
 
 /**
  * Whether a page of `pageOrigin` may stand for the result of a login that started on
- * `loginOrigin` after the tab moved there (ADR 0022): an HTTPS origin of the same
- * registrable domain, such as `https://pc.moppy.jp` for `https://ssl.pc.moppy.jp`, or,
+ * `loginOrigin` after the tab moved there (ADR 0022): an HTTPS origin (or, for a login on
+ * an `http:` origin, an HTTP one, ADR 0050) of the same registrable domain, such as `https://pc.moppy.jp` for `https://ssl.pc.moppy.jp`, or,
  * right after a second factor (`afterSecondFactor`: a TOTP code, or a passkey once the
- * password was sent), an HTTPS origin of any site, such as `https://m365.cloud.microsoft`
+ * password was sent), such an origin of any site, such as `https://m365.cloud.microsoft`
  * for `https://login.microsoftonline.com` (owner's choices on 2026-10-13). The
  * extension's move check, the service's judge and the markers learned there all use this
  * one rule, so a later widening changes it here.
@@ -30,7 +30,11 @@ export function loginMoveFits(
   pageOrigin: string,
   afterSecondFactor: boolean,
 ): boolean {
-  if (!pageOrigin.startsWith("https://")) return false;
+  if (
+    !pageOrigin.startsWith("https://") &&
+    !(pageOrigin.startsWith("http://") && loginOrigin.startsWith("http://"))
+  )
+    return false;
   if (afterSecondFactor) return siteKey(pageOrigin) !== undefined;
   const site = siteKey(loginOrigin);
   return site !== undefined && siteKey(pageOrigin) === site;

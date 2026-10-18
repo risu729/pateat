@@ -138,8 +138,8 @@ test("production package permits local storage, the crypto host and the HTTPS lo
     16: "icon-locked/16.png",
     32: "icon-locked/32.png",
   });
-  // Owner-approved install-time HTTPS access (ADR 0009); the login script also runs in
-  // frames, which need the tab's page admitted too (ADR 0017). The MAIN-world scripts are
+  // Owner-approved install-time access (ADR 0009, HTTP since ADR 0050; passkeys stay on
+  // HTTPS); the login script also runs in frames, which need the tab's page admitted too (ADR 0017). The MAIN-world scripts are
   // the ADR 0007 passkey bridge and, wherever the login script runs, the click on
   // `javascript:` links.
   expect(
@@ -148,14 +148,14 @@ test("production package permits local storage, the crypto host and the HTTPS lo
     ),
   ).toEqual([
     {
-      matches: ["https://*/*"],
+      matches: ["http://*/*", "https://*/*"],
       run_at: "document_start",
       all_frames: true,
       world: "MAIN",
       js: ["content-scripts/login-main.js"],
     },
     {
-      matches: ["https://*/*"],
+      matches: ["http://*/*", "https://*/*"],
       run_at: "document_idle",
       all_frames: true,
       js: ["content-scripts/login.js"],
@@ -173,7 +173,7 @@ test("production package permits local storage, the crypto host and the HTTPS lo
     },
   ]);
   expect(manifest.permissions).toEqual(["storage", "offscreen", "alarms"]);
-  expect(manifest.host_permissions).toEqual(["https://*/*"]);
+  expect(manifest.host_permissions).toEqual(["https://*/*", "http://*/*"]);
   // Chrome omits an optional entry the required hosts already cover, with a warning.
   expect(manifest.optional_host_permissions).toBeUndefined();
   expect(manifest.web_accessible_resources ?? []).toEqual([]);
@@ -195,7 +195,8 @@ test("production package permits local storage, the crypto host and the HTTPS lo
   expect(probeManifest.host_permissions).toEqual(["https://*/*", "http://127.0.0.1/*"]);
   expect(probeManifest.optional_host_permissions).toBeUndefined();
   // WebAuthn rejects IP-address origins, so only the passkey probe scripts use localhost.
-  // The production HTTPS login and passkey scripts are shared with the probe build.
+  // The production login and passkey scripts are shared with the probe build, on HTTPS
+  // only there: its own login script covers loopback HTTP.
   for (const script of probeManifest.content_scripts as Array<{ matches: string[]; js: string[] }>)
     expect(script.matches).toEqual(
       /^content-scripts\/(?:login|login-main|passkey-main|passkey-isolated)\.js$/u.test(

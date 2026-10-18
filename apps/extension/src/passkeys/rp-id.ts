@@ -58,3 +58,30 @@ export function rpIdsFor(origin: string): string[] {
     .map((_label, index) => labels.slice(index).join("."))
     .filter((rpId) => resolveRpId(origin, rpId).ok);
 }
+
+/**
+ * Whether a page of `origin` is a secure context, where WebAuthn runs: HTTPS, or HTTP on a
+ * loopback host (`localhost`, `*.localhost`, `127.0.0.0/8` or `[::1]`), as browsers treat
+ * it. A plain HTTP page anywhere else never takes the passkey route (ADR 0050).
+ */
+export function secureOrigin(origin: string): boolean {
+  const url = URL.parse(origin);
+  if (url?.protocol === "https:") return true;
+  if (url?.protocol !== "http:") return false;
+  const host = url.hostname;
+  return (
+    host === "localhost" ||
+    host.endsWith(".localhost") ||
+    host === "[::1]" ||
+    /^127(?:\.\d{1,3}){3}$/u.test(host)
+  );
+}
+
+/**
+ * Whether Pateat's passkey scripts run on a page of `origin`, so a login there may take the
+ * passkey route: HTTPS, and in the synthetic probe build also a loopback HTTP page, which
+ * its own passkey scripts cover. Production declares them for HTTPS only (ADR 0050).
+ */
+export function passkeyScriptsRun(origin: string, probe: boolean): boolean {
+  return URL.parse(origin)?.protocol === "https:" || (probe && secureOrigin(origin));
+}

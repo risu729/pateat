@@ -16,6 +16,7 @@ import {
 } from "@pateat/bitwarden";
 import { loadBrowserCryptoSdk } from "@pateat/bitwarden/browser-sdk";
 import { customFieldsDigest, importDigestKey } from "./custom-digest";
+import { pageMatches } from "./http-page";
 import { findStoredPasskeys, selectPasskeyItem, signStoredPasskey } from "./passkey";
 import {
   commandSchema,
@@ -258,9 +259,9 @@ async function execute(command: HostCommand) {
         result.unavailableItemIds.push(itemId);
         continue;
       }
-      if (evaluated.data.matched)
-        result.candidates.push({ itemId, matches: [...evaluated.data.matches] });
-      for (const entry of evaluated.data.unavailableUris)
+      const matches = pageMatches(result.targetOrigin, evaluated.data.matches, uris);
+      if (matches.length) result.candidates.push({ itemId, matches });
+      for (const entry of pageMatches(result.targetOrigin, evaluated.data.unavailableUris, uris))
         result.unavailableUris.push({ itemId, ...entry });
       if (result.unavailableUris.length > 100_000) return fail("resource-limit");
     }

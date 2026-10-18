@@ -48,7 +48,7 @@ test("production diagnostics show the build, checks and a value-free bug report"
     await expect(page.locator("#diagnostics-browser")).toHaveText(/^(Chrome|Chromium) \d+\./u);
     await expect(page.locator("#diagnostics-sdk")).toHaveText(/^0\.2\.0-main\.\d+$/u);
     await expect(page.locator("#diagnostics-checks")).toContainText(
-      "https://*/* site access granted",
+      "https://*/* and http://*/* site access granted",
     );
     await expect(page.locator("#diagnostics-checks")).toContainText("Pateat service not paired");
     await expect(page.locator("#diagnostics-service")).toHaveText("not-configured");
@@ -56,7 +56,7 @@ test("production diagnostics show the build, checks and a value-free bug report"
     expect(report).toMatch(
       /^Pateat 0\.1\.0 \(([0-9a-f]{7}|development)\) · production build · unpacked install \(development\)\n/u,
     );
-    expect(report).toContain("Permissions: alarms, storage, offscreen, https://*/*");
+    expect(report).toContain("Permissions: alarms, storage, offscreen, http://*/*, https://*/*");
     expect(report).toContain("Pateat service: not-configured");
     expect(report).toMatch(
       /\nLogs: \d+ entr(?:y|ies) \(\d+ KB\), 0 errors, \d+ warnings? in 24 h\n/u,

@@ -163,6 +163,7 @@ import type { AlertMiss } from "../page/sign-in-state";
 import type { LoginSites } from "./sites";
 import { linkRefusal, namesReturnPath, type OnSite } from "./entry";
 import type { ConditionalDecision, PasskeyItem } from "../passkeys/runtime";
+import { passkeyScriptsRun } from "../passkeys/rp-id";
 import {
   loginFillsUsername,
   loginSecretKind,
@@ -2358,8 +2359,9 @@ export function createLoginRuntime(
     // The tab's own URL, since its page may not have announced yet.
     const url = (await browser.tabs.get(tabId).catch(() => undefined))?.url ?? live?.url;
     const page = url ? (URL.parse(url) ?? undefined) : undefined;
-    // The popup shows its page section only on HTTPS pages.
-    if (page?.protocol !== "https:") return { ok: false, reason: "no-page" };
+    // The popup shows its page section only on HTTP(S) pages.
+    if (page?.protocol !== "https:" && page?.protocol !== "http:")
+      return { ok: false, reason: "no-page" };
     const pageOrigin = page.origin;
     const path = observedPath(page.pathname);
     const [starts, entries] = await Promise.all([
@@ -3372,7 +3374,11 @@ export function createLoginRuntime(
       itemFacts(resolved.connection, { ...resolved.account, origin: live.document.origin });
     const pageRequest =
       request.pageRequest === true && !chosen?.fillOnly && passkeyAnswersRequest(recipe);
-    if (recipeHasRoute(recipe, "passkey") || pageRequest) {
+    // Only a page the passkey scripts run on can answer a passkey request (ADR 0050).
+    if (
+      passkeyScriptsRun(live.document.origin, probeMode) &&
+      (recipeHasRoute(recipe, "passkey") || pageRequest)
+    ) {
       const resolved = await resolveRoute({ route: "passkey" });
       if (resolved.ok) {
         facts = await factsOf(resolved);
@@ -6695,8 +6701,8 @@ export function createLoginRuntime(
     try {
       const url = new URL(sender.url);
       const refusal = await sites.admission(url);
-      // A page that is not HTTPS never runs the content script in production.
-      if (refusal === "admitted" || refusal === "not-https") return;
+      // A page that is not HTTP(S) never runs the content script.
+      if (refusal === "admitted" || refusal === "not-web") return;
       if (!(await loginRelated(tabId, 0, url.origin))) return;
       note(
         { tabId, frameId: 0, documentId: sender.documentId, origin: url.origin },

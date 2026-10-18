@@ -60,10 +60,11 @@ type Saved = Extract<SettingsResponse, { ok: true }>;
 type ExcludedSite = LocalSettings["excludedSites"][number];
 type Tone = "progress" | "success" | "error";
 
-/** The tab's origin when Pateat can run there: an HTTPS page with a valid hostname. */
+/** The tab's origin when Pateat can run there: an HTTP(S) page with a valid hostname. */
 export function popupOrigin(url: string | undefined): string | undefined {
   const parsed = url === undefined ? undefined : parseSiteUrl(url);
-  return parsed?.protocol === "https:" && normalizeHostname(parsed.hostname)
+  return (parsed?.protocol === "https:" || parsed?.protocol === "http:") &&
+    normalizeHostname(parsed.hostname)
     ? parsed.origin
     : undefined;
 }
@@ -461,8 +462,8 @@ export function SiteApp({
     body = (
       <p id="popup-unsupported">
         {tab.data?.url
-          ? "Pateat works on HTTPS websites. Open a website, then click the Pateat icon again."
-          : "Pateat cannot read this tab's address. It works on HTTPS websites it has site access to; a page that is still loading shows this too."}
+          ? "Pateat works on websites (HTTP and HTTPS). Open a website, then click the Pateat icon again."
+          : "Pateat cannot read this tab's address. It works on websites it has site access to; a page that is still loading shows this too."}
       </p>
     );
   else if (!saved)
