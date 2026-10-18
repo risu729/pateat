@@ -3373,7 +3373,9 @@ export function createLoginRuntime(
       itemFacts(resolved.connection, { ...resolved.account, origin: live.document.origin });
     const pageRequest =
       request.pageRequest === true && !chosen?.fillOnly && passkeyAnswersRequest(recipe);
-    if (recipeHasRoute(recipe, "passkey") || pageRequest) {
+    // WebAuthn needs a secure context, and the passkey scripts run on HTTPS only (ADR 0050).
+    const securePage = live.document.origin.startsWith("https://");
+    if (securePage && (recipeHasRoute(recipe, "passkey") || pageRequest)) {
       const resolved = await resolveRoute({ route: "passkey" });
       if (resolved.ok) {
         facts = await factsOf(resolved);

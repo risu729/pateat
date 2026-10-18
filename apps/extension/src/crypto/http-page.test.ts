@@ -15,7 +15,7 @@ describe("pageMatches", () => {
     expect(pageMatches("https://router.example", matches, uris)).toEqual(matches);
   });
 
-  it("keeps only URIs saved with an explicit http:// scheme for an HTTP page", () => {
+  it("keeps only URIs saved with an explicit http:// scheme for an HTTP page (ADR 0050)", () => {
     expect(pageMatches("http://router.example", matches, uris)).toEqual([
       { uriIndex: 1, match: 0 },
     ]);

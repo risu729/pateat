@@ -38,12 +38,18 @@ the "Read and change all your data on all websites" warning for `https://*/*`, s
   `http://` scheme, under any of Bitwarden's match modes
   (`apps/extension/src/crypto/http-page.ts`). An `https://` URI or a bare host such as
   `example.com` never matches an `http:` page. Since every account choice goes through
-  that match (or an item's static `allowedOrigins`, which name exact origins), a saved
-  default, a single URI match, the popup's list, the badge count and the recipe
-  generation trigger on an `http:` page all see only those items. Bitwarden's own warning
-  case therefore never fills: no person is there to answer a warning during an automatic
-  login.
-- A login on an `http:` page runs as on HTTPS, filling and submitting included.
+  that match (or an item's static `allowedOrigins`, which name exact origins), a login
+  with a saved default, a single URI match, the popup's list, the count of a waiting
+  choice and the recipe generation trigger on an `http:` page all see only those items,
+  and so will the site count badge of
+  [ADR 0021](0021-account-choice-outside-settings.md#site-count-badge) once it is built.
+  The popup searches no passkeys on an `http:` page. After a logout the popup may still
+  show a saved default whose item no longer matches, as on HTTPS, but a login with it is
+  refused. URI rules that cannot be evaluated count only when saved with `http://`.
+  Bitwarden's own warning case therefore never fills: no person is there to answer a
+  warning during an automatic login.
+- A login on an `http:` page runs as on HTTPS, filling and submitting included, except
+  that it never takes the `passkey` route.
 - A login on an `http:` origin may count a move to an `http:` or `https:` page by the
   rules of [ADR 0022](0022-login-attempts-per-tab-and-origin.md) and
   [ADR 0027](0027-per-account-login-routes.md) (`loginMoveFits`). A login on an
@@ -57,12 +63,14 @@ the "Read and change all your data on all websites" warning for `https://*/*`, s
 
 ## Consequences
 
-A password Pateat fills on an `http:` page travels unencrypted, and anyone on the network
-path can read it or change the page, including inserting a form Pateat then fills and
-submits. Limiting `http:` pages to items saved for `http://` keeps an item saved for an
-HTTPS site from ever being sent that way; the user opts an item in by saving its URI as
-`http://`.
+A password Pateat fills on an `http:` page travels unencrypted, and anyone on the
+network path can read it or change the page, including inserting a form Pateat then
+fills and submits. Limiting `http:` pages to items saved for `http://` keeps an item
+saved for an HTTPS site from ever being sent that way; the user opts an item in by
+saving its URI as `http://`.
 
-The login scripts now run on every HTTP page too. Admission, the recipe lookup and every
+The login scripts now run on every HTTP page too, so the event `login-main.js` listens
+for tells an HTTP page, and anyone able to change it on the network, that Pateat is
+installed. Admission, the recipe lookup and every
 policy check stay as for HTTPS, so a page without a cached recipe still gets no attempt,
 observation or vault access.

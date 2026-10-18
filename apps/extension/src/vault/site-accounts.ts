@@ -91,7 +91,9 @@ export async function findSiteAccounts(input: {
     snapshot: { ...input.saved.snapshot, settings },
     catalog: live,
   };
-  for (const rpId of rpIdsFor(input.origin)) {
+  // Passkeys answer only on HTTPS pages; an `http:` page lists only its URI matches (ADR 0050).
+  const rpIds = input.origin.startsWith("https://") ? rpIdsFor(input.origin) : [];
+  for (const rpId of rpIds) {
     // Sequential: each query shares the bounded native host.
     // eslint-disable-next-line no-await-in-loop
     const found = await findVaultPasskeys({

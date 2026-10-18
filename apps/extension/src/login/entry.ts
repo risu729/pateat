@@ -30,14 +30,6 @@ function queryUrls(url: URL): URL[] {
 }
 
 /**
- * The query values of `url` that may name a URL: a value counts when, after URL decoding,
- * it is an absolute URL or starts with `/`, as `return_to=%2Fbookmarks` does. Other values,
- * such as `lang=en`, are not read, since any word resolves to a path of the page. Where a
- * value leads is left to the URL parser, never its characters: `//evil.example/x`,
- * `/\evil.example/x` and a `/` followed by a tab and `/evil.example/x` are all read, and
- * all lead to `evil.example`.
- */
-/**
  * Whether a link or return URL may lead from `page` by its scheme: `https:` always, `http:`
  * only from an `http:` page, so a sign-in on an HTTPS site never moves to plain HTTP
  * (ADR 0050).
@@ -45,6 +37,14 @@ function queryUrls(url: URL): URL[] {
 const webScheme = (target: URL, page: URL | undefined) =>
   target.protocol === "https:" || (target.protocol === "http:" && page?.protocol === "http:");
 
+/**
+ * The query values of `url` that may name a URL: a value counts when, after URL decoding,
+ * it is an absolute URL or starts with `/`, as `return_to=%2Fbookmarks` does. Other values,
+ * such as `lang=en`, are not read, since any word resolves to a path of the page. Where a
+ * value leads is left to the URL parser, never its characters: `//evil.example/x`,
+ * `/\evil.example/x` and a `/` followed by a tab and `/evil.example/x` are all read, and
+ * all lead to `evil.example`.
+ */
 const namedValues = (url: URL) =>
   [...url.searchParams.values()].filter((value) => value.startsWith("/") || parse(value));
 

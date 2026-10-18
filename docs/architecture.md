@@ -503,9 +503,9 @@ before collecting observations; policy changes cancel stale work.
 The account choice is a saved site default applied on the next login. A default names
 the provider account and item, not this device's connection. Without one, a single
 eligible provider URI match is used and saved only after confirmed `authenticated`; a
-saved choice keeps winning when more items match later ([ADR
-0013](adr/0013-service-held-recipes-and-settings.md)). Changing it does not log out the
-current session. No match or several matches require a choice rather than trying
+saved choice keeps winning when more items match later
+([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). Changing it does not log
+out the current session. No match or several matches require a choice rather than trying
 accounts in turn. Under [ADR 0021](adr/0021-account-choice-outside-settings.md) the
 choice is made in the toolbar popup for the refused document and may be one-time. After
 a finished login in a tab, the recipe's first step appearing again in that tab's page
@@ -524,16 +524,17 @@ logs in as a new tab would, and a top-level attempt that may have submitted ends
 `left-origin` when the tab moves to another origin, or `authenticated` when that origin
 belongs to a passkey Pateat has just answered and its page shows no sign-in, or when a
 `password` login's tab moves, within 30 seconds of the login's last step that may have
-submitted (a fill or click), to another HTTPS origin of the same registrable domain,
-or within 30 seconds of a second factor (a TOTP code it submitted, or a passkey Pateat
+submitted (a fill or click), to another HTTPS origin of the same registrable domain, or
+within 30 seconds of a second factor (a TOTP code it submitted, or a passkey Pateat
 answered after the item's password) to an HTTPS origin of any site (for a login on an
-`http:` origin, an HTTP origin counts too; [ADR 0050](adr/0050-http-pages-for-http-items.md)), whose
-page shows the account's username and no sign-in or, when it shows no username, a
-signed-in marker learned on that origin or the judge, asked once. An ended record of a
-site the tab left, including a frame's login on that site's page, never holds the new
-site's page or its frames ([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md)).
-Wider shared-session domains need explicit coordination before broader support, not a
-guessed relationship between origins.
+`http:` origin, an HTTP origin counts too;
+[ADR 0050](adr/0050-http-pages-for-http-items.md)), whose page shows the account's
+username and no sign-in or, when it shows no username, a signed-in marker learned on
+that origin or the judge, asked once. An ended record of a site the tab left, including
+a frame's login on that site's page, never holds the new site's page or its frames
+([ADR 0022](adr/0022-login-attempts-per-tab-and-origin.md)). Wider shared-session
+domains need explicit coordination before broader support, not a guessed relationship
+between origins.
 
 Credential eligibility does not grant arbitrary post-login actions. Later
 transactions/approvals require separate site/action grants and deterministic
@@ -603,26 +604,26 @@ only the one recorded document that was refused for several matches, through
 check after a page with a recipe found no matching item likewise reconnects only that
 refused document, once the check applied a new snapshot within ten seconds
 ([ADR 0025](adr/0025-automatic-vault-sync.md#after-no-item-matches)). A static content
-script runs on every HTTP(S) page and frame; the background admits non-excluded sites with
-host access and needs a cached recipe for the exact origin before any policy or vault
-access ([ADR 0009](adr/0009-install-time-https-site-access.md)). On an `http:` page only a
-vault URI saved with an explicit `http://` scheme matches, so only those items can be
-chosen, counted or trigger generation there
-([ADR 0050](adr/0050-http-pages-for-http-items.md)). A frame also needs the
-tab's page admitted, and its account must match the tab's URL as well as the frame's
+script runs on every HTTP(S) page and frame; the background admits non-excluded sites
+with host access and needs a cached recipe for the exact origin before any policy or
+vault access ([ADR 0009](adr/0009-install-time-https-site-access.md)). On an `http:`
+page only a vault URI saved with an explicit `http://` scheme matches, so only those
+items can be chosen, counted or trigger generation there
+([ADR 0050](adr/0050-http-pages-for-http-items.md)). A frame also needs the tab's page
+admitted, and its account must match the tab's URL as well as the frame's
 ([ADR 0017](adr/0017-login-forms-in-frames.md)). The exception is recipe generation: a
 tab's own page on whose path no recipe starts that shows a login field within 10 seconds
 and has a vault URI match is observed and sent, and not again within 10 minutes per
-origin and path once a request for it reached the model,
-unless the tab holds an attempt record other than an account switch on that origin
+origin and path once a request for it reached the model, unless the tab holds an attempt
+record other than an account switch on that origin
 ([ADR 0016](adr/0016-recipe-generation-trigger.md)). A page that shows no login field
 within 10 seconds is sent instead, without slots, only when its URL names another path
 of its site in a query value, and a cached entry recipe on a page's path is pressed: one
 click on a same-site link in the top document, then the tab's next page is checked
 ([ADR 0031](adr/0031-sign-in-entry-pages.md); see
-[Declarative recipes and AI](#declarative-recipes-and-ai)). The request also offers
-one slot per custom field a matching item allows (Text, Hidden, or Linked with an
-allowed source), named by field name and position, under an opaque ID such as `custom-1`
+[Declarative recipes and AI](#declarative-recipes-and-ai)). The request also offers one
+slot per custom field a matching item allows (Text, Hidden, or Linked with an allowed
+source), named by field name and position, under an opaque ID such as `custom-1`
 ([ADR 0027](adr/0027-per-account-login-routes.md)). Just before sending, it reads the
 matching items' usernames and the values of Text fields and of Linked fields that read
 the username or a Text field for their shape, each sent only when all items agree. The
@@ -630,11 +631,11 @@ returned recipe enters the recipe cache and starts at once: `login.reconnect` as
 tab's page still tracked on that origin and path that holds no login to announce again.
 That covers the page that was sent and a page refused for want of a recipe while the
 request was in flight, such as one that replaced it in its tab or the same page in
-another tab. After a recipe's final
-`advance` step, a page that has loaded and shows a password, username or email input for
-a slot the recipe does not fill yet, on one path for a second, is sent once per step
-with the revision it continues; the running login takes the continued revision over when
-it only appends steps and still resolves to the login's account, and runs the new steps
+another tab. After a recipe's final `advance` step, a page that has loaded and shows a
+password, username or email input for a slot the recipe does not fill yet, on one path
+for a second, is sent once per step with the revision it continues; the running login
+takes the continued revision over when it only appends steps and still resolves to the
+login's account, and runs the new steps
 ([ADR 0018](adr/0018-recipe-generation-route.md#continuing-after-an-advance)). Any other
 page that an effect step leads to and no check explains is sent to be judged, which can
 learn a signed-in marker or a second-factor handler
@@ -1599,14 +1600,13 @@ the tab's next page after a submitted password form and a vault item matches, an
 the page's shown, enabled buttons and links with rendered text outside forms with
 fields, header and navigation first, up to 48, without slots. The content script lists
 the hosts the page's URL and links name, and the worker answers which are on the site,
-so a link to another site, `http:` (unless the page is `http:` too, ADR 0050), to the page
-itself or only another fragment of it,
-opening another window (by its own `target` or the document's `<base target>`),
-downloading, or with a query key or value that leads to another site is never described.
-The URL parser reads each query key and value on its own and resolved against the link,
-and either reading off the site refuses the link; a page's return path counts only when
-every reading of its value stays on the site. An entry recipe's path counts as a recipe
-start in `offersGeneration` only.
+so a link to another site, `http:` (unless the page is `http:` too, ADR 0050), to the
+page itself or only another fragment of it, opening another window (by its own `target`
+or the document's `<base target>`), downloading, or with a query key or value that leads
+to another site is never described. The URL parser reads each query key and value on its
+own and resolved against the link, and either reading off the site refuses the link; a
+page's return path counts only when every reading of its value stays on the site. An
+entry recipe's path counts as a recipe start in `offersGeneration` only.
 
 When a cached entry recipe starts on a top document's path, the worker presses it once
 every check passes, cheapest first: the revision is not blocked on this device and still
@@ -1774,7 +1774,7 @@ cancels it, as when the script did not load, the isolated script clicks the link
 as before; only one world clicks, so the link's `onclick` handler runs once, and
 whether the page reacted is still judged by the attempt's own checks, never by anything
 the main world reports. A page sees the event and can click its own links anyway, so it
-gains no power over its own login it lacked, though the event tells any HTTPS page or
+gains no power over its own login it lacked, though the event tells any HTTP(S) page or
 frame that Pateat is installed (the passkey bridge does so in top-level documents). A
 link in a closed shadow root is still clicked from the isolated world, since the
 main-world listener sees only its host. The click on a list's link for another account

@@ -4,11 +4,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createLoginSites } from "./sites";
 
 const { granted, contains } = vi.hoisted(() => {
-  const granted = new Set<string>();
-  const contains = vi.fn(async ({ origins }: { origins: string[] }) =>
-    origins.every((origin) => granted.has(origin)),
-  );
-  return { granted, contains };
+  const hosts = new Set<string>();
+  return {
+    granted: hosts,
+    contains: vi.fn(async ({ origins }: { origins: string[] }) =>
+      origins.every((origin) => hosts.has(origin)),
+    ),
+  };
 });
 vi.mock("wxt/browser", () => ({ browser: { permissions: { contains } } }));
 

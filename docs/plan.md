@@ -426,9 +426,10 @@ than in this repository.
   passkey re-verification after Pateat's login in the tab is handed on, and the logs for
   judging whether `confirm` can be split are kept.
 - The toolbar badge counts the matching items on every HTTP(S) site (on an `http:` page
-  only items saved with an `http://` URI; [ADR 0050](adr/0050-http-pages-for-http-items.md)): teal with the usable
-  count, light gray when every match is excluded, amber while a login waits for a choice
-  (owner, 2026-10-13 14:42 UTC;
+  only items saved with an `http://` URI;
+  [ADR 0050](adr/0050-http-pages-for-http-items.md)): teal with the usable count, light
+  gray when every match is excluded, amber while a login waits for a choice (owner,
+  2026-10-13 14:42 UTC;
   [ADR 0021](adr/0021-account-choice-outside-settings.md#site-count-badge)).
 - The owner uses Pateat on many sites and reports bugs; Claude may also fix problems it
   finds on its own. Reading the extension's error logs without a report needs a way for
@@ -444,9 +445,10 @@ than in this repository.
   there is not decided.
 - Installed-Chrome checks moved from phase 1 (owner, 2026-10-12 20:35 UTC), checked
   when daily use reaches them:
-  - A plain HTTP site whose item is saved with an `http://` URI logs in, submit included,
-    and an item saved only for `https://` is not offered there (owner, 2026-10-18 01:41
-    UTC; [ADR 0050](adr/0050-http-pages-for-http-items.md); synthetic tests only).
+  - A plain HTTP site whose item is saved with an `http://` URI logs in, submit
+    included, and an item saved only for `https://` is not offered there (owner,
+    2026-10-18 01:41 UTC; [ADR 0050](adr/0050-http-pages-for-http-items.md); synthetic
+    tests only).
   - On 三菱UFJ銀行, after an expired QR code, the sign-in page in the same tab is filled
     without pressing anything, while a new tab logs in as before (owner, 2026-10-13:
     「このタブだけ」; ADR 0027).

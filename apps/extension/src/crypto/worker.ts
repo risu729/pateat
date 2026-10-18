@@ -261,7 +261,7 @@ async function execute(command: HostCommand) {
       }
       const matches = pageMatches(result.targetOrigin, evaluated.data.matches, uris);
       if (matches.length) result.candidates.push({ itemId, matches });
-      for (const entry of evaluated.data.unavailableUris)
+      for (const entry of pageMatches(result.targetOrigin, evaluated.data.unavailableUris, uris))
         result.unavailableUris.push({ itemId, ...entry });
       if (result.unavailableUris.length > 100_000) return fail("resource-limit");
     }

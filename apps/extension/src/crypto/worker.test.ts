@@ -13,7 +13,11 @@ vi.mock("@pateat/bitwarden", async (importOriginal) => {
     ...actual,
     createLocalCryptoSession: vi.fn(async () => ({
       ok: true,
-      data: { metadata: { accountVersion: 1 }, decryptCipher: mocks.decrypt },
+      data: {
+        metadata: { accountVersion: 1 },
+        decryptCipher: mocks.decrypt,
+        decryptCatalogGroups: async () => ({ ok: true, data: [] }),
+      },
     })),
     createLocalFieldSnapshot: (input: unknown) => {
       const created = actual.createLocalFieldSnapshot(input);
@@ -41,6 +45,19 @@ const worker = {
   postMessage: vi.fn<(message: { result: unknown }) => void>(),
 };
 let session: HostSessionRef;
+/** The first items' saved URIs: Domain, Host and StartsWith rules, then unevaluable ones. */
+const savedUris = [
+  [{ uri: "https://router.example", match: 0 }],
+  [{ uri: "http://router.example", match: 0 }],
+  [{ uri: "router.example", match: 1 }],
+  [{ uri: "HTTP://router.example", match: 1 }],
+  [
+    { uri: "https://router.example/login", match: 2 },
+    { uri: "http://router.example/login", match: 2 },
+  ],
+  [{ uri: "https://router.example", match: 4 }],
+  [{ uri: "http://router.example", match: 4 }],
+];
 
 async function command(operation: HostCommand["operation"]) {
   const result = new Promise<unknown>((receiveResult) => {
@@ -111,8 +128,11 @@ beforeEach(async () => {
       ciphers: Array.from({ length: 129 }, (_, index) => ({
         id: itemId(index + 1),
         type: 1,
-        login: { password: `synthetic-password-${index + 1}` },
+        name: `Synthetic item ${index + 1}`,
+        collectionIds: [],
+        login: { password: `synthetic-password-${index + 1}`, uris: savedUris[index] ?? [] },
       })),
+      uriMatchContext: { equivalentDomains: [], defaultMatch: 0 },
     },
   });
   expect(opened).toMatchObject({ ok: true });
@@ -121,6 +141,34 @@ beforeEach(async () => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+describe("crypto Worker URI matching on plain HTTP pages (ADR 0050)", () => {
+  const candidates = async (targetUrl: string) => {
+    const verified = await command({ kind: "verify-received-ciphers", session });
+    expect(verified).toMatchObject({ ok: true });
+    const result = (await command({ kind: "match-uris", session, targetUrl })) as {
+      data: { candidates: { itemId: string }[]; unavailableUris: { itemId: string }[] };
+    };
+    return {
+      items: result.data.candidates.map((entry) => entry.itemId),
+      unavailable: result.data.unavailableUris.map((entry) => entry.itemId),
+    };
+  };
+
+  it("matches every saved scheme on an HTTPS page", async () => {
+    expect(await candidates("https://router.example/login")).toEqual({
+      items: [itemId(1), itemId(2), itemId(3), itemId(4), itemId(5)],
+      unavailable: [itemId(6), itemId(7)],
+    });
+  });
+
+  it("matches only URIs saved with http:// on an HTTP page, in every mode", async () => {
+    expect(await candidates("http://router.example/login")).toEqual({
+      items: [itemId(2), itemId(4), itemId(5)],
+      unavailable: [itemId(7)],
+    });
+  });
 });
 
 describe("crypto Worker decrypted field cache", () => {

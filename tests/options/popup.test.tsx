@@ -117,7 +117,7 @@ async function mount(
 
 afterEach(() => cleanup());
 
-test("only HTTPS pages with a valid hostname are a site the popup edits", () => {
+test("only HTTP(S) pages with a valid hostname are a site the popup edits", () => {
   expect(popupOrigin("https://bank.example/login?next=1")).toBe("https://bank.example");
   expect(popupOrigin("https://bank.example:8443/")).toBe("https://bank.example:8443");
   expect(popupOrigin("http://bank.example/")).toBe("http://bank.example");
