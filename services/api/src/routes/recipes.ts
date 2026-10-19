@@ -18,7 +18,7 @@ import type { ApiEnv } from "../auth";
 import { loginOutcomes, loginTimings, recipeHeads, recipeRevisions } from "../db/schema";
 import { apiError } from "../http";
 import { purgeExpiredLog } from "../claude/calls";
-import { selectHeads, toChange, writeRecipe } from "../recipe-store";
+import { revokeUnusedRecipes, selectHeads, toChange, writeRecipe } from "../recipe-store";
 import { generateEntry, generateRecipe, judgeCompletion, samplePage } from "../recipes/generate";
 import { jsonBody, requireJsonBody, validate } from "../validation";
 
@@ -57,6 +57,12 @@ export const recipeRoutes = new Hono<ApiEnv>()
       await purgeExpiredLog(drizzle(c.env.DB), Date.now());
     } catch {
       console.error("Inference log purge failed");
+    }
+    // Before the page, so this sync already drops the recipes it revokes (ADR 0058).
+    try {
+      await revokeUnusedRecipes(c.env.DB, scope.ownerId, Date.now());
+    } catch {
+      console.error("Unused recipe revocation failed");
     }
     const rows = await selectHeads(c.env.DB, scope.ownerId, gt(recipeHeads.sequence, after))
       .orderBy(asc(recipeHeads.sequence))
@@ -155,7 +161,8 @@ export const recipeRoutes = new Hono<ApiEnv>()
   /**
    * One login on a recipe revision that ended, signed in or blocked (ADR 0055): its result
    * code and how long it took, for a revision the owner holds or held, one row per report.
-   * The site is the recipe revision's own origin, read here; the device sends none.
+   * The site is the recipe revision's own origin, read here; the device sends none. The
+   * login marks an active recipe used, so it is not revoked as unused (ADR 0058).
    */
   .post(
     "/:recipeId/logins",
@@ -205,23 +212,36 @@ export const recipeRoutes = new Hono<ApiEnv>()
       )
         return apiError(c, 404, { error: "not_found" });
       const now = Date.now();
-      await db.insert(loginTimings).values({
-        id: newId(),
-        ownerId,
-        recipeId,
-        branch: record.branch ?? "",
-        revision: record.revision,
-        origin: kept.origin,
-        outcome: record.outcome,
-        cause: record.cause ?? null,
-        extensionBuild: record.extensionBuild,
-        totalMs: record.totalMs,
-        serviceMs: record.serviceMs,
-        networkMs: record.networkMs,
-        personMs: record.personMs,
-        pageMs: record.pageMs,
-        createdAt: now,
-      });
+      await db.batch([
+        db.insert(loginTimings).values({
+          id: newId(),
+          ownerId,
+          recipeId,
+          branch: record.branch ?? "",
+          revision: record.revision,
+          origin: kept.origin,
+          outcome: record.outcome,
+          cause: record.cause ?? null,
+          extensionBuild: record.extensionBuild,
+          totalMs: record.totalMs,
+          serviceMs: record.serviceMs,
+          networkMs: record.networkMs,
+          personMs: record.personMs,
+          pageMs: record.pageMs,
+          createdAt: now,
+        }),
+        // A login on an older revision counts as use of the recipe too.
+        db
+          .update(recipeHeads)
+          .set({ lastUsedAt: now })
+          .where(
+            and(
+              eq(recipeHeads.ownerId, ownerId),
+              eq(recipeHeads.recipeId, recipeId),
+              eq(recipeHeads.state, "active"),
+            ),
+          ),
+      ]);
       try {
         await purgeExpiredLog(db, now);
       } catch {

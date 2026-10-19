@@ -18,7 +18,7 @@ import { readDashboard } from "../dashboard";
 import { devices, inferenceLog, loginOutcomes, loginTimings, recipeHeads } from "../db/schema";
 import { apiError } from "../http";
 import { findOwner } from "../owners";
-import { readChange, selectHeads, writeRecipe } from "../recipe-store";
+import { readChange, revokeUnusedRecipes, selectHeads, writeRecipe } from "../recipe-store";
 import { readSettings, writeSettings } from "../settings-store";
 import { jsonBody, requireJsonBody, validate } from "../validation";
 
@@ -95,6 +95,13 @@ export const manageApiRoutes = new Hono<ApiEnv>()
   // The recipes devices sync through /v1/recipes; the web UI only reads and revokes them.
   .get("/recipes", async (c) => {
     const ownerId = await findOwner(c.env.DB, c.get("identity"));
+    // Before the list, so it no longer shows the recipes this revokes (ADR 0058).
+    if (ownerId)
+      try {
+        await revokeUnusedRecipes(c.env.DB, ownerId, Date.now());
+      } catch {
+        console.error("Unused recipe revocation failed");
+      }
     const rows = ownerId
       ? // Each head write takes the owner's next sequence number.
         await selectHeads(c.env.DB, ownerId).orderBy(desc(recipeHeads.sequence))

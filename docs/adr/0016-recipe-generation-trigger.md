@@ -34,6 +34,10 @@ Amended on 2026-10-19 (implemented; a clarification, not an owner decision):
 [the identifier input's `autocomplete`](#amendment-2026-10-19-autocomplete-tokens-of-an-identifier-input)
 is read as the attribute's tokens.
 
+Amended on 2026-10-19 by [ADR 0058](0058-automatic-recipe-removal.md) (owner, 20:28 UTC,
+not implemented): a page whose recipe the chosen item cannot run is generated again, its
+recipe revoked first, though a recipe starts there.
+
 Date: 2026-10-11
 
 ## Context

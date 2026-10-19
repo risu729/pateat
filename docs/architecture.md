@@ -2618,10 +2618,11 @@ Claude credentials are per owner
 OIDC signing key, and D1 holds each owner's Workload Identity Federation
 identifiers.
 
-Version recipes immutably with a current pointer and revocation/tombstones.
-Sync with conditional reads/cursors and keep a local durable cache. Validate
-minimum supported schema, origin scope and device access; reject stale or
-incompatible results. Start private per owner. Public recipe sharing and
+Version recipes immutably with a current pointer and revocation/tombstones. The owner
+revokes a recipe on `/manage`, and the service revokes one unused for 90 days
+([service limits](#service-limits)). Sync with conditional reads/cursors and keep a
+local durable cache. Validate minimum supported schema, origin scope and device access;
+reject stale or incompatible results. Start private per owner. Public recipe sharing and
 cross-user learning are deferred to a separate design.
 
 Stored heads are revalidated on every read. An active head whose document no longer
@@ -2670,7 +2671,12 @@ people.
   republishing a tombstone beyond that answers 409 `recipe_limit`; updating an active
   recipe does not add to the count, and a revocation frees its place. Generation answers
   `unavailable` with `recipe-limit` before any model call when a first page would add a
-  recipe, or after the call if the last place was taken meanwhile.
+  recipe, or after the call if the last place was taken meanwhile. The service revokes
+  an active recipe unused for 90 days (`RECIPE_IDLE_LIMIT_MS`,
+  [ADR 0058](adr/0058-automatic-recipe-removal.md)): `last_used_at` on its head is its
+  newest write or reported ended login. A device's recipe sync and the `/manage` recipe
+  list each check first and revoke at most 50, oldest first, as tombstones written by no
+  device; entry recipes are never revoked this way.
 - Recipe history. Each recipe keeps its newest 10 revisions; a winning write deletes
   older ones in the same D1 batch, and a revocation keeps only the tombstone. Nothing
   reads older revisions. At the 128 KiB body limit this bounds an owner's active recipes

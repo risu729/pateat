@@ -90,6 +90,12 @@ export const recipeHeads = sqliteTable(
     sequence: integer("sequence").notNull(),
     writeId: text("write_id").notNull(),
     updatedAt: integer("updated_at").notNull(),
+    /**
+     * The newest write of the recipe or reported ended login on it (ADR 0058). An active
+     * head unused for `RECIPE_IDLE_LIMIT_MS` is revoked by the service. Every write sets
+     * it; the default exists only because SQLite adds a NOT NULL column with one.
+     */
+    lastUsedAt: integer("last_used_at").notNull().default(0),
   },
   (table) => [
     primaryKey({ columns: [table.ownerId, table.recipeId] }),
@@ -111,7 +117,10 @@ export const recipeRevisions = sqliteTable(
     state: text("state", { enum: ["active", "revoked"] }).notNull(),
     document: text("document", { mode: "json" }),
     createdAt: integer("created_at").notNull(),
-    /** Null when the owner web UI wrote the revision. */
+    /**
+     * Null when the owner web UI or the service wrote the revision, such as a revocation
+     * of an unused recipe (ADR 0058).
+     */
     createdByDeviceId: text("created_by_device_id").references(() => devices.id),
   },
   (table) => [

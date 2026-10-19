@@ -9,6 +9,10 @@ import { apiError } from "./http";
 export const MAX_ACTIVE_RECIPES = 1_000;
 /** Revisions kept per recipe; older ones are deleted, and a revoked recipe keeps only its tombstone. */
 export const KEPT_RECIPE_REVISIONS = 10;
+/** An active recipe neither written nor reported in a login for this long is revoked (ADR 0058). */
+export const RECIPE_IDLE_LIMIT_MS = 90 * 24 * 60 * 60 * 1000;
+/** Unused recipes one check revokes at most; the next check revokes the rest (ADR 0058). */
+export const MAX_IDLE_REVOCATIONS = 50;
 
 /**
  * Refuses a request once `binding` has seen too many for the key this request maps to,

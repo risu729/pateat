@@ -4,13 +4,13 @@ Status: accepted by the owner on 2026-10-19. At 20:23 UTC the owner wrote
 「金銭的なのは良くて、使わないレシピは勝手に消えるようにしたいがどうすべき？」 (cost is
 fine; unused recipes should disappear on their own, how should that work?). On the
 decision card 「使えないレシピや使われないレシピを、どう自動で消しますか?」 the owner
-chose 「両方」 (both) at 20:28:59 UTC: a recipe the chosen item cannot run is revoked and
-generated again at once, and a recipe not used for 90 days is revoked by the service.
-Part B is implemented (local tests only). Part A waits for the first recipe kind that
-can lack every route an item holds; see [Delivery](#delivery). Amends
+chose 「両方」 (both) at 20:28:59 UTC: a recipe the chosen item cannot run is revoked
+and generated again at once, and a recipe not used for 90 days is revoked by the
+service. Part B is implemented (local tests only). Part A waits for the first recipe
+kind that can lack every route an item holds; see [Delivery](#delivery). Amends
 [ADR 0013](0013-service-held-recipes-and-settings.md) (only the owner revoked recipes)
-and [ADR 0016](0016-recipe-generation-trigger.md) (a page with a recipe is not
-generated again).
+and [ADR 0016](0016-recipe-generation-trigger.md) (a page with a recipe is not generated
+again).
 
 Date: 2026-10-19
 

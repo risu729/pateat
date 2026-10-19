@@ -153,6 +153,13 @@ under this cap can therefore recover; see
 The feed contains current heads, rather than every historical revision: a write moves
 its recipe's head to a new increasing sequence. The same batch deletes revisions older
 than the newest 10, and every earlier revision when the write revokes the recipe.
+Every winning write sets the head's `last_used_at`, and so does each accepted
+`/logins` record while the head is active. `GET /v1/recipes` and
+`GET /manage/api/recipes` first revoke up to 50 of the owner's active recipes whose
+`last_used_at` is more than 90 days old, oldest first and never an entry recipe, as
+tombstones with no writing device; a write that marks one used before its revocation
+lands keeps it ([ADR 0058](../../docs/adr/0058-automatic-recipe-removal.md)). A failed
+check is logged and the request goes on.
 
 ## Claude credentials
 
@@ -497,7 +504,9 @@ with no kept document (as after its revocation) answers 404. Each report is one
 `login_timings` row: the owner, recipe, branch (empty without one), revision, the
 recipe's `origin` read from the reported revision's document (or the newest kept one
 when that revision was pruned), the codes, the build, the times and the service's own
-time. Its rows follow the request log's one-year retention and its delete-all.
+time. Its rows follow the request log's one-year retention and its delete-all. The same
+batch marks the recipe used (`last_used_at`) while its head is active, whichever
+revision the record names.
 
 ## Schema and tests
 
