@@ -2211,6 +2211,13 @@ characters and kept in their case and language. Compared without case, a name eq
 a built-in slot, a request slot ID or an earlier name of the page takes a number after a
 space, in page order (`店番号 2`)
 ([ADR 0027](adr/0027-per-account-login-routes.md#amendment-2026-10-18-slot-names-from-the-page)).
+A custom field that the owner's saved bindings of the same origin and recipe already
+name, by vault field name, position and count, keeps that name instead, taken before any
+page text, unless the bindings disagree or the name fails the same checks. The names of
+offers the page does not fill are reserved too, so a later page can still carry them;
+the service reads only the bindings' slot names and field references, and the model's
+input stays the same
+([ADR 0027](adr/0027-per-account-login-routes.md#amendment-2026-10-19-slot-names-from-the-bindings)).
 The recipe stores only that name, and the service answers with `customSlots`, which maps
 each such name to the offered slot. The extension keeps that mapping as the field names
 it offered, per service, device and recipe, in `chrome.storage.local`. An item without a

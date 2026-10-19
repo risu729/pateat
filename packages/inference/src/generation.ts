@@ -194,6 +194,12 @@ export type GenerationRequest = {
    * checked but dropped, so the slots are named from the kept set alone. Defaults to true.
    */
   startPage?: boolean;
+  /**
+   * The name a custom-field request slot keeps from the owner's saved bindings of the
+   * recipe, by request slot ID (`carriedSlotNames`, ADR 0027 amended 2026-10-19).
+   * Used only to name the validated plan's slots; never part of the prompt.
+   */
+  carriedNames?: ReadonlyMap<string, string>;
   abortSignal?: AbortSignal;
 };
 
@@ -344,6 +350,7 @@ export function createRecipeGenerator(config: GenerationConfig) {
           slots.output,
           draft,
           request.startPage ?? true,
+          request.carriedNames,
         );
         return validated.ok
           ? { status: "ok", value: validated.plan }

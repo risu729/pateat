@@ -34,6 +34,7 @@ import {
   addCompletion,
   addHandler,
   appendPageSteps,
+  carriedSlotNames,
   claudeRefusalCategory,
   completionInstructions,
   completionPromptVersion,
@@ -42,6 +43,7 @@ import {
   createCompletionJudge,
   createEntryGenerator,
   createRecipeGenerator,
+  customSlotNames,
   entryGenerationInstructions,
   entryGenerationPromptVersion,
   entryRecipe,
@@ -75,6 +77,7 @@ import {
   readRevision,
   writeRecipe,
 } from "../recipe-store";
+import { recipeBindingSlots } from "../settings-store";
 
 // The recipe generation routes of ADR 0018: one page per call, appended to one recipe
 // per origin and start path (ADR 0016), and a page no recipe check explained judged for
@@ -406,6 +409,14 @@ export async function generateRecipe(
   // the `passkey` route of a recipe's first page only. A chooser branch's pages all follow
   // the click on the list, so none of them is a start page.
   const startPage = baseRecipe === undefined && chooser === undefined;
+  // A custom field the owner's saved bindings of this recipe already name keeps that name,
+  // on any page (ADR 0027, amended 2026-10-19), so a recipe generated again after its
+  // revocation still fits its bindings. Only names and field references are read, and the
+  // prompt stays the same.
+  const carriedNames =
+    !list && slots.some((slot) => slot.fieldName !== undefined)
+      ? carriedSlotNames(slots, await recipeBindingSlots(env.DB, scope.ownerId, origin, recipeId))
+      : new Map<string, string>();
   let raced: Extract<RecipeGenerationResult, { status: "recipe" | "unavailable" }> | undefined;
 
   const call = await callClaude(env, scope.ownerId, trace, {
@@ -426,7 +437,12 @@ export async function generateRecipe(
       },
     ),
     invoke: (model) =>
-      createRecipeGenerator({ model, ...roleConfig })({ observation, slots, startPage }),
+      createRecipeGenerator({ model, ...roleConfig })({
+        observation,
+        slots,
+        startPage,
+        carriedNames,
+      }),
     logValue: (value) => {
       if ("accountList" in value)
         return {
@@ -527,11 +543,11 @@ export async function generateRecipe(
     return recipe.success ? save(recipe.output) : failed("recipe-invalid");
   }
 
-  // Each custom-field slot of any identifier set, under the name the page's text gave it:
-  // the recipe stores only that name, and the extension maps it back to the offered field
-  // (ADR 0027). A requested slot has one name in every set and names are numbered apart,
-  // so each name appears once. A later page's validated plan has no alternatives and no
-  // passkey button (see `startPage` above).
+  // Each custom-field slot of any identifier set, under the name the page's text or the
+  // saved bindings gave it: the recipe stores only that name, and the extension maps it
+  // back to the offered field (ADR 0027). A requested slot has one name in every set and
+  // names are numbered apart, so each name appears once. A later page's validated plan has
+  // no alternatives and no passkey button (see `startPage` above).
   const alternatives = value.alternatives ?? [];
   const passkey = value.passkeyTarget;
   const customSlots = [
@@ -547,6 +563,16 @@ export async function generateRecipe(
   // that fills it again (ADR 0018).
   const used = new Set(baseRecipe ? recipeSlots(baseRecipe).map((slot) => slot.toLowerCase()) : []);
   if (customSlots.some(({ slot }) => used.has(slot.toLowerCase()))) return failed("recipe-invalid");
+  // A carried name never lets through a page its own text refuses: the names the page's
+  // text alone gives are checked as well (ADR 0027, amended 2026-10-19).
+  if (
+    used.size > 0 &&
+    carriedNames.size > 0 &&
+    [...customSlotNames(observation, slots, [value]).values()].some((name) =>
+      used.has(name.toLowerCase()),
+    )
+  )
+    return failed("recipe-invalid");
   const assembled = appendPageSteps(baseRecipe, {
     id: recipeId,
     origin,

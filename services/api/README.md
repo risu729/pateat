@@ -228,25 +228,35 @@ the path ending before it), or `{ check: "plan", reason }` with the plan check's
   ([ADR 0027](../../docs/adr/0027-per-account-login-routes.md)). Each offer the plan
   uses is named from the page's text for its element, such as `店番号`
   (`customSlotNames` in `packages/inference`), and the steps store that name instead of
-  the request's slot ID; the model gives no names. The answer that wrote the recipe adds
-  `customSlots: [{ slot, offered }]` for those slots; an answer with a recipe another
-  request stored has none. On a continuation, a name the `base` recipe already uses,
-  compared without case, answers `failed` with `recipe-invalid`. A start page that
-  offers several identifier sets (such as branch and account numbers, or a contract
-  number) may get up to 3 `alternatives`, each with its own `slots` and `steps`, stored
-  as further variants of the recipe's `password` route; the top-level `slots` and
-  `steps` are its first variant. Each variant fills exactly its slots, starts on the
-  start path and submits, so a recipe with alternatives is never continued. No element
-  is filled as different slots in different variants, and no two variants fill the same
-  elements. A continuation's answer, or a chooser branch page's, has its alternatives
-  checked and dropped before its slots are named, so they name none. `customSlots`
-  covers the custom slots of every variant, and the request log records the alternatives
-  with the plan (on a continuation or chooser-branch page, only in `answer`). The answer
-  may also name the start page's passkey sign-in button (`passkeyButton`); a candidate
-  with the button role whose label or locator names a passkey or security key, not named
-  like a registration and not used by any set or the account switch is stored as the
-  recipe's `passkey` route, any other is dropped without failing the call, and a
-  continuation's is dropped. The request log records the kept button.
+  the request's slot ID; the model gives no names. An offer whose field the owner's
+  saved bindings of the same origin and recipe ID already name (a `{ custom }` field of
+  the same name, `position` and `count`) keeps that binding's slot name, unless the
+  bindings give the field different names, the name is not a custom slot ID or equals a
+  built-in slot or request slot ID, or another offer the page fills would carry it too.
+  Every offer's carried name, filled on the page or not, is reserved before any page
+  text, so page names are numbered apart from it
+  ([ADR 0027](../../docs/adr/0027-per-account-login-routes.md#amendment-2026-10-19-slot-names-from-the-bindings)).
+  Only the bindings' slot names and field references are read, and the prompt is
+  unchanged. The answer that wrote the recipe adds `customSlots: [{ slot, offered }]`
+  for those slots; an answer with a recipe another request stored has none. On a
+  continuation, a name the `base` recipe already uses, compared without case, answers
+  `failed` with `recipe-invalid`, whether it is carried or the name the page's text
+  alone would give. A start page that offers several identifier sets (such as branch and
+  account numbers, or a contract number) may get up to 3 `alternatives`, each with its
+  own `slots` and `steps`, stored as further variants of the recipe's `password` route;
+  the top-level `slots` and `steps` are its first variant. Each variant fills exactly
+  its slots, starts on the start path and submits, so a recipe with alternatives is
+  never continued. No element is filled as different slots in different variants, and no
+  two variants fill the same elements. A continuation's answer, or a chooser branch
+  page's, has its alternatives checked and dropped before its slots are named, so they
+  name none. `customSlots` covers the custom slots of every variant, and the request log
+  records the alternatives with the plan (on a continuation or chooser-branch page, only
+  in `answer`). The answer may also name the start page's passkey sign-in button
+  (`passkeyButton`); a candidate with the button role whose label or locator names a
+  passkey or security key, not named like a registration and not used by any set or the
+  account switch is stored as the recipe's `passkey` route, any other is dropped without
+  failing the call, and a continuation's is dropped. The request log records the kept
+  button.
 - `POST /v1/recipes/generate` also takes `{ version: 1, observation }` without `slots`:
   an entry request ([ADR 0031](../../docs/adr/0031-sign-in-entry-pages.md)) for a page
   without a login form, whose observation has no fill candidate and no `accounts`, and

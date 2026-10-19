@@ -2266,7 +2266,9 @@ filling. Automatic generation sends the username's shape when every matching ite
 same rule ([ADR 0027](adr/0027-per-account-login-routes.md)). Their opaque request IDs
 (`custom-1`) carry no meaning; the corpus's bank cases send theirs the same way, and
 plan validation names each one a plan uses from the page's text for its field
-(`customSlotNames`, ADR 0027 amended on 2026-10-18). `valueShapeOf`
+(`customSlotNames`, ADR 0027 amended on 2026-10-18), or, in the service, with the name
+the owner's saved bindings of the recipe give that field (`carriedSlotNames`, ADR 0027
+amended on 2026-10-19). `valueShapeOf`
 (`packages/contracts/src/values.ts`) takes `{ source: "username" | "text", value }`, so
 a caller must resolve Linked fields and never pass Hidden, password or TOTP values.
 
@@ -2382,7 +2384,8 @@ Remaining M4 AI work:
   passkey, SSO), in the PR order the ADR lists. Delivery 1 is implemented: custom-field
   offers (Text, Hidden and Linked, by name and position) with Text shapes, slot IDs
   returned as `customSlots` (named by the model until 2026-10-18, since then from the
-  page's text for the field), the device-local generated slot
+  page's text for the field, or since 2026-10-19 from the saved bindings that already
+  name it), the device-local generated slot
   map, bindings built from another item's saved binding or that map, and the `hidden`
   slot kind. Unit, service and extension runtime tests cover it with synthetic data; no
   paid generation call and no real-account login has used it yet, and its check on SMBC

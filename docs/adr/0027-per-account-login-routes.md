@@ -80,6 +80,14 @@ replaces the model's names in
 alternatives' slot names under "Generation" in
 [Implementation choices](#implementation-choices); implemented.
 
+Amended on 2026-10-19 by the owner (decision card on keeping slot names when a recipe is
+generated again, answer 「A 前の名前を使う」, 01:22 UTC): a custom field that the
+owner's saved bindings of the recipe already name keeps that name on any generated page
+([slot names from the bindings](#amendment-2026-10-19-slot-names-from-the-bindings)),
+which amends [ADR 0018](0018-recipe-generation-route.md) (the service reads the
+bindings while generating) and [ADR 0012](0012-inference-request-log.md) (a logged
+result may hold a name the page does not show); implemented.
+
 Date: 2026-10-11
 
 ## Context
@@ -1010,3 +1018,71 @@ and a saved binding then no longer covers the recipe (`binding-slots-mismatch`) 
 is removed in `/manage`. A name in another script that looks like a built-in one
 (Cyrillic `раssword`) passes the check; it only reads confusingly. The names the five
 active production recipes already have stay valid.
+
+## Amendment 2026-10-19: slot names from the bindings
+
+At 00:58 UTC the owner asked that a recipe generated again be tied to the names it
+already has
+(「レシピの作り直しのときに、既にある名前と紐づけるようにすればいいのでは？」). Revoking
+a recipe in `/manage` leaves only its tombstone, and the recipe generated again has the
+same ID, so its saved bindings still apply; but a page whose wording changed gives new
+names, and those bindings then fail `binding-slots-mismatch`. The proposal (A: the
+service reuses the bound names; B: the extension renames the bindings) was reviewed by
+an independent subagent against the code, and the owner chose A at 01:22 UTC (「A
+前の名前を使う」).
+
+- **Bindings read.** For every generated page with a custom-field offer (a recipe's
+  first page, new or generated again, a continuation and a chooser branch's page), the
+  service reads the owner's saved bindings of the same origin and recipe ID, every
+  account's (`recipeBindingSlots`), and takes only each entry's slot name and field
+  reference, never the item or a value. The prompt is unchanged, and no model takes
+  part.
+- **Matching** (`carriedSlotNames`). A request slot with a `fieldName` matches an entry
+  whose field is `{ custom }` with that name and, for a duplicate name, the same
+  `position` and `count`; `username`, `password` and `totp` entries never match. A field
+  the bindings give different names, as two accounts may, carries none.
+- **Naming** (`customSlotNames`). A carried name counts only when it passes
+  `customSlotIdSchema` and, without case, equals no built-in slot and no request slot
+  ID; otherwise the slot is named from the page as before. Such names are reserved
+  before any page text, so a field whose text gives the same name is numbered apart
+  (`店番 2`), and a filled slot takes its carried name. The recipe never copies the
+  vault field name; a carried name is whatever the binding already had.
+- **Continuations.** A carried name equal to a slot of the recipe being continued fails
+  `recipe-invalid`, as a page name does, so a form shown again stays refused.
+
+The agent's choices, not confirmed by the owner:
+
+- The carried names of every offer of the request are reserved, also of offers the page
+  does not fill, so an unbound field of the first page cannot take the name a later page
+  carries and then make that page fail `recipe-invalid`. The cost: offers are the union
+  of every matching account's fields, so an unbound field the page fills whose text
+  equals another offer's bound name is numbered apart (`店番 2`), and a binding that
+  matched that field only because its page text was unchanged no longer does; that
+  account then gets `binding-slots-mismatch`. The service cannot tell this case from the
+  cross-page one, since it does not know which field filled a base slot. A recipe may
+  then also store `店番 2` without any `店番`, when the reserving offer never appears on
+  a later page. That departs from why the 2026-10-18 amendment names a later page's
+  slots from its first set alone (no `番号 2` stored without its `番号`, as a dropped
+  alternative would leave); this is accepted as cosmetic.
+- Two slots of one page that would carry the same name, without case, both take their
+  page names instead; the name stays reserved. When two different fields are bound to
+  the same name by different accounts and only one is filled, it carries the name; if
+  the other is filled on a later page, that page fails `recipe-invalid` where the page's
+  text alone would have named it.
+- Names are compared exactly across bindings, so `Branch` and `branch` disagree and
+  nothing is carried.
+- On a continuation, the names the page's text alone would give are also checked against
+  the recipe's slots, so a page refused before is refused when its field carries another
+  name.
+- The bindings are read once, before the model call; a stored settings document that
+  fails its schema fails the request as an internal error, as the settings route does.
+- The request log does not mark which names were carried.
+
+Consequences: a name now follows the bindings as well as the page, so an unchanged page
+gives the same names only while the bindings are unchanged; a name the model gave before
+2026-10-18 (`branch-number`) or an earlier page's wording stays while a binding uses it.
+Since the request names no item, the name may come from another account's binding of the
+same owner and recipe. It does not help when the account's vault field is named
+otherwise, when the start path (and so the recipe ID) changed, or for a field no binding
+names yet; there the 2026-10-18 consequence (`binding-slots-mismatch` until the binding
+is removed) still holds. Recipe repair, once built, can use the same matching.

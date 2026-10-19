@@ -37,6 +37,11 @@ Amended on 2026-10-18 by
 (owner, 08:04 UTC):
 [requests answered without a model call](#requests-answered-without-a-model-call) are
 logged too; implemented.
+Amended on 2026-10-19 by
+[ADR 0027](0027-per-account-login-routes.md#amendment-2026-10-19-slot-names-from-the-bindings)
+(owner, 01:22 UTC): generation reads the owner's saved bindings of the recipe to keep
+their slot names ([slot names from the bindings](#slot-names-from-the-bindings));
+implemented.
 
 Date: 2026-10-11
 
@@ -118,7 +123,9 @@ The route follows from these and from ADRs 0013 to 0016:
   leads to a page the recipe has no steps for, that page is sent and its steps are
   appended to the same recipe in a new revision.
 - The extension writes the slot-to-field bindings itself and uploads them with settings
-  sync; the service never sees item IDs.
+  sync; the service never sees item IDs in a generation request (since 2026-10-19 it
+  reads the stored bindings' slot names and field references while generating, never
+  their item IDs: [slot names from the bindings](#slot-names-from-the-bindings)).
 - Limits per owner: $100 a month (the ADR 0014 default, estimated from returned usage
   and a versioned price table), $5 a day (UTC), one call at a time, and the ADR 0016
   retry window per origin and path (24 hours until 2026-10-12, now 10 minutes),
@@ -324,6 +331,16 @@ The owner chose on 2026-10-18 at 08:04 UTC
 ([ADR 0012](0012-inference-request-log.md#amendment-2026-10-18-requests-answered-without-a-model-call)):
 a request answered without a model call, refused locally included, is logged with the
 code it was answered with, at no cost.
+
+### Slot names from the bindings
+
+The owner chose on 2026-10-19 at 01:22 UTC
+([ADR 0027](0027-per-account-login-routes.md#amendment-2026-10-19-slot-names-from-the-bindings))
+that a custom field the saved bindings already name keeps that name. The bindings the
+extension uploads with settings sync hold item IDs, and the generation route now reads
+them: of the bindings of the page's origin and recipe, it takes only each entry's slot
+name and field reference. The generation request still carries no item ID, and nothing
+of the bindings reaches the model.
 
 ## Consequences
 
