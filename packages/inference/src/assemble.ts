@@ -333,12 +333,16 @@ export function addHandler(
     // The label, the text and an id, name or test ID locator all count.
     if (handler.kind === "passkey" && registersPasskey(button))
       return { ok: false, reason: "registration" };
-    // The button's label and its text locator, whichever it has, both name the password
-    // choice; a recipe that already types the password never learns one (ADR 0048).
+    // The button's label and its text or accessible-name locator, whichever it has, all
+    // name the password choice; a recipe that already types the password never learns one
+    // (ADR 0048). A button named by its accessible name shows text the page did not send,
+    // such as "Select", which the extension checks before it presses it.
     if (handler.kind === "password") {
       const texts = [
         button.label,
-        button.target.by === "text" ? button.target.value : undefined,
+        button.target.by === "text" || button.target.by === "accessible-name"
+          ? button.target.value
+          : undefined,
       ].filter((text) => text !== undefined);
       if (!texts.length || !texts.every(namesPasswordChoice))
         return { ok: false, reason: "not-password" };

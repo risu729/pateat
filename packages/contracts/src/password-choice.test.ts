@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { namesPasswordChoice } from "./password-choice";
+import { namesOtherChoice, namesPasswordChoice, namesPasswordControl } from "./password-choice";
 
 describe("a button that goes on to the password (ADR 0048)", () => {
   it.each([
@@ -65,5 +65,36 @@ describe("a button that goes on to the password (ADR 0048)", () => {
     "別の方法を試す",
   ])("does not name it in %s", (text) => {
     expect(namesPasswordChoice(text)).toBe(false);
+  });
+});
+
+describe("a control named apart from its text (ADR 0048 amendment of 2026-10-19)", () => {
+  it("finds the refused words alone in a visible text", () => {
+    for (const text of ["Send code", "Mobile", "Use another way", "コードを送信"])
+      expect(namesOtherChoice(text)).toBe(true);
+    for (const text of ["Select", "Password", "Continue", "選択"])
+      expect(namesOtherChoice(text)).toBe(false);
+  });
+
+  it("takes a neutral text whose accessible name names the password", () => {
+    expect(namesPasswordControl("Select Password.", "Select")).toBe(true);
+    expect(namesPasswordControl("Select Password.", undefined)).toBe(true);
+    expect(namesPasswordControl("パスワードを選択", "選択")).toBe(true);
+  });
+
+  it("refuses a visible text with a refused word, whatever the name says", () => {
+    expect(namesPasswordControl("Select Password.", "Send code")).toBe(false);
+    expect(namesPasswordControl("Select Password.", "Mobile")).toBe(false);
+  });
+
+  it("refuses a name that does not name the password, whatever the text says", () => {
+    expect(namesPasswordControl("Select Phone", "Select")).toBe(false);
+    expect(namesPasswordControl("Continue", "Password")).toBe(false);
+  });
+
+  it("keeps the visible text's own rule for a control without a name", () => {
+    expect(namesPasswordControl(undefined, "Password")).toBe(true);
+    expect(namesPasswordControl(undefined, "Select")).toBe(false);
+    expect(namesPasswordControl(undefined, undefined)).toBe(false);
   });
 });

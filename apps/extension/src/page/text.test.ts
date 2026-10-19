@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { collapseText, isScriptButton, renderedText, shown } from "./text";
+import {
+  collapseText,
+  controlName,
+  isFragmentButton,
+  isScriptButton,
+  renderedText,
+  shown,
+} from "./text";
 
 /** Closed shadow roots, which a content script reaches through `dom.openOrClosedShadowRoot`. */
 const closedRoots = vi.hoisted(() => new WeakMap<Element, ShadowRoot>());
@@ -197,6 +204,87 @@ describe("isScriptButton", () => {
       true,
       true,
       true,
+    ]);
+  });
+});
+
+// ADR 0048 amendment of 2026-10-19.
+describe("isFragmentButton", () => {
+  const link = (attributes: string) => {
+    document.body.innerHTML = `<a id="x" ${attributes}>Select</a>`;
+    return isFragmentButton(document.getElementById("x")!);
+  };
+
+  it("takes a link to a fragment of its own document that opens in the same tab", () => {
+    for (const attributes of [
+      'href="#"',
+      'href="#password"',
+      'href=" #"',
+      'href="#" target="_self"',
+    ])
+      expect(link(attributes), attributes).toBe(true);
+  });
+
+  it("refuses a link that leaves, reloads, opens elsewhere, downloads or runs a script", () => {
+    for (const attributes of [
+      'href=""',
+      'href="?next#x"',
+      'href="/elsewhere#x"',
+      'href="#" target="_blank"',
+      'href="#" target="login"',
+      'href="#" download',
+      // A script link is a script button already.
+      'href="#" onclick="void 0"',
+      'href="#" role="button"',
+      'href="javascript:void(0)"',
+      // A link without `href`.
+      'name="x"',
+    ])
+      expect(link(attributes), attributes).toBe(false);
+  });
+
+  it("reads the document's <base> as the browser does", () => {
+    const base = document.createElement("base");
+    document.head.append(base);
+    try {
+      base.target = "_blank";
+      expect(link('href="#"')).toBe(false);
+      expect(link('href="#" target="_self"')).toBe(true);
+      base.removeAttribute("target");
+      base.href = "https://elsewhere.example/";
+      expect(link('href="#"')).toBe(false);
+      base.href = location.href;
+      expect(link('href="#"')).toBe(true);
+    } finally {
+      base.remove();
+    }
+  });
+});
+
+describe("controlName", () => {
+  it("reads aria-labelledby, else aria-label, of a shown control only", () => {
+    document.body.innerHTML = `<span id="t1">Use</span><span id="t2">password</span>
+      <button id="a" aria-labelledby="t1 t2" aria-label="Ignored">Select</button>
+      <a id="b" href="#" aria-label=" Select   Password. ">Select</a>
+      <button id="c" aria-label="Hidden" hidden>Select</button>
+      <button id="d">Select</button>
+      <button id="e" aria-label="${"x".repeat(121)}">Select</button>
+      <a id="f" href="/next" aria-label="Leave">Leave</a>
+      <input id="g" aria-label="A field">
+      <button id="h" aria-labelledby="missing" aria-label="Fallback">Select</button>`;
+    expect(
+      ["a", "b", "c", "d", "e", "f", "g", "h"].map((id) =>
+        controlName(document.getElementById(id)!),
+      ),
+    ).toEqual([
+      "Use password",
+      "Select Password.",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "Fallback",
     ]);
   });
 });

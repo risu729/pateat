@@ -4,6 +4,7 @@ import {
   loginObservationSchema,
   loginLinkTargetSchema,
   loginTargetSchema,
+  namesPasswordControl,
   observedAutocompleteTokens,
   type LoginObservation,
   type LoginMarkerTarget,
@@ -13,13 +14,16 @@ import {
 import * as v from "valibot";
 import { shortNumericInput } from "../login/inputs";
 import type { observationGaps } from "../login/wire";
-import { autocompleteTokens, linkPath } from "../page/targets";
+import { autocompleteTokens, linkPath, namedControls } from "../page/targets";
 import { observedPath, redactsPath, tokenSegment } from "./path";
 import {
   buttonText,
   collapseText,
+  controlName,
+  controlText,
   fieldName,
   hasNativeButton,
+  isFragmentButton,
   isRoleButton,
   isScriptButton,
   isScriptLink,
@@ -287,6 +291,7 @@ function locatorIndex(document: Document): LocatorIndex {
       "link-text",
       "label",
       "link-path",
+      "accessible-name",
     ].map((key) => [key, new Map()]),
   );
   const count = (key: string, value: string) => {
@@ -317,6 +322,10 @@ function locatorIndex(document: Document): LocatorIndex {
   for (const input of document.querySelectorAll("input")) {
     const name = fieldName(input);
     if (name !== undefined) count("label", name);
+  }
+  for (const element of document.querySelectorAll(namedControls)) {
+    const name = controlName(element);
+    if (name !== undefined) count("accessible-name", name);
   }
   return index;
 }
@@ -507,6 +516,28 @@ function contentTarget(
       : index.get("text")!.get(text) === 1;
   if (!unique) return undefined;
   const target = { by: "text" as const, value: text };
+  return v.is(loginTargetSchema, target) ? target : undefined;
+}
+
+/**
+ * The accessible-name locator of a control on a signed-in page that may go on to the
+ * password (ADR 0048 amendment of 2026-10-19): its {@link controlName}, when exactly one
+ * shown control of the page has that name, counted as the executor sees the page, it
+ * holds no number and redaction leaves it unchanged, as a field's visible name (ADR
+ * 0037), and it and the control's visible text pass `namesPasswordControl`, so a phone's
+ * "Select Phone - +61 4•• ••• 123" or a "Send code" button is never located this way.
+ */
+function passwordChoiceTarget(element: Element, index: LocatorIndex): LoginTarget | undefined {
+  const name = controlName(element);
+  if (
+    name === undefined ||
+    /\p{Number}/u.test(name) ||
+    observedText(name) !== name ||
+    index.get("accessible-name")!.get(name) !== 1 ||
+    !namesPasswordControl(name, controlText(element))
+  )
+    return undefined;
+  const target = { by: "accessible-name" as const, value: name };
   return v.is(loginTargetSchema, target) ? target : undefined;
 }
 
@@ -1700,7 +1731,11 @@ function mayBeSignIn(input: HTMLInputElement): boolean {
  * and links are only possible markers; those past the limit or without a locator are
  * left out, and an ID another load may change (`changingId`) locates no element but a
  * field that may be a sign-in field. A link is located by its text too, as for an
- * account switch, and the executor looks for the completion marker the same way. A path
+ * account switch, and the executor looks for the completion marker the same way. A button
+ * that nothing else names alone, or a link to a fragment of the page, that may go on to
+ * the password is located by its accessible name (`passwordChoiceTarget`), such a link as a
+ * `button`, so the judge can name it as a `password` handler's button (ADR 0048
+ * amendment of 2026-10-19); no other page's description uses that locator. A path
  * segment that may carry a token is sent as `REDACTED_PATH_SEGMENT` (`observedPath`). A
  * page with a code field also carries up to three texts near the first one
  * (`nearCodeTexts`), and a page without one up to three texts near its buttons
@@ -1787,7 +1822,30 @@ function describeSignedIn(document: Document): ObservationResult {
     )
   )
     gap ??= "unlocated-field";
-  const ranked = byLandmark(located(markers), openModals(document));
+  // A button or link that may go on to the password is located by its accessible name when
+  // nothing else names it alone, and a link to a fragment of the page by that name first,
+  // as a button, since only that locator counts it as one (ADR 0048 amendment of
+  // 2026-10-19).
+  const markersFound = markers.flatMap((entry) => {
+    const { element } = entry.draft;
+    const named = () => passwordChoiceTarget(element, index);
+    const fragment = isFragmentButton(element);
+    const target = fragment
+      ? (named() ?? located([entry])[0]?.target)
+      : (located([entry])[0]?.target ?? named());
+    if (!target) return [];
+    return [
+      {
+        ...entry,
+        draft:
+          target.by === "accessible-name"
+            ? { ...entry.draft, role: "button" as const }
+            : entry.draft,
+        target,
+      },
+    ];
+  });
+  const ranked = byLandmark(markersFound, openModals(document));
   const chosen = [
     ...fieldsFound.slice(0, maxCandidates),
     ...ranked.slice(0, Math.max(0, maxCandidates - fieldsFound.length)),

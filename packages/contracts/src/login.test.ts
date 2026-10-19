@@ -686,6 +686,102 @@ describe("second-factor page handlers (ADR 0027)", () => {
         parseLoginRecipe(withHandlers([{ ...password(), field: { by: "id", value: "x" } }])),
       ).toThrow();
     });
+
+    describe("named by its accessible name (ADR 0048 amendment of 2026-10-19)", () => {
+      const named = { by: "accessible-name", value: "Select Password." } as const;
+      const parses = (value: unknown) => v.safeParse(loginRecipeSchema, value).success;
+
+      it("names a password handler's button and clicks it as an advance", () => {
+        const handlers = [password("/identity", named)];
+        expect(parseLoginRecipe(withHandlers(handlers)).handlers).toEqual(handlers);
+        expect(handlerSteps(password("/identity", named))).toEqual([
+          { kind: "click", path: "/identity", target: named, purpose: "advance" },
+        ]);
+        // Its value takes the text locator's form: collapsed, at most 120 characters.
+        for (const value of ["", " Select", "Select  Password", "x".repeat(121)])
+          expect(v.safeParse(loginTargetSchema, { by: "accessible-name", value }).success).toBe(
+            false,
+          );
+      });
+
+      it("names no other element of a recipe", () => {
+        const base = recipe();
+        const steps = base.steps.map((step, index) =>
+          index === 1 ? { ...step, target: named } : step,
+        );
+        const withPasskey = {
+          ...base,
+          passkey: { path: "/identity", target: named },
+        };
+        for (const value of [
+          { ...base, steps },
+          withPasskey,
+          { ...base, completion: [{ target: named }] },
+          { ...base, completion: [{ target: { by: "id", value: "out" } }, { target: named }] },
+          {
+            ...base,
+            completion: [{ target: { by: "id", value: "out" }, absent: [named] }],
+          },
+          { ...base, rejection: named },
+          { ...base, accountSwitch: named },
+          withHandlers([passkeyHandler("/webauthn", named)]),
+          withHandlers([
+            {
+              kind: "totp",
+              path: "/two-factor",
+              field: { by: "id", value: "otp" },
+              target: named,
+            },
+          ]),
+        ])
+          expect(parses(value)).toBe(false);
+        // A wait or assert step never names one either.
+        expect(
+          parses({
+            ...base,
+            steps: [
+              { kind: "assert", path: "/identity", target: named, present: true },
+              ...base.steps,
+            ],
+          }),
+        ).toBe(false);
+        // A fill never takes it, as a field is never named so.
+        expect(
+          parses({
+            ...base,
+            steps: [
+              {
+                kind: "fill",
+                path: "/identity",
+                fields: [{ slot: "branch", target: named }],
+              },
+              ...base.steps.slice(1),
+            ],
+          }),
+        ).toBe(false);
+      });
+
+      it("is never an entry's or a list control's locator", () => {
+        expect(
+          v.safeParse(loginEntryRecipeSchema, {
+            version: 1,
+            id: "entry",
+            revision: 1,
+            origin: "https://bank.example",
+            entry: { path: "/", target: named },
+          }).success,
+        ).toBe(false);
+        expect(
+          v.safeParse(loginChooserRecipeSchema, {
+            version: 1,
+            id: "chooser",
+            revision: 1,
+            origin: "https://bank.example",
+            chooser: { path: "/", other: named },
+          }).success,
+        ).toBe(false);
+      });
+    });
   });
 
   describe("the totp handler", () => {

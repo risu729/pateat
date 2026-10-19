@@ -411,6 +411,22 @@ describe("withoutUsernames", () => {
     expect(link.ok && link.observation.candidates.map((candidate) => candidate.id)).toEqual(["c1"]);
   });
 
+  it("leaves out a button whose accessible-name locator holds a username (ADR 0048 amendment of 2026-10-19)", () => {
+    const named = observation({
+      candidates: [
+        { id: "c1", role: "button", target: { by: "text", value: "Cancel" }, label: "Cancel" },
+        {
+          id: "c2",
+          role: "button",
+          target: { by: "accessible-name", value: "Password for taro" },
+          label: "Password for taro",
+        },
+      ],
+    });
+    const kept = withoutUsernames(named, ["taro"]);
+    expect(kept.ok && kept.observation.candidates.map((candidate) => candidate.id)).toEqual(["c1"]);
+  });
+
   it("refuses a page left with nothing to describe", () => {
     const only = observation({
       candidates: [{ id: "c1", role: "button", target: { by: "text", value: "Continue as taro" } }],

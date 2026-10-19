@@ -309,15 +309,69 @@ function scriptHref(link: HTMLAnchorElement): boolean {
   // A `data:` or `vbscript:` link does not navigate either: Chrome blocks top-level
   // `data:` navigations and has no `vbscript:`, so a click runs only the page's script.
   if (["javascript:", "data:", "vbscript:"].includes(link.protocol)) return true;
-  // As URL parsing does: tabs and newlines go anywhere, C0 controls and spaces at the
-  // ends. A `<base href>` naming another document would make `#` navigate; that is rare.
-  const href = link
-    .getAttribute("href")!
-    .replace(/[\t\n\r]/gu, "")
-    .replace(/^[\0-\x20]+|[\0-\x20]+$/gu, "");
+  // A `<base href>` naming another document would make `#` navigate; that is rare.
+  const href = parsedHref(link);
   return (
     (href === "" || href.startsWith("#")) && (link.hasAttribute("onclick") || roleButton(link))
   );
+}
+
+/**
+ * A link's `href` as URL parsing reads it: tabs and newlines go anywhere, C0 controls and
+ * spaces at the ends.
+ */
+const parsedHref = (link: HTMLAnchorElement) =>
+  (link.getAttribute("href") ?? "")
+    .replace(/[\t\n\r]/gu, "")
+    .replace(/^[\0-\x20]+|[\0-\x20]+$/gu, "");
+
+/**
+ * Where a link opens: its own `target`, else the document's first `<base target>`, as the
+ * browser chooses; `null` when neither names one.
+ */
+function linkTarget(link: HTMLAnchorElement): string | null {
+  return (
+    link.getAttribute("target") ??
+    link.ownerDocument.querySelector("base[target]")?.getAttribute("target") ??
+    null
+  );
+}
+
+/** Whether a link opens in its own tab: its {@link linkTarget} is none or `_self`. */
+export function opensHere(link: HTMLAnchorElement): boolean {
+  const target = linkTarget(link);
+  return target === null || target.trim().toLowerCase() === "_self";
+}
+
+/**
+ * True for an `<a href>` that only moves to a fragment of its own document, whose click a
+ * page script may handle without any `onclick` attribute or role {@link isScriptButton}
+ * sees, as `<a href="#" aria-label="Select Password.">Select</a>` on a page that asks how
+ * to confirm the sign-in (ADR 0048 amendment of 2026-10-19): its `href` starts with `#`,
+ * it resolves to the document's URL apart from the fragment (a `<base href>` naming
+ * another document makes it navigate, so it does not count), it opens in its own tab
+ * ({@link opensHere}, also through `<base target>`) and has no `download`. An empty `href`
+ * reloads the page and never counts, nor does a script link. Only an accessible-name
+ * locator, which only a `password` handler's button uses, counts such a link as a button;
+ * everywhere else it stays a link.
+ */
+export function isFragmentButton(element: Element): element is HTMLAnchorElement {
+  if (
+    !(element instanceof HTMLAnchorElement) ||
+    !element.hasAttribute("href") ||
+    element.hasAttribute("download") ||
+    !parsedHref(element).startsWith("#") ||
+    isScriptButton(element) ||
+    !opensHere(element)
+  )
+    return false;
+  const url = URL.parse(element.href);
+  // Read past any element the document names `URL`.
+  const page = URL.parse(Reflect.get(Document.prototype, "URL", element.ownerDocument) as string);
+  if (!url || !page) return false;
+  url.hash = "";
+  page.hash = "";
+  return url.href === page.href;
 }
 
 const roleButton = (element: Element) =>
@@ -446,31 +500,80 @@ export function fieldName(element: Element): string | undefined {
     !shown(element)
   )
     return undefined;
-  const readLimit = fieldNameLimit * 4;
-  // Undefined when the text is cut short, which could collapse to a prefix of it.
-  const read = (elements: readonly Element[]) => {
-    let raw = "";
-    for (const part of elements) {
-      raw += ` ${renderedText(part, readLimit) ?? ""}`;
-      if (raw.length > readLimit) return undefined;
-    }
-    return collapseText(raw);
-  };
+  return firstName([
+    () => readNames(labelledBy(element)),
+    () => readNames([...(element.labels ?? [])]),
+    () => collapseText(element.getAttribute("aria-label") ?? ""),
+    () => collapseText(element.placeholder),
+  ]);
+}
+
+/** The elements `element`'s `aria-labelledby` names, in its order. */
+function labelledBy(element: Element): Element[] {
   const document = element.ownerDocument;
-  const referenced = (element.getAttribute("aria-labelledby") ?? "").split(/\s+/u).flatMap((id) => {
+  return (element.getAttribute("aria-labelledby") ?? "").split(/\s+/u).flatMap((id) => {
     const target = id ? document.getElementById(id) : null;
     return target ? [target] : [];
   });
-  const sources = [
-    () => read(referenced),
-    () => read([...(element.labels ?? [])]),
-    () => collapseText(element.getAttribute("aria-label") ?? ""),
-    () => collapseText(element.placeholder),
-  ];
+}
+
+/**
+ * The rendered text of `elements`, collapsed; undefined when it is cut short, which could
+ * collapse to a prefix of it.
+ */
+function readNames(elements: readonly Element[]): string | undefined {
+  const readLimit = fieldNameLimit * 4;
+  let raw = "";
+  for (const part of elements) {
+    raw += ` ${renderedText(part, readLimit) ?? ""}`;
+    if (raw.length > readLimit) return undefined;
+  }
+  return collapseText(raw);
+}
+
+/**
+ * The first name of `sources` that is not empty, when it has at most 120 code units; a
+ * name cut short or longer than that gives none, and a later source is never tried in its
+ * place.
+ */
+function firstName(sources: readonly (() => string | undefined)[]): string | undefined {
   for (const source of sources) {
     const name = source();
     if (name === undefined) return undefined;
     if (name) return name.length <= fieldNameLimit ? name : undefined;
   }
   return undefined;
+}
+
+/**
+ * A control an `{ by: "accessible-name" }` locator may name (ADR 0048 amendment of
+ * 2026-10-19): a button, a script button, or a link to a fragment of its own document
+ * ({@link isFragmentButton}).
+ */
+export function isNamedControl(element: Element): element is HTMLElement {
+  return isButton(element) || isScriptButton(element) || isFragmentButton(element);
+}
+
+/**
+ * The accessible name an `{ by: "accessible-name" }` locator compares (ADR 0048 amendment
+ * of 2026-10-19): for a shown {@link isNamedControl}, the rendered text of the elements
+ * its `aria-labelledby` names, else its `aria-label`, the first that is not empty,
+ * collapsed. A control that is not shown, or whose first name is longer than 120 code
+ * units, has none; a later source is never tried in its place. Its visible text, an
+ * image's `alt` and its `title` are not its name here.
+ */
+export function controlName(element: Element): string | undefined {
+  if (!isNamedControl(element) || !shown(element)) return undefined;
+  return firstName([
+    () => readNames(labelledBy(element)),
+    () => collapseText(element.getAttribute("aria-label") ?? ""),
+  ]);
+}
+
+/**
+ * The visible text of a shown {@link isNamedControl}: a button's {@link buttonText}, or a
+ * fragment link's {@link linkText}.
+ */
+export function controlText(element: Element): string | undefined {
+  return buttonText(element) ?? (isFragmentButton(element) ? linkText(element) : undefined);
 }

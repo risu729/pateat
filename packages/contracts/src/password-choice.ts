@@ -27,3 +27,28 @@ export function namesPasswordChoice(text: string): boolean {
   const words = text.replaceAll(/[^\p{L}\p{N}]+/gu, " ");
   return passwordWords.test(words) && !otherWords.test(words);
 }
+
+/**
+ * Whether a text holds one of the words that make a button another way or another task,
+ * the ones {@link namesPasswordChoice} refuses: "Send code" and "Mobile" do, "Select" and
+ * "Password" do not.
+ */
+export function namesOtherChoice(text: string): boolean {
+  return otherWords.test(text.replaceAll(/[^\p{L}\p{N}]+/gu, " "));
+}
+
+/**
+ * Whether a control names the password as the way to confirm the sign-in (ADR 0048 and its
+ * 2026-10-19 amendment), from its accessible name (`aria-labelledby` text, else
+ * `aria-label`) and its visible text, either of which may be missing. With a name, the name
+ * must pass {@link namesPasswordChoice} and the visible text must hold none of the words
+ * it refuses ({@link namesOtherChoice}), so a neutral "Select" named "Select Password."
+ * passes and a "Send code" named "Select Password." does not. Without one, the visible
+ * text must pass {@link namesPasswordChoice}, as before the amendment. The extension checks
+ * the live control with it when it enters a `password` handler and again just before the
+ * press.
+ */
+export function namesPasswordControl(name: string | undefined, text: string | undefined): boolean {
+  if (name === undefined) return text !== undefined && namesPasswordChoice(text);
+  return namesPasswordChoice(name) && (text === undefined || !namesOtherChoice(text));
+}

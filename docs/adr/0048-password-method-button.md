@@ -10,6 +10,9 @@ proposal's second question separately, so passkey buttons stay as they are (see
 site). Amends [ADR 0027](0027-per-account-login-routes.md) (a third handler
 kind, what the judge may name, and the order of handlers shown together) and
 [ADR 0018](0018-recipe-generation-route.md) (a continuation after that handler's click).
+Amended on 2026-10-19 by the owner (01:26 UTC, option A1): the handler's button may be
+named by its accessible name, and the Context's "Password" and "Mobile" buttons are
+corrected ([amendment](#amendment-controls-told-apart-by-their-accessible-names)).
 
 Date: 2026-10-18
 
@@ -22,7 +25,9 @@ confirm it's you": no inputs, a "Password" button and a "Mobile" button, and the
 Cancel and "Protect your account". The judge answered `unclear`, and the login ended
 there; since [#571](https://github.com/risu729/pateat/pull/571) such an end is
 undecided (yellow "!", no saved default account). The owner pressed "Password"
-themselves.
+themselves. (Corrected on 2026-10-19: "Password" and "Mobile" are row headings, and the
+controls beside them both read "Select"; see the
+[amendment](#amendment-controls-told-apart-by-their-accessible-names).)
 
 Before this ADR the code stopped there because:
 
@@ -199,3 +204,120 @@ amendment). This ADR does not amend ADR 0036.
 - **D. Pateat finds the button by its words alone, without the model.** No cost, but it
   misses across languages and wordings and risks taking "Forgot password" for the
   choice.
+
+## Amendment: controls told apart by their accessible names
+
+Accepted by the owner on 2026-10-19 at 01:26 UTC, on a decision card that chose option
+A1 of the proposal `designs/select-by-accessible-name-proposal-ja.md` in the project
+files, 「A1 名前で区別」 (tell them apart by name). Another AI checked the proposal
+against the code (main `440bc8a`) before it was put to the owner. Option A2 was not
+chosen. Implemented (local tests only; not yet checked on a real site). Also amends
+[ADR 0037](0037-fields-by-visible-name.md) (a locator for controls beside the one for
+fields).
+
+### Correction
+
+The Context calls "Password" and "Mobile" buttons. They are not. On 2026-10-18 at 08:11
+UTC, in the owner's Chrome on build `4356c9a` (with
+[#746](https://github.com/risu729/pateat/pull/746)), UniSuper's login filled the
+username, clicked Next, and the judge answered `challenge` on "Let's confirm it's you";
+nothing was pressed. The page, as that Chrome read it (no values recorded), holds a
+`<form>` with the row headings `<h3>Password</h3>` and `<h3>Mobile</h3>`, each followed
+by a control that reads "Select":
+
+```html
+<a href="#" class="button select-factor link-button" data-se="button"
+   aria-label="Select Password.">Select</a>
+```
+
+The other one's `aria-label` is "Select Phone - " and a masked phone number. Both show
+at 63 by 40 pixels and have no `id`, `name`, `data-testid`, `onclick` or `role`; the
+page's script handles the click. The markup appears to be the Okta Sign-In Widget's (an
+inference, not checked with Okta).
+
+### Why it stopped
+
+A synthetic page with the same markup reproduced it: the judge's description held only
+five links, such as Cancel and Contact us, never either "Select", because
+
+1. no locator names either one alone: they share their text and `data-se`, and `#` is
+   no path;
+2. an `<a href="#">` without `onclick` or `role="button"` is a link, and only a button
+   can be learned; and
+3. the word list checked the text, and "Select" names no password.
+
+Since the two could not be told apart, the wrong one could not have been pressed.
+
+### Decision
+
+1. **A control's accessible name.** A new locator,
+   `{ "by": "accessible-name", "value": "Select Password." }`, names a control by the
+   rendered text of the elements its `aria-labelledby` names, else its `aria-label`,
+   with whitespace collapsed; a name over 120 characters gives none, and only a shown
+   control has one. (The proposal wrote `by: "name"`, which is already the `name`
+   attribute's locator.) It is counted apart from a field's visible name
+   ([ADR 0037](0037-fields-by-visible-name.md)'s `label`), so a control and a field with
+   the same name never make each other's locator ambiguous.
+2. **Where.** Only as a `password` handler's button. A route step, a `passkey` or `totp`
+   handler, a signed-in marker or its `absent` elements, the rejection, an account
+   switch, a sign-in entry, a list of accounts and a passkey route never take it, and
+   the observation allows it on button candidates only.
+3. **When the extractor gives it.** Only in the description of a page sent to the
+   judge, and only to a shown control that no `id`, `name`, `data-testid` or text
+   locator names alone (a fragment link, below, tries it first), when exactly one shown
+   button, input, link or element with a `role` on the page has that name, the name
+   holds no number, redaction would not change it, and it passes the check of item 4.
+   So "Select Phone - …" is never offered.
+4. **The words.** When the handler is entered (`password-choice`) and again just before
+   the press (`passwordChoice`), the extension checks a control with an accessible name
+   by that name and its rendered text: the name must pass the word list, and the text,
+   if any, must hold none of the list's refused words (`namesPasswordControl` in
+   `packages/contracts`). A control without one is checked by its text, as before.
+   "Select" is neutral and passes; a "Send code" control labelled "Select Password." is
+   not pressed. The service checks the candidate's label and the locator's value with
+   the word list, as it does a text locator.
+5. **Fragment links (A1).** An `<a>` whose `href`, as the browser parses it, starts with
+   `#`, whose URL without the fragment is the document's (so a `<base href>` counts),
+   that opens in the same tab (its own `target`, or else `<base target>`, is absent or
+   `_self`) and has no `download` attribute counts as a button only for a `password`
+   handler named by its accessible name: in the extractor, the readiness check, the
+   word check and the click. An empty `href` never counts. Everywhere else such a link
+   stays a link, as the owner's rule of 2026-10-11 has it.
+6. **The judge's instructions** gain one sentence: a button named by its accessible
+   name may show only neutral text, such as Select, and is judged by that name. The
+   prompt version changes, so UniSuper's page, judged on 2026-10-18 at 08:11 UTC, is
+   judged again: its next login makes one judge call and one continuation call.
+7. **Deployment.** The service must accept the new locator before an extension that
+   sends it, as for ADR 0037: CI deploys the service when the change is merged, before
+   the owner installs the new extension build.
+
+Claude chose the locator's name, that the extractor gives it only on the judged page,
+and that a fragment link located some other way stays a link; the owner has not
+confirmed them separately.
+
+### Consequences
+
+- On such a page the judge sees the "Select" whose name names the password as a button
+  and can name it; later logins press it by that name, then type the password. The
+  other "Select" never gets a locator, since its name holds digits.
+- Since 2026-10-19 a control with an accessible name is judged by it: an icon button
+  labelled "Password" now passes, and a "Password" button whose `aria-label` names
+  something else no longer does.
+- The accessible name, which the page need not show, is stored in the recipe. The number
+  and redaction rules keep phone numbers and addresses out of it.
+- When the site rewords the name, the handler no longer finds its control and the login
+  stops at that page, as a field's reworded visible name does (ADR 0037).
+- A fragment link that a unique text or `id` names is still a link and is not learned.
+- A `totp` handler whose field or button only an accessible name would locate is dropped
+  (`name-locator`), and a signed-in marker named by one is refused (`invalid-recipe`).
+
+### Alternatives
+
+- **A2.** Count such fragment links as buttons on every page, so a generated recipe's
+  click steps could press them too. It changes the 2026-10-11 rule that a `#` or empty
+  `href` is a button only with `onclick` or `role="button"`. Not chosen.
+- **B. By the heading before it.** A locator for "the Select after the Password
+  heading" works without an accessible name, but a reordered or added row would press
+  another row's control, and it needs more code than A.
+- **C. Keep it as is.** The login stops there with the yellow "!", and the owner presses
+  "Select" and types the password.

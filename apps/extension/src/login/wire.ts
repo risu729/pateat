@@ -28,8 +28,9 @@ export type TargetState = v.InferOutput<typeof targetStateSchema>;
  * must also be visible as the page's description reads it: not hidden from assistive
  * technology, transparent unless it fades in, tiny or moved before the page's start
  * (ADR 0018), as an advance's next step on its own path is measured (ADR 0013).
- * `password-choice` takes a shown button whose rendered text names the password as the
- * way to confirm the sign-in (`namesPasswordChoice`, ADR 0048), enabled or not.
+ * `password-choice` takes a shown button whose accessible name and rendered text name the
+ * password as the way to confirm the sign-in (`namesPasswordControl`, ADR 0048 and its
+ * 2026-10-19 amendment), enabled or not.
  */
 export const targetRequirementSchema = v.picklist([
   "writable",
@@ -359,9 +360,10 @@ export const commandSchema = v.variant("type", [
     code: v.optional(v.strictObject({ submit: loginTargetSchema })),
     /**
      * With a `password` handler's click (ADR 0048): the button is pressed only while its
-     * rendered text, read in the same task as the press, names the password as the way to
-     * confirm the sign-in (`namesPasswordChoice`); otherwise nothing is pressed and the step
-     * fails as one whose target is missing.
+     * accessible name and rendered text, read in the same task as the press, name the
+     * password as the way to confirm the sign-in (`namesPasswordControl`); otherwise nothing
+     * is pressed and the step fails as one whose target is missing. A click whose target is
+     * named by its accessible name is pressed only with it.
      */
     passwordChoice: v.optional(v.literal(true)),
     /**

@@ -105,7 +105,9 @@ function ready(readiness: LoginReadiness): boolean {
       const found = matches(target);
       if (found.length !== 1) return false;
       if (readiness.require === "writable") return writable(found[0]);
-      if (readiness.require === "clickable") return clickable(found[0]);
+      // A control named by its accessible name may be a link to a fragment of its page.
+      if (readiness.require === "clickable")
+        return clickable(found[0], { fragment: target.by === "accessible-name" });
       return true;
     }) &&
     // A later step is no start while the page also asks for an identifier the step does not
@@ -1119,12 +1121,19 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           element = choice.click === command.list.click ? choice.element : undefined;
           if (!element) return fail("structural-mismatch", "target-missing");
         } else {
+          // A control named by its accessible name is only ever a `password` handler's
+          // button, which may be a link to a fragment of the page (ADR 0048 amendment of
+          // 2026-10-19).
+          const named = step.target.by === "accessible-name";
+          if (named && !command.passwordChoice)
+            return fail("structural-mismatch", "target-missing");
           const found = matches(step.target);
           const only = found.length === 1 ? found[0] : undefined;
-          if (!clickable(only)) return fail("structural-mismatch", "target-missing");
+          if (!clickable(only, { fragment: named }))
+            return fail("structural-mismatch", "target-missing");
           // A `password` handler's button whose text no longer names the password, as one
           // the page rendered again with other text, is never pressed (ADR 0048).
-          if (command.passwordChoice && !passwordChoice(only))
+          if (command.passwordChoice && !passwordChoice(only, { fragment: named }))
             return fail("structural-mismatch", "target-missing");
           element = only;
         }

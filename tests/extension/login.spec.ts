@@ -835,6 +835,40 @@ for (const [name, query, chooseClicks] of [
     }
   });
 
+test("presses the Select whose accessible name names the password, never the other (ADR 0048 amendment of 2026-10-19)", async () => {
+  const fixture = await startLoginFixture();
+  try {
+    await withLoginExtension(async (context, _worker, id) => {
+      const options = await context.newPage();
+      await configure(options, id, fixture.origin);
+      const page = await context.newPage();
+      await page.goto(`${fixture.origin}/method-choice-named`);
+      await expect(page.locator("#authenticated")).toBeVisible({ timeout: 15_000 });
+      expect(await choiceEvidence(page)).toEqual({
+        identityClicks: 1,
+        chooseClicks: 1,
+        mobileClicks: 0,
+        submitClicks: 1,
+        identityMatched: "true",
+        passwordMatched: "true",
+      });
+      await expect
+        .poll(async () =>
+          JSON.stringify(await send(options, { version: 1, type: "login.probe.status" })),
+        )
+        .toContain('"authenticated"');
+      const status = JSON.stringify(
+        await send(options, { version: 1, type: "login.probe.status" }),
+      );
+      expect(status).toContain('"recipeId":"demo-method-choice-named"');
+      expect(status).toContain('"handlers":[{"index":0,"start":2}]');
+      expect(status).not.toContain("Pateat-synthetic-only!");
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
 test("never presses a learned button whose text does not name the password (ADR 0048)", async () => {
   test.setTimeout(60_000);
   const fixture = await startLoginFixture();

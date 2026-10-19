@@ -1155,15 +1155,21 @@ button such as "Password" on a page that asks how to confirm the sign-in, as an
 and is entered only by a login on the `password` route without a stop, that is not
 fill-only (ADR 0021 D after a logout), in the tab's top document on the
 recipe's own origin, and that has not filled its password yet; never while one of the
-route's fill fields on that path shows writable; and only when the button's rendered
-text names the password by the shared word list (`namesPasswordChoice` in
-`packages/contracts`, English and Japanese), so a "Forgot password?", "One-time
-password" or "Use Touch ID or password" button is never pressed. The content script
-reads that text when the handler is entered (`password-choice`) and again in the
-click's own task, just before the press (`passwordChoice`); a button whose text no
-longer passes there is not pressed and the step fails as one whose target is missing
-(`target-missing`). The service learns one only from a button of the judged page whose
-label and text locator pass the same list, that is no route step's or other handler's
+route's fill fields on that path shows writable; and only when the button names the
+password by the shared word list (`namesPasswordControl` in `packages/contracts`,
+English and Japanese), so a "Forgot password?", "One-time password" or "Use Touch ID or
+password" button is never pressed. A button with an accessible name (`aria-labelledby`,
+else `aria-label`) names it when that name passes the list and its rendered text, if
+any, holds none of the list's refused words, so a "Select" labelled "Select Password."
+passes and a "Send code" with that label does not (since 2026-10-19, ADR 0048's
+amendment); one without names it by its rendered text. The content script reads them
+when the handler is entered (`password-choice`) and again in the click's own task, just
+before the press (`passwordChoice`); a button that no longer passes there is not
+pressed and the step fails as one whose target is missing (`target-missing`). A
+`password` handler's button may be named by its accessible name and may then be a link
+to a fragment of its own page ([locators](#declarative-recipes-and-ai)). The service
+learns one only from a button of the judged page whose label and text or
+accessible-name locator pass the same list, that is no route step's or other handler's
 element there, for a recipe with no `password` handler on that path and no step that
 fills the password (`not-password`, `password-filled`, `step-target`, `duplicate`,
 `not-on-page`, `origin-mismatch` or `invalid-recipe` otherwise), and never from a stop's
@@ -1915,7 +1921,8 @@ A step names its element with an allowlisted locator, never CSS: an `id` or `nam
 ASCII except whitespace and control characters, as in `ctl00$Main$txtUserId` or
 `user[login]`), a `data-testid` (`[A-Za-z0-9_.:-]`), an `<input>`'s `autocomplete`
 token, a fillable input's visible name
-([ADR 0037](adr/0037-fields-by-visible-name.md), below), or, for a click or a state
+([ADR 0037](adr/0037-fields-by-visible-name.md), below), a `password` handler's
+button's accessible name (ADR 0048's amendment, below), or, for a click or a state
 check only, a button's text:
 `{ "by": "text", "value": "ログイン" }` names the `<button>` whose rendered text (or,
 without any, its images' `alt`), the `<input type="submit|button">` whose value, or the
@@ -2076,6 +2083,31 @@ sign-in field gets it; markers never do.
 「メールアドレス」 and 「パスワード」, so its recipe failed on every visit and was
 generated again each time (2026-10-13). A site that rewords the field gets its recipe
 generated again.
+
+A control is named by its accessible name only as a `password` handler's button (owner,
+2026-10-19 01:26 UTC, option A1,
+[ADR 0048's amendment](adr/0048-password-method-button.md#amendment-controls-told-apart-by-their-accessible-names)):
+`{ "by": "accessible-name", "value": "Select Password." }` names the one shown button,
+input, link or element with a `role` whose name equals the value. The name is the
+rendered text of the elements its `aria-labelledby` names, else its `aria-label`,
+collapsed as button text is; one over 120 characters gives none. It is counted apart
+from a field's visible name. The contract refuses it everywhere else: route steps,
+`passkey` and `totp` handlers, signed-in markers and their `absent` elements, the
+rejection, an account switch, a passkey route, a sign-in entry and a list of accounts.
+The extractor offers it only in a description sent to the judge, only for a shown
+control that no `id`, `name`, `data-testid` or text locator names alone, and only when
+no other control on the page has that name, it holds no number, redaction leaves it
+unchanged, and it passes the handler's word check (below), so two controls that both
+read "Select" are told apart by `aria-label="Select Password."` and the other one,
+whose name holds a phone number, gets no locator. Such a button may be a fragment link:
+an `<a>` whose `href`, as parsed, starts with `#` and leads to the document's own URL
+(a `<base href>` counts), that opens in the same tab (its own `target`, or else
+`<base target>`, absent or `_self`) and has no `download` attribute. Only for a target
+named by its accessible name do the extractor, the readiness check, the word check and
+the click count such a link as a button; the extractor tries the name first for it and
+describes it as a button. Everywhere else such a link stays a link (option A2, which
+would have counted it as a button on every page, was not chosen). UniSuper's choice of
+how to verify shows its two controls this way (2026-10-18).
 
 A text locator is stored in the recipe, unlike observation labels, which only reach
 inference. Redaction keeps email addresses and long numbers out of it, but a button such

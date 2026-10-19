@@ -2949,6 +2949,164 @@ describe("extractSignedInObservation", () => {
     page(`<p>Loading</p>`);
     expect(extractSignedInObservation()).toEqual({ ok: false, reason: "no-candidates" });
   });
+
+  // A page that asks how to confirm the sign-in, as read in the owner's Chrome on
+  // 2026-10-18 (values not kept): row headings, and in each row a link to `#` that shows
+  // "Select", which only its accessible name tells apart and whose click a page script
+  // handles (ADR 0048 amendment of 2026-10-19).
+  describe("controls that show the same text and differ by their accessible names", () => {
+    const style = `<style>.factor{display:inline-block;width:63px;height:40px}</style>`;
+    const select = (name: string, extra = "") =>
+      `<a href="#" class="factor" data-se="button" aria-label="${name}"${extra}>Select</a>`;
+    const choice = (
+      password = select("Select Password."),
+      phone = select("Select Phone - +61 4•• ••• 123"),
+    ) =>
+      page(
+        `${style}<main><h1>Let's confirm it's you</h1><form>
+          <div><h3>Password</h3>${password}</div>
+          <div><h3>Mobile</h3>${phone}</div>
+        </form><a href="/signout">Cancel</a></main>
+        <footer><a href="/contact">Contact us</a> <a href="/terms">Terms</a></footer>`,
+        "Sign in",
+      );
+    const named = { by: "accessible-name", value: "Select Password." } as const;
+    const byName = (observation: LoginObservation) =>
+      observation.candidates.filter((candidate) => candidate.target.by === "accessible-name");
+
+    it("offers the password one as a button located by its name, never the phone one", () => {
+      choice();
+      const observation = signedIn();
+      expect(observation.complete).toBe(true);
+      expect(summary(observation)).toEqual([
+        { role: "button", target: named, label: "Select Password.", group: "f1" },
+        { role: "link", target: { by: "href", value: "/signout" }, label: "Cancel" },
+        { role: "link", target: { by: "text", value: "Contact us" }, label: "Contact us" },
+        { role: "link", target: { by: "text", value: "Terms" }, label: "Terms" },
+      ]);
+      // The executor finds the same control by it.
+      expect(findTargets(document, named)).toEqual([document.querySelector("a.factor")]);
+    });
+
+    it("never locates a name that holds a number", () => {
+      choice(select("Select Password 2"), select("Select Phone"));
+      expect(byName(signedIn())).toEqual([]);
+      choice(select("Select Password."), select("Select Password 2"));
+      expect(byName(signedIn()).map(({ target }) => target)).toEqual([named]);
+    });
+
+    it("offers nothing when two shown controls share the name", () => {
+      choice(select("Select Password."), select("Select Password."));
+      expect(byName(signedIn())).toEqual([]);
+      // Nor when the other one is a button that shows text of its own.
+      choice(
+        select("Select Password."),
+        `<button type="button" aria-label="Select Password.">Continue</button>`,
+      );
+      expect(byName(signedIn())).toEqual([]);
+    });
+
+    it("never counts a hidden control with the name", () => {
+      for (const hidden of [
+        select("Select Password.", " hidden"),
+        select("Select Password.", ' style="display:none"'),
+        `<button type="button" aria-label="Select Password." hidden>Select</button>`,
+      ]) {
+        choice(select("Select Password."), hidden);
+        expect(
+          byName(signedIn()).map(({ target }) => target),
+          hidden,
+        ).toEqual([named]);
+      }
+    });
+
+    it("needs a name that names the password and a text with no other way", () => {
+      for (const password of [
+        select("Select Phone"),
+        `<button type="button" aria-label="Select Password.">Send code</button>`,
+        `<a href="#" aria-label="Select Password.">Use mobile</a>`,
+      ]) {
+        choice(password, select("Select Phone"));
+        expect(byName(signedIn()), password).toEqual([]);
+      }
+      // A name from `aria-labelledby` comes before `aria-label`.
+      choice(
+        `<span id="row">Password</span><button type="button" aria-labelledby="row" aria-label="Select Phone">Select</button>`,
+        `<button type="button" aria-label="Select Phone">Select</button>`,
+      );
+      expect(byName(signedIn()).map(({ target }) => target)).toEqual([
+        { by: "accessible-name", value: "Password" },
+      ]);
+    });
+
+    it("keeps a button's unique text and attribute locators first", () => {
+      choice(
+        `<button type="button" aria-label="Select Password.">Use password</button>`,
+        `<button type="button" data-testid="phone" aria-label="Select Phone">Select</button>`,
+      );
+      expect(summary(signedIn()).slice(0, 2)).toEqual([
+        {
+          role: "button",
+          target: { by: "text", value: "Use password" },
+          label: "Select Password.",
+          group: "f1",
+        },
+        {
+          role: "button",
+          target: { by: "test-id", value: "phone" },
+          label: "Select Phone",
+          group: "f1",
+        },
+      ]);
+    });
+
+    it("counts a link as such a button only when it stays on its document in the same tab", () => {
+      // Fragment links with their own `onclick` are script buttons already.
+      const onclick = ' onclick="void 0"';
+      choice(select("Select Password.", onclick), select("Select Phone", onclick));
+      expect(summary(signedIn())[0]).toEqual({
+        role: "button",
+        target: named,
+        label: "Select Password.",
+        group: "f1",
+      });
+      for (const extra of [' target="_blank"', " download", ' target="other"']) {
+        choice(select("Select Password.", extra), select("Select Phone"));
+        expect(byName(signedIn()), extra).toEqual([]);
+      }
+      // An empty `href` reloads the page.
+      choice(`<a href="" aria-label="Select Password.">Select</a>`, select("Select Phone"));
+      expect(byName(signedIn())).toEqual([]);
+      const base = document.createElement("base");
+      document.head.append(base);
+      try {
+        // A `<base target>` opens it elsewhere, and a `<base href>` naming another document
+        // makes `#` navigate there.
+        base.target = "_blank";
+        choice();
+        expect(byName(signedIn())).toEqual([]);
+        base.removeAttribute("target");
+        base.href = "https://elsewhere.example/";
+        choice();
+        expect(byName(signedIn())).toEqual([]);
+        // One that names this document keeps it here.
+        base.href = location.href;
+        choice();
+        expect(byName(signedIn()).map(({ target }) => target)).toEqual([named]);
+      } finally {
+        base.remove();
+      }
+    });
+
+    it("is never offered on a login page", () => {
+      page(
+        `${style}<form><input id="pw" type="password">
+          ${select("Select Password.")}${select("Select Phone")}
+          <button id="go" type="submit">Sign in</button></form>`,
+      );
+      expect(byName(observe())).toEqual([]);
+    });
+  });
 });
 
 describe("extractAccountListObservation", () => {
