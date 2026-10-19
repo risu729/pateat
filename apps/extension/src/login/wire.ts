@@ -48,10 +48,13 @@ export type TargetRequirement = v.InferOutput<typeof targetRequirementSchema>;
 /**
  * The check that decided a target's state, for the log only (ADR 0019): `ok` for `unique`,
  * `missing`, `matches-2` to `matches-9` for several elements (9 or more), or why the one
- * element failed `require`: not a writable input (`not-writable`) or a clickable button
- * (`not-clickable`), or, with `described-writable` or `described-clickable`, the first
- * reason the page's description would not see it (`presenceMiss`: `hidden-attr`,
- * `not-rendered`, `off-start`, `transparent`, `tiny`); `unusable` for another requirement.
+ * element failed `require`: for an input or button requirement, not seen by the content
+ * script's visibility check, under a `hidden` attribute (`hidden-attr`) or not rendered
+ * otherwise (`not-rendered`), or seen but disabled, read-only or no such control
+ * (`not-writable`, `not-clickable`); or, with `described-writable` or
+ * `described-clickable`, the first reason the page's description would not see it
+ * (`presenceMiss`: `hidden-attr`, `not-rendered`, `off-start`, `transparent`, `tiny`);
+ * `unusable` for another requirement.
  */
 export const targetCheckSchema = v.picklist([
   "ok",

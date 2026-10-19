@@ -59,6 +59,11 @@ const fake = vi.hoisted(() => {
           switchable?: true;
           mutation?: "none" | "possible";
         },
+    /**
+     * Whether the document answers an advance with its next step's measurement; without
+     * it, as a document that took none, the advance cannot be confirmed on its path.
+     */
+    measures: true,
     /** The document's answer to clicking an account switch. */
     switchReply: { ok: true } as { ok: boolean },
     /** What the document says a chooser login would click on its list (ADR 0028). */
@@ -277,7 +282,7 @@ const fake = vi.hoisted(() => {
             | { require: string; targets: { value: string }[] }
             | undefined;
           const before =
-            next && state.present
+            next && state.present && state.measures
               ? next.targets.map((entry) => stateOf(entry.value, next.require))
               : undefined;
           await state.onExecute?.(message, _tabId);
@@ -16222,6 +16227,9 @@ describe("an advance whose next step is on the same path (ADR 0013)", () => {
         alert: false,
       };
     });
+    afterEach(() => {
+      fake.state.measures = true;
+    });
 
     it("names a password input that stayed transparent after Next", async () => {
       fake.state.unusable = new Set(["login"]);
@@ -16282,6 +16290,25 @@ describe("an advance whose next step is on the same path (ADR 0013)", () => {
           advancePath: "other",
         }),
       ]);
+    });
+
+    it("names an advance whose document answered without the measurement as unmeasured", async () => {
+      fake.state.measures = false;
+      // The password form shows after Next, but nothing says it was not ready before.
+      swapForms();
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = start(identifierFirst(), { report });
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("reconciling", "unknown-submit"), 15_000);
+      expect(states(report)).toEqual([
+        expect.objectContaining({
+          advanceBefore: "unmeasured",
+          advanceAfter: "unique",
+          advanceWhy: "ok",
+          advancePath: "same",
+        }),
+      ]);
+      expect(executed()).toEqual(["fill:email", "click:next"]);
     });
 
     it("leaves the fields out when the advance is confirmed", async () => {

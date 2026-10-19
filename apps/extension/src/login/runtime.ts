@@ -4196,8 +4196,12 @@ export function createLoginRuntime(
       (Date.now() - run.answeredAt < REQUEST_HOLD_MS || (await showsNothing(run)))
     )
       return current(run) ? "held" : undefined;
-    // An advance on the next step's own path that was never confirmed says why in the log.
-    const advance = inPlace && next ? await advanceMiss(run, inPlace, next.path) : undefined;
+    // An advance on the next step's own path that was never confirmed says why in the log,
+    // in a top document, the only one whose sign-in state is read.
+    const advance =
+      inPlace && next && run.live.topUrl === undefined
+        ? await advanceMiss(run, inPlace, next.path)
+        : undefined;
     if (!current(run) || terminal(run.metadata)) return undefined;
     const state = effectful(run.metadata) ? await signInState(run, advance) : undefined;
     if (!current(run) || terminal(run.metadata)) return undefined;

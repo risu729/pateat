@@ -111,9 +111,12 @@ export function targetState(
 /**
  * The check that decided {@link targetState} for one target, for the log only (ADR 0019):
  * `ok` when it is `unique`, `missing`, `matches-N` for several elements (9 standing for 9
- * or more), or why the one element is `unusable`: the input or button test
- * (`not-writable`, `not-clickable`), then, for a `described-…` requirement, the first
- * reason the page's description does not see it ({@link presenceMiss}). Never any text or
+ * or more), or why the one element is `unusable`: for an input or button requirement, an
+ * element the content script's visibility check does not see, under a `hidden` attribute
+ * (`hidden-attr`) or not rendered otherwise (`not-rendered`), then one it sees that is
+ * disabled, read-only or no such control (`not-writable`, `not-clickable`); then, for a
+ * `described-…` requirement, the first reason the page's description does not see it
+ * ({@link presenceMiss}). Never any text or
  * value of the page.
  */
 export function targetCheck(
@@ -128,13 +131,14 @@ export function targetCheck(
   if (targetState(document, target, require, links) === "unique") return "ok";
   const [element] = found;
   const fragment = byName(target);
-  if ((require === "writable" || require === "described-writable") && !writable(element))
-    return "not-writable";
-  if (
-    (require === "clickable" || require === "described-clickable") &&
-    !clickable(element, { fragment })
-  )
-    return "not-clickable";
+  const writing = require === "writable" || require === "described-writable";
+  const clicking = require === "clickable" || require === "described-clickable";
+  // The input and button tests require the content script's visibility first: an element
+  // it does not see is named by why, apart from one that shows but takes no input.
+  if ((writing || clicking) && element instanceof HTMLElement && !visible(element))
+    return element.closest("[hidden]") ? "hidden-attr" : "not-rendered";
+  if (writing && !writable(element)) return "not-writable";
+  if (clicking && !clickable(element, { fragment })) return "not-clickable";
   if (
     (require === "described-writable" || require === "described-clickable") &&
     element instanceof HTMLElement

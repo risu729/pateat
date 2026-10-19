@@ -596,9 +596,9 @@ than in this repository.
   seconds, stays transparent, or already showed before Next. No change between `4356c9a`
   and `cfce11f` touches that decision. Since 2026-10-19 such an entry also names, as
   codes, the password step's states before Next and when it settled, the check that
-  decided them and whether the path changed ([local log](architecture.md#local-log);
-  agent change, local tests and the synthetic browser test only). Check UNSW in the
-  owner's Chrome again and read those codes.
+  decided the state when it settled and whether the path changed
+  ([local log](architecture.md#local-log); agent change, local tests and the synthetic
+  browser test only). Check UNSW in the owner's Chrome again and read those codes.
 - A login control that is a link whose `javascript:` URL alone submits never submitted:
   on 2026-10-17 (build `d29951d`, 01:55 UTC) the owner's Chrome filled SMBC Trust Bank's
   sign-on page and clicked サインオン, and Chrome refused the URL under the content

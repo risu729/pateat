@@ -83,6 +83,16 @@ describe("targetState", () => {
       "matches-2",
     );
     expect(check(`<input id="pw"><input id="pw"><input id="pw">`.repeat(4))).toBe("matches-9");
+    // Not seen at all is told apart from shown but taking no input.
+    expect(check(`<div hidden><input id="pw" type="password"></div>`)).toBe("hidden-attr");
+    expect(check(`<input id="pw" type="password" hidden>`, "writable")).toBe("hidden-attr");
+    expect(check(`<div style="display:none"><input id="pw" type="password"></div>`)).toBe(
+      "not-rendered",
+    );
+    expect(check(`<input id="pw" type="password" style="visibility:hidden">`)).toBe("not-rendered");
+    expect(
+      check(`<button id="pw" type="button" style="display:none">Next</button>`, "clickable"),
+    ).toBe("not-rendered");
     expect(check(`<input id="pw" type="password" disabled>`)).toBe("not-writable");
     expect(check(`<input id="pw" type="password" readonly>`)).toBe("not-writable");
     expect(
