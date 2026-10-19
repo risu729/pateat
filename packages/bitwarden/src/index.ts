@@ -29,6 +29,7 @@ export {
   matchBitwardenLoginUris,
   maxTargetUrlLength,
   type BitwardenUriMatchContext,
+  type RegexUriAnswer,
   type UriMatchEvaluation,
   type UriMatchOptions,
 } from "./uri";

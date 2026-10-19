@@ -14,10 +14,13 @@ Pateat's side is `createEvaluator` in `packages/bitwarden/src/uri.ts`
 ([Architecture](architecture.md)). Official code is pinned at
 [`8246ae9`](https://github.com/bitwarden/clients/tree/8246ae9c9a484a0a69f8b27203034555fb872523).
 
-- Regex URIs (`match` 4) are not evaluated. The official clients run
+- Regex URIs (`match` 4) are evaluated as the official clients evaluate them,
   `new RegExp(uri, "i").test(pageUrl)`
-  ([login-uri.view.ts](https://github.com/bitwarden/clients/blob/8246ae9c9a484a0a69f8b27203034555fb872523/libs/common/src/vault/models/view/login-uri.view.ts#L177-L186))
-  in the browser extension's background, for example while building the inline menu
+  ([login-uri.view.ts](https://github.com/bitwarden/clients/blob/8246ae9c9a484a0a69f8b27203034555fb872523/libs/common/src/vault/models/view/login-uri.view.ts#L177-L186)),
+  but in a nested Worker stopped after 5 seconds for one page URL
+  ([ADR 0056](adr/0056-regex-uris-in-a-nested-worker.md), owner's choice 2026-10-19).
+  The official clients run the pattern in the browser extension's background, for
+  example while building the inline menu
   ([overlay.background.ts](https://github.com/bitwarden/clients/blob/8246ae9c9a484a0a69f8b27203034555fb872523/apps/browser/src/autofill/background/overlay.background.ts#L583)),
   with no timeout, input limit or pattern check; their only guard is a warning that the
   mode risks exposing credentials
@@ -25,15 +28,12 @@ Pateat's side is `createEvaluator` in `packages/bitwarden/src/uri.ts`
   A backtracking pattern takes exponentially longer as the page URL grows: testing
   `new RegExp("(a+)+$", "i")` against `https://example.com/?q=` followed by `a`s and a
   `!` doubles in time with each extra `a`, and took 18 seconds with 30 of them in Node
-  26 on 2026-10-19. Pateat matches inside the crypto Worker that holds the vault
-  session, so one such pattern would block every login. Such a URI is reported as
-  `unsupported-uri-match` on every page but an `http:` one, where only URIs saved with
-  `http://` count, so its item counts as unevaluated rather than as no match. While that
-  item is eligible, every HTTPS page where Pateat would choose the account by URI match
-  refuses as `item-uri-unevaluated`, even when that item is for another site; a saved
-  default or popup pick refuses only when its own item has such a URI. Proposal, not
-  decided: evaluate Regex with a linear-time engine of the RE2 family, which refuses
-  backreferences and lookaround, or in a separate Worker stopped after a time limit.
+  26 on 2026-10-19. Pateat holds the vault session in the crypto Worker, which such a
+  pattern would block. A pattern still running after 5 seconds, and the patterns after
+  it, are `regex-unevaluated` on that page, so their item counts as unevaluated rather
+  than as no match, and the running one is not tried again for that page URL. A pattern
+  that finishes in the official clients may therefore leave its item unevaluated in
+  Pateat.
 - When equivalent domains or the organization default-match policy cannot be read
   consistently, affected URIs are reported unavailable. The official clients continue
   with Domain as the default

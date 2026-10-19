@@ -1450,12 +1450,13 @@ the connection setup section.
 
 ## URI candidate matching progress
 
-The isolated provider matcher uses the approved tldts dependency for public and
-private suffix handling after WHATWG URL normalization. It implements ordinary
-Domain/Host/Exact/StartsWith/Never modes and direct equivalent-domain groups;
-Regex remains explicitly unsupported. Output contains candidate indices, modes,
-a descriptive target origin and per-URI unavailable reasons, without raw URLs.
-The trusted host must supply URIs and effective settings from the same selected
+The isolated provider matcher uses the approved tldts dependency for public and private
+suffix handling after WHATWG URL normalization. It implements ordinary
+Domain/Host/Exact/StartsWith/Never modes and direct equivalent-domain groups; Regex runs
+in a nested Worker with a 5-second limit
+([ADR 0056](adr/0056-regex-uris-in-a-nested-worker.md)). Output contains candidate
+indices, modes, a descriptive target origin and per-URI unavailable reasons, without raw
+URLs. The trusted host must supply URIs and effective settings from the same selected
 account/snapshot.
 
 Raw prefix/equality behavior follows the pinned provider. Matching is not a fill
@@ -1477,9 +1478,10 @@ applies. A retained context that no longer readmits, for example after an IDNA t
 change, is dropped: fields keep working, and URI matching reports unavailable until the
 next accepted sync.
 
-The owner asked for official-client URI rules. The remaining differences (Regex, no
-Domain fallback on unavailable context, no access to the local default setting) are
-recorded in the [architecture](architecture.md) for later reconsideration.
+The owner asked for official-client URI rules. The remaining differences (Regex time
+limit, no Domain fallback on unavailable context, no access to the local default
+setting) are recorded in
+[Differences from the official Bitwarden clients](bitwarden-differences.md).
 
 The crypto Worker captures login URI rules while verifying every received item,
 skipping deleted and archived items, and answers fixed snapshot-bound match requests
@@ -1582,7 +1584,8 @@ real Bitwarden Cloud US account in their Chrome
   (ADR 0013). Several matches refuse as `account-ambiguous`, none as `default-not-set`
   (which asks for a vault check,
   [ADR 0025](adr/0025-automatic-vault-sync.md#after-no-item-matches));
-  an unevaluated item (including Regex rules) as `item-uri-unevaluated`; and a
+  an unevaluated item (including a Regex rule that ran out of time) as
+  `item-uri-unevaluated`; and a
   connection that cannot answer, or a locked vault, as `vault-unavailable`. Each
   document asks once and reuses the answer while every connection's snapshot is
   unchanged, so a new match from a later sync stops the attempt; every policy check

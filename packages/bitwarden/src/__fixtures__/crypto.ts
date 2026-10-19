@@ -153,6 +153,24 @@ export const uriCiphertexts = {
     "2.AAECAwQFBgcICQoLDA0ODw==|VNsRO6s4lU+gJqwb1jVU6HkxkKscb8/+/HCcGZeMPOs=|ZBurW8nQVzrENMrvGkQV1nhYR6j/dSKEkyxi/U+bjYk=",
 } as const;
 
+// Regex URI patterns and their checksums under the same user key and fixed IV, made the same
+// way with Node AES/HMAC (the method reproduces `uriCiphertexts.uri` exactly). The second
+// pattern backtracks catastrophically on a long run of "a" followed by another character.
+export const regexUriCiphertexts = {
+  // ^https://synthetic\.example\.test/login$
+  exact: {
+    uri: "2.AAECAwQFBgcICQoLDA0ODw==|1VMgxEGOT9s7x5rXK8+VOmyeYgRv2eu9nOY6dtFEKmYN4e02PEspBFgpjeCmV5KH|ubM9fB+C/jWHtSRqAS43/NM3kn6jfotBH9JGZsXpHyU=",
+    checksum:
+      "2.AAECAwQFBgcICQoLDA0ODw==|CrHzb3MBXdvm2o4sdeqGJTd2Bwl/Cuh0ffhm3hf42psCMRPyjglozgGBqnZHXD79|IQFGjn1CfkE3wDDm4glvXyTKCedNckyE571htcRIn+Q=",
+  },
+  // (a+)+$
+  backtracking: {
+    uri: "2.AAECAwQFBgcICQoLDA0ODw==|VWqdI9YG3ejbW8eqzdHSzQ==|1ycJPbbARFnCtXMqeLwu9rV7OyF0BQGUQBVDpnBRrbo=",
+    checksum:
+      "2.AAECAwQFBgcICQoLDA0ODw==|ceHBRDyGlcwOUY2qmTY0S6GOd9xbzuj6o4XjhSgMQ3twP3q2btDBSrdOiS1RAboY|QPEv1KSJ80DGZX98/5Z9k6HD2l5YjYN5Dy3rnJogai4=",
+  },
+} as const;
+
 // Synthetic P-256 PKCS8 generated locally with Node, stored only in this test fixture.
 // Its fixed encrypted fields were constructed with Node AES/HMAC independently of SDK.
 export const fidoPrivateKey =
