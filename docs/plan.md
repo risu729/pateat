@@ -1821,17 +1821,22 @@ one after pairing, for 15 minutes. A lookup does not wait for the network or for
 and disconnect requests. The serialized cache is limited to 2 MiB of the extension's 10
 MB `storage.local` quota, which it shares with settings, login attempts and other
 extension state (the vault cache is in IndexedDB); a page that would exceed it is not
-fully applied. Sync walks the remaining pages within the shared 50-page budget,
-applying only revocations with the old persisted cursor, then retries the blocked
-page once from that cursor. Active changes, including later reactivations, stay
-pending until their entire page fits; revocations beyond the bounded walk wait for
-a later sync. If the retry still does not fit, the settings page says the recipes
-no longer fit
-([ADR 0013 amendment](adr/0013-service-held-recipes-and-settings.md#amendment-revocations-while-the-cache-is-full-2026-10-14),
-[issue #544](https://github.com/risu729/pateat/issues/544)). How many recipes that
-holds, and the service cap that keeps an owner within it, are under [service
-limits](architecture.md#service-limits). A 401 marks the device as rejected: syncing
-stops, login keeps using the cached recipes, and the settings page says to pair again.
+fully applied. Sync walks later current heads within the shared 50-page budget,
+saving revocations and newer non-growing updates to already cached recipes with
+the old applied cursor. A separate device-bound checkpoint resumes lookahead
+across syncs and worker restarts, including freeing changes beyond the first
+50 pages, without adding bytes to the capped recipe cache. Safe cache writes
+precede checkpoint advancement. One additional fresh request retries the
+blocked page from the applied cursor; pending active changes wait until their
+entire page fits. The settled current-head feed can therefore recover when its
+active documents fit the service cap, while storage and transport failures
+retain earlier durable reductions. Disconnect clearing waits for pending
+writes and removes both records
+([ADR 0013 amendment](adr/0013-service-held-recipes-and-settings.md#amendment-durable-recovery-under-cache-pressure-2026-10-14)).
+How many recipes the cache holds and the implemented service cap are under
+[service limits](architecture.md#service-limits). A 401 marks the device as
+rejected: syncing stops, login keeps using the cached recipes, and the settings
+page says to pair again.
 Lookup uses `selectLoginRecipe` for a new attempt and the recipe ID for a resumed one;
 two recipes starting on one page find no recipe. Unit tests use synthetic pages and
 in-memory storage; sync against the deployed service has no recorded check yet.

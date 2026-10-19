@@ -136,12 +136,15 @@ one more answers 409 `recipe_limit`. Active head documents also share a 1.5 MiB 
 byte cap, checked in the claim statement itself on creation, republishing or a growing
 update. Equal and shrinking updates and revocations always pass; tombstones and
 historical revisions do not count. The shared device cache limit is 2 MiB, leaving
-margin for its envelope. A page of new recipes can still overflow a device holding
-older large revisions even when shrinking updates are already on later feed pages.
-The cursor stays unchanged, so retries of that feed repeat the additions page and can
-remain blocked indefinitely without a further service change or cache reset that lets
-it fit. The same batch deletes revisions older than the newest 10, and every earlier
-revision when the write revokes the recipe.
+margin for its envelope. New recipes can initially overflow a stale device cache before
+later shrinking current heads are reached. The extension saves removals and non-growing
+newer heads during bounded lookahead, checkpoints its scan separately and resumes across
+syncs and worker restarts without advancing past pending active changes. A settled feed
+under this cap can therefore recover; see
+[ADR 0013](../../docs/adr/0013-service-held-recipes-and-settings.md#amendment-durable-recovery-under-cache-pressure-2026-10-14).
+The feed contains current heads, rather than every historical revision: a write moves
+its recipe's head to a new increasing sequence. The same batch deletes revisions older
+than the newest 10, and every earlier revision when the write revokes the recipe.
 
 ## Claude credentials
 
