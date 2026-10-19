@@ -1,5 +1,6 @@
 import * as v from "valibot";
 import {
+  bitwardenEmail,
   normalizeBitwardenProfile,
   type AuthenticationTokens,
   type BitwardenProfile,
@@ -57,7 +58,7 @@ const base = {
   profile: v.unknown(),
   binding: v.strictObject({
     userId: uuid,
-    email: v.pipe(v.string(), v.minLength(1), v.maxLength(320), v.email()),
+    email: bitwardenEmail,
   }),
   encryptedAccount: encryptedAccountSchema,
 };

@@ -89,6 +89,31 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
+test.each(["o'brien@example.test", "tom&jerry@example.test", "name@example.x"])(
+  "an email the official Bitwarden login accepts, %s, is sent to the worker",
+  async (email) => {
+    const { client } = await mount();
+    await fillNew();
+    await page.getByLabelText("Email", { exact: true }).fill(email);
+    await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+    await vi.waitFor(() => expect(client.begin).toHaveBeenCalledTimes(1));
+    expect(client.begin.mock.calls[0]![0]).toMatchObject({ kind: "new", email });
+  },
+);
+
+test.each(["first..last@example.test", ".first@example.test", "名前@example.test"])(
+  "an email the official Bitwarden login refuses, %s, never starts a permission prompt",
+  async (email) => {
+    const { client } = await mount();
+    await fillNew();
+    await page.getByLabelText("Email", { exact: true }).fill(email);
+    await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+    await expect.element(page.getByText(/valid email and master password/)).toBeVisible();
+    expect(client.requestProviderPermission).not.toHaveBeenCalled();
+    expect(client.begin).not.toHaveBeenCalled();
+  },
+);
+
 test("permission denial clears the password and sends no sign-in request", async () => {
   const client = mockClient();
   client.requestProviderPermission.mockResolvedValue(false);

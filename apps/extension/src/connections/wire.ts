@@ -1,9 +1,10 @@
+import { bitwardenEmail } from "@pateat/bitwarden";
 import * as v from "valibot";
 import type { SetupReply } from "./types";
 
 export const SETUP_PORT = "pateat.bitwarden-setup.v1";
 const id = v.pipe(v.string(), v.minLength(1), v.maxLength(200));
-const email = v.pipe(v.string(), v.minLength(1), v.maxLength(320), v.email());
+const email = bitwardenEmail;
 const password = v.pipe(v.string(), v.minLength(1));
 const environment = v.variant("kind", [
   v.strictObject({ kind: v.literal("cloud"), region: v.picklist(["us", "eu"]) }),

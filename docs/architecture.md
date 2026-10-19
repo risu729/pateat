@@ -409,9 +409,13 @@ code on 2026-10-17; each ends in a refusal rather than a guess:
   such as Duo, YubiKey OTP, FIDO2/WebAuthn or a recovery code. The page cannot ask
   Bitwarden to send an email code, so email needs a code already received, and it never
   asks Bitwarden to remember the device, so every password sign-in asks for a code.
-- Email addresses that Valibot's `email()` check refuses, such as ones with an
-  apostrophe, `&`, a non-ASCII local part or a one-letter top-level domain, although
-  Bitwarden may accept them.
+- Email addresses that the official Bitwarden login page refuses. The settings page and
+  the worker use that page's rule (Angular's `Validators.email`), as `bitwardenEmail` in
+  `packages/bitwarden/src/email.ts`: only ASCII, no leading, trailing or repeated `.`
+  before the `@`, at most 64 characters before the `@` and 254 in all. So
+  `o'brien@example.com`, `tom&jerry@example.com` and `name@example.x` work, while
+  `名前@example.com` and `user@例え.jp` do not, although the Bitwarden server can
+  register an account at a non-ASCII domain.
 - A sign-in or sync that takes longer than 120 seconds: the settings page's request
   times out and closes its connection to the worker, which cancels the work. A
   verification challenge expires after 5 minutes without a countdown.
