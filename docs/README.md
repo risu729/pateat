@@ -16,14 +16,15 @@ from a synced cache ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)).
 
 ## Reading order and ownership
 
-| Document                                       | Owns                                                            | Update rule                                                        |
-| ---------------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------ |
-| [Architecture](architecture.md)                | Product scope, proposed runtime boundaries and contracts        | Update with changes; identify unimplemented behavior               |
-| [Implementation plan](plan.md)                 | Ordered work, acceptance gates and open decisions               | Track milestone evidence here; no second roadmap                   |
-| [Development](development.md)                  | Proposed toolchain and dependency policy                        | Replace proposals with verified commands when bootstrapped         |
-| [CI and server delivery](delivery.md)          | Required checks, repository settings and server release process | Update with executable workflows                                   |
-| [ADRs](adr/0001-local-login-boundary.md)       | Decision rationale and alternatives                             | Amend explicitly or supersede; preserve history                    |
-| [Research](research/2026-10-10-feasibility.md) | Dated observations and primary sources                          | Append new evidence or supersede; never imply current verification |
+| Document                                               | Owns                                                                     | Update rule                                                        |
+| ------------------------------------------------------ | ------------------------------------------------------------------------ | ------------------------------------------------------------------ |
+| [Architecture](architecture.md)                        | Product scope, proposed runtime boundaries and contracts                 | Update with changes; identify unimplemented behavior               |
+| [Implementation plan](plan.md)                         | Ordered work, acceptance gates and open decisions                        | Track milestone evidence here; no second roadmap                   |
+| [Development](development.md)                          | Proposed toolchain and dependency policy                                 | Replace proposals with verified commands when bootstrapped         |
+| [CI and server delivery](delivery.md)                  | Required checks, repository settings and server release process          | Update with executable workflows                                   |
+| [Differences from Bitwarden](bitwarden-differences.md) | Deliberate differences from the official Bitwarden clients, with sources | Add an entry in the PR that introduces a difference                |
+| [ADRs](adr/0001-local-login-boundary.md)               | Decision rationale and alternatives                                      | Amend explicitly or supersede; preserve history                    |
+| [Research](research/2026-10-10-feasibility.md)         | Dated observations and primary sources                                   | Append new evidence or supersede; never imply current verification |
 
 The initial ADRs were accepted by merging PR #1.
 Acceptance does not mean implementation. A later replacement links the old and
