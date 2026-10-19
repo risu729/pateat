@@ -652,6 +652,35 @@ export function createDiagnosticsLog(options: {
                   : "info",
           },
         );
+      else if (report.type === "revoke")
+        void logger.log(
+          "recipe.revoke",
+          {
+            origin: report.origin,
+            url: report.url,
+            recipe: report.recipeId,
+            recipeRevision: report.recipeRevision,
+            route: report.route,
+            outcome: report.outcome,
+            reason: report.reason,
+            detail: report.detail,
+            roundTripMs: report.timing?.roundTripMs,
+            serverMs: report.timing?.serverMs,
+            networkMs: report.timing?.networkMs,
+          },
+          // A recipe revoked so its page is generated again is worth seeing (ADR 0058 A); one
+          // not due, as within 30 days of the last, changed nothing; a failed request is a
+          // problem.
+          {
+            source,
+            level:
+              report.outcome === "revoked" || report.outcome === "conflict"
+                ? "info"
+                : report.outcome === "failed"
+                  ? "warn"
+                  : "debug",
+          },
+        );
       else
         void logger.log(
           "login.attempt",

@@ -16,6 +16,8 @@ import {
   handlerSlots,
   handlerSteps,
   handlerTargets,
+  heldRouteMissing,
+  isGeneratedRecipeId,
   isSiteExcluded,
   loginFieldFacts,
   loginFieldSource,
@@ -862,6 +864,22 @@ export type PageSampleOutcome =
   | { outcome: "failed"; reason: string };
 
 /**
+ * What came of revoking a recipe the chosen item cannot run, so its page is generated again
+ * (ADR 0058 A): `revoked`, or `conflict` when the service's head had moved on, each after
+ * the recipe cache pulled recipes once (a failed pull is not reported, so the cache may still
+ * hold the recipe); `not-due` with why when the page may not be generated now (`not-connected`,
+ * `sending`, `sent`) or none is due (this device revoked the recipe in the last 30 days);
+ * `not-sent` when that could not be recorded first (`storage-unavailable`); `failed` with the
+ * transport's code or `device-rejected`.
+ */
+export type RecipeReplaceOutcome = {
+  outcome: "revoked" | "conflict" | "not-due" | "not-sent" | "failed";
+  reason?: string;
+  /** How long the request took, when one was sent (ADR 0019). */
+  timing?: ServiceTiming;
+};
+
+/**
  * What came of one page offered for generation: the model's recipe, with the fields its
  * custom slots name remembered for `slotFields` and the recipe cache pulled once (a failed
  * pull is not reported, so the cache may not hold it yet: a continuation's login takes the
@@ -1052,6 +1070,19 @@ export interface LoginGeneration {
     describe: () => Promise<{ observation: LoginObservation } | { unsent: string }>,
     sending?: () => Promise<string | undefined>,
   ): Promise<PageSampleOutcome>;
+  /**
+   * Revokes a generated recipe revision the chosen item cannot run, whose start page is
+   * `origin` and `path`, so the page is generated again in the same visit (ADR 0058 A): only
+   * when that page may be sent for generation now, and at most once per recipe ID in 30 days
+   * for this service and device, recorded before the request leaves. Absent, no recipe is
+   * revoked.
+   */
+  replace?(recipe: {
+    recipeId: string;
+    revision: number;
+    origin: string;
+    path: string;
+  }): Promise<RecipeReplaceOutcome>;
 }
 
 /**
@@ -1655,6 +1686,23 @@ export type LoginReport = (
       detail?: string;
       /** A refusal the document already logged for the same reason. */
       repeat?: true;
+    }
+  | {
+      /**
+       * A new login's recipe the chosen item cannot run, revoked so its page is generated
+       * again (ADR 0058 A): `route` is the route the item would take that the recipe lacks,
+       * `detail` the plan's refusal, and the outcome {@link RecipeReplaceOutcome}'s.
+       */
+      type: "revoke";
+      tabId: number;
+      origin: string;
+      recipeId: string;
+      recipeRevision: number;
+      route: LoginRoute;
+      outcome: RecipeReplaceOutcome["outcome"];
+      reason?: string;
+      detail?: string;
+      timing?: ServiceTiming;
     }
   | {
       type: "handler";
@@ -3821,9 +3869,28 @@ export function createLoginRuntime(
       // A `no-route` names the fact the first variant missed, so the log tells an item
       // without a password from one without its TOTP secret.
       const detail = first === "no-route" ? missing[0] : first;
+      // Every variant tried was refused for the item's facts, not for a binding or field it
+      // names, and the item holds what another route needs, which the recipe lacks: a recipe
+      // generated again for the page may have it (ADR 0058 A). The caller decides whether
+      // that may happen.
+      const unfit =
+        facts && refusals.every((reason) => reason === "no-route")
+          ? heldRouteMissing(recipe, facts, passkeyScriptsRun(live.document.origin, probeMode))
+          : undefined;
+      const marked = unfit ? { unfit } : {};
       return routes.length === 1
-        ? { ok: false as const, reason: first, ...(detail && detail !== first ? { detail } : {}) }
-        : { ok: false as const, reason: "no-route" as const, ...(detail ? { detail } : {}) };
+        ? {
+            ok: false as const,
+            reason: first,
+            ...(detail && detail !== first ? { detail } : {}),
+            ...marked,
+          }
+        : {
+            ok: false as const,
+            reason: "no-route" as const,
+            ...(detail ? { detail } : {}),
+            ...marked,
+          };
     }
   }
   type Authorized = {
@@ -6980,6 +7047,72 @@ export function createLoginRuntime(
       ...(detail ? { detail } : {}),
     });
   }
+  /** Whether a login of the recipe runs, or is watched, in any tab (ADR 0058 A). */
+  function recipeInUse(recipeId: string): boolean {
+    return [...persisted.values(), ...[...attempts.values()].map((run) => run.metadata)].some(
+      (metadata) =>
+        metadata.recipeId === recipeId && (!terminal(metadata) || metadata.watch !== undefined),
+    );
+  }
+  /**
+   * Revokes a new login's recipe the chosen item cannot run (ADR 0058 A) and, once the
+   * recipe cache no longer starts that revision on the page, asks the document to announce
+   * again, so the page is offered for generation as one where no recipe starts (ADR 0016).
+   * A recipe not revoked, or still cached, refuses the page with the plan's own reason.
+   */
+  async function replaceUnfit(
+    live: LiveDocument,
+    recipe: LoginRecipe,
+    refusal: { reason: string; detail?: string; route: LoginRoute },
+  ): Promise<void> {
+    const key = frameKey(live.document);
+    const { origin: pageOrigin, tabId } = live.document;
+    const result = await Promise.resolve()
+      .then(() =>
+        generation!.replace!({
+          recipeId: recipe.id,
+          revision: recipe.revision,
+          origin: pageOrigin,
+          path: recipe.steps[0]!.path,
+        }),
+      )
+      .catch((): RecipeReplaceOutcome => ({ outcome: "failed", reason: "error" }));
+    report(live.document, {
+      type: "revoke",
+      tabId,
+      origin: pageOrigin,
+      recipeId: recipe.id,
+      recipeRevision: recipe.revision,
+      route: refusal.route,
+      outcome: result.outcome,
+      ...(result.reason ? { reason: result.reason } : {}),
+      detail: refusal.detail ?? refusal.reason,
+      ...(result.timing ? { timing: result.timing } : {}),
+    });
+    if (documents.get(key) !== live) return;
+    if (result.outcome === "revoked" || result.outcome === "conflict") {
+      const cached = await recipes.recipe(pageOrigin, live.path).catch(() => recipe);
+      if (documents.get(key) !== live) return;
+      // The cache dropped the revision, or holds a newer one: the page announces again.
+      if (!cached || cached.id !== recipe.id || cached.revision > recipe.revision) {
+        try {
+          await browser.tabs.sendMessage(
+            tabId,
+            { version: 1, type: "login.reconnect" },
+            { frameId: 0, documentId: live.document.documentId },
+          );
+        } catch {
+          // The page starts nothing until it announces again (ADR 0019).
+          if (documents.get(key) === live) note(live.document, live.url, "reconnect-failed");
+        }
+        return;
+      }
+    }
+    note(live.document, live.url, refusal.reason, refusal.detail);
+    live.state = "denied";
+    live.reason = refusal.reason;
+    await publish(live);
+  }
   /**
    * Sends this page's observation for generation. A returned recipe is in the recipe
    * cache by then; the document announces again and starts it once its first step is
@@ -8573,6 +8706,43 @@ export function createLoginRuntime(
         };
         plan = alone;
       }
+    }
+    // A generated recipe the chosen item cannot run, where it holds what a route the recipe
+    // lacks needs, is revoked and its page generated again in this visit (ADR 0058 A): only
+    // for a new login of the tab's own page that starts at the recipe's first step, neither
+    // asked after a logout nor after an account switch, nor on a chooser's list, and while no
+    // login of the recipe runs or is watched in any tab. Until the answer the page waits as
+    // for a generation; a recipe not revoked is refused as it would have been.
+    const unfit =
+      !plan.ok && "unfit" in plan && (plan.unfit === "passkey" || plan.unfit === "password")
+        ? plan.unfit
+        : undefined;
+    if (
+      !plan.ok &&
+      unfit &&
+      !previous &&
+      !switched &&
+      !asking &&
+      !chooser &&
+      !shownOther &&
+      !deferred &&
+      !later &&
+      document.frameId === 0 &&
+      !live.topUrl &&
+      !(probeMode && document.origin === origin) &&
+      isGeneratedRecipeId(recipe.id) &&
+      generation?.replace &&
+      !recipeInUse(recipe.id)
+    ) {
+      live.state = "generating";
+      delete live.reason;
+      await publish(live);
+      void replaceUnfit(live, recipe, {
+        reason: plan.reason,
+        ...("detail" in plan && typeof plan.detail === "string" ? { detail: plan.detail } : {}),
+        route: unfit,
+      }).catch(() => undefined);
+      return { ok: false, reason: "generating" };
     }
     if (!plan.ok) {
       // Only a fresh start can be restarted with a picked account (ADR 0021). The page

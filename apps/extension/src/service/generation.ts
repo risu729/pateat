@@ -25,6 +25,7 @@ import type {
   GenerationOutcome,
   LoginGeneration,
   PageSampleOutcome,
+  RecipeReplaceOutcome,
 } from "../login/runtime";
 import type { ServiceConnection } from "./runtime";
 import type { InferenceResult, ServiceTiming, ServiceTransport } from "./transport";
@@ -150,6 +151,41 @@ export interface PageSampleStorage {
 }
 
 /**
+ * A recipe this device revoked because the chosen item could not run it (ADR 0058 A) is not
+ * revoked again by it for this long: the bound on a recipe generated again that the item
+ * still cannot run, since each tombstone lets the page be generated once more.
+ */
+export const RECIPE_REPLACE_INTERVAL_MS = 30 * 24 * 60 * 60 * 1000;
+/** Revoked recipes remembered at once; the oldest go first. */
+export const MAX_RECIPE_REPLACEMENTS = 200;
+/**
+ * When this device last revoked each recipe so its page is generated again (ADR 0058 A),
+ * per service and device as the slot maps are, by recipe ID, which a recipe generated again
+ * keeps. Recorded before the request leaves, so a request lost with its worker is not sent
+ * again within `RECIPE_REPLACE_INTERVAL_MS` either.
+ */
+const replacementsSchema = v.strictObject({
+  version: v.literal(1),
+  replacements: v.pipe(
+    v.array(
+      v.strictObject({
+        service: v.pipe(v.string(), v.maxLength(2048)),
+        deviceId: v.pipe(v.string(), v.maxLength(200)),
+        recipeId: syncRecipeIdSchema,
+        at: v.pipe(v.number(), v.integer(), v.minValue(0)),
+      }),
+    ),
+    v.maxLength(MAX_RECIPE_REPLACEMENTS),
+  ),
+});
+type RecipeReplacements = v.InferOutput<typeof replacementsSchema>;
+
+export interface RecipeReplacementStorage {
+  read(): Promise<unknown>;
+  write(replacements: RecipeReplacements): Promise<void>;
+}
+
+/**
  * The fields the request's offers named for each slot the service mapped, or nothing when
  * any mapped slot was not a custom-field offer of this request.
  */
@@ -234,12 +270,17 @@ function notRecipe(
 export function createLoginGeneration(options: {
   service: { connection(): Promise<ServiceConnection | undefined> };
   transport: Pick<ServiceTransport, "generateRecipe" | "generateEntry" | "judgeCompletion"> &
-    Partial<Pick<ServiceTransport, "samplePage">>;
+    Partial<Pick<ServiceTransport, "samplePage" | "revokeRecipe">>;
   storage: GenerationAttemptStorage;
   /** Generated slot maps, written before a generated recipe is reported. */
   slotStorage: GeneratedSlotStorage;
   /** Signed-in page samples sent (ADR 0029); without it and `samplePage`, none is sent. */
   sampleStorage?: PageSampleStorage;
+  /**
+   * Recipes revoked so their pages are generated again (ADR 0058 A); without it and
+   * `revokeRecipe`, none is revoked.
+   */
+  replaceStorage?: RecipeReplacementStorage;
   /** A full sync of recipes and settings; resolves once the recipe cache holds them. */
   sync(): Promise<unknown>;
   /**
@@ -249,7 +290,8 @@ export function createLoginGeneration(options: {
   refresh(): Promise<unknown>;
   now?: () => number;
 }): LoginGeneration {
-  const { service, transport, storage, slotStorage, sampleStorage, sync, refresh } = options;
+  const { service, transport, storage, slotStorage, sampleStorage, replaceStorage, sync, refresh } =
+    options;
   const now = options.now ?? Date.now;
   // Writes are serialized so two pages sent together are both remembered.
   let queue: Promise<unknown> = Promise.resolve();
@@ -259,6 +301,7 @@ export function createLoginGeneration(options: {
   let slotMaps: Promise<GeneratedSlotMaps["maps"] | undefined> | undefined;
   let slotQueue: Promise<unknown> = Promise.resolve();
   let sampleQueue: Promise<unknown> = Promise.resolve();
+  let replaceQueue: Promise<unknown> = Promise.resolve();
 
   function readSlotMaps(): Promise<GeneratedSlotMaps["maps"] | undefined> {
     if (slotMaps) return slotMaps;
@@ -402,6 +445,73 @@ export function createLoginGeneration(options: {
     return next.catch(() => "unavailable" as const);
   }
 
+  /**
+   * Records a revocation of the recipe now, unless one is recorded within the interval:
+   * `claimed` with the time once it is written, `recent` for one already there,
+   * `unavailable` when storage cannot be read or written, so a recipe is never revoked
+   * unrecorded. Stored entries that do not parse count as none.
+   */
+  function claimReplace(
+    store: RecipeReplacementStorage,
+    connection: ServiceConnection,
+    recipeId: string,
+  ): Promise<{ claimed: number } | "recent" | "unavailable"> {
+    const next = replaceQueue.then(async () => {
+      const parsed = v.safeParse(replacementsSchema, await store.read());
+      const at = now();
+      const replacements = parsed.success
+        ? parsed.output.replacements.filter((entry) => entry.at > at - RECIPE_REPLACE_INTERVAL_MS)
+        : [];
+      if (
+        replacements.some(
+          (entry) =>
+            entry.service === connection.origin &&
+            entry.deviceId === connection.deviceId &&
+            entry.recipeId === recipeId,
+        )
+      )
+        return "recent" as const;
+      await store.write({
+        version: 1,
+        replacements: [
+          ...replacements,
+          { service: connection.origin, deviceId: connection.deviceId, recipeId, at },
+        ].slice(-MAX_RECIPE_REPLACEMENTS),
+      });
+      return { claimed: at };
+    });
+    replaceQueue = next.catch(() => undefined);
+    return next.catch(() => "unavailable" as const);
+  }
+  /**
+   * Drops this request's own claim, for a request that did not reach the service or that it
+   * refused before writing: the next visit may revoke the recipe again.
+   */
+  function releaseReplace(
+    store: RecipeReplacementStorage,
+    connection: ServiceConnection,
+    recipeId: string,
+    claimedAt: number,
+  ): Promise<unknown> {
+    const next = replaceQueue.then(async () => {
+      const parsed = v.safeParse(replacementsSchema, await store.read());
+      if (!parsed.success) return false;
+      await store.write({
+        version: 1,
+        replacements: parsed.output.replacements.filter(
+          (entry) =>
+            entry.service !== connection.origin ||
+            entry.deviceId !== connection.deviceId ||
+            entry.recipeId !== recipeId ||
+            entry.at !== claimedAt,
+        ),
+      });
+      return true;
+    });
+    replaceQueue = next.catch(() => undefined);
+    return next.catch(() => undefined);
+  }
+
   async function connected() {
     const connection = await service.connection().catch(() => undefined);
     return connection && !connection.rejected ? connection : undefined;
@@ -488,13 +598,67 @@ export function createLoginGeneration(options: {
     }
   }
 
+  /** Whether the page may be sent for generation now, else why not (ADR 0016). */
+  async function available(
+    origin: string,
+    path: string,
+    base?: GenerationBase,
+    branch?: ChooserBranch,
+  ): Promise<true | GenerationHold> {
+    if (!(await connected())) return "not-connected";
+    await queue;
+    const attempts = await recent().catch(() => []);
+    return attempts.find(same(origin, path, base, branch))?.state ?? true;
+  }
+  /**
+   * Revokes a recipe the chosen item cannot run, so its page is generated again (ADR 0058
+   * A). Only a page that may be sent now, and once per recipe ID in 30 days; the claim is
+   * kept once the service answered the write, and dropped when the request did not reach it,
+   * was rate limited or the device was rejected. A revoked or conflicting head pulls
+   * recipes only, so the cache drops the copy without a settings write that would stop
+   * another tab's login.
+   */
+  async function replace(
+    store: RecipeReplacementStorage,
+    revoke: NonNullable<ServiceTransport["revokeRecipe"]>,
+    recipe: { recipeId: string; revision: number; origin: string; path: string },
+  ): Promise<RecipeReplaceOutcome> {
+    const connection = await connected();
+    if (!connection) return { outcome: "not-due", reason: "not-connected" };
+    const hold = await available(recipe.origin, recipe.path);
+    if (hold !== true) return { outcome: "not-due", reason: hold };
+    const claim = await claimReplace(store, connection, recipe.recipeId);
+    if (claim === "recent") return { outcome: "not-due" };
+    if (claim === "unavailable") return { outcome: "not-sent", reason: "storage-unavailable" };
+    const answer = await Promise.resolve()
+      .then(() =>
+        revoke(connection.origin, connection.credential, recipe.recipeId, recipe.revision),
+      )
+      .catch(() => undefined);
+    const timed = answer ? timingOf(answer) : {};
+    if (answer?.kind === "revoked" || answer?.kind === "conflict") {
+      await refresh().catch(() => undefined);
+      return { outcome: answer.kind, ...timed };
+    }
+    const reason = !answer
+      ? "error"
+      : answer.kind === "rejected"
+        ? "device-rejected"
+        : answer.error;
+    // An unexpected answer may follow a write the service made, so its claim stays.
+    if (reason !== "unexpected-response")
+      await releaseReplace(store, connection, recipe.recipeId, claim.claimed);
+    return { outcome: "failed", reason, ...timed };
+  }
+
   return {
-    async available(origin, path, base, branch) {
-      if (!(await connected())) return "not-connected";
-      await queue;
-      const attempts = await recent().catch(() => []);
-      return attempts.find(same(origin, path, base, branch))?.state ?? true;
-    },
+    available,
+    ...(transport.revokeRecipe && replaceStorage
+      ? {
+          replace: (recipe: { recipeId: string; revision: number; origin: string; path: string }) =>
+            replace(replaceStorage, (...request) => transport.revokeRecipe!(...request), recipe),
+        }
+      : {}),
     async generate(input: RecipeGenerationRequest, sent): Promise<GenerationOutcome> {
       // `totp` is offered only for a page with a code field, so the slots never tell the
       // model whether an account has TOTP (ADR 0027).

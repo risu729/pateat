@@ -27,6 +27,13 @@ const sequence = v.pipe(
 
 export const SYNC_PAGE_LIMIT = 100;
 export const syncRecipeIdSchema = loginIdentifierSchema;
+/**
+ * Whether a recipe ID is one the service generated (`gen-` and 32 hex digits), derived
+ * from its origin and start path, so a page generated again gets the same ID (ADR 0016).
+ */
+export function isGeneratedRecipeId(recipeId: string): boolean {
+  return /^gen-[0-9a-f]{32}$/u.test(recipeId);
+}
 
 /** Revision 0 means the owner has never stored settings on the service. */
 export const syncSettingsStateSchema = v.pipe(

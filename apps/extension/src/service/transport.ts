@@ -5,7 +5,9 @@ import {
   recipeGenerationResultSchema,
   SYNC_PAGE_LIMIT,
   syncDeviceStateSchema,
+  syncRecipeChangeSchema,
   syncRecipeChangesSchema,
+  syncRecipeWriteResultSchema,
   syncSettingsStateSchema,
   type DevicePairResult,
   type EntryGenerationRequest,
@@ -19,6 +21,7 @@ import {
   type RecipePageSampleRequest,
   type RecipeUseReport,
   type SyncDeviceState,
+  type SyncRecipeChange,
   type SyncRecipeChanges,
   type SyncSettingsState,
   type SyncSettingsWrite,
@@ -154,6 +157,19 @@ export type SettingsResult = (
 ) &
   Timed;
 
+/**
+ * `PUT /v1/recipes/:recipeId`'s answer to a revocation (ADR 0058 A): `revoked` with the
+ * tombstone written, or `conflict` when the head was no longer the expected revision, with
+ * the service's head now (`null` for none).
+ */
+export type RecipeRevokeResult = (
+  | { kind: "revoked"; change: SyncRecipeChange }
+  | { kind: "conflict"; current: SyncRecipeChange | null }
+  | { kind: "rejected" }
+  | { kind: "failed"; error: TransportFailure }
+) &
+  Timed;
+
 /** A recipe generation route's answer (ADR 0018); every answer is a 200 with a status. */
 /** `timeout`: no answer in time, though the service may have called the model. */
 export type InferenceResult<T> = (
@@ -250,6 +266,18 @@ export interface ServiceTransport {
     recipeId: string,
     report: RecipeUseReport,
   ): Promise<OutcomeResult>;
+  /**
+   * A conditional `PUT /v1/recipes/:recipeId` that revokes the recipe whose head is
+   * `expectedRevision`, as the owner's revoke on `/manage` does: for a recipe the chosen
+   * item cannot run, so its page is generated again (ADR 0058 A). (`revoke` revokes the
+   * device's own credential.)
+   */
+  revokeRecipe(
+    origin: string,
+    credential: string,
+    recipeId: string,
+    expectedRevision: number,
+  ): Promise<RecipeRevokeResult>;
   /** `POST /v1/recipes/:recipeId/completion`: the page after a recipe's final submission. */
   judgeCompletion(
     origin: string,
@@ -277,9 +305,15 @@ const MAX_RECIPE_PAGE_BYTES = 16 * 1024 * 1024;
 const MAX_SETTINGS_BYTES = 256 * 1024;
 /** A generated recipe change; the service accepts recipes up to 128 KiB. */
 const MAX_INFERENCE_BYTES = 256 * 1024;
+/** A recipe write's answer, which may carry the service's head; recipes are up to 128 KiB. */
+const MAX_RECIPE_WRITE_BYTES = 256 * 1024;
 const settingsConflictSchema = v.strictObject({
   error: v.literal("settings_conflict"),
   current: syncSettingsStateSchema,
+});
+const recipeConflictSchema = v.strictObject({
+  error: v.literal("recipe_conflict"),
+  current: v.nullable(syncRecipeChangeSchema),
 });
 
 /** Reads at most the byte limit, cancelling the stream instead of buffering more. */
@@ -566,6 +600,39 @@ export function createServiceTransport(
     },
     reportUse(origin, credential, recipeId, report) {
       return post(origin, credential, `/v1/recipes/${encodeURIComponent(recipeId)}/use`, report);
+    },
+    async revokeRecipe(origin, credential, recipeId, expectedRevision) {
+      const response = await call(
+        origin,
+        `/v1/recipes/${encodeURIComponent(recipeId)}`,
+        {
+          method: "PUT",
+          headers: { Authorization: `Bearer ${credential}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ version: 1, expectedRevision, state: "revoked" }),
+        },
+        { limit: MAX_RECIPE_WRITE_BYTES },
+      );
+      const timed = { timing: response.timing };
+      if ("failed" in response) return { kind: "failed", error: response.failed, ...timed };
+      if (response.status === 200) {
+        const parsed = v.safeParse(syncRecipeWriteResultSchema, response.body);
+        // Only this recipe's tombstone is the answer to this write.
+        return parsed.success &&
+          parsed.output.change.recipeId === recipeId &&
+          parsed.output.change.state === "revoked"
+          ? { kind: "revoked", change: parsed.output.change, ...timed }
+          : { kind: "failed", error: "unexpected-response", ...timed };
+      }
+      if (response.status === 409) {
+        const parsed = v.safeParse(recipeConflictSchema, response.body);
+        return parsed.success &&
+          (parsed.output.current === null || parsed.output.current.recipeId === recipeId)
+          ? { kind: "conflict", current: parsed.output.current, ...timed }
+          : { kind: "failed", error: "unexpected-response", ...timed };
+      }
+      if (rejected(response)) return { kind: "rejected", ...timed };
+      if (response.status === 429) return { kind: "failed", error: "rate-limited", ...timed };
+      return { kind: "failed", error: "unexpected-response", ...timed };
     },
     judgeCompletion(origin, credential, recipeId, request) {
       return infer(

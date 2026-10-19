@@ -130,11 +130,14 @@ writer. The bundle includes GPL-3.0-only `packages/contracts` code; each page li
 source and the GPL text at the built commit, and the third-party notices served with it
 (`public/manage/assets/notices.md` and the build's `licenses.md`).
 
-Recipe revisions are immutable. A write claims the head with a conditional statement
-and writes the history row in the same D1 batch, guarded by a per-request write ID,
-so a losing writer changes nothing. Each head write takes the owner's next sequence
-number; clients sync by passing the last `cursor` back as `after`. A tombstone keeps
-its revision, and only an explicit later write can republish the recipe.
+Recipe revisions are immutable. A write claims the head with a conditional statement and
+writes the history row in the same D1 batch, guarded by a per-request write ID, so a
+losing writer changes nothing. Each head write takes the owner's next sequence number;
+clients sync by passing the last `cursor` back as `after`. A tombstone keeps its
+revision, and only an explicit later write can republish the recipe. Devices revoke a
+recipe their chosen item cannot run with `PUT /v1/recipes/:recipeId` and
+`state: "revoked"`, before generating its page again
+([ADR 0058](../../docs/adr/0058-automatic-recipe-removal.md)).
 
 [Per-owner limits](../../docs/architecture.md#service-limits) live in `src/limits.ts`
 and the shared recipe byte constants in `@pateat/contracts`. The `OWNER_LIMITER` binding
