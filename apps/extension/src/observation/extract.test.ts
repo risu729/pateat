@@ -3029,6 +3029,31 @@ describe("extractSignedInObservation", () => {
         choice(password, select("Select Phone"));
         expect(byName(signedIn()), password).toEqual([]);
       }
+      // Text hidden from assistive technology, or too long to read in full, still counts.
+      for (const password of [
+        `<a href="#" aria-label="Select Password."><span aria-hidden="true">Send code</span></a>`,
+        `<a href="#" aria-label="Select Password.">Send a code to your phone${" now".repeat(40)}</a>`,
+        `<a href="#" aria-label="Select Password.">${"Select ".repeat(80)}</a>`,
+        `<a href="#" aria-label="Select Password.">Sign out</a>`,
+      ]) {
+        choice(password, select("Select Phone"));
+        expect(byName(signedIn()), password).toEqual([]);
+      }
+      // A name that redaction would change, as one that holds an email address.
+      for (const name of ["Use password for taro@example.com", "Use password ••••"]) {
+        choice(select(name), select("Select Phone"));
+        expect(byName(signedIn()), name).toEqual([]);
+      }
+      choice(select("Use password for Taro"), select("Select Phone"));
+      expect(byName(signedIn()).map(({ target }) => target)).toEqual([
+        { by: "accessible-name", value: "Use password for Taro" },
+      ]);
+      // A link to a route of the page's router is no control here.
+      choice(
+        `<a href="#/account/delete" aria-label="Select Password.">Select</a>`,
+        select("Select Phone"),
+      );
+      expect(byName(signedIn())).toEqual([]);
       // A name from `aria-labelledby` comes before `aria-label`.
       choice(
         `<span id="row">Password</span><button type="button" aria-labelledby="row" aria-label="Select Phone">Select</button>`,

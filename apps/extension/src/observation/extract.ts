@@ -19,8 +19,8 @@ import { observedPath, redactsPath, tokenSegment } from "./path";
 import {
   buttonText,
   collapseText,
+  controlContent,
   controlName,
-  controlText,
   fieldName,
   hasNativeButton,
   isFragmentButton,
@@ -524,8 +524,10 @@ function contentTarget(
  * password (ADR 0048 amendment of 2026-10-19): its {@link controlName}, when exactly one
  * shown control of the page has that name, counted as the executor sees the page, it
  * holds no number and redaction leaves it unchanged, as a field's visible name (ADR
- * 0037), and it and the control's visible text pass `namesPasswordControl`, so a phone's
- * "Select Phone - +61 4•• ••• 123" or a "Send code" button is never located this way.
+ * 0037), and it and all the text the control holds ({@link controlContent}, hidden text
+ * too) pass `namesPasswordControl`, so a phone's "Select Phone - +61 4•• ••• 123", a
+ * "Send code" button, one whose "Send code" is `aria-hidden` and one whose text is too long
+ * to read in full are never located this way.
  */
 function passwordChoiceTarget(element: Element, index: LocatorIndex): LoginTarget | undefined {
   const name = controlName(element);
@@ -534,7 +536,7 @@ function passwordChoiceTarget(element: Element, index: LocatorIndex): LoginTarge
     /\p{Number}/u.test(name) ||
     observedText(name) !== name ||
     index.get("accessible-name")!.get(name) !== 1 ||
-    !namesPasswordControl(name, controlText(element))
+    !namesPasswordControl(name, controlContent(element))
   )
     return undefined;
   const target = { by: "accessible-name" as const, value: name };

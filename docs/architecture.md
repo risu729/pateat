@@ -1159,12 +1159,15 @@ route's fill fields on that path shows writable; and only when the button names 
 password by the shared word list (`namesPasswordControl` in `packages/contracts`,
 English and Japanese), so a "Forgot password?", "One-time password" or "Use Touch ID or
 password" button is never pressed. A button with an accessible name (`aria-labelledby`,
-else `aria-label`) names it when that name passes the list and its rendered text, if
-any, holds none of the list's refused words, so a "Select" labelled "Select Password."
-passes and a "Send code" with that label does not (since 2026-10-19, ADR 0048's
-amendment); one without names it by its rendered text. The content script reads them
-when the handler is entered (`password-choice`) and again in the click's own task, just
-before the press (`passwordChoice`); a button that no longer passes there is not
+else `aria-label`) names it when that name passes the list and all the text it holds,
+shown or not (`aria-hidden` text, images' `alt` and an input button's `value` too),
+holds none of the list's refused words, so a "Select" labelled "Select Password."
+passes and a "Send code" with that label does not, even when "Send code" is
+`aria-hidden`; a text too long to read in full (over 480 characters) refuses it, and
+only one with no text at all passes on its name alone (since 2026-10-19, ADR 0048's
+amendment). One without a name names it by its rendered text. The content script reads
+them when the handler is entered (`password-choice`) and again in the click's own task,
+just before the press (`passwordChoice`); a button that no longer passes there is not
 pressed and the step fails as one whose target is missing (`target-missing`). A
 `password` handler's button may be named by its accessible name and may then be a link
 to a fragment of its own page ([locators](#declarative-recipes-and-ai)). The service
@@ -2087,11 +2090,15 @@ generated again.
 A control is named by its accessible name only as a `password` handler's button (owner,
 2026-10-19 01:26 UTC, option A1,
 [ADR 0048's amendment](adr/0048-password-method-button.md#amendment-controls-told-apart-by-their-accessible-names)):
-`{ "by": "accessible-name", "value": "Select Password." }` names the one shown button,
-input, link or element with a `role` whose name equals the value. The name is the
-rendered text of the elements its `aria-labelledby` names, else its `aria-label`,
-collapsed as button text is; one over 120 characters gives none. It is counted apart
-from a field's visible name. The contract refuses it everywhere else: route steps,
+`{ "by": "accessible-name", "value": "Select Password." }` names the one shown control
+whose name equals the value: a `<button>`, an `<input>` of type `submit`, `button` or
+`image`, a script button (a script link, or another element with `role="button"`
+outside an `<a href>`) or a fragment link (below); other links, fields and other roles
+never count. Role and script buttons count anywhere on the page, not only inside a
+login form. The name is the rendered text of the elements its `aria-labelledby` names,
+else its `aria-label`, collapsed as button text is; one over 120 characters gives none.
+It is counted apart from a field's visible name. The contract refuses it everywhere
+else: route steps,
 `passkey` and `totp` handlers, signed-in markers and their `absent` elements, the
 rejection, an account switch, a passkey route, a sign-in entry and a list of accounts.
 The extractor offers it only in a description sent to the judge, only for a shown
@@ -2102,7 +2109,9 @@ read "Select" are told apart by `aria-label="Select Password."` and the other on
 whose name holds a phone number, gets no locator. Such a button may be a fragment link:
 an `<a>` whose `href`, as parsed, starts with `#` and leads to the document's own URL
 (a `<base href>` counts), that opens in the same tab (its own `target`, or else
-`<base target>`, absent or `_self`) and has no `download` attribute. Only for a target
+`<base target>`, absent or `_self`) and has no `download` attribute; an `href` that
+starts with `#/` or `#!`, which a page's router reads as a route, never counts. Only for
+a target
 named by its accessible name do the extractor, the readiness check, the word check and
 the click count such a link as a button; the extractor tries the name first for it and
 describes it as a button. Everywhere else such a link stays a link (option A2, which

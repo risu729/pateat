@@ -351,16 +351,21 @@ export function opensHere(link: HTMLAnchorElement): boolean {
  * it resolves to the document's URL apart from the fragment (a `<base href>` naming
  * another document makes it navigate, so it does not count), it opens in its own tab
  * ({@link opensHere}, also through `<base target>`) and has no `download`. An empty `href`
- * reloads the page and never counts, nor does a script link. Only an accessible-name
+ * reloads the page and never counts, nor does a script link, nor a fragment that starts
+ * with `#/` or `#!`, which a page's router reads as a route (`#/account/delete`), so such
+ * a link may go to another page in all but its URL. Only an accessible-name
  * locator, which only a `password` handler's button uses, counts such a link as a button;
  * everywhere else it stays a link.
  */
 export function isFragmentButton(element: Element): element is HTMLAnchorElement {
+  if (!(element instanceof HTMLAnchorElement)) return false;
+  const href = parsedHref(element);
   if (
-    !(element instanceof HTMLAnchorElement) ||
     !element.hasAttribute("href") ||
     element.hasAttribute("download") ||
-    !parsedHref(element).startsWith("#") ||
+    !href.startsWith("#") ||
+    href.startsWith("#/") ||
+    href.startsWith("#!") ||
     isScriptButton(element) ||
     !opensHere(element)
   )
@@ -576,4 +581,47 @@ export function controlName(element: Element): string | undefined {
  */
 export function controlText(element: Element): string | undefined {
   return buttonText(element) ?? (isFragmentButton(element) ? linkText(element) : undefined);
+}
+
+const contentLimit = buttonTextLimit * 4;
+/** Elements, HTML or SVG, whose text is code or markup, never a control's text. */
+const codeElements = new Set(["script", "style", "template"]);
+/** The `<input>` types whose `value` or `alt` is the text they show. */
+const labelInputTypes = new Set([...buttonInputTypes, "reset"]);
+
+/**
+ * All the text a control holds, for the check that nothing in it names another way or
+ * task than its accessible name does (`namesPasswordControl`, ADR 0048 amendment of
+ * 2026-10-19): the text of `element` and its descendants, shown or not (`aria-hidden`
+ * ones and those in open or closed shadow roots too), every element boundary separating
+ * words, the `alt` of its images and image inputs and the `value` of its other input
+ * buttons, the control's own included, collapsed. Scripts, styles and templates add
+ * nothing. `""` when it holds no text; `undefined` when the text is longer than 480 code
+ * units, which the check counts as not read in full and so refuses, where
+ * {@link controlText} would have no text.
+ */
+export function controlContent(element: Element): string | undefined {
+  let content = "";
+  const pending: Node[] = [element];
+  while (pending.length > 0) {
+    const node = pending.pop()!;
+    let part = "";
+    if (node instanceof Text) part = node.data;
+    else if (node instanceof Element) {
+      if (codeElements.has(node.localName)) continue;
+      if (node instanceof HTMLImageElement) part = node.alt;
+      else if (node instanceof HTMLInputElement && labelInputTypes.has(node.type))
+        part = node.type === "image" ? node.alt : node.value;
+      const root =
+        node instanceof HTMLElement
+          ? (node.shadowRoot ?? browser?.dom?.openOrClosedShadowRoot?.(node))
+          : undefined;
+      const children = [...(root?.childNodes ?? []), ...node.childNodes];
+      for (let index = children.length - 1; index >= 0; index--) pending.push(children[index]!);
+    }
+    const text = collapseText(part);
+    if (text) content = content ? `${content} ${text}` : text;
+    if (content.length > contentLimit) return undefined;
+  }
+  return content;
 }

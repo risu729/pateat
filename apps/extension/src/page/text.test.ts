@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   collapseText,
+  controlContent,
   controlName,
   isFragmentButton,
   isScriptButton,
@@ -239,6 +240,11 @@ describe("isFragmentButton", () => {
       'href="javascript:void(0)"',
       // A link without `href`.
       'name="x"',
+      // A route a page's router reads, which may go to another page.
+      'href="#/account/delete"',
+      'href="#/"',
+      'href="#!/account"',
+      'href="#!"',
     ])
       expect(link(attributes), attributes).toBe(false);
   });
@@ -286,5 +292,51 @@ describe("controlName", () => {
       undefined,
       "Fallback",
     ]);
+  });
+});
+
+describe("controlContent", () => {
+  const content = (html: string) => {
+    document.body.innerHTML = `<a id="x" href="#" aria-label="Select Password.">${html}</a>`;
+    return controlContent(document.getElementById("x")!);
+  };
+
+  it("reads all the text a control holds, hidden text too, every element apart", () => {
+    expect(content("Select")).toBe("Select");
+    expect(content('<span aria-hidden="true">Send code</span>')).toBe("Send code");
+    expect(content('<span hidden>Send</span><span style="display:none">code</span>')).toBe(
+      "Send code",
+    );
+    expect(content("<span>Send</span><b>code</b>")).toBe("Send code");
+    expect(content('<img alt="Phone"> Select')).toBe("Phone Select");
+    expect(content('<input type="button" value="Send code">')).toBe("Send code");
+    expect(content('<input type="image" alt="Phone">')).toBe("Phone");
+    expect(content("<script>var code = 1</script><style>.code{}</style>Select")).toBe("Select");
+  });
+
+  it("reads an input button's own value and an image button's own alt", () => {
+    document.body.innerHTML = `<input id="a" type="submit" value="Send code">
+      <input id="b" type="image" alt="Phone" value="Ignored">`;
+    expect(controlContent(document.getElementById("a")!)).toBe("Send code");
+    expect(controlContent(document.getElementById("b")!)).toBe("Phone");
+  });
+
+  it("reads open and closed shadow roots", () => {
+    document.body.innerHTML = `<button id="x"><span id="open"></span><span id="closed"></span></button>`;
+    const by = (id: string) => document.getElementById(id)!;
+    by("open").attachShadow({ mode: "open" }).innerHTML = "Send";
+    const root = by("closed").attachShadow({ mode: "closed" });
+    closedRoots.set(by("closed"), root);
+    root.innerHTML = "<b>code</b>";
+    expect(controlContent(by("x"))).toBe("Send code");
+  });
+
+  it("is empty only for a control that holds no text, and unread when too long", () => {
+    expect(content('<svg width="20" height="20"></svg>')).toBe("");
+    expect(content("  ")).toBe("");
+    // Longer than a button's text, but read in full.
+    expect(content("Select ".repeat(30))).toBe("Select ".repeat(30).trim());
+    expect(content("Select ".repeat(80))).toBeUndefined();
+    expect(content(`<span aria-hidden="true">${"Select ".repeat(80)}</span>`)).toBeUndefined();
   });
 });

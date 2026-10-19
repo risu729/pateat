@@ -265,14 +265,22 @@ Since the two could not be told apart, the wrong one could not have been pressed
 3. **When the extractor gives it.** Only in the description of a page sent to the
    judge, and only to a shown control that no `id`, `name`, `data-testid` or text
    locator names alone (a fragment link, below, tries it first), when exactly one shown
-   button, input, link or element with a `role` on the page has that name, the name
-   holds no number, redaction would not change it, and it passes the check of item 4.
-   So "Select Phone - …" is never offered.
+   control on the page has that name, the name holds no number, redaction would not
+   change it, and it passes the check of item 4. A control here is a `<button>`, an
+   `<input>` of type `submit`, `button` or `image`, a script button (a script link, or
+   another element with `role="button"` outside an `<a href>`) or a fragment link of
+   item 5; other links, fields and other roles are not counted. Role and script buttons
+   count anywhere on the page, not only inside a login form. So "Select Phone - …" is
+   never offered.
 4. **The words.** When the handler is entered (`password-choice`) and again just before
    the press (`passwordChoice`), the extension checks a control with an accessible name
-   by that name and its rendered text: the name must pass the word list, and the text,
-   if any, must hold none of the list's refused words (`namesPasswordControl` in
-   `packages/contracts`). A control without one is checked by its text, as before.
+   by that name and its text: the name must pass the word list, and the text must hold
+   none of the list's refused words (`namesPasswordControl` in `packages/contracts`).
+   The text is all the text the control holds, shown or not, including `aria-hidden`
+   descendants, its images' `alt` and an input button's `value` or `alt`. A text longer
+   than 480 characters, which is not read in full, refuses the control; only a control
+   that holds no text at all passes on its name alone. The extractor reads the same
+   text. A control without a name is checked by its rendered text, as before.
    "Select" is neutral and passes; a "Send code" control labelled "Select Password." is
    not pressed. The service checks the candidate's label and the locator's value with
    the word list, as it does a text locator.
@@ -281,8 +289,10 @@ Since the two could not be told apart, the wrong one could not have been pressed
    that opens in the same tab (its own `target`, or else `<base target>`, is absent or
    `_self`) and has no `download` attribute counts as a button only for a `password`
    handler named by its accessible name: in the extractor, the readiness check, the
-   word check and the click. An empty `href` never counts. Everywhere else such a link
-   stays a link, as the owner's rule of 2026-10-11 has it.
+   word check and the click. An empty `href` never counts, nor one that starts with
+   `#/` or `#!`, which a page's router reads as a route to another view
+   (`#/account/delete`). Everywhere else such a link stays a link, as the owner's rule
+   of 2026-10-11 has it.
 6. **The judge's instructions** gain one sentence: a button named by its accessible
    name may show only neutral text, such as Select, and is judged by that name. The
    prompt version changes, so UniSuper's page, judged on 2026-10-18 at 08:11 UTC, is
@@ -293,7 +303,16 @@ Since the two could not be told apart, the wrong one could not have been pressed
 
 Claude chose the locator's name, that the extractor gives it only on the judged page,
 and that a fragment link located some other way stays a link; the owner has not
-confirmed them separately.
+confirmed them separately. After an independent review of the change, Claude also
+chose, likewise unconfirmed:
+
+- that the text check of item 4 fails closed: it reads hidden and `aria-hidden` text
+  too, and a text too long to read in full refuses the control;
+- that a fragment starting with `#/` or `#!` is no fragment link (item 5); and
+- that the refused words of the word list (item 4, and the list of the Decision above)
+  also include signing or logging out or off, deleting and removing (ログアウト,
+  サインアウト, 削除), so a "Sign out" or "Delete" text refuses a control, whatever
+  its name.
 
 ### Consequences
 

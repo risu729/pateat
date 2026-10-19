@@ -138,6 +138,22 @@ describe("targetState", () => {
         expect(targetState(document, choose, "password-choice")).toBe("unusable");
       });
 
+      it("reads hidden text and refuses a text too long to read in full", () => {
+        for (const html of [
+          `<a href="#" aria-label="Select Password."><span aria-hidden="true">Send code</span></a>`,
+          `<button type="button" aria-label="Select Password.">Select<span hidden>Sign out</span></button>`,
+          `<a href="#" aria-label="Select Password.">Send a code to your phone${" now".repeat(40)}</a>`,
+          `<a href="#" aria-label="Select Password.">${"Select ".repeat(80)}</a>`,
+        ]) {
+          choice(html);
+          expect(targetState(document, named, "clickable"), html).toBe("unique");
+          expect(targetState(document, named, "password-choice"), html).toBe("unusable");
+        }
+        // A neutral text longer than a button's text still counts when it is read in full.
+        choice(`<a href="#" aria-label="Select Password.">${"Select ".repeat(30)}</a>`);
+        expect(targetState(document, named, "password-choice")).toBe("unique");
+      });
+
       it("counts a fragment link as clickable only through its accessible name", () => {
         page(`<a id="choose" href="#" aria-label="Select Password.">Select</a>`);
         expect(targetState(document, named, "clickable")).toBe("unique");

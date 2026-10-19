@@ -63,6 +63,15 @@ describe("a button that goes on to the password (ADR 0048)", () => {
     "パスワードを使わずにログイン",
     "SMSで認証",
     "別の方法を試す",
+    "Sign out",
+    "Log out",
+    "Logout",
+    "Log off",
+    "Delete password",
+    "Remove password",
+    "パスワードを削除",
+    "ログアウト",
+    "サインアウト",
   ])("does not name it in %s", (text) => {
     expect(namesPasswordChoice(text)).toBe(false);
   });
@@ -70,7 +79,18 @@ describe("a button that goes on to the password (ADR 0048)", () => {
 
 describe("a control named apart from its text (ADR 0048 amendment of 2026-10-19)", () => {
   it("finds the refused words alone in a visible text", () => {
-    for (const text of ["Send code", "Mobile", "Use another way", "コードを送信"])
+    for (const text of [
+      "Send code",
+      "Mobile",
+      "Use another way",
+      "コードを送信",
+      "Sign out",
+      "Delete",
+      "Remove",
+      "ログアウト",
+      "サインアウト",
+      "削除",
+    ])
       expect(namesOtherChoice(text)).toBe(true);
     for (const text of ["Select", "Password", "Continue", "選択"])
       expect(namesOtherChoice(text)).toBe(false);
@@ -78,23 +98,24 @@ describe("a control named apart from its text (ADR 0048 amendment of 2026-10-19)
 
   it("takes a neutral text whose accessible name names the password", () => {
     expect(namesPasswordControl("Select Password.", "Select")).toBe(true);
-    expect(namesPasswordControl("Select Password.", undefined)).toBe(true);
     expect(namesPasswordControl("パスワードを選択", "選択")).toBe(true);
+    // A control that holds no text at all, such as an icon without `alt`.
+    expect(namesPasswordControl("Select Password.", "")).toBe(true);
   });
 
-  it("refuses a visible text with a refused word, whatever the name says", () => {
+  it("refuses a text with a refused word, whatever the name says", () => {
     expect(namesPasswordControl("Select Password.", "Send code")).toBe(false);
     expect(namesPasswordControl("Select Password.", "Mobile")).toBe(false);
+    expect(namesPasswordControl("Select Password.", "Select Sign out")).toBe(false);
+  });
+
+  it("refuses a text it could not read in full", () => {
+    expect(namesPasswordControl("Select Password.", undefined)).toBe(false);
   });
 
   it("refuses a name that does not name the password, whatever the text says", () => {
     expect(namesPasswordControl("Select Phone", "Select")).toBe(false);
     expect(namesPasswordControl("Continue", "Password")).toBe(false);
-  });
-
-  it("keeps the visible text's own rule for a control without a name", () => {
-    expect(namesPasswordControl(undefined, "Password")).toBe(true);
-    expect(namesPasswordControl(undefined, "Select")).toBe(false);
-    expect(namesPasswordControl(undefined, undefined)).toBe(false);
+    expect(namesPasswordControl("Delete password", "Select")).toBe(false);
   });
 });
