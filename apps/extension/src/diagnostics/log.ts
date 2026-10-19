@@ -143,6 +143,11 @@ export const LOG_EVENTS = {
     level: "info",
     fields: { recipe: "recipe", recipeRevision: "count", branch: "code", result: "code" },
   },
+  // A login that started on a recipe revision, sent so the recipe is kept (ADR 0058).
+  "service.use": {
+    level: "info",
+    fields: { recipe: "recipe", recipeRevision: "count", result: "code" },
+  },
   "settings.changed": { level: "info", fields: { source: "code", revision: "count" } },
   "login.attempt": {
     level: "info",
@@ -369,6 +374,24 @@ export const LOG_EVENTS = {
       networkMs: "count",
       tokenMs: "count",
       modelMs: "count",
+      url: "url",
+    },
+  },
+  // A recipe the chosen item cannot run, revoked so its page is generated again (ADR 0058 A).
+  "recipe.revoke": {
+    level: "info",
+    fields: {
+      origin: "origin",
+      recipe: "recipe",
+      recipeRevision: "count",
+      route: "code",
+      outcome: "code",
+      reason: "code",
+      detail: "code",
+      // How long the request took (ADR 0019, amended 2026-10-18).
+      roundTripMs: "count",
+      serverMs: "count",
+      networkMs: "count",
       url: "url",
     },
   },

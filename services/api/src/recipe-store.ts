@@ -4,11 +4,16 @@ import {
   type SyncRecipeChange,
   type SyncRecipeWrite,
 } from "@pateat/contracts";
-import { and, eq, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, eq, lt, or, sql, type SQL } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import * as v from "valibot";
 import { owners, recipeHeads, recipeRevisions } from "./db/schema";
-import { KEPT_RECIPE_REVISIONS, MAX_ACTIVE_RECIPES } from "./limits";
+import {
+  KEPT_RECIPE_REVISIONS,
+  MAX_ACTIVE_RECIPES,
+  MAX_IDLE_REVOCATIONS,
+  RECIPE_IDLE_LIMIT_MS,
+} from "./limits";
 import { newId } from "@pateat/contracts/ids";
 
 type HeadRow = {
@@ -142,8 +147,11 @@ export async function hasRecipeRoom(db: D1Database, ownerId: string): Promise<bo
 
 /**
  * Writes the next revision of one recipe when `expectedRevision` is still its head.
- * `writer` is the writing device, or null for the owner web UI. A stale writer
- * changes nothing and gets the current head back (null when the recipe never existed).
+ * `writer` is the writing device, or null for the owner web UI or the service. A stale
+ * writer changes nothing and gets the current head back (null when the recipe never
+ * existed). Every winning write marks the recipe used (`lastUsedAt`, ADR 0058); with
+ * `unusedBefore`, the write wins only while the head was last used before that time, so a
+ * recipe used after an idle check is not revoked by it.
  * A write that would make the owner hold more than `MAX_ACTIVE_RECIPES` active recipes
  * or exceed `MAX_ACTIVE_RECIPE_BYTES` by creating or growing one
  * changes nothing and is `limited`. A winning write deletes revisions older than the
@@ -155,6 +163,7 @@ export async function writeRecipe(
   recipeId: string,
   write: SyncRecipeWrite,
   writer: string | null,
+  options: { unusedBefore?: number } = {},
 ): Promise<
   | { ok: true; change: SyncRecipeChange }
   | { ok: false; limited: false; current: SyncRecipeChange | null }
@@ -175,6 +184,7 @@ export async function writeRecipe(
     sequence: nextSequence,
     writeId,
     updatedAt: now,
+    lastUsedAt: now,
   };
   // Only a write that makes a recipe active can add one; updates and revocations cannot.
   const hasRoom = sql`${activeRecipes(ownerId)} < ${MAX_ACTIVE_RECIPES}`;
@@ -199,6 +209,7 @@ export async function writeRecipe(
                 sequence: nextSequence.as("sequence"),
                 writeId: sql`${writeId}`.as("write_id"),
                 updatedAt: sql`${now}`.as("updated_at"),
+                lastUsedAt: sql`${now}`.as("last_used_at"),
               })
               .from(owners)
               .where(and(eq(owners.id, ownerId), hasRoom, hasBytes)),
@@ -212,6 +223,9 @@ export async function writeRecipe(
               eq(recipeHeads.ownerId, ownerId),
               eq(recipeHeads.recipeId, recipeId),
               eq(recipeHeads.revision, write.expectedRevision),
+              options.unusedBefore === undefined
+                ? undefined
+                : lt(recipeHeads.lastUsedAt, options.unusedBefore),
               // Re-revoking a tombstone would only add churn to every change feed.
               write.state === "revoked"
                 ? eq(recipeHeads.state, "active")
@@ -276,4 +290,42 @@ export async function writeRecipe(
         : { recipeId, revision, state: write.state, recipe: document },
     ),
   };
+}
+
+/**
+ * Revokes the owner's active recipes unused for `RECIPE_IDLE_LIMIT_MS` (ADR 0058), at most
+ * `MAX_IDLE_REVOCATIONS` per call and oldest first, as ordinary tombstone writes by the
+ * service. Entry recipes (ADR 0031) stay: pressing an entry reports nothing to the service.
+ * A recipe used after this read keeps its head. Returns how many were revoked.
+ */
+export async function revokeUnusedRecipes(
+  db: D1Database,
+  ownerId: string,
+  now: number,
+): Promise<number> {
+  const unusedBefore = now - RECIPE_IDLE_LIMIT_MS;
+  const idle = await selectHeads(
+    db,
+    ownerId,
+    eq(recipeHeads.state, "active"),
+    lt(recipeHeads.lastUsedAt, unusedBefore),
+    sql`json_extract(${recipeRevisions.document}, '$.entry') IS NULL`,
+  )
+    .orderBy(asc(recipeHeads.lastUsedAt))
+    .limit(MAX_IDLE_REVOCATIONS);
+  let revoked = 0;
+  for (const { recipeId, revision } of idle) {
+    // Sequential: each write takes the owner's next sequence number.
+    // eslint-disable-next-line no-await-in-loop
+    const result = await writeRecipe(
+      db,
+      ownerId,
+      recipeId,
+      { version: 1, expectedRevision: revision, state: "revoked" },
+      null,
+      { unusedBefore },
+    );
+    if (result.ok) revoked += 1;
+  }
+  return revoked;
 }

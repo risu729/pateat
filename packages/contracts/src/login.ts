@@ -1170,6 +1170,24 @@ export function chooseLoginRoute(
   return variant === -1 ? undefined : { route: "password", variant };
 }
 /**
+ * The route the item would take that the recipe lacks (ADR 0058 A), for a new login whose
+ * plan found no route from the item's facts: `passkey` when the item holds a discoverable
+ * passkey, the page is one the passkey scripts run on (`passkeyPage`, ADR 0050) and the
+ * recipe has no passkey button; else `password` when the item holds a password and the
+ * recipe has no `password` variant. A recipe generated again for the page may have that
+ * route. A passkey that is not discoverable never counts.
+ */
+export function heldRouteMissing(
+  recipe: LoginRecipe,
+  facts: Pick<LoginItemFacts, "password" | "discoverablePasskey">,
+  passkeyPage: boolean,
+): LoginRoute | undefined {
+  if (facts.discoverablePasskey && passkeyPage && !recipeHasRoute(recipe, "passkey"))
+    return "passkey";
+  if (facts.password && !recipeHasRoute(recipe, "password")) return "password";
+  return undefined;
+}
+/**
  * Why a `password` login of an item without a password does not go on to a passkey (ADR
  * 0036), for the log: the item holds a password or no usable passkey (`no-passkey`), the
  * recipe has alternatives (`alternatives`), the route is not `password`, or it fills none

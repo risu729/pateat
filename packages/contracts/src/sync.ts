@@ -27,6 +27,13 @@ const sequence = v.pipe(
 
 export const SYNC_PAGE_LIMIT = 100;
 export const syncRecipeIdSchema = loginIdentifierSchema;
+/**
+ * Whether a recipe ID is one the service generated (`gen-` and 32 hex digits), derived
+ * from its origin and start path, so a page generated again gets the same ID (ADR 0016).
+ */
+export function isGeneratedRecipeId(recipeId: string): boolean {
+  return /^gen-[0-9a-f]{32}$/u.test(recipeId);
+}
 
 /** Revision 0 means the owner has never stored settings on the service. */
 export const syncSettingsStateSchema = v.pipe(
@@ -278,6 +285,18 @@ export const loginRecordSchema = v.strictObject({
    */
   pageMs: loginMilliseconds,
 });
+/**
+ * `POST /v1/recipes/:recipeId/use`: a login started on this recipe revision, whatever
+ * happened after, so the service does not revoke the recipe as unused (ADR 0058). It also
+ * covers the logins that send no login record, as a fill-only one or one that stops before
+ * an item's missing password. The revision only: never a URL, origin, page text, value or
+ * username, and the service adds the time.
+ */
+export const recipeUseReportSchema = v.strictObject({
+  version: v.literal(1),
+  revision: writtenRevision,
+});
 export type LoginOutcomeCause = v.InferOutput<typeof loginOutcomeCauseSchema>;
 export type LoginOutcomeReport = v.InferOutput<typeof loginOutcomeReportSchema>;
 export type LoginRecord = v.InferOutput<typeof loginRecordSchema>;
+export type RecipeUseReport = v.InferOutput<typeof recipeUseReportSchema>;

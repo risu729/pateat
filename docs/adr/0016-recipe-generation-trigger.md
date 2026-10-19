@@ -40,6 +40,10 @@ page without an input that shows only a button naming a passkey or security key,
 condition 2 gets a second vault access to decide whether such a page is sent
 ([passkey-only start pages](#amendment-2026-10-19-passkey-only-start-pages)).
 
+Amended on 2026-10-19 by [ADR 0058](0058-automatic-recipe-removal.md) (owner, 20:28 UTC,
+implemented): a page whose recipe the chosen item cannot run is generated again, its
+recipe revoked first, though a recipe starts there.
+
 Date: 2026-10-11
 
 ## Context
