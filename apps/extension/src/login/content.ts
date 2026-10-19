@@ -311,7 +311,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         ? identifierInput(document)
         : undefined;
     const offerEntry = bare && entryWanted && !entryOffered && identifier !== "sole";
-    if (!identifier && !accounts && !offerEntry) return;
+    // Nothing to send yet, or a list announced only for the log, which waits for the window.
+    if (!identifier && !offerEntry && (!accounts || logOnly(accounts))) return;
     if (offerEntry) entryOffered = true;
     offered = true;
     watch(starts);
@@ -322,8 +323,11 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   function endOffer(): void {
     offered = true;
     watch(starts);
+    const bare = !cancelled && !starts.some(ready) && !showsSignIn() && !afterSubmitted();
+    const accounts = bare ? listed() : undefined;
+    if (accounts && logOnly(accounts)) void announce(false, false, accounts).catch(() => undefined);
     // Nothing was sent: the log says why (ADR 0019).
-    if (!cancelled && !starts.some(ready))
+    else if (!cancelled && !starts.some(ready))
       void sendMessage("login", {
         version: 1,
         type: "login.document.ready",
@@ -457,6 +461,9 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
    * account by email, or else the short texts that may name one by a username that is not
    * an email; and whether it shows a control to sign in with another account.
    */
+  /** Whether a list holds only why a text with an `@` is not an entry, for the log. */
+  const logOnly = (list: { names?: string[]; missed?: EntryMiss }) =>
+    list.missed !== undefined && !list.names;
   function listed():
     | {
         path: string;

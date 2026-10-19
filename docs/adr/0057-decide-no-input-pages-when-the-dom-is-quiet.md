@@ -36,11 +36,14 @@ ended the window in which a page that shows a sign-in input is sent.
   `currententrychange`). The background answering the page again while it waits does
   not move the 5-second limit.
 - Not confirmed by the owner, added so that ADR 0016's window stays as it was: this wait
-  only decides what a page without a sign-in input is. When it finds a list of accounts,
-  a sign-in entry or an identifier input, the page is sent at once and nothing else is
-  offered for it. Otherwise a page that shows a sign-in input within 10 seconds of the
-  wait's start is still sent as a sign-in page, and the `nothing-offered` log is still
-  written at those 10 seconds, with the reason as it stands then.
+  only decides what a page without a sign-in input is. When it finds a list of accounts
+  (by email, or by names only), a sign-in entry or an identifier input, the page is sent
+  at once and nothing else is offered for it. Otherwise, including when the only list is
+  one announced for the log (a text with an `@` that is no entry, such as an address in
+  the page's footer), a page that shows a sign-in input within 10 seconds of the wait's
+  start is still sent as a sign-in page. At those 10 seconds, a list for the log is
+  announced as it stands then, or else the `nothing-offered` log is written with the
+  reason as it stands then.
 - Not confirmed by the owner: the 5-second limit and the 10-second window are timers
   started once when the wait begins; the quiet second is a timer started again on each
   DOM change.
@@ -60,7 +63,8 @@ ended the window in which a page that shows a sign-in input is sent.
   logged as `nothing-offered` (`no-list`) at 10 seconds unless a sign-in input shows
   first. A later visit that shows them in time is sent as before. A sign-in form shown
   after such a pause, but within 10 seconds, is still sent, as the synthetic browser
-  test with a form shown after 2.5 quiet seconds checks.
+  tests with a form shown after 4 quiet seconds check, with and without an email address
+  in the page's footer.
 - Changes outside the observed attributes, such as a canvas drawing or a CSS animation
   that changes no attribute, do not count, so such a page is decided after a second.
 

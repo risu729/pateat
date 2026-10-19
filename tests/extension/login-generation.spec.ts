@@ -691,49 +691,52 @@ for (const changing of [false, true])
     }
   });
 
-test("a sign-in form shown after the page was quiet for over a second is still sent (ADR 0016, ADR 0057)", async () => {
-  const fixture = await startLoginFixture(0, { password, accountName: username });
-  const claude = syntheticClaude();
-  const service = await startSyncService({ claude: claude.answer });
-  // A page on another host of the site that shows nothing, changes nothing for 2.5 seconds,
-  // as behind a CSS-only spinner, and then shows its sign-in form.
-  const top = "https://www.synthetic.example.test";
-  try {
-    await withVaultProfile(
-      async (open) => {
-        const browser = await open();
-        await serveSite(browser.context, fixture);
-        await browser.context.route(`${top}/**`, (route) =>
-          route.fulfill({
-            contentType: "text/html",
-            body: `<!doctype html><html lang="en"><head><title>Synthetic sign-in</title></head><body>
+for (const footer of [false, true])
+  test(`a sign-in form shown after the page was quiet for over a second is still sent${footer ? " beside an email address in its footer" : ""} (ADR 0016, ADR 0057)`, async () => {
+    const fixture = await startLoginFixture(0, { password, accountName: username });
+    const claude = syntheticClaude();
+    const service = await startSyncService({ claude: claude.answer });
+    // A page on another host of the site that shows nothing, changes nothing for 4 seconds,
+    // as behind a CSS-only spinner, and then shows its sign-in form. A footer's email
+    // address is no list of accounts and is announced only for the log (ADR 0028).
+    const top = "https://www.synthetic.example.test";
+    try {
+      await withVaultProfile(
+        async (open) => {
+          const browser = await open();
+          await serveSite(browser.context, fixture);
+          await browser.context.route(`${top}/**`, (route) =>
+            route.fulfill({
+              contentType: "text/html",
+              body: `<!doctype html><html lang="en"><head><title>Synthetic sign-in</title></head><body>
             <main id="main"><h1>Synthetic sign-in</h1></main>
+            ${footer ? "<footer>help@synthetic.example.test</footer>" : ""}
             <script>setTimeout(() => {
               document.querySelector("#main").insertAdjacentHTML("beforeend",
                 '<form><label>Password <input id="password" type="password"></label>' +
                 '<button id="login" type="button">Log in</button></form>');
-            }, 2500);</script>
+            }, 4000);</script>
           </body></html>`,
-          }),
-        );
-        await connect(browser, service);
+            }),
+          );
+          await connect(browser, service);
 
-        const page = await browser.context.newPage();
-        await page.goto(`${top}/account`);
-        await expect(page.locator("#password")).toBeVisible();
-        // The page was decided as nothing else after its first quiet second, but its form
-        // still shows within the step wait, so it is sent as a sign-in page.
-        await expect.poll(() => claude.prompts.length, { timeout: 20_000 }).toBeGreaterThan(0);
-        expect(claude.prompts[0]).toMatchObject({
-          task: "generate",
-          observation: { path: "/account" },
-        });
-        expect(claude.prompts.map((prompt) => prompt.task)).not.toContain("entry");
-      },
-      { args: ["--ignore-certificate-errors"] },
-    );
-  } finally {
-    await service.close();
-    await fixture.close();
-  }
-});
+          const page = await browser.context.newPage();
+          await page.goto(`${top}/account`);
+          await expect(page.locator("#password")).toBeVisible();
+          // The page was decided as nothing else after its first quiet second, but its form
+          // still shows within the step wait, so it is sent as a sign-in page.
+          await expect.poll(() => claude.prompts.length, { timeout: 20_000 }).toBeGreaterThan(0);
+          expect(claude.prompts[0]).toMatchObject({
+            task: "generate",
+            observation: { path: "/account" },
+          });
+          expect(claude.prompts.map((prompt) => prompt.task)).not.toContain("entry");
+        },
+        { args: ["--ignore-certificate-errors"] },
+      );
+    } finally {
+      await service.close();
+      await fixture.close();
+    }
+  });
