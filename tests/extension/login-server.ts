@@ -597,7 +597,9 @@ export async function startLoginFixture(
       // `formaction` names another origin. Nothing submits: the page keeps every form, and
       // the `script` form's `javascript:` action does nothing.
       const form = fixtureUrl.searchParams.get("form");
-      const elsewhere = "http://127.0.0.1:1/collect";
+      // Another site: another port of 127.0.0.1 is the same site, which the login's item
+      // could allow (ADR 0051).
+      const elsewhere = "http://localhost:1/collect";
       const formStart =
         {
           "same-origin": '<form action="/single">',

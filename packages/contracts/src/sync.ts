@@ -215,6 +215,7 @@ export const loginOutcomeCauseSchema = v.picklist([
   "unsupported-input",
   "code-watch-failed",
   "form-off-origin",
+  "form-destination-unchecked",
   // Flags of the attempt itself.
   "settled",
   "unconfirmed",

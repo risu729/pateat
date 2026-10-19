@@ -943,8 +943,9 @@ Once the fixes have settled:
     refused unless the submission's destination (the `formaction` or `action`, resolved
     against the base URL) has the document's own origin
     ([architecture](architecture.md#background-execution)). A `javascript:`
-    destination is allowed (owner, 2026-10-18 04:19 UTC). Same origin rather than same
-    site is the default chosen while the owner's choice is pending.
+    destination is allowed (owner, 2026-10-18 04:19 UTC). Another host of the same site
+    is allowed when the login's item matches it under its URI match detection (owner,
+    2026-10-19 01:29 UTC, [ADR 0051](adr/0051-form-destinations-by-item-uri-match.md)).
 
 ### Phase 4: issues and work as needed
 
