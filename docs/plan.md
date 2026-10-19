@@ -41,6 +41,21 @@ are ignored, and Vaultwarden's wrong-password and wrong-code answers are shown a
 sending email two-step codes as the official extension does, and a Vaultwarden test
 server in CI.
 
+The owner chose to merge six pull requests built ahead of their phases now instead of
+at their phase (2026-10-19 13:36 UTC, 「今入れる」, over keeping them until their
+phase or settling only their designs now): from phase 3,
+[#613](https://github.com/risu729/pateat/pull/613) (running without the service) and
+[#617](https://github.com/risu729/pateat/pull/617) (repairing a generated recipe); from
+phase 4, [#614](https://github.com/risu729/pateat/pull/614) (allowed sites and a vault
+timeout), [#658](https://github.com/risu729/pateat/pull/658) (Chrome Immediate UI
+passkey requests), [#663](https://github.com/risu729/pateat/pull/663) (passkey-only
+start pages) and [#664](https://github.com/risu729/pateat/pull/664) (settings profiles).
+The choice meant answering their design questions now, and the paid calls, permission
+changes and security changes they bring still need the owner's approval one by one.
+[#658](https://github.com/risu729/pateat/pull/658) landed as
+[ADR 0052](adr/0052-immediate-ui-stored-passkeys.md) through
+[#803](https://github.com/risu729/pateat/pull/803); the other five are still open.
+
 ### Phase 1: usable
 
 Done when each kind of login page below works on the real site named for it, in the
@@ -642,7 +657,9 @@ than in this repository.
   the choice badge clears the badge.
 - Claude also watches the service's D1 records, such as the inference request log
   ([ADR 0012](adr/0012-inference-request-log.md)), not only logs the owner sends from
-  the device (owner, 2026-10-11 18:45 UTC).
+  the device (owner, 2026-10-11 18:45 UTC). The owner later allowed reading logs and the
+  like freely (2026-10-18 04:35 UTC: 「ログなどはすべて自由に読んでください」, "read
+  the logs and so on freely").
 - Browser agents that drive the owner's Chrome, such as Claude in Chrome and ChatGPT's
   agent in Chrome, must be logged in by Pateat and carry on with their task. This is the
   M1/M6 "Chrome use coexistence" gate, and it can only be checked by using them.
@@ -723,21 +740,25 @@ than in this repository.
   `957a53d` (15:08 UTC): after the row's click, `auth.openai.com` held the login
   (`login.move` `passkey-request` `kept`), Pateat answered its passkey, and the login
   ended `authenticated` with the account choice saved.
-- Answer Google's passkey step on the Grok Bot's browser. On build `a8350f5`
+- Done on the Grok Bot: Google's passkey step there. On build `a8350f5`
   (2026-10-12 19:49 UTC) both of the page's requests were logged as `passkey.request`
   `delegate` `invalid-request`, so the browser offered only the phone (hybrid) flow,
   which failed. The log now names the member and its size (`invalid`, `invalidLength`),
   and on build `f2c68aa` (20:37 UTC) it named a 2,056-byte `challenge`, over the
   1,024-byte bound of [ADR 0007](adr/0007-existing-passkey-assertions.md#admission).
-  The bound is now 4,096 bytes (local tests only). Next, the Bot signs in to Google
-  Play subscriptions again.
+  The bound is now 4,096 bytes. On build `74f1e6a` (21:11 UTC) the Bot signed in to
+  Google Play subscriptions again: Pateat answered the passkey request and the login
+  ended `authenticated`.
 - Debugging on the Grok Bot computer goes through the Bot today. A shell or SSH
   session for members, and a public API for messaging a Bot, are not documented;
   users report SSH over Tailscale anyway. A routine started by a webhook call, by
   email to the Bot's address, or on a schedule that reads a Notion page can take
   requests from Claude without the owner pasting them
-  ([Grok Bot remote access](research/2026-10-12-grok-bot-remote-access.md)). Which
-  one to use waits for the owner. A read-only probe run there on 2026-10-12 found the
+  ([Grok Bot remote access](research/2026-10-12-grok-bot-remote-access.md)). The
+  owner's Bot already runs a routine that reads a Notion request page (owner,
+  2026-10-12 18:16 UTC: 「もう作ってある」), and the owner then set remote access aside
+  for now and asked for commands to run in the computer's terminal instead (18:24 UTC).
+  The read-only probe run there on 2026-10-12 found the
   browser-tool guards in the computer's own `sand-host` process, Chrome 154 from
   Google's package with memory saver at its most aggressive, and the `a8350f5` build
   loaded. The owner wants the computer's own code read later (2026-10-12), not now.
@@ -901,7 +922,15 @@ Once the fixes have settled:
   2026-10-11 the owner asked for a larger corpus of real pages before planning it. After
   Clef has been tried, compare it with Jev on the same pages (owner, 2026-10-13 15:11
   UTC). Include Chrome's built-in Prompt API (`LanguageModel`, an on-device model) in
-  that comparison (owner, 2026-10-13 21:36 UTC).
+  that comparison (owner, 2026-10-13 21:36 UTC). Do not compare models on the corpus
+  yet: the request log first keeps what a corpus needs, with earlier rows filled in
+  (both done in [ADR 0012](adr/0012-inference-request-log.md)), and the corpus is
+  rebuilt as regular use adds rows. The comparison is with Clef, and Jev may be tried
+  too; Claude Sonnet and Haiku are for checking whether a part that Clef or the like
+  cannot do can use a cheaper or faster model (owner, 2026-10-18 04:34 UTC). Log rows
+  are kept one year, so the earliest ones (2026-10-11) are deleted from 2027-10-11; a
+  corpus that should include them has to be exported before then (inferred from the
+  retention rule).
 - Split `apps/extension/src/login/runtime.ts` (9,998 lines; `createLoginRuntime` spans
   lines 1573-9998) after [#545](https://github.com/risu729/pateat/issues/545) moves the
   undecided-page completion rule out, keeping the existing state transitions: the types
