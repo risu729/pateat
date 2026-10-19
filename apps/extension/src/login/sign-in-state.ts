@@ -1,6 +1,8 @@
 // The sign-in state of ADR 0029 for the page after an effect step that no check explained.
 // On the `password` route a confirmed decision acts (delivery 2); `unknown` only logs.
 
+import { observedPath } from "../observation/path";
+
 /** The signs read from the page (ADR 0029). */
 export interface SignInSigns {
   /** S1: one of the route's sign-in elements shows. */
@@ -77,34 +79,28 @@ export function decideSignInState(signs: SignInSigns): SignInDecision {
  * sign-in page's URL, names, as `?return_to=/settings` or `?next=https%3A%2F%2F…`. Any
  * parameter name counts. A target that is `/`, one of `excluded` (the sign-in paths) or
  * the sign-in page's own path does not count, as a failed sign-in may land there too.
- * Paths are compared without the query.
+ * Paths are compared without the query, each as observations carry it (`observedPath`,
+ * ADR 0039), as `excluded` and `current` already are.
  */
 export function reachedReturnTarget(
   start: string,
   current: string,
   excluded: readonly string[],
 ): boolean {
-  let startUrl: URL;
-  let currentUrl: URL;
-  try {
-    startUrl = new URL(start);
-    currentUrl = new URL(current);
-  } catch {
-    return false;
-  }
+  const startUrl = URL.parse(start);
+  if (!startUrl) return false;
+  const currentUrl = URL.parse(current);
+  if (!currentUrl) return false;
   if (currentUrl.origin !== startUrl.origin) return false;
-  const path = currentUrl.pathname;
-  if (path === "/" || path === startUrl.pathname || excluded.includes(path)) return false;
+  const path = observedPath(currentUrl.pathname);
+  if (path === "/" || path === observedPath(startUrl.pathname) || excluded.includes(path))
+    return false;
   for (const value of startUrl.searchParams.values()) {
     // A protocol-relative `//host/path` names another origin.
     if (!/^\/(?!\/)|^https?:/iu.test(value)) continue;
-    let target: URL;
-    try {
-      target = new URL(value, startUrl.origin);
-    } catch {
-      continue;
-    }
-    if (target.origin === startUrl.origin && target.pathname === path) return true;
+    const target = URL.parse(value, startUrl.origin);
+    if (!target) continue;
+    if (target.origin === startUrl.origin && observedPath(target.pathname) === path) return true;
   }
   return false;
 }

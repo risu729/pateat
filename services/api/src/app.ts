@@ -2,6 +2,7 @@ import { devicePairRequestSchema } from "@pateat/contracts";
 import { Hono, type Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { HTTPException } from "hono/http-exception";
+import { timing } from "hono/timing";
 import {
   requireAccess,
   requireAccessApi,
@@ -14,6 +15,7 @@ import { requireDevice, type ApiEnv } from "./auth";
 import { API_HEADERS, apiError } from "./http";
 import { limitIdentity, limitOwner } from "./limits";
 import { message } from "./pages";
+import { traceRequest } from "./request-timing";
 import { deviceRoutes } from "./routes/device";
 import { manageApiRoutes } from "./routes/manage-api";
 import { manageClaudeRoutes } from "./routes/manage-claude";
@@ -62,11 +64,13 @@ export const app = new Hono<ApiEnv>()
     }),
   )
   .route("/manage/api", manageApiRoutes)
+  .all("/manage/api/dashboard", methodNotAllowed("GET"))
   .all("/manage/api/devices", methodNotAllowed("GET"))
   .all("/manage/api/settings", methodNotAllowed("GET, PUT"))
   .all("/manage/api/devices/:deviceId/revoke", methodNotAllowed("POST"))
   .all("/manage/api/recipes", methodNotAllowed("GET"))
   .all("/manage/api/recipes/:recipeId/revoke", methodNotAllowed("POST"))
+  .all("/manage/api/request-log", methodNotAllowed("GET, DELETE"))
   .get("/manage/assets/*", requireAccess, appAsset)
   // Each page the app renders; any other path under /manage is not found.
   .get("/manage", requireAccess, appPage)
@@ -75,6 +79,10 @@ export const app = new Hono<ApiEnv>()
   .all("/manage/claude", methodNotAllowed("GET, POST"))
   .all("/manage/claude/test", methodNotAllowed("POST"))
   .all("/manage", methodNotAllowed("GET"))
+  .get("/manage/dashboard", requireAccess, appPage)
+  .all("/manage/dashboard", methodNotAllowed("GET"))
+  .get("/manage/request-log", requireAccess, appPage)
+  .all("/manage/request-log", methodNotAllowed("GET"))
   .get("/manage/sites", requireAccess, appPage)
   .all("/manage/sites", methodNotAllowed("GET"))
   // One site's page, for the origin `<scheme>://<host>`; the app checks the host.
@@ -104,9 +112,12 @@ export const app = new Hono<ApiEnv>()
   )
   .all("/pair/signed-in", methodNotAllowed("GET"))
   // Authenticate and count the request against its owner before reading bodies;
-  // unauthenticated requests are never parsed.
+  // unauthenticated requests are never parsed. Timing starts first, so `Server-Timing`'s
+  // `total` and the request log's times cover these too; no Timing-Allow-Origin is sent.
   .use(
     "/v1/*",
+    timing(),
+    traceRequest,
     requireDevice,
     limitOwner,
     bodyLimit({
@@ -123,6 +134,9 @@ export const app = new Hono<ApiEnv>()
   .all("/v1/recipes/generate", methodNotAllowed("POST"))
   .all("/v1/recipes/:recipeId", methodNotAllowed("PUT"))
   .all("/v1/recipes/:recipeId/completion", methodNotAllowed("POST"))
+  .all("/v1/recipes/:recipeId/outcome", methodNotAllowed("POST"))
+  .all("/v1/recipes/:recipeId/logins", methodNotAllowed("POST"))
+  .all("/v1/recipes/:recipeId/page-sample", methodNotAllowed("POST"))
   .notFound((c) => apiError(c, 404, { error: "not_found" }))
   .onError((error, c) => {
     const ownerPage =

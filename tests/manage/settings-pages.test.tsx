@@ -27,7 +27,8 @@ const binding = {
   itemId: "item-1",
   itemName: "Example Bank",
   slots: [
-    { slot: "branch", field: { custom: "Branch number" } },
+    // A custom-field slot named from the page's text (ADR 0027).
+    { slot: "店番号", field: { custom: "支店番号" } },
     { slot: "pin", field: { custom: "PIN", position: 1, count: 2 } },
     { slot: "password", field: "password" as const },
   ],
@@ -45,6 +46,7 @@ const bankDefault = {
 function mockClient(initial: SyncSettingsState, recipes: ManageRecipes["recipes"] = []) {
   let state = initial;
   return {
+    dashboard: vi.fn<ManageClient["dashboard"]>(),
     devices: vi.fn<ManageClient["devices"]>(async () => ({ version: 1, devices: [] })),
     revokeDevice: vi.fn<ManageClient["revokeDevice"]>(),
     settings: vi.fn<ManageClient["settings"]>(async () => structuredClone(state)),
@@ -53,8 +55,10 @@ function mockClient(initial: SyncSettingsState, recipes: ManageRecipes["recipes"
       state = { version: 1, revision: state.revision + 1, settings: structuredClone(settings) };
       return structuredClone(state);
     }),
-    recipes: vi.fn<ManageClient["recipes"]>(async () => ({ version: 1, recipes })),
+    recipes: vi.fn<ManageClient["recipes"]>(async () => ({ version: 1, recipes, unreadable: [] })),
     revokeRecipe: vi.fn<ManageClient["revokeRecipe"]>(),
+    requestLog: vi.fn<ManageClient["requestLog"]>(),
+    deleteRequestLog: vi.fn<ManageClient["deleteRequestLog"]>(),
     replace(next: SyncSettingsState) {
       state = next;
     },
@@ -288,7 +292,7 @@ test("lists a site's account bindings with their fields and removes one", async 
   });
   await mount(client, BANK_PAGE);
   const panel = page.getByRole("region", { name: "Account bindings" });
-  await expect.element(panel).toMatchTextContent('branch from custom field "Branch number"');
+  await expect.element(panel).toMatchTextContent('店番号 from custom field "支店番号"');
   await expect.element(panel).toMatchTextContent('pin from custom field "PIN" (1 of 2)');
   await expect.element(panel).toMatchTextContent("password from the password");
   await expect.element(panel).toMatchTextContent("recipe bank-signin");

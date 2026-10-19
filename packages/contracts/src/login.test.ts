@@ -3,6 +3,7 @@ import * as v from "valibot";
 import {
   chooseLoginRoute,
   chooserBranch,
+  chooserClickBranch,
   chooserRoute,
   CHOOSER_ENTRY_TARGET,
   continuesRecipe,
@@ -20,6 +21,7 @@ import {
   recipeHasRoute,
   recipeSlots,
   recipeStartSteps,
+  laterStartSteps,
   routeFillTargets,
   routePaths,
   routeSignInPaths,
@@ -442,6 +444,26 @@ describe("declarative login boundaries", () => {
     ).toBe(false);
   });
 
+  it("takes a custom-field slot named from the page's text (ADR 0027)", () => {
+    const rename = (slot: string) => {
+      const named = recipe();
+      named.slots[0] = slot;
+      const fill = named.steps[0] as Extract<LoginRecipe["steps"][number], { kind: "fill" }>;
+      fill.fields[0]!.slot = slot;
+      const bound = binding();
+      bound.slots[0]!.slot = slot;
+      return [named, bound] as const;
+    };
+    const [named, bound] = rename("会員番号 (ログインID)");
+    expect(parseLoginRecipe(named)).toEqual(named);
+    expect(parseLoginAccountBinding(bound)).toEqual(bound);
+    for (const slot of ["店番  号", " 店番号", "店番\u3000号", "Ｂｒａｎｃｈ", "a".repeat(61)]) {
+      const [recipeWith, bindingWith] = rename(slot);
+      expect(() => parseLoginRecipe(recipeWith), slot).toThrow();
+      expect(() => parseLoginAccountBinding(bindingWith), slot).toThrow();
+    }
+  });
+
   it("rejects duplicate bindings and secret-shaped extras", () => {
     const valid = binding();
     for (const malformed of [
@@ -651,6 +673,135 @@ describe("second-factor page handlers (ADR 0027)", () => {
     expect(handlerSteps(passkeyHandler())).toEqual([
       { kind: "click", path: "/webauthn", target: securityKey, purpose: "submit" },
     ]);
+  });
+
+  describe("the password handler (ADR 0048)", () => {
+    const choice = { by: "text", value: "Password" } as const;
+    const password = (path = "/identity", target: LoginTarget = choice) => ({
+      kind: "password" as const,
+      path,
+      target,
+    });
+
+    it("accepts a button beside other handlers on its path, and clicks it as an advance", () => {
+      const handlers = [password(), passkeyHandler("/identity")];
+      expect(parseLoginRecipe(withHandlers(handlers)).handlers).toEqual(handlers);
+      expect(handlerSteps(password())).toEqual([
+        { kind: "click", path: "/identity", target: choice, purpose: "advance" },
+      ]);
+      expect(handlerTargets(password())).toEqual([choice]);
+    });
+
+    it("refuses a route step's element on its path, and a second one per path", () => {
+      const next = { by: "id", value: "next" } as const;
+      expect(() => parseLoginRecipe(withHandlers([password("/identity", next)]))).toThrow();
+      // On another path the locator names another element.
+      expect(parseLoginRecipe(withHandlers([password("/choose", next)])).handlers).toHaveLength(1);
+      expect(() =>
+        parseLoginRecipe(
+          withHandlers([password(), password("/identity", { by: "id", value: "other" })]),
+        ),
+      ).toThrow();
+      expect(() =>
+        parseLoginRecipe(withHandlers([{ ...password(), field: { by: "id", value: "x" } }])),
+      ).toThrow();
+    });
+
+    describe("named by its accessible name (ADR 0048 amendment of 2026-10-19)", () => {
+      const named = { by: "accessible-name", value: "Select Password." } as const;
+      const parses = (value: unknown) => v.safeParse(loginRecipeSchema, value).success;
+
+      it("names a password handler's button and clicks it as an advance", () => {
+        const handlers = [password("/identity", named)];
+        expect(parseLoginRecipe(withHandlers(handlers)).handlers).toEqual(handlers);
+        expect(handlerSteps(password("/identity", named))).toEqual([
+          { kind: "click", path: "/identity", target: named, purpose: "advance" },
+        ]);
+        // Its value takes the text locator's form: collapsed, at most 120 characters.
+        for (const value of ["", " Select", "Select  Password", "x".repeat(121)])
+          expect(v.safeParse(loginTargetSchema, { by: "accessible-name", value }).success).toBe(
+            false,
+          );
+      });
+
+      it("names no other element of a recipe", () => {
+        const base = recipe();
+        const steps = base.steps.map((step, index) =>
+          index === 1 ? { ...step, target: named } : step,
+        );
+        const withPasskey = {
+          ...base,
+          passkey: { path: "/identity", target: named },
+        };
+        for (const value of [
+          { ...base, steps },
+          withPasskey,
+          { ...base, completion: [{ target: named }] },
+          { ...base, completion: [{ target: { by: "id", value: "out" } }, { target: named }] },
+          {
+            ...base,
+            completion: [{ target: { by: "id", value: "out" }, absent: [named] }],
+          },
+          { ...base, rejection: named },
+          { ...base, accountSwitch: named },
+          withHandlers([passkeyHandler("/webauthn", named)]),
+          withHandlers([
+            {
+              kind: "totp",
+              path: "/two-factor",
+              field: { by: "id", value: "otp" },
+              target: named,
+            },
+          ]),
+        ])
+          expect(parses(value)).toBe(false);
+        // A wait or assert step never names one either.
+        expect(
+          parses({
+            ...base,
+            steps: [
+              { kind: "assert", path: "/identity", target: named, present: true },
+              ...base.steps,
+            ],
+          }),
+        ).toBe(false);
+        // A fill never takes it, as a field is never named so.
+        expect(
+          parses({
+            ...base,
+            steps: [
+              {
+                kind: "fill",
+                path: "/identity",
+                fields: [{ slot: "branch", target: named }],
+              },
+              ...base.steps.slice(1),
+            ],
+          }),
+        ).toBe(false);
+      });
+
+      it("is never an entry's or a list control's locator", () => {
+        expect(
+          v.safeParse(loginEntryRecipeSchema, {
+            version: 1,
+            id: "entry",
+            revision: 1,
+            origin: "https://bank.example",
+            entry: { path: "/", target: named },
+          }).success,
+        ).toBe(false);
+        expect(
+          v.safeParse(loginChooserRecipeSchema, {
+            version: 1,
+            id: "chooser",
+            revision: 1,
+            origin: "https://bank.example",
+            chooser: { path: "/", other: named },
+          }).success,
+        ).toBe(false);
+      });
+    });
   });
 
   describe("the totp handler", () => {
@@ -2295,6 +2446,28 @@ describe("chooser recipes (ADR 0028)", () => {
     expect(v.is(loginRecipeSchema, route)).toBe(true);
     // The other branch is still absent: its route is the click alone.
     expect(chooserRoute(both, "other")?.steps).toHaveLength(1);
+    expect(chooserRoute(both, "other-shown")).toBeUndefined();
+  });
+
+  it("runs the other branch alone when its form shows on the list's path", () => {
+    const stored = v.parse(loginChooserRecipeSchema, chooser());
+    const onList = {
+      ...recipe(),
+      steps: recipe().steps.map((step) => ({ ...step, path: "/login" })),
+    };
+    const { alternatives: _alternatives, passkey: _passkey, ...branch } = onList;
+    const shown = withChooserBranch(stored, "other", { ...onList, revision: 2 });
+    expect(chooserClickBranch("other-shown")).toBe("other");
+    // No click: the branch's own steps, slots and submissions, without its passkey route
+    // or alternatives, under the chooser's ID and revision.
+    expect(chooserRoute(shown, "other-shown")).toEqual({ ...branch, revision: 2 });
+    // A branch that starts on another path never shows on the list's.
+    const elsewhere = withChooserBranch(stored, "other", {
+      ...onList,
+      steps: [{ ...onList.steps[0]!, path: "/email" }, ...onList.steps.slice(1)],
+      revision: 2,
+    });
+    expect(chooserRoute(elsewhere, "other-shown")).toBeUndefined();
   });
 });
 
@@ -2675,5 +2848,60 @@ describe("the stop before a missing password (ADR 0036)", () => {
         [],
       ),
     ).toEqual({ miss: "no-password-step" });
+  });
+});
+
+describe("later steps a login may start at (ADR 0049)", () => {
+  const field = (slot: string, value: string) => ({ slot, target: { by: "id" as const, value } });
+  const remembered = parseLoginRecipe({
+    version: 1,
+    id: "synthetic-later",
+    revision: 1,
+    origin: "https://login.example",
+    slots: ["username", "password", "totp"],
+    steps: [
+      { kind: "fill", path: "/signin", fields: [field("username", "email")] },
+      { kind: "click", path: "/signin", target: { by: "id", value: "next" }, purpose: "advance" },
+      { kind: "fill", path: "/password", fields: [field("password", "password")] },
+      {
+        kind: "click",
+        path: "/password",
+        target: { by: "id", value: "login" },
+        purpose: "advance",
+      },
+      { kind: "fill", path: "/code", fields: [field("totp", "code")] },
+      { kind: "click", path: "/code", target: { by: "id", value: "verify" }, purpose: "submit" },
+    ],
+    alternatives: [
+      {
+        slots: ["contract", "password"],
+        steps: [
+          { kind: "fill", path: "/signin", fields: [field("contract", "contract")] },
+          {
+            kind: "click",
+            path: "/signin",
+            target: { by: "id", value: "next" },
+            purpose: "advance",
+          },
+          { kind: "fill", path: "/password", fields: [field("password", "password")] },
+          {
+            kind: "click",
+            path: "/password",
+            target: { by: "id", value: "login" },
+            purpose: "submit",
+          },
+        ],
+      },
+    ],
+    maxSubmissions: 3,
+  });
+
+  it("lists every variant's later fill steps, but not a first step or a code alone", () => {
+    expect(
+      laterStartSteps(remembered).map(({ variant, index, step }) => [variant, index, step.path]),
+    ).toEqual([
+      [0, 2, "/password"],
+      [1, 2, "/password"],
+    ]);
   });
 });

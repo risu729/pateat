@@ -10,10 +10,13 @@ import {
   type DevicePairResult,
   type EntryGenerationRequest,
   type EntryGenerationResult,
+  type LoginOutcomeReport,
+  type LoginRecord,
   type RecipeCompletionRequest,
   type RecipeCompletionResult,
   type RecipeGenerationRequest,
   type RecipeGenerationResult,
+  type RecipePageSampleRequest,
   type SyncDeviceState,
   type SyncRecipeChanges,
   type SyncSettingsState,
@@ -22,6 +25,88 @@ import {
 import * as v from "valibot";
 
 export type TransportFailure = "unreachable" | "unexpected-response" | "rate-limited";
+
+/**
+ * How long one request to the service took, for the local log (ADR 0019): from just before
+ * it was sent until its body was read (`roundTripMs`), and from the answer's
+ * `Server-Timing` header, the service's own time (`total`), its token exchange (`token`)
+ * and model call (`model`). `networkMs` is the round trip less the service's time: the
+ * network both ways, the Worker's start and the body's transfer. An answer without the
+ * header, such as an edge error page, or no answer at all has the round trip only.
+ */
+export type ServiceTiming = {
+  roundTripMs: number;
+  serverMs?: number;
+  networkMs?: number;
+  tokenMs?: number;
+  modelMs?: number;
+};
+
+/** The longest `dur` taken from a `Server-Timing` header: a day; anything longer is wrong. */
+const MAX_SERVER_TIMING_MS = 86_400_000;
+
+/**
+ * A `Server-Timing` header's metric `dur`ations by name; malformed entries, and durations
+ * that are not finite or longer than a day, are skipped.
+ */
+export function serverTimings(header: string | null | undefined): Map<string, number> {
+  const metrics = new Map<string, number>();
+  if (!header) return metrics;
+  // Entries and their parameters are separated outside quoted `desc` values.
+  for (const entry of header.match(/(?:[^,"]|"(?:[^"\\]|\\.)*")+/gu) ?? []) {
+    const [name, ...parameters] = (entry.match(/(?:[^;"]|"(?:[^"\\]|\\.)*")+/gu) ?? []).map(
+      (part) => part.trim(),
+    );
+    if (!name || metrics.has(name)) continue;
+    for (const parameter of parameters) {
+      const match = /^dur\s*=\s*"?([0-9]+(?:\.[0-9]+)?)"?$/iu.exec(parameter);
+      if (match) {
+        const duration = Number(match[1]);
+        if (Number.isFinite(duration) && duration <= MAX_SERVER_TIMING_MS)
+          metrics.set(name, Math.round(duration));
+        break;
+      }
+    }
+  }
+  return metrics;
+}
+
+/** One request's timing from its round trip and its answer's `Server-Timing` header. */
+export function serviceTiming(roundTripMs: number, header?: string | null): ServiceTiming {
+  const roundTrip = Math.max(0, Math.round(roundTripMs));
+  const metrics = serverTimings(header);
+  const server = metrics.get("total");
+  const token = metrics.get("token");
+  const model = metrics.get("model");
+  return {
+    roundTripMs: roundTrip,
+    ...(server === undefined
+      ? {}
+      : { serverMs: server, networkMs: Math.max(0, roundTrip - server) }),
+    ...(token === undefined ? {} : { tokenMs: token }),
+    ...(model === undefined ? {} : { modelMs: model }),
+  };
+}
+
+/**
+ * Several requests' timing added up, as for one sync: the service's and the network's
+ * time only when every request had the service's time.
+ */
+export function addTimings(
+  total: ServiceTiming | undefined,
+  next: ServiceTiming | undefined,
+): ServiceTiming | undefined {
+  if (!total || !next) return total ?? next;
+  return {
+    roundTripMs: total.roundTripMs + next.roundTripMs,
+    ...(total.serverMs === undefined || next.serverMs === undefined
+      ? {}
+      : {
+          serverMs: total.serverMs + next.serverMs,
+          networkMs: (total.networkMs ?? 0) + (next.networkMs ?? 0),
+        }),
+  };
+}
 
 /** `POST /pair`'s answer (ADR 0020). */
 export type PairResult =
@@ -48,25 +133,57 @@ export type DeviceStateResult =
   | { kind: "rejected" }
   | { kind: "failed"; error: TransportFailure };
 
-export type RecipeChangesResult =
+/** A sync or generation request's result, with how long the request took when it was sent. */
+type Timed = { timing?: ServiceTiming };
+
+export type RecipeChangesResult = (
   | { kind: "page"; page: SyncRecipeChanges }
   /** The service no longer accepts this device's credential. */
   | { kind: "rejected" }
-  | { kind: "failed"; error: TransportFailure };
+  | { kind: "failed"; error: TransportFailure }
+) &
+  Timed;
 
-export type SettingsResult =
+export type SettingsResult = (
   | { kind: "state"; state: SyncSettingsState }
   /** The write named a stale revision; `current` is the service's state now. */
   | { kind: "conflict"; current: SyncSettingsState }
   | { kind: "rejected" }
-  | { kind: "failed"; error: TransportFailure };
+  | { kind: "failed"; error: TransportFailure }
+) &
+  Timed;
 
 /** A recipe generation route's answer (ADR 0018); every answer is a 200 with a status. */
 /** `timeout`: no answer in time, though the service may have called the model. */
-export type InferenceResult<T> =
+export type InferenceResult<T> = (
   | { kind: "result"; result: T }
   | { kind: "rejected" }
-  | { kind: "failed"; error: TransportFailure | "timeout" };
+  | { kind: "failed"; error: TransportFailure | "timeout" }
+) &
+  Timed;
+
+/**
+ * `POST /v1/recipes/:recipeId/outcome`'s and `/logins`' answer: `kept` for a 204 (a repeat
+ * outcome is one too), `refused` for any other answer below 500 the service gives a request
+ * it will never take, such as a recipe it does not hold.
+ */
+export type OutcomeResult =
+  | { kind: "kept" }
+  | { kind: "refused" }
+  | { kind: "rejected" }
+  | { kind: "failed"; error: TransportFailure };
+
+/**
+ * `POST /v1/recipes/:recipeId/page-sample`'s answer (ADR 0029): `kept` when the service
+ * logged the page, `recent` when it had a sample of the recipe and branch already, `gone`
+ * for a 404: the recipe or its revision is no longer the owner's, as when it was revoked
+ * meanwhile, `refused` for a 400: the service turned the page away, as one still showing a
+ * fill field of the route.
+ */
+export type PageSampleResult =
+  | { kind: "kept" | "recent" | "gone" | "refused" }
+  | { kind: "rejected" }
+  | { kind: "failed"; error: TransportFailure };
 
 export interface ServiceTransport {
   /**
@@ -102,6 +219,26 @@ export interface ServiceTransport {
     credential: string,
     request: EntryGenerationRequest,
   ): Promise<InferenceResult<EntryGenerationResult>>;
+  /**
+   * `POST /v1/recipes/:recipeId/outcome`: how the first login of a recipe revision ended,
+   * as codes only (ADR 0019, amended 2026-10-18).
+   */
+  reportOutcome(
+    origin: string,
+    credential: string,
+    recipeId: string,
+    report: LoginOutcomeReport,
+  ): Promise<OutcomeResult>;
+  /**
+   * `POST /v1/recipes/:recipeId/logins`: one ended login's result code and times, without
+   * its site or any value (ADR 0055).
+   */
+  reportLogin(
+    origin: string,
+    credential: string,
+    recipeId: string,
+    record: LoginRecord,
+  ): Promise<OutcomeResult>;
   /** `POST /v1/recipes/:recipeId/completion`: the page after a recipe's final submission. */
   judgeCompletion(
     origin: string,
@@ -109,6 +246,16 @@ export interface ServiceTransport {
     recipeId: string,
     request: RecipeCompletionRequest,
   ): Promise<InferenceResult<RecipeCompletionResult>>;
+  /**
+   * `POST /v1/recipes/:recipeId/page-sample`: a repeat login's signed-in page, which the
+   * service logs without a model call (ADR 0029).
+   */
+  samplePage(
+    origin: string,
+    credential: string,
+    recipeId: string,
+    request: RecipePageSampleRequest,
+  ): Promise<PageSampleResult>;
 }
 
 const errorSchema = v.object({ error: v.string() });
@@ -182,9 +329,15 @@ function isJson(response: Response) {
  * validated before use.
  */
 export function createServiceTransport(
-  options: { fetch?: typeof fetch; timeoutMs?: number; inferenceTimeoutMs?: number } = {},
+  options: {
+    fetch?: typeof fetch;
+    timeoutMs?: number;
+    inferenceTimeoutMs?: number;
+    now?: () => number;
+  } = {},
 ): ServiceTransport {
   const fetchResponse = options.fetch ?? globalThis.fetch.bind(globalThis);
+  const now = options.now ?? Date.now;
   const timeoutMs = options.timeoutMs ?? 15_000;
   // The service allows the model 60 seconds after exchanging the owner's token.
   const inferenceTimeoutMs = options.inferenceTimeoutMs ?? 90_000;
@@ -198,6 +351,10 @@ export function createServiceTransport(
     const url = new URL(path, origin).href;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeout);
+    // Measured from just before the request leaves until its body is read or it fails.
+    const sentAt = now();
+    let headers: Headers | undefined;
+    const timing = () => serviceTiming(now() - sentAt, headers?.get("Server-Timing"));
     try {
       const response = await fetchResponse(url, {
         ...init,
@@ -207,34 +364,36 @@ export function createServiceTransport(
         cache: "no-store",
         referrerPolicy: "no-referrer",
       });
+      headers = response.headers;
       // Decided before reading the body: a login or edge error page is never parsed.
       // Status 0 falls through to "unexpected-response" for any caller that ignores
       // `signIn`.
       if (session && (response.type === "opaqueredirect" || !isJson(response))) {
         void response.body?.cancel().catch(() => undefined);
         if (response.type !== "opaqueredirect" && response.status === 429)
-          return { failed: "rate-limited" as const };
+          return { failed: "rate-limited" as const, timing: timing() };
         if (response.type !== "opaqueredirect" && response.status >= 500)
-          return { failed: "unexpected-response" as const };
-        return { status: 0, body: undefined, signIn: true as const };
+          return { failed: "unexpected-response" as const, timing: timing() };
+        return { status: 0, body: undefined, signIn: true as const, timing: timing() };
       }
       if (response.redirected || (response.url && response.url !== url)) {
         void response.body?.cancel().catch(() => undefined);
-        return { failed: "unexpected-response" as const };
+        return { failed: "unexpected-response" as const, timing: timing() };
       }
       const text = await readBounded(response, limit);
-      if (text === undefined) return { failed: "unexpected-response" as const };
+      if (text === undefined) return { failed: "unexpected-response" as const, timing: timing() };
       let body: unknown;
       try {
         body = text ? JSON.parse(text) : undefined;
       } catch {
-        return { failed: "unexpected-response" as const };
+        return { failed: "unexpected-response" as const, timing: timing() };
       }
-      return { status: response.status, body };
+      return { status: response.status, body, timing: timing() };
     } catch {
       return {
         failed: "unreachable" as const,
         ...(controller.signal.aborted ? { timedOut: true as const } : {}),
+        timing: timing(),
       };
     } finally {
       clearTimeout(timer);
@@ -325,17 +484,18 @@ export function createServiceTransport(
         { method: "GET", headers: { Authorization: `Bearer ${credential}` } },
         { limit: MAX_RECIPE_PAGE_BYTES },
       );
-      if ("failed" in response) return { kind: "failed", error: response.failed };
+      const timed = { timing: response.timing };
+      if ("failed" in response) return { kind: "failed", error: response.failed, ...timed };
       if (response.status === 200) {
         const parsed = v.safeParse(syncRecipeChangesSchema, response.body);
         // A page that moves the cursor backwards would replay or skip changes.
         return parsed.success && parsed.output.cursor >= after
-          ? { kind: "page", page: parsed.output }
-          : { kind: "failed", error: "unexpected-response" };
+          ? { kind: "page", page: parsed.output, ...timed }
+          : { kind: "failed", error: "unexpected-response", ...timed };
       }
-      if (rejected(response)) return { kind: "rejected" };
-      if (response.status === 429) return { kind: "failed", error: "rate-limited" };
-      return { kind: "failed", error: "unexpected-response" };
+      if (rejected(response)) return { kind: "rejected", ...timed };
+      if (response.status === 429) return { kind: "failed", error: "rate-limited", ...timed };
+      return { kind: "failed", error: "unexpected-response", ...timed };
     },
     async settings(origin, credential) {
       return settingsResult(
@@ -382,6 +542,17 @@ export function createServiceTransport(
         entryGenerationResultSchema,
       );
     },
+    reportOutcome(origin, credential, recipeId, report) {
+      return post(
+        origin,
+        credential,
+        `/v1/recipes/${encodeURIComponent(recipeId)}/outcome`,
+        report,
+      );
+    },
+    reportLogin(origin, credential, recipeId, record) {
+      return post(origin, credential, `/v1/recipes/${encodeURIComponent(recipeId)}/logins`, record);
+    },
     judgeCompletion(origin, credential, recipeId, request) {
       return infer(
         origin,
@@ -391,7 +562,51 @@ export function createServiceTransport(
         recipeCompletionResultSchema,
       );
     },
+    async samplePage(origin, credential, recipeId, request) {
+      const response = await call(
+        origin,
+        `/v1/recipes/${encodeURIComponent(recipeId)}/page-sample`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${credential}`, "Content-Type": "application/json" },
+          body: JSON.stringify(request),
+        },
+      );
+      if ("failed" in response) return { kind: "failed", error: response.failed };
+      if (response.status === 201) return { kind: "kept" };
+      if (response.status === 204) return { kind: "recent" };
+      if (response.status === 404) return { kind: "gone" };
+      if (response.status === 400) return { kind: "refused" };
+      if (rejected(response)) return { kind: "rejected" };
+      if (response.status === 429) return { kind: "failed", error: "rate-limited" };
+      return { kind: "failed", error: "unexpected-response" };
+    },
   };
+
+  /** A small report the service answers with 204 and no body. */
+  async function post(
+    origin: string,
+    credential: string,
+    path: string,
+    body: unknown,
+  ): Promise<OutcomeResult> {
+    const response = await call(
+      origin,
+      path,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${credential}`, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
+      { timeout: Math.min(timeoutMs, DEVICE_TIMEOUT_MS) },
+    );
+    if ("failed" in response) return { kind: "failed", error: response.failed };
+    if (response.status === 204) return { kind: "kept" };
+    if (rejected(response)) return { kind: "rejected" };
+    if (response.status === 429) return { kind: "failed", error: "rate-limited" };
+    if (response.status >= 400 && response.status < 500) return { kind: "refused" };
+    return { kind: "failed", error: "unexpected-response" };
+  }
 
   async function infer<T>(
     origin: string,
@@ -410,35 +625,41 @@ export function createServiceTransport(
       },
       { limit: MAX_INFERENCE_BYTES, timeout: inferenceTimeoutMs },
     );
+    const timed = { timing: response.timing };
     if ("failed" in response)
-      return { kind: "failed", error: "timedOut" in response ? "timeout" : response.failed };
+      return {
+        kind: "failed",
+        error: "timedOut" in response ? "timeout" : response.failed,
+        ...timed,
+      };
     if (response.status === 200) {
       const parsed = v.safeParse(schema, response.body);
       return parsed.success
-        ? { kind: "result", result: parsed.output }
-        : { kind: "failed", error: "unexpected-response" };
+        ? { kind: "result", result: parsed.output, ...timed }
+        : { kind: "failed", error: "unexpected-response", ...timed };
     }
-    if (rejected(response)) return { kind: "rejected" };
-    if (response.status === 429) return { kind: "failed", error: "rate-limited" };
-    return { kind: "failed", error: "unexpected-response" };
+    if (rejected(response)) return { kind: "rejected", ...timed };
+    if (response.status === 429) return { kind: "failed", error: "rate-limited", ...timed };
+    return { kind: "failed", error: "unexpected-response", ...timed };
   }
 
   function settingsResult(response: Awaited<ReturnType<typeof call>>): SettingsResult {
-    if ("failed" in response) return { kind: "failed", error: response.failed };
+    const timed = { timing: response.timing };
+    if ("failed" in response) return { kind: "failed", error: response.failed, ...timed };
     if (response.status === 200) {
       const parsed = v.safeParse(syncSettingsStateSchema, response.body);
       return parsed.success
-        ? { kind: "state", state: parsed.output }
-        : { kind: "failed", error: "unexpected-response" };
+        ? { kind: "state", state: parsed.output, ...timed }
+        : { kind: "failed", error: "unexpected-response", ...timed };
     }
     if (response.status === 409) {
       const parsed = v.safeParse(settingsConflictSchema, response.body);
       return parsed.success
-        ? { kind: "conflict", current: parsed.output.current }
-        : { kind: "failed", error: "unexpected-response" };
+        ? { kind: "conflict", current: parsed.output.current, ...timed }
+        : { kind: "failed", error: "unexpected-response", ...timed };
     }
-    if (rejected(response)) return { kind: "rejected" };
-    if (response.status === 429) return { kind: "failed", error: "rate-limited" };
-    return { kind: "failed", error: "unexpected-response" };
+    if (rejected(response)) return { kind: "rejected", ...timed };
+    if (response.status === 429) return { kind: "failed", error: "rate-limited", ...timed };
+    return { kind: "failed", error: "unexpected-response", ...timed };
   }
 }

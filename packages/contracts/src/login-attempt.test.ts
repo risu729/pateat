@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  addAttemptTime,
+  attemptTimes,
+  awaitPerson,
+  followPage,
+  personAnswered,
   attemptPlan,
   attemptRouteChoice,
   attemptUsesCode,
@@ -15,7 +20,12 @@ import {
   validateLoginOperation,
   withdrawAccountSwitch,
 } from "./login-attempt";
-import { CHOOSER_ENTRY_TARGET, type LoginDocument, type LoginRecipe } from "./login";
+import {
+  CHOOSER_ENTRY_TARGET,
+  type LoginDocument,
+  type LoginRecipe,
+  type LoginStep,
+} from "./login";
 
 const facts = { password: true, totp: false, passkey: false, discoverablePasskey: false };
 const document: LoginDocument = {
@@ -44,8 +54,12 @@ const recipe: LoginRecipe = {
   maxSubmissions: 1,
 };
 
+/** A login that took no time before it started. */
+const noTimeBefore = { since: 0, serviceMs: 0, networkMs: 0, personMs: 0, pageMs: 0 };
+
 function detected(selected = recipe) {
   return createAttemptMetadata({
+    timing: noTimeBefore,
     id: "attempt-one",
     recipe: selected,
     policyRevision: 3,
@@ -507,6 +521,7 @@ describe("submission and failure reconciliation", () => {
       ],
     };
     let attempt = createAttemptMetadata({
+      timing: noTimeBefore,
       id: "multi-page",
       recipe: twoPage,
       policyRevision: 3,
@@ -587,6 +602,41 @@ describe("submission and failure reconciliation", () => {
     });
     expect(authenticated.state).toBe("authenticated");
     expect(nextLoginOperation(authenticated, recipe, document, "click-again")).toBeUndefined();
+  });
+
+  it("keeps unconfirmed completion through storage and recovery, without permitting resubmission", () => {
+    const awaiting = transitionLoginAttempt(submitting(), {
+      type: "SUBMITTED",
+      operationId: "click-one",
+    });
+    const ended = transitionLoginAttempt(awaiting, {
+      type: "OBSERVED",
+      result: "authenticated",
+      document,
+      unconfirmed: true,
+    });
+    const restored = recoverLoginAttempt(parseAttemptMetadata(JSON.parse(JSON.stringify(ended))));
+    expect(restored).toMatchObject({
+      state: "authenticated",
+      outcome: "authenticated",
+      unconfirmed: true,
+    });
+    expect(nextLoginOperation(restored, recipe, document, "click-again")).toBeUndefined();
+    expect(() => parseAttemptMetadata({ ...awaiting, unconfirmed: true })).toThrow();
+    expect(() =>
+      transitionLoginAttempt(awaiting, {
+        type: "OBSERVED",
+        result: "unknown",
+        unconfirmed: true,
+      }),
+    ).toThrow();
+    const otherTab = transitionLoginAttempt(awaiting, {
+      type: "OBSERVED",
+      result: "authenticated",
+      document: { ...document, tabId: 8 },
+      unconfirmed: true,
+    });
+    expect(otherTab).toEqual(awaiting);
   });
 
   it("credential rejection is terminal while structural failure has a finite retry budget", () => {
@@ -746,6 +796,7 @@ describe("submission and failure reconciliation", () => {
     const create = () =>
       transitionLoginAttempt(
         createAttemptMetadata({
+          timing: noTimeBefore,
           id: "attempt-top",
           recipe,
           policyRevision: 3,
@@ -1007,6 +1058,7 @@ describe("second-factor handlers in an attempt (ADR 0027)", () => {
   function awaiting(selected = handled) {
     let attempt = transitionLoginAttempt(
       createAttemptMetadata({
+        timing: noTimeBefore,
         id: "attempt-one",
         recipe: selected,
         policyRevision: 3,
@@ -1035,6 +1087,7 @@ describe("second-factor handlers in an attempt (ADR 0027)", () => {
 
   it("records the route, the item's facts and no entered handler at the start", () => {
     const attempt = createAttemptMetadata({
+      timing: noTimeBefore,
       id: "attempt-one",
       recipe: handled,
       policyRevision: 3,
@@ -1603,6 +1656,7 @@ describe("password route variants in an attempt (ADR 0027)", () => {
   const varied: LoginRecipe = { ...recipe, alternatives: [contract] };
   const create = (variant: number) =>
     createAttemptMetadata({
+      timing: noTimeBefore,
       id: "attempt-variant",
       recipe: varied,
       policyRevision: 3,
@@ -1636,6 +1690,7 @@ describe("the passkey route in an attempt (ADR 0027)", () => {
   const withPasskey: LoginRecipe = { ...recipe, passkey: { path: "/login", target: button } };
   const create = (choice: Parameters<typeof createAttemptMetadata>[0]["choice"]) =>
     createAttemptMetadata({
+      timing: noTimeBefore,
       id: "attempt-passkey",
       recipe: withPasskey,
       policyRevision: 3,
@@ -1677,6 +1732,7 @@ describe("the passkey route in an attempt (ADR 0027)", () => {
   it("answers the start page's own request on a recipe without the button (ADR 0034)", () => {
     const answering = (fallback?: number) =>
       createAttemptMetadata({
+        timing: noTimeBefore,
         id: "attempt-passkey",
         recipe,
         policyRevision: 3,
@@ -1699,6 +1755,7 @@ describe("the passkey route in an attempt (ADR 0027)", () => {
     // A fallback is the passkey route's only: the password route keeps its own variant.
     expect(
       createAttemptMetadata({
+        timing: noTimeBefore,
         id: "attempt-password",
         recipe,
         policyRevision: 3,
@@ -2324,6 +2381,7 @@ describe("a login on a chooser's list (ADR 0028)", () => {
   const listed = (chooser?: "entry" | "continue" | "other") =>
     transitionLoginAttempt(
       createAttemptMetadata({
+        timing: noTimeBefore,
         id: "attempt-list",
         recipe,
         policyRevision: 3,
@@ -2376,6 +2434,7 @@ describe("a login watched after a challenge or an unknown result (ADR 0027)", ()
   function awaiting(at: LoginDocument = top, route: "password" | "passkey" = "password") {
     let attempt = transitionLoginAttempt(
       createAttemptMetadata({
+        timing: noTimeBefore,
         id: "attempt-watched",
         recipe: withPasskey,
         policyRevision: 3,
@@ -2569,6 +2628,7 @@ describe("route changes for a page's own passkey request (ADR 0034)", () => {
     change: Partial<Parameters<typeof createAttemptMetadata>[0]> = {},
   ) =>
     createAttemptMetadata({
+      timing: noTimeBefore,
       id: "attempt-route",
       recipe,
       policyRevision: 3,
@@ -2850,6 +2910,7 @@ describe("a login that stops before a missing password (ADR 0036)", () => {
     stopAt: number | null = 2,
   ) =>
     createAttemptMetadata({
+      timing: noTimeBefore,
       id: "attempt-stop",
       recipe: emailFirst,
       policyRevision: 3,
@@ -3016,6 +3077,46 @@ describe("a login that stops before a missing password (ADR 0036)", () => {
         document: { ...top, tabId: 8 },
       }),
     ).toEqual(stopped);
+  });
+
+  // A move to another origin of the site after the stop: ADR 0027 (2026-10-13) ends a
+  // watched login where it stopped, and ADR 0036 rule 5 completes a move after an answer.
+  describe("a stop the tab leaves for another origin", () => {
+    const moved = { ...top, origin: "https://www.bank.example", documentId: "x" };
+    const watchingAtStop = () =>
+      transitionLoginAttempt(
+        atStop(),
+        { type: "OBSERVED", result: "challenge", document: top },
+        1000,
+      );
+
+    it("ends a watched stop where it stopped, not interrupted", () => {
+      const watching = watchingAtStop();
+      expect(watching).toMatchObject({ state: "watching", submissions: 1 });
+      expect(watching.operationKind).toBeUndefined();
+      expect(
+        transitionLoginAttempt(watching, { type: "NAVIGATED", document: moved }),
+      ).toMatchObject({ state: "blocked", outcome: "challenge" });
+    });
+
+    it("completes a watched stop whose move shows a sign-in", () => {
+      expect(
+        transitionLoginAttempt(watchingAtStop(), {
+          type: "NAVIGATED",
+          document: moved,
+          signedIn: true,
+        }),
+      ).toMatchObject({ state: "authenticated", outcome: "authenticated" });
+    });
+
+    // The bridge's answer can reach the page before STOP_ANSWERED is recorded.
+    it("completes a ready stop whose move shows a sign-in", () => {
+      const stopped = atStop();
+      expect(stopped).toMatchObject({ state: "ready", submissions: 1 });
+      expect(
+        transitionLoginAttempt(stopped, { type: "NAVIGATED", document: moved, signedIn: true }),
+      ).toMatchObject({ state: "authenticated", outcome: "authenticated" });
+    });
   });
 
   it("counts an answer at the stop as a submission and goes on no further", () => {
@@ -3694,5 +3795,334 @@ describe("a login that stops before a missing password (ADR 0036)", () => {
         stopAt: 1,
       });
     });
+  });
+});
+
+describe("a login that starts at a later step (ADR 0049)", () => {
+  /** An identifier page and a password page, as a site that remembers the account skips. */
+  const twoPages: LoginRecipe = {
+    ...recipe,
+    slots: ["username", "password"],
+    steps: [
+      {
+        kind: "fill",
+        effect: "prepare",
+        path: "/login",
+        fields: [{ slot: "username", target: { by: "id", value: "email" } }],
+      },
+      { kind: "click", path: "/login", target: { by: "id", value: "next" }, purpose: "advance" },
+      ...recipe.steps.map((step) => ({ ...step, path: "/password" })),
+    ],
+    maxSubmissions: 2,
+  };
+  const create = (change: Partial<Parameters<typeof createAttemptMetadata>[0]> = {}) =>
+    createAttemptMetadata({
+      timing: noTimeBefore,
+      id: "attempt-later",
+      recipe: twoPages,
+      policyRevision: 3,
+      account: { origin: document.origin, connectionId: "demo-personal", itemId: "primary" },
+      choice: { route: "password", variant: 0 },
+      facts: { ...facts, passkey: true, discoverablePasskey: true },
+      document,
+      ...change,
+    });
+
+  it("starts at the step and issues it first", () => {
+    const ready = transitionLoginAttempt(create({ startAt: 2 }), { type: "RESOLVE" });
+    expect(ready).toMatchObject({ stepIndex: 2, stepCount: 4, startStep: 2 });
+    expect(nextLoginOperation(ready, twoPages, document, "fill-password")).toMatchObject({
+      stepIndex: 2,
+      step: { kind: "fill", path: "/password" },
+    });
+  });
+
+  it("goes back to that step, not the first, after an answered passkey request falls back", () => {
+    const ready = transitionLoginAttempt(create({ startAt: 2 }), { type: "RESOLVE" });
+    const switched = transitionLoginAttempt(ready, { type: "ROUTE", route: "passkey", steps: 1 });
+    expect(switched).toMatchObject({ route: "passkey", stepIndex: 0, startStep: 2 });
+    expect(
+      transitionLoginAttempt(switched, { type: "ROUTE", route: "password", steps: 4 }),
+    ).toMatchObject({ route: "password", stepIndex: 2, stepCount: 4 });
+    // A passkey answer that falls back to the variant records the step too.
+    const answering = create({ choice: { route: "passkey" }, fallback: 0, startAt: 2 });
+    expect(answering).toMatchObject({ route: "passkey", stepIndex: 0, startStep: 2 });
+    // The answer stands on that step's page and element, where the form it waits on shows.
+    expect(attemptPlan(twoPages, answering)).toEqual([
+      {
+        step: {
+          kind: "click",
+          path: "/password",
+          target: (twoPages.steps[2] as Extract<LoginStep, { kind: "fill" }>).fields[0]!.target,
+          purpose: "submit",
+        },
+      },
+    ]);
+    expect(attemptPlan(twoPages, { ...answering, startStep: undefined })?.[0]?.step).toMatchObject({
+      path: "/login",
+      target: { by: "id", value: "email" },
+    });
+  });
+
+  it("refuses a start outside the plan, at or past a stop, or on a chooser's branch", () => {
+    expect(() => create({ startAt: 4 })).toThrow();
+    expect(() =>
+      create({ startAt: 2, stopAt: 2, document: { ...document, frameId: 0 } }),
+    ).toThrow();
+    expect(() => create({ startAt: 2, chooser: "other-shown" })).toThrow();
+    expect(() => create({ choice: { route: "passkey" }, startAt: 2 })).toThrow();
+  });
+});
+
+describe("a login's own times for the local log (ADR 0019)", () => {
+  const top: LoginDocument = { ...document, frameId: 0, documentId: "top-one" };
+  const timing = { since: 1_000, serviceMs: 3_000, networkMs: 400, personMs: 0, pageMs: 0 };
+  /** A login whose click was sent at `at`, and that waits for the site's answer since then. */
+  function submitted(at = 5_000, on: LoginDocument = top) {
+    let attempt = transitionLoginAttempt(
+      createAttemptMetadata({
+        id: "attempt-timed",
+        recipe,
+        policyRevision: 3,
+        account: { origin: document.origin, connectionId: "demo-personal", itemId: "primary" },
+        choice: { route: "password", variant: 0 },
+        facts,
+        document: on,
+        timing,
+      }),
+      { type: "RESOLVE" },
+      at,
+    );
+    for (const event of [
+      { type: "PREPARE", operationId: "fill-one", kind: "fill" },
+      { type: "MUTATION_INTENT", operationId: "fill-one" },
+      { type: "OPERATION_OK", operationId: "fill-one" },
+      { type: "PREPARE", operationId: "click-one", kind: "click" },
+      { type: "SUBMIT_INTENT", operationId: "click-one" },
+      { type: "SUBMITTED", operationId: "click-one" },
+    ])
+      attempt = transitionLoginAttempt(attempt, event, at);
+    return attempt;
+  }
+  const observed = (result: "authenticated" | "challenge" | "unknown") => ({
+    type: "OBSERVED" as const,
+    result,
+    document: top,
+  });
+  const sum = (times: ReturnType<typeof attemptTimes>) =>
+    times.serviceMs + times.personMs + times.pageMs + times.otherMs;
+
+  it("starts with the time spent before the login, and waits for the site once it clicked", () => {
+    expect(submitted().timing).toEqual({ ...timing, pageSince: 5_000 });
+    expect(detected().timing).toEqual(noTimeBefore);
+  });
+
+  it("counts the wait for the site from a click until the login read its answer", () => {
+    const done = transitionLoginAttempt(submitted(), observed("authenticated"), 8_000);
+    expect(done.state).toBe("authenticated");
+    expect(done.timing).toEqual({ ...timing, pageMs: 3_000 });
+    const times = attemptTimes(done, 8_000);
+    expect(times).toEqual({
+      totalMs: 7_000,
+      serviceMs: 3_000,
+      networkMs: 400,
+      personMs: 0,
+      pageMs: 3_000,
+      otherMs: 1_000,
+    });
+    expect(sum(times)).toBe(times.totalMs);
+  });
+
+  it("keeps waiting for the site across a new page and a worker restart", () => {
+    // The click replaced the document: the restarted worker reads the record back, and
+    // the next page resumes the login.
+    const restored = recoverLoginAttempt(JSON.parse(JSON.stringify(submitted())));
+    expect(restored.timing.pageSince).toBe(5_000);
+    const next: LoginDocument = { ...top, documentId: "top-two" };
+    const navigated = transitionLoginAttempt(
+      restored,
+      { type: "NAVIGATED", document: next },
+      9_000,
+    );
+    expect(navigated).toMatchObject({ state: "reconciling", timing: { pageSince: 5_000 } });
+    const done = transitionLoginAttempt(
+      navigated,
+      { type: "OBSERVED", result: "authenticated", document: next },
+      11_000,
+    );
+    expect(attemptTimes(done, 11_000)).toMatchObject({ pageMs: 6_000, otherMs: 1_000 });
+  });
+
+  it("moves the wait for the site on by service time, so nothing counts twice", () => {
+    const judged = addAttemptTime(submitted(), { serviceMs: 2_000, networkMs: 300 }, 9_000);
+    expect(judged.timing.pageSince).toBe(7_000);
+    const done = transitionLoginAttempt(judged, observed("authenticated"), 10_000);
+    const times = attemptTimes(done, 10_000);
+    expect(times).toEqual({
+      totalMs: 9_000,
+      serviceMs: 5_000,
+      networkMs: 700,
+      personMs: 0,
+      pageMs: 3_000,
+      otherMs: 1_000,
+    });
+    expect(sum(times)).toBe(times.totalMs);
+  });
+
+  it("ends the wait for the site while the person acts, and takes it up again after them", () => {
+    const waiting = awaitPerson(submitted(), 6_000);
+    expect(waiting.timing).toEqual({ ...timing, pageMs: 1_000, personSince: 6_000 });
+    // A transition while the person acts starts no wait for the site.
+    expect(
+      transitionLoginAttempt(waiting, { type: "INTERRUPTED" }, 7_000).timing.pageSince,
+    ).toBeUndefined();
+    const pressed = followPage(personAnswered(waiting, 9_000), 9_000);
+    expect(pressed.timing).toEqual({ ...timing, pageMs: 1_000, personMs: 3_000, pageSince: 9_000 });
+    const done = transitionLoginAttempt(pressed, observed("authenticated"), 10_000);
+    const times = attemptTimes(done, 10_000);
+    expect(times).toMatchObject({ personMs: 3_000, pageMs: 2_000, otherMs: 1_000 });
+    expect(sum(times)).toBe(times.totalMs);
+    // A login that is not waiting for a step's result waits for no site.
+    const ready = transitionLoginAttempt(
+      createAttemptMetadata({
+        id: "attempt-ready",
+        recipe,
+        policyRevision: 3,
+        account: { origin: document.origin, connectionId: "demo-personal", itemId: "primary" },
+        choice: { route: "password", variant: 0 },
+        facts,
+        document: top,
+        timing,
+      }),
+      { type: "RESOLVE" },
+      2_000,
+    );
+    expect(followPage(ready, 3_000)).toBe(ready);
+  });
+
+  it("stops waiting for the site once an unwatched login's result settled as unknown", () => {
+    // A login in a frame is never watched: after its result settled, it only waits for a
+    // later page, which is neither the site's answer nor the person's time.
+    const settled = transitionLoginAttempt(
+      submitted(5_000, document),
+      { type: "OBSERVED", result: "unknown", document },
+      10_000,
+    );
+    expect(settled).toMatchObject({
+      state: "reconciling",
+      settled: true,
+      timing: { pageMs: 5_000 },
+    });
+    expect(settled.timing.pageSince).toBeUndefined();
+    expect(settled.timing.personSince).toBeUndefined();
+    expect(followPage(settled, 20_000)).toBe(settled);
+    const restored = recoverLoginAttempt(JSON.parse(JSON.stringify(settled)));
+    expect(restored.timing.pageSince).toBeUndefined();
+    expect(attemptTimes(restored, 70_000)).toMatchObject({ pageMs: 5_000, personMs: 0 });
+  });
+
+  it("counts a watched login's wait as the person's, also across a worker restart", () => {
+    const watching = transitionLoginAttempt(submitted(), observed("challenge"), 10_000);
+    expect(watching).toMatchObject({
+      state: "watching",
+      timing: { pageMs: 5_000, personSince: 10_000 },
+    });
+    expect(watching.timing.pageSince).toBeUndefined();
+    // A restarted worker reads the record back and keeps the running wait.
+    const restored = recoverLoginAttempt(JSON.parse(JSON.stringify(watching)));
+    expect(restored.timing).toEqual(watching.timing);
+    expect(attemptTimes(restored, 25_000)).toEqual({
+      totalMs: 24_000,
+      serviceMs: 3_000,
+      networkMs: 400,
+      personMs: 15_000,
+      pageMs: 5_000,
+      otherMs: 1_000,
+    });
+    // The page that proves the sign-in ends the wait.
+    const done = transitionLoginAttempt(restored, observed("authenticated"), 40_000);
+    expect(done.state).toBe("authenticated");
+    expect(done.timing).toEqual({ ...timing, personMs: 30_000, pageMs: 5_000 });
+    expect(attemptTimes(done, 41_000)).toEqual({
+      totalMs: 40_000,
+      serviceMs: 3_000,
+      networkMs: 400,
+      personMs: 30_000,
+      pageMs: 5_000,
+      otherMs: 2_000,
+    });
+  });
+
+  it("ends a watch that ran out with the person's time up to then", () => {
+    const watching = transitionLoginAttempt(submitted(), observed("challenge"), 10_000);
+    const ended = transitionLoginAttempt(watching, { type: "WATCH_ENDED" }, 70_000);
+    expect(ended).toMatchObject({ state: "blocked", timing: { personMs: 60_000 } });
+    expect(ended.timing.personSince).toBeUndefined();
+  });
+
+  it("counts the watch of a login whose result settled as unknown as the person's", () => {
+    const settled = transitionLoginAttempt(submitted(), observed("unknown"), 10_000);
+    expect(settled).toMatchObject({
+      state: "reconciling",
+      settled: true,
+      timing: { pageMs: 5_000, personSince: 10_000 },
+    });
+    expect(settled.timing.pageSince).toBeUndefined();
+    const ended = transitionLoginAttempt(settled, { type: "WATCH_ENDED" }, 70_000);
+    expect(ended).toMatchObject({ state: "blocked", timing: { personMs: 60_000 } });
+    expect(attemptTimes(ended, 70_000)).toEqual({
+      totalMs: 69_000,
+      serviceMs: 3_000,
+      networkMs: 400,
+      personMs: 60_000,
+      pageMs: 5_000,
+      otherMs: 1_000,
+    });
+  });
+
+  it("moves a running wait for the person on by service time, so nothing counts twice", () => {
+    const waiting = awaitPerson(submitted(), 10_000);
+    expect(awaitPerson(waiting, 12_000)).toBe(waiting);
+    const judged = addAttemptTime(waiting, { serviceMs: 2_000.4, networkMs: 300 }, 13_000);
+    expect(judged.timing).toEqual({
+      ...timing,
+      serviceMs: 5_000,
+      networkMs: 700,
+      pageMs: 5_000,
+      personSince: 12_000,
+    });
+    // Service time never moves the wait past now.
+    expect(addAttemptTime(waiting, { serviceMs: 9_000 }, 11_000).timing.personSince).toBe(11_000);
+    expect(personAnswered(judged, 20_000).timing).toEqual({
+      ...timing,
+      serviceMs: 5_000,
+      networkMs: 700,
+      pageMs: 5_000,
+      personMs: 8_000,
+    });
+    const ready = transitionLoginAttempt(submitted(), observed("authenticated"), 6_000);
+    expect(personAnswered(ready, 20_000)).toEqual(ready);
+  });
+
+  it("never reports a negative time, as after a clock that moved back", () => {
+    const attempt = addAttemptTime(submitted(), { serviceMs: 9_000, personMs: -5 }, 5_000);
+    expect(attemptTimes(attempt, 500)).toEqual({
+      totalMs: 0,
+      serviceMs: 12_000,
+      networkMs: 400,
+      personMs: 0,
+      pageMs: 0,
+      otherMs: 0,
+    });
+  });
+
+  it("never lets the wait for the site make the parts more than the total", () => {
+    const attempt = parseAttemptMetadata({
+      ...submitted(),
+      timing: { ...timing, pageMs: 50_000 },
+    });
+    const times = attemptTimes(attempt, 10_000);
+    expect(times).toMatchObject({ totalMs: 9_000, pageMs: 6_000, otherMs: 0 });
+    expect(sum(times)).toBe(times.totalMs);
   });
 });

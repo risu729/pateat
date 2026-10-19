@@ -38,8 +38,8 @@ const local = (
  * button after the password, or else its first button. Without such a form, the one form
  * whose only fill field is marked `username` or `email` advances. It reads no labels, so
  * it shows what the model adds beyond structure. Not used at runtime. Its inputs pass the
- * same gate as generation's, so both providers fail the same cases before any mapping. It
- * names no custom-field slot (ADR 0027), so a plan that uses one fails validation.
+ * same gate as generation's, so both providers fail the same cases before any mapping. A
+ * custom-field slot it fills is named from the page, as generation's are (ADR 0027).
  */
 export function heuristicPlan(
   observation: LoginObservation,
@@ -53,11 +53,7 @@ export function heuristicPlan(
   if (!observation.complete) return local({ status: "failed", error: "incomplete-observation" });
   const identifier = slots.find((slot) => slot.kind === "identifier");
   const secret = slots.find((slot) => slot.kind === "secret");
-  const forms = new Map<string, ObservedCandidate[]>();
-  for (const candidate of observation.candidates) {
-    const key = candidate.group ?? "";
-    forms.set(key, [...(forms.get(key) ?? []), candidate]);
-  }
+  const forms = Map.groupBy(observation.candidates, (candidate) => candidate.group ?? "");
   const passwordsIn = (form: ObservedCandidate[]) =>
     form.filter((candidate) => candidate.role === "password");
   // Two password fields in one form are a sign-up or a password change.

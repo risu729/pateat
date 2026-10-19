@@ -21,6 +21,28 @@ binding after its first `authenticated` login, and another item's saved binding 
 recipe is reused by name
 ([ADR 0027](0027-per-account-login-routes.md#implementation-choices)).
 
+Amended on 2026-10-14: the implemented cache-overflow behavior below applies
+revocations without advancing past skipped active changes
+([revocations while the cache is full](#amendment-revocations-while-the-cache-is-full-2026-10-14)).
+A second amendment on 2026-10-14 adds non-growing active updates and durable bounded
+lookahead recovery
+([durable recovery](#amendment-durable-recovery-under-cache-pressure-2026-10-14)).
+
+Amended on 2026-10-14 by
+[ADR 0029](0029-local-sign-in-state.md#amendment-unconfirmed-completion-2026-10-14):
+a binding and an automatic or popup account choice are saved only after a confirmed
+`authenticated` login, never after an unconfirmed completion (implemented).
+
+Amended on 2026-10-18 by [ADR 0049](0049-start-at-a-later-step.md) (owner, 01:40 UTC,
+implemented): an attempt may also start at a later `fill` step the page shows when no
+first step does ([Recipe lookup](#recipe-lookup)).
+
+Amended on 2026-10-18 by
+[ADR 0027](0027-per-account-login-routes.md#amendment-2026-10-18-slot-names-from-the-page)
+(owner, 08:58:31 UTC): custom-field slot names come from the page's text, so the check
+before recipes are shared covers them
+([sharing review](#amendment-2026-10-18-slot-names-in-the-sharing-review)).
+
 Date: 2026-10-10
 
 ## Context
@@ -118,6 +140,9 @@ picks the recipe and the step a new attempt starts on. For now it allows only a
 recipe's first step and refuses when more than one recipe starts on the page, so a
 site that goes straight to its password page does not start an attempt. On-screen
 step detection can replace the selector later without changing the stored format.
+Since [ADR 0049](0049-start-at-a-later-step.md) (2026-10-18) the extension's runtime,
+beside this selector, also starts an attempt at a later `fill` step the page shows when
+no recipe's first step does, with the stored format unchanged.
 
 The owner decided on 2026-10-11 when an attempt starts and how long it waits:
 
@@ -191,3 +216,77 @@ with a 401 keeps using its cached recipes but receives no further changes, revoc
 included, until it is disconnected and paired again; disconnecting clears the cache. A
 device whose cache is full keeps using the recipes it has in the same way until recipes
 are removed on the service.
+
+## Amendment: Revocations while the cache is full (2026-10-14)
+
+The owner approved this change on 2026-10-14 at 07:24 UTC in
+[issue #544](https://github.com/risu729/pateat/issues/544). This replaces the final
+cache-full consequence above: a full cache keeps its remaining recipes, but a
+bounded revoke-only walk still applies removals, including those after the page
+that does not fit. These writes keep the old persisted cursor, so active changes
+remain pending and their order is preserved. A later active change in the walk
+does not restore a revoked recipe; it stays missing until normal sync can apply
+that change's full page.
+
+Normal sync and the revoke-only walk share the 50-page limit, including the
+blocked page. Revocations outside that walk wait for a later sync; this is not
+an unlimited revocation scan. After walking, sync retries the blocked page once
+from the persisted cursor, with one additional request. Removals free room for
+active changes only when the whole blocked page fits, at which point normal
+sync advances the cursor. If it still does not fit, sync reports `cache-full`.
+Each page's removals are saved before requesting another page, so a later
+transport failure leaves those revocations applied. An overflow containing only
+active changes writes nothing unless the retry fits.
+
+## Amendment: Durable recovery under cache pressure (2026-10-14)
+
+The owner approved the cache-pressure recovery follow-up on 2026-10-14. This
+amends the revoke-only behavior above: lookahead also saves a newer active head
+of an already cached recipe when its serialized UTF-8 document does not grow.
+It never adds a missing recipe during lookahead. The applied cursor stays with
+the last complete page; pending additions and growing updates remain pending.
+Normal replay ignores equal or older revisions already held, so it neither
+undoes a saved newer shrink nor counts that replay as another update.
+
+Lookahead checkpoints its last scanned sequence in a separate trusted
+`storage.local` record containing only the service origin, device ID, applied
+cursor and scan cursor. It contains no recipe bodies or tombstone history and
+has constant space independent of the backlog. The serialized recipe cache
+retains its actual 2 MiB cap, including its envelope; an exactly full old cache
+can still checkpoint. A valid cache of the same device and applied cursor is
+required to resume a checkpoint. Advancing the applied cursor invalidates the
+old checkpoint; an absent, corrupt or differently bound cache starts normally.
+
+Each run still shares 50 page reads between normal sync and lookahead, plus one
+fresh retry from the applied cursor. A blocked cursor's next run resumes
+lookahead after the checkpoint, so freeing heads beyond 50 pages are reachable
+across worker restarts. Safe cache writes finish before checkpoint writes; a
+checkpoint failure repeats work without skipping an unwritten reduction. A
+transport failure or rejection preserves earlier saved reductions. Clearing
+waits behind pending cache and checkpoint writes, then removes both records, so
+a late durable write cannot restore a disconnected device's state.
+
+The service returns each recipe's current head, ordered by its globally
+increasing sequence; updating or revoking it replaces that head and moves it
+forward. Requests bypass HTTP caches. Retry refetches these current heads after
+lookahead rather than applying the saved pre-scan page. Thus a revocation seen
+in lookahead cannot be resurrected by that earlier active response. A later
+strictly newer republication can be added when its whole fresh page fits.
+This relies on the service's current-head contract, not on retaining an
+unbounded historical feed or a tombstone history in the extension.
+
+With a finite settled feed whose current active documents fit the service's
+1.5 MiB cap, repeated successful bounded runs eventually reach its reductions
+and apply pending pages. The cap alone does not promise completion during
+continuous service changes, unavailable storage or failed requests. Until a
+whole page fits, the outcome remains `cache-full`; successful partial normal
+progress beyond one run's budget remains `incomplete`. Logged changes count
+only successfully written additions, updates and removals.
+
+## Amendment 2026-10-18: slot names in the sharing review
+
+Recipe slot names other than `username`, `password` and `totp` are now page text
+([ADR 0027](0027-per-account-login-routes.md#amendment-2026-10-18-slot-names-from-the-page)),
+such as `店番号` or a label that shows a person's display name. The personal-data check
+before a recipe is shared covers them as it covers paths and locators. Recipe sharing is
+not built yet.

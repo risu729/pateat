@@ -35,9 +35,12 @@ function recipe(id: string, revision: number): LoginRecipe {
   };
 }
 
-function mockClient(initial: ManageRecipes) {
-  let current = initial;
+type Listed = Omit<ManageRecipes, "unreadable"> & Partial<Pick<ManageRecipes, "unreadable">>;
+
+function mockClient(initial: Listed) {
+  let current: ManageRecipes = { unreadable: [], ...initial };
   return {
+    dashboard: vi.fn<ManageClient["dashboard"]>(),
     devices: vi.fn<ManageClient["devices"]>(),
     revokeDevice: vi.fn<ManageClient["revokeDevice"]>(),
     settings: vi.fn<ManageClient["settings"]>(async () => ({
@@ -49,18 +52,23 @@ function mockClient(initial: ManageRecipes) {
     recipes: vi.fn<ManageClient["recipes"]>(async () => structuredClone(current)),
     revokeRecipe: vi.fn<ManageClient["revokeRecipe"]>(async (recipeId, expectedRevision) => {
       const change = { recipeId, revision: expectedRevision + 1, state: "revoked" as const };
+      const revoked = { change, updatedAt: UPDATED + 60_000 };
       current = {
         version: 1,
-        recipes: current.recipes.map((entry) =>
-          entry.change.recipeId === recipeId ? { change, updatedAt: UPDATED + 60_000 } : entry,
-        ),
+        recipes: [
+          ...(current.unreadable.some((entry) => entry.recipeId === recipeId) ? [revoked] : []),
+          ...current.recipes.map((entry) => (entry.change.recipeId === recipeId ? revoked : entry)),
+        ],
+        unreadable: current.unreadable.filter((entry) => entry.recipeId !== recipeId),
       };
       return { version: 1, change };
     }),
-    replace(next: ManageRecipes) {
-      current = next;
+    requestLog: vi.fn<ManageClient["requestLog"]>(),
+    deleteRequestLog: vi.fn<ManageClient["deleteRequestLog"]>(),
+    replace(next: Listed) {
+      current = { unreadable: [], ...next };
     },
-  } satisfies ManageClient & { replace(next: ManageRecipes): void };
+  } satisfies ManageClient & { replace(next: Listed): void };
 }
 
 // Recipes are listed on their site's page; revoked ones on the Sites list.
@@ -106,7 +114,7 @@ test("shows a recipe's steps, targets and JSON, then revokes it", async () => {
   const details = recipeItem("bank-signin");
   for (const text of [
     "Revision2, updated 2026-10-11 08:15 UTC",
-    'Fill username into id "username", password into name "pass" (prepare)',
+    'Fill "username" into id "username", "password" into name "pass" (prepare)',
     'Click test-id "go" to submit',
     'id "welcome" on any page',
     'Rejectionid "login-error"',
@@ -153,6 +161,41 @@ test("shows a recipe's steps, targets and JSON, then revokes it", async () => {
   await expect.element(revoked).not.toMatchTextContent("shop-signin");
 });
 
+test("lists recipes the service can no longer read on the Sites list and revokes them", async () => {
+  const client = mockClient({
+    version: 1,
+    recipes: [active("shop-signin")],
+    unreadable: [{ recipeId: "bank-signin", revision: 2, updatedAt: UPDATED }],
+  });
+  await mount(client, "/manage/sites");
+  const unreadable = page.getByRole("region", { name: "Unreadable recipes" });
+  await expect
+    .element(unreadable)
+    .toMatchTextContent("bank-signinRevision 2, updated 2026-10-11 08:15 UTC");
+  await expect.element(unreadable).not.toMatchTextContent("shop-signin");
+
+  await page.getByRole("button", { name: "Revoke recipe bank-signin" }).click();
+  await expect.element(page.getByText("Revoke bank-signin, revision 2?")).toBeVisible();
+  await page.getByRole("button", { name: "Confirm" }).click();
+  await expect.poll(() => client.revokeRecipe).toHaveBeenCalledWith("bank-signin", 2);
+  await expect.element(page.getByRole("status")).toHaveTextContent("bank-signin revoked");
+  // The list goes once empty; the recipe is now a tombstone, whose heading takes focus.
+  await expect.element(unreadable).not.toBeInTheDocument();
+  const revoked = page.getByRole("region", { name: "Revoked recipes" });
+  await expect
+    .element(revoked)
+    .toMatchTextContent("bank-signinRevision 3, revoked 2026-10-11 08:16 UTC");
+  await expect.element(page.getByRole("heading", { name: "Revoked recipes" })).toHaveFocus();
+});
+
+test("shows no unreadable recipes section when there are none", async () => {
+  await mount(mockClient({ version: 1, recipes: [active("shop-signin")] }), "/manage/sites");
+  await expect.element(page.getByRole("heading", { name: "Revoked recipes" })).toBeVisible();
+  await expect
+    .element(page.getByRole("heading", { name: "Unreadable recipes" }))
+    .not.toBeInTheDocument();
+});
+
 test("lists only the recipes of the site the page is for", async () => {
   const elsewhere = active("card-signin");
   elsewhere.change.recipe.origin = "https://card.example";
@@ -162,17 +205,19 @@ test("lists only the recipes of the site the page is for", async () => {
 });
 
 test("lists each identifier set of a recipe with several (ADR 0027)", async () => {
+  // A custom-field slot named from the page's text, which may hold brackets.
+  const member = "会員番号 (ログインID)";
   const varied = recipe("bank-signin", 1);
   varied.alternatives = [
     {
-      slots: ["contract-number", "password"],
+      slots: [member, "password"],
       steps: [
         {
           kind: "fill",
           effect: "prepare",
           path: "/login",
           fields: [
-            { slot: "contract-number", target: { by: "id", value: "contract" } },
+            { slot: member, target: { by: "id", value: "contract" } },
             { slot: "password", target: { by: "name", value: "pass" } },
           ],
         },
@@ -197,13 +242,16 @@ test("lists each identifier set of a recipe with several (ADR 0027)", async () =
   await mount(client);
   const details = recipeItem("bank-signin");
   for (const text of [
-    "Slotsusername, password, contract-number",
-    "Identifier set 1 (username, password)",
-    "Identifier set 2 (contract-number, password)",
-    'Fill contract-number into id "contract", password into name "pass" (prepare)',
+    `Slots"username", "password", "${member}"`,
+    'Identifier set 1 ("username", "password")',
+    `Identifier set 2 ("${member}", "password")`,
+    `Fill "${member}" into id "contract", "password" into name "pass" (prepare)`,
   ])
     // oxlint-disable-next-line no-await-in-loop -- one element, checked in order
     await expect.element(details).toMatchTextContent(text);
+  // Each name is isolated from the text around it.
+  const isolated = [...details.element().querySelectorAll("bdi")].map((node) => node.textContent);
+  expect(isolated.filter((text) => text === member)).toHaveLength(3);
 });
 
 test("shows a recipe's passkey sign-in route (ADR 0027)", async () => {
@@ -333,7 +381,7 @@ test("moves focus between Revoke and Confirm while the list is refreshing", asyn
   const held = new Promise<void>((resolve) => (release = resolve));
   client.recipes.mockImplementationOnce(async () => {
     await held;
-    return { version: 1, recipes: [active("bank-signin")] };
+    return { version: 1, recipes: [active("bank-signin")], unreadable: [] };
   });
   void queryClient.invalidateQueries();
   await page.getByRole("button", { name: "Revoke recipe bank-signin" }).click();
@@ -406,7 +454,7 @@ test("says when a recipe to revoke no longer exists", async () => {
   const held = new Promise<void>((resolve) => (release = resolve));
   client.recipes.mockImplementationOnce(async () => {
     await held;
-    return { version: 1, recipes: [] };
+    return { version: 1, recipes: [], unreadable: [] };
   });
   await page.getByRole("button", { name: "Revoke recipe bank-signin" }).click();
   await page.getByRole("button", { name: "Confirm" }).click();

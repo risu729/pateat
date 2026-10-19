@@ -1,6 +1,6 @@
 import * as v from "valibot";
 import {
-  chooserClickSchema,
+  listClickSchema,
   loginFieldTargetSchema,
   loginOperationSchema,
   loginMarkerTargetSchema,
@@ -23,17 +23,37 @@ export type TargetState = v.InferOutput<typeof targetStateSchema>;
  * What a target's one element must be to count as `unique`: a shown writable input, a
  * shown enabled button, any shown element, an input of a kind Pateat fills (`input`, shown
  * or not) or such an input shown (`shown-input`), so another page's element with the same
- * locator is never taken for a sign-in field; `present` takes any element.
+ * locator is never taken for a sign-in field; `present` takes any element. With
+ * `described-writable` and `described-clickable`, the writable input or the clickable button
+ * must also be visible as the page's description reads it: not hidden from assistive
+ * technology, transparent unless it fades in, tiny or moved before the page's start
+ * (ADR 0018), as an advance's next step on its own path is measured (ADR 0013).
+ * `password-choice` takes a shown button that names the password as the way to confirm the
+ * sign-in, enabled or not: by its rendered text (`namesPasswordChoice`, ADR 0048), or with
+ * an accessible name by that name and all the text it holds, hidden text too
+ * (`namesPasswordControl`, its 2026-10-19 amendment).
  */
 export const targetRequirementSchema = v.picklist([
   "writable",
   "clickable",
+  "described-writable",
+  "described-clickable",
   "shown",
   "present",
   "input",
   "shown-input",
+  "password-choice",
 ]);
 export type TargetRequirement = v.InferOutput<typeof targetRequirementSchema>;
+/**
+ * What confirms an advance whose next step is on its own path (ADR 0013): that step's
+ * elements, each measured with `require` just before the advance and after it.
+ */
+export const inPlaceNextSchema = v.strictObject({
+  require: targetRequirementSchema,
+  targets: v.pipe(v.array(loginTargetSchema), v.maxLength(20)),
+});
+export type InPlaceNext = v.InferOutput<typeof inPlaceNextSchema>;
 /**
  * Elements a step needs before it can run: each target matches exactly one element that
  * is a writable input (`fill`), an enabled visible button (`click`) or simply present.
@@ -48,6 +68,11 @@ export const loginReadinessSchema = v.strictObject({
    * one of `targets` shows or the page lists an account by its email, masked or not.
    */
   accounts: v.optional(v.literal(true)),
+  /**
+   * A later `fill` step a new login may start at (ADR 0049): ready only while the page
+   * shows no other identifier input, as an email form beside its password input would.
+   */
+  later: v.optional(v.literal(true)),
 });
 export type LoginReadiness = v.InferOutput<typeof loginReadinessSchema>;
 /** What a step waits for; a `wait` or `assert`-absent step does its own waiting. */
@@ -152,6 +177,15 @@ export const submittedSchema = v.strictObject({
   token: id,
 });
 /**
+ * A control that logs out was clicked in this document by the person (ADR 0021 D, owner
+ * 2026-10-16): nothing about the control or the page is sent.
+ */
+export const logoutClickedSchema = v.strictObject({
+  version: v.literal(1),
+  type: v.literal("login.document.logout-clicked"),
+  token: id,
+});
+/**
  * The answer to a hello. `starts` lists the first steps of the origin's recipes; the
  * document announces again with `start` once one of them is ready on the current path. A
  * refused hello carries them, and so does an accepted one of a watched login (ADR 0027).
@@ -179,6 +213,38 @@ export const authorizeSchema = v.strictObject({
   attemptId: id,
   operationId: id,
 });
+/**
+ * Asks whether a step's form may submit to `destination`, an HTTP(S) URL off the document's
+ * origin (ADR 0051). The background answers with {@link destinationAnswerSchema}.
+ */
+export const destinationCheckSchema = v.strictObject({
+  version: v.literal(1),
+  type: v.literal("login.destination.check"),
+  token: id,
+  attemptId: id,
+  operationId: id,
+  destination: v.pipe(v.string(), v.maxLength(8192)),
+});
+/**
+ * The background's answer to a destination check: allowed only on the document's site,
+ * through HTTPS unless the document is HTTP, at a site Pateat may act on, and matched by
+ * the login's vault item; `unchecked` when that could not be decided now (ADR 0051).
+ */
+export const destinationAnswerSchema = v.variant("ok", [
+  v.strictObject({ ok: v.literal(true) }),
+  v.strictObject({
+    ok: v.literal(false),
+    reason: v.picklist([
+      "not-authorized",
+      "insecure",
+      "cross-site",
+      "no-site-access",
+      "item-mismatch",
+      "unchecked",
+    ]),
+  }),
+]);
+export type DestinationAnswer = v.InferOutput<typeof destinationAnswerSchema>;
 /**
  * What a chooser's login needs to choose on its list (ADR 0028): the chosen item's
  * username, the other matching items' usernames and the chooser's buttons. The usernames
@@ -225,7 +291,7 @@ export const chooseResultSchema = v.variant("ok", [
   v.pipe(
     v.strictObject({
       ok: v.literal(true),
-      click: v.picklist([...chooserClickSchema.options, "none"]),
+      click: v.picklist([...listClickSchema.options, "none"]),
       miss: v.optional(listMissSchema),
     }),
     v.check((result) => (result.click === "none") === (result.miss !== undefined)),
@@ -287,18 +353,27 @@ export const commandSchema = v.variant("type", [
      * With a chooser's click on its list (ADR 0028): the click goes to the element the
      * list's choice names, and only when that choice is `click`.
      */
-    list: v.optional(v.strictObject({ ...listInputSchema.entries, click: chooserClickSchema })),
+    list: v.optional(v.strictObject({ ...listInputSchema.entries, click: listClickSchema })),
     /**
      * With a `totp` handler's code fill (ADR 0027): the button that submits the code. The
      * fill then watches for the page submitting the code by itself before it answers.
      */
     code: v.optional(v.strictObject({ submit: loginTargetSchema })),
     /**
+     * With a `password` handler's click (ADR 0048): the button is pressed only while it,
+     * read in the same task as the press, names the password as the way to confirm the
+     * sign-in as `password-choice` takes it (`namesPasswordChoice`, or with an accessible
+     * name `namesPasswordControl`); otherwise nothing is pressed and the step fails as one
+     * whose target is missing. A click whose target is named by its accessible name is
+     * pressed only with it.
+     */
+    passwordChoice: v.optional(v.literal(true)),
+    /**
      * With an advance whose next step is on its own path (ADR 0013): that step's elements,
      * measured in the same task as the click or the fill's first input, just before it. The
      * answer reports them as `before`.
      */
-    next: v.optional(loginReadinessSchema),
+    next: v.optional(inPlaceNextSchema),
   }),
   v.strictObject({
     version: v.literal(1),
@@ -449,10 +524,13 @@ export const executionResultSchema = v.strictObject({
    * Why a step was `cancelled` or failed, for the local log only (ADR 0019): the worker did
    * not authorize it, this document was cancelled, the operation was used or expired, the
    * page moved to another path, a field changed under the fill, the step threw; or, for a
-   * failure, the form was replaced, the target is missing or not writable, the form
+   * failure, the form was replaced, the target is missing or not writable (or, for a
+   * `password` handler's click, its text no longer names the password, ADR 0048), the form
    * changed before a click, an `assert` did not hold, the step was sent values it does not
    * fill, its fields are in different forms, an input refused its secret, the page's inputs
-   * have no value setter, or a code field's submission watch could not start.
+   * have no value setter, a code field's submission watch could not start, the form or
+   * the clicked button would send the form off the document's origin to a destination the
+   * background did not allow, or the background could not decide that now (ADR 0051).
    */
   detail: v.optional(
     v.picklist([
@@ -472,6 +550,8 @@ export const executionResultSchema = v.strictObject({
       "secret-refused",
       "unsupported-input",
       "code-watch-failed",
+      "form-off-origin",
+      "form-destination-unchecked",
     ]),
   ),
   /**
@@ -589,12 +669,13 @@ export const configureSchema = v.strictObject({
   origin: v.pipe(
     v.string(),
     v.check((origin) => {
-      try {
-        const url = new URL(origin);
-        return url.origin === origin && url.protocol === "http:" && url.hostname === "127.0.0.1";
-      } catch {
-        return false;
-      }
+      const url = URL.parse(origin);
+      return (
+        url !== null &&
+        url.origin === origin &&
+        url.protocol === "http:" &&
+        url.hostname === "127.0.0.1"
+      );
     }),
   ),
   /** Probe-only explicit account binding; the default is the bundled demo item. */

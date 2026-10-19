@@ -3,7 +3,7 @@ import { Ban, ChevronRight, RefreshCw, User } from "lucide-react";
 import { useId, useRef, useState, type FormEvent } from "react";
 import { describeError, type ManageClient } from "./api";
 import { Button } from "./button";
-import { isActive, RevokedRecipes, useRecipes } from "./recipes";
+import { isActive, RevokedRecipes, UnreadableRecipes, useRecipes } from "./recipes";
 import {
   allowSite,
   defaultAccountLabel,
@@ -110,6 +110,8 @@ export function SitesPage({ client }: { client: ManageClient }) {
       ...(current?.bindings ?? []).map((entry) => entry.origin),
     ]),
   ].toSorted();
+  const recipesByOrigin = Map.groupBy(active, (entry) => entry.change.recipe.origin);
+  const bindingsByOrigin = Map.groupBy(current?.bindings ?? [], (entry) => entry.origin);
   const excludedSites = current?.excludedSites ?? [];
 
   return (
@@ -131,13 +133,9 @@ export function SitesPage({ client }: { client: ManageClient }) {
       ) : (
         <RowList id="sites">
           {origins.map((origin) => {
-            const recipeCount = active.filter(
-              (entry) => entry.change.recipe.origin === origin,
-            ).length;
+            const recipeCount = recipesByOrigin.get(origin)?.length ?? 0;
             const siteDefault = current?.siteDefaults.find((entry) => entry.origin === origin);
-            const bindingCount = (current?.bindings ?? []).filter(
-              (entry) => entry.origin === origin,
-            ).length;
+            const bindingCount = bindingsByOrigin.get(origin)?.length ?? 0;
             const excluded = exclusionsCovering(current, siteHostname(origin)).length > 0;
             return (
               // The whole row opens the site; the link is its only control.
@@ -244,7 +242,8 @@ export function SitesPage({ client }: { client: ManageClient }) {
         </form>
       )}
       {recipes.data && (
-        <div className="pt-4">
+        <div className="space-y-8 pt-4">
+          <UnreadableRecipes client={client} announce={setNotice} />
           <RevokedRecipes recipes={recipes.data.recipes} />
         </div>
       )}

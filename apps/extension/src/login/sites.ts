@@ -2,21 +2,26 @@ import { isSiteExcluded, type SettingsSnapshot } from "@pateat/contracts";
 import { browser } from "wxt/browser";
 
 /** Why a document is not admitted; logged for a login-related page (ADR 0019). */
-export type SiteRefusal = "not-https" | "site-excluded" | "no-site-access" | "settings-unavailable";
+export type SiteRefusal = "not-web" | "site-excluded" | "no-site-access" | "settings-unavailable";
 
 export interface LoginSites {
-  /** Exact HTTPS origins with a saved default, no exclusion and host access still granted. */
+  /** Exact HTTP(S) origins with a saved default, no exclusion and host access still granted. */
   origins(): Promise<string[]>;
-  /** HTTPS documents on a non-excluded site with host access still granted, else why not. */
+  /** HTTP(S) documents on a non-excluded site with host access still granted, else why not. */
   admission(url: URL): Promise<"admitted" | SiteRefusal>;
 }
 
+const webOrigin = (origin: string) => origin.startsWith("https://") || origin.startsWith("http://");
+// Chrome match patterns do not carry ports; site access is granted per scheme and host.
+const hostPattern = (url: URL) => `${url.protocol}//${url.hostname}/*`;
+
 /**
- * Production document admission. The content script runs on every HTTPS page; a document
- * on a non-excluded site with host access is admitted, with or without a saved site
- * default (ADR 0013 chooses an account by URI match). An admitted document without a
+ * Production document admission. The content script runs on every HTTP(S) page; a
+ * document on a non-excluded site with host access is admitted, with or without a saved
+ * site default (ADR 0013 chooses an account by URI match). An admitted document without a
  * cached recipe stops there: no attempt, observation, policy catalog or vault access.
- * Account eligibility is still checked per attempt.
+ * Account eligibility is still checked per attempt; on an `http:` page only items saved
+ * with an `http://` URI match (ADR 0050).
  */
 export function createLoginSites(settings: { read(): Promise<SettingsSnapshot> }): LoginSites {
   async function origins(): Promise<string[]> {
@@ -25,16 +30,14 @@ export function createLoginSites(settings: { read(): Promise<SettingsSnapshot> }
       ...new Set(
         snapshot.settings.siteDefaults
           .map((entry) => entry.origin)
-          .filter(
-            (origin) => origin.startsWith("https://") && !isSiteExcluded(snapshot.settings, origin),
-          ),
+          .filter((origin) => webOrigin(origin) && !isSiteExcluded(snapshot.settings, origin)),
       ),
     ];
     // Chrome lets the user withhold site access after install; respect that per origin.
     const granted = await Promise.all(
       candidates.map((origin) =>
         browser.permissions
-          .contains({ origins: [`https://${new URL(origin).hostname}/*`] })
+          .contains({ origins: [hostPattern(new URL(origin))] })
           .catch(() => false),
       ),
     );
@@ -43,7 +46,7 @@ export function createLoginSites(settings: { read(): Promise<SettingsSnapshot> }
   return {
     origins,
     async admission(url) {
-      if (url.protocol !== "https:") return "not-https";
+      if (url.protocol !== "https:" && url.protocol !== "http:") return "not-web";
       let current: SettingsSnapshot["settings"];
       try {
         current = (await settings.read()).settings;
@@ -52,7 +55,7 @@ export function createLoginSites(settings: { read(): Promise<SettingsSnapshot> }
       }
       if (isSiteExcluded(current, url.origin)) return "site-excluded";
       const granted = await browser.permissions
-        .contains({ origins: [`https://${url.hostname}/*`] })
+        .contains({ origins: [hostPattern(url)] })
         .catch(() => false);
       return granted ? "admitted" : "no-site-access";
     },

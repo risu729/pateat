@@ -100,6 +100,25 @@ describe("entry generation (ADR 0031)", () => {
           action: { candidate: "?", purpose: "submit" },
         },
       },
+      // The request log's answer reduces it the same way: an entry request has no slots.
+      answer: {
+        decision: "plan",
+        fields: [{ slot: "?", candidate: "c2" }],
+        action: { candidate: "?", purpose: "submit" },
+      },
+    });
+  });
+
+  it("keeps the named entry as the answer, and ? for an ID the page lacks", async () => {
+    expect((await entryGenerator(entry("c2")).generate({ observation: topPage })).answer).toEqual({
+      decision: "entry",
+      entry: "c2",
+    });
+    const unknown = await entryGenerator(entry("Log in here")).generate({ observation: topPage });
+    expect(unknown).toMatchObject({
+      status: "failed",
+      error: "invalid-output",
+      answer: { decision: "entry", entry: "?" },
     });
   });
 
@@ -234,6 +253,14 @@ describe("entry plan check (ADR 0031)", () => {
     // A visible name names only a field (ADR 0037), even on a link the check is given.
     expect(
       validateEntry(page({ id: "x", role: "link", target: { by: "label", value: "Login" } }), "x"),
+    ).toEqual({ ok: false, reason: "incompatible-role" });
+    // An accessible name names only a `password` handler's button (ADR 0048 amendment of
+    // 2026-10-19).
+    expect(
+      validateEntry(
+        page({ id: "x", role: "link", target: { by: "accessible-name", value: "Login" } }),
+        "x",
+      ),
     ).toEqual({ ok: false, reason: "incompatible-role" });
     expect(validateEntry(page(button), "y")).toEqual({ ok: false, reason: "unknown-candidate" });
   });

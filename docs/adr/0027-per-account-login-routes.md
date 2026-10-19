@@ -59,6 +59,34 @@ separately: the stop's page may be judged once with `stop: true`, the service ke
 only a `passkey` handler from it, and a `password` login never enters a `passkey`
 handler on a path where its plan still has a route step to run that fills the password
 or while a fill field of the route shows.
+Amended on 2026-10-18 by [ADR 0048](0048-password-method-button.md) (owner, 01:38 UTC,
+option B): the judge may also name a button that goes on to the password on a page that
+asks how to confirm the sign-in, stored as a third handler kind, `password`, entered
+only by a `password` login that has not filled its password, before other handlers
+shown with it, and only when its text names a password choice (implemented).
+
+Amended on 2026-10-18 by [ADR 0049](0049-start-at-a-later-step.md) (owner, 01:40 UTC,
+implemented): a later step a login may start at releases a watched login as its first
+step does, and the start page's `passkey` button is not offered to a login that starts
+at a later step.
+
+Amended on 2026-10-18 by the owner (decision card
+「カスタムフィールドのスロット名を、LLM ではなくページの欄の名前から作りますか?」,
+answer 「進める」, 08:58:31 UTC): a custom-field slot is named from the page's text for
+its field, not by the model
+([slot names from the page](#amendment-2026-10-18-slot-names-from-the-page)), which
+replaces the model's names in
+[Custom fields in generation](#custom-fields-in-generation), "Generic IDs" and the
+alternatives' slot names under "Generation" in
+[Implementation choices](#implementation-choices); implemented.
+
+Amended on 2026-10-19 by the owner (decision card on keeping slot names when a recipe is
+generated again, answer 「A 前の名前を使う」, 01:22 UTC): a custom field that the
+owner's saved bindings of the recipe already name keeps that name on any generated page
+([slot names from the bindings](#amendment-2026-10-19-slot-names-from-the-bindings)),
+which amends [ADR 0018](0018-recipe-generation-route.md) (the service reads the
+bindings while generating) and [ADR 0012](0012-inference-request-log.md) (a logged
+result may hold a name the page does not show); implemented.
 
 Date: 2026-10-11
 
@@ -413,8 +441,9 @@ new owner decision:
   (`inconsistent-candidate`) rather than being stored as two variants, so an ambiguous
   mapping is never hedged. More than 3 alternatives fail the response format, and plan
   validation also refuses them (`too-many-variants`). On a continuation (a request with
-  `base`), the service drops the answer's valid alternatives before assembly; an answer
-  whose alternatives fail validation still fails the call. The prompt does not mention
+  `base`) or a chooser branch's page, plan validation drops the answer's valid
+  alternatives (`startPage` false), so they name no slot; an answer whose alternatives
+  fail validation still fails the call. The prompt does not mention
   continuations. A recipe with alternatives is
   never continued. A generation answer maps the custom slots of every variant, up to 16.
 - **Passkey route shape.** A recipe's `passkey` route is an optional
@@ -493,7 +522,7 @@ new owner decision:
   check keeps a mislabelled "Sign in with Google" or SSO button from becoming a passkey
   click outside ADR 0026; it is a shared helper the judge's `passkey` handler check does
   not use yet. A button that fails these checks is dropped silently and does not fail
-  the answer. On a continuation the service ignores it. The service stores it as the
+  the answer. On a continuation plan validation drops it. The service stores it as the
   recipe's `passkey` route on the first page, and the request log records the kept
   button. The corpus case `ja-myjcb` expects its passkey sign-in button, and the
   evaluation reports passkey buttons as a separate count (expected, correct, missed,
@@ -579,7 +608,7 @@ new owner decision:
   or deceptive text can at worst store a `totp` handler that fills the current TOTP code
   into that site's checked field on every login until the recipe is revoked; the code
   never leaves the site and the field checks still apply. The added text (at most 360
-  characters) is in the request log for 90 days (ADR 0012); as with the header text of
+  characters) is in the request log for a year (ADR 0012); as with the header text of
   ADR 0029, it is allowed while Pateat is for the owner's own use and decided again
   before the public release (phase 3). The judge's prompt version changed with it, so
   judged pages are judged again once.
@@ -615,7 +644,7 @@ new owner decision:
   store a `passkey` handler that clicks a button of that path once per login, only for
   an item that holds a passkey, until the recipe is revoked; the handler checks of
   `addHandler` still apply. The added text, at most 360 characters, stays in the
-  request log for 90 days under the same terms as `nearCode`. The judge's prompt version
+  request log for a year under the same terms as `nearCode`. The judge's prompt version
   changed with it.
 - **Entering handlers.** A handler that has not run is entered when all its elements
   are unique and usable on its path: a `totp` handler's field a shown writable input,
@@ -866,7 +895,7 @@ new tab while an old logout is still recorded elsewhere.
   routes.
 - The signed-in or challenge page of each new account path now reaches the service and
   Anthropic, within the limits above, not only once per new recipe. The request log
-  keeps them for 90 days ([ADR 0012](0012-inference-request-log.md)).
+  keeps them for a year ([ADR 0012](0012-inference-request-log.md)).
 - Custom-field names, and the Text shapes all matching items agree on, now reach the
   service and Anthropic with each generation request, and the request log keeps them.
 - A site that asks for a security key as its second factor signs in with no human
@@ -931,3 +960,129 @@ npmjs.com or MyJCB where it applies:
    several routes.
 4. The `totp` handler.
 5. The `sso` route, implementing ADR 0026.
+
+## Amendment 2026-10-18: slot names from the page
+
+The owner asked at 07:29 UTC whether the slot names could come from the page's fields
+instead of the model, and at 07:54 UTC asked for no limit on words or length, for
+Japanese names to stay Japanese, and for names that say which field they are, not
+`field-one`. The proposal that followed was reviewed by an independent subagent against
+the code and accepted at 08:58:31 UTC ("進める").
+
+- **The model maps, the service names.** The generation answer has no `name`; it maps
+  request slots to candidates only. Plan validation (`customSlotNames`, run in
+  `validateGeneratedSets` over the identifier sets the recipe keeps: every set on a
+  start page, the first alone on any other) names each custom-field slot from its
+  element's text, the first that gives a name: the label (which already holds the
+  `<label>`, `aria-label`, the text before the field up to three levels up and the
+  `title`), the placeholder, the `aria-describedby` description, then the `id`, `name`
+  or test ID locator value. A field with none is `欄 N`, or `field N` on an English
+  page, N counting the page's fill fields without a name from the top.
+- **Skipped text.** Text holding a redaction mark (`[number]`, `[email]`, `[masked]`,
+  `[account]`) or a number anywhere, even past the 60-character cut, is skipped, as the
+  label locator skips it (ADR 0037), so a value a later page shows back never becomes a
+  name.
+- **Form.** Text is taken in NFKC without default-ignorable (invisible) characters, with
+  whitespace collapsed to single spaces and trimmed; a trailing copy of the placeholder
+  or description is dropped from the label (`店番 半角数字3桁` → `店番`), and a label
+  left empty falls to the next source. Case and language are kept, and a name has at
+  most 60 characters. The recipe slot ID schema takes 1 to 60 NFKC characters without
+  control, format or default-ignorable characters, words apart by single spaces;
+  built-in slot names stay as they are, and login identifiers stay ASCII.
+- **Equal names.** Names are compared without case. One equal to `username`, `password`,
+  `totp`, a request slot ID or an earlier name of the page takes a number after a space
+  (`店番 2`, `店番 3`), in page order rather than the answer's, so an unchanged page
+  always gives the same names. A slot that fills different elements in different sets
+  takes the name of its element in the first set that fills it. A continuation page's
+  name equal to a slot of the recipe it continues still fails `recipe-invalid` and is
+  not numbered: a form shown again after an error would otherwise become a next page
+  that fills the same field again (ADR 0018).
+- **Other roles.** The finite-choice decision role and the benchmark heuristic name
+  custom slots the same way, so they answer on pages that need one. The request log's
+  refused plans no longer carry names to reduce to `name-N` (ADR 0012).
+
+The agent's choices, not confirmed by the owner: a `mixed`-language page gets `欄 N`; a
+trailing copy is kept when it would split a Latin word or number (`word` in `Keyword`);
+format characters are refused as in observed text, and default-ignorable ones are also
+refused and stripped from page text; the continuation's comparison ignores case; a role
+that checks one set names it alone; a page after the start page names its slots from the
+first set alone, since its alternatives are dropped and a name such as `番号 2` must not
+be stored without the `番号` it was numbered apart from; and an accepted plan's logged
+`result` keeps the names it got.
+
+Consequences: a recipe now stores more page text than the label locator does, such as
+"Enter your Security number" or a display name a label shows (ADR 0037), and the
+review before recipes are shared covers slot names too (ADR 0013). A name follows the
+page's wording, so a recipe generated again after a wording change may rename a slot,
+and a saved binding then no longer covers the recipe (`binding-slots-mismatch`) until it
+is removed in `/manage`. A name in another script that looks like a built-in one
+(Cyrillic `раssword`) passes the check; it only reads confusingly. The names the five
+active production recipes already have stay valid.
+
+## Amendment 2026-10-19: slot names from the bindings
+
+At 00:58 UTC the owner asked that a recipe generated again be tied to the names it
+already has
+(「レシピの作り直しのときに、既にある名前と紐づけるようにすればいいのでは？」). Revoking
+a recipe in `/manage` leaves only its tombstone, and the recipe generated again has the
+same ID, so its saved bindings still apply; but a page whose wording changed gives new
+names, and those bindings then fail `binding-slots-mismatch`. The proposal (A: the
+service reuses the bound names; B: the extension renames the bindings) was reviewed by
+an independent subagent against the code, and the owner chose A at 01:22 UTC (「A
+前の名前を使う」).
+
+- **Bindings read.** For every generated page with a custom-field offer (a recipe's
+  first page, new or generated again, a continuation and a chooser branch's page), the
+  service reads the owner's saved bindings of the same origin and recipe ID, every
+  account's (`recipeBindingSlots`), and takes only each entry's slot name and field
+  reference, never the item or a value. The prompt is unchanged, and no model takes
+  part.
+- **Matching** (`carriedSlotNames`). A request slot with a `fieldName` matches an entry
+  whose field is `{ custom }` with that name and, for a duplicate name, the same
+  `position` and `count`; `username`, `password` and `totp` entries never match. A field
+  the bindings give different names, as two accounts may, carries none.
+- **Naming** (`customSlotNames`). A carried name counts only when it passes
+  `customSlotIdSchema` and, without case, equals no built-in slot and no request slot
+  ID; otherwise the slot is named from the page as before. Such names are reserved
+  before any page text, so a field whose text gives the same name is numbered apart
+  (`店番 2`), and a filled slot takes its carried name. The recipe never copies the
+  vault field name; a carried name is whatever the binding already had.
+- **Continuations.** A carried name equal to a slot of the recipe being continued fails
+  `recipe-invalid`, as a page name does, so a form shown again stays refused.
+
+The agent's choices, not confirmed by the owner:
+
+- The carried names of every offer of the request are reserved, also of offers the page
+  does not fill, so an unbound field of the first page cannot take the name a later page
+  carries and then make that page fail `recipe-invalid`. The cost: offers are the union
+  of every matching account's fields, so an unbound field the page fills whose text
+  equals another offer's bound name is numbered apart (`店番 2`), and a binding that
+  matched that field only because its page text was unchanged no longer does; that
+  account then gets `binding-slots-mismatch`. The service cannot tell this case from the
+  cross-page one, since it does not know which field filled a base slot. A recipe may
+  then also store `店番 2` without any `店番`, when the reserving offer never appears on
+  a later page. That departs from why the 2026-10-18 amendment names a later page's
+  slots from its first set alone (no `番号 2` stored without its `番号`, as a dropped
+  alternative would leave); this is accepted as cosmetic.
+- Two slots of one page that would carry the same name, without case, both take their
+  page names instead; the name stays reserved. When two different fields are bound to
+  the same name by different accounts and only one is filled, it carries the name; if
+  the other is filled on a later page, that page fails `recipe-invalid` where the page's
+  text alone would have named it.
+- Names are compared exactly across bindings, so `Branch` and `branch` disagree and
+  nothing is carried.
+- On a continuation, the names the page's text alone would give are also checked against
+  the recipe's slots, so a page refused before is refused when its field carries another
+  name.
+- The bindings are read once, before the model call; a stored settings document that
+  fails its schema fails the request as an internal error, as the settings route does.
+- The request log does not mark which names were carried.
+
+Consequences: a name now follows the bindings as well as the page, so an unchanged page
+gives the same names only while the bindings are unchanged; a name the model gave before
+2026-10-18 (`branch-number`) or an earlier page's wording stays while a binding uses it.
+Since the request names no item, the name may come from another account's binding of the
+same owner and recipe. It does not help when the account's vault field is named
+otherwise, when the start path (and so the recipe ID) changed, or for a field no binding
+names yet; there the 2026-10-18 consequence (`binding-slots-mismatch` until the binding
+is removed) still holds. Recipe repair, once built, can use the same matching.

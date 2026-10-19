@@ -1,3 +1,4 @@
+import { maxTargetUrlLength } from "@pateat/bitwarden";
 import {
   getItemEligibility,
   isSiteExcluded,
@@ -35,7 +36,7 @@ export type LiveSiteCandidates =
       /** Connections whose live snapshot could not answer; never treated as "no match". */
       unavailableConnections: { connectionId: string; reason: string }[];
     }
-  | { ok: false; reason: "invalid-url" | "site-excluded" };
+  | { ok: false; reason: "invalid-url" | "url-too-long" | "site-excluded" };
 
 /** Provider URI matches for one page, narrowed by local settings before anything else.
  * Matches are candidate scope only: they never become `allowedOrigins`, site defaults,
@@ -51,6 +52,8 @@ export async function findLiveSiteCandidates(input: {
   signal?: AbortSignal;
 }): Promise<LiveSiteCandidates> {
   const { settings, catalog, url } = input;
+  // Longer than Chromium allows; a vault would refuse it as an invalid request.
+  if (url.length > maxTargetUrlLength) return { ok: false, reason: "url-too-long" };
   const parsed = parseSiteUrl(url);
   if (!parsed) return { ok: false, reason: "invalid-url" };
   // Excluded sites never reach vault matching.
@@ -101,11 +104,11 @@ export async function findLiveSiteCandidates(input: {
     const incomplete = new Map<string, Set<string>>();
     const note = (itemId: string, reason: string) => {
       if (!eligible(itemId)) return;
-      const reasons = incomplete.get(itemId) ?? new Set<string>();
-      reasons.add(reason);
-      incomplete.set(itemId, reasons);
+      incomplete.getOrInsertComputed(itemId, () => new Set<string>()).add(reason);
     };
-    // Non-web schemes and malformed URIs can never match a page, as in the pinned clients.
+    // Pateat matches only http and https URIs, so a non-web scheme or malformed URI never
+    // matches a page and does not make the item incomplete. The pinned clients can match
+    // some non-web URIs with a hostname, such as ftp://, under Domain or Host.
     for (const entry of result.data.unavailableUris)
       if (entry.reason !== "unsupported-uri-scheme" && entry.reason !== "invalid-uri")
         note(entry.itemId, entry.reason);

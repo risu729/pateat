@@ -89,6 +89,38 @@ async function startFixture(): Promise<{ server: Server; url: string }> {
   return { server, url: `http://127.0.0.1:${address.port}/fixture` };
 }
 
+test("built options and popup preserve light, dark and browser-setting colors", async () => {
+  await withExtension(extensionDirectory, async (context, _worker, id) => {
+    const page = await context.newPage();
+    for (const scheme of ["light", "dark"] as const) {
+      // oxlint-disable-next-line no-await-in-loop
+      await page.emulateMedia({ colorScheme: scheme });
+      for (const entrypoint of ["options.html", "popup.html"]) {
+        // oxlint-disable-next-line no-await-in-loop
+        await page.goto(`chrome-extension://${id}/${entrypoint}`);
+        for (const theme of ["system", "light", "dark"] as const) {
+          // The page's startup module applies the stored choice before rendering.
+          // oxlint-disable-next-line no-await-in-loop
+          await page.evaluate((choice) => localStorage.setItem("pateat.theme", choice), theme);
+          // oxlint-disable-next-line no-await-in-loop
+          await page.reload();
+          const dark = theme === "dark" || (theme === "system" && scheme === "dark");
+          // oxlint-disable-next-line no-await-in-loop
+          await expect(page.locator("html")).toHaveCSS(
+            "background-color",
+            dark ? "rgb(14, 19, 22)" : "rgb(241, 245, 249)",
+          );
+          // oxlint-disable-next-line no-await-in-loop
+          await expect(page.locator("html")).toHaveCSS(
+            "color",
+            dark ? "rgb(228, 235, 240)" : "rgb(30, 41, 59)",
+          );
+        }
+      }
+    }
+  });
+});
+
 test("production package permits local storage, the crypto host and the HTTPS login and passkey scripts", async () => {
   const manifest = JSON.parse(await readFile(resolve(extensionDirectory, "manifest.json"), "utf8"));
   expect(manifest.manifest_version).toBe(3);
@@ -106,34 +138,42 @@ test("production package permits local storage, the crypto host and the HTTPS lo
     16: "icon-locked/16.png",
     32: "icon-locked/32.png",
   });
-  // Owner-approved install-time HTTPS access (ADR 0009); the login script also runs in
-  // frames, which need the tab's page admitted too (ADR 0017). The ADR 0007
-  // passkey bridge is the only MAIN-world script.
+  // Owner-approved install-time access (ADR 0009, HTTP since ADR 0050; passkeys stay on
+  // HTTPS and `http://localhost`); the login script also runs in frames, which need the tab's page admitted too (ADR 0017). The MAIN-world scripts are
+  // the ADR 0007 passkey bridge and, wherever the login script runs, the click on
+  // `javascript:` links.
   expect(
     [...manifest.content_scripts].sort((a: { js: string[] }, b: { js: string[] }) =>
       a.js[0]!.localeCompare(b.js[0]!),
     ),
   ).toEqual([
     {
-      matches: ["https://*/*"],
+      matches: ["http://*/*", "https://*/*"],
+      run_at: "document_start",
+      all_frames: true,
+      world: "MAIN",
+      js: ["content-scripts/login-main.js"],
+    },
+    {
+      matches: ["http://*/*", "https://*/*"],
       run_at: "document_idle",
       all_frames: true,
       js: ["content-scripts/login.js"],
     },
     {
-      matches: ["https://*/*"],
+      matches: ["http://localhost/*", "https://*/*"],
       run_at: "document_start",
       js: ["content-scripts/passkey-isolated.js"],
     },
     {
-      matches: ["https://*/*"],
+      matches: ["http://localhost/*", "https://*/*"],
       run_at: "document_start",
       world: "MAIN",
       js: ["content-scripts/passkey-main.js"],
     },
   ]);
   expect(manifest.permissions).toEqual(["storage", "offscreen", "alarms"]);
-  expect(manifest.host_permissions).toEqual(["https://*/*"]);
+  expect(manifest.host_permissions).toEqual(["https://*/*", "http://*/*"]);
   // Chrome omits an optional entry the required hosts already cover, with a warning.
   expect(manifest.optional_host_permissions).toBeUndefined();
   expect(manifest.web_accessible_resources ?? []).toEqual([]);
@@ -155,10 +195,13 @@ test("production package permits local storage, the crypto host and the HTTPS lo
   expect(probeManifest.host_permissions).toEqual(["https://*/*", "http://127.0.0.1/*"]);
   expect(probeManifest.optional_host_permissions).toBeUndefined();
   // WebAuthn rejects IP-address origins, so only the passkey probe scripts use localhost.
-  // The production HTTPS login and passkey scripts are shared with the probe build.
+  // The production login and passkey scripts are shared with the probe build, on HTTPS
+  // only there: its own login script covers loopback HTTP.
   for (const script of probeManifest.content_scripts as Array<{ matches: string[]; js: string[] }>)
     expect(script.matches).toEqual(
-      /^content-scripts\/(?:login|passkey-main|passkey-isolated)\.js$/u.test(script.js.join())
+      /^content-scripts\/(?:login|login-main|passkey-main|passkey-isolated)\.js$/u.test(
+        script.js.join(),
+      )
         ? ["https://*/*"]
         : script.js.some((file) => /\/passkey-probe-(?:main|isolated)\.js$/u.test(file))
           ? ["http://localhost/*"]

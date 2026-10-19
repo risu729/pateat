@@ -453,6 +453,27 @@ describe("diagnostics status", () => {
     expect(status.connections[0]?.items).toBeUndefined();
   });
 
+  it.each([
+    [24 * 60 * 60_000, "ok", "recipes synced in the last 24 h"],
+    [24 * 60 * 60_000 + 1, "warn", "recipe sync overdue by 0 hr"],
+    [25 * 60 * 60_000 - 1, "warn", "recipe sync overdue by 0 hr"],
+    [25 * 60 * 60_000, "warn", "recipe sync overdue by 1 hr"],
+    [72 * 60 * 60_000, "warn", "recipe sync overdue by 48 hr"],
+  ])("keeps recipe sync hour boundaries at age %i ms", async (elapsed, level, detail) => {
+    const status = await collectDiagnostics(
+      dependencies({
+        serviceState: async () => ({
+          kind: "connected",
+          origin: SERVICE_ORIGIN,
+          label: "x",
+          deviceId: "dev_x",
+          syncedAt: NOW - elapsed,
+        }),
+      }),
+    );
+    expect(status.checks).toContainEqual({ id: "recipe-sync", level, detail });
+  });
+
   it("flags withheld site access, an overdue sync and an unpaired service", async () => {
     const overdue = await collectDiagnostics(
       dependencies({
@@ -469,12 +490,12 @@ describe("diagnostics status", () => {
     expect(overdue.checks).toContainEqual({
       id: "site-access",
       level: "error",
-      detail: "https://*/* site access withheld",
+      detail: "https://*/* or http://*/* site access withheld",
     });
     expect(overdue.checks).toContainEqual({
       id: "recipe-sync",
       level: "warn",
-      detail: "recipe sync overdue by 3 h",
+      detail: "recipe sync overdue by 3 hr",
     });
     const unpaired = await collectDiagnostics(
       dependencies({ serviceState: async () => ({ kind: "disconnected" }) }),

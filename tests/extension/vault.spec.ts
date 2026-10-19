@@ -117,6 +117,63 @@ test("matches actual SDK-decrypted URIs with retained context after full profile
   });
 });
 
+test("evaluates SDK-decrypted Regex URIs in the packaged nested Regex Worker (ADR 0056)", async () => {
+  test.setTimeout(60_000);
+  await withVaultProfile(async (open, externalRequests) => {
+    const browser = await open();
+    await vaultData<Accepted>(browser.page, { action: "accept", kind: "uri-regex" });
+    const timed = async (url: string) => {
+      const started = Date.now();
+      const result = await vaultData<UriCandidates>(browser.page, { action: "match", url });
+      return { result, ms: Date.now() - started };
+    };
+    const exactUrl = "https://synthetic.example.test/login";
+    // The first Regex URI matches this page exactly; `(a+)+$` answers quickly here.
+    const exact = await timed(exactUrl);
+    expect(exact.result).toMatchObject({
+      targetOrigin: "https://synthetic.example.test",
+      candidates: [{ matches: [{ uriIndex: 0, match: 4 }] }],
+      unavailableUris: [],
+      unavailableItemIds: [],
+    });
+    expect(exact.result.candidates).toHaveLength(1);
+    const itemId = exact.result.candidates[0]!.itemId;
+    expect(
+      (await timed("https://SYNTHETIC.example.test/LOGIN")).result.candidates,
+      "the pinned clients' Regex is case-insensitive",
+    ).toEqual([{ itemId, matches: [{ uriIndex: 0, match: 4 }] }]);
+    expect((await timed("https://synthetic.example.test/login/other")).result).toMatchObject({
+      candidates: [],
+      unavailableUris: [],
+    });
+
+    // Catastrophic backtracking: the Regex Worker is terminated after its 5 s budget.
+    const backtracking = `https://synthetic.example.test/login?next=${"a".repeat(48)}!`;
+    const slow = await timed(backtracking);
+    expect(slow.result).toMatchObject({
+      candidates: [],
+      unavailableUris: [{ itemId, uriIndex: 1, reason: "regex-unevaluated" }],
+      unavailableItemIds: [],
+    });
+    expect(slow.ms).toBeGreaterThanOrEqual(4_900);
+    expect(slow.ms).toBeLessThan(20_000);
+
+    // The vault session survives: the same handle matches and resolves again at once.
+    const after = await timed(exactUrl);
+    expect(after.result).toEqual(exact.result);
+    expect(after.ms).toBeLessThan(4_000);
+    expect(await vaultData(browser.page, { action: "resolve" })).toEqual({ matches: true });
+    const status = await vaultData<VaultStatus>(browser.page, { action: "status" });
+    expect(status).toMatchObject({ ready: true, busy: false, host: { sessions: 1 } });
+
+    // The slow pattern is skipped for that page URL from now on, without waiting again.
+    const again = await timed(backtracking);
+    expect(again.result).toEqual(slow.result);
+    expect(again.ms).toBeLessThan(4_000);
+    expect(externalRequests).toEqual([]);
+  });
+});
+
 test("keeps durable disabled state across profile restart and requires explicit re-enable", async () => {
   await withVaultProfile(async (open, externalRequests) => {
     const first = await open();

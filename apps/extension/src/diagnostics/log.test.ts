@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createDiagnosticsLog } from "./background";
 import {
   DEBUG_LOGGING_MS,
+  DEBUG_UNTIL_TURNED_OFF,
   LOG_EVENTS,
   LOG_RETENTION_MS,
   PAGE_ATTEMPT_EVENTS_PER_MINUTE,
@@ -41,6 +42,8 @@ function setup(overrides: Partial<LoggerDependencies> = {}) {
     build: { version: "0.1.0", revision: "1c42ad3" },
     now: () => now,
     console: quiet,
+    // The 24-hour window a published build has; one test covers debug that stays on.
+    debugStaysOn: false,
     ...overrides,
   };
   return {
@@ -246,6 +249,185 @@ describe("diagnostics log", () => {
     vi.restoreAllMocks();
   });
 
+  it("logs each first login result sent to the service as codes (ADR 0019)", async () => {
+    const log = createDiagnosticsLog({
+      build: { version: "0.1.0", revision: "1c42ad3" },
+      settings: async () => {
+        throw new Error("not needed");
+      },
+      recipeCache: async () => undefined,
+      connections: async () => ({ ok: true, kind: "status", connections: [] }),
+      databaseName: `log-test-${crypto.randomUUID()}`,
+      scope: { addEventListener: () => undefined } as never,
+    });
+    for (const level of ["debug", "info", "warn"] as const)
+      vi.spyOn(console, level).mockImplementation(() => undefined);
+    log.loginOutcome({ recipeId: "gen-0123", revision: 3, result: "kept" });
+    log.loginOutcome({ recipeId: "gen-0123", revision: 4, result: "failed:unreachable" });
+    log.loginOutcome({
+      recipeId: "gen-0123",
+      revision: 5,
+      branch: "other",
+      result: "failed:unexpected-response",
+    });
+    await vi.waitFor(async () =>
+      expect(
+        (await log.logger.entries()).filter((entry) => entry.event === "service.outcome"),
+      ).toHaveLength(3),
+    );
+    const entries = (await log.logger.entries()).filter(
+      (entry) => entry.event === "service.outcome",
+    );
+    expect(entries.map(({ level, fields }) => ({ level, fields }))).toEqual([
+      { level: "info", fields: { recipe: "gen-0123", recipeRevision: 3, result: "kept" } },
+      {
+        level: "info",
+        fields: { recipe: "gen-0123", recipeRevision: 4, result: "failed:unreachable" },
+      },
+      {
+        level: "warn",
+        fields: {
+          recipe: "gen-0123",
+          recipeRevision: 5,
+          branch: "other",
+          result: "failed:unexpected-response",
+        },
+      },
+    ]);
+    vi.restoreAllMocks();
+  });
+
+  it("logs each login record sent to the service as codes (ADR 0055)", async () => {
+    const log = createDiagnosticsLog({
+      build: { version: "0.1.0", revision: "1c42ad3" },
+      settings: async () => {
+        throw new Error("not needed");
+      },
+      recipeCache: async () => undefined,
+      connections: async () => ({ ok: true, kind: "status", connections: [] }),
+      databaseName: `log-test-${crypto.randomUUID()}`,
+      scope: { addEventListener: () => undefined } as never,
+    });
+    for (const level of ["debug", "info", "warn"] as const)
+      vi.spyOn(console, level).mockImplementation(() => undefined);
+    log.loginRecord({ recipeId: "gen-0123", revision: 3, result: "kept" });
+    log.loginRecord({ recipeId: "gen-0123", revision: 3, branch: "other", result: "refused" });
+    log.loginRecord({ recipeId: "gen-0123", revision: 4, result: "failed:invalid-record" });
+    await vi.waitFor(async () =>
+      expect(
+        (await log.logger.entries()).filter((entry) => entry.event === "service.login"),
+      ).toHaveLength(3),
+    );
+    const entries = (await log.logger.entries()).filter((entry) => entry.event === "service.login");
+    expect(entries.map(({ level, fields }) => ({ level, fields }))).toEqual([
+      { level: "info", fields: { recipe: "gen-0123", recipeRevision: 3, result: "kept" } },
+      // A service without the route refuses it; that is expected, not a problem.
+      {
+        level: "info",
+        fields: { recipe: "gen-0123", recipeRevision: 3, branch: "other", result: "refused" },
+      },
+      {
+        level: "warn",
+        fields: { recipe: "gen-0123", recipeRevision: 4, result: "failed:invalid-record" },
+      },
+    ]);
+    vi.restoreAllMocks();
+  });
+
+  it("logs how long service requests and an ended login took (ADR 0019)", async () => {
+    const log = createDiagnosticsLog({
+      build: { version: "0.1.0", revision: "1c42ad3" },
+      settings: async () => {
+        throw new Error("not needed");
+      },
+      recipeCache: async () => undefined,
+      connections: async () => ({ ok: true, kind: "status", connections: [] }),
+      databaseName: `log-test-${crypto.randomUUID()}`,
+      scope: { addEventListener: () => undefined } as never,
+    });
+    for (const level of ["debug", "info", "warn"] as const)
+      vi.spyOn(console, level).mockImplementation(() => undefined);
+    const timing = { roundTripMs: 2_600, serverMs: 2_400, networkMs: 200, tokenMs: 300 };
+    log.recipeSync("synced", {
+      scope: "full",
+      added: 1,
+      updated: 0,
+      removed: 0,
+      timing: { roundTripMs: 500, serverMs: 100, networkMs: 400 },
+    });
+    log.login({
+      type: "generation",
+      tabId: 1,
+      origin: "https://bank.example",
+      outcome: "recipe",
+      timing: { ...timing, modelMs: 2_000 },
+    });
+    log.login({
+      type: "judge",
+      tabId: 1,
+      origin: "https://bank.example",
+      recipeId: "gen-0123",
+      recipeRevision: 2,
+      route: "password",
+      verdict: "unclear",
+      timing: { roundTripMs: 90_000 },
+    });
+    log.login({
+      type: "attempt",
+      tabId: 1,
+      origin: "https://bank.example",
+      recipeId: "gen-0123",
+      recipeRevision: 2,
+      route: "password",
+      variant: 0,
+      state: "authenticated",
+      stepIndex: 2,
+      stepCount: 2,
+      outcome: "authenticated",
+      times: {
+        totalMs: 9_000,
+        serviceMs: 2_600,
+        networkMs: 200,
+        personMs: 4_000,
+        pageMs: 1_500,
+        otherMs: 900,
+      },
+    });
+    const events = ["service.sync", "recipe.generate", "recipe.judge", "login.attempt"];
+    await vi.waitFor(async () =>
+      expect(
+        (await log.logger.entries()).filter((entry) => events.includes(entry.event)),
+      ).toHaveLength(4),
+    );
+    const fields = Object.fromEntries(
+      (await log.logger.entries())
+        .filter((entry) => events.includes(entry.event))
+        .map((entry) => [entry.event, entry.fields]),
+    );
+    expect(fields["service.sync"]).toEqual({
+      outcome: "synced",
+      scope: "full",
+      added: 1,
+      roundTripMs: 500,
+      serverMs: 100,
+      networkMs: 400,
+    });
+    expect(fields["recipe.generate"]).toMatchObject({ ...timing, modelMs: 2_000 });
+    // A request with no service time, such as one that timed out, has its round trip only.
+    expect(fields["recipe.judge"]).toMatchObject({ roundTripMs: 90_000 });
+    expect(fields["recipe.judge"]).not.toHaveProperty("serverMs");
+    expect(fields["login.attempt"]).toMatchObject({
+      steps: 2,
+      totalMs: 9_000,
+      serviceMs: 2_600,
+      networkMs: 200,
+      personMs: 4_000,
+      pageMs: 1_500,
+      otherMs: 900,
+    });
+    vi.restoreAllMocks();
+  });
+
   it("keeps a page URL's path and parameter names only for a site named in full", async () => {
     const { logger } = setup();
     const long = `https://bank.example/signin?return=${"a".repeat(600)}`;
@@ -360,6 +542,42 @@ describe("diagnostics log", () => {
     await restarted.log("service.sync", { outcome: "synced" }, { level: "debug" });
     expect(await restarted.entries()).toHaveLength(2);
     expect((await restarted.summary()).debugUntil).toBeUndefined();
+  });
+
+  it("keeps debug logging on until turned off before publishing, across workers", async () => {
+    const { logger, deps, advance } = setup({ debugStaysOn: true });
+    expect(await logger.enableDebug()).toBe(DEBUG_UNTIL_TURNED_OFF);
+    advance(DEBUG_LOGGING_MS * 30);
+    const restarted = createLogger(deps);
+    await restarted.log("service.sync", { outcome: "synced" }, { level: "debug" });
+    expect((await restarted.entries()).map((entry) => entry.event)).toEqual([
+      "log.debug",
+      "service.sync",
+    ]);
+    expect((await restarted.summary()).debugUntil).toBe(DEBUG_UNTIL_TURNED_OFF);
+    await restarted.disableDebug();
+    await createLogger(deps).log("service.sync", { outcome: "synced" }, { level: "debug" });
+    expect(await createLogger(deps).entries()).toHaveLength(3);
+    expect((await createLogger(deps).summary()).debugUntil).toBeUndefined();
+  });
+
+  it("keeps a 24-hour window still open on until turned off once debug stays on", async () => {
+    const { logger, deps, advance } = setup();
+    await logger.enableDebug();
+    advance(DEBUG_LOGGING_MS / 2);
+    const staying = { ...deps, debugStaysOn: true };
+    expect((await createLogger(staying).summary()).debugUntil).toBe(DEBUG_UNTIL_TURNED_OFF);
+    advance(DEBUG_LOGGING_MS);
+    expect((await createLogger(staying).summary()).debugUntil).toBe(DEBUG_UNTIL_TURNED_OFF);
+    // A published build turns it off.
+    expect((await createLogger(deps).summary()).debugUntil).toBeUndefined();
+    // A window that already ended stays off.
+    const ended = setup();
+    await ended.logger.enableDebug();
+    ended.advance(DEBUG_LOGGING_MS);
+    expect(
+      (await createLogger({ ...ended.deps, debugStaysOn: true }).summary()).debugUntil,
+    ).toBeUndefined();
   });
 
   it("turns debug logging off before the 24 hours end, across workers", async () => {
@@ -1011,6 +1229,56 @@ describe("unhandled errors", () => {
     vi.restoreAllMocks();
   });
 
+  it("logs a signed-in page sample (ADR 0029) as codes, a failure as a warning", async () => {
+    const recipeOrigin = "https://login.example";
+    const log = createDiagnosticsLog({
+      build: { version: "0.1.0", revision: "1c42ad3" },
+      settings: async () => ({
+        revision: 7,
+        settings: { connections: [], excludedSites: [], siteDefaults: [], bindings: [] },
+      }),
+      recipeCache: async () => ({ recipes: [{ origin: recipeOrigin }] }),
+      connections: async () => ({ ok: true, kind: "status", connections: [] }),
+      databaseName: `log-test-${crypto.randomUUID()}`,
+      scope: { addEventListener: () => undefined } as never,
+    });
+    for (const level of ["debug", "info", "warn"] as const)
+      vi.spyOn(console, level).mockImplementation(() => undefined);
+    await log.logger.enableDebug();
+    const page = {
+      type: "sample" as const,
+      tabId: 3,
+      origin: recipeOrigin,
+      recipeId: "synthetic-recipe",
+      recipeRevision: 1,
+      route: "password" as const,
+    };
+    log.login({ ...page, outcome: "sent" });
+    log.login({ ...page, outcome: "kept" });
+    log.login({ ...page, outcome: "recent" });
+    log.login({ ...page, outcome: "gone" });
+    log.login({ ...page, outcome: "refused" });
+    log.login({ ...page, outcome: "not-sent", reason: "site-excluded" });
+    log.login({ ...page, outcome: "failed", reason: "unreachable" });
+    await vi.waitFor(async () =>
+      expect(
+        (await log.logger.entries()).filter((entry) => entry.event === "recipe.sample"),
+      ).toHaveLength(7),
+    );
+    const entries = (await log.logger.entries()).filter((entry) => entry.event === "recipe.sample");
+    const fields = { origin: recipeOrigin, recipe: expect.any(String), recipeRevision: 1 };
+    expect(entries.map((entry) => [entry.level, entry.fields])).toEqual([
+      ["debug", { ...fields, route: "password", outcome: "sent" }],
+      ["info", { ...fields, route: "password", outcome: "kept" }],
+      ["debug", { ...fields, route: "password", outcome: "recent" }],
+      ["debug", { ...fields, route: "password", outcome: "gone" }],
+      ["info", { ...fields, route: "password", outcome: "refused" }],
+      ["debug", { ...fields, route: "password", outcome: "not-sent", reason: "site-excluded" }],
+      ["warn", { ...fields, route: "password", outcome: "failed", reason: "unreachable" }],
+    ]);
+    vi.restoreAllMocks();
+  });
+
   it("logs what a sync changed, a judged page, a handler, what stopped a login and refused output", async () => {
     const recipeOrigin = "https://login.example";
     const log = createDiagnosticsLog({
@@ -1155,6 +1423,16 @@ describe("unhandled errors", () => {
       outcome: "policy-changed",
       cause: "settings-synced",
     });
+    log.login({
+      type: "attempt",
+      ...page,
+      route: "password",
+      state: "authenticated",
+      stepIndex: 2,
+      stepCount: 2,
+      outcome: "authenticated",
+      unconfirmed: true,
+    });
     // A recipe with several password variants names its first variant's refusal (ADR 0027).
     log.login({
       type: "refused",
@@ -1192,7 +1470,7 @@ describe("unhandled errors", () => {
       reason: "incomplete-observation",
       detail: "unlocated-button",
     });
-    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(21));
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(22));
     const entries = (await log.logger.entries()).filter((entry) => entry.event !== "log.debug");
     expect(entries.map((entry) => [entry.event, entry.level, entry.fields])).toEqual([
       // An unchanged sync is a debug entry; one that changed a recipe is info.
@@ -1372,6 +1650,21 @@ describe("unhandled errors", () => {
           handler: 0,
           outcome: "policy-changed",
           cause: "settings-synced",
+        },
+      ],
+      [
+        "login.attempt",
+        "info",
+        {
+          origin: recipeOrigin,
+          recipe: expect.any(String),
+          recipeRevision: 1,
+          route: "password",
+          state: "authenticated",
+          step: 2,
+          steps: 2,
+          outcome: "authenticated",
+          unconfirmed: true,
         },
       ],
       [

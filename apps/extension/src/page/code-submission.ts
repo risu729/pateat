@@ -1,8 +1,14 @@
 import type { LoginTarget } from "@pateat/contracts";
 import { acceptsSecret } from "../login/inputs";
+import { observedPath } from "../observation/path";
 import { findTargets } from "./targets";
 
-/** Whether the element is rendered and not hidden by its own style. */
+/**
+ * Whether the element is rendered and not hidden by its own or an ancestor's style.
+ * Content the browser skips with `content-visibility: hidden`, as inside a closed
+ * `<details>` or under `hidden="until-found"`, still has a box but counts as hidden;
+ * content that `content-visibility: auto` skips off screen counts as shown.
+ */
 export function visible(element: HTMLElement): boolean {
   const style = getComputedStyle(element);
   return (
@@ -10,7 +16,8 @@ export function visible(element: HTMLElement): boolean {
     !element.hidden &&
     style.display !== "none" &&
     style.visibility !== "hidden" &&
-    element.getClientRects().length > 0
+    element.getClientRects().length > 0 &&
+    element.checkVisibility()
   );
 }
 
@@ -69,8 +76,8 @@ const busySelector = '[aria-busy="true"], [role="progressbar"], progress';
  * whose timers Chrome throttles, or on a busy page, nor an enable that lasts only until the
  * page disables the button again to check the code, is missed. Polling reads the rest and
  * stands in for the observer. `typed` marks the code going in, just before its input event
- * (for a split code, its last digit's), from when the button's states and the busy
- * indicators are read afresh;
+ * (for a split code, its last digit's) or at once for a field that already holds it, from
+ * when the button's states and the busy indicators are read afresh;
  * `submitted` reads the page; `stop` disconnects the observer and removes the listeners.
  */
 export function watchCodeSubmission(
@@ -148,10 +155,12 @@ export function watchCodeSubmission(
       event = true;
   };
   const navigation = (page.defaultView as { navigation?: EventTarget } | null)?.navigation;
-  page.addEventListener("submit", onSubmit, true);
-  page.defaultView?.addEventListener("beforeunload", mark, true);
-  page.defaultView?.addEventListener("pagehide", mark, true);
-  navigation?.addEventListener("navigate", mark);
+  const controller = new AbortController();
+  const { signal } = controller;
+  page.addEventListener("submit", onSubmit, { capture: true, signal });
+  page.defaultView?.addEventListener("beforeunload", mark, { capture: true, signal });
+  page.defaultView?.addEventListener("pagehide", mark, { capture: true, signal });
+  navigation?.addEventListener("navigate", mark, { signal });
   return {
     typed: () => {
       if (typedAt !== undefined) return;
@@ -172,7 +181,8 @@ export function watchCodeSubmission(
       const typed = typedAt ?? at;
       const first = !checked;
       checked = true;
-      if (event || page.location.pathname !== path) return true;
+      // `path` is a step's, as observations carry it (ADR 0039).
+      if (event || observedPath(page.location.pathname) !== path) return true;
       const fields = matches(field);
       if (fields.length !== 1 || fields[0] !== input || !input.isConnected) return true;
       if (input.matches(":disabled") || input.readOnly || input.closest("[inert]")) return true;
@@ -207,10 +217,7 @@ export function watchCodeSubmission(
     },
     stop: () => {
       observer.disconnect();
-      page.removeEventListener("submit", onSubmit, true);
-      page.defaultView?.removeEventListener("beforeunload", mark, true);
-      page.defaultView?.removeEventListener("pagehide", mark, true);
-      navigation?.removeEventListener("navigate", mark);
+      controller.abort();
     },
   };
 }

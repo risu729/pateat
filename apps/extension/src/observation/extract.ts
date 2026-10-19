@@ -1,10 +1,10 @@
 import {
-  REDACTED_PATH_SEGMENT,
   isCodeField,
   loginAutocompleteTokens,
   loginObservationSchema,
   loginLinkTargetSchema,
   loginTargetSchema,
+  namesPasswordControl,
   observedAutocompleteTokens,
   type LoginObservation,
   type LoginMarkerTarget,
@@ -14,12 +14,16 @@ import {
 import * as v from "valibot";
 import { shortNumericInput } from "../login/inputs";
 import type { observationGaps } from "../login/wire";
-import { autocompleteTokens, linkPath } from "../page/targets";
+import { autocompleteTokens, linkPath, namedControls } from "../page/targets";
+import { observedPath, redactsPath, tokenSegment } from "./path";
 import {
   buttonText,
   collapseText,
+  controlContent,
+  controlName,
   fieldName,
   hasNativeButton,
+  isFragmentButton,
   isRoleButton,
   isScriptButton,
   isScriptLink,
@@ -250,6 +254,8 @@ function headerText(document: Document): string | undefined {
  * Whether a control is on the page: `visible`, `faint` when it is rendered but
  * transparent or tiny (a trap, or a real input under a styled widget), or `absent`
  * when it is hidden or moved before the page's start, where trap inputs usually go.
+ * A control transparent only while it or an ancestor fades in from opacity 0 counts as
+ * opaque, as `shown` does (2026-10-17).
  */
 export function presence(element: HTMLElement): "visible" | "faint" | "absent" {
   const view = element.ownerDocument.defaultView;
@@ -285,6 +291,7 @@ function locatorIndex(document: Document): LocatorIndex {
       "link-text",
       "label",
       "link-path",
+      "accessible-name",
     ].map((key) => [key, new Map()]),
   );
   const count = (key: string, value: string) => {
@@ -316,6 +323,10 @@ function locatorIndex(document: Document): LocatorIndex {
     const name = fieldName(input);
     if (name !== undefined) count("label", name);
   }
+  for (const element of document.querySelectorAll(namedControls)) {
+    const name = controlName(element);
+    if (name !== undefined) count("accessible-name", name);
+  }
   return index;
 }
 
@@ -336,9 +347,11 @@ function locatorIndex(document: Document): LocatorIndex {
  * locator never carries an email address or a long number. With
  * `redactAttributes` the same holds for attribute values, since a signed-in page's ids
  * and names often carry the account, and a value that may be a token (`tokenSegment`),
- * such as an account ID, is skipped too. With `links`, a link is located by its text too,
- * which only an account switch uses: the text must name no other link and no button.
- * With `paths`, which only a signed-in page's markers use (ADR 0029), a link to the
+ * such as an account ID, is skipped too. With `tokens` only such a value is skipped,
+ * which every page whose path had a segment replaced asks for (ADR 0039), so a token its
+ * path carries never reaches the service through an ID or a name. With `links`, a link
+ * is located by its text too, which only an account switch uses: the text must name no
+ * other link and no button. With `paths`, which only a signed-in page's markers use (ADR 0029), a link to the
  * page's own origin is located by its path before its text, when no other link goes there,
  * the path carries no number or token and no segment repeats the link's text or one or
  * two words of the page's header (`paths` holds those words, `shownWords`), so an account
@@ -351,6 +364,7 @@ function locate(
   index: LocatorIndex,
   {
     redactAttributes = false,
+    tokens = false,
     links = false,
     lasting = false,
     labels = false,
@@ -358,6 +372,7 @@ function locate(
     paths,
   }: {
     redactAttributes?: boolean;
+    tokens?: boolean;
     links?: boolean;
     lasting?: boolean | undefined;
     labels?: boolean | undefined;
@@ -370,7 +385,8 @@ function locate(
     const value = element.getAttribute(attribute);
     if (value === null || index.get(attribute)!.get(value) !== 1) continue;
     if (attribute === "id" && generatedId.test(value)) continue;
-    if (redactAttributes && (observedText(value) !== value || tokenSegment(value))) continue;
+    if ((redactAttributes || tokens) && tokenSegment(value)) continue;
+    if (redactAttributes && observedText(value) !== value) continue;
     const target = { by, value };
     if (!v.is(loginTargetSchema, target)) continue;
     if (attribute !== "id" || !changingId(value)) return target;
@@ -500,6 +516,30 @@ function contentTarget(
       : index.get("text")!.get(text) === 1;
   if (!unique) return undefined;
   const target = { by: "text" as const, value: text };
+  return v.is(loginTargetSchema, target) ? target : undefined;
+}
+
+/**
+ * The accessible-name locator of a control on a signed-in page that may go on to the
+ * password (ADR 0048 amendment of 2026-10-19): its {@link controlName}, when exactly one
+ * shown control of the page has that name, counted as the executor sees the page, it
+ * holds no number and redaction leaves it unchanged, as a field's visible name (ADR
+ * 0037), and it and all the text the control holds ({@link controlContent}, hidden text
+ * too) pass `namesPasswordControl`, so a phone's "Select Phone - +61 4•• ••• 123", a
+ * "Send code" button, one whose "Send code" is `aria-hidden` and one whose text is too long
+ * to read in full are never located this way.
+ */
+function passwordChoiceTarget(element: Element, index: LocatorIndex): LoginTarget | undefined {
+  const name = controlName(element);
+  if (
+    name === undefined ||
+    /\p{Number}/u.test(name) ||
+    observedText(name) !== name ||
+    index.get("accessible-name")!.get(name) !== 1 ||
+    !namesPasswordControl(name, controlContent(element))
+  )
+    return undefined;
+  const target = { by: "accessible-name" as const, value: name };
   return v.is(loginTargetSchema, target) ? target : undefined;
 }
 
@@ -716,12 +756,10 @@ const keyScanLimit = 2000;
  */
 function inKey(element: Element, area: Element, seen: Map<Element, boolean>): boolean {
   for (let parent = element.parentElement; parent; parent = parent.parentElement) {
-    let key = seen.get(parent);
-    if (key === undefined) {
+    const key = seen.getOrInsertComputed(parent, () => {
       const text = renderedText(parent, keyScanLimit);
-      key = text !== undefined && keyLike(text);
-      seen.set(parent, key);
-    }
+      return text !== undefined && keyLike(text);
+    });
     if (key) return true;
     if (parent === area) break;
   }
@@ -1029,64 +1067,8 @@ function inShadow(shadow: ShadowRoot, selector: string): boolean {
   );
 }
 
-/**
- * True for a run whose letters and digits, ignoring `-` and `_`, switch between digits,
- * lower case and upper case at least once every three or so characters, as a random
- * base64url token does and a slug such as `campaign-2024-summer-login` does not.
- */
-function scrambled(run: string): boolean {
-  const kinds = [...run.replace(/[-_]/gu, "")].map((character) =>
-    /\d/u.test(character) ? 0 : /[a-z]/u.test(character) ? 1 : 2,
-  );
-  const changes = kinds.filter((kind, at) => at > 0 && kind !== kinds[at - 1]).length;
-  return changes >= run.length * 0.3;
-}
-
-/**
- * True for a path segment that may carry a session ID or another token, which the
- * observation would send to the service and its request log: as it is or
- * percent-decoded up to three times, it holds a matrix parameter such as
- * `;jsessionid=`, an ASP.NET cookieless part such as `(S(lit3py55t21z5))`, a query
- * such as Magento's base64-encoded `referer/<URL with ?SID=...>` (`?`, `&` or `=`), a
- * UUID, a run of 16 or more letters and digits that contains a digit, or a run of 16 or
- * more letters, digits, `-` and `_` that contains a digit and switches between them as
- * often as a base64url token does. Short or plain-looking tokens are missed.
- */
-function tokenSegment(raw: string): boolean {
-  const forms = [raw];
-  for (let round = 0; round < 3; round += 1) {
-    try {
-      const decoded = decodeURIComponent(forms.at(-1)!);
-      if (decoded === forms.at(-1)) break;
-      forms.push(decoded);
-    } catch {
-      // A malformed escape is checked as it is.
-      break;
-    }
-  }
-  return forms.some(
-    (segment) =>
-      /[;?&=]|\([A-Z]\(/u.test(segment) ||
-      /[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}/iu.test(segment) ||
-      (segment.match(/[A-Za-z\d]{16,}/gu) ?? []).some((run) => /\d/u.test(run)) ||
-      (segment.match(/[\w-]{16,}/gu) ?? []).some((run) => /\d/u.test(run) && scrambled(run)),
-  );
-}
-
 /** True for a path with a segment that may carry a token (`tokenSegment`). */
 const tokenPath = (pathname: string) => pathname.split("/").some(tokenSegment);
-
-/**
- * A signed-in page's path as its observation carries it (ADR 0029): each segment that
- * may carry a token is replaced by `REDACTED_PATH_SEGMENT`, so a page whose path names an
- * account, such as `/<account ID>/home`, can still be judged. The judge never learns a
- * handler on such a path, which names no real page.
- */
-export const signedInPath = (pathname: string) =>
-  pathname
-    .split("/")
-    .map((segment) => (tokenSegment(segment) ? REDACTED_PATH_SEGMENT : segment))
-    .join("/");
 
 function language(texts: readonly string[]): LoginObservation["language"] {
   const joined = texts.join(" ").replace(/\[(?:email|masked|number)\]/gu, " ");
@@ -1157,7 +1139,10 @@ function loginFormsOf(
  * left out entirely. A field in any shadow root, or more than 48 candidates, marks it
  * incomplete too, and inference rejects an incomplete observation. An incomplete result
  * names its first cause in `loginGaps` order as `gap`, for the log only. A page without a
- * field is refused, and so is one where nothing can be located.
+ * field is refused, and so is one where nothing can be located. As on every observed
+ * page, a path segment that may carry a token is sent as `REDACTED_PATH_SEGMENT`
+ * (`observedPath`, ADR 0039); on such a page an ID, name or test ID that may be a token
+ * locates nothing.
  *
  * `known` names the fields a recipe already fills on this path, for a page that continues
  * it after an `advance` step (ADR 0018). Such a field shown read-only or disabled, as an
@@ -1169,7 +1154,8 @@ export function extractLoginObservation(
   known: readonly LoginTarget[] = [],
 ): ObservationResult {
   const location = document.location;
-  if (!location || tokenPath(location.pathname)) return { ok: false, reason: "unsupported-page" };
+  if (!location) return { ok: false, reason: "unsupported-page" };
+  const tokens = redactsPath(location.pathname);
 
   const index = locatorIndex(document);
   const filled = (field: HTMLInputElement) =>
@@ -1202,7 +1188,7 @@ export function extractLoginObservation(
   // every form the observation describes is fully described.
   const flawed = new Map<HTMLFormElement | null, Set<LoginGap>>();
   const flaw = (form: HTMLFormElement | null, gap: LoginGap) =>
-    flawed.set(form, (flawed.get(form) ?? new Set()).add(gap));
+    flawed.getOrInsertComputed(form, () => new Set<LoginGap>()).add(gap);
   const gaps = new Set<LoginGap>();
 
   // A shadow-root field anywhere may be the real login; other shadow controls such as
@@ -1267,6 +1253,7 @@ export function extractLoginObservation(
   const located = (entries: typeof required, { optional = false, near = false } = {}) =>
     entries.flatMap((entry) => {
       const target = locate(entry.draft.element, index, {
+        tokens,
         links: true,
         labels: true,
         roles: near || (entry.form !== null && loginForms.has(entry.form)),
@@ -1330,7 +1317,7 @@ function observe(
   hideText: (text: string) => string = (text) => text,
   accounts?: readonly string[],
   header?: string,
-  path = document.location!.pathname,
+  path = observedPath(document.location!.pathname),
   near = false,
 ): ObservationResult {
   const location = document.location!;
@@ -1348,7 +1335,6 @@ function observe(
       { form, draft: { element: _element, label, placeholder, description, ...rest }, target },
       at,
     ) => {
-      if (form && !groups.has(form)) groups.set(form, `f${groups.size + 1}`);
       const shownLabel = label && hide(label);
       const shownDescription = description && hide(description);
       const shownPlaceholder = placeholder && hide(placeholder);
@@ -1362,7 +1348,7 @@ function observe(
           ? { description: shownDescription }
           : {}),
         target,
-        ...(form ? { group: groups.get(form)! } : {}),
+        ...(form ? { group: groups.getOrInsertComputed(form, () => `f${groups.size + 1}`) } : {}),
       } satisfies ObservedCandidate;
     },
   );
@@ -1460,7 +1446,7 @@ export function extractAccountListObservation(
   names: readonly string[] = [],
 ): ObservationResult {
   const location = document.location;
-  if (!location || tokenPath(location.pathname)) return { ok: false, reason: "unsupported-page" };
+  if (!location) return { ok: false, reason: "unsupported-page" };
   const fieldShown = [...document.querySelectorAll(fields)].some((element) => {
     const found = describe(element);
     return found?.kind === "candidate" && fillTypes[found.draft.role] !== undefined;
@@ -1572,7 +1558,7 @@ export function extractAccountListObservation(
   const hidden = beside.others.map((element) =>
     collapseText(renderedText(element, rawLimit) ?? ""),
   );
-  return withGap(withoutNames(result.observation, names, hidden), gap);
+  return withGap(withoutNames(result.observation, names, hidden, location.pathname), gap);
 }
 
 /** The page texts of a candidate, apart from its ID, role and locator kind, one per line. */
@@ -1591,12 +1577,14 @@ function textsOf(value: unknown, key = ""): string {
  * whole word, with or without a leading `@` and in any width or case, and a candidate
  * whose text holds one is left out; a text that is wholly one of `hidden`, the other
  * texts beside buttons, which may name accounts not in the vault, becomes `[account]`,
- * and a candidate with such a text is left out. A path that holds a name is not sent.
+ * and a candidate with such a text is left out. A page whose `path`, read as it is before
+ * its token-like segments are replaced (ADR 0039), holds a name is not sent.
  */
 function withoutNames(
   observation: LoginObservation,
   names: readonly string[],
   hidden: readonly string[],
+  path: string,
 ): ObservationResult {
   // The texts that name a username show at least one name, so the pattern is never empty.
   const source = namePattern(names) ?? "(?!)";
@@ -1605,7 +1593,7 @@ function withoutNames(
   const others = new Set(hidden.map(foldName).filter(Boolean));
   const shows = (text: string) => holds.test(text.normalize("NFKC"));
   const whole = (text: string) => others.has(foldName(text));
-  if (shows(decodeURIComponentSafe(observation.path)))
+  if (shows(decodeURIComponentSafe(path)) || shows(decodeURIComponentSafe(observation.path)))
     return { ok: false, reason: "unsupported-page" };
   const kept = {
     ...observation,
@@ -1652,19 +1640,21 @@ const enabled = (element: HTMLElement) =>
  * observation incomplete, since one control is all such a page needs. Fields are never
  * described, so the page is sent without slots.
  *
- * A link is left out unless it could be pressed: its parsed `href` must be `https:` on the
- * page's site (`onSite`, the worker's answer for the hosts `entryHosts` lists), no query
+ * A link is left out unless it could be pressed: its parsed `href` must be `https:` (or
+ * `http:` on an `http:` page) on the page's site (`onSite`, the worker's answer for the hosts `entryHosts` lists), no query
  * key or value of it may lead to another site, it must lead to another page than this one
  * (not only another fragment), and it opens in the same tab without downloading. So a
  * sign-in through another site never reaches the model. Labels are redacted as in every
- * observation; neither the page's query nor any `href` is described.
+ * observation; neither the page's query nor any `href` is described. The path and the
+ * locators follow `extractLoginObservation`'s token rule (ADR 0039).
  */
 export function extractEntryObservation(
   document: Document = globalThis.document,
   onSite: OnSite = () => false,
 ): ObservationResult {
   const location = document.location;
-  if (!location || tokenPath(location.pathname)) return { ok: false, reason: "unsupported-page" };
+  if (!location) return { ok: false, reason: "unsupported-page" };
+  const tokens = redactsPath(location.pathname);
   const page = new URL(location.href);
   const index = locatorIndex(document);
   const shownControls = describeAll(document).flatMap((entry) => {
@@ -1679,7 +1669,7 @@ export function extractEntryObservation(
       if (!href || linkRefusal(href, onSite, page) || entryElementRefusal(element)) return [];
     }
     // The chosen entry is stored like a marker, so an ID another load may change never names it.
-    const target = locate(element, index, { links: true, lasting: true });
+    const target = locate(element, index, { tokens, links: true, lasting: true });
     return target ? [{ form: entry.form, draft: entry.draft, target }] : [];
   });
   const chosen = byLandmark(shownControls).slice(0, maxCandidates);
@@ -1743,8 +1733,12 @@ function mayBeSignIn(input: HTMLInputElement): boolean {
  * and links are only possible markers; those past the limit or without a locator are
  * left out, and an ID another load may change (`changingId`) locates no element but a
  * field that may be a sign-in field. A link is located by its text too, as for an
- * account switch, and the executor looks for the completion marker the same way. A path
- * segment that may carry a token is sent as `REDACTED_PATH_SEGMENT` (`signedInPath`). A
+ * account switch, and the executor looks for the completion marker the same way. A button
+ * that nothing else names alone, or a link to a fragment of the page, that may go on to
+ * the password is located by its accessible name (`passwordChoiceTarget`), such a link as a
+ * `button`, so the judge can name it as a `password` handler's button (ADR 0048
+ * amendment of 2026-10-19); no other page's description uses that locator. A path
+ * segment that may carry a token is sent as `REDACTED_PATH_SEGMENT` (`observedPath`). A
  * page with a code field also carries up to three texts near the first one
  * (`nearCodeTexts`), and a page without one up to three texts near its buttons
  * (`nearButtonTexts`), hidden as the rest of the page. While a modal dialog is open, the
@@ -1830,7 +1824,30 @@ function describeSignedIn(document: Document): ObservationResult {
     )
   )
     gap ??= "unlocated-field";
-  const ranked = byLandmark(located(markers), openModals(document));
+  // A button or link that may go on to the password is located by its accessible name when
+  // nothing else names it alone, and a link to a fragment of the page by that name first,
+  // as a button, since only that locator counts it as one (ADR 0048 amendment of
+  // 2026-10-19).
+  const markersFound = markers.flatMap((entry) => {
+    const { element } = entry.draft;
+    const named = () => passwordChoiceTarget(element, index);
+    const fragment = isFragmentButton(element);
+    const target = fragment
+      ? (named() ?? located([entry])[0]?.target)
+      : (located([entry])[0]?.target ?? named());
+    if (!target) return [];
+    return [
+      {
+        ...entry,
+        draft:
+          target.by === "accessible-name"
+            ? { ...entry.draft, role: "button" as const }
+            : entry.draft,
+        target,
+      },
+    ];
+  });
+  const ranked = byLandmark(markersFound, openModals(document));
   const chosen = [
     ...fieldsFound.slice(0, maxCandidates),
     ...ranked.slice(0, Math.max(0, maxCandidates - fieldsFound.length)),
@@ -1843,7 +1860,7 @@ function describeSignedIn(document: Document): ObservationResult {
     (text) => withoutNumbers(text),
     undefined,
     header,
-    signedInPath(location.pathname),
+    observedPath(location.pathname),
     true,
   );
   if (!result.ok) return result;

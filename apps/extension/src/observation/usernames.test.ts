@@ -369,6 +369,21 @@ describe("withoutUsernames", () => {
     ).toBe(true);
   });
 
+  it("reads the raw path for a username that the sent path carries as [id] (ADR 0039)", () => {
+    const username = "member0123456789abcdef";
+    const page = observation({ path: "/u/[id]/login" });
+    expect(withoutUsernames(page, [username], `/u/${username}/login`)).toEqual({
+      ok: false,
+      reason: "username-shown",
+    });
+    // Another tenant's ID in the same segment names no account.
+    expect(withoutUsernames(page, [username], "/u/0123456789abcdef0123/login").ok).toBe(true);
+    // The sent path is still read too.
+    expect(
+      withoutUsernames(observation({ path: "/users/taro/login" }), ["taro"], "/elsewhere"),
+    ).toEqual({ ok: false, reason: "username-shown" });
+  });
+
   it("refuses a page whose dropped button or link may belong to a field's form", () => {
     const grouped = (role: "button" | "link", group?: string) =>
       observation({
@@ -394,6 +409,22 @@ describe("withoutUsernames", () => {
     // A link outside every form is left out.
     const link = withoutUsernames(grouped("link"), ["taro"]);
     expect(link.ok && link.observation.candidates.map((candidate) => candidate.id)).toEqual(["c1"]);
+  });
+
+  it("leaves out a button whose accessible-name locator holds a username (ADR 0048 amendment of 2026-10-19)", () => {
+    const named = observation({
+      candidates: [
+        { id: "c1", role: "button", target: { by: "text", value: "Cancel" }, label: "Cancel" },
+        {
+          id: "c2",
+          role: "button",
+          target: { by: "accessible-name", value: "Password for taro" },
+          label: "Password for taro",
+        },
+      ],
+    });
+    const kept = withoutUsernames(named, ["taro"]);
+    expect(kept.ok && kept.observation.candidates.map((candidate) => candidate.id)).toEqual(["c1"]);
   });
 
   it("refuses a page left with nothing to describe", () => {
@@ -445,6 +476,11 @@ describe("pathShowsUsername (ADR 0028, owner 2026-10-12 19:45 UTC)", () => {
     expect(pathShowsUsername("/risu729/pateat/pull/1", ["risu729"])).toBe(true);
     expect(pathShowsUsername("/@Taro.Yamada/posts", ["taro.yamada"])).toBe(true);
     expect(pathShowsUsername("/users/taro%40example.com", ["taro@example.com"])).toBe(true);
+    // A username holding a format character, such as the ZWNJ of a Persian name.
+    expect(
+      pathShowsUsername("/u/%D8%B9%D9%84%DB%8C%E2%80%8C%D8%B1%D8%B6%D8%A7", ["علی\u200Cرضا"]),
+    ).toBe(true);
+    expect(pathShowsUsername("/u/علی\u200Cرضا", ["علی\u200Cرضا"])).toBe(true);
     expect(withoutUsernames(observation({ path: "/risu729/pateat" }), ["risu729"])).toEqual({
       ok: false,
       reason: "username-shown",

@@ -17,12 +17,8 @@ const ipv4 = /^(?:\d{1,3}\.){3}\d{1,3}$/u;
  * WebAuthn rejects IP addresses; trailing-dot hosts are left to the browser.
  */
 function effectiveDomain(origin: string): string | undefined {
-  let url: URL;
-  try {
-    url = new URL(origin);
-  } catch {
-    return undefined;
-  }
+  const url = URL.parse(origin);
+  if (!url) return undefined;
   if (url.origin !== origin) return undefined;
   if (url.protocol !== "https:" && !(url.protocol === "http:" && url.hostname === "localhost"))
     return undefined;
@@ -61,4 +57,41 @@ export function rpIdsFor(origin: string): string[] {
   return labels
     .map((_label, index) => labels.slice(index).join("."))
     .filter((rpId) => resolveRpId(origin, rpId).ok);
+}
+
+/**
+ * Whether a page of `origin` is a secure context, where WebAuthn runs: HTTPS, or HTTP on a
+ * loopback host (`localhost`, `*.localhost`, `127.0.0.0/8` or `[::1]`), as browsers treat
+ * it. A plain HTTP page anywhere else never takes the passkey route (ADR 0050).
+ */
+export function secureOrigin(origin: string): boolean {
+  const url = URL.parse(origin);
+  if (url?.protocol === "https:") return true;
+  if (url?.protocol !== "http:") return false;
+  const host = url.hostname;
+  return (
+    host === "localhost" ||
+    host.endsWith(".localhost") ||
+    host === "[::1]" ||
+    /^127(?:\.\d{1,3}){3}$/u.test(host)
+  );
+}
+
+/**
+ * Whether passkeys answer on a page of `origin`, as in Bitwarden's browser extension: HTTPS,
+ * or HTTP on the host `localhost` itself, on any port (ADR 0050). Other loopback hosts such
+ * as `127.0.0.1` or `app.localhost` get none, as in Bitwarden.
+ */
+export function passkeyOrigin(origin: string): boolean {
+  const url = URL.parse(origin);
+  return url?.protocol === "https:" || (url?.protocol === "http:" && url.hostname === "localhost");
+}
+
+/**
+ * Whether Pateat's passkey scripts run on a page of `origin`, so a login there may take the
+ * passkey route: a `passkeyOrigin`, and in the synthetic probe build also any loopback HTTP
+ * page, though its own passkey scripts cover only `http://localhost` (ADR 0050).
+ */
+export function passkeyScriptsRun(origin: string, probe: boolean): boolean {
+  return passkeyOrigin(origin) || (probe && secureOrigin(origin));
 }

@@ -1,8 +1,9 @@
 import * as v from "valibot";
-import type {
-  BitwardenResult,
-  LocalFieldReference,
-  PreparedBitwardenAccount,
+import {
+  maxTargetUrlLength,
+  type BitwardenResult,
+  type LocalFieldReference,
+  type PreparedBitwardenAccount,
 } from "@pateat/bitwarden";
 
 export const CRYPTO_PORT = "pateat.crypto-host.v1";
@@ -96,7 +97,7 @@ export const commandSchema = v.strictObject({
     v.strictObject({
       kind: v.literal("match-uris"),
       session: sessionSchema,
-      targetUrl: v.pipe(v.string(), v.minLength(1), v.maxLength(8192)),
+      targetUrl: v.pipe(v.string(), v.minLength(1), v.maxLength(maxTargetUrlLength)),
     }),
     v.strictObject({
       kind: v.literal("custom-digest"),
@@ -175,7 +176,7 @@ export const uriCandidatesSchema = v.strictObject({
           v.array(
             v.strictObject({
               uriIndex: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(999)),
-              match: v.picklist([0, 1, 2, 3]),
+              match: v.picklist([0, 1, 2, 3, 4]),
             }),
           ),
           v.minLength(1),
@@ -192,6 +193,7 @@ export const uriCandidatesSchema = v.strictObject({
         uriIndex: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(999)),
         reason: v.picklist([
           "unsupported-uri-match",
+          "regex-unevaluated",
           "unsupported-uri-scheme",
           "invalid-uri",
           "default-match-unavailable",

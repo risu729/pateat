@@ -41,7 +41,8 @@ Each connection with automatic unlock (an active vault record), a sync session t
 minute (every ten seconds after a page finds no matching item, see
 [below](#after-no-item-matches)), on any of:
 
-- a `login.document.ready` announcement, which every HTTPS page and frame sends;
+- a `login.document.ready` announcement, which every HTTP(S) page and frame sends
+  ([ADR 0050](0050-http-pages-for-http-items.md));
 - a `passkey.get` request;
 - the `pateat.vault-sync` alarm, every five minutes (`chrome.alarms`, re-created on each
   service worker start if missing). The `alarms` permission adds no install warning.

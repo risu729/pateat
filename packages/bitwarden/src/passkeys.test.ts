@@ -72,6 +72,26 @@ describe("Bitwarden passkey credential IDs", () => {
     expect(decodeBitwardenBase64("-_8==")).toBeUndefined();
     expect(decodeBitwardenBase64("A")).toBeUndefined();
   });
+
+  it("decodes padded and unpadded values alike and rejects other padding", () => {
+    const equivalent = {
+      "01": ["AQ", "AQ=="],
+      "0001": ["AAE", "AAE="],
+      fbff: ["-_8", "-_8=", "+/8", "+/8="],
+    };
+    for (const [hex, values] of Object.entries(equivalent))
+      for (const value of values)
+        expect(decodeBitwardenBase64(value)).toEqual(Uint8Array.fromHex(hex));
+    for (const invalid of ["=", "==", "A===", "AA=A", "AQ=", "AQ===", "AAAA===="])
+      expect(decodeBitwardenBase64(invalid)).toBeUndefined();
+  });
+
+  it("rejects a long run of padding before another character without backtracking", () => {
+    // A trailing-padding regex such as /=+$/ backtracks quadratically on this input.
+    const padding = "=".repeat(1_000_000);
+    expect(decodeBitwardenBase64(`${padding}A`)).toBeUndefined();
+    expect(decodeBitwardenCredentialId(`b64.${padding}A`)).toBeUndefined();
+  });
 });
 
 describe("Bitwarden passkey metadata mapping", () => {

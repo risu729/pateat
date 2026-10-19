@@ -1,6 +1,11 @@
 import type { VaultSyncRecord } from "../connections/auto-sync";
 import type { ServiceStorage } from "./runtime";
-import type { GeneratedSlotStorage, GenerationAttemptStorage } from "./generation";
+import type {
+  GeneratedSlotStorage,
+  GenerationAttemptStorage,
+  PageSampleStorage,
+} from "./generation";
+import type { LoginOutcomeStorage } from "./outcomes";
 import type { RecipeCacheStorage, RecipeScheduleStorage } from "./recipes";
 import type { SettingsBaseStorage, SettingsHoldStorage } from "./settings-sync";
 import { trustedRecord } from "../storage";
@@ -12,7 +17,17 @@ export function createBrowserServiceStorage(): ServiceStorage {
 
 /** Synced recipes are login policy; content scripts never read them directly. */
 export function createBrowserRecipeCacheStorage(): RecipeCacheStorage {
-  return trustedRecord("pateat.sync-recipes.v1");
+  const cache = trustedRecord("pateat.sync-recipes.v1");
+  const recovery = trustedRecord("pateat.sync-recipes-recovery.v1");
+  return {
+    read: cache.read,
+    write: cache.write,
+    readRecovery: recovery.read,
+    writeRecovery: recovery.write,
+    async clear() {
+      await Promise.all([cache.clear(), recovery.clear()]);
+    },
+  };
 }
 
 /** When the next background recipe sync is due, kept across service worker restarts. */
@@ -43,4 +58,14 @@ export function createBrowserGenerationAttemptStorage(): GenerationAttemptStorag
 /** Which vault field each custom slot of a recipe generated here names (ADR 0027). */
 export function createBrowserGeneratedSlotStorage(): GeneratedSlotStorage {
   return trustedRecord("pateat.generated-slots.v1");
+}
+
+/** Which recipe revisions' first login results were reported (ADR 0019, amended 2026-10-18). */
+export function createBrowserLoginOutcomeStorage(): LoginOutcomeStorage {
+  return trustedRecord("pateat.login-outcomes.v1");
+}
+
+/** When this device last sent each recipe's signed-in page sample (ADR 0029). */
+export function createBrowserPageSampleStorage(): PageSampleStorage {
+  return trustedRecord("pateat.page-samples.v1");
 }

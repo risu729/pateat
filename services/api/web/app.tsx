@@ -1,8 +1,9 @@
-import { useEffect } from "react";
 // The toolbar icon, emitted beside the bundle as the favicon is.
 import logo from "../../../apps/extension/icons/icon.svg?url";
 import type { ManageClient } from "./api";
+import { DashboardPage } from "./dashboard";
 import { DevicesPage } from "./devices";
+import { RequestLogPage } from "./request-log";
 import { SitePage } from "./site";
 import { siteOrigin, SitesPage } from "./sites";
 import { ThemeSelect } from "./theme-select";
@@ -19,8 +20,10 @@ const licenseUrl = `https://github.com/risu729/pateat/blob/${sourceRef}/LICENSE-
  * serves the app only at these paths.
  */
 const PAGES = [
+  { path: "/manage/dashboard", title: "Dashboard", Page: DashboardPage },
   { path: "/manage/sites", title: "Sites", Page: SitesPage },
   { path: "/manage", title: "Devices", Page: DevicesPage },
+  { path: "/manage/request-log", title: "Request log", Page: RequestLogPage },
 ] as const;
 
 const linkClasses = "text-accent-ink underline hover:text-accent-hover";
@@ -29,11 +32,9 @@ export function ManageApp({ client, path }: { client: ManageClient; path: string
   const site = siteOrigin(path);
   const current = PAGES.find((page) => page.path === (site ? "/manage/sites" : path));
   const title = site ?? current?.title;
-  useEffect(() => {
-    document.title = title ? `${title} – Pateat` : "Pateat";
-  }, [title]);
   return (
     <div className="mx-auto flex max-w-[880px] flex-col gap-6 px-4 pt-6 pb-12 text-[15px]/6 sm:px-6">
+      <title>{title ? `${title} – Pateat` : "Pateat"}</title>
       <header className="flex flex-wrap items-center gap-4">
         <span className="flex items-center gap-2 font-bold">
           <img src={logo} alt="" width={20} height={20} />

@@ -13,6 +13,7 @@ import {
   bitwardenEndpoints,
   normalizeBitwardenProfile,
 } from "./environment";
+import { bitwardenEmail } from "./email";
 import { failure, type BitwardenErrorCode, type BitwardenResult } from "./errors";
 import {
   encryptedSyncEnvelopeSchema,
@@ -42,7 +43,7 @@ const optionsSchema = v.strictObject({
 const connectionId = v.pipe(v.string(), v.minLength(1), v.maxLength(200));
 const preloginRequestSchema = v.strictObject({
   connectionId,
-  email: v.pipe(v.string(), v.minLength(1), v.maxLength(320), v.email()),
+  email: bitwardenEmail,
   mode: v.picklist(["legacy", "password"]),
 });
 const configRequestSchema = v.strictObject({ connectionId });
@@ -82,10 +83,7 @@ export function createBitwardenTransport(
     if (signal?.aborted) return failure("cancelled");
     const controller = new AbortController();
     let stopCode: BitwardenErrorCode | undefined;
-    let rejectStopped: (reason: undefined) => void = () => {};
-    const stopped = new Promise<never>((_resolve, reject) => {
-      rejectStopped = reject;
-    });
+    const { promise: stopped, reject: rejectStopped } = Promise.withResolvers<never>();
     function stop(code: "cancelled" | "timeout") {
       if (stopCode) return;
       stopCode = code;

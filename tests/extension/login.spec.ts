@@ -482,7 +482,7 @@ test("worker startup prunes persisted ownership for a closed tab", async () => {
       };
       const journal = before.attempts[0]!;
       await owner.close();
-      const storageKey = "pateat.login-attempts.v4";
+      const storageKey = "pateat.login-attempts.v5";
       await expect
         .poll(
           async () =>
@@ -740,6 +740,162 @@ for (const [name, query] of [
       await fixture.close();
     }
   });
+
+test("continues an identifier-first form that swaps its views in place and keeps a hidden password input for the browser (ADR 0013)", async () => {
+  const fixture = await startLoginFixture();
+  try {
+    await withLoginExtension(async (context, _worker, id) => {
+      const options = await context.newPage();
+      await configure(options, id, fixture.origin);
+      const page = await context.newPage();
+      await page.goto(`${fixture.origin}/identifier-swap`);
+      // One Next and one Sign in on the same button; the kept password input was never
+      // taken for the password view.
+      await expect(page.locator("#authenticated")).toBeVisible({ timeout: 15_000 });
+      expect(
+        await page.evaluate(() => ({
+          identityClicks: Number(sessionStorage.getItem("identityClicks") || 0),
+          submitClicks: Number(sessionStorage.getItem("submitClicks") || 0),
+          lookupClicks: Number(sessionStorage.getItem("lookupClicks") || 0),
+          identityMatched: sessionStorage.getItem("identityMatched"),
+          passwordMatched: sessionStorage.getItem("passwordMatched"),
+        })),
+      ).toEqual({
+        identityClicks: 1,
+        submitClicks: 1,
+        lookupClicks: 0,
+        identityMatched: "true",
+        passwordMatched: "true",
+      });
+      await expect
+        .poll(async () =>
+          JSON.stringify(await send(options, { version: 1, type: "login.probe.status" })),
+        )
+        .toContain('"authenticated"');
+      const status = JSON.stringify(
+        await send(options, { version: 1, type: "login.probe.status" }),
+      );
+      expect(status).toContain('"recipeId":"demo-identifier-swap"');
+      expect(status).not.toContain("Pateat-synthetic-only!");
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
+/** What the `/method-choice` fixture page counted; never a value. */
+async function choiceEvidence(page: Page) {
+  return page.evaluate(() => ({
+    identityClicks: Number(sessionStorage.getItem("identityClicks") || 0),
+    chooseClicks: Number(sessionStorage.getItem("chooseClicks") || 0),
+    mobileClicks: Number(sessionStorage.getItem("mobileClicks") || 0),
+    submitClicks: Number(sessionStorage.getItem("submitClicks") || 0),
+    identityMatched: sessionStorage.getItem("identityMatched"),
+    passwordMatched: sessionStorage.getItem("passwordMatched"),
+  }));
+}
+
+for (const [name, query, chooseClicks] of [
+  ["presses Password on the page that asks how to verify", "", 1],
+  ["leaves the button alone when the site skips that page", "?skip", 0],
+] as const)
+  test(`${name}, then types the password (ADR 0048)`, async () => {
+    const fixture = await startLoginFixture();
+    try {
+      await withLoginExtension(async (context, _worker, id) => {
+        const options = await context.newPage();
+        await configure(options, id, fixture.origin);
+        const page = await context.newPage();
+        await page.goto(`${fixture.origin}/method-choice${query}`);
+        await expect(page.locator("#authenticated")).toBeVisible({ timeout: 15_000 });
+        expect(await choiceEvidence(page)).toEqual({
+          identityClicks: 1,
+          chooseClicks,
+          mobileClicks: 0,
+          submitClicks: 1,
+          identityMatched: "true",
+          passwordMatched: "true",
+        });
+        await expect
+          .poll(async () =>
+            JSON.stringify(await send(options, { version: 1, type: "login.probe.status" })),
+          )
+          .toContain('"authenticated"');
+        const status = JSON.stringify(
+          await send(options, { version: 1, type: "login.probe.status" }),
+        );
+        expect(status).toContain('"recipeId":"demo-method-choice"');
+        expect(status).toContain(
+          chooseClicks ? '"handlers":[{"index":0,"start":2}]' : '"handlers":[]',
+        );
+        expect(status).not.toContain("Pateat-synthetic-only!");
+      });
+    } finally {
+      await fixture.close();
+    }
+  });
+
+test("presses the Select whose accessible name names the password, never the other (ADR 0048 amendment of 2026-10-19)", async () => {
+  const fixture = await startLoginFixture();
+  try {
+    await withLoginExtension(async (context, _worker, id) => {
+      const options = await context.newPage();
+      await configure(options, id, fixture.origin);
+      const page = await context.newPage();
+      await page.goto(`${fixture.origin}/method-choice-named`);
+      await expect(page.locator("#authenticated")).toBeVisible({ timeout: 15_000 });
+      expect(await choiceEvidence(page)).toEqual({
+        identityClicks: 1,
+        chooseClicks: 1,
+        mobileClicks: 0,
+        submitClicks: 1,
+        identityMatched: "true",
+        passwordMatched: "true",
+      });
+      await expect
+        .poll(async () =>
+          JSON.stringify(await send(options, { version: 1, type: "login.probe.status" })),
+        )
+        .toContain('"authenticated"');
+      const status = JSON.stringify(
+        await send(options, { version: 1, type: "login.probe.status" }),
+      );
+      expect(status).toContain('"recipeId":"demo-method-choice-named"');
+      expect(status).toContain('"handlers":[{"index":0,"start":2}]');
+      expect(status).not.toContain("Pateat-synthetic-only!");
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("never presses a learned button whose text does not name the password (ADR 0048)", async () => {
+  test.setTimeout(60_000);
+  const fixture = await startLoginFixture();
+  try {
+    await withLoginExtension(async (context, _worker, id) => {
+      const options = await context.newPage();
+      await configure(options, id, fixture.origin);
+      const page = await context.newPage();
+      await page.goto(`${fixture.origin}/method-choice?forgot`);
+      await expect(page.locator("#choice")).toBeVisible({ timeout: 15_000 });
+      // Past the advance's ten-second wait, nothing more is pressed.
+      await page.waitForTimeout(12_000);
+      expect(await send(options, { version: 1, type: "login.probe.status" })).toMatchObject({
+        attempts: [{ stepIndex: 1, handlers: [] }],
+      });
+      expect(await choiceEvidence(page)).toMatchObject({
+        identityClicks: 1,
+        chooseClicks: 0,
+        mobileClicks: 0,
+        submitClicks: 0,
+      });
+      await expect(page.locator("#password")).toBeHidden();
+    });
+  } finally {
+    await fixture.close();
+  }
+});
 
 test("an identifier-first page that shows the password form from the start never continues after Next (ADR 0013)", async () => {
   const fixture = await startLoginFixture();
@@ -1441,6 +1597,62 @@ test("values the page would not accept are never submitted", async () => {
       await shown.goto(`${fixture.origin}/single?reject-fill=shown`);
       await expect(shown.locator("#authenticated")).toBeVisible();
       expect(await clicks(shown)).toBe(1);
+    });
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("values never go into or submit a form bound for another origin", async () => {
+  const fixture = await startLoginFixture();
+  try {
+    await withLoginExtension(async (context, _worker, id) => {
+      const options = await context.newPage();
+      await configure(options, id, fixture.origin);
+      const status = async () => await send(options, { version: 1, type: "login.probe.status" });
+      // The password's form posts to another site: the fill is refused on every retry, so
+      // nothing is filled or clicked.
+      const fill = await context.newPage();
+      await fill.goto(`${fixture.origin}/single?form=off-origin`);
+      await expect.poll(status).toMatchObject({
+        attempts: [{ operationKind: "fill", outcome: "retry-limit", submissions: 0 }],
+      });
+      await expect(fill.locator("#password")).toHaveValue("");
+      expect(await clicks(fill)).toBe(0);
+      await fill.close();
+      await expect.poll(status).toMatchObject({ attempts: [] });
+      // The password is outside any form, but the submit button's formaction names another
+      // origin: the fill proceeds and the click is refused.
+      const submit = await context.newPage();
+      await submit.goto(`${fixture.origin}/single?form=submit-off-origin`);
+      await expect.poll(status).toMatchObject({
+        attempts: [{ operationKind: "click", outcome: "structural-mismatch" }],
+      });
+      await expect(submit.locator("#password")).not.toHaveValue("");
+      // Cover the time a click's handler would take to count it.
+      await submit.waitForTimeout(500);
+      expect(await clicks(submit)).toBe(0);
+      expect(submit.url()).toBe(`${fixture.origin}/single?form=submit-off-origin`);
+      await submit.close();
+      await expect.poll(status).toMatchObject({ attempts: [] });
+      // A form that submits to its own page is filled and submitted.
+      const same = await context.newPage();
+      await same.goto(`${fixture.origin}/single?form=same-origin`);
+      await expect(same.locator("#authenticated")).toBeVisible();
+      expect(await clicks(same)).toBe(1);
+      await same.close();
+      // A form whose action is a javascript: URL sends the values nowhere, so it is filled
+      // and submitted too.
+      const script = await context.newPage();
+      await script.goto(`${fixture.origin}/single?form=script`);
+      await expect(script.locator("#authenticated")).toBeVisible();
+      expect(await clicks(script)).toBe(1);
+      await script.close();
+      // A button outside any form submits nothing, so its click proceeds.
+      const outside = await context.newPage();
+      await outside.goto(`${fixture.origin}/single`);
+      await expect(outside.locator("#authenticated")).toBeVisible();
+      expect(await clicks(outside)).toBe(1);
     });
   } finally {
     await fixture.close();

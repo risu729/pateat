@@ -48,7 +48,7 @@ test("production diagnostics show the build, checks and a value-free bug report"
     await expect(page.locator("#diagnostics-browser")).toHaveText(/^(Chrome|Chromium) \d+\./u);
     await expect(page.locator("#diagnostics-sdk")).toHaveText(/^0\.2\.0-main\.\d+$/u);
     await expect(page.locator("#diagnostics-checks")).toContainText(
-      "https://*/* site access granted",
+      "https://*/* and http://*/* site access granted",
     );
     await expect(page.locator("#diagnostics-checks")).toContainText("Pateat service not paired");
     await expect(page.locator("#diagnostics-service")).toHaveText("not-configured");
@@ -56,15 +56,17 @@ test("production diagnostics show the build, checks and a value-free bug report"
     expect(report).toMatch(
       /^Pateat 0\.1\.0 \(([0-9a-f]{7}|development)\) · production build · unpacked install \(development\)\n/u,
     );
-    expect(report).toContain("Permissions: alarms, storage, offscreen, https://*/*");
+    expect(report).toContain("Permissions: alarms, storage, offscreen, http://*/*, https://*/*");
     expect(report).toContain("Pateat service: not-configured");
     expect(report).toMatch(
       /\nLogs: \d+ entr(?:y|ies) \(\d+ KB\), 0 errors, \d+ warnings? in 24 h\n/u,
     );
 
     // Debug logging, the exact saved text, and clearing.
-    await page.getByRole("button", { name: "Turn on debug logging for 24 hours" }).click();
-    await expect(page.locator("#logs-status")).toHaveText("Debug logging is on for 24 hours.");
+    await page.getByRole("button", { name: "Turn on debug logging", exact: true }).click();
+    await expect(page.locator("#logs-status")).toHaveText(
+      "Debug logging is on until you turn it off.",
+    );
     // Site addresses and recipe IDs are included until the person hides them.
     const included = await logs(page);
     expect(JSON.parse(included.split("\n")[0] ?? "")).toMatchObject({ sites: "included" });
@@ -104,11 +106,11 @@ test("production diagnostics show the build, checks and a value-free bug report"
     });
     await page.getByRole("button", { name: "Copy all" }).click();
     await expect(page.locator("#logs-status")).toHaveText("Copy failed. Use Save file instead.");
-    // Debug logging turns off at once, before its 24 hours end.
+    // Debug logging turns off at once.
     await page.getByRole("button", { name: "Turn off debug logging" }).click();
     await expect(page.locator("#logs-status")).toHaveText("Debug logging is off.");
     await expect(
-      page.getByRole("button", { name: "Turn on debug logging for 24 hours" }),
+      page.getByRole("button", { name: "Turn on debug logging", exact: true }),
     ).toBeVisible();
     await page.getByRole("button", { name: "Clear logs" }).click();
     await page.getByRole("button", { name: "Delete all log entries" }).click();
@@ -130,8 +132,10 @@ test("a connection appears under a stable pseudonym with its server, and only it
     const page = await first.context.newPage();
     await page.goto(`chrome-extension://${first.extensionId}/diagnostics.html`);
     // Debug logging records the connection as the worker first sees it.
-    await page.getByRole("button", { name: "Turn on debug logging for 24 hours" }).click();
-    await expect(page.locator("#logs-status")).toHaveText("Debug logging is on for 24 hours.");
+    await page.getByRole("button", { name: "Turn on debug logging", exact: true }).click();
+    await expect(page.locator("#logs-status")).toHaveText(
+      "Debug logging is on until you turn it off.",
+    );
     const options = await first.context.newPage();
     await options.goto(`chrome-extension://${first.extensionId}/options.html`);
     const accepted = await setupRequest(options, { type: "connection.begin", input: beginInput() });

@@ -6,6 +6,7 @@ import { cleanup, render } from "vitest-browser-react";
 import "../../apps/extension/entrypoints/options/style.css";
 import { DiagnosticsApp, type DiagnosticsClient } from "../../apps/extension/src/diagnostics/app";
 import type { DiagnosticsStatus } from "../../apps/extension/src/diagnostics/wire";
+import { DEBUG_UNTIL_TURNED_OFF } from "../../apps/extension/src/diagnostics/log";
 
 // The diagnostics page with a synthetic summary: icon-led checks, the panels and debug logging.
 
@@ -139,11 +140,27 @@ test("debug logging shows when it ends and turns off at once", async () => {
   await expect.element(page.getByText("Debug logging is off.")).toBeVisible();
 });
 
-test("debug logging that is off offers 24 hours", async () => {
+test("debug logging that is off turns on until it is turned off", async () => {
   const value = client(status());
   await show(value);
   await expect.element(page.getByText("off", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Turn on debug logging for 24 hours" }).click();
+  await page.getByRole("button", { name: "Turn on debug logging", exact: true }).click();
   expect(value.setDebugLogs).toHaveBeenCalledWith(true);
-  await expect.element(page.getByText("Debug logging is on for 24 hours.")).toBeVisible();
+  await expect.element(page.getByText("Debug logging is on until you turn it off.")).toBeVisible();
+});
+
+test("debug logging that stays on says so", async () => {
+  const value = client(
+    status({
+      logs: {
+        entries: 3,
+        bytes: 1024,
+        recentErrors: 0,
+        recentWarnings: 0,
+        debugUntil: DEBUG_UNTIL_TURNED_OFF,
+      },
+    }),
+  );
+  await show(value);
+  await expect.element(page.getByText("on until turned off", { exact: true })).toBeVisible();
 });

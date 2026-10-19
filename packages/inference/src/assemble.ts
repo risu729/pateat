@@ -2,12 +2,12 @@ import {
   extendsRecipe,
   fillRoles,
   handlerTargets,
-  hasRedactedSegment,
   isTotpCode,
   loginEntryRecipeSchema,
   loginRecipeSchema,
   loginStepEffect,
   MAX_COMPLETION_MARKERS,
+  namesPasswordChoice,
   passwordVariants,
   refillsLoginSlot,
   routeFillTargets,
@@ -264,15 +264,20 @@ export function addCompletion(
 
 export type HandlerRejection =
   | "origin-mismatch"
-  /**
-   * The page's path has a segment the extension replaced (`REDACTED_PATH_SEGMENT`), so
-   * the handler's path would never match the page.
-   */
-  | "redacted-path"
   /** The button is not a button of the judged page. */
   | "not-on-page"
   /** The button registers, adds or sets up a passkey rather than signing in with one. */
   | "registration"
+  /**
+   * A `password` handler's button whose label or text does not name the password as the
+   * way to confirm the sign-in (`namesPasswordChoice`, ADR 0048).
+   */
+  | "not-password"
+  /**
+   * A `password` handler for a recipe that already fills the `password` slot: it has
+   * passed the page that asks for the password (ADR 0048).
+   */
+  | "password-filled"
   /**
    * A `totp` handler's field is not an input the executor fills a TOTP code into, shorter
    * than 6 characters or one of several code inputs of its form, or its button is in
@@ -292,23 +297,25 @@ export type HandlerRejection =
 
 /**
  * Adds a handler for the judged page to a generated recipe in its next revision (ADR
- * 0027): a `passkey` handler for its security-key or passkey button, or a `totp` handler
- * for its TOTP code field and the button that submits it. The route's steps
+ * 0027): a `passkey` handler for its security-key or passkey button, a `password` handler
+ * for its button that goes on to the password (ADR 0048), or a `totp` handler for its
+ * TOTP code field and the button that submits it. The route's steps
  * are kept as they are, so a running login can take the result over (`extendsRecipe`).
  * The page may be on a route path: a second-factor form on the sign-in path still gets a
  * handler. A `totp` handler's button may even be the route's own submit button on that
  * path, as on a page that asks for the code in the sign-in form after the password, but
- * its field is never a field the route fills.
+ * its field is never a field the route fills. A page on a path with `[id]` in place of a
+ * token-like segment gets one too (ADR 0039): the extension compares a live page through
+ * the same redacted path, so the handler matches that page of every tenant.
  */
 export function addHandler(
   base: LoginRecipe,
   page: Pick<LoginObservation, "origin" | "path" | "candidates">,
   handler:
-    | { kind: "passkey"; target: LoginTarget }
+    | { kind: "passkey" | "password"; target: LoginTarget }
     | { kind: "totp"; field: LoginFieldTarget; target: LoginTarget },
 ): { ok: true; recipe: LoginRecipe } | { ok: false; reason: HandlerRejection } {
   if (base.origin !== page.origin) return { ok: false, reason: "origin-mismatch" };
-  if (hasRedactedSegment(page.path)) return { ok: false, reason: "redacted-path" };
   const button = page.candidates.find(
     (candidate) => candidate.role === "button" && sameTarget(candidate.target, handler.target),
   );
@@ -322,9 +329,33 @@ export function addHandler(
     ...(base.completion ?? []).map((marker) => marker.target),
     ...handlerElements(base, page.path),
   ];
-  if (handler.kind === "passkey") {
+  if (handler.kind !== "totp") {
     // The label, the text and an id, name or test ID locator all count.
-    if (registersPasskey(button)) return { ok: false, reason: "registration" };
+    if (handler.kind === "passkey" && registersPasskey(button))
+      return { ok: false, reason: "registration" };
+    // The button's label and its text or accessible-name locator, whichever it has, all
+    // name the password choice; a recipe that already types the password never learns one
+    // (ADR 0048). A button named by its accessible name shows text the page did not send,
+    // such as "Select", which the extension checks before it presses it.
+    if (handler.kind === "password") {
+      const texts = [
+        button.label,
+        button.target.by === "text" || button.target.by === "accessible-name"
+          ? button.target.value
+          : undefined,
+      ].filter((text) => text !== undefined);
+      if (!texts.length || !texts.every(namesPasswordChoice))
+        return { ok: false, reason: "not-password" };
+      if (
+        passwordVariants(base).some((variant) =>
+          variant.steps.some(
+            (step) =>
+              step.kind === "fill" && step.fields.some((field) => field.slot === "password"),
+          ),
+        )
+      )
+        return { ok: false, reason: "password-filled" };
+    }
     if (
       [...routeTargets(base, page.path), ...others].some((element) =>
         sameTarget(element, handler.target),

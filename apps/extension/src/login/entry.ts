@@ -6,13 +6,7 @@
 /** Whether `url` is on the page's site; the worker compares registrable domains. */
 export type OnSite = (url: URL) => boolean;
 
-const parse = (value: string, base?: URL) => {
-  try {
-    return new URL(value, base);
-  } catch {
-    return undefined;
-  }
-};
+const parse = (value: string, base?: URL) => URL.parse(value, base) ?? undefined;
 
 /**
  * Every URL a query key or value could lead to, as the URL parser reads it: on its own as
@@ -36,6 +30,14 @@ function queryUrls(url: URL): URL[] {
 }
 
 /**
+ * Whether a link or return URL may lead from `page` by its scheme: `https:` always, `http:`
+ * only from an `http:` page, so a sign-in on an HTTPS site never moves to plain HTTP
+ * (ADR 0050).
+ */
+const webScheme = (target: URL, page: URL | undefined) =>
+  target.protocol === "https:" || (target.protocol === "http:" && page?.protocol === "http:");
+
+/**
  * The query values of `url` that may name a URL: a value counts when, after URL decoding,
  * it is an absolute URL or starts with `/`, as `return_to=%2Fbookmarks` does. Other values,
  * such as `lang=en`, are not read, since any word resolves to a path of the page. Where a
@@ -49,8 +51,8 @@ const namedValues = (url: URL) =>
 /**
  * Whether a query value of the page's URL names another path of its own site, which shows
  * the site sent the visitor there to sign in first (ADR 0031, owner 2026-10-12 06:53 UTC):
- * a value that {@link namedValues} reads and that leads to an `https:` URL on the site whose
- * path is neither `/` nor the page's own. A value counts only when every reading of it, on
+ * a value that {@link namedValues} reads and that leads to an `https:` URL (or `http:` from
+ * an `http:` page) on the site whose path is neither `/` nor the page's own. A value counts only when every reading of it, on
  * its own and resolved against the page, is such a URL: `https:evil.example/x` is a
  * path of the page resolved against it, but another host on its own. A manual logout that
  * lands on the bare top page has none.
@@ -62,7 +64,7 @@ export function namesReturnPath(page: URL, onSite: OnSite): boolean {
       targets.length > 0 &&
       targets.every(
         (target) =>
-          target.protocol === "https:" &&
+          webScheme(target, page) &&
           onSite(target) &&
           target.pathname !== "/" &&
           target.pathname !== page.pathname,
@@ -82,7 +84,8 @@ export type LinkRefusal =
 const withoutFragment = (url: URL) => url.href.slice(0, url.href.length - url.hash.length);
 
 /**
- * Why a link may not be pressed: its `href` is not `https:`, not on the page's site, a
+ * Why a link may not be pressed: its `href` is not `https:` (or `http:` from an `http:`
+ * `page`), not on the page's site, a
  * query key or value of it leads to another site, or it differs from `page`, when given,
  * only by its fragment, so pressing it shows no other page. Every query key and value is
  * read by the URL parser, both on its own and resolved against the `href`, and any reading
@@ -91,7 +94,7 @@ const withoutFragment = (url: URL) => url.href.slice(0, url.href.length - url.ha
  * `/auth/google`, passes; the model and the check after the press guard it.
  */
 export function linkRefusal(href: URL, onSite: OnSite, page?: URL): LinkRefusal | undefined {
-  if (href.protocol !== "https:") return "link-not-https";
+  if (!webScheme(href, page)) return "link-not-https";
   if (!onSite(href)) return "link-off-site";
   if (queryUrls(href).some((target) => !onSite(target))) return "link-query-off-site";
   if (page && withoutFragment(href) === withoutFragment(page)) return "link-same-page";

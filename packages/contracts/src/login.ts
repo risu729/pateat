@@ -1,6 +1,7 @@
 import * as v from "valibot";
 import {
   parseSiteUrl,
+  recipeSlotIdSchema,
   resolveSiteAccount,
   type SettingsSnapshot,
   type VaultCatalog,
@@ -100,10 +101,29 @@ export const loginTextTargetSchema = v.strictObject({
  * its `aria-label`, else its `placeholder`, the first that is not empty, with whitespace
  * collapsed to single spaces and format characters removed, and at most 120 characters.
  * It names fields only, for a field with no unique `id`, `name`, `data-testid` or
- * `autocomplete` locator but a stable one; hidden inputs never match.
+ * `autocomplete` locator but a stable one; hidden inputs never match. A control is named
+ * by its accessible name with {@link loginAccessibleNameTargetSchema} instead, which is
+ * counted apart, so a button and a field with the same name never make either ambiguous.
  */
 export const loginLabelTargetSchema = v.strictObject({
   by: v.literal("label"),
+  value: loginTextTargetSchema.entries.value,
+});
+/**
+ * A control locator by its accessible name (ADR 0048 amendment of 2026-10-19): the one
+ * shown control whose name equals the value. The name is the rendered text of the
+ * elements its `aria-labelledby` names, else its `aria-label`, the first that is not
+ * empty, with whitespace collapsed to single spaces and format characters removed, and
+ * at most 120 characters. A control is a button or a script button, as a text locator
+ * matches them, or a link to a fragment of its own document that opens in the same tab
+ * and downloads nothing (`<a href="#">`); fields never match. It names only a `password`
+ * handler's button, such as `<a href="#" aria-label="Select Password.">Select</a>` beside
+ * another "Select" for a phone, when no `id`, `name`, `data-testid` or unique text names
+ * it: route steps, the `passkey` route, other handlers, signed-in markers, the rejection
+ * and the account switch never use it.
+ */
+export const loginAccessibleNameTargetSchema = v.strictObject({
+  by: v.literal("accessible-name"),
   value: loginTextTargetSchema.entries.value,
 });
 /** A locator a fill names its field by: an attribute one, or the field's visible name. */
@@ -111,11 +131,15 @@ export const loginFieldTargetSchema = v.variant("by", [
   ...loginAttributeTargetSchema.options,
   loginLabelTargetSchema,
 ]);
-/** An allowlisted element locator; recipes cannot supply CSS, code, URLs or values. */
+/**
+ * An allowlisted element locator; recipes cannot supply CSS, code, URLs or values. A recipe
+ * uses an accessible-name locator only for a `password` handler's button.
+ */
 export const loginTargetSchema = v.variant("by", [
   ...loginAttributeTargetSchema.options,
   loginTextTargetSchema,
   loginLabelTargetSchema,
+  loginAccessibleNameTargetSchema,
 ]);
 /**
  * A signed-in marker's link locator (ADR 0029): the one `<a href>` link to the page's own
@@ -134,7 +158,7 @@ export const loginMarkerTargetSchema = v.variant("by", [
   loginLinkTargetSchema,
 ]);
 const fields = v.pipe(
-  v.array(v.strictObject({ slot: identifier, target: loginFieldTargetSchema })),
+  v.array(v.strictObject({ slot: recipeSlotIdSchema, target: loginFieldTargetSchema })),
   v.minLength(1),
   v.maxLength(20),
   v.check((entries) => unique(entries.map((entry) => entry.slot)), "Duplicate fill slots"),
@@ -193,10 +217,12 @@ export const loginRouteSchema = v.picklist(["password", "passkey"]);
  * path matches and all its elements show, and run only for an item with the handler's
  * fact. Its steps follow from its kind. `passkey` clicks a button such as "Use security
  * key"; `totp` fills the item's TOTP code into `field` and clicks `target`, its submit
- * button.
+ * button; `password` clicks a button such as "Password" on a page that asks how to
+ * confirm the sign-in, which goes on to typing the password (ADR 0048).
  */
 export const loginHandlerSchema = v.variant("kind", [
   v.strictObject({ kind: v.literal("passkey"), path, target: loginTargetSchema }),
+  v.strictObject({ kind: v.literal("password"), path, target: loginTargetSchema }),
   v.pipe(
     v.strictObject({
       kind: v.literal("totp"),
@@ -214,7 +240,7 @@ export const loginHandlerSchema = v.variant("kind", [
 const handlerKey = (handler: v.InferOutput<typeof loginHandlerSchema>) =>
   `${handler.kind} ${handler.path}`;
 const recipeSlotList = v.pipe(
-  v.array(identifier),
+  v.array(recipeSlotIdSchema),
   v.minLength(1),
   v.maxLength(20),
   v.check(unique, "Duplicate recipe slots"),
@@ -351,7 +377,8 @@ export const loginRecipeSchema = v.pipe(
      */
     accountSwitch: v.optional(loginTargetSchema),
     /**
-     * Second-factor pages learned from judged pages (ADR 0027), one per kind and path.
+     * Second-factor pages learned from judged pages (ADR 0027), and pages that ask how to
+     * confirm the sign-in before the password (ADR 0048), one per kind and path.
      * They are only ever appended, so a running login's entered handlers keep their index.
      */
     handlers: v.optional(
@@ -531,6 +558,44 @@ export const loginRecipeSchema = v.pipe(
       ),
     "The code field is a route step target",
   ),
+  // A `password` handler's button leads to the password a route step types: it is never a
+  // route step's own element on its path (ADR 0048).
+  v.check(
+    (recipe) =>
+      !(recipe.handlers ?? []).some(
+        (handler) =>
+          handler.kind === "password" &&
+          variantsOf(recipe).some((variant) =>
+            variant.steps.some(
+              (step) =>
+                step.path === handler.path &&
+                (step.kind === "fill" ? step.fields.map((field) => field.target) : [step.target])
+                  .map(targetKey)
+                  .includes(targetKey(handler.target)),
+            ),
+          ),
+      ),
+    "A password handler's button is a route step target",
+  ),
+  // A control named by its accessible name is only ever a `password` handler's button
+  // (ADR 0048 amendment of 2026-10-19), never another element the executor presses or
+  // checks.
+  v.check(
+    (recipe) =>
+      ![
+        ...variantsOf(recipe).flatMap((variant) =>
+          variant.steps.flatMap((step) => (step.kind === "fill" ? [] : [step.target])),
+        ),
+        ...(recipe.passkey ? [recipe.passkey.target] : []),
+        ...(recipe.completion ?? []).flatMap((marker) => [marker.target, ...(marker.absent ?? [])]),
+        ...(recipe.rejection ? [recipe.rejection] : []),
+        ...(recipe.accountSwitch ? [recipe.accountSwitch] : []),
+        ...(recipe.handlers ?? []).flatMap((handler) =>
+          handler.kind === "password" ? [] : handlerTargets(handler),
+        ),
+      ].some((target) => target.by === "accessible-name"),
+    "Only a password handler's button is named by its accessible name",
+  ),
   // The passkey route starts on the start page, beside the password route.
   v.check(
     (recipe) => !recipe.passkey || recipe.passkey.path === recipe.steps[0]!.path,
@@ -575,7 +640,8 @@ export const loginRecipeSchema = v.pipe(
  * submission budget or login route members, reads no vault field and never gains steps.
  * Only an `<a href>` link is to be pressed, which a `text` target names by its rendered
  * text as an `accountSwitch` does; its target is an `id`, `name`, `test-id` or `text`
- * locator, never `autocomplete` or `label`.
+ * locator, never `autocomplete` or `label`, which name only inputs, nor `accessible-name`,
+ * which names only a `password` handler's button.
  *
  * The service generates it for an entry request (`entryGenerationRequestSchema`) and
  * stores it; devices cache it, but nothing sends such a request or presses it yet, it
@@ -589,7 +655,7 @@ export const loginEntryRecipeSchema = v.strictObject({
   entry: v.strictObject({
     path,
     // A link or button locator; `autocomplete` and `label` name only inputs, which are never
-    // pressed.
+    // pressed, and `accessible-name` only a `password` handler's button.
     target: v.variant("by", [
       loginAttributeTargetSchema.options[0],
       loginAttributeTargetSchema.options[1],
@@ -597,7 +663,10 @@ export const loginEntryRecipeSchema = v.strictObject({
     ]),
   }),
 });
-/** A list control's locator: never `autocomplete` or `label`, which name only inputs. */
+/**
+ * A list control's locator: never `autocomplete` or `label`, which name only inputs, nor
+ * `accessible-name`, which names only a `password` handler's button.
+ */
 const chooserTargetSchema = v.variant("by", [
   loginAttributeTargetSchema.options[0],
   loginAttributeTargetSchema.options[1],
@@ -675,7 +744,7 @@ export const loginAccountSchema = v.strictObject({
 export const loginAccountBindingSchema = v.strictObject({
   ...loginAccountSchema.entries,
   slots: v.pipe(
-    v.array(v.strictObject({ slot: identifier, fieldId: identifier })),
+    v.array(v.strictObject({ slot: recipeSlotIdSchema, fieldId: identifier })),
     v.maxLength(20),
     v.check((entries) => unique(entries.map((entry) => entry.slot)), "Duplicate binding slots"),
   ),
@@ -737,6 +806,15 @@ export type LoginMarkerTarget = v.InferOutput<typeof loginMarkerTargetSchema>;
 /** Whether a locator may name a step's or a handler's element: any but a link's path. */
 export const isLoginTarget = (target: LoginMarkerTarget): target is LoginTarget =>
   target.by !== "href";
+/**
+ * Whether a locator may name a route step's element, or a handler's other than a
+ * `password` handler's button: neither a link's path (ADR 0029) nor an accessible name
+ * (ADR 0048 amendment of 2026-10-19).
+ */
+export const isStepTarget = (
+  target: LoginMarkerTarget,
+): target is Exclude<LoginTarget, { by: "accessible-name" }> =>
+  target.by !== "href" && target.by !== "accessible-name";
 /** Whether two locators name the same element. */
 export const sameLoginTarget = (left: LoginMarkerTarget, right: LoginMarkerTarget) =>
   left.by === right.by && left.value === right.value;
@@ -813,11 +891,18 @@ export function withChooserBranch(
  * What a login clicks on a chooser's list (ADR 0028): the entry of the chosen account, the
  * `continue` button beside the one shown account, or the `other` button.
  */
-export const chooserClickSchema = v.picklist(["entry", "continue", "other"]);
+export const listClickSchema = v.picklist(["entry", "continue", "other"]);
+export type ListClick = v.InferOutput<typeof listClickSchema>;
+/**
+ * How a chooser login (ADR 0028) entered its branch: by its click on the list, or
+ * `other-shown` when its path already showed the `other` branch's form instead of the
+ * list, as after the person pressed the button for another account, so it clicked nothing.
+ */
+export const chooserClickSchema = v.picklist([...listClickSchema.options, "other-shown"]);
 export type ChooserClick = v.InferOutput<typeof chooserClickSchema>;
-/** The branch a click on the list leads to. */
+/** The branch a click on the list leads to, or the branch already shown. */
 export const chooserClickBranch = (click: ChooserClick): ChooserBranch =>
-  click === "other" ? "other" : "account";
+  click === "other" || click === "other-shown" ? "other" : "account";
 /**
  * The locator a chooser login's click on an account entry carries. It names no element:
  * the content script finds the entry of the account the worker chose, by the rule of ADR
@@ -829,13 +914,27 @@ export const CHOOSER_ENTRY_TARGET = { by: "text", value: "[account]" } as const;
  * `advance` step on the chooser's path, then the steps of the branch it leads to, once
  * generated. It has the chooser's ID, revision and origin, the branch's completion,
  * handlers and account switch, and one submission more than the branch for the click. It
- * always has the `username` slot, which picks the account's entry. `undefined` when the
- * chooser has no button for the click, or the result is no valid recipe.
+ * always has the `username` slot, which picks the account's entry. For `other-shown` it is
+ * the `other` branch alone, without a click, and only once that branch starts on the
+ * chooser's path. `undefined` when the chooser has no button for the click, or the result
+ * is no valid recipe.
  */
 export function chooserRoute(
   recipe: LoginChooserRecipe,
   click: ChooserClick,
 ): LoginRecipe | undefined {
+  if (click === "other-shown") {
+    const shown = recipe.chooser.afterOther;
+    if (!shown || shown.steps[0]!.path !== recipe.chooser.path) return undefined;
+    const { alternatives: _alternatives, passkey: _passkey, ...rest } = shown;
+    const parsed = v.safeParse(loginRecipeSchema, {
+      ...rest,
+      id: recipe.id,
+      revision: recipe.revision,
+      origin: recipe.origin,
+    });
+    return parsed.success ? parsed.output : undefined;
+  }
   const target =
     click === "entry"
       ? CHOOSER_ENTRY_TARGET
@@ -899,10 +998,11 @@ export function passkeyAnswersRequest(recipe: LoginRecipe): boolean {
 /**
  * The one step of a `passkey` route that answers the start page's own request (ADR 0034):
  * it stands for that answer as a submit on the password route's first element, on the
- * start path, and is never sent to the page.
+ * start path, and is never sent to the page. A login that started at a later step answers
+ * on that step's page, so `from` is that step (ADR 0049).
  */
-function requestStep(recipe: LoginRecipe): LoginStep {
-  const first = recipe.steps[0]!;
+function requestStep(recipe: LoginRecipe, from?: LoginStep): LoginStep {
+  const first = from ?? recipe.steps[0]!;
   return {
     kind: "click",
     path: first.path,
@@ -912,11 +1012,16 @@ function requestStep(recipe: LoginRecipe): LoginStep {
 }
 /**
  * The chosen route's steps. The `passkey` route clicks its button, or without one answers
- * the start page's own request (ADR 0034).
+ * the start page's own request (ADR 0034), on the page of `from` when the login started at
+ * that later step (ADR 0049).
  */
-export function routeSteps(recipe: LoginRecipe, choice: LoginRouteChoice): LoginStep[] {
+export function routeSteps(
+  recipe: LoginRecipe,
+  choice: LoginRouteChoice,
+  from?: LoginStep,
+): LoginStep[] {
   if (choice.route === "passkey")
-    return [recipe.passkey ? passkeyStep(recipe.passkey) : requestStep(recipe)];
+    return [recipe.passkey ? passkeyStep(recipe.passkey) : requestStep(recipe, from)];
   return passwordVariants(recipe)[choice.variant]?.steps ?? [];
 }
 /**
@@ -990,6 +1095,25 @@ export function recipeStartSteps(recipe: LoginRecipe): LoginStep[] {
     ...(recipe.passkey ? [passkeyStep(recipe.passkey)] : []),
     ...passwordVariants(recipe).map((variant) => variant.steps[0]!),
   ];
+}
+/**
+ * The later steps a new login may start at when none of the recipe's first steps shows
+ * (ADR 0049): each `password` variant's `fill` steps after its first, other than one that
+ * fills only a TOTP code, which a running login's handler or route step answers. `index`
+ * is the step's position in its variant.
+ */
+export function laterStartSteps(
+  recipe: LoginRecipe,
+): { variant: number; index: number; step: Extract<LoginStep, { kind: "fill" }> }[] {
+  return passwordVariants(recipe).flatMap((variant, variantIndex) =>
+    variant.steps.flatMap((step, index) =>
+      index > 0 &&
+      step.kind === "fill" &&
+      step.fields.some((field) => field.slot !== TOTP_HANDLER_SLOT)
+        ? [{ variant: variantIndex, index, step }]
+        : [],
+    ),
+  );
 }
 /**
  * Whether the recipe offers the route; every recipe has the `password` route, since a
@@ -1076,17 +1200,18 @@ export function passwordStopOrMiss(
 /** The slot a `totp` handler's fill uses; a binding for it reads the item's TOTP field. */
 export const TOTP_HANDLER_SLOT = "totp";
 /**
- * The steps a handler runs: a `passkey` handler's click, or a `totp` handler's fill of the
- * code into its field followed by the click on its submit button.
+ * The steps a handler runs: a `passkey` handler's click, a `password` handler's click that
+ * advances to the password page (ADR 0048), or a `totp` handler's fill of the code into
+ * its field followed by the click on its submit button.
  */
 export function handlerSteps(handler: LoginHandler): LoginStep[] {
   const click: LoginStep = {
     kind: "click",
     path: handler.path,
     target: handler.target,
-    purpose: "submit",
+    purpose: handler.kind === "password" ? "advance" : "submit",
   };
-  if (handler.kind === "passkey") return [click];
+  if (handler.kind !== "totp") return [click];
   return [
     {
       kind: "fill",
@@ -1114,10 +1239,11 @@ export const loginItemFactsSchema = v.strictObject({
 });
 export type LoginItemFacts = v.InferOutput<typeof loginItemFactsSchema>;
 /** The fact each handler kind requires. */
-export const handlerFact = { passkey: "passkey", totp: "totp" } as const satisfies Record<
-  LoginHandler["kind"],
-  keyof LoginItemFacts
->;
+export const handlerFact = {
+  passkey: "passkey",
+  password: "password",
+  totp: "totp",
+} as const satisfies Record<LoginHandler["kind"], keyof LoginItemFacts>;
 /** The field a fill of `fieldId` reads: a Linked field's built-in source, or the field itself. */
 export function loginFieldSource(item: Pick<VaultItemMetadata, "fields">, fieldId: string): string {
   const field = item.fields.find((entry) => entry.id === fieldId);

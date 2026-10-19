@@ -60,8 +60,11 @@ export async function startLoginFixture(
     const requestedRunId = fixtureUrl.searchParams.get("runId");
     const issuedRunId =
       requestedRunId !== null && runs.has(requestedRunId) ? requestedRunId : undefined;
-    if (path.startsWith("/effect/") && request.method === "POST") {
-      const run = runs.get(path.slice("/effect/".length));
+    // `/sign-in-submit` is the `?button=script-url` sign-in form's own POST, which answers
+    // with a redirect to the account page instead of JSON.
+    const formPost = path === "/sign-in-submit";
+    if ((path.startsWith("/effect/") || formPost) && request.method === "POST") {
+      const run = runs.get(formPost ? (requestedRunId ?? "") : path.slice("/effect/".length));
       if (!run) {
         response.writeHead(404).end();
         return;
@@ -87,6 +90,18 @@ export async function startLoginFixture(
         // Retain counts and matched flags only, never submitted synthetic values.
         body = "";
         const finish = () => {
+          if (formPost) {
+            response.writeHead(303, {
+              // Only fixed locations, never the query's own value.
+              location:
+                fixtureUrl.searchParams.get("marker") === "link"
+                  ? "/account?marker=link"
+                  : "/account",
+              "cache-control": "no-store",
+            });
+            response.end();
+            return;
+          }
           response.writeHead(200, {
             "content-type": "application/json",
             "cache-control": "no-store",
@@ -255,6 +270,109 @@ export async function startLoginFixture(
           sessionStorage.setItem('submitClicks', String(Number(sessionStorage.getItem('submitClicks') || 0) + 1));
           sessionStorage.setItem('passwordMatched', String(document.getElementById('password').value === ${JSON.stringify(password)}));
           location.href = ${toAccount ? "'/account'" : "'/authenticated'"};
+        });`,
+        ),
+      );
+    } else if (path === "/identifier-swap") {
+      // An identifier-first form that swaps its views in one document on one path (ADR
+      // 0013), as some identity providers do: the form fades in, and the email view keeps
+      // the password input for the browser to fill, transparent, small, fixed to a corner,
+      // hidden from assistive technology and out of the tab order. Its one button reads
+      // "Next"; half a second after it is pressed, as after a lookup request, the email
+      // input loses its id and becomes such a hidden input in turn, the password input
+      // shows as its view slides and fades in, and the same button, keeping its id, reads
+      // "Sign in". Pressing it then signs in to /authenticated. The query is never read.
+      response.end(
+        html(
+          `<style>.kept{position:fixed;right:24px;bottom:24px;width:10px;height:13px;opacity:0}</style><div id="box"><h1 id="title">Sign in</h1><form id="sign-in-form" novalidate><div id="view"><label id="account-label">Account<input id="account" name="account" autocomplete="username"></label><input id="password" name="password" type="password" class="kept" tabindex="-1" aria-hidden="true" autocomplete="off"></div><input id="next" type="submit" value="Next"></form></div>`,
+          `const box = document.getElementById('box');
+        const view = document.getElementById('view');
+        const account = document.getElementById('account');
+        const password = document.getElementById('password');
+        const button = document.getElementById('next');
+        box.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 600, easing: 'ease-out' });
+        let stage = 'account';
+        document.getElementById('sign-in-form').addEventListener('submit', (event) => {
+          event.preventDefault();
+          if (stage === 'account') {
+            stage = 'lookup';
+            sessionStorage.setItem('identityClicks', String(Number(sessionStorage.getItem('identityClicks') || 0) + 1));
+            sessionStorage.setItem('identityMatched', String(account.value === '00001234'));
+            updateFixtureStatus();
+            setTimeout(() => {
+              account.removeAttribute('id');
+              account.className = 'kept';
+              account.tabIndex = -1;
+              account.setAttribute('aria-hidden', 'true');
+              document.getElementById('account-label').before(account);
+              document.getElementById('account-label').remove();
+              const label = document.createElement('label');
+              label.append('Password');
+              view.append(label);
+              password.removeAttribute('class');
+              password.removeAttribute('tabindex');
+              password.removeAttribute('aria-hidden');
+              password.setAttribute('autocomplete', 'current-password');
+              label.append(password);
+              document.getElementById('title').textContent = 'Enter password';
+              button.value = 'Sign in';
+              view.animate(
+                [{ opacity: 0, transform: 'translateY(34px)' }, { opacity: 1, transform: 'none' }],
+                { duration: 500, easing: 'ease-out' },
+              );
+              stage = 'password';
+            }, 500);
+          } else if (stage === 'password') {
+            sessionStorage.setItem('submitClicks', String(Number(sessionStorage.getItem('submitClicks') || 0) + 1));
+            sessionStorage.setItem('passwordMatched', String(password.value === ${JSON.stringify(password)}));
+            location.href = '/authenticated';
+          } else {
+            sessionStorage.setItem('lookupClicks', String(Number(sessionStorage.getItem('lookupClicks') || 0) + 1));
+          }
+        });`,
+        ),
+      );
+    } else if (path === "/method-choice" || path === "/method-choice-named") {
+      // An identifier-first form whose Next asks how to confirm the sign-in (ADR 0048), in
+      // the same document on the same path: "Password" shows the password form, "Mobile"
+      // and Cancel do nothing here. `?skip` shows the password form right after Next, as a
+      // site that skips the choice; `?forgot` labels the button "Forgot password?"; `?dead`
+      // makes the button do nothing. Only those known flags are read, and the query is
+      // never written into the page. `/method-choice-named` shows the choice as row
+      // headings, each followed by a link to `#` that reads "Select", told apart only by its
+      // accessible name, with no id, name, test ID, `onclick` or role, whose click the page's
+      // script handles (ADR 0048 amendment of 2026-10-19).
+      const skip = fixtureUrl.searchParams.has("skip");
+      const forgot = fixtureUrl.searchParams.has("forgot");
+      const dead = fixtureUrl.searchParams.has("dead");
+      const named = path === "/method-choice-named";
+      const choices = named
+        ? `<div><h3>Password</h3><a href="#" class="factor" aria-label="Select Password.">Select</a></div><div><h3>Mobile</h3><a href="#" class="factor" aria-label="Select Phone - +00 0•• ••• 000">Select</a></div>`
+        : `<button id="choose-password" type="button">${forgot ? "Forgot password?" : "Password"}</button><button id="mobile" type="button">Mobile</button>`;
+      const [choosePassword, chooseMobile] = named
+        ? ["document.querySelectorAll('.factor')[0]", "document.querySelectorAll('.factor')[1]"]
+        : ["document.getElementById('choose-password')", "document.getElementById('mobile')"];
+      response.end(
+        html(
+          `<h1>Synthetic sign-in with a choice of how to verify</h1><form id="account-form"><label>Account<input id="account" autocomplete="username"></label><button id="next" type="button">Next</button></form><section id="choice" hidden><h2>Let's confirm it's you</h2>${choices}<a id="cancel" href="#">Cancel</a></section><form id="password-form" hidden><label>Password<input id="password" type="password" autocomplete="current-password"></label><button id="login" type="button">Log in</button></form>`,
+          `const count = (key) => sessionStorage.setItem(key, String(Number(sessionStorage.getItem(key) || 0) + 1));
+        document.getElementById('next').addEventListener('click', () => {
+          count('identityClicks');
+          sessionStorage.setItem('identityMatched', String(document.getElementById('account').value === "00001234"));
+          document.getElementById('account-form').hidden = true;
+          setTimeout(() => { document.getElementById(${JSON.stringify(skip ? "password-form" : "choice")}).hidden = false; }, 300);
+          updateFixtureStatus();
+        });
+        ${choosePassword}.addEventListener('click', (event) => {
+          event.preventDefault();
+          count('chooseClicks');
+          ${dead ? "" : "document.getElementById('choice').hidden = true; setTimeout(() => { document.getElementById('password-form').hidden = false; }, 300);"}
+        });
+        ${chooseMobile}.addEventListener('click', (event) => { event.preventDefault(); count('mobileClicks'); });
+        document.getElementById('login').addEventListener('click', () => {
+          count('submitClicks');
+          sessionStorage.setItem('passwordMatched', String(document.getElementById('password').value === ${JSON.stringify(password)}));
+          location.href = '/authenticated';
         });`,
         ),
       );
@@ -453,9 +571,9 @@ export async function startLoginFixture(
       );
     } else if (path === "/password") {
       // `?slow=1` renders the form four seconds after load, past the old three-second budget.
+      // `?email=1` also asks for an email, as a form for another account does (ADR 0049).
       const slow = fixtureUrl.searchParams.has("slow");
-      const form =
-        '<label>Password<input id="password" type="password"></label><button id="login" type="button">Log in</button>';
+      const form = `${fixtureUrl.searchParams.has("email") ? '<label>Email<input id="other-email" type="email"></label>' : ""}<label>Password<input id="password" type="password"></label><button id="login" type="button">Log in</button>`;
       response.end(
         html(
           slow
@@ -483,6 +601,29 @@ export async function startLoginFixture(
       const masked = /^[A-Za-z0-9@.*]+$/u;
       // `?maxlength` limits the password input, such as below the synthetic password.
       const maxLength = fixtureUrl.searchParams.get("maxlength");
+      // `?form` puts the login in a form: `same-origin` posts to this page with its submit
+      // button, `script` does the same in a form whose action is a `javascript:` URL,
+      // `off-origin` holds the password in a form posting to another origin, and
+      // `submit-off-origin` leaves the password outside while the submit button's
+      // `formaction` names another origin. Nothing submits: the page keeps every form, and
+      // the `script` form's `javascript:` action does nothing.
+      const form = fixtureUrl.searchParams.get("form");
+      // Another site: another port of 127.0.0.1 is the same site, which the login's item
+      // could allow (ADR 0051).
+      const elsewhere = "http://localhost:1/collect";
+      const formStart =
+        {
+          "same-origin": '<form action="/single">',
+          script: '<form action="javascript:void(0)">',
+          "off-origin": `<form action="${elsewhere}">`,
+        }[form ?? ""] ?? "";
+      const loginButton =
+        {
+          "same-origin": '<button id="login">Log in</button></form>',
+          script: '<button id="login">Log in</button></form>',
+          "off-origin": '<button id="login" type="button">Log in</button></form>',
+          "submit-off-origin": `<form action="/single"><button id="login" formaction="${elsewhere}">Log in</button></form>`,
+        }[form ?? ""] ?? '<button id="login" type="button">Log in</button>';
       response.end(
         html(
           `<h1>Synthetic single-page login</h1>${
@@ -500,7 +641,7 @@ export async function startLoginFixture(
             fixtureUrl.searchParams.get("reject-fill") === "shown"
               ? '<div id="notice"><p role="alert">Your session expired</p></div>'
               : ""
-          }<label>Password<input id="password" ${
+          }${formStart}<label>Password<input id="password" ${
             {
               text: 'type="text"',
               "text-current-password": 'type="text" autocomplete="current-password"',
@@ -512,7 +653,7 @@ export async function startLoginFixture(
             fixtureUrl.searchParams.get("reject-fill") === "switch-form"
               ? '<label>Security number<input id="security" type="password" hidden></label>'
               : ""
-          }<button id="login" type="button">Log in</button>${
+          }${loginButton}${
             // `?ad` embeds an unrelated frame beside the form, like an advertisement.
             fixtureUrl.searchParams.has("ad")
               ? '<iframe id="ad" title="Synthetic advertisement" src="/ad"></iframe>'
@@ -542,6 +683,7 @@ export async function startLoginFixture(
                 "document.getElementById('password').addEventListener('change', (event) => { event.target.value = ''; document.getElementById('security').hidden = false; });",
             }[fixtureUrl.searchParams.get("reject-fill") ?? ""] ?? ""
           }
+          ${form === null || form === "script" ? "" : "document.getElementById('login').form?.addEventListener('submit', (event) => event.preventDefault());"}
           document.getElementById('login').addEventListener('click', () => {
           sessionStorage.setItem('submitClicks', String(Number(sessionStorage.getItem('submitClicks') || 0) + 1));
           sessionStorage.setItem('passwordMatched', String(document.getElementById('password').value === ${JSON.stringify(password)}));
@@ -666,7 +808,10 @@ export async function startLoginFixture(
       // A page with no recipe: a generated one fills the password and opens /account. The
       // page reads its run ID itself, so nothing from the request URL is written into it.
       // `?button=anchor` makes the login button a link without href, as MyJCB's passkey
-      // button; `?button=script-link` a `javascript:` link without an id, as SMBC Direct's.
+      // button; `?button=script-link` a `javascript:` link without an id, as SMBC Direct's;
+      // `?button=script-url` a link whose `javascript:` URL alone copies the shown password
+      // into a hidden input and submits the form, as SMBC Trust Bank's, so only the hidden
+      // input reaches the server.
       // `?marker=link` makes /account show an account link without an id instead of a
       // sign-out button, as ポイントインカム's header.
       const variant = fixtureUrl.searchParams.get("button");
@@ -677,11 +822,24 @@ export async function startLoginFixture(
           ? '<a id="login" onclick="return false">Log in</a>'
           : variant === "script-link"
             ? '<a href="javascript:;" onclick="return false"><span>Log in</span></a>'
-            : '<button id="login" type="button">Log in</button>';
+            : variant === "script-url"
+              ? '<input type="hidden" name="source" value="click"><input type="hidden" name="password"><a href="javascript:copyAndSubmit()"><span>Log in</span></a>'
+              : '<button id="login" type="button">Log in</button>';
       response.end(
         html(
-          `<h1>Synthetic sign-in</h1><form><label>Password<input id="password" type="password"></label>${button}</form>`,
-          `document.querySelector('#login, form a').addEventListener('click', () => {
+          `<h1>Synthetic sign-in</h1><form${variant === "script-url" ? ' method="post"' : ""}><label>Password<input id="password" type="password"></label>${button}</form>`,
+          variant === "script-url"
+            ? `function copyAndSubmit() {
+          const form = document.querySelector('form');
+          const shown = document.getElementById('password').value;
+          form.querySelector('input[type=hidden][name=password]').value = shown;
+          sessionStorage.setItem('submitClicks', String(Number(sessionStorage.getItem('submitClicks') || 0) + 1));
+          sessionStorage.setItem('passwordMatched', String(shown === ${JSON.stringify(password)}));
+          const query = new URLSearchParams(location.search);
+          form.action = '/sign-in-submit?' + new URLSearchParams({runId: query.get('runId') || '', marker: query.get('marker') || ''});
+          form.submit();
+        }`
+            : `document.querySelector('#login, form a').addEventListener('click', () => {
           sessionStorage.setItem('submitClicks', String(Number(sessionStorage.getItem('submitClicks') || 0) + 1));
           sessionStorage.setItem('passwordMatched', String(document.getElementById('password').value === ${JSON.stringify(password)}));
           const runId = new URLSearchParams(location.search).get('runId');

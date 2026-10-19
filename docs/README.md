@@ -16,14 +16,15 @@ from a synced cache ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)).
 
 ## Reading order and ownership
 
-| Document                                       | Owns                                                            | Update rule                                                        |
-| ---------------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------ |
-| [Architecture](architecture.md)                | Product scope, proposed runtime boundaries and contracts        | Update with changes; identify unimplemented behavior               |
-| [Implementation plan](plan.md)                 | Ordered work, acceptance gates and open decisions               | Track milestone evidence here; no second roadmap                   |
-| [Development](development.md)                  | Proposed toolchain and dependency policy                        | Replace proposals with verified commands when bootstrapped         |
-| [CI and server delivery](delivery.md)          | Required checks, repository settings and server release process | Update with executable workflows                                   |
-| [ADRs](adr/0001-local-login-boundary.md)       | Decision rationale and alternatives                             | Amend explicitly or supersede; preserve history                    |
-| [Research](research/2026-10-10-feasibility.md) | Dated observations and primary sources                          | Append new evidence or supersede; never imply current verification |
+| Document                                               | Owns                                                                     | Update rule                                                        |
+| ------------------------------------------------------ | ------------------------------------------------------------------------ | ------------------------------------------------------------------ |
+| [Architecture](architecture.md)                        | Product scope, proposed runtime boundaries and contracts                 | Update with changes; identify unimplemented behavior               |
+| [Implementation plan](plan.md)                         | Ordered work, acceptance gates and open decisions                        | Track milestone evidence here; no second roadmap                   |
+| [Development](development.md)                          | Proposed toolchain and dependency policy                                 | Replace proposals with verified commands when bootstrapped         |
+| [CI and server delivery](delivery.md)                  | Required checks, repository settings and server release process          | Update with executable workflows                                   |
+| [Differences from Bitwarden](bitwarden-differences.md) | Deliberate differences from the official Bitwarden clients, with sources | Add an entry in the PR that introduces a difference                |
+| [ADRs](adr/0001-local-login-boundary.md)               | Decision rationale and alternatives                                      | Amend explicitly or supersede; preserve history                    |
+| [Research](research/2026-10-10-feasibility.md)         | Dated observations and primary sources                                   | Append new evidence or supersede; never imply current verification |
 
 The initial ADRs were accepted by merging PR #1.
 Acceptance does not mean implementation. A later replacement links the old and
@@ -42,6 +43,9 @@ Use synthetic examples; never commit credentials, real account identifiers,
 private page captures, or raw model requests. Reviewed observations derived from real
 pages, with synthetic slot hints, may be committed as evaluation data
 ([ADR 0012](adr/0012-inference-request-log.md)).
+
+The [operations and recovery runbook](operations.md) covers current diagnostics,
+release retry, reviewed reverts and the unverified database-restore boundary.
 
 ## Decision records
 
@@ -91,6 +95,13 @@ another also updates the other's `Status:`. Number a new ADR after the highest o
 - [0036: Items without a password go on to a passkey after the identifier](adr/0036-passkey-after-the-identifier.md)
 - [0037: Fields located by their visible name](adr/0037-fields-by-visible-name.md)
 - [0038: The toolbar badge and popup show what a login did](adr/0038-login-status-badge.md)
+- [0039: Token-like path segments are sent as `[id]` on every page](adr/0039-redacted-token-path-segments.md)
+- [0048: A learned button goes on to the password on a page that asks how to verify](adr/0048-password-method-button.md)
+- [0049: A login may start at a later step its page shows](adr/0049-start-at-a-later-step.md)
+- [0050: Plain HTTP pages log in with items saved for `http://`](adr/0050-http-pages-for-http-items.md)
+- [0051: A form may submit to another host of the site its item matches](adr/0051-form-destinations-by-item-uri-match.md)
+- [0055: Every login's result and times are sent to the service](adr/0055-login-records-sent-to-the-service.md)
+- [0056: Regex URIs run in a nested Worker with a 5-second limit](adr/0056-regex-uris-in-a-nested-worker.md)
 
 This layout follows the useful separation in
 [Kogane ADR 0041](https://github.com/risu729/kogane/blob/main/docs/adr/0041-documentation-scope.md),

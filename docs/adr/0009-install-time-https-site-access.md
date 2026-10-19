@@ -14,7 +14,16 @@ script runs in every HTTPS frame, and a frame is admitted only when the tab's pa
 admitted too. Amended on 2026-10-13 by ADR 0021's
 [site count badge](0021-account-choice-outside-settings.md#site-count-badge) (not
 implemented): a tab's origin is matched against the open vault locally for the count
-even without a recipe.
+even without a recipe. Amended on 2026-10-17 by the agent (implementing the owner's
+2026-10-11 decision that script links are clicked as buttons): the same access also
+carries `login-main.js`, a MAIN-world document-start script in every HTTPS page and
+frame that clicks a `javascript:` link the login script names, so Chrome runs its URL
+under the page's own policy ([architecture](../architecture.md)). It needs no
+permission of its own and receives no values. Amended on 2026-10-18 by
+[ADR 0050](0050-http-pages-for-http-items.md): `http://*/*` is declared too, the login
+scripts run on plain HTTP pages, and an `http:` page matches only items saved with an
+`http://` URI. Amended on 2026-10-19 by ADR 0050: the passkey bridge also runs on
+top-level `http://localhost` documents, as Bitwarden's does.
 
 Date: 2026-10-10
 

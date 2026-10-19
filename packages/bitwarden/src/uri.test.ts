@@ -10,6 +10,8 @@ import {
   createBitwardenUriMatchContext,
   createBitwardenUriMatcher,
   matchBitwardenLoginUris,
+  maxTargetUrlLength,
+  type BitwardenUriMatchContext,
 } from "./uri";
 import { createLocalCryptoSession } from "./local-crypto";
 import { uriMatchCases } from "./__fixtures__/uri";
@@ -223,12 +225,12 @@ describe("retained account URI context", () => {
     );
   });
 
-  it("marks groups unavailable when IDNA normalization exceeds the retained bound", () => {
+  it("ignores an entry whose IDNA normalization exceeds the retained bound", () => {
     // Distinct CJK code points: about 240 raw characters become several hundred ASCII ones.
     const long = `${Array.from({ length: 240 }, (_, i) => String.fromCodePoint(0x4e00 + i * 37)).join("")}.jp`;
     expect(long.length).toBeLessThanOrEqual(253);
     expect(createBitwardenUriMatchContext(userDomains([["example.com", long]]), 2)).toEqual({
-      equivalentDomains: "unavailable",
+      equivalentDomains: [["example.com"]],
       defaultMatch: 2,
     });
   });
@@ -270,9 +272,13 @@ describe("retained account URI context", () => {
   });
 
   it.each([
-    { equivalentDomains: [["https://example.com"]], globalEquivalentDomains: null },
+    { equivalentDomains: ["example.com"], globalEquivalentDomains: null },
+    { equivalentDomains: [[123]], globalEquivalentDomains: null },
+    { equivalentDomains: null, globalEquivalentDomains: [{ type: 1, domains: "example.com" }] },
     { equivalentDomains: "secret" },
     [],
+    userDomains(Array.from({ length: 1001 }, () => ["example.com", "example.net"])),
+    userDomains([Array.from({ length: 10_001 }, () => "example.com")]),
   ])("marks malformed sync domains unavailable instead of guessing case %#", (domains) => {
     const context = createBitwardenUriMatchContext(domains, 0);
     expect(context).toEqual({ equivalentDomains: "unavailable", defaultMatch: 0 });
@@ -294,6 +300,77 @@ describe("retained account URI context", () => {
         unavailableUris: [{ uriIndex: 0, reason: "equivalent-domains-unavailable" }],
       },
     });
+  });
+
+  // Pinned clients compare each group entry as a raw string with the tldts domain, so an
+  // entry that is not a hostname never matches and the rest of the groups still apply.
+  it.each([
+    "https://example.net",
+    "example.com:8080",
+    "a.com b.com",
+    "foo..com",
+    "user@example.net",
+    "example.net/login",
+    "",
+    `${"x".repeat(254)}.com`,
+    // 247 characters raw, 271 after IDNA.
+    `${Array.from({ length: 4 }, () => "ä".repeat(60)).join(".")}.com`,
+  ])("keeps the groups available when an entry %s is not a hostname", (entry) => {
+    const context = createBitwardenUriMatchContext(
+      {
+        equivalentDomains: [["example.com", "example.org", entry]],
+        globalEquivalentDomains: [
+          { type: 1, domains: ["example.com", "example.edu", entry], excluded: false },
+        ],
+      },
+      0,
+    );
+    expect(context.equivalentDomains).not.toBe("unavailable");
+    expect(admitBitwardenUriMatchContext(context)).toEqual(context);
+    for (const uri of ["https://example.com", "https://example.org", "https://example.edu"])
+      expect(matchBitwardenLoginUris(saved(uri), target, { context })).toEqual({
+        ok: true,
+        data: {
+          matched: true,
+          targetOrigin: "https://example.com",
+          matches: [{ uriIndex: 0, match: 0 }],
+          unavailableUris: [],
+        },
+      });
+  });
+
+  it("does not turn a URL entry into its hostname", () => {
+    const context = createBitwardenUriMatchContext(
+      {
+        equivalentDomains: [["example.com", "https://example.net"]],
+        globalEquivalentDomains: null,
+      },
+      0,
+    );
+    expect(context.equivalentDomains).not.toBe("unavailable");
+    expect(
+      matchBitwardenLoginUris(saved("https://example.com"), "https://example.com/", { context }),
+    ).toEqual({
+      ok: true,
+      data: {
+        matched: true,
+        targetOrigin: "https://example.com",
+        matches: [{ uriIndex: 0, match: 0 }],
+        unavailableUris: [],
+      },
+    });
+    // The group containing only the URL form of the target does not apply to it.
+    const urlOnly = createBitwardenUriMatchContext(
+      userDomains([["https://example.com", "example.net"]]),
+      0,
+    );
+    expect(urlOnly.equivalentDomains).not.toBe("unavailable");
+    expect(
+      matchBitwardenLoginUris(saved("https://example.net"), target, { context: urlOnly }),
+    ).toEqual(emptyResult());
+    expect(
+      matchBitwardenLoginUris(saved("https://example.com"), target, { context: urlOnly }),
+    ).toMatchObject({ ok: true, data: { matched: true, unavailableUris: [] } });
   });
 
   it("uses the retained default and never falls back from an unavailable one", () => {
@@ -420,19 +497,33 @@ describe("strict destination and unsupported rule admission", () => {
     },
   );
 
-  it.each(["foo..com", "foo.com..", ".example.com", "foo..com."])(
-    "rejects malformed equivalent-group hostname %s without returning candidates",
-    (hostname) => {
-      expect(
-        matchBitwardenLoginUris(saved(), target, {
-          domains: userDomains([["example.com", hostname]]),
-        }),
-      ).toEqual({
-        ok: false,
-        error: { code: "invalid-options" },
+  it.each([
+    "foo..com",
+    "foo.com..",
+    ".example.com",
+    "foo..com.",
+    "https://example.org",
+    "example.com:8080",
+    "a.com b.com",
+    "",
+    `${"x".repeat(254)}.com`,
+    `${Array.from({ length: 4 }, () => "ä".repeat(60)).join(".")}.com`,
+  ])("ignores malformed equivalent-group entry %s and keeps the rest of its group", (entry) => {
+    const domains = userDomains([["example.com", "example.net", entry]]);
+    for (const uri of ["https://example.com", "https://example.net"])
+      expect(matchBitwardenLoginUris(saved(uri), target, { domains })).toEqual({
+        ok: true,
+        data: {
+          matched: true,
+          targetOrigin: "https://example.com",
+          matches: [{ uriIndex: 0, match: 0 }],
+          unavailableUris: [],
+        },
       });
-    },
-  );
+    expect(matchBitwardenLoginUris(saved("https://example.org"), target, { domains })).toEqual(
+      emptyResult(),
+    );
+  });
 
   it.each([
     "example.com",
@@ -456,12 +547,137 @@ describe("strict destination and unsupported rule admission", () => {
     });
   });
 
+  // The URL parser keeps a backslash in the query and fragment, so tab URLs can hold one.
+  it.each(["https://example.com/?q=a\\b", "https://example.com/#/x\\y"])(
+    "matches a target with a backslash in its query or fragment, %s",
+    (targetUrl) => {
+      expect(new URL(targetUrl).href).toBe(targetUrl);
+      const uris = [
+        { uri: "https://example.com", match: 0 },
+        { uri: "https://example.com", match: 1 },
+        { uri: "https://example.com/", match: 2 },
+        { uri: targetUrl, match: 3 },
+        { uri: targetUrl.slice(0, -1), match: 2 },
+      ];
+      const expected = {
+        ok: true,
+        data: {
+          matched: true,
+          targetOrigin: "https://example.com",
+          matches: uris.map(({ match }, uriIndex) => ({ uriIndex, match })),
+          unavailableUris: [],
+        },
+      };
+      expect(matchBitwardenLoginUris(uris, targetUrl)).toEqual(expected);
+      const matcher = createBitwardenUriMatcher(targetUrl, {
+        equivalentDomains: [],
+        defaultMatch: 0,
+      });
+      expect(matcher.ok && matcher.data.evaluate(uris)).toEqual(expected);
+    },
+  );
+
+  // The pinned client compares Exact and StartsWith as raw strings and accepts these.
+  it.each([
+    { match: 0, uri: "https://example.com/?q=a\\b", target },
+    { match: 1, uri: "https://example.com/#a\\b", target },
+    { match: 2, uri: "https://example.com/?q=a\\", target: "https://example.com/?q=a\\b" },
+    { match: 3, uri: "https://example.com/?q=a\\b", target: "https://example.com/?q=a\\b" },
+    { match: 3, uri: "https://example.com/#a\\b", target: "https://example.com/#a\\b" },
+  ])(
+    "matches saved URI $uri (mode $match) with a backslash only in its query or fragment",
+    ({ uri, match, target: targetUrl }) => {
+      expect(matchBitwardenLoginUris([{ uri, match }], targetUrl)).toEqual({
+        ok: true,
+        data: {
+          matched: true,
+          targetOrigin: "https://example.com",
+          matches: [{ uriIndex: 0, match }],
+          unavailableUris: [],
+        },
+      });
+    },
+  );
+
+  it.each([
+    "https://example.com\\@evil.test/?q=a\\b",
+    "https://example.com\\@evil.test/#a\\b",
+    "https://example.com/a\\b#a\\b",
+  ])("still rejects a backslash in the target authority or path, %s", (targetUrl) => {
+    expect(matchBitwardenLoginUris(saved(), targetUrl)).toEqual({
+      ok: false,
+      error: { code: "invalid-uri-input" },
+    });
+    expect(
+      createBitwardenUriMatcher(targetUrl, { equivalentDomains: [], defaultMatch: 0 }),
+    ).toEqual({ ok: false, error: { code: "invalid-uri-input" } });
+  });
+
+  // The pinned client reads these with WHATWG URL (Host) and tldts (Domain), which agree.
+  it.each([
+    "https://example.com\\@evil.test",
+    "https://example.com\\@evil.test/?q=a\\b",
+    "https://example.com/a\\b/?q=a\\b",
+    "https://example.com\\evil.test",
+    "example.com/a\\b",
+    "example.com/\\@evil.test",
+  ])("matches saved URI %s with a backslash before its query as the pinned client", (uri) => {
+    expect(
+      matchBitwardenLoginUris(
+        [0, 1, 2, 3].map((match) => ({ uri, match })),
+        target,
+      ),
+    ).toEqual({
+      ok: true,
+      data: {
+        matched: true,
+        targetOrigin: "https://example.com",
+        matches: [
+          { uriIndex: 0, match: 0 },
+          { uriIndex: 1, match: 1 },
+        ],
+        unavailableUris: [],
+      },
+    });
+  });
+
+  it("keeps a saved URI's backslash after the query out of its host", () => {
+    expect(matchBitwardenLoginUris(saved("https://evil.test?\\@example.com", 1), target)).toEqual({
+      ok: true,
+      data: {
+        matched: false,
+        targetOrigin: "https://example.com",
+        matches: [],
+        unavailableUris: [],
+      },
+    });
+    expect(
+      matchBitwardenLoginUris(saved("example.com/?q=a\\b", 1), "https://example.com/?q=a\\b"),
+    ).toMatchObject({ ok: true, data: { matches: [{ uriIndex: 0, match: 1 }] } });
+  });
+
+  it("reads a target's backslash after the query as part of the query", () => {
+    expect(
+      matchBitwardenLoginUris(saved("https://evil.test", 1), "https://evil.test?\\@example.com"),
+    ).toEqual({
+      ok: true,
+      data: {
+        matched: true,
+        targetOrigin: "https://evil.test",
+        matches: [{ uriIndex: 0, match: 1 }],
+        unavailableUris: [],
+      },
+    });
+  });
+
   it.each([
     { uri: "https://example.com/\n", reason: "invalid-uri" },
     { uri: "https://exa\tmple.com/", reason: "invalid-uri" },
     { uri: "https://user:secret@example.com/", reason: "invalid-uri" },
     { uri: "https://@example.com/", reason: "invalid-uri" },
-    { uri: "https://example.com\\@evil.test", reason: "invalid-uri" },
+    { uri: "example.com\\@evil.test", reason: "invalid-uri" },
+    { uri: "example.com\\@evil.test?q=a\\b", reason: "invalid-uri" },
+    { uri: "https:/\\evil.test", reason: "invalid-uri" },
     { uri: "https://example.com:99999", reason: "invalid-uri" },
     { uri: "androidapp://com.synthetic.app", reason: "unsupported-uri-scheme" },
     { uri: "file:///synthetic", reason: "unsupported-uri-scheme" },
@@ -487,7 +703,7 @@ describe("strict destination and unsupported rule admission", () => {
   });
 
   it.each(["^https://example\\.com/", "(a+)+$", "[invalid"])(
-    "reports regex case %# unsupported without interpreting it",
+    "reports regex case %# unevaluated without interpreting it when no answer is given",
     (uri) => {
       expect(matchBitwardenLoginUris([{ uri, match: 4 }], target)).toEqual({
         ok: true,
@@ -495,7 +711,7 @@ describe("strict destination and unsupported rule admission", () => {
           matched: false,
           targetOrigin: "https://example.com",
           matches: [],
-          unavailableUris: [{ uriIndex: 0, reason: "unsupported-uri-match" }],
+          unavailableUris: [{ uriIndex: 0, reason: "regex-unevaluated" }],
         },
       });
     },
@@ -515,7 +731,7 @@ describe("strict destination and unsupported rule admission", () => {
       data: {
         matched: true,
         matches: [{ uriIndex: 1, match: 3 }],
-        unavailableUris: [{ uriIndex: 0, reason: "unsupported-uri-match" }],
+        unavailableUris: [{ uriIndex: 0, reason: "regex-unevaluated" }],
       },
     });
   });
@@ -543,7 +759,10 @@ describe("strict destination and unsupported rule admission", () => {
     { overrideNeverMatchStrategy: true },
     { domains: [] },
     { domains: { equivalentDomains: "secret" } },
-    { domains: { equivalentDomains: [["https://example.com"]] } },
+    // Missing globalEquivalentDomains key.
+    { domains: { equivalentDomains: [["example.com"]] } },
+    { domains: { equivalentDomains: ["example.com"], globalEquivalentDomains: null } },
+    { domains: { equivalentDomains: [["example.com", 1]], globalEquivalentDomains: null } },
     {
       domains: {
         globalEquivalentDomains: [{ type: 1, domains: ["example.com"], excluded: "false" }],
@@ -568,8 +787,24 @@ describe("strict destination and unsupported rule admission", () => {
     }
   });
 
-  it("rejects an oversized actual target before returning a canonical origin", () => {
-    expect(matchBitwardenLoginUris(saved(), `https://example.com/${"x".repeat(8192)}`)).toEqual({
+  it("matches a page URL longer than a saved URI may be, as Bitwarden clients do", () => {
+    const long = `https://example.com/${"x".repeat(8192)}`;
+    expect(matchBitwardenLoginUris([{ uri: "https://example.com/", match: 2 }], long)).toEqual({
+      ok: true,
+      data: {
+        matched: true,
+        targetOrigin: "https://example.com",
+        matches: [{ uriIndex: 0, match: 2 }],
+        unavailableUris: [],
+      },
+    });
+  });
+
+  it("rejects a target longer than Chromium allows before returning a canonical origin", () => {
+    const base = "https://example.com/";
+    const longest = `${base}${"x".repeat(maxTargetUrlLength - base.length)}`;
+    expect(matchBitwardenLoginUris(saved(), longest).ok).toBe(true);
+    expect(matchBitwardenLoginUris(saved(), `${longest}x`)).toEqual({
       ok: false,
       error: { code: "invalid-uri-input" },
     });
@@ -578,7 +813,6 @@ describe("strict destination and unsupported rule admission", () => {
   it.each([
     userDomains(Array.from({ length: 1001 }, () => ["example.com", "example.net"])),
     userDomains([Array.from({ length: 10_001 }, () => "example.com")]),
-    userDomains([[`${"x".repeat(254)}.com`]]),
   ])("bounds same-account domain context before matching case %#", (domains) => {
     expect(matchBitwardenLoginUris(saved(), target, { domains })).toEqual({
       ok: false,
@@ -635,6 +869,151 @@ describe("strict destination and unsupported rule admission", () => {
     const json = JSON.stringify(result);
     for (const secret of ["synthetic-query-secret", "synthetic-user", "synthetic-password"])
       expect(json).not.toContain(secret);
+  });
+});
+
+describe("Regex URIs answered by the caller (ADR 0056)", () => {
+  const context: BitwardenUriMatchContext = { equivalentDomains: [], defaultMatch: 0 };
+  const evaluator = (answer: (pattern: string) => boolean | undefined, options = context) => {
+    const regex = vi.fn(answer);
+    const matcher = createBitwardenUriMatcher(target, options, regex);
+    if (!matcher.ok) throw new Error("The synthetic matcher was not admitted");
+    return { evaluate: matcher.data.evaluate, regex };
+  };
+
+  it.each([
+    [true, { matched: true, matches: [{ uriIndex: 0, match: 4 }], unavailableUris: [] }],
+    [false, { matched: false, matches: [], unavailableUris: [] }],
+    [
+      undefined,
+      {
+        matched: false,
+        matches: [],
+        unavailableUris: [{ uriIndex: 0, reason: "regex-unevaluated" }],
+      },
+    ],
+  ])("takes the caller's answer %s for a Regex URI", (answer, data) => {
+    const { evaluate, regex } = evaluator(() => answer);
+    expect(evaluate([{ uri: "^https://example\\.com/", match: 4 }])).toEqual({
+      ok: true,
+      data: { targetOrigin: "https://example.com", ...data },
+    });
+    expect(regex).toHaveBeenCalledExactlyOnceWith("^https://example\\.com/");
+  });
+
+  it.each([
+    "^https://(www\\.)?example\\.com/",
+    "  (a+)+$ ",
+    "[invalid",
+    "ssh:123/path.with.dot",
+    "login",
+  ])("passes the stored pattern %j verbatim, with no URL or scheme check", (pattern) => {
+    const { evaluate, regex } = evaluator(() => true);
+    expect(evaluate([{ uri: pattern, match: 4 }])).toMatchObject({
+      ok: true,
+      data: { matched: true, matches: [{ uriIndex: 0, match: 4 }], unavailableUris: [] },
+    });
+    expect(regex).toHaveBeenCalledExactlyOnceWith(pattern);
+  });
+
+  it("keeps Regex and ordinary results in their URI order", () => {
+    const { evaluate, regex } = evaluator((pattern) =>
+      pattern === "matches" ? true : pattern === "misses" ? false : undefined,
+    );
+    expect(
+      evaluate([
+        { uri: "pending", match: 4 },
+        { uri: "matches", match: 4 },
+        { uri: target, match: 3 },
+        { uri: "misses", match: 4 },
+        { uri: "https://example.org", match: 0 },
+      ]),
+    ).toEqual({
+      ok: true,
+      data: {
+        matched: true,
+        targetOrigin: "https://example.com",
+        matches: [
+          { uriIndex: 1, match: 4 },
+          { uriIndex: 2, match: 3 },
+        ],
+        unavailableUris: [{ uriIndex: 0, reason: "regex-unevaluated" }],
+      },
+    });
+    expect(regex.mock.calls).toEqual([["pending"], ["matches"], ["misses"]]);
+  });
+
+  it("asks again on every evaluation, so a later answer replaces an unevaluated one", () => {
+    const answers = new Map<string, boolean>();
+    const { evaluate, regex } = evaluator((pattern) => answers.get(pattern));
+    const uris = [{ uri: "^https://", match: 4 }];
+    expect(evaluate(uris)).toMatchObject({
+      data: { matched: false, unavailableUris: [{ uriIndex: 0, reason: "regex-unevaluated" }] },
+    });
+    answers.set("^https://", true);
+    expect(evaluate(uris)).toMatchObject({
+      data: { matched: true, matches: [{ uriIndex: 0, match: 4 }], unavailableUris: [] },
+    });
+    expect(regex).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([null, undefined])("uses a retained Regex default for a URI with match %s", (match) => {
+    const { evaluate, regex } = evaluator(() => true, { equivalentDomains: [], defaultMatch: 4 });
+    expect(evaluate([{ uri: "example", match }])).toEqual({
+      ok: true,
+      data: {
+        matched: true,
+        targetOrigin: "https://example.com",
+        matches: [{ uriIndex: 0, match: 4 }],
+        unavailableUris: [],
+      },
+    });
+    expect(regex).toHaveBeenCalledExactlyOnceWith("example");
+  });
+
+  it("reports a Regex default unevaluated where no answer can be given", () => {
+    expect(
+      matchBitwardenLoginUris([{ uri: "example", match: null }], target, { defaultMatch: 4 }),
+    ).toEqual({
+      ok: true,
+      data: {
+        matched: false,
+        targetOrigin: "https://example.com",
+        matches: [],
+        unavailableUris: [{ uriIndex: 0, reason: "regex-unevaluated" }],
+      },
+    });
+  });
+
+  it.each([
+    ["", 4, "invalid-uri"],
+    [null, 4, "invalid-uri"],
+    ["^https://", 6, "unsupported-uri-match"],
+    ["^https://", 99, "unsupported-uri-match"],
+  ] as const)("does not ask about %j with match %s", (uri, match, reason) => {
+    const { evaluate, regex } = evaluator(() => true);
+    expect(evaluate([{ uri, match }])).toEqual({
+      ok: true,
+      data: {
+        matched: false,
+        targetOrigin: "https://example.com",
+        matches: [],
+        unavailableUris: [{ uriIndex: 0, reason }],
+      },
+    });
+    expect(regex).not.toHaveBeenCalled();
+  });
+
+  it("does not ask about a Never URI or a non-Regex URI", () => {
+    const { evaluate, regex } = evaluator(() => true);
+    expect(
+      evaluate([
+        { uri: "^https://", match: 5 },
+        { uri: target, match: 3 },
+        { uri: "https://example.org", match: 0 },
+      ]),
+    ).toMatchObject({ ok: true, data: { matches: [{ uriIndex: 1, match: 3 }] } });
+    expect(regex).not.toHaveBeenCalled();
   });
 });
 

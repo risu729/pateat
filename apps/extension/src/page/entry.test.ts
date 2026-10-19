@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { entryElementRefusal, entryHosts, renderedControlText, showsSignUp } from "./entry";
+import {
+  entryElementRefusal,
+  entryHosts,
+  linkUrl,
+  renderedControlText,
+  showsSignUp,
+} from "./entry";
 
 // Runs in Chromium (vitest browser mode) so layout and visibility are real. Synthetic
 // hosts only.
@@ -8,11 +14,24 @@ beforeEach(() => {
   path = location.pathname + location.search;
 });
 afterEach(() => {
+  for (const base of document.querySelectorAll("base")) base.remove();
   history.replaceState(null, "", path);
   document.body.innerHTML = "";
-  for (const base of document.querySelectorAll("base")) base.remove();
 });
 const first = <T extends Element>(selector: string) => document.querySelector<T>(selector)!;
+
+describe("linkUrl", () => {
+  it("returns nothing for an invalid href and uses the browser's resolved relative href", () => {
+    const link = document.createElement("a");
+    link.href = "https://[";
+    expect(linkUrl(link)).toBeUndefined();
+    const base = document.createElement("base");
+    base.href = "https://entry.example/account/";
+    document.head.append(base);
+    link.href = "signin";
+    expect(linkUrl(link)?.href).toBe("https://entry.example/account/signin");
+  });
+});
 
 describe("entryHosts", () => {
   it("lists the hosts the page's query and its navigating links name, once each", () => {

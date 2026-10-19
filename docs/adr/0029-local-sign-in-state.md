@@ -5,7 +5,10 @@ logged only, as `login.state`) is implemented. The owner started delivery 2 (act
 it) on 2026-10-12 at 06:58 UTC; its outcome table is implemented (completing on evidence
 first, the other rows on 2026-10-12 after 14:22 UTC), and so are the header and
 navigation text for the judge, the list of learned markers, and sendable pages with a
-token-like path or a field no locator names (owner, 19:23 UTC). Amended on 2026-10-12
+token-like path or a field no locator names (owner, 19:23 UTC). Amended on 2026-10-16 by
+[ADR 0039](0039-redacted-token-path-segments.md) (owner, 14:10 UTC, implemented): the
+`[id]` path rule below applies to every observed page, and a handler may be learned on a
+path with `[id]`; see "Pages that could not be sent". Amended on 2026-10-12
 (13:08 UTC, owner's choice) by
 [ADR 0027](0027-per-account-login-routes.md#watching-after-a-challenge): the pages of a
 login watched after `challenge` or an unknown result; see the end of the implementation
@@ -38,6 +41,17 @@ Amended on 2026-10-13 by [ADR 0021](0021-account-choice-outside-settings.md) (D,
 the owner's github.com report): the decision is unchanged, but such a form shown again
 with its password input and no other sign (no S3, S4, S5 or E sign) stops being watched
 once it is confirmed unknown; the tab asks for an account at once (implemented).
+
+Amended on 2026-10-14 (07:24 UTC, owner's decision in
+[issue #546](https://github.com/risu729/pateat/issues/546)): an undecided page still
+ends the login, but only a confirmed completion counts as success (implemented); see the
+amendment below. This also amends ADR 0013, ADR 0021, ADR 0038 and ADR 0007.
+
+Amended on 2026-10-18 (08:05 UTC, owner's decision): the signed-in page of a login its
+marker completed is sent as a sample, once in 30 days per recipe and branch; see
+[the amendment below](#amendment-signed-in-page-samples-2026-10-18) (implemented, local
+tests only). This also amends [ADR 0012](0012-inference-request-log.md) and
+[ADR 0016](0016-recipe-generation-trigger.md).
 
 Date: 2026-10-12
 
@@ -374,7 +388,11 @@ such a segment share one judgement row, and a locator on a judged page never use
 attribute value that may be a token. Since a sign-in field left out of the description
 could no longer be seen by the service, a page where S1 holds, on any path, is not sent
 to the judge. Which field was unlocated on each site is inferred; Cloudflare's reason is
-inferred from its path.
+inferred from its path. Amended on 2026-10-16 by
+[ADR 0039](0039-redacted-token-path-segments.md): every observed page now carries `[id]`
+the same way, a login page with such a path is no longer refused, and since the
+extension compares a live page through the same redacted path, a page on a path with
+`[id]` may get a handler.
 
 Disabled fields (owner, 2026-10-12 22:03 UTC, 「除いて慎重に」): on 2026-10-12 at 21:29
 UTC, after the owner solved Q-move's CAPTCHA and signed in, its history page had a
@@ -455,3 +473,82 @@ row above treats as before.
 - Compare with the page the person was on before the login: rejected, because a login
   that started on the top page cannot tell success from a failure that returns there.
 - Reopen the login URL to see whether it redirects: rejected by the owner.
+
+## Amendment: unconfirmed completion (2026-10-14)
+
+The owner chose on 2026-10-14 at 07:24 UTC: "the login still ends as today, but it is
+not counted as a success"
+([issue #546](https://github.com/risu729/pateat/issues/546)). This replaces the success
+consequences of the earlier no-S-no-E decision; the accepted text above is retained
+as history.
+
+The current outcome table replaces the no-S-no-E row with:
+
+| Page | Result | Confirmed |
+| --- | --- | --- |
+| No S, no E; judge `signed-in` | `authenticated`, adding its marker | Yes |
+| No S, no E; `unclear` with `judged-signed-in` | `authenticated`, after the existing re-reading and omission guards | Yes |
+| No S, no E; `unclear` with no reason, `already-judged`, `judgement-limit`, `daily-limit` or `monthly-limit` | `authenticated`, with `unconfirmed: true`, after the same guards | No |
+| No S, no E; `rejected`, `challenge`, other `unclear`, or `retry` | The existing rejection, challenge, unknown or retry outcome | No completion |
+
+The other rows and the move and missing-password stop rules are unchanged. A move
+still completes only on `signed-in` or `judged-signed-in`, both confirmed.
+
+The first Consequences paragraph now applies as follows: every completion still stops
+automation, releases the site to other tabs and treats the sign-in page showing again
+as a logout. Only confirmed completion saves the pending account choice
+([ADR 0021](0021-account-choice-outside-settings.md)). An unconfirmed completion drops
+that choice, shows the yellow unsettled badge and says in the popup that the sign-in
+could not be confirmed ([ADR 0038](0038-login-status-badge.md)); it does not record
+"Pateat signed in here" for registration refusal
+([ADR 0007](0007-existing-passkey-assertions.md)). The warn-level `recipe.judge` entry
+stays, and `login.attempt` carries `unconfirmed`. The attempt and popup status retain
+that flag across a worker restart. Synthetic tests verify these distinctions; no new
+real-account verification is claimed.
+
+## Amendment: signed-in page samples (2026-10-18)
+
+Context: E2 and the page text never left the device for a page that was not judged, so
+the request log ([ADR 0012](0012-inference-request-log.md)) held only pages the model
+found hard. An evaluation corpus also needs pages that are easy for it.
+
+The owner chose on a decision card on 2026-10-18 at 08:05 UTC, asked "2
+回目以降のログインのページも送って残しますか?", the option "絞って入れる", whose stated
+consequence was "レシピのパスごとに 30 日に 1
+回だけ、サインイン後のページを抽き出して送ります。ADR 0029 を改めます。" (once in 30
+days per recipe path, the page after the sign-in is extracted and sent; ADR 0029 is
+amended).
+
+What leaves the device, and how often:
+
+- After a login whose recipe's signed-in marker completed it (the completion check after
+  an effect step), the page it ended on is described exactly as for the judge: the same
+  extractor and redaction, `headerText`, the account's usernames hidden as `[account]`
+  ([ADR 0016](0016-recipe-generation-trigger.md#username-shape)), complete descriptions
+  only. A page the judge would not get (`username-shown`, `username-unread`, an
+  incomplete description) is not sent. E2's username comparison itself still never
+  leaves the device.
+- At most once in 30 days (`PAGE_SAMPLE_INTERVAL_MS`) per service, device, recipe and
+  chooser branch, recorded on the device before the request; the service keeps at most
+  one per owner, recipe and branch in 30 days and answers a later one 204 without a row.
+- It goes in the background after the login ended and never changes the login, its
+  badge or its timing. The service logs it as a `judge` row with the outcome `sampled`,
+  the request built as the judge's would be (the judge route answers such a page
+  `not-judgeable` and never sends it), no model call and no cost.
+
+The agent's choices, not confirmed by the owner: "per recipe path" is read as per recipe
+and chooser branch; the route `POST /v1/recipes/:recipeId/page-sample` (with `route`, as
+the judge is told it, so the logged request has its login paths); the device key
+`pateat.page-samples.v1`, capped at 200 entries; the `recipe.sample` log event; and, to
+stay conservative, no sample for a login that sent a page to the judge or for
+continuation, was watched or settled as unknown before, ended through E1 to E3 rather
+than the completion check, ran in a frame, filled only, stops at a missing password
+(ADR 0036), ended on another origin, or whose page left out a disabled field, nor for a
+site excluded since the login started (checked when the page is described and again
+after the sample is recorded, just before it is sent; a sample stopped then stays
+recorded), an unpaired device, or a page that changed before it was described. The
+service refuses (400, no row) a page that still shows one of the password route's fill
+fields, as the judge does, so a sign-in page never holds off the recipe's next sample.
+The sampled rows do not count toward the service's daily cap of 500 rows answered
+without a model call, and that cap does not stop them: the 30-day rule already bounds
+them to one per recipe and branch.

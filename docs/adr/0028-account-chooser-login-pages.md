@@ -1,7 +1,9 @@
 # ADR 0028: Login pages that list accounts to choose from
 
 Status: accepted by the owner on 2026-10-12 (04:36 to 04:45 UTC), and extended to a
-single shown account and to usernames that are not emails at 08:36 UTC. Implemented
+single shown account and to usernames that are not emails at 08:36 UTC. Amended on
+2026-10-16 and 2026-10-17 for a form shown on the list's path, and on 2026-10-17 for a
+list shown while another tab is signed in (below). Implemented
 in the service and the extension, with local tests only: it is not yet checked in the
 owner's Chrome. It builds on the
 extension's `advance` continuation of [ADR 0018](0018-recipe-generation-route.md)
@@ -9,6 +11,9 @@ extension's `advance` continuation of [ADR 0018](0018-recipe-generation-route.md
 [ADR 0016](0016-recipe-generation-trigger.md) (a page without a sign-in input can be
 sent), [ADR 0018](0018-recipe-generation-route.md) (a generated answer that is not a
 form plan) and the recipe contract in `packages/contracts/src/login.ts`.
+
+Amended on 2026-10-18 by [ADR 0049](0049-start-at-a-later-step.md) (owner, 01:40 UTC,
+implemented): a chooser's branches never start a login at a later step.
 
 Date: 2026-10-12
 
@@ -113,40 +118,40 @@ email listed, it hands over up to 32 short texts instead: those beside at most t
 buttons, each at most 64 characters and without an `@`; a control's own text is never
 one. Only buttons with words (rendered text, an input button's value or an image's alt
 text; an `aria-label` alone does not count) count toward the three and decide the
-container: on
-2026-10-13 Instagram's saved-profile page showed a settings gear, a control with no
-text, beside the profile, "Continue", "Use another profile" and "Create new account", so
-the profile's container held four controls and the page was logged `no-list`. Many
-ordinary pages show such a text, so on a site with a vault match the worker reads the
-matching items' usernames, email usernames included, one at a time on each such page,
-and sends the page only when a text names one, or (owner, 2026-10-12 19:11 UTC, below)
-when the page also shows a control to sign in with another account; a page offered only
-by such texts that is not sent is logged at debug level only, as mostly ordinary
-browsing (owner rule that Pateat never stops silently, 2026-10-12). The worker passes
-the naming texts back with the request to describe the page. The observation then lists
-each as `[account]`, and hides the name wherever it shows, with or without a leading
-`@`, in any width or case, such as in a heading; a name starting or ending with a Latin
-letter or digit is not found inside a longer Latin word, but is found beside kana or
-kanji, as in `taro.yamadaさん`. A control whose text or label holds it is left out, and
-so is the page when its path holds it. Every other text beside the buttons, which may
-name an account that is not in the vault, is shown as `[account]` when it is a whole
-heading or the title, and a control with such a text is left out. Not covered yet: such
-another name inside a longer text, such as "Continue as" and that name, or as a
-control's own text, still reaches the AI; and a list whose rows are buttons showing only
-a username, with no text beside them, is not found. The page right after a submitted
-password form is skipped: the content script skips its own next path, and the worker the
-tab's next document when it loads within a minute of the submission, kept in memory
-only, so a restart of the worker in between forgets it. The content script's skip ends
-with its document, so only the worker's carries to the next document. A later load, such
-as a reload after a single-page app signed in and out in one document, is not skipped (a
-gap found while checking Cloudflare, 2026-10-12); nor is a page that loads more than a
-minute after the submission because a second step in the same document took that long. A
-submission in a frame counts for the tab's page, and a next page of another origin ends
-the skip; after a submission in a frame, a same-document URL change of the tab's page is
-not skipped, since only the frame saw the submission. A stored chooser's path counts as
-a recipe start, so the page is not sent again, and a chooser login starts there. The
-local log names a list's generation with `page: accounts`, and the skips of a list with
-an email as `after-sign-in` or `no-vault-match`. At debug level it also names a page
+container: on 2026-10-13 Instagram's saved-profile page showed a settings gear, a
+control with no text, beside the profile, "Continue", "Use another profile" and "Create
+new account", so the profile's container held four controls and the page was logged
+`no-list`. Many ordinary pages show such a text, so on a site with a vault match the
+worker reads the matching items' usernames, email usernames included, one at a time on
+each such page, and sends the page only when a text names one, or (owner, 2026-10-12
+19:11 UTC, below) when the page also shows a control to sign in with another account; a
+page offered only by such texts that is not sent is logged at debug level only, as
+mostly ordinary browsing (owner rule that Pateat never stops silently, 2026-10-12). The
+worker passes the naming texts back with the request to describe the page. The
+observation then lists each as `[account]`, and hides the name wherever it shows, with
+or without a leading `@`, in any width or case, such as in a heading; a name starting or
+ending with a Latin letter or digit is not found inside a longer Latin word, but is
+found beside kana or kanji, as in `taro.yamadaさん`. A control whose text or label holds
+it is left out, and so is the page when its path holds it. Every other text beside the
+buttons, which may name an account that is not in the vault, is shown as `[account]`
+when it is a whole heading or the title, and a control with such a text is left out. Not
+covered yet: such another name inside a longer text, such as "Continue as" and that
+name, or as a control's own text, still reaches the AI; and a list whose rows are
+buttons showing only a username, with no text beside them, is not found. The page right
+after a submitted password form is skipped: the content script skips its own next path,
+and the worker the tab's next document when it loads within a minute of the submission,
+kept in memory only, so a restart of the worker in between forgets it. The content
+script's skip ends with its document, so only the worker's carries to the next document.
+A later load, such as a reload after a single-page app signed in and out in one
+document, is not skipped (a gap found while checking Cloudflare, 2026-10-12); nor is a
+page that loads more than a minute after the submission because a second step in the
+same document took that long. A submission in a frame counts for the tab's page, and a
+next page of another origin ends the skip; after a submission in a frame, a
+same-document URL change of the tab's page is not skipped, since only the frame saw the
+submission. A stored chooser's path counts as a recipe start, so the page is not sent
+again, and a chooser login starts there. The local log names a list's generation with
+`page: accounts`, and the skips of a list with an email as `after-sign-in`,
+`signed-in-elsewhere` (below) or `no-vault-match`. At debug level it also names a page
 that, once its ten seconds end without a sign-in input, holds an `@` in its text but is
 not taken as a list (`not-a-list`, with why: for its first shown address, such as
 `inside-control` or `not-rendered`; else how a hidden one is hidden; else
@@ -163,6 +168,26 @@ offered without the service is `not-connected` at debug level. An element with
 content, and any child element renders: Cloudflare's saved profiles wrap each address in
 one, and the list was not found before (2026-10-12). The service's check of the answer
 also refuses a control whose text holds `[account]`.
+
+Amended on 2026-10-17 by the owner's decision (02:15 UTC, decision card "A:
+1時間送らない"), after the owner's Chrome sent a signed-in Cloudflare dashboard opened
+in a new tab as a list, five minutes after Pateat's login in another tab: the dashboard
+lists the site's accounts with their email addresses, and the AI abstained
+(`no-login-form`). While another tab's login of the same origin authenticated less than
+an hour ago, including one completed without the judge's verdict
+([ADR 0029](0029-local-sign-in-state.md)), a list of accounts is not sent
+(`signed-in-elsewhere`, logged as `after-sign-in` is). It is still sent once this tab
+clicked a control that logs out (a click less than 10 minutes old, until its first step
+shows), or while any tab of the origin asks after a logout
+([ADR 0021](0021-account-choice-outside-settings.md) D). The hour bounds the skip
+because that other tab's record stays until its own page shows the recipe's first step
+again or the tab closes: a real list opened meanwhile, such as one to add or switch an
+account, is first generated up to an hour later, while a list with a stored chooser
+starts as before. A session Pateat did not sign in, or one older than the hour, still
+sends such a page at most once in the 10-minute window. A form, a page that asks for an
+identifier alone and a sign-in entry page without a list are unchanged; an entry offered
+beside such a list is not sent either, as after a sign-in. No site is named
+([ADR 0033](0033-no-site-specific-features.md)).
 
 ### What the AI answers
 
@@ -224,7 +249,8 @@ shape:
 `continue` is the button for a shown account beside it (Wise, below). Each branch is the
 login recipe of the page the click leads to, under the chooser's own ID, revision and
 origin, so the executor and the continuation handle it as any login recipe. A branch is
-absent until a login takes it and its page is generated as an ADR 0018 continuation, so
+absent until a login takes it and its page is generated as an ADR 0018 continuation (or,
+for `afterOther`, until the form shows on the list's path, amended 2026-10-17 below), so
 a chooser recipe may have no slots at first; `afterOther` needs `other`. The entry to
 click is never stored. [ADR 0027](0027-per-account-login-routes.md)
 `alternatives` cannot hold the branches: a continuation cannot add a variant, a
@@ -250,7 +276,8 @@ newer chooser without a model call, which the extension sends the page again aga
 when the chooser still lacks the page's branch step. A list of accounts shown again
 after a branch's step is never judged (`not-judgeable`). A form page on the chooser's
 own path, as when no profile is saved, gets no recipe of its own (`recipe-conflict`): it
-is reached only as the `other` branch. The service's retry window and its
+is reached only as the `other` branch, after the list's click or as that branch's first
+page (amended 2026-10-17 below). The service's retry window and its
 once-per-revision judgement are kept per branch as well. The service sends the
 `accounts` texts as they come, so the extension must hide a non-email account name as
 `[account]` before it sends any list.
@@ -323,6 +350,67 @@ are sent as for any login; since the roadmap's redaction of the account's own us
 (2026-10-12), a username shown there, such as in a heading beside the password, is
 hidden as `[account]` by the same rule
 ([architecture](../architecture.md#declarative-recipes-and-ai)).
+
+Amended on 2026-10-16 after a failure in the owner's Chrome on Cloudflare (07:09 UTC):
+after a logout the tab asked for an account on the list, the account the owner wanted
+was not listed, so the owner pressed "Sign in with another profile", which showed the
+email and password form on the list's path in the same document, and then picked the
+account in the popup. The pick started nothing ("Pateat could not log in with … on this
+page"), because a chooser login started only where the list showed. Now the chooser's
+start also includes the stored `afterOther` branch's first step when that step is on the
+list's path and waits for an element. When the page shows that step and does not show
+the list, a new login runs the `other` branch alone, without a click (`chooser.click` is
+`other-shown` in the attempt record, and the log's `login.start` names it as `list`); it
+is planned, filled, submitted, continued and judged as that branch. While the list
+shows, even beside such a form, the login clicks on the list as before. Without a stored
+`afterOther` branch nothing changed (until the 2026-10-17 amendment below): the form was
+still no start, and a reload shows the list again, where the login clicks `other`. The
+person's own click on the button is not recorded; the login only reads what the page
+shows, as for any recipe's first step.
+
+Since that form is now a recipe's first step on the list's path, it also does what any
+first step does:
+
+- A page that shows the form directly, as when no profile is saved, starts a login with
+  the default or the single match, which submits, where Pateat did nothing before.
+- After a finished login in the tab, the form showing counts as a logout
+  ([ADR 0021](0021-account-choice-outside-settings.md) D), and while another tab's login
+  is watched, it ends that watch as the list does
+  ([ADR 0027](0027-per-account-login-routes.md#watching-after-a-challenge)).
+- After a logout, a fill-only login fills the form when it is the document's first
+  appearance of a start, as for any recipe. A document is filled at most once, so after
+  a fill-only login on the list, which presses nothing there, the form reached in the
+  same document is not filled; the tab asks, and a pick in the popup logs in on it.
+- For an item without a password (ADR 0036), the form is a start page: when it fills the
+  email and password on one page, no `advance` comes before the stop, so the login is
+  refused `no-route` (`password-empty:no-advance`), unless the form asks for a passkey
+  by itself and the item holds one ([ADR 0034](0034-answer-page-passkey-requests.md)),
+  while a click on `other` from the list stops before the password.
+
+Amended on 2026-10-17 by the owner's decision (00:11 UTC, decision card "A: 生成に送る",
+send it for generation), after the owner's Chrome on Cloudflare still started nothing on
+that form with the build above: the stored chooser had `other` but no `afterOther`,
+since no login had clicked `other` there yet (read from the service's database on
+2026-10-16 15:36 UTC). The form was no start (`login.refused` `not-started`
+`first-step-missing`) and, with a chooser on its path, was never sent for generation.
+Now, when a chooser has `other` and no `afterOther`, and its path in a top-level
+document shows a sign-in form while the list does not show (checked again just before
+sending, else logged `list-shown`), the extension sends that page as the `other`
+branch's first page: the request a login sends after its own click on `other` (`base`
+the chooser, `"branch": "other"`), held per chooser revision and branch as such a page
+is. The service is unchanged; it writes the answer into `afterOther`. The page announces
+again once the chooser comes back and starts on the branch as `other-shown` above, with
+the same rules after a logout and for several matches. Only a form that asks for the
+account is sent: it has a text, email, phone or number field with no `autocomplete` or
+one for a username, an email or a phone number, in the same form as the password field
+when one shows. The password form after the person's own click on a listed profile
+belongs to `afterAccount` and is never stored as `afterOther`, even beside a search box
+(logged `recipe.generate` `skipped` `no-account-field`). The page is not sent right
+after a submitted password form, nor while the document has stopped watching after a
+refusal such as `account-ambiguous`; it is sent once the document announces again, as
+after a pick in the popup or a reload. The log's `recipe.generate` names it `page`
+`other`, with the chooser's ID and revision once it is sent. A chooser whose
+`afterOther` starts on another path still gets nothing on such a form.
 
 Amended on 2026-10-13 by the owner's decision at 06:32 UTC
 ([ADR 0036](0036-passkey-after-the-identifier.md#account-lists)): an item without a
@@ -419,7 +507,8 @@ unchanged, since the entry route reads nothing of the vault.
   each), plus one more when the "another profile" branch is first taken.
 - Pages with an email in an entry outside the header and navigation, on vault-matched
   sites, can be sent once a day per path even when signed in in another tab; the AI
-  abstains on them. D1's generation log shows how often.
+  abstains on them. D1's generation log shows how often. Since 2026-10-17 such a page is
+  not sent within an hour of Pateat's login of the origin in another tab (above).
 - A profile that resumes SSO or social sign-in leads to the identity provider, where
   Pateat does not act before [ADR 0026](0026-sign-in-through-identity-providers.md) is
   delivered (phase 4).

@@ -34,6 +34,9 @@ const PROBE_PATHS = [
   "/passkey",
   "/totp",
   "/identifier-first",
+  "/identifier-swap",
+  "/method-choice",
+  "/method-choice-named",
 ];
 /** Where every synthetic recipe starts, which a fixture document watches for. */
 export function probeStarts(origin: string): LoginRecipeStart[] {
@@ -97,12 +100,13 @@ function totpRecipe(origin: string, path: string): LoginRecipe {
 /**
  * An identifier-first form (ADR 0013): Next hides the account form and shows the password
  * form in the same document and on the same path, so only the password form's elements
- * confirm the advance.
+ * confirm the advance. With `swap`, one button is both Next and Sign in, and the account
+ * view keeps the password input hidden for the browser to fill (`/identifier-swap`).
  */
-function identifierFirstRecipe(origin: string, path: string): LoginRecipe {
+function identifierFirstRecipe(origin: string, path: string, swap = false): LoginRecipe {
   return parseLoginRecipe({
     version: 1,
-    id: "demo-identifier-first",
+    id: swap ? "demo-identifier-swap" : "demo-identifier-first",
     revision: 1,
     origin,
     slots: ["account", "password"],
@@ -110,18 +114,47 @@ function identifierFirstRecipe(origin: string, path: string): LoginRecipe {
       { kind: "fill", path, fields: [{ slot: "account", target: target("account") }] },
       { kind: "click", path, target: target("next"), purpose: "advance" },
       { kind: "fill", path, fields: [{ slot: "password", target: target("password") }] },
-      { kind: "click", path, target: target("login"), purpose: "submit" },
+      { kind: "click", path, target: target(swap ? "next" : "login"), purpose: "submit" },
     ],
     completion: [{ target: target("authenticated") }],
     rejection: target("rejected"),
     maxSubmissions: 2,
   });
 }
+/**
+ * An identifier-first form whose Next asks, in the same document and on the same path, how
+ * to confirm the sign-in (ADR 0048): the `password` handler presses "Password", which shows
+ * the password form that the route's next steps fill and submit.
+ */
+function methodChoiceRecipe(origin: string, path: string): LoginRecipe {
+  return parseLoginRecipe({
+    ...identifierFirstRecipe(origin, path),
+    id: "demo-method-choice",
+    handlers: [{ kind: "password", path, target: target("choose-password") }],
+  });
+}
+/**
+ * The same choice where both buttons are links to `#` that read "Select", told apart only
+ * by their accessible names (ADR 0048 amendment of 2026-10-19): the handler names the
+ * password one by its name.
+ */
+function namedMethodChoiceRecipe(origin: string, path: string): LoginRecipe {
+  return parseLoginRecipe({
+    ...identifierFirstRecipe(origin, path),
+    id: "demo-method-choice-named",
+    handlers: [
+      { kind: "password", path, target: { by: "accessible-name", value: "Select Password." } },
+    ],
+  });
+}
 export function probeRecipe(origin: string, path: string): LoginRecipe | undefined {
   if (!PROBE_PATHS.includes(path)) return undefined;
+  if (path === "/method-choice") return methodChoiceRecipe(origin, path);
+  if (path === "/method-choice-named") return namedMethodChoiceRecipe(origin, path);
   if (path === "/variants") return variantsRecipe(origin, path);
   if (path === "/totp") return totpRecipe(origin, path);
   if (path === "/identifier-first") return identifierFirstRecipe(origin, path);
+  if (path === "/identifier-swap") return identifierFirstRecipe(origin, path, true);
   const multi = path === "/identity";
   const inputAdvance = path === "/input-advance";
   const inputSubmit = path === "/input-submit" || path === "/change-submit";

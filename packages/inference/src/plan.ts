@@ -1,16 +1,20 @@
 import {
   actionRoles,
-  genericSlotIdSchema,
+  customSlotIdSchema,
+  fillRoles,
   isCodeField,
-  isLoginTarget,
+  isStepTarget,
   loginStepSchema,
   personalDataAutocompleteTokens,
+  recipeSlotIdSchema,
+  reservedSlotIds,
   sameLoginTarget,
   type LoginEntryRecipe,
   type LoginObservation,
   type LoginStep,
   type LoginTarget,
   type ObservedCandidate,
+  type SavedLoginBinding,
   type SemanticSlot,
 } from "@pateat/contracts";
 import * as v from "valibot";
@@ -20,11 +24,7 @@ import * as v from "valibot";
  * IDs. It becomes executable steps only after {@link validatePagePlan}.
  */
 export type PagePlan = {
-  /**
-   * `name` is the generic recipe slot ID the model gave a custom-field slot (ADR 0027),
-   * required exactly for slots that carry a `fieldName`.
-   */
-  fields: { slot: string; candidate: string; name?: string | undefined }[];
+  fields: { slot: string; candidate: string }[];
   action: { candidate: string; purpose: "advance" | "submit" };
   /** The button or link that switches to another account, when the page offers one. */
   accountSwitch?: string | undefined;
@@ -35,12 +35,6 @@ export type PlanRejection =
   | "unknown-slot"
   | "unknown-candidate"
   | "duplicate-slot"
-  /** A slot that names a vault field was given no generic name. */
-  | "missing-slot-name"
-  /** A slot without a vault field name was given a name. */
-  | "unexpected-slot-name"
-  /** A name that is not a generic slot ID, or that takes a requested slot's ID. */
-  | "invalid-slot-name"
   | "duplicate-candidate"
   | "incompatible-role"
   | "mixed-groups"
@@ -51,11 +45,15 @@ export type PlanRejection =
   | "lone-new-password";
 
 /**
- * A plan whose steps fill each field under its recipe slot: the generic `name` for a
- * custom-field slot, otherwise the requested slot ID. `fields[].slot` stays the
- * requested ID.
+ * A plan whose steps fill each field under its recipe slot: for a custom-field slot the
+ * `name` {@link customSlotNames} gave it, otherwise the requested slot ID. `fields[].slot`
+ * stays the requested ID.
  */
-export type ValidatedPagePlan = PagePlan & { steps: LoginStep[]; switchTarget?: LoginTarget };
+export type ValidatedPagePlan = Omit<PagePlan, "fields"> & {
+  fields: { slot: string; candidate: string; name?: string }[];
+  steps: LoginStep[];
+  switchTarget?: LoginTarget;
+};
 
 const compatibleRoles: Record<SemanticSlot["kind"], readonly ObservedCandidate["role"][]> = {
   identifier: ["text", "email", "tel", "number"],
@@ -169,27 +167,197 @@ export const slotAcceptsOn = (
 export const isActionRole = (role: ObservedCandidate["role"]) =>
   (actionRoles as readonly string[]).includes(role);
 
+/** The longest recipe slot ID (`recipeSlotIdSchema`). */
+const MAX_SLOT_NAME = 60;
+/** The marks the extractor leaves in observed text in place of what it redacted. */
+const redactedText = /\[(?:number|email|masked|account)\]/u;
+/**
+ * NFKC without invisible characters (`Default_Ignorable_Code_Point`, such as variation
+ * selectors and the Hangul filler), with whitespace collapsed to single spaces and trimmed.
+ */
+const tidy = (text: string) =>
+  text
+    .normalize("NFKC")
+    .replaceAll(/\p{Default_Ignorable_Code_Point}/gu, "")
+    .replaceAll(/\s+/gu, " ")
+    .trim();
+/** `text` cut to at most `length` UTF-16 units, never inside a character, then trimmed. */
+function cut(text: string, length: number): string {
+  let kept = "";
+  for (const character of text) {
+    if (kept.length + character.length > length) break;
+    kept += character;
+  }
+  return kept.trimEnd();
+}
+/**
+ * A field's label without a trailing copy of its placeholder or description, as a
+ * `<label>` that also holds the hint `半角数字3桁` gives `店番 半角数字3桁`. A copy that
+ * continues a Latin word or number, as `word` in `Keyword`, stays.
+ */
+function ownLabel(label: string, hints: readonly (string | undefined)[]): string {
+  let own = label;
+  for (const hint of hints) {
+    if (!hint || own.length <= hint.length || !own.endsWith(hint)) continue;
+    const rest = own.slice(0, -hint.length);
+    if (/[A-Za-z0-9]$/u.test(rest) && /^[A-Za-z0-9]/u.test(hint)) continue;
+    own = rest.trimEnd();
+  }
+  return own;
+}
+/**
+ * The page's own name for a field, for its custom-field slot (ADR 0027): the first of its
+ * label, placeholder, description and `id`, `name` or test ID locator value that gives a
+ * name. Each is taken in NFKC without invisible characters and with whitespace collapsed
+ * (`tidy`), the label without a trailing copy of the placeholder or description
+ * (`ownLabel`), and cut to 60 characters. Text that redaction marked or that holds a
+ * number anywhere, even past the cut, gives none, as a label locator's (ADR 0037), so a
+ * value the page shows back never becomes a slot ID.
+ */
+function fieldText(candidate: ObservedCandidate): string | undefined {
+  const placeholder = candidate.placeholder && tidy(candidate.placeholder);
+  const description = candidate.description && tidy(candidate.description);
+  const { by, value } = candidate.target;
+  const sources = [
+    candidate.label && ownLabel(tidy(candidate.label), [placeholder, description]),
+    placeholder,
+    description,
+    by === "id" || by === "name" || by === "test-id" ? tidy(value) : undefined,
+  ];
+  for (const source of sources) {
+    // Checked whole, so a mark or number past the cut still skips the text.
+    if (!source || redactedText.test(source) || /\p{Number}/u.test(source)) continue;
+    const text = cut(source, MAX_SLOT_NAME);
+    if (v.is(recipeSlotIdSchema, text)) return text;
+  }
+  return undefined;
+}
+const fold = (name: string) => name.toLowerCase();
+
+/**
+ * The slot name each custom-field request slot carries from the owner's saved bindings of
+ * the recipe being generated (ADR 0027, amended 2026-10-19): the `slot` of the binding
+ * entries whose field is the slot's custom field, by the same name and, for a duplicate
+ * name, the same position and count. A field the bindings give different names, as two
+ * accounts may, carries none, and built-in fields (`username`, `password`, `totp`) are
+ * never matched. Only slot names and field references are read; a name is checked where
+ * it is used ({@link customSlotNames}).
+ */
+export function carriedSlotNames(
+  slots: readonly Pick<SemanticSlot, "id" | "fieldName" | "fieldPosition">[],
+  bindings: readonly Pick<SavedLoginBinding, "slots">[],
+): Map<string, string> {
+  const carried = new Map<string, string>();
+  for (const { id, fieldName, fieldPosition } of slots) {
+    if (fieldName === undefined) continue;
+    const names = new Set(
+      bindings.flatMap((binding) =>
+        binding.slots.flatMap(({ slot, field }) =>
+          typeof field === "object" &&
+          field.custom === fieldName &&
+          field.position === fieldPosition?.position &&
+          field.count === fieldPosition?.count
+            ? [slot]
+            : [],
+        ),
+      ),
+    );
+    const [name, ...others] = names;
+    if (name !== undefined && others.length === 0) carried.set(id, name);
+  }
+  return carried;
+}
+
+/**
+ * The recipe slot ID of each custom-field slot (one with a `fieldName`) the sets fill,
+ * from the page's own text for its element (ADR 0027): `fieldText`, or else `field N` on
+ * an English page and `欄 N` on another, N counting the page's fill fields without a name
+ * from the top. A slot that fills different elements in different sets is named from its
+ * element in the first set that fills it. Without case, a name never equals a built-in
+ * slot or a requested slot ID, nor another of the names, which are given in page order:
+ * a later one takes a number after a space (`店番 2`). The model's answer never names a
+ * slot, so neither the owner's field names nor the model's words become slot IDs, and,
+ * without `carried`, an unchanged page always gives the same names. Fields of unknown
+ * candidates are left out.
+ *
+ * `carried` holds the names the owner's saved bindings give request slots
+ * ({@link carriedSlotNames}, ADR 0027 amended 2026-10-19). Each one that is a custom-field
+ * slot ID and, without case, equals no built-in slot or requested slot ID is reserved
+ * before any page text, whether or not this page fills its slot, so a page name equal to
+ * one is numbered apart and a later page can still carry it. A filled slot keeps its
+ * carried name unless another filled slot carries the same name, when both are named
+ * from the page.
+ */
+export function customSlotNames(
+  observation: Pick<LoginObservation, "language" | "candidates">,
+  slots: readonly Pick<SemanticSlot, "id" | "fieldName">[],
+  sets: readonly Pick<PagePlan, "fields">[],
+  carried: ReadonlyMap<string, string> = new Map(),
+): Map<string, string> {
+  const custom = new Set(slots.flatMap((slot) => (slot.fieldName === undefined ? [] : [slot.id])));
+  const at = new Map(observation.candidates.map((candidate, index) => [candidate.id, index]));
+  const elements = new Map<string, number>();
+  for (const field of sets.flatMap((set) => set.fields)) {
+    const index = at.get(field.candidate);
+    if (custom.has(field.slot) && index !== undefined && !elements.has(field.slot))
+      elements.set(field.slot, index);
+  }
+  const unnamed = observation.candidates.filter(
+    (candidate) =>
+      (fillRoles as readonly string[]).includes(candidate.role) &&
+      fieldText(candidate) === undefined,
+  );
+  const fallback = observation.language === "en" ? "field" : "欄";
+  const taken = new Set([...reservedSlotIds, ...slots.map((slot) => slot.id)].map(fold));
+  const names = new Map<string, string>();
+  // Every request slot's valid carried name, filled here or not, by its folded form.
+  const claims = new Map<string, string[]>();
+  for (const slot of custom) {
+    const name = carried.get(slot);
+    if (name === undefined || !v.is(customSlotIdSchema, name) || taken.has(fold(name))) continue;
+    claims.set(fold(name), [...(claims.get(fold(name)) ?? []), slot]);
+  }
+  for (const [name, claimants] of claims) {
+    taken.add(name);
+    const filled = claimants.filter((slot) => elements.has(slot));
+    if (filled.length === 1) names.set(filled[0]!, carried.get(filled[0]!)!);
+  }
+  for (const [slot, index] of [...elements].sort((left, right) => left[1] - right[1])) {
+    if (names.has(slot)) continue;
+    const candidate = observation.candidates[index]!;
+    const base = fieldText(candidate) ?? `${fallback} ${unnamed.indexOf(candidate) + 1}`;
+    let name = base;
+    for (let count = 2; taken.has(fold(name)); count += 1)
+      name = `${cut(base, MAX_SLOT_NAME - ` ${count}`.length)} ${count}`;
+    taken.add(fold(name));
+    names.set(slot, name);
+  }
+  return names;
+}
+
 /**
  * Local semantic validation shared by every role. Model output never reaches the
- * executor without passing these checks and the shared recipe step contract.
+ * executor without passing these checks and the shared recipe step contract. Each
+ * custom-field slot is filled under its name in `names`, by default the one
+ * {@link customSlotNames} gives it on this plan alone.
  */
 export function validatePagePlan(
   observation: LoginObservation,
   slots: readonly SemanticSlot[],
   plan: PagePlan,
+  names: ReadonlyMap<string, string> = customSlotNames(observation, slots, [plan]),
 ): { ok: true; plan: ValidatedPagePlan } | { ok: false; reason: PlanRejection } {
   if (plan.fields.length === 0) return { ok: false, reason: "empty-plan" };
-  // A link named by its path is only ever a signed-in marker (ADR 0029), never a step's.
+  // A link named by its path is only ever a signed-in marker (ADR 0029), and a button named
+  // by its accessible name only a `password` handler's (ADR 0048), never a step's.
   const candidates = new Map(
     observation.candidates.flatMap(({ target, ...candidate }) =>
-      isLoginTarget(target) ? [[candidate.id, { ...candidate, target }] as const] : [],
+      isStepTarget(target) ? [[candidate.id, { ...candidate, target }] as const] : [],
     ),
   );
   const requested = new Map(slots.map((slot) => [slot.id, slot]));
   const usedSlots = new Set<string>();
   const usedCandidates = new Set<string>();
-  /** Recipe slot IDs the steps use: requested IDs and generic names alike. */
-  const recipeSlots = new Set<string>();
   for (const field of plan.fields) {
     const slot = requested.get(field.slot);
     if (slot === undefined) return { ok: false, reason: "unknown-slot" };
@@ -199,23 +367,13 @@ export function validatePagePlan(
     if (usedCandidates.has(field.candidate)) return { ok: false, reason: "duplicate-candidate" };
     if (!slotAcceptsOn(observation, slot.kind, candidate))
       return { ok: false, reason: "incompatible-role" };
-    // A custom-field slot is stored under a generic name the model gave it, so the recipe
-    // never carries the owner's field names (ADR 0027).
-    if (slot.fieldName !== undefined && field.name === undefined)
-      return { ok: false, reason: "missing-slot-name" };
-    if (slot.fieldName === undefined && field.name !== undefined)
-      return { ok: false, reason: "unexpected-slot-name" };
-    if (
-      field.name !== undefined &&
-      (!v.is(genericSlotIdSchema, field.name) || requested.has(field.name))
-    )
-      return { ok: false, reason: "invalid-slot-name" };
-    const recipeSlot = field.name ?? field.slot;
-    if (recipeSlots.has(recipeSlot)) return { ok: false, reason: "duplicate-slot" };
     usedSlots.add(field.slot);
     usedCandidates.add(field.candidate);
-    recipeSlots.add(recipeSlot);
   }
+  // A custom-field slot is stored under the name the page gives it, so no path copies the
+  // vault's field names into the recipe (ADR 0027); a page's label may still read the same.
+  const nameOf = (slot: string) =>
+    requested.get(slot)!.fieldName === undefined ? undefined : names.get(slot);
   const action = candidates.get(plan.action.candidate);
   if (action === undefined) return { ok: false, reason: "unknown-candidate" };
   if (usedCandidates.has(action.id)) return { ok: false, reason: "duplicate-candidate" };
@@ -258,7 +416,7 @@ export function validatePagePlan(
       kind: "fill",
       path: observation.path,
       fields: plan.fields.map((field) => ({
-        slot: field.name ?? field.slot,
+        slot: nameOf(field.slot) ?? field.slot,
         target: candidates.get(field.candidate)!.target,
       })),
     },
@@ -267,11 +425,10 @@ export function validatePagePlan(
   return {
     ok: true,
     plan: {
-      fields: plan.fields.map((field) => ({
-        slot: field.slot,
-        candidate: field.candidate,
-        ...(field.name === undefined ? {} : { name: field.name }),
-      })),
+      fields: plan.fields.map((field) => {
+        const name = nameOf(field.slot);
+        return { slot: field.slot, candidate: field.candidate, ...(name ? { name } : {}) };
+      }),
       action: { candidate: plan.action.candidate, purpose: plan.action.purpose },
       ...(accountSwitch
         ? { accountSwitch: accountSwitch.id, switchTarget: accountSwitch.target }
@@ -357,8 +514,6 @@ export type ValidatedGeneratedPage = ValidatedPagePlan & {
 };
 export type GeneratedPageRejection =
   | PlanRejection
-  /** A requested slot was given another recipe slot name in another set. */
-  | "inconsistent-slot-name"
   /** One element is filled under different recipe slots in different sets. */
   | "inconsistent-candidate"
   /**
@@ -378,9 +533,8 @@ export type GeneratedPageRejection =
 /**
  * A generated page plan reduced to what the request log may keep of it once the checks
  * refused it (ADR 0012): candidate and slot references the request holds stay and any
- * other becomes `?`; a name that is not a request slot ID becomes `name-1`, `name-2` and
- * so on by first appearance, so equal names stay equal. A string the model chose may
- * quote the page or the user's field names, which the plan itself must never carry.
+ * other becomes `?`. A string the model chose may quote the page or the user's field
+ * names, which the plan itself must never carry.
  */
 export function redactGeneratedPage(
   observation: Pick<LoginObservation, "candidates">,
@@ -390,17 +544,10 @@ export function redactGeneratedPage(
   const candidates = new Set(observation.candidates.map((candidate) => candidate.id));
   const slotIds = new Set(slots.map((slot) => slot.id));
   const candidate = (id: string) => (candidates.has(id) ? id : "?");
-  const names = new Map<string, string>();
-  const name = (value: string) => {
-    if (slotIds.has(value)) return value;
-    if (!names.has(value)) names.set(value, `name-${names.size + 1}`);
-    return names.get(value)!;
-  };
   const set = ({ fields, action }: PageAlternative): PageAlternative => ({
     fields: fields.map((field) => ({
       slot: slotIds.has(field.slot) ? field.slot : "?",
       candidate: candidate(field.candidate),
-      ...(field.name === undefined ? {} : { name: name(field.name) }),
     })),
     action: { candidate: candidate(action.candidate), purpose: action.purpose },
   });
@@ -432,7 +579,7 @@ function passkeyButtonOf(
   if (
     !button ||
     button.role !== "button" ||
-    !isLoginTarget(button.target) ||
+    !isStepTarget(button.target) ||
     !namesPasskey(button) ||
     registersPasskey(button)
   )
@@ -456,23 +603,36 @@ function passkeyButtonOf(
 }
 
 /**
- * Validates a generated page plan with its alternatives (ADR 0027). Each set must pass
- * {@link validatePagePlan} on its own. Across the sets, a requested slot keeps one recipe
- * slot name and two requested slots never share one, an element is filled under one recipe
- * slot only, no set's slots repeat or are a subset of another's, no two sets fill the same
- * elements, every action submits, and the account switch is none of their elements. An
- * ambiguous mapping therefore abstains instead of becoming two variants.
+ * Validates a generated page plan with its alternatives (ADR 0027). Custom-field slots are
+ * named over all the sets ({@link customSlotNames}), so a requested slot keeps one recipe
+ * slot name in every set and two never share one. Each set must pass
+ * {@link validatePagePlan} on its own. Across the sets, an element is filled under one
+ * recipe slot only, no set's slots repeat or are a subset of another's, no two sets fill
+ * the same elements, every action submits, and the account switch is none of their
+ * elements. An ambiguous mapping therefore abstains instead of becoming two variants.
  * Any failure refuses the whole plan, so a recipe never stores a set that was not checked.
  * A passkey button that fails its own checks is dropped instead (`passkeyButtonOf`).
+ *
+ * Only a start page keeps alternatives and a passkey button (ADR 0027). On another page
+ * (`startPage` false) the alternatives are still checked but dropped, as is the passkey
+ * button, and the slots are named from the first set alone, so a stored name never
+ * depends on a set that is not stored. `carried` holds the names the owner's saved
+ * bindings give the request's custom-field slots ({@link carriedSlotNames}).
  */
 export function validateGeneratedPage(
   observation: LoginObservation,
   slots: readonly SemanticSlot[],
   draft: GeneratedPagePlan,
+  startPage = true,
+  carried: ReadonlyMap<string, string> = new Map(),
 ): { ok: true; plan: ValidatedGeneratedPage } | { ok: false; reason: GeneratedPageRejection } {
   const { passkeyButton, ...sets } = draft;
-  const validated = validateGeneratedSets(observation, slots, sets);
+  const validated = validateGeneratedSets(observation, slots, sets, startPage, carried);
   if (!validated.ok) return validated;
+  if (!startPage) {
+    const { alternatives: _alternatives, ...plan } = validated.plan;
+    return { ok: true, plan };
+  }
   const passkey = passkeyButtonOf(
     observation,
     [validated.plan, ...(validated.plan.alternatives ?? [])],
@@ -485,34 +645,32 @@ function validateGeneratedSets(
   observation: LoginObservation,
   slots: readonly SemanticSlot[],
   draft: Omit<GeneratedPagePlan, "passkeyButton">,
+  startPage: boolean,
+  carried: ReadonlyMap<string, string>,
 ): { ok: true; plan: ValidatedGeneratedPage } | { ok: false; reason: GeneratedPageRejection } {
   const { alternatives = [], ...primaryDraft } = draft;
-  const primary = validatePagePlan(observation, slots, primaryDraft);
+  const names = customSlotNames(
+    observation,
+    slots,
+    startPage ? [primaryDraft, ...alternatives] : [primaryDraft],
+    carried,
+  );
+  const primary = validatePagePlan(observation, slots, primaryDraft, names);
   if (!primary.ok || alternatives.length === 0) return primary;
   if (alternatives.length > MAX_PAGE_ALTERNATIVES)
     return { ok: false, reason: "too-many-variants" };
   const validated: ValidatedPagePlan[] = [];
   for (const alternative of alternatives) {
-    const result = validatePagePlan(observation, slots, {
-      fields: alternative.fields,
-      action: alternative.action,
-    });
+    const result = validatePagePlan(
+      observation,
+      slots,
+      { fields: alternative.fields, action: alternative.action },
+      names,
+    );
     if (!result.ok) return result;
     validated.push(result.plan);
   }
   const plans = [primary.plan, ...validated];
-  // One name per requested slot and one requested slot per name, over every set.
-  const names = new Map<string, string>();
-  const owners = new Map<string, string>();
-  for (const field of plans.flatMap((plan) => plan.fields)) {
-    const name = field.name ?? field.slot;
-    if ((names.get(field.slot) ?? name) !== name)
-      return { ok: false, reason: "inconsistent-slot-name" };
-    if ((owners.get(name) ?? field.slot) !== field.slot)
-      return { ok: false, reason: "duplicate-slot" };
-    names.set(field.slot, name);
-    owners.set(name, field.slot);
-  }
   // One recipe slot per element, over every set.
   const filledAs = new Map<string, string>();
   for (const field of plans.flatMap((plan) => plan.fields)) {
@@ -568,7 +726,7 @@ export type GeneratedAccountList = {
 /** A list control the extension clicks, with the locator the chooser recipe stores. */
 type ListControl = {
   candidate: string;
-  target: Exclude<LoginTarget, { by: "autocomplete" | "label" }>;
+  target: Exclude<LoginTarget, { by: "autocomplete" | "label" | "accessible-name" }>;
 };
 /** An account list whose named controls passed {@link validateAccountList}. */
 export type ValidatedAccountList = {
@@ -602,7 +760,8 @@ const accountText = /\[(?:email|masked|number|account)\]|@|\d{4}/u;
  * Validates an account-list answer (ADR 0028): the page must list accounts, and each named
  * control must be a button or link of the page, not hold account text and not be the
  * other control. A list whose accounts are all shown beside buttons needs a named
- * control. Its locator is never `autocomplete` or `label`, which name only inputs.
+ * control. Its locator is never `autocomplete` or `label`, which name only inputs, nor
+ * `accessible-name`, which names only a `password` handler's button.
  */
 export function validateAccountList(
   observation: LoginObservation,
@@ -616,7 +775,7 @@ export function validateAccountList(
     const { target } = candidate;
     if (
       (!isActionRole(candidate.role) && candidate.role !== "link") ||
-      !isLoginTarget(target) ||
+      !isStepTarget(target) ||
       target.by === "autocomplete" ||
       target.by === "label"
     )
@@ -664,7 +823,10 @@ export function redactAccountList(
   };
 }
 
-/** The locator a sign-in entry is pressed by: never `autocomplete` or `label` (ADR 0031). */
+/**
+ * The locator a sign-in entry is pressed by: never `autocomplete`, `label` or
+ * `accessible-name` (ADR 0031).
+ */
 export type EntryTarget = LoginEntryRecipe["entry"]["target"];
 /**
  * The generation role's entry answer (ADR 0031): the candidate that opens sign-in to an
@@ -691,7 +853,7 @@ export function validateEntry(
   const { target } = candidate;
   if (
     candidate.role !== "link" ||
-    !isLoginTarget(target) ||
+    !isStepTarget(target) ||
     target.by === "autocomplete" ||
     target.by === "label"
   )

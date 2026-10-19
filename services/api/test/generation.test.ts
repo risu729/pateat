@@ -1,5 +1,6 @@
 import {
   isLoginRouteRecipe,
+  MAX_ACTIVE_RECIPE_BYTES,
   type EntryGenerationResult,
   type LoginObservation,
   type LoginRecipe,
@@ -13,11 +14,13 @@ import { env, exports } from "cloudflare:workers";
 import {
   accountListGenerationInstructions,
   accountListGenerationPromptVersion,
+  completionInstructions,
   completionPromptVersion,
   completionStopPromptVersion,
   entryGenerationInstructions,
   entryGenerationPromptVersion,
   entryInstruction,
+  generationInstructions,
   generationPromptVersion,
 } from "@pateat/inference";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -25,7 +28,13 @@ import { createDeviceToken, hashDeviceToken } from "../src/auth";
 import { saveWifCredential } from "../src/claude/credentials";
 import { MAX_ACTIVE_RECIPES } from "../src/limits";
 import { writeRecipe } from "../src/recipe-store";
-import { ATTEMPT_WINDOW_MS, generatedRecipeId, staleHead } from "../src/recipes/generate";
+import { documentBytes, seedRecipeBytes, storedRecipeBytes } from "./recipe-byte-helpers";
+import {
+  ATTEMPT_WINDOW_MS,
+  generatedRecipeId,
+  MIN_GENERATION_RECIPE_ROOM_BYTES,
+  staleHead,
+} from "../src/recipes/generate";
 
 // Synthetic owners, devices, federation identifiers and pages only. Anthropic's token
 // endpoint and the Messages API are answered locally; no request leaves the test.
@@ -71,6 +80,38 @@ const homePage = observation("/home", [
   element("help", "link", "Help"),
 ]);
 
+/**
+ * A page with every field at its bound: a request for it fits the route's 128 KiB body
+ * limit but not a role's 64 KiB input bound.
+ */
+const WIDE = "\u3042".repeat(120);
+const bigPage = (): LoginObservation => ({
+  ...observation("/" + "a".repeat(200), [
+    {
+      id: "p".repeat(64),
+      role: "password",
+      target: { by: "name", value: "n".repeat(120) },
+      label: WIDE,
+      placeholder: WIDE,
+      autocomplete: "current-password",
+      group: "g".repeat(64),
+      maxLength: 1024,
+      minLength: 1000,
+      inputMode: "text",
+    },
+    ...Array.from({ length: 47 }, (_, index) => ({
+      id: `${"b".repeat(60)}${String(index).padStart(4, "0")}`,
+      role: "button" as const,
+      target: { by: "text" as const, value: `${"\u3044".repeat(116)}${index}` },
+      label: WIDE,
+      placeholder: WIDE,
+      group: "g".repeat(64),
+    })),
+  ]),
+  title: WIDE,
+  headings: Array.from({ length: 8 }, () => WIDE),
+});
+
 /** A stored recipe that must be a route recipe, as every form page's answer is. */
 const route = (recipe: StoredLoginRecipe): LoginRecipe => {
   if (!isLoginRouteRecipe(recipe)) throw new Error("Expected a route recipe");
@@ -90,12 +131,16 @@ let replies: Reply[] = [];
 /** Runs while a model call is in flight, before its answer. */
 let during: (() => Promise<void>) | undefined;
 let tokenStatus = 200;
+/** How long the synthetic token exchange takes. */
+let tokenDelayMs = 0;
 let sent: { authorization: string | null; apiKey: string | null; body: unknown }[] = [];
 const originalFetch = globalThis.fetch;
 
 beforeAll(() => {
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const outbound = new Request(input, init);
+    if (outbound.url === TOKEN_URL && tokenDelayMs > 0)
+      await new Promise((resolve) => setTimeout(resolve, tokenDelayMs));
     if (outbound.url === TOKEN_URL && tokenStatus !== 200)
       return Response.json({ error: "synthetic" }, { status: tokenStatus });
     if (outbound.url === TOKEN_URL)
@@ -144,6 +189,7 @@ beforeEach(() => {
   sent = [];
   during = undefined;
   tokenStatus = 200;
+  tokenDelayMs = 0;
 });
 
 type Device = { ownerId: string; deviceId: string; token: string };
@@ -207,6 +253,17 @@ async function complete(
   };
 }
 
+/** Each `Server-Timing` metric's duration by name; Cloudflare may add its own entries. */
+function serverTiming(response: Response) {
+  return Object.fromEntries(
+    (response.headers.get("Server-Timing") ?? "").split(",").map((entry) => {
+      const [name = "", ...params] = entry.trim().split(";");
+      const duration = params.find((param) => param.startsWith("dur="));
+      return [name, duration === undefined ? undefined : Number(duration.slice(4))];
+    }),
+  );
+}
+
 /** The columns the assertions read by name; other columns are compared whole. */
 type Row = Record<string, unknown> &
   Partial<Record<"id" | "role" | "path" | "outcome" | "request" | "result", unknown>>;
@@ -217,6 +274,49 @@ const rows = (sql: string, ...values: unknown[]) =>
     .then((result) => result.results);
 const month = () => new Date().toISOString().slice(0, 7);
 const day = () => new Date().toISOString().slice(0, 10);
+
+/** Only the retention delete fails; inserts, spend corrections and recipe reads use D1. */
+function failLogPurge() {
+  const prepare = env.DB.prepare.bind(env.DB);
+  return vi.spyOn(env.DB, "prepare").mockImplementation((query) => {
+    if (/^delete from "inference_log"/iu.test(query))
+      throw new Error("synthetic private log values");
+    return prepare(query);
+  });
+}
+
+/** Only the request log's update of `column` fails; everything else uses D1. */
+function failLogUpdate(column: "revision" | "server_ms") {
+  const prepare = env.DB.prepare.bind(env.DB);
+  return vi.spyOn(env.DB, "prepare").mockImplementation((query) => {
+    if (query.toLowerCase().startsWith(`update "inference_log" set "${column}"`))
+      throw new Error("synthetic private log values");
+    return prepare(query);
+  });
+}
+
+/** The request log columns that tie a row to its recipe (ADR 0012, owner 2026-10-18). */
+const logRows = async (ownerId: string, role = "generate") =>
+  (
+    await rows(
+      "SELECT recipe_id, branch, base_revision, revision, recipe_page, build, observation_hash, answer, request FROM inference_log WHERE owner_id = ? AND role = ? ORDER BY created_at",
+      ownerId,
+      role,
+    )
+  ).map(({ answer, request, ...row }) => ({
+    ...(row as Record<
+      "recipe_id" | "branch" | "base_revision" | "revision" | "recipe_page" | "build",
+      unknown
+    > & { observation_hash: unknown }),
+    answer: answer === null ? null : (JSON.parse(String(answer)) as unknown),
+    request: JSON.parse(String(request)) as { observation: unknown },
+  }));
+const hashOf = async (value: unknown) =>
+  new Uint8Array(
+    await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(value))),
+  )
+    .toHex()
+    .slice(0, 12);
 
 /** Generates the two-page recipe and returns its last change. */
 async function twoPageRecipe(device: Device) {
@@ -298,11 +398,14 @@ describe("recipe generation", () => {
       "SELECT role, origin, path, outcome, input_tokens, output_tokens, cost_micro_usd, request, result FROM inference_log WHERE owner_id = ? ORDER BY created_at",
       device.ownerId,
     );
+    // The request answered with the stored recipe is logged too, at no cost.
     expect(log.map((row) => [row.role, row.path, row.outcome])).toEqual([
       ["generate", "/login", "ok"],
+      ["generate", "/login", "recipe"],
       ["generate", "/password", "ok"],
       ["judge", "/home", "ok"],
     ]);
+    expect(log[1]).toMatchObject({ input_tokens: null, output_tokens: null, cost_micro_usd: 0 });
     expect(log[0]).toMatchObject({
       origin: ORIGIN,
       input_tokens: 3_000,
@@ -310,7 +413,7 @@ describe("recipe generation", () => {
       cost_micro_usd: 3_000 * 4 + 900 * 20,
     });
     expect(JSON.parse(String(log[0]!.request))).toMatchObject({ slots, observation: emailPage });
-    expect(JSON.parse(String(log[2]!.result))).toEqual({
+    expect(JSON.parse(String(log[3]!.result))).toEqual({
       decision: "signed-in",
       target: { by: "id", value: "logout" },
     });
@@ -544,7 +647,7 @@ describe("recipe generation", () => {
     info.mockRestore();
   });
 
-  it("deletes log rows older than 90 days when it logs a call", async () => {
+  it("deletes log rows older than a year when it logs a call", async () => {
     const device = await owner();
     const insert = (id: string, age: number) =>
       env.DB.prepare(
@@ -552,22 +655,227 @@ describe("recipe generation", () => {
       ).bind(id, device.ownerId, ORIGIN, Date.now() - age);
     const expired = `log-${crypto.randomUUID()}`;
     const kept = `log-${crypto.randomUUID()}`;
-    await env.DB.batch([insert(expired, 91 * DAY_MS), insert(kept, 89 * DAY_MS)]);
+    // Every row is kept for a year (owner, 2026-10-18), past the earlier 90 days.
+    await env.DB.batch([insert(expired, 366 * DAY_MS), insert(kept, 364 * DAY_MS)]);
     replies.push({ text: plan([["email", "email"]], "next", "advance") });
     await generate(device, emailPage);
     const ids = (await rows("SELECT id FROM inference_log WHERE id IN (?, ?)", expired, kept)).map(
       (row) => row.id,
     );
     expect(ids).toEqual([kept]);
+  });
 
-    // Reading recipes deletes them too, without any new call.
-    const later = `log-${crypto.randomUUID()}`;
-    await insert(later, 91 * DAY_MS).run();
+  it("deletes expired logs and keeps 364-day logs when recipes are read without a call", async () => {
+    const device = await owner({ claude: false });
+    const insert = (id: string, age: number) =>
+      env.DB.prepare(
+        "INSERT INTO inference_log (id, owner_id, role, provider, model_id, origin, path, request, outcome, cost_micro_usd, created_at) VALUES (?, ?, 'generate', 'anthropic', 'm', ?, '/', '{}', 'ok', 0, ?)",
+      ).bind(id, device.ownerId, ORIGIN, Date.now() - age);
+    const expired = `log-${crypto.randomUUID()}`;
+    const kept = `log-${crypto.randomUUID()}`;
+    await env.DB.batch([insert(expired, 366 * DAY_MS), insert(kept, 364 * DAY_MS)]);
     const feed = await exports.default.fetch("https://pateat.invalid/v1/recipes", {
       headers: { Authorization: `Bearer ${device.token}` },
     });
     expect(feed.status).toBe(200);
-    expect(await rows("SELECT id FROM inference_log WHERE id = ?", later)).toEqual([]);
+    expect(await feed.json()).toEqual({ version: 1, changes: [], cursor: 0, complete: true });
+    expect(await rows("SELECT id FROM inference_log WHERE id IN (?, ?)", expired, kept)).toEqual([
+      { id: kept },
+    ]);
+    expect(sent).toHaveLength(0);
+  });
+
+  it("serves the recipe feed when the retention delete fails and logs no error values", async () => {
+    const device = await owner();
+    replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    const generated = await generate(device, emailPage);
+    if (generated.status !== "recipe") throw new Error(generated.status);
+    const purge = failLogPurge();
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const feed = await exports.default.fetch("https://pateat.invalid/v1/recipes", {
+        headers: { Authorization: `Bearer ${device.token}` },
+      });
+      expect(feed.status).toBe(200);
+      expect(await feed.json()).toEqual({
+        version: 1,
+        changes: [generated.change],
+        cursor: 1,
+        complete: true,
+      });
+      expect(purge).toHaveBeenCalledWith(expect.stringMatching(/^delete from "inference_log"/iu));
+      expect(error.mock.calls).toEqual([["Inference log purge failed"]]);
+    } finally {
+      purge.mockRestore();
+      error.mockRestore();
+    }
+  });
+
+  it("records a paid call and its corrected spend when the retention delete fails", async () => {
+    const device = await owner();
+    replies.push({
+      text: plan([["email", "email"]], "next", "advance"),
+      usage: { input_tokens: 3_000, output_tokens: 900 },
+    });
+    const purge = failLogPurge();
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(await generate(device, emailPage)).toMatchObject({ status: "recipe" });
+      expect(
+        await rows(
+          "SELECT outcome, input_tokens, output_tokens, cost_micro_usd FROM inference_log WHERE owner_id = ?",
+          device.ownerId,
+        ),
+      ).toEqual([
+        { outcome: "ok", input_tokens: 3_000, output_tokens: 900, cost_micro_usd: 30_000 },
+      ]);
+      expect(
+        await rows(
+          "SELECT period, calls, cost_micro_usd FROM inference_spend WHERE owner_id = ? ORDER BY period",
+          device.ownerId,
+        ),
+      ).toEqual([
+        { period: month(), calls: 1, cost_micro_usd: 30_000 },
+        { period: day(), calls: 1, cost_micro_usd: 30_000 },
+      ]);
+      expect(
+        await rows("SELECT lock_id FROM inference_locks WHERE owner_id = ?", device.ownerId),
+      ).toEqual([]);
+      expect(purge).toHaveBeenCalledWith(expect.stringMatching(/^delete from "inference_log"/iu));
+      expect(error.mock.calls).toEqual([["Inference log purge failed"]]);
+    } finally {
+      purge.mockRestore();
+      error.mockRestore();
+    }
+  });
+
+  it("logs each call's recipe, revisions, build, page hash and own answer", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    replies.push({ text: JSON.stringify({ result: { decision: "signed-in", marker: "logout" } }) });
+    expect((await complete(device, change.recipeId, 2)).body).toMatchObject({
+      status: "signed-in",
+      change: { revision: 3 },
+    });
+    const generated = await logRows(device.ownerId);
+    const [judged] = await logRows(device.ownerId, "judge");
+    const common = { recipe_id: change.recipeId, branch: "", build: "test-revision" };
+    expect(generated.map(({ request: _request, observation_hash: _hash, ...row }) => row)).toEqual([
+      {
+        ...common,
+        base_revision: 0,
+        revision: 1,
+        recipe_page: "first",
+        answer: {
+          decision: "plan",
+          fields: [{ slot: "email", candidate: "email" }],
+          action: { candidate: "next", purpose: "advance" },
+        },
+      },
+      {
+        ...common,
+        base_revision: 1,
+        revision: 2,
+        recipe_page: "continuation",
+        answer: {
+          decision: "plan",
+          fields: [{ slot: "password", candidate: "password" }],
+          action: { candidate: "sign-in", purpose: "submit" },
+        },
+      },
+    ]);
+    expect(judged).toMatchObject({
+      ...common,
+      base_revision: 2,
+      revision: 3,
+      recipe_page: null,
+      answer: { decision: "signed-in", marker: "logout" },
+    });
+    // The hash is of the observation as the row's request holds it.
+    const all = [...generated, judged!];
+    expect(all.map((row) => row.observation_hash)).toEqual(
+      await Promise.all(all.map((row) => hashOf(row.request.observation))),
+    );
+    expect(new Set(all.map((row) => row.observation_hash)).size).toBe(3);
+    // `request` stays the instructions and input as sent.
+    expect(Object.keys(generated[0]!.request)).toEqual(["instructions", "slots", "observation"]);
+  });
+
+  it("logs no revision for a call that wrote none, and a refused judgement's answer", async () => {
+    const device = await owner();
+    replies.push({
+      text: JSON.stringify({ result: { decision: "abstain", reason: "ambiguous" } }),
+    });
+    expect(await generate(device, emailPage)).toMatchObject({ status: "abstained" });
+    expect(await logRows(device.ownerId)).toMatchObject([
+      {
+        base_revision: 0,
+        revision: null,
+        recipe_page: "first",
+        answer: { decision: "abstain", reason: "ambiguous" },
+      },
+    ]);
+
+    const judged = await owner();
+    const change = await twoPageRecipe(judged);
+    // A challenge with no handler to keep writes nothing.
+    replies.push({ text: JSON.stringify({ result: { decision: "challenge" } }) });
+    expect((await complete(judged, change.recipeId, 2)).body).toEqual({
+      version: 1,
+      status: "challenge",
+    });
+    // A marker the page lacks fails closed; the row keeps the answer, never its text.
+    replies.push({
+      text: JSON.stringify({ result: { decision: "signed-in", marker: "Sign out now" } }),
+    });
+    const account = { ...homePage, path: "/account" };
+    expect((await complete(judged, change.recipeId, 2, account)).body).toEqual({
+      version: 1,
+      status: "failed",
+      error: "invalid-output",
+    });
+    const rowsJudged = await rows(
+      "SELECT outcome, result, answer, base_revision, revision FROM inference_log WHERE owner_id = ? AND role = 'judge' ORDER BY created_at",
+      judged.ownerId,
+    );
+    expect(
+      rowsJudged.map((row) => ({ ...row, answer: JSON.parse(String(row["answer"])) })),
+    ).toEqual([
+      {
+        outcome: "ok",
+        result: JSON.stringify({ decision: "challenge" }),
+        answer: { decision: "challenge" },
+        base_revision: 2,
+        revision: null,
+      },
+      {
+        outcome: "invalid-output",
+        result: null,
+        answer: { decision: "signed-in", marker: "?" },
+        base_revision: 2,
+        revision: null,
+      },
+    ]);
+    expect(JSON.stringify(rowsJudged)).not.toMatch(/Sign out now/u);
+  });
+
+  it("answers the login and logs no revision when the revision update fails", async () => {
+    const device = await owner();
+    const update = failLogUpdate("revision");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      replies.push({ text: plan([["email", "email"]], "next", "advance") });
+      expect(await generate(device, emailPage)).toMatchObject({
+        status: "recipe",
+        change: { revision: 1 },
+      });
+      expect(update).toHaveBeenCalledWith(expect.stringMatching(/^update "inference_log"/iu));
+      expect(warn.mock.calls).toEqual([["Inference log revision not kept"]]);
+    } finally {
+      update.mockRestore();
+      warn.mockRestore();
+    }
+    expect(await logRows(device.ownerId)).toMatchObject([{ revision: null, recipe_page: "first" }]);
   });
 
   it("generates the next form of a login that stays on one path", async () => {
@@ -675,41 +983,13 @@ describe("recipe generation", () => {
     ).toEqual([{ lock_id: "other" }]);
   });
 
-  it("refuses an oversized page locally: no call, no log row and no charge", async () => {
+  it("refuses an oversized page locally: no call and no charge, and logs it unsent", async () => {
     const device = await owner();
-    // Every field at its bound: the request fits the route's 128 KiB body limit but not
-    // the role's 64 KiB input bound.
-    const wide = "\u3042".repeat(120);
-    const big: LoginObservation = {
-      ...observation("/" + "a".repeat(200), [
-        {
-          id: "p".repeat(64),
-          role: "password",
-          target: { by: "name", value: "n".repeat(120) },
-          label: wide,
-          placeholder: wide,
-          autocomplete: "current-password",
-          group: "g".repeat(64),
-          maxLength: 1024,
-          minLength: 1000,
-          inputMode: "text",
-        },
-        ...Array.from({ length: 47 }, (_, index) => ({
-          id: `${"b".repeat(60)}${String(index).padStart(4, "0")}`,
-          role: "button" as const,
-          target: { by: "text" as const, value: `${"\u3044".repeat(116)}${index}` },
-          label: wide,
-          placeholder: wide,
-          group: "g".repeat(64),
-        })),
-      ]),
-      title: wide,
-      headings: Array.from({ length: 8 }, () => wide),
-    };
+    const big = bigPage();
     const bigSlots = Array.from({ length: 8 }, (_, index) => ({
       id: `${"s".repeat(62)}${index}`,
       kind: "identifier" as const,
-      description: wide,
+      description: WIDE,
       // Each offer names a different vault field.
       fieldName: `${"\u3042".repeat(119)}${index}`,
     }));
@@ -723,10 +1003,41 @@ describe("recipe generation", () => {
       status: "failed",
       error: "input-too-large",
     });
+    // The credential step ran, but no model request was sent.
+    expect(Object.keys(serverTiming(response)).sort()).toEqual(["token", "total"]);
     expect(sent).toEqual([]);
-    expect(await rows("SELECT * FROM inference_log WHERE owner_id = ?", device.ownerId)).toEqual(
-      [],
-    );
+    // One row, as the model would have received the request (ADR 0012, owner 2026-10-18).
+    expect(
+      await rows(
+        "SELECT provider, model_id, outcome, input_tokens, output_tokens, cost_micro_usd, result, answer FROM inference_log WHERE owner_id = ?",
+        device.ownerId,
+      ),
+    ).toEqual([
+      {
+        provider: null,
+        model_id: null,
+        outcome: "input-too-large",
+        input_tokens: null,
+        output_tokens: null,
+        cost_micro_usd: 0,
+        result: null,
+        answer: null,
+      },
+    ]);
+    const logged = await logRows(device.ownerId);
+    expect(logged).toEqual([
+      {
+        recipe_id: await generatedRecipeId(ORIGIN, big.path),
+        branch: "",
+        base_revision: 0,
+        revision: null,
+        recipe_page: "first",
+        build: "test-revision",
+        observation_hash: await hashOf(logged[0]!.request.observation),
+        answer: null,
+        request: { instructions: generationInstructions, slots: bigSlots, observation: big },
+      },
+    ]);
     expect(
       await rows(
         "SELECT calls, cost_micro_usd FROM inference_spend WHERE owner_id = ?",
@@ -1010,6 +1321,29 @@ describe("recipe generation", () => {
     expect(sent).toHaveLength(5);
   });
 
+  it("stores a recipe under a path with [id] and answers every tenant's page with it (ADR 0039)", async () => {
+    const device = await owner();
+    const tenantPage = { ...passwordPage, path: "/[id]/oauth2/authorize" };
+    replies.push({ text: plan([["password", "password"]], "sign-in", "submit") });
+    const first = await generate(device, tenantPage);
+    if (first.status !== "recipe") throw new Error(first.status);
+    expect(first.change).toMatchObject({
+      recipeId: await generatedRecipeId(ORIGIN, "/[id]/oauth2/authorize"),
+      recipe: {
+        steps: [{ path: "/[id]/oauth2/authorize" }, { path: "/[id]/oauth2/authorize" }],
+      },
+    });
+    expect(
+      await rows("SELECT path FROM generation_attempts WHERE owner_id = ?", device.ownerId),
+    ).toEqual([{ path: "/[id]/oauth2/authorize" }]);
+    // The same page, from another tenant, is answered with that recipe without a call.
+    expect(await generate(device, tenantPage)).toMatchObject({
+      status: "recipe",
+      change: { recipeId: first.change.recipeId },
+    });
+    expect(sent).toHaveLength(1);
+  });
+
   it("stores the account switch the model names", async () => {
     const device = await owner();
     const remembered = observation("/password", [
@@ -1085,6 +1419,97 @@ describe("recipe generation", () => {
     expect(
       await generate(device, passwordPage, { recipeId: first.change.recipeId, revision: 3 }),
     ).toMatchObject({ status: "recipe", change: { revision: 4 } });
+    // The page generated again after the tombstone starts its recipe, as the first one did.
+    expect(
+      (await logRows(device.ownerId)).map(({ base_revision, revision, recipe_page }) => ({
+        base_revision,
+        revision,
+        recipe_page,
+      })),
+    ).toEqual([
+      { base_revision: 0, revision: 1, recipe_page: "first" },
+      // The continuation refused as `recipe-revoked`, on the tombstone.
+      { base_revision: 2, revision: null, recipe_page: "continuation" },
+      { base_revision: 2, revision: 3, recipe_page: "first" },
+      { base_revision: 3, revision: 4, recipe_page: "continuation" },
+    ]);
+  });
+
+  it("refuses new pages and continuations before the model call with less than 32 KiB left", async () => {
+    const device = await owner();
+    replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    const first = await generate(device, emailPage);
+    if (first.status !== "recipe") throw new Error(first.status);
+    await seedRecipeBytes(
+      device.ownerId,
+      MAX_ACTIVE_RECIPE_BYTES -
+        documentBytes(first.change.recipe) -
+        MIN_GENERATION_RECIPE_ROOM_BYTES +
+        1,
+    );
+    const limited = { version: 1, status: "unavailable", reason: "recipe-limit" };
+    expect(await generate(device, observation("/other", emailPage.candidates))).toEqual(limited);
+    expect(
+      await generate(device, passwordPage, { recipeId: first.change.recipeId, revision: 1 }),
+    ).toEqual(limited);
+    expect(sent).toHaveLength(1);
+    expect(
+      await rows("SELECT path FROM generation_attempts WHERE owner_id = ?", device.ownerId),
+    ).toEqual([{ path: "/login" }]);
+    // A cached active answer costs no call and remains available at the limit.
+    expect(await generate(device, emailPage)).toMatchObject({ status: "recipe" });
+  });
+
+  it("admits exactly 32 KiB of preflight room and maps a racing continuation's byte refusal", async () => {
+    const device = await owner();
+    replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    const first = await generate(device, emailPage);
+    if (first.status !== "recipe") throw new Error(first.status);
+    await seedRecipeBytes(
+      device.ownerId,
+      MAX_ACTIVE_RECIPE_BYTES -
+        documentBytes(first.change.recipe) -
+        MIN_GENERATION_RECIPE_ROOM_BYTES,
+    );
+    during = async () => {
+      await env.DB.prepare(
+        "UPDATE recipe_revisions SET document = document || ? WHERE owner_id = ? AND recipe_id = 'byte-seed'",
+      )
+        .bind(" ".repeat(MIN_GENERATION_RECIPE_ROOM_BYTES), device.ownerId)
+        .run();
+    };
+    replies.push({ text: plan([["password", "password"]], "sign-in", "submit") });
+    expect(
+      await generate(device, passwordPage, { recipeId: first.change.recipeId, revision: 1 }),
+    ).toEqual({ version: 1, status: "unavailable", reason: "recipe-limit" });
+    expect(sent).toHaveLength(2);
+    expect(
+      await rows(
+        "SELECT revision FROM recipe_heads WHERE owner_id = ? AND recipe_id = ?",
+        device.ownerId,
+        first.change.recipeId,
+      ),
+    ).toEqual([{ revision: 1 }]);
+    expect(await storedRecipeBytes(device.ownerId)).toBe(MAX_ACTIVE_RECIPE_BYTES);
+  });
+
+  it("maps a new recipe's byte refusal after the model call", async () => {
+    const device = await owner();
+    during = () => seedRecipeBytes(device.ownerId, MAX_ACTIVE_RECIPE_BYTES);
+    replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    expect(await generate(device, emailPage)).toEqual({
+      version: 1,
+      status: "unavailable",
+      reason: "recipe-limit",
+    });
+    expect(sent).toHaveLength(1);
+    expect(
+      await rows(
+        "SELECT revision FROM recipe_heads WHERE owner_id = ? AND recipe_id = ?",
+        device.ownerId,
+        await generatedRecipeId(ORIGIN, emailPage.path),
+      ),
+    ).toEqual([]);
   });
 
   it("needs room for one more active recipe before a first page's call", async () => {
@@ -1143,7 +1568,7 @@ describe("custom-field slots (ADR 0027)", () => {
     element("sign-in", "button", "Sign in"),
   ]);
   const named = (
-    fields: { slot: string; candidate: string; name?: string }[],
+    fields: { slot: string; candidate: string }[],
     action: string,
     purpose: "advance" | "submit",
   ) =>
@@ -1161,13 +1586,13 @@ describe("custom-field slots (ADR 0027)", () => {
     return (await response.json()) as RecipeGenerationResult;
   }
 
-  it("stores the generic name and answers the mapping only to the call that wrote it", async () => {
+  it("stores the page's name for the field and answers the mapping only to the call that wrote it", async () => {
     const device = await owner();
     replies.push({
       text: named(
         [
           { slot: "email", candidate: "email" },
-          { slot: "custom-1", candidate: "branch", name: "branch-number" },
+          { slot: "custom-1", candidate: "branch" },
         ],
         "next",
         "advance",
@@ -1176,8 +1601,8 @@ describe("custom-field slots (ADR 0027)", () => {
     const first = await generateCustom(device, branchPage);
     expect(first).toMatchObject({
       status: "recipe",
-      change: { revision: 1, recipe: { slots: ["email", "branch-number"] } },
-      customSlots: [{ slot: "branch-number", offered: "custom-1" }],
+      change: { revision: 1, recipe: { slots: ["email", "Branch"] } },
+      customSlots: [{ slot: "Branch", offered: "custom-1" }],
     });
     if (first.status !== "recipe") return;
     // The recipe never carries the vault field names.
@@ -1185,7 +1610,7 @@ describe("custom-field slots (ADR 0027)", () => {
     expect(route(first.change.recipe).steps[0]).toMatchObject({
       fields: [
         { slot: "email", target: { by: "id", value: "email" } },
-        { slot: "branch-number", target: { by: "id", value: "branch" } },
+        { slot: "Branch", target: { by: "id", value: "branch" } },
       ],
     });
     // A request answered with the stored recipe gets no mapping.
@@ -1195,7 +1620,7 @@ describe("custom-field slots (ADR 0027)", () => {
 
     // A continuation maps only its own page's custom slots.
     replies.push({
-      text: named([{ slot: "custom-2", candidate: "pin", name: "pin-code" }], "sign-in", "submit"),
+      text: named([{ slot: "custom-2", candidate: "pin" }], "sign-in", "submit"),
     });
     const second = await generateCustom(device, pinPage, {
       recipeId: first.change.recipeId,
@@ -1203,45 +1628,47 @@ describe("custom-field slots (ADR 0027)", () => {
     });
     expect(second).toMatchObject({
       status: "recipe",
-      change: { revision: 2, recipe: { slots: ["email", "branch-number", "pin-code"] } },
-      customSlots: [{ slot: "pin-code", offered: "custom-2" }],
+      change: { revision: 2, recipe: { slots: ["email", "Branch", "PIN"] } },
+      customSlots: [{ slot: "PIN", offered: "custom-2" }],
     });
   });
 
-  it("drops the alternatives of a continuation's answer", async () => {
+  it("drops the alternatives of a continuation's answer, which name no slot", async () => {
     const device = await owner();
     replies.push({
-      text: named(
-        [{ slot: "custom-1", candidate: "branch", name: "branch-number" }],
-        "next",
-        "advance",
-      ),
+      text: named([{ slot: "custom-1", candidate: "branch" }], "next", "advance"),
     });
     const first = await generateCustom(device, branchPage);
     if (first.status !== "recipe") throw new Error(first.status);
+    // An earlier field named the same, which only the dropped alternative fills, would
+    // have taken the name and left `PIN 2` stored without a `PIN`.
+    const twoPinPage = observation("/password", [
+      element("old-pin", "text", "PIN"),
+      ...pinPage.candidates,
+    ]);
     replies.push({
       text: JSON.stringify({
         result: {
           decision: "plan",
-          fields: [{ slot: "custom-2", candidate: "pin", name: "pin-code" }],
+          fields: [{ slot: "custom-2", candidate: "pin" }],
           action: { candidate: "sign-in", purpose: "submit" },
           alternatives: [
             {
-              fields: [{ slot: "custom-1", candidate: "again", name: "branch-number" }],
+              fields: [{ slot: "custom-1", candidate: "old-pin" }],
               action: { candidate: "sign-in", purpose: "submit" },
             },
           ],
         },
       }),
     });
-    const second = await generateCustom(device, pinPage, {
+    const second = await generateCustom(device, twoPinPage, {
       recipeId: first.change.recipeId,
       revision: 1,
     });
     expect(second).toMatchObject({
       status: "recipe",
-      change: { revision: 2, recipe: { slots: ["branch-number", "pin-code"] } },
-      customSlots: [{ slot: "pin-code", offered: "custom-2" }],
+      change: { revision: 2, recipe: { slots: ["Branch", "PIN"] } },
+      customSlots: [{ slot: "PIN", offered: "custom-2" }],
     });
     if (second.status !== "recipe") return;
     expect(second.change.recipe).not.toHaveProperty("alternatives");
@@ -1258,24 +1685,22 @@ describe("custom-field slots (ADR 0027)", () => {
   it("fails a continuation that reuses a slot name the recipe already has", async () => {
     const device = await owner();
     replies.push({
-      text: named(
-        [{ slot: "custom-1", candidate: "branch", name: "branch-number" }],
-        "next",
-        "advance",
-      ),
+      text: named([{ slot: "custom-1", candidate: "branch" }], "next", "advance"),
     });
     const first = await generateCustom(device, branchPage);
     if (first.status !== "recipe") throw new Error(first.status);
-    // Another offered field under the same generic name would merge two fields.
-    replies.push({
-      text: named(
-        [{ slot: "custom-2", candidate: "pin", name: "branch-number" }],
-        "sign-in",
-        "submit",
-      ),
-    });
+    // Another offered field the next page names the same, in any case, would merge two
+    // fields; it is refused, not numbered apart (ADR 0018).
+    const branchPinPage = observation("/password", [
+      { ...element("pin", "tel", "BRANCH"), maxLength: 4 },
+      element("sign-in", "button", "Sign in"),
+    ]);
+    replies.push({ text: named([{ slot: "custom-2", candidate: "pin" }], "sign-in", "submit") });
     expect(
-      await generateCustom(device, pinPage, { recipeId: first.change.recipeId, revision: 1 }),
+      await generateCustom(device, branchPinPage, {
+        recipeId: first.change.recipeId,
+        revision: 1,
+      }),
     ).toEqual({ version: 1, status: "failed", error: "recipe-invalid" });
     const head = await rows(
       "SELECT revision FROM recipe_revisions WHERE owner_id = ? AND recipe_id = ?",
@@ -1293,7 +1718,7 @@ describe("custom-field slots (ADR 0027)", () => {
       id: recipeId,
       revision: 1,
       origin: ORIGIN,
-      slots: ["email", "branch-number"],
+      slots: ["email", "Branch"],
       steps: [
         {
           kind: "fill",
@@ -1301,7 +1726,7 @@ describe("custom-field slots (ADR 0027)", () => {
           effect: "prepare",
           fields: [
             { slot: "email", target: { by: "id", value: "email" } },
-            { slot: "branch-number", target: { by: "id", value: "branch" } },
+            { slot: "Branch", target: { by: "id", value: "branch" } },
           ],
         },
         { kind: "click", path: "/login", target: { by: "id", value: "next" }, purpose: "advance" },
@@ -1321,7 +1746,7 @@ describe("custom-field slots (ADR 0027)", () => {
       text: named(
         [
           { slot: "email", candidate: "email" },
-          { slot: "custom-1", candidate: "branch", name: "branch-number" },
+          { slot: "custom-1", candidate: "branch" },
         ],
         "next",
         "advance",
@@ -1331,6 +1756,404 @@ describe("custom-field slots (ADR 0027)", () => {
       version: 1,
       status: "recipe",
       change: { recipeId, revision: 1, state: "active", recipe: other },
+    });
+    // The call's own write lost, so its row names no revision.
+    expect(await logRows(device.ownerId)).toMatchObject([
+      { recipe_id: recipeId, base_revision: 0, revision: null, recipe_page: "first" },
+    ]);
+  });
+});
+
+describe("slot names carried from the saved bindings (ADR 0027, 2026-10-19)", () => {
+  const branch: SemanticSlot = {
+    id: "custom-1",
+    kind: "identifier",
+    description: "value of the user's vault field named in fieldName",
+    fieldName: "Synthetic branch field",
+  };
+  const pin: SemanticSlot = {
+    id: "custom-2",
+    kind: "hidden",
+    description: "concealed value of the user's vault field named in fieldName, such as a PIN",
+    fieldName: "Synthetic PIN field",
+  };
+  const customSlots = [...slots, branch, pin];
+  const branchPage = (label = "Branch code") =>
+    observation("/login", [
+      element("email", "email", "Email"),
+      element("branch", "text", label),
+      element("next", "button", "Next"),
+    ]);
+  const pinPage = (label = "PIN") =>
+    observation("/password", [
+      { ...element("pin", "tel", label), maxLength: 4 },
+      element("sign-in", "button", "Sign in"),
+    ]);
+  const fields = (...pairs: [string, string][]) =>
+    pairs.map(([slot, candidate]) => ({ slot, candidate }));
+  const named = (
+    filled: { slot: string; candidate: string }[],
+    action: string,
+    purpose: "advance" | "submit",
+  ) =>
+    JSON.stringify({
+      result: { decision: "plan", fields: filled, action: { candidate: action, purpose } },
+    });
+  const branchField = { custom: "Synthetic branch field" };
+  const pinField = { custom: "Synthetic PIN field" };
+  type Entry = { slot: string; field: unknown };
+  /** One synthetic account's saved binding of `recipeId`, with the email as its username. */
+  const binding = (recipeId: string, item: string, ...entries: Entry[]) => ({
+    recipeId,
+    origin: ORIGIN,
+    provider: "bitwarden",
+    userId: "user-1",
+    itemId: item,
+    itemName: `Synthetic ${item}`,
+    slots: [{ slot: "email", field: "username" }, ...entries],
+  });
+  async function saveBindings(device: Device, ...bindings: ReturnType<typeof binding>[]) {
+    const response = await post(
+      device,
+      "/v1/settings",
+      {
+        version: 1,
+        expectedRevision: 0,
+        settings: { connections: [], excludedSites: [], siteDefaults: [], bindings },
+      },
+      "PUT",
+    );
+    expect(response.status).toBe(200);
+  }
+  async function generateCustom(
+    device: Device,
+    page: LoginObservation,
+    base?: unknown,
+    branchName?: string,
+  ) {
+    const response = await post(device, "/v1/recipes/generate", {
+      version: 1,
+      observation: page,
+      slots: customSlots,
+      ...(base === undefined ? {} : { base }),
+      ...(branchName === undefined ? {} : { branch: branchName }),
+    });
+    expect(response.status).toBe(200);
+    return (await response.json()) as RecipeGenerationResult;
+  }
+  /** The prompt of the last model call, as sent. */
+  const lastPrompt = () => JSON.stringify(sent.at(-1)?.body);
+
+  it("keeps a revoked recipe's slot name when its page is generated again with new wording", async () => {
+    const device = await owner();
+    replies.push({
+      text: named(fields(["email", "email"], ["custom-1", "branch"]), "next", "advance"),
+    });
+    const first = await generateCustom(device, branchPage("店番"));
+    expect(first).toMatchObject({ change: { recipe: { slots: ["email", "店番"] } } });
+    if (first.status !== "recipe") throw new Error(first.status);
+    const { recipeId } = first.change;
+    // A binding of another recipe or origin names the same field otherwise, and is not read.
+    const elsewhere = binding("gen-other", "item-1", { slot: "支店", field: branchField });
+    await saveBindings(
+      device,
+      binding(recipeId, "item-1", { slot: "店番", field: branchField }),
+      elsewhere,
+      { ...elsewhere, recipeId, origin: "https://other.example.test" },
+    );
+    expect(
+      await writeRecipe(
+        env.DB,
+        device.ownerId,
+        recipeId,
+        { version: 1, expectedRevision: 1, state: "revoked" },
+        null,
+      ),
+    ).toMatchObject({ ok: true });
+
+    replies.push({
+      text: named(fields(["email", "email"], ["custom-1", "branch"]), "next", "advance"),
+    });
+    const again = await generateCustom(device, branchPage("支店コード (半角)"));
+    expect(again).toMatchObject({
+      status: "recipe",
+      change: { recipeId, revision: 3, recipe: { slots: ["email", "店番"] } },
+      customSlots: [{ slot: "店番", offered: "custom-1" }],
+    });
+    if (again.status !== "recipe") return;
+    expect(route(again.change.recipe).steps[0]).toMatchObject({
+      fields: [
+        { slot: "email", target: { by: "id", value: "email" } },
+        { slot: "店番", target: { by: "id", value: "branch" } },
+      ],
+    });
+    // Nothing of the bindings reaches the model, and no vault field name the recipe.
+    expect(lastPrompt()).not.toContain("店番");
+    expect(lastPrompt()).not.toContain("item-1");
+    expect(JSON.stringify(again.change)).not.toContain("Synthetic");
+    // The accepted plan's logged result has the carried name (ADR 0012).
+    const [, logged] = await rows(
+      "SELECT result FROM inference_log WHERE owner_id = ? AND role = 'generate' ORDER BY created_at",
+      device.ownerId,
+    );
+    expect(String(logged?.result)).toContain("店番");
+  });
+
+  it("carries a name on a continuation page", async () => {
+    const device = await owner();
+    replies.push({ text: named(fields(["email", "email"]), "next", "advance") });
+    const first = await generateCustom(device, branchPage());
+    if (first.status !== "recipe") throw new Error(first.status);
+    await saveBindings(
+      device,
+      binding(first.change.recipeId, "item-1", { slot: "暗証", field: pinField }),
+    );
+    replies.push({ text: named(fields(["custom-2", "pin"]), "sign-in", "submit") });
+    expect(
+      await generateCustom(device, pinPage(), { recipeId: first.change.recipeId, revision: 1 }),
+    ).toMatchObject({
+      status: "recipe",
+      change: { revision: 2, recipe: { slots: ["email", "暗証"] } },
+      customSlots: [{ slot: "暗証", offered: "custom-2" }],
+    });
+  });
+
+  it("carries a name on a chooser branch's page", async () => {
+    const device = await owner();
+    const listPage: LoginObservation = {
+      ...observation("/login", [element("other", "button", "Use another account")]),
+      accounts: ["[email]"],
+    };
+    replies.push({
+      text: JSON.stringify({ result: { decision: "account-list", other: "other" } }),
+    });
+    const list = await generateCustom(device, listPage);
+    if (list.status !== "recipe") throw new Error(list.status);
+    await saveBindings(
+      device,
+      binding(list.change.recipeId, "item-1", { slot: "店番", field: branchField }),
+    );
+    replies.push({
+      text: named(fields(["email", "email"], ["custom-1", "branch"]), "next", "advance"),
+    });
+    expect(
+      await generateCustom(
+        device,
+        branchPage(),
+        { recipeId: list.change.recipeId, revision: 1 },
+        "other",
+      ),
+    ).toMatchObject({
+      status: "recipe",
+      change: { revision: 2, recipe: { chooser: { afterOther: { slots: ["email", "店番"] } } } },
+      customSlots: [{ slot: "店番", offered: "custom-1" }],
+    });
+  });
+
+  /** A first page generated after `bindings` of its recipe were saved, without a recipe. */
+  async function firstPageAfter(
+    page: LoginObservation,
+    filled: [string, string][],
+    ...entries: Entry[][]
+  ) {
+    const device = await owner();
+    const recipeId = await generatedRecipeId(ORIGIN, page.path);
+    await saveBindings(
+      device,
+      ...entries.map((entry, index) => binding(recipeId, `item-${index + 1}`, ...entry)),
+    );
+    replies.push({ text: named(fields(...filled), "next", "advance") });
+    return generateCustom(device, page);
+  }
+
+  it("carries nothing for a field two accounts' bindings name differently", async () => {
+    expect(
+      await firstPageAfter(
+        branchPage(),
+        [["custom-1", "branch"]],
+        [{ slot: "店番", field: branchField }],
+        [{ slot: "支店", field: branchField }],
+      ),
+    ).toMatchObject({ status: "recipe", change: { recipe: { slots: ["Branch code"] } } });
+  });
+
+  it("keeps the page's name over a carried name that is not a custom slot ID or is taken", async () => {
+    // A request slot ID, in another case.
+    expect(
+      await firstPageAfter(
+        branchPage(),
+        [["custom-1", "branch"]],
+        [{ slot: "CUSTOM-2", field: branchField }],
+      ),
+    ).toMatchObject({ change: { recipe: { slots: ["Branch code"] } } });
+    // A built-in slot.
+    expect(
+      await firstPageAfter(
+        branchPage(),
+        [["custom-1", "branch"]],
+        [{ slot: "Password", field: branchField }],
+      ),
+    ).toMatchObject({ change: { recipe: { slots: ["Branch code"] } } });
+  });
+
+  it("takes a carried name before the page's text names another field the same", async () => {
+    const page = observation("/login", [
+      element("branch", "text", "店番"),
+      { ...element("pin", "tel", "暗証番号"), maxLength: 4 },
+      element("next", "button", "Next"),
+    ]);
+    expect(
+      await firstPageAfter(
+        page,
+        [
+          ["custom-1", "branch"],
+          ["custom-2", "pin"],
+        ],
+        [{ slot: "店番", field: pinField }],
+      ),
+    ).toMatchObject({
+      status: "recipe",
+      change: { recipe: { slots: ["店番 2", "店番"] } },
+      customSlots: [
+        { slot: "店番 2", offered: "custom-1" },
+        { slot: "店番", offered: "custom-2" },
+      ],
+    });
+  });
+
+  it("carries a name two accounts' bindings agree on", async () => {
+    expect(
+      await firstPageAfter(
+        branchPage(),
+        [["custom-1", "branch"]],
+        [{ slot: "店番", field: branchField }],
+        [{ slot: "店番", field: branchField }],
+      ),
+    ).toMatchObject({ status: "recipe", change: { recipe: { slots: ["店番"] } } });
+  });
+
+  it("reads no other owner's bindings of the same origin and recipe", async () => {
+    const other = await owner();
+    await saveBindings(
+      other,
+      binding(await generatedRecipeId(ORIGIN, "/login"), "item-1", {
+        slot: "店番",
+        field: branchField,
+      }),
+    );
+    expect(await firstPageAfter(branchPage(), [["custom-1", "branch"]])).toMatchObject({
+      status: "recipe",
+      change: { recipe: { slots: ["Branch code"] } },
+    });
+  });
+
+  it("fails without a model call when the stored settings fail their schema", async () => {
+    const device = await owner();
+    await env.DB.prepare(
+      "INSERT INTO settings (owner_id, revision, document, updated_at) VALUES (?, 1, ?, ?)",
+    )
+      .bind(device.ownerId, JSON.stringify({ bindings: "synthetic" }), Date.now())
+      .run();
+    const response = await post(device, "/v1/recipes/generate", {
+      version: 1,
+      observation: branchPage(),
+      slots: customSlots,
+    });
+    expect(response.status).toBe(500);
+    expect(sent).toHaveLength(0);
+    // A list of accounts and a page without a custom-field offer never read the settings.
+    replies.push({
+      text: JSON.stringify({ result: { decision: "account-list", other: "other" } }),
+    });
+    expect(
+      await generateCustom(device, {
+        ...observation("/accounts", [element("other", "button", "Use another account")]),
+        accounts: ["[email]"],
+      }),
+    ).toMatchObject({ status: "recipe" });
+    replies.push({ text: plan([["email", "email"]], "next", "advance") });
+    expect(await generate(device, emailPage)).toMatchObject({ status: "recipe" });
+    expect(sent).toHaveLength(2);
+  });
+
+  it("reserves a later page's carried name on the first page, so the later page keeps it", async () => {
+    const device = await owner();
+    const recipeId = await generatedRecipeId(ORIGIN, "/login");
+    await saveBindings(device, binding(recipeId, "item-1", { slot: "店番", field: pinField }));
+    // The first page's unbound field reads as the PIN's carried name.
+    replies.push({ text: named(fields(["custom-1", "branch"]), "next", "advance") });
+    const first = await generateCustom(device, branchPage("店番"));
+    expect(first).toMatchObject({
+      change: { recipe: { slots: ["店番 2"] } },
+      customSlots: [{ slot: "店番 2", offered: "custom-1" }],
+    });
+    if (first.status !== "recipe") throw new Error(first.status);
+    replies.push({ text: named(fields(["custom-2", "pin"]), "sign-in", "submit") });
+    expect(await generateCustom(device, pinPage(), { recipeId, revision: 1 })).toMatchObject({
+      status: "recipe",
+      change: { revision: 2, recipe: { slots: ["店番 2", "店番"] } },
+      customSlots: [{ slot: "店番", offered: "custom-2" }],
+    });
+  });
+
+  it("ignores bindings of built-in fields", async () => {
+    expect(
+      await firstPageAfter(
+        branchPage(),
+        [["custom-1", "branch"]],
+        [
+          { slot: "店番", field: "password" },
+          { slot: "暗証", field: "totp" },
+        ],
+      ),
+    ).toMatchObject({ change: { recipe: { slots: ["Branch code"] } } });
+  });
+
+  describe("a continuation's clash with the recipe it continues", () => {
+    /** The first page, named `Branch` from the page, with `bindings` saved after it. */
+    async function continued(...entries: Entry[]) {
+      const device = await owner();
+      replies.push({ text: named(fields(["custom-1", "branch"]), "next", "advance") });
+      const first = await generateCustom(device, branchPage("Branch"));
+      if (first.status !== "recipe") throw new Error(first.status);
+      await saveBindings(
+        device,
+        binding(
+          first.change.recipeId,
+          "item-1",
+          { slot: "Branch", field: branchField },
+          ...entries,
+        ),
+      );
+      return { device, base: { recipeId: first.change.recipeId, revision: 1 } };
+    }
+    const refused = { version: 1, status: "failed", error: "recipe-invalid" };
+
+    it("refuses a carried name the recipe already has", async () => {
+      const { device, base } = await continued({ slot: "branch", field: pinField });
+      replies.push({ text: named(fields(["custom-2", "pin"]), "sign-in", "submit") });
+      expect(await generateCustom(device, pinPage(), base)).toEqual(refused);
+    });
+
+    it("refuses a page whose own text the recipe already has, whatever it carries", async () => {
+      const { device, base } = await continued({ slot: "暗証", field: pinField });
+      replies.push({ text: named(fields(["custom-2", "pin"]), "sign-in", "submit") });
+      expect(await generateCustom(device, pinPage("BRANCH"), base)).toEqual(refused);
+    });
+
+    it("refuses the recipe's field asked again under its carried name", async () => {
+      const { device, base } = await continued();
+      replies.push({ text: named(fields(["custom-1", "branch"]), "next", "advance") });
+      expect(
+        await generateCustom(
+          device,
+          observation("/again", [
+            element("branch", "text", "Branch again"),
+            element("next", "button", "Next"),
+          ]),
+          base,
+        ),
+      ).toEqual(refused);
     });
   });
 });
@@ -1539,7 +2362,12 @@ describe("page judgement (ADR 0027)", () => {
     element("key", "button", "Use security key"),
     element("recovery", "link", "Use a recovery code"),
   ]);
-  const dayStart = () => Date.now() - (Date.now() % DAY_MS);
+  // One clock read: the clock can tick between two, which gives the previous day's last
+  // millisecond and lets the judgement purge delete a row seeded as today's.
+  const dayStart = () => {
+    const now = Date.now();
+    return now - (now % DAY_MS);
+  };
   const judgements = (device: Device) =>
     rows(
       "SELECT recipe_id, revision, path FROM page_judgements WHERE owner_id = ? ORDER BY recipe_id, revision, path",
@@ -1608,11 +2436,16 @@ describe("page judgement (ADR 0027)", () => {
       observation: homePage,
     });
     expect(await response.json()).toEqual({ version: 1, status: "rejected" });
-    // The logged request names the route, and the row the judge's prompt version.
-    const [logged] = await rows(
-      "SELECT request, prompt_version FROM inference_log WHERE owner_id = ? AND role = 'judge'",
+    // The logged request names the route, and the row the judge's prompt version. The
+    // conflict's row has no login paths: the stored revision has no such route.
+    const [conflict, logged] = await rows(
+      "SELECT request, prompt_version, outcome FROM inference_log WHERE owner_id = ? AND role = 'judge' ORDER BY created_at",
       device.ownerId,
     );
+    expect(conflict!.outcome).toBe("recipe-conflict");
+    const conflictRequest = JSON.parse(String(conflict!.request)) as Record<string, unknown>;
+    expect(conflictRequest).toMatchObject({ route: "passkey", observation: homePage });
+    expect(conflictRequest).not.toHaveProperty("loginPaths");
     expect(JSON.parse(String(logged!.request))).toMatchObject({
       route: "password",
       loginPaths: ["/login", "/password"],
@@ -1714,6 +2547,48 @@ describe("page judgement (ADR 0027)", () => {
     expect(sent).toHaveLength(calls);
     expect(await spend(device)).toEqual(before);
     expect(await judgements(device)).toEqual(stored);
+  });
+
+  it("maps a first marker write refused for bytes to recipe-limit", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    await seedRecipeBytes(device.ownerId, MAX_ACTIVE_RECIPE_BYTES - documentBytes(change.recipe));
+    replies.push(judgeReply({ decision: "signed-in", marker: "logout" }));
+    const answer = await complete(device, change.recipeId, 2, homePage);
+    expect(answer.body).toEqual({ version: 1, status: "unavailable", reason: "recipe-limit" });
+    expect(await head(device, change.recipeId)).toBe(2);
+    expect(sent).toHaveLength(3);
+  });
+
+  it("answers signed-in when a later marker is refused for bytes", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    replies.push(judgeReply({ decision: "signed-in", marker: "logout" }));
+    const first = await complete(device, change.recipeId, 2, homePage);
+    if (!("change" in first.body) || !first.body.change) throw new Error("no change");
+    await seedRecipeBytes(
+      device.ownerId,
+      MAX_ACTIVE_RECIPE_BYTES - documentBytes(first.body.change.recipe),
+    );
+    const account = observation("/account", [element("account", "button", "Account")]);
+    replies.push(judgeReply({ decision: "signed-in", marker: "account" }));
+    expect((await complete(device, change.recipeId, 3, account)).body).toEqual({
+      version: 1,
+      status: "signed-in",
+    });
+    expect(await head(device, change.recipeId)).toBe(3);
+    expect(sent).toHaveLength(4);
+  });
+
+  it("answers challenge when its handler is refused for bytes", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    await seedRecipeBytes(device.ownerId, MAX_ACTIVE_RECIPE_BYTES - documentBytes(change.recipe));
+    replies.push(judgeReply({ decision: "challenge", passkeyButton: "key" }));
+    const answer = await complete(device, change.recipeId, 2, webauthnPage);
+    expect(answer.body).toEqual({ version: 1, status: "challenge" });
+    expect(await head(device, change.recipeId)).toBe(2);
+    expect(sent).toHaveLength(3);
   });
 
   it("judges each revision and path once", async () => {
@@ -2088,6 +2963,17 @@ describe("page judgement (ADR 0027)", () => {
     expect(JSON.stringify(sent.at(-1)!.body)).toContain(
       String.raw`\"loginPaths\":[\"/login\",\"/password\",\"/login/webauthn\"]`,
     );
+    // The handler's revision is on its judgement's row; the undecided page wrote none.
+    expect(
+      (await logRows(device.ownerId, "judge")).map(({ base_revision, revision, answer }) => ({
+        base_revision,
+        revision,
+        answer,
+      })),
+    ).toEqual([
+      { base_revision: 2, revision: 3, answer: { decision: "challenge", passkeyButton: "key" } },
+      { base_revision: 3, revision: null, answer: { decision: "unclear" } },
+    ]);
   });
 
   it("answers a plain challenge for a registration button or a duplicate handler", async () => {
@@ -2114,6 +3000,100 @@ describe("page judgement (ADR 0027)", () => {
       status: "challenge",
     });
     expect(await head(device, change.recipeId)).toBe(3);
+  });
+
+  describe("a page that asks how to confirm the sign-in (ADR 0048)", () => {
+    // The page after the identifier's Next: no inputs, a choice of how to verify.
+    const choicePage = (label = "Password") =>
+      observation("/login", [
+        element("choose-password", "button", label),
+        element("mobile", "button", "Mobile"),
+        element("cancel", "link", "Cancel"),
+      ]);
+    const passwordHandler = {
+      kind: "password",
+      path: "/login",
+      target: { by: "id", value: "choose-password" },
+    };
+    async function identifierRecipe(device: Device) {
+      replies.push({ text: plan([["email", "email"]], "next", "advance") });
+      const first = await generate(device, emailPage);
+      if (first.status !== "recipe") throw new Error(first.status);
+      return first.change;
+    }
+
+    it("adds a password handler, which a continuation of the route keeps", async () => {
+      const device = await owner();
+      const info = vi.spyOn(console, "info");
+      const change = await identifierRecipe(device);
+      replies.push(judgeReply({ decision: "challenge", passwordButton: "choose-password" }));
+      const judged = await complete(device, change.recipeId, 1, choicePage());
+      expect(judged.body).toMatchObject({
+        status: "challenge",
+        change: {
+          revision: 2,
+          recipe: { steps: route(change.recipe).steps, handlers: [passwordHandler] },
+        },
+      });
+      expect(info).toHaveBeenCalledWith("Judged page handlers", {
+        recipeId: change.recipeId,
+        handlers: [{ kind: "password", kept: true }],
+      });
+      // The judge was told what such a page and its button are.
+      expect(JSON.stringify(sent.at(-1)!.body)).toContain("passwordButton is the button");
+      // The password page after the press continues the route; the handler stays.
+      replies.push({ text: plan([["password", "password"]], "sign-in", "submit") });
+      const continued = await generate(device, passwordPage, {
+        recipeId: change.recipeId,
+        revision: 2,
+      });
+      if (continued.status !== "recipe") throw new Error(continued.status);
+      expect(continued.change.revision).toBe(3);
+      expect(route(continued.change.recipe)).toMatchObject({
+        steps: [
+          { kind: "fill", path: "/login" },
+          { kind: "click", path: "/login", purpose: "advance" },
+          { kind: "fill", path: "/password" },
+          { kind: "click", path: "/password", purpose: "submit" },
+        ],
+        handlers: [passwordHandler],
+      });
+      info.mockRestore();
+    });
+
+    it("answers a plain challenge for a button that does not name the password", async () => {
+      const device = await owner();
+      const change = await identifierRecipe(device);
+      const info = vi.spyOn(console, "info");
+      replies.push(judgeReply({ decision: "challenge", passwordButton: "choose-password" }));
+      expect(
+        (await complete(device, change.recipeId, 1, choicePage("Forgot password?"))).body,
+      ).toEqual({ version: 1, status: "challenge" });
+      expect(info).toHaveBeenCalledWith("Judged page handlers", {
+        recipeId: change.recipeId,
+        handlers: [{ kind: "password", kept: false, reason: "not-password" }],
+      });
+      expect(await head(device, change.recipeId)).toBe(1);
+      info.mockRestore();
+    });
+
+    it("never learns one for a recipe that already types the password", async () => {
+      const device = await owner();
+      const change = await twoPageRecipe(device);
+      const info = vi.spyOn(console, "info");
+      const later = observation("/verify", [element("choose-password", "button", "Password")]);
+      replies.push(judgeReply({ decision: "challenge", passwordButton: "choose-password" }));
+      expect((await complete(device, change.recipeId, 2, later)).body).toEqual({
+        version: 1,
+        status: "challenge",
+      });
+      expect(info).toHaveBeenCalledWith("Judged page handlers", {
+        recipeId: change.recipeId,
+        handlers: [{ kind: "password", kept: false, reason: "password-filled" }],
+      });
+      expect(await head(device, change.recipeId)).toBe(2);
+      info.mockRestore();
+    });
   });
 
   it("adds a totp handler for an authenticator app code, beside a passkey handler in one revision", async () => {
@@ -2453,11 +3433,16 @@ describe("page judgement (ADR 0027)", () => {
         inputMode: "numeric" as const,
         maxLength: 6,
       };
-      const page = observation("/password", [...stopPage.candidates, code]);
+      const page = observation("/password", [
+        ...stopPage.candidates,
+        code,
+        element("choose-password", "button", "Use your password"),
+      ]);
       replies.push(
         judgeReply({
           decision: "challenge",
           passkeyButton: "passkey",
+          passwordButton: "choose-password",
           code: { field: "app-code", submit: "sign-in", source: "authenticator-app" },
         }),
       );
@@ -2490,6 +3475,7 @@ describe("page judgement (ADR 0027)", () => {
         recipeId: change.recipeId,
         handlers: [
           { kind: "passkey", kept: true },
+          { kind: "password", kept: false, reason: "stop" },
           { kind: "totp", kept: false, reason: "stop" },
         ],
       });
@@ -2680,12 +3666,12 @@ describe("password route variants (ADR 0027)", () => {
     element("sign-in", "button", "Sign in"),
   ]);
   const byBranch = [
-    { slot: "custom-1", candidate: "branch", name: "branch-number" },
-    { slot: "custom-2", candidate: "account", name: "account-number" },
+    { slot: "custom-1", candidate: "branch" },
+    { slot: "custom-2", candidate: "account" },
     { slot: "password", candidate: "password" },
   ];
   const byContract = [
-    { slot: "custom-3", candidate: "contract", name: "contract-number" },
+    { slot: "custom-3", candidate: "contract" },
     { slot: "password", candidate: "password" },
   ];
   const twoSets = (alternative = byContract, purpose: "advance" | "submit" = "submit") =>
@@ -2716,29 +3702,35 @@ describe("password route variants (ADR 0027)", () => {
       change: {
         revision: 1,
         recipe: {
-          slots: ["branch-number", "account-number", "password"],
-          alternatives: [{ slots: ["contract-number", "password"] }],
+          slots: ["Branch", "Account", "password"],
+          alternatives: [{ slots: ["Or contract number", "password"] }],
           maxSubmissions: 1,
         },
       },
       // The password slot is named in both sets but is no custom slot; each name once.
       customSlots: [
-        { slot: "branch-number", offered: "custom-1" },
-        { slot: "account-number", offered: "custom-2" },
-        { slot: "contract-number", offered: "custom-3" },
+        { slot: "Branch", offered: "custom-1" },
+        { slot: "Account", offered: "custom-2" },
+        { slot: "Or contract number", offered: "custom-3" },
       ],
     });
     if (result.status !== "recipe") return;
     expect(JSON.stringify(result.change)).not.toContain("Synthetic");
-    // The request log keeps the sets the model returned.
+    // The request log keeps the sets the model returned, with the names the page gave.
     const [logged] = await rows(
       "SELECT result FROM inference_log WHERE owner_id = ? AND role = 'generate'",
       device.ownerId,
     );
+    const [branch, account, password] = byBranch;
     expect(JSON.parse(String(logged!.result))).toEqual({
-      fields: byBranch,
+      fields: [{ ...branch, name: "Branch" }, { ...account, name: "Account" }, password],
       action: { candidate: "sign-in", purpose: "submit" },
-      alternatives: [{ fields: byContract, action: { candidate: "sign-in", purpose: "submit" } }],
+      alternatives: [
+        {
+          fields: [{ ...byContract[0], name: "Or contract number" }, byContract[1]],
+          action: { candidate: "sign-in", purpose: "submit" },
+        },
+      ],
     });
     // A recipe whose sets all submit is never continued.
     expect(
@@ -2759,11 +3751,14 @@ describe("password route variants (ADR 0027)", () => {
     const other = await owner();
     replies.push({
       text: twoSets([
-        { slot: "custom-3", candidate: "contract", name: "branch-number" },
+        { slot: "custom-3", candidate: "branch" },
         { slot: "password", candidate: "password" },
       ]),
     });
-    expect(await generateVariants(other)).toMatchObject({ status: "failed" });
+    expect(await generateVariants(other)).toMatchObject({
+      status: "failed",
+      rejection: { check: "plan", reason: "inconsistent-candidate" },
+    });
     expect(
       await rows(
         "SELECT * FROM recipe_revisions WHERE owner_id IN (?, ?)",
@@ -2805,7 +3800,7 @@ describe("password route variants (ADR 0027)", () => {
         revision: 2,
         recipe: {
           completion: [{ target: { by: "id", value: "logout" } }],
-          alternatives: [{ slots: ["contract-number", "password"] }],
+          alternatives: [{ slots: ["Or contract number", "password"] }],
         },
       },
     });
@@ -2826,8 +3821,8 @@ describe("password route variants (ADR 0027)", () => {
     // the account number.
     replies.push({
       text: twoSets([
-        { slot: "custom-1", candidate: "branch", name: "branch-number" },
-        { slot: "custom-3", candidate: "contract", name: "contract-number" },
+        { slot: "custom-1", candidate: "branch" },
+        { slot: "custom-3", candidate: "contract" },
         { slot: "password", candidate: "password" },
       ]),
     });
@@ -2835,14 +3830,14 @@ describe("password route variants (ADR 0027)", () => {
       status: "recipe",
       change: {
         recipe: {
-          slots: ["branch-number", "account-number", "password"],
-          alternatives: [{ slots: ["branch-number", "contract-number", "password"] }],
+          slots: ["Branch", "Account", "password"],
+          alternatives: [{ slots: ["Branch", "Or contract number", "password"] }],
         },
       },
       customSlots: [
-        { slot: "branch-number", offered: "custom-1" },
-        { slot: "account-number", offered: "custom-2" },
-        { slot: "contract-number", offered: "custom-3" },
+        { slot: "Branch", offered: "custom-1" },
+        { slot: "Account", offered: "custom-2" },
+        { slot: "Or contract number", offered: "custom-3" },
       ],
     });
   });
@@ -2985,12 +3980,18 @@ describe("the passkey route (ADR 0027)", () => {
     if (result.status !== "recipe") throw new Error(result.status);
     expect(result.change.recipe).not.toHaveProperty("passkey");
     expect(route(result.change.recipe).slots).toEqual(["email", "password"]);
-    // The log keeps nothing the plan check dropped.
+    // The result keeps nothing the plan check dropped; the model's own answer keeps what
+    // it named, as `?` when the page lacks it.
+    const [row] = await logRows(device.ownerId);
     const [logged] = await rows(
       "SELECT result FROM inference_log WHERE owner_id = ? AND role = 'generate'",
       device.ownerId,
     );
     expect(JSON.parse(String(logged!.result))).not.toHaveProperty("passkeyButton");
+    expect(row!.answer).toMatchObject({
+      decision: "plan",
+      passkeyButton: button === "missing" ? "?" : button,
+    });
   });
 
   it("tells the judge every path of the password form on the passkey route", async () => {
@@ -3119,11 +4120,13 @@ describe("the passkey route (ADR 0027)", () => {
         },
       },
     });
+    // The four pages not judged are logged unsent, with the same request.
     const logged = await rows(
-      "SELECT request FROM inference_log WHERE owner_id = ? AND role = 'judge'",
+      "SELECT request, model_id FROM inference_log WHERE owner_id = ? AND role = 'judge'",
       device.ownerId,
     );
-    expect(logged).toHaveLength(2);
+    expect(logged.filter((row) => row["model_id"] !== null)).toHaveLength(2);
+    expect(logged).toHaveLength(6);
     for (const row of logged)
       expect(JSON.parse(String(row.request))).toMatchObject({
         route: "passkey",
@@ -3434,6 +4437,22 @@ describe("account lists and chooser branches (ADR 0028)", () => {
       { branch: "other", path: "/password", base_revision: 3 },
     ]);
     expect(sent).toHaveLength(4);
+    // The list starts the chooser; each branch's page continues it.
+    expect(
+      (await logRows(device.ownerId)).map(({ branch, base_revision, revision, recipe_page }) => ({
+        branch,
+        base_revision,
+        revision,
+        recipe_page,
+      })),
+    ).toEqual([
+      { branch: "", base_revision: 0, revision: 1, recipe_page: "first" },
+      { branch: "account", base_revision: 1, revision: 2, recipe_page: "continuation" },
+      { branch: "other", base_revision: 2, revision: 3, recipe_page: "continuation" },
+      { branch: "other", base_revision: 3, revision: 4, recipe_page: "continuation" },
+      // The account branch's page refused as `recipe-conflict`.
+      { branch: "account", base_revision: 4, revision: null, recipe_page: "continuation" },
+    ]);
   });
 
   it("tries each branch's page on its own within the retry window", async () => {
@@ -3605,6 +4624,15 @@ describe("account lists and chooser branches (ADR 0028)", () => {
         recipeId,
       ),
     ).toEqual([{ revision: 4 }]);
+    // The log keeps the revision the rebased write stored, not the one the call started on.
+    expect(await logRows(device.ownerId)).toContainEqual(
+      expect.objectContaining({
+        branch: "other",
+        base_revision: 2,
+        revision: 4,
+        recipe_page: "continuation",
+      }),
+    );
   });
 
   it("adds a handler into a branch and never judges the list shown again", async () => {
@@ -3679,6 +4707,42 @@ describe("sign-in entry pages (ADR 0031)", () => {
     return (await response.json()) as EntryGenerationResult;
   }
 
+  it("refuses entry generation before the model call when less than 32 KiB remains", async () => {
+    const device = await owner();
+    await seedRecipeBytes(
+      device.ownerId,
+      MAX_ACTIVE_RECIPE_BYTES - MIN_GENERATION_RECIPE_ROOM_BYTES + 1,
+    );
+    expect(await generateEntry(device, topPage)).toEqual({
+      version: 1,
+      status: "unavailable",
+      reason: "recipe-limit",
+    });
+    expect(sent).toHaveLength(0);
+    expect(
+      await rows("SELECT * FROM generation_attempts WHERE owner_id = ?", device.ownerId),
+    ).toEqual([]);
+  });
+
+  it("maps entry generation's byte refusal after the model call", async () => {
+    const device = await owner();
+    during = () => seedRecipeBytes(device.ownerId, MAX_ACTIVE_RECIPE_BYTES);
+    replies.push({ text: entryAnswer("c2") });
+    expect(await generateEntry(device, topPage)).toEqual({
+      version: 1,
+      status: "unavailable",
+      reason: "recipe-limit",
+    });
+    expect(sent).toHaveLength(1);
+    expect(
+      await rows(
+        "SELECT revision FROM recipe_heads WHERE owner_id = ? AND recipe_id = ?",
+        device.ownerId,
+        await generatedRecipeId(ORIGIN, topPage.path),
+      ),
+    ).toEqual([]);
+  });
+
   it("stores the named link as the entry recipe of the page's origin and path", async () => {
     const device = await owner();
     const recipeId = await generatedRecipeId(ORIGIN, "/en/");
@@ -3734,6 +4798,36 @@ describe("sign-in entry pages (ADR 0031)", () => {
         prompt_version: await entryGenerationPromptVersion(),
         request: { instructions: entryGenerationInstructions, observation: topPage },
         result: { entry: "c2" },
+      },
+      // Asking again is logged as answered with the stored recipe.
+      {
+        role: "generate",
+        path: "/en/",
+        outcome: "recipe",
+        prompt_version: await entryGenerationPromptVersion(),
+        request: { instructions: entryGenerationInstructions, observation: topPage },
+        result: null,
+      },
+    ]);
+    expect(await logRows(device.ownerId)).toMatchObject([
+      {
+        recipe_id: recipeId,
+        branch: "",
+        base_revision: 0,
+        revision: 1,
+        recipe_page: "first",
+        build: "test-revision",
+        observation_hash: await hashOf(topPage),
+        answer: { decision: "entry", entry: "c2" },
+      },
+      {
+        recipe_id: recipeId,
+        branch: "",
+        base_revision: 1,
+        revision: null,
+        recipe_page: "first",
+        observation_hash: await hashOf(topPage),
+        answer: null,
       },
     ]);
     expect(await entryGenerationPromptVersion()).not.toBe(await generationPromptVersion());
@@ -4001,5 +5095,772 @@ describe("sign-in entry pages (ADR 0031)", () => {
       status: "recipe",
       change: { recipeId, revision: 1, state: "active", recipe: theirs },
     });
+  });
+});
+
+describe("requests answered without a model call (ADR 0012)", () => {
+  /** Each column of the owner's rows answered without a call, oldest first. */
+  const unsentRows = async (ownerId: string) =>
+    (
+      await rows(
+        "SELECT role, provider, model_id, outcome, origin, path, recipe_id, branch, base_revision, revision, recipe_page, build, observation_hash, request, result, answer, input_tokens, output_tokens, cost_micro_usd FROM inference_log WHERE owner_id = ? AND model_id IS NULL ORDER BY created_at",
+        ownerId,
+      )
+    ).map((row) => ({ ...row, request: JSON.parse(String(row.request)) as unknown }));
+  const unsent = {
+    provider: null,
+    model_id: null,
+    revision: null,
+    build: "test-revision",
+    result: null,
+    answer: null,
+    input_tokens: null,
+    output_tokens: null,
+    cost_micro_usd: 0,
+  };
+  const holdLock = (ownerId: string) =>
+    env.DB.prepare(
+      "INSERT INTO inference_locks (owner_id, lock_id, expires_at) VALUES (?, 'other', ?)",
+    )
+      .bind(ownerId, Date.now() + 60_000)
+      .run();
+
+  it("logs a page refused at the daily spend limit, which the limit does not count", async () => {
+    const device = await owner();
+    await env.DB.prepare(
+      "INSERT INTO inference_spend (owner_id, period, calls, cost_micro_usd) VALUES (?, ?, 1, ?)",
+    )
+      .bind(device.ownerId, day(), 5_000_000)
+      .run();
+    expect(await generate(device, emailPage)).toEqual({
+      version: 1,
+      status: "unavailable",
+      reason: "daily-limit",
+    });
+    expect(sent).toEqual([]);
+    expect(await unsentRows(device.ownerId)).toEqual([
+      {
+        ...unsent,
+        role: "generate",
+        outcome: "daily-limit",
+        origin: ORIGIN,
+        path: "/login",
+        recipe_id: await generatedRecipeId(ORIGIN, "/login"),
+        branch: "",
+        base_revision: 0,
+        recipe_page: "first",
+        observation_hash: await hashOf(emailPage),
+        request: { instructions: generationInstructions, slots, observation: emailPage },
+      },
+    ]);
+    expect(
+      await rows("SELECT COUNT(*) AS count FROM inference_log WHERE owner_id = ?", device.ownerId),
+    ).toEqual([{ count: 1 }]);
+    // Neither the spend nor the number of calls changes.
+    expect(
+      await rows(
+        "SELECT period, calls, cost_micro_usd FROM inference_spend WHERE owner_id = ?",
+        device.ownerId,
+      ),
+    ).toEqual([{ period: day(), calls: 1, cost_micro_usd: 5_000_000 }]);
+  });
+
+  it("logs a busy refusal once per page in ten minutes", async () => {
+    const device = await owner();
+    await holdLock(device.ownerId);
+    const busy = { version: 1, status: "unavailable", reason: "busy" };
+    // A client repeating the page adds no row; another page does.
+    expect(await generate(device, emailPage)).toEqual(busy);
+    expect(await generate(device, emailPage)).toEqual(busy);
+    expect(await generate(device, passwordPage)).toEqual(busy);
+    expect(
+      (await unsentRows(device.ownerId)).map(({ outcome, path }) => ({ outcome, path })),
+    ).toEqual([
+      { outcome: "busy", path: "/login" },
+      { outcome: "busy", path: "/password" },
+    ]);
+    await env.DB.prepare("UPDATE inference_log SET created_at = ? WHERE owner_id = ?")
+      .bind(Date.now() - 10 * 60 * 1000 - 1, device.ownerId)
+      .run();
+    expect(await generate(device, emailPage)).toEqual(busy);
+    expect(await unsentRows(device.ownerId)).toHaveLength(3);
+    expect(sent).toEqual([]);
+    expect(await rows("SELECT * FROM inference_spend WHERE owner_id = ?", device.ownerId)).toEqual(
+      [],
+    );
+    // The other request's lock stays.
+    expect(
+      await rows("SELECT lock_id FROM inference_locks WHERE owner_id = ?", device.ownerId),
+    ).toEqual([{ lock_id: "other" }]);
+  });
+
+  it("logs a page judged before, with the login paths the judge would have got", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    replies.push({ text: JSON.stringify({ result: { decision: "rejected" } }) });
+    expect((await complete(device, change.recipeId, 2)).body).toEqual({
+      version: 1,
+      status: "rejected",
+    });
+    expect((await complete(device, change.recipeId, 2)).body).toEqual({
+      version: 1,
+      status: "unavailable",
+      reason: "judged-rejected",
+    });
+    expect(sent).toHaveLength(3);
+    const [called] = await rows(
+      "SELECT request FROM inference_log WHERE owner_id = ? AND role = 'judge' AND model_id IS NOT NULL",
+      device.ownerId,
+    );
+    const request = {
+      instructions: completionInstructions,
+      recipeId: change.recipeId,
+      route: "password",
+      loginPaths: ["/login", "/password"],
+      observation: homePage,
+    };
+    expect(JSON.parse(String(called!.request))).toEqual(request);
+    expect(await unsentRows(device.ownerId)).toEqual([
+      {
+        ...unsent,
+        role: "judge",
+        outcome: "judged-rejected",
+        origin: ORIGIN,
+        path: "/home",
+        recipe_id: change.recipeId,
+        branch: "",
+        base_revision: 2,
+        recipe_page: null,
+        observation_hash: await hashOf(homePage),
+        request,
+      },
+    ]);
+  });
+
+  it("logs no request whose body or recipe the route refuses", async () => {
+    const device = await owner();
+    const invalid = await post(device, "/v1/recipes/generate", {
+      version: 1,
+      observation: { ...emailPage, version: 2 },
+      slots,
+    });
+    expect(invalid.status).toBe(400);
+    const unknownRoute = await post(
+      device,
+      `/v1/recipes/${await generatedRecipeId(ORIGIN, "/login")}/completion`,
+      {
+        version: 1,
+        revision: 1,
+        route: "sso",
+        observation: homePage,
+      },
+    );
+    expect(unknownRoute.status).toBe(400);
+    expect((await complete(device, await generatedRecipeId(ORIGIN, "/login"), 1)).status).toBe(404);
+    expect(await rows("SELECT * FROM inference_log WHERE owner_id = ?", device.ownerId)).toEqual(
+      [],
+    );
+  });
+
+  it("answers the same when the row cannot be written", async () => {
+    const device = await owner();
+    await holdLock(device.ownerId);
+    const prepare = env.DB.prepare.bind(env.DB);
+    const insert = vi.spyOn(env.DB, "prepare").mockImplementation((query) => {
+      if (/^insert into "inference_log"/iu.test(query))
+        throw new Error("synthetic private log values");
+      return prepare(query);
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      expect(await generate(device, emailPage)).toEqual({
+        version: 1,
+        status: "unavailable",
+        reason: "busy",
+      });
+      expect(insert).toHaveBeenCalledWith(expect.stringMatching(/^insert into "inference_log"/iu));
+      expect(warn.mock.calls).toEqual([
+        ["Inference log row not kept", { role: "generate", outcome: "busy" }],
+      ]);
+    } finally {
+      insert.mockRestore();
+      warn.mockRestore();
+    }
+    expect(await rows("SELECT * FROM inference_log WHERE owner_id = ?", device.ownerId)).toEqual(
+      [],
+    );
+  });
+
+  it("logs the same page offered with other slots again", async () => {
+    const device = await owner();
+    await holdLock(device.ownerId);
+    const otherSlots: SemanticSlot[] = [
+      ...slots,
+      { id: "member", kind: "identifier", description: "membership number" },
+    ];
+    expect(await generate(device, emailPage)).toMatchObject({ reason: "busy" });
+    const response = await post(device, "/v1/recipes/generate", {
+      version: 1,
+      observation: emailPage,
+      slots: otherSlots,
+    });
+    expect(await response.json()).toMatchObject({ reason: "busy" });
+    expect((await unsentRows(device.ownerId)).map((row) => row.request)).toEqual([
+      { instructions: generationInstructions, slots, observation: emailPage },
+      { instructions: generationInstructions, slots: otherSlots, observation: emailPage },
+    ]);
+  });
+
+  it("logs at most 500 requests answered without a call per owner and UTC day", async () => {
+    const device = await owner();
+    await holdLock(device.ownerId);
+    const now = Date.now();
+    const insert = (id: string, at: number, modelId: string | null, outcome = "busy") =>
+      env.DB.prepare(
+        "INSERT INTO inference_log (id, owner_id, role, provider, model_id, origin, path, request, outcome, cost_micro_usd, created_at) VALUES (?, ?, 'generate', NULL, ?, ?, '/', '{}', ?, 0, ?)",
+      ).bind(id, device.ownerId, modelId, ORIGIN, outcome, at);
+    // 499 of today count; yesterday's, a model call's and signed-in page samples
+    // (ADR 0029) do not.
+    await env.DB.batch([
+      ...Array.from({ length: 499 }, (_, index) => insert(`today-${index}`, now - 1, null)),
+      insert("yesterday", now - (now % DAY_MS) - 1, null),
+      insert("called", now - 1, "claude-opus-5-5"),
+      ...Array.from({ length: 3 }, (_, index) =>
+        insert(`sampled-${index}`, now - 1, null, "sampled"),
+      ),
+    ]);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      expect(await generate(device, emailPage)).toMatchObject({ reason: "busy" });
+      expect(warn).not.toHaveBeenCalled();
+      // The 501st row of the day is not written, and the answer stays the same.
+      expect(await generate(device, passwordPage)).toEqual({
+        version: 1,
+        status: "unavailable",
+        reason: "busy",
+      });
+      expect(warn.mock.calls).toEqual([
+        ["Inference log row over the daily cap", { role: "generate", outcome: "busy" }],
+      ]);
+    } finally {
+      warn.mockRestore();
+    }
+    expect(
+      await rows(
+        "SELECT path FROM inference_log WHERE owner_id = ? AND model_id IS NULL AND path != '/'",
+        device.ownerId,
+      ),
+    ).toEqual([{ path: "/login" }]);
+  });
+
+  it.each([
+    {
+      outcome: "recently-tried",
+      role: "generate",
+      ask: async (device: Device) => {
+        replies.push({
+          text: JSON.stringify({ result: { decision: "abstain", reason: "ambiguous" } }),
+        });
+        await generate(device, emailPage);
+        return generate(device, emailPage);
+      },
+    },
+    {
+      outcome: "incomplete-observation",
+      role: "generate",
+      ask: (device: Device) => generate(device, { ...emailPage, complete: false }),
+    },
+    {
+      outcome: "credentials-not-configured",
+      role: "generate",
+      claude: false,
+      ask: (device: Device) => generate(device, emailPage),
+    },
+    {
+      outcome: "judgement-limit",
+      role: "judge",
+      ask: async (device: Device) => {
+        const change = await twoPageRecipe(device);
+        const now = Date.now();
+        const dayStart = now - (now % DAY_MS);
+        await env.DB.batch(
+          Array.from({ length: 20 }, (_, index) =>
+            env.DB.prepare(
+              "INSERT INTO page_judgements (owner_id, recipe_id, revision, origin, path, prompt_version, judged_at) VALUES (?, ?, 1, ?, ?, '', ?)",
+            ).bind(device.ownerId, change.recipeId, ORIGIN, `/p${index}`, dayStart + index),
+          ),
+        );
+        return (await complete(device, change.recipeId, 2)).body;
+      },
+    },
+    {
+      outcome: "input-too-large",
+      role: "judge",
+      ask: async (device: Device) => {
+        const change = await twoPageRecipe(device);
+        return (await complete(device, change.recipeId, 2, bigPage())).body;
+      },
+    },
+  ])("logs one row for $outcome", async ({ outcome, role, claude, ask }) => {
+    const device = await owner({ claude: claude ?? true });
+    const calls = sent.length;
+    const answer = await ask(device);
+    expect(answer).toMatchObject(
+      outcome === "incomplete-observation" || outcome === "input-too-large"
+        ? { status: "failed", error: outcome }
+        : { status: "unavailable", reason: outcome },
+    );
+    const unsentOfRole = (await unsentRows(device.ownerId)).filter((row) => row.role === role);
+    expect(unsentOfRole).toMatchObject([{ ...unsent, outcome }]);
+    // Only the calls the case itself made reached the model.
+    expect(sent.length - calls).toBe(
+      (
+        await rows(
+          "SELECT id FROM inference_log WHERE owner_id = ? AND model_id IS NOT NULL",
+          device.ownerId,
+        )
+      ).length,
+    );
+  });
+});
+
+describe("request timing", () => {
+  const timingRows = (ownerId: string, role: string) =>
+    rows(
+      "SELECT id, outcome, pre_model_ms, token_ms, model_ms, server_ms FROM inference_log WHERE owner_id = ? AND role = ? ORDER BY created_at",
+      ownerId,
+      role,
+    );
+  /** The rows once every response's server time update has run. */
+  const settledRows = (ownerId: string, role: string) =>
+    vi.waitFor(async () => {
+      const found = await timingRows(ownerId, role);
+      expect(found.every((row) => row["server_ms"] !== null)).toBe(true);
+      return found;
+    });
+  const slowModel = () => {
+    during = () => new Promise((resolve) => setTimeout(resolve, 40));
+  };
+  const generateResponse = (device: Device, page: LoginObservation) =>
+    post(device, "/v1/recipes/generate", { version: 1, observation: page, slots });
+
+  it("logs and reports each call's times, for ok, abstained and failed calls", async () => {
+    const device = await owner();
+    tokenDelayMs = 40;
+    const answers: unknown[] = [];
+    const timings: Record<string, number | undefined>[] = [];
+    replies.push(
+      { text: plan([["email", "email"]], "next", "advance") },
+      { text: JSON.stringify({ result: { decision: "abstain", reason: "ambiguous" } }) },
+      500,
+    );
+    for (const path of ["/login", "/other", "/third"]) {
+      slowModel();
+      // eslint-disable-next-line no-await-in-loop
+      const response = await generateResponse(device, { ...emailPage, path });
+      expect(response.status).toBe(200);
+      // eslint-disable-next-line no-await-in-loop
+      answers.push(((await response.json()) as { status: string }).status);
+      timings.push(serverTiming(response));
+    }
+    expect(answers).toEqual(["recipe", "abstained", "failed"]);
+    const logged = await settledRows(device.ownerId, "generate");
+    expect(logged.map((row) => row["outcome"])).toEqual(["ok", "abstained", "provider-error"]);
+    for (const [index, row] of logged.entries()) {
+      const {
+        pre_model_ms: preModel,
+        token_ms: token,
+        model_ms: model,
+        server_ms: server,
+      } = row as Record<"pre_model_ms" | "token_ms" | "model_ms" | "server_ms", number>;
+      expect(token).toBeGreaterThanOrEqual(30);
+      expect(preModel).toBeGreaterThanOrEqual(token);
+      expect(model).toBeGreaterThanOrEqual(30);
+      expect(server).toBeGreaterThanOrEqual(preModel + model);
+      // The response reports the same call; `total` also covers the request's own work.
+      expect(timings[index]).toMatchObject({ token, model });
+      expect(timings[index]?.["total"]).toBeGreaterThanOrEqual(token + model);
+    }
+  });
+
+  it("keeps the server time of a judgement that wrote no recipe", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    replies.push({ text: JSON.stringify({ result: { decision: "unclear" } }) });
+    slowModel();
+    const response = await post(device, `/v1/recipes/${change.recipeId}/completion`, {
+      version: 1,
+      revision: 2,
+      route: "password",
+      observation: homePage,
+    });
+    expect(await response.json()).toEqual({ version: 1, status: "unclear" });
+    expect(serverTiming(response)).toMatchObject({
+      total: expect.any(Number),
+      token: expect.any(Number),
+      model: expect.any(Number),
+    });
+    const [row] = await settledRows(device.ownerId, "judge");
+    expect(row).toMatchObject({ outcome: "abstained", model_ms: expect.any(Number) });
+    expect(row?.["model_ms"]).toBeGreaterThanOrEqual(30);
+    expect(row?.["server_ms"]).toBeGreaterThanOrEqual(Number(row?.["model_ms"]));
+  });
+
+  it("updates the server time on the owner's own row only", async () => {
+    const device = await owner();
+    const prepare = env.DB.prepare.bind(env.DB);
+    const updates: { query: string; values: unknown[] }[] = [];
+    const spy = vi.spyOn(env.DB, "prepare").mockImplementation((query) => {
+      const statement = prepare(query);
+      if (!query.toLowerCase().startsWith('update "inference_log" set "server_ms"'))
+        return statement;
+      const bind = statement.bind.bind(statement);
+      statement.bind = (...values: unknown[]) => {
+        updates.push({ query, values });
+        return bind(...values);
+      };
+      return statement;
+    });
+    try {
+      replies.push({ text: plan([["email", "email"]], "next", "advance") });
+      expect(await generate(device, emailPage)).toMatchObject({ status: "recipe" });
+      await settledRows(device.ownerId, "generate");
+    } finally {
+      spy.mockRestore();
+    }
+    const [row] = await timingRows(device.ownerId, "generate");
+    expect(updates).toEqual([
+      {
+        query: expect.stringMatching(
+          /where \("inference_log"\."id" = \? and "inference_log"\."owner_id" = \?\)$/u,
+        ),
+        values: [row?.["server_ms"], row?.["id"], device.ownerId],
+      },
+    ]);
+  });
+
+  it("answers in full when the server time update fails", async () => {
+    const device = await owner();
+    const update = failLogUpdate("server_ms");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      replies.push({ text: plan([["email", "email"]], "next", "advance") });
+      const response = await generateResponse(device, emailPage);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ status: "recipe", change: { revision: 1 } });
+      await vi.waitFor(() =>
+        expect(warn.mock.calls).toEqual([["Inference log server time not kept"]]),
+      );
+    } finally {
+      update.mockRestore();
+      warn.mockRestore();
+    }
+    expect(await logRows(device.ownerId)).toMatchObject([{ revision: 1 }]);
+    expect(await timingRows(device.ownerId, "generate")).toMatchObject([
+      { outcome: "ok", model_ms: expect.any(Number), server_ms: null },
+    ]);
+  });
+
+  it("reports the total of every device response, and the token time of a credential refusal", async () => {
+    const device = await owner();
+    const feed = await exports.default.fetch("https://pateat.invalid/v1/recipes", {
+      headers: { Authorization: `Bearer ${device.token}` },
+    });
+    expect(feed.status).toBe(200);
+    expect(Object.keys(serverTiming(feed))).toEqual(["total"]);
+    const unauthenticated = await exports.default.fetch("https://pateat.invalid/v1/recipes");
+    expect(unauthenticated.status).toBe(401);
+    expect(Object.keys(serverTiming(unauthenticated))).toEqual(["total"]);
+    expect(unauthenticated.headers.get("Timing-Allow-Origin")).toBeNull();
+
+    tokenStatus = 503;
+    const failed = await generateResponse(device, emailPage);
+    expect(await failed.json()).toMatchObject({ reason: "token-exchange-failed" });
+    expect(Object.keys(serverTiming(failed)).sort()).toEqual(["token", "total"]);
+    // A missing credential is refused at the same step, without a model request.
+    const unconfigured = await generateResponse(await owner({ claude: false }), emailPage);
+    expect(await unconfigured.json()).toMatchObject({ reason: "credentials-not-configured" });
+    expect(Object.keys(serverTiming(unconfigured)).sort()).toEqual(["token", "total"]);
+  });
+
+  it("keeps the server time of a request answered without a model call, and no call times", async () => {
+    const device = await owner();
+    // Refused by the credential step inside the call, and by the route before any call.
+    tokenStatus = 503;
+    const failed = await generateResponse(device, emailPage);
+    expect(await failed.json()).toMatchObject({ reason: "token-exchange-failed" });
+    const incomplete = await generateResponse(device, {
+      ...emailPage,
+      path: "/other",
+      complete: false,
+    });
+    expect(await incomplete.json()).toMatchObject({ error: "incomplete-observation" });
+    expect(Object.keys(serverTiming(incomplete))).toEqual(["total"]);
+    const logged = await settledRows(device.ownerId, "generate");
+    expect(logged).toEqual([
+      expect.objectContaining({
+        outcome: "token-exchange-failed",
+        pre_model_ms: null,
+        token_ms: null,
+        model_ms: null,
+        server_ms: expect.any(Number),
+      }),
+      expect.objectContaining({
+        outcome: "incomplete-observation",
+        pre_model_ms: null,
+        token_ms: null,
+        model_ms: null,
+        server_ms: expect.any(Number),
+      }),
+    ]);
+  });
+});
+
+describe("signed-in page samples (ADR 0029, owner 2026-10-18 08:05 UTC)", () => {
+  const sample = (device: Device, recipeId: string, body: Record<string, unknown> = {}) =>
+    post(device, `/v1/recipes/${recipeId}/page-sample`, {
+      version: 1,
+      revision: 2,
+      route: "password",
+      observation: homePage,
+      ...body,
+    });
+  const sampledRows = async (ownerId: string) =>
+    (
+      await rows(
+        "SELECT role, provider, model_id, prompt_version, outcome, origin, path, recipe_id, branch, base_revision, revision, recipe_page, build, observation_hash, request, result, answer, input_tokens, output_tokens, cost_micro_usd FROM inference_log WHERE owner_id = ? AND outcome = 'sampled' ORDER BY created_at",
+        ownerId,
+      )
+    ).map((row) => ({ ...row, request: JSON.parse(String(row.request)) as unknown }));
+  const logCount = async (ownerId: string) =>
+    (await rows("SELECT COUNT(*) AS count FROM inference_log WHERE owner_id = ?", ownerId))[0]![
+      "count"
+    ];
+
+  it("logs the page as the judge would have received it, without a model call", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    const calls = sent.length;
+    const spend = await rows(
+      "SELECT period, calls, cost_micro_usd FROM inference_spend WHERE owner_id = ? ORDER BY period",
+      device.ownerId,
+    );
+    const response = await sample(device, change.recipeId);
+    expect(response.status).toBe(201);
+    expect(await response.text()).toBe("");
+    expect(sent).toHaveLength(calls);
+    expect(await sampledRows(device.ownerId)).toEqual([
+      {
+        role: "judge",
+        provider: null,
+        model_id: null,
+        prompt_version: await completionPromptVersion(),
+        outcome: "sampled",
+        origin: ORIGIN,
+        path: "/home",
+        recipe_id: change.recipeId,
+        branch: "",
+        base_revision: 2,
+        revision: null,
+        recipe_page: null,
+        build: "test-revision",
+        observation_hash: await hashOf(homePage),
+        request: {
+          instructions: completionInstructions,
+          recipeId: change.recipeId,
+          route: "password",
+          loginPaths: ["/login", "/password"],
+          observation: homePage,
+        },
+        result: null,
+        answer: null,
+        input_tokens: null,
+        output_tokens: null,
+        cost_micro_usd: 0,
+      },
+    ]);
+    // As a request answered without a call, it has no model times, only its server time.
+    const timed = await vi.waitFor(async () => {
+      const [found] = await rows(
+        "SELECT pre_model_ms, token_ms, model_ms, server_ms FROM inference_log WHERE owner_id = ? AND outcome = 'sampled'",
+        device.ownerId,
+      );
+      expect(found?.["server_ms"]).not.toBeNull();
+      return found;
+    });
+    expect(timed).toEqual({
+      pre_model_ms: null,
+      token_ms: null,
+      model_ms: null,
+      server_ms: expect.any(Number),
+    });
+    // The spend the limits count is unchanged.
+    expect(
+      await rows(
+        "SELECT period, calls, cost_micro_usd FROM inference_spend WHERE owner_id = ? ORDER BY period",
+        device.ownerId,
+      ),
+    ).toEqual(spend);
+  });
+
+  it("keeps one sample of a recipe in 30 days, whichever device sends it", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    expect((await sample(device, change.recipeId)).status).toBe(201);
+    // Another page, revision or device of the owner within 30 days writes nothing.
+    const otherDevice = { ...device, deviceId: `device-${crypto.randomUUID()}` };
+    otherDevice.token = createDeviceToken();
+    await env.DB.prepare(
+      "INSERT INTO devices (id, owner_id, token_hash, created_at, last_used_at) VALUES (?, ?, ?, ?, ?)",
+    )
+      .bind(
+        otherDevice.deviceId,
+        device.ownerId,
+        await hashDeviceToken(otherDevice.token),
+        Date.now(),
+        Date.now(),
+      )
+      .run();
+    const other = observation("/account", [element("logout", "button", "Sign out")]);
+    expect((await sample(device, change.recipeId, { observation: other })).status).toBe(204);
+    expect((await sample(device, change.recipeId, { revision: 1 })).status).toBe(204);
+    expect((await sample(otherDevice, change.recipeId)).status).toBe(204);
+    expect(await sampledRows(device.ownerId)).toHaveLength(1);
+    // Just inside 30 days it still counts; past them, a new sample is kept.
+    const interval = 30 * DAY_MS;
+    await env.DB.prepare(
+      "UPDATE inference_log SET created_at = ? WHERE owner_id = ? AND outcome = 'sampled'",
+    )
+      .bind(Date.now() - interval + 60_000, device.ownerId)
+      .run();
+    expect((await sample(device, change.recipeId)).status).toBe(204);
+    await env.DB.prepare(
+      "UPDATE inference_log SET created_at = ? WHERE owner_id = ? AND outcome = 'sampled'",
+    )
+      .bind(Date.now() - interval - 1, device.ownerId)
+      .run();
+    expect((await sample(device, change.recipeId, { observation: other })).status).toBe(201);
+    expect((await sampledRows(device.ownerId)).map(({ path }) => path)).toEqual([
+      "/home",
+      "/account",
+    ]);
+    // Another owner's sample of the same recipe ID does not count for this one.
+    const stranger = await owner();
+    const theirs = await twoPageRecipe(stranger);
+    expect(theirs.recipeId).toBe(change.recipeId);
+    expect((await sample(stranger, theirs.recipeId)).status).toBe(201);
+    expect(sent).toHaveLength(4);
+  });
+
+  it("keeps a sample past the daily cap of requests answered without a call", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    const now = Date.now();
+    await env.DB.batch(
+      Array.from({ length: 500 }, (_, index) =>
+        env.DB.prepare(
+          "INSERT INTO inference_log (id, owner_id, role, provider, model_id, origin, path, request, outcome, cost_micro_usd, created_at) VALUES (?, ?, 'generate', NULL, NULL, ?, '/', '{}', 'busy', 0, ?)",
+        ).bind(`${device.ownerId}-busy-${index}`, device.ownerId, ORIGIN, now - 1),
+      ),
+    );
+    expect((await sample(device, change.recipeId)).status).toBe(201);
+    expect(await sampledRows(device.ownerId)).toHaveLength(1);
+  });
+
+  it("deletes samples older than a year when it keeps one", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    expect((await sample(device, change.recipeId)).status).toBe(201);
+    await env.DB.prepare(
+      "UPDATE inference_log SET created_at = ? WHERE owner_id = ? AND outcome = 'sampled'",
+    )
+      .bind(Date.now() - 366 * DAY_MS, device.ownerId)
+      .run();
+    expect((await sample(device, change.recipeId)).status).toBe(201);
+    expect(
+      await rows(
+        "SELECT COUNT(*) AS count FROM inference_log WHERE owner_id = ? AND outcome = 'sampled' AND created_at < ?",
+        device.ownerId,
+        Date.now() - 365 * DAY_MS,
+      ),
+    ).toEqual([{ count: 0 }]);
+    expect(await sampledRows(device.ownerId)).toHaveLength(1);
+  });
+
+  it("refuses another owner's recipe, an unknown or revoked revision and pages it cannot end on", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    const before = await logCount(device.ownerId);
+    // Not found: a missing recipe, a revision never written, another owner's recipe.
+    expect((await sample(device, "gen-missing")).status).toBe(404);
+    expect((await sample(device, change.recipeId, { revision: 3 })).status).toBe(404);
+    expect((await sample(await owner(), change.recipeId)).status).toBe(404);
+    const refused = [
+      // Pages the revision cannot have ended on.
+      { observation: { ...homePage, origin: "https://www.shop.example.test" } },
+      { observation: { ...homePage, complete: false } },
+      { route: "passkey" },
+      { branch: "account" },
+      // Bodies that fail validation.
+      { version: 2 },
+      { partial: true },
+      { route: "sso" },
+      { observation: { ...homePage, version: 2 } },
+    ];
+    const statuses = await Promise.all(
+      refused.map(async (body) => (await sample(device, change.recipeId, body)).status),
+    );
+    expect(statuses).toEqual(refused.map(() => 400));
+    // A revoked recipe keeps only its tombstone.
+    const revoked = await post(
+      device,
+      `/v1/recipes/${change.recipeId}`,
+      { version: 1, expectedRevision: 2, state: "revoked" },
+      "PUT",
+    );
+    expect(revoked.status).toBe(200);
+    expect((await sample(device, change.recipeId)).status).toBe(404);
+    expect((await sample(device, change.recipeId, { revision: 3 })).status).toBe(404);
+    expect(await logCount(device.ownerId)).toBe(before);
+    expect(sent).toHaveLength(2);
+  });
+
+  it("refuses a page that still shows one of the route's fill fields, as the judge does", async () => {
+    const device = await owner();
+    const change = await twoPageRecipe(device);
+    const before = await logCount(device.ownerId);
+    // The sign-in page itself, a home page that still shows the password field, and the
+    // email field on a path of no sign-in step: none is a signed-in page.
+    const pages = [
+      passwordPage,
+      observation("/home", [
+        element("logout", "button", "Sign out"),
+        element("password", "password", "Password"),
+      ]),
+      observation("/account", [
+        element("logout", "button", "Sign out"),
+        element("email", "email", "Email"),
+      ]),
+    ];
+    const statuses = await Promise.all(
+      pages.map(
+        async (page) => (await sample(device, change.recipeId, { observation: page })).status,
+      ),
+    );
+    expect(statuses).toEqual([400, 400, 400]);
+    expect(await logCount(device.ownerId)).toBe(before);
+    // None of them holds off the recipe's signed-in page.
+    expect((await sample(device, change.recipeId)).status).toBe(201);
+    expect((await sampledRows(device.ownerId)).map(({ path }) => path)).toEqual(["/home"]);
+  });
+
+  it("answers other methods with 405", async () => {
+    const device = await owner();
+    const response = await exports.default.fetch(
+      "https://pateat.invalid/v1/recipes/gen-1/page-sample",
+      { headers: { Authorization: `Bearer ${device.token}` } },
+    );
+    expect(response.status).toBe(405);
+    expect(response.headers.get("Allow")).toBe("POST");
   });
 });

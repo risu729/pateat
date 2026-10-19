@@ -22,6 +22,26 @@ Amended on 2026-10-12 by the owner's decision on a sign-in form's lone `new-pass
 field ([Decision](#decision)), which the plan check implements.
 Amended on 2026-10-12: every number on the page shown after sign-in becomes `[number]`
 ([Architecture](../architecture.md#declarative-recipes-and-ai)).
+Amended on 2026-10-14: [retention purge failures](#retention-purge-failures)
+are isolated from sync and call logging (implemented).
+Amended on 2026-10-18 by [ADR 0048](0048-password-method-button.md) (owner, 01:38 UTC):
+the click of a learned `password` handler that follows the recipe's final `advance` is
+continued like that advance
+([Continuing after an advance](#continuing-after-an-advance)); implemented.
+Amended on 2026-10-18 by
+[ADR 0012](0012-inference-request-log.md#amendment-2026-10-18-rows-for-a-real-page-corpus)
+(owner, 06:08 UTC): [request log retention](#request-log-retention-of-one-year) is one
+year for every row, and the web UI's delete-all action exists; implemented.
+Amended on 2026-10-18 by
+[ADR 0012](0012-inference-request-log.md#amendment-2026-10-18-requests-answered-without-a-model-call)
+(owner, 08:04 UTC):
+[requests answered without a model call](#requests-answered-without-a-model-call) are
+logged too; implemented.
+Amended on 2026-10-19 by
+[ADR 0027](0027-per-account-login-routes.md#amendment-2026-10-19-slot-names-from-the-bindings)
+(owner, 01:22 UTC): generation reads the owner's saved bindings of the recipe to keep
+their slot names ([slot names from the bindings](#slot-names-from-the-bindings));
+implemented.
 
 Date: 2026-10-11
 
@@ -103,7 +123,9 @@ The route follows from these and from ADRs 0013 to 0016:
   leads to a page the recipe has no steps for, that page is sent and its steps are
   appended to the same recipe in a new revision.
 - The extension writes the slot-to-field bindings itself and uploads them with settings
-  sync; the service never sees item IDs.
+  sync; the service never sees item IDs in a generation request (since 2026-10-19 it
+  reads the stored bindings' slot names and field references while generating, never
+  their item IDs: [slot names from the bindings](#slot-names-from-the-bindings)).
 - Limits per owner: $100 a month (the ADR 0014 default, estimated from returned usage
   and a versioned price table), $5 a day (UTC), one call at a time, and the ADR 0016
   retry window per origin and path (24 hours until 2026-10-12, now 10 minutes),
@@ -182,10 +204,14 @@ Implementation choices for the page after a recipe's final `advance` step, made 
   first variant), in the tab's own page rather than a frame, whose recipe has no
   `completion` and no `alternatives`, and only once the step in flight is the recipe's
   last step, an `advance`, and never a login that only fills the form after a logout,
-  which stops before the advance (ADR 0021 D). Once the result would settle as unknown,
-  confirmed sign-in evidence still completes the login before the continuation's own
-  rule applies (ADR 0029). A recipe with a completion has already reached a signed-in
-  page; its later pages are judged as before
+  which stops before the advance (ADR 0021 D). Since 2026-10-18
+  ([ADR 0048](0048-password-method-button.md)) the step in flight may also be the click
+  of a `password` handler when that click is the last step of the login's plan and the
+  recipe's own last step is an `advance`; its page is checked for a password input
+  before the click's hold, and the continued steps follow the handler's. Once the result
+  would settle as unknown, confirmed sign-in evidence still completes the login before
+  the continuation's own rule applies (ADR 0029). A recipe with a completion has
+  already reached a signed-in page; its later pages are judged as before
   ([ADR 0027](0027-per-account-login-routes.md)).
 - **Which page.** The page qualifies once it has finished loading
   (`document.readyState` is `complete`) and has shown, on one path for a second within
@@ -202,15 +228,17 @@ Implementation choices for the page after a recipe's final `advance` step, made 
   Visible means visible as the page's description reads it (2026-10-12): an input hidden
   from assistive technology (also by an ancestor, as behind a dialog), transparent, tiny
   or moved before the page's start never counts, as a password input an email form keeps
-  for the browser to fill; a page that shows no other is judged. On the Grok Bot
-  computer (19:51 UTC), the page after Microsoft's Next was sent with only its email
-  form described; such an input making that form qualify is the inferred cause, not
-  checked on the live page. An input marked `new-password` or `one-time-code`, and every
-  input of a form that holds one, never counts: a sign-up, password change or code form
-  is not continued, and a code page is judged, which may add a `totp` handler (ADR
-  0027). Any other page is judged as before. The email input and the `email` token widen
-  ADR 0016's third input condition for this page only, since email-first sign-in pages
-  often mark their field only as an email address.
+  for the browser to fill; a page that shows no other is judged. Since 2026-10-17 (agent
+  fix, not an owner decision), an input that is transparent only because it or an
+  ancestor is fading in from opacity 0 counts as visible, as everywhere the page is
+  read. On the Grok Bot computer (19:51 UTC), the page after Microsoft's Next was sent
+  with only its email form described; such an input making that form qualify is the
+  inferred cause, not checked on the live page. An input marked `new-password` or
+  `one-time-code`, and every input of a form that holds one, never counts: a sign-up,
+  password change or code form is not continued, and a code page is judged, which may
+  add a `totp` handler (ADR 0027). Any other page is judged as before. The email input
+  and the `email` token widen ADR 0016's third input condition for this page only, since
+  email-first sign-in pages often mark their field only as an email address.
 - **One request per step.** The page is described by `extractLoginObservation` and sent
   only when the description is complete, on the login's origin and on the path that
   qualified, and shows an input of the kind the page qualified with: a password input
@@ -282,6 +310,37 @@ Implementation choices for the page after a recipe's final `advance` step, made 
   page is sent to be continued rather than judged. A sign-in form whose only password
   field is marked `new-password`, which a first page may fill since 2026-10-12, is not
   continued after an `advance` step: such a page is judged.
+
+### Retention purge failures
+
+The owner chose this amendment on 2026-10-14 at 07:24 UTC
+([issue #543](https://github.com/risu729/pateat/issues/543)): a failed purge is logged
+without request or error values and never fails recipe sync or the call log.
+
+### Request log retention of one year
+
+The owner chose on 2026-10-18 at 06:08 UTC
+([ADR 0012](0012-inference-request-log.md#amendment-2026-10-18-rows-for-a-real-page-corpus)):
+every row of the request log is kept one year instead of 90 days, and rows older than
+that are deleted at the same two points. The delete-all action is the web UI's Request
+log page (`DELETE /manage/api/request-log`).
+
+### Requests answered without a model call
+
+The owner chose on 2026-10-18 at 08:04 UTC
+([ADR 0012](0012-inference-request-log.md#amendment-2026-10-18-requests-answered-without-a-model-call)):
+a request answered without a model call, refused locally included, is logged with the
+code it was answered with, at no cost.
+
+### Slot names from the bindings
+
+The owner chose on 2026-10-19 at 01:22 UTC
+([ADR 0027](0027-per-account-login-routes.md#amendment-2026-10-19-slot-names-from-the-bindings))
+that a custom field the saved bindings already name keeps that name. The bindings the
+extension uploads with settings sync hold item IDs, and the generation route now reads
+them: of the bindings of the page's origin and recipe, it takes only each entry's slot
+name and field reference. The generation request still carries no item ID, and nothing
+of the bindings reaches the model.
 
 ## Consequences
 

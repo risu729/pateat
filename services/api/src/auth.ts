@@ -2,6 +2,7 @@ import { DEVICE_IDLE_LIMIT_MS } from "@pateat/contracts";
 import { and, eq, lte } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { createMiddleware } from "hono/factory";
+import type { RequestTrace } from "./claude/calls";
 import { devices } from "./db/schema";
 import { apiError } from "./http";
 
@@ -10,7 +11,8 @@ export type DeviceScope = { ownerId: string; deviceId: string };
 export type AccessIdentity = { issuer: string; subject: string };
 export type ApiEnv = {
   Bindings: Env;
-  Variables: { scope: DeviceScope; identity: AccessIdentity };
+  /** `trace` is set on device requests only (`traceRequest`). */
+  Variables: { scope: DeviceScope; identity: AccessIdentity; trace: RequestTrace };
 };
 
 const TOKEN_PREFIX = "pateat_device_";

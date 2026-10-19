@@ -1,6 +1,6 @@
 import type { LoginObservation, ObservedCandidate, SemanticSlot } from "@pateat/contracts";
 import { valueShapeOf } from "../values";
-import { customSlotNames, slots } from "./slots";
+import { slots } from "./slots";
 
 export type ExpectedResult =
   | {
@@ -91,15 +91,11 @@ export const customField = (
 });
 
 /**
- * The ground-truth plan's fields, each custom-field slot with its generic name. Names are
- * free text, so scoring compares only slots and candidates.
+ * The ground-truth plan's fields. Custom-field slots are named from the page, not by the
+ * model (ADR 0027), so scoring compares only slots and candidates.
  */
 export const expectedFields = (expected: Extract<ExpectedResult, { kind: "plan" }>) =>
-  Object.entries(expected.fields).map(([slot, candidate]) => ({
-    slot,
-    candidate,
-    ...(customSlotNames[slot] === undefined ? {} : { name: customSlotNames[slot] }),
-  }));
+  Object.entries(expected.fields).map(([slot, candidate]) => ({ slot, candidate }));
 
 /** The ground truth's alternatives as a generated plan names them. */
 export const expectedAlternatives = (expected: Extract<ExpectedResult, { kind: "plan" }>) =>

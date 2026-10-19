@@ -1,4 +1,5 @@
 import { loginMarkerTargetSchema, loginOriginSchema, loginStepSchema } from "./login";
+import { recipeSlotIdSchema } from "./settings";
 import * as v from "valibot";
 
 const identifier = v.pipe(
@@ -39,14 +40,12 @@ const path = v.pipe(
 const unique = (values: string[]) => new Set(values).size === values.length;
 
 /**
- * The path segment a signed-in page's observation carries in place of one that may hold
- * a session ID, an account ID or another token (ADR 0029), such as Cloudflare's
- * `/<account ID>/home`, sent as `/[id]/home`.
+ * The path segment every observation carries in place of one that may hold a session ID,
+ * a tenant or account ID or another token (ADR 0029, extended to every page by ADR 0039),
+ * such as Cloudflare's `/<account ID>/home`, sent as `/[id]/home`. Recipes are stored
+ * under such a path, and the extension compares a live page with them through it.
  */
 export const REDACTED_PATH_SEGMENT = "[id]";
-/** Whether a path has a segment the extension replaced, so it names no real page. */
-export const hasRedactedSegment = (value: string) =>
-  value.split("/").includes(REDACTED_PATH_SEGMENT);
 
 /**
  * Element roles an observation may describe. Fill roles accept a slot value; action
@@ -115,7 +114,8 @@ export const observedAutocompleteTokens = [
 export const observedCandidateSchema = v.strictObject({
   id: identifier,
   role: candidateRoleSchema,
-  // A link may be named by its path (`href`) on a signed-in page, as a marker only.
+  // A link may be named by its path (`href`) on a signed-in page, as a marker only, and a
+  // button by its accessible name there, as a `password` handler's button only.
   target: loginMarkerTargetSchema,
   label: v.optional(observedText),
   placeholder: v.optional(observedText),
@@ -253,6 +253,15 @@ export const loginObservationSchema = v.pipe(
       ),
     "Autocomplete and label locators apply only to fields",
   ),
+  // Only a signed-in page's description offers one, for a button that may go on to the
+  // password (ADR 0048 amendment of 2026-10-19).
+  v.check(
+    (observation) =>
+      observation.candidates.every(
+        ({ role, target }) => target.by !== "accessible-name" || role === "button",
+      ),
+    "Accessible-name locators apply only to buttons",
+  ),
 );
 
 /** Character classes of a value shape, in their canonical order. */
@@ -292,12 +301,13 @@ export const valueShapeSchema = v.strictObject({
 const fieldCount = v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(1000));
 
 /**
- * A semantic slot the caller wants mapped. Values and account bindings never enter
- * inference. `fieldName` is the user's name for an allowed vault field, with
- * `fieldPosition` among the item's custom fields of that name when several share it
- * (ADR 0013, ADR 0027). `hidden` is a Bitwarden Hidden custom field, filled under the
- * Hidden rule of ADR 0013. `valueShape` is allowed only on identifier slots backed by a
- * visible value (ADR 0010), so never on secret, hidden or one-time-code slots.
+ * A semantic slot the caller wants mapped. Values and account bindings are never part of
+ * the model's input; the service matches a slot to the owner's saved bindings only to
+ * keep their slot names (ADR 0027). `fieldName` is the user's name for an allowed vault
+ * field, with `fieldPosition` among the item's custom fields of that name when several
+ * share it (ADR 0013, ADR 0027). `hidden` is a Bitwarden Hidden custom field, filled
+ * under the Hidden rule of ADR 0013. `valueShape` is allowed only on identifier slots
+ * backed by a visible value (ADR 0010), so never on secret, hidden or one-time-code slots.
  */
 export const semanticSlotSchema = v.pipe(
   v.strictObject({
@@ -339,20 +349,16 @@ export const semanticSlotsSchema = v.pipe(
   ),
 );
 
-/** Slot IDs a generic ID may not take: the built-in slots keep their meaning. */
+/** Slot IDs a custom-field slot may not take, in any case: the built-in slots keep theirs. */
 export const reservedSlotIds = ["username", "password", "totp"] as const;
 /**
- * The ID a recipe stores for a custom-field slot (ADR 0027): a short generic English name
- * for what the page asks for, such as `branch-number`, in lowercase ASCII words joined by
- * hyphens. Digits and other scripts never fit, so an account number or a vault field name
- * in Japanese cannot become a slot ID.
+ * The recipe slot ID of a custom-field slot (ADR 0027): any recipe slot ID other than a
+ * built-in slot's, compared without case.
  */
-export const genericSlotIdSchema = v.pipe(
-  v.string(),
-  v.maxLength(40),
-  v.regex(/^[a-z]{2,}(?:-[a-z]{2,}){0,3}$/u),
+export const customSlotIdSchema = v.pipe(
+  recipeSlotIdSchema,
   v.check(
-    (value) => !(reservedSlotIds as readonly string[]).includes(value),
+    (value) => !(reservedSlotIds as readonly string[]).includes(value.toLowerCase()),
     "Use a slot ID other than a built-in slot",
   ),
 );

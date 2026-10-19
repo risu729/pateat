@@ -1,12 +1,16 @@
 import {
+  manageDashboardSchema,
   manageDevicesSchema,
   manageErrorSchema,
   manageRecipeConflictSchema,
   manageRecipesSchema,
+  manageRequestLogDeletedSchema,
+  manageRequestLogSchema,
   manageSettingsConflictSchema,
   syncRecipeWriteResultSchema,
   syncSettingsStateSchema,
   type LocalSettings,
+  type ManageDashboardRange,
   type ManageErrorCode,
   type SyncSettingsState,
 } from "@pateat/contracts";
@@ -62,6 +66,10 @@ async function read<TSchema extends v.GenericSchema>(response: Response, schema:
 
 export function createManageClient(fetcher: ManageFetch = (input, init) => fetch(input, init)) {
   return {
+    /** The dashboard's aggregates over the range, ending now. */
+    async dashboard(range: ManageDashboardRange) {
+      return read(await call(fetcher, `/dashboard?range=${range}`), manageDashboardSchema);
+    },
     async devices() {
       return read(await call(fetcher, "/devices"), manageDevicesSchema);
     },
@@ -94,6 +102,14 @@ export function createManageClient(fetcher: ManageFetch = (input, init) => fetch
         body: JSON.stringify({ version: 1, expectedRevision }),
       });
       return read(response, syncRecipeWriteResultSchema);
+    },
+    async requestLog() {
+      return read(await call(fetcher, "/request-log"), manageRequestLogSchema);
+    },
+    /** Deletes every request the owner's log holds; recipes and settings stay. */
+    async deleteRequestLog() {
+      const response = await call(fetcher, "/request-log", { method: "DELETE" });
+      return read(response, manageRequestLogDeletedSchema);
     },
   };
 }

@@ -1,5 +1,6 @@
 import {
   isLoginTarget,
+  isStepTarget,
   totpCodeRefusal,
   loginObservationSchema,
   splitCodeInputs,
@@ -40,9 +41,11 @@ export const judgedPageSchema = v.strictObject({
     v.strictObject({
       decision: described(
         v.literal("challenge"),
-        "The page asks for another step, such as a code, a CAPTCHA or a confirmation.",
+        "The page asks for another step, such as a code, a CAPTCHA, a confirmation or a " +
+          "choice of how to confirm the sign-in.",
       ),
       passkeyButton: v.optional(reference),
+      passwordButton: v.optional(reference),
       code: v.optional(
         described(
           v.strictObject({
@@ -79,6 +82,16 @@ export const completionInstructions = [
   "On a page that asks only to verify with a security key, passkey or FIDO",
   "authenticator, even with a link to other methods, the button that starts that check",
   "is passkeyButton whatever its label says.",
+  "A page that asks how to confirm the sign-in, such as with the password or a phone, is",
+  "a challenge. passwordButton is the button on such a page that goes on to typing the",
+  "account's existing password, such as Password or Use your password; never one that",
+  "uses a phone, mobile, push notification, SMS, email, an app, a passkey or security",
+  "key, sends or enters a code, creates, resets or changes a password, says Forgot",
+  "password, tries another way or cancels, and never a link. Nor is it a button that",
+  "uses the device's biometrics or platform sign-in, such as Touch ID, Face ID, a",
+  "fingerprint or Windows Hello, even one whose label also names the password.",
+  "A button by accessible-name may show only neutral text, such as Select; judge it by",
+  "that name.",
   "A challenge that asks for a code always fills code: its field, submit and source.",
   "code.source is sms or email when the page says the code was sent to the person or",
   "names where it went (a phone, call, message or address), authenticator-app when it",
@@ -121,12 +134,14 @@ export type SignInJudgement =
   | { decision: "signed-in"; target: LoginMarkerTarget }
   | { decision: "rejected" }
   /**
-   * `passkey` is the judged page's passkey second-factor button; `totp` its code field
-   * for the item's TOTP and the button that submits it. `addHandler` checks either.
+   * `passkey` is the judged page's passkey second-factor button; `password` its button
+   * that goes on to the password (ADR 0048); `totp` its code field for the item's TOTP
+   * and the button that submits it. `addHandler` checks each.
    */
   | {
       decision: "challenge";
       passkey?: LoginTarget;
+      password?: LoginTarget;
       totp?: { field: LoginFieldTarget; target: LoginTarget };
       /**
        * Why a code the model named was not kept as `totp`, for the log: its source when
@@ -162,10 +177,43 @@ function totpCode(
   if (!submit) return { totpDropped: "unknown-submit" };
   const refusal = totpCodeRefusal(page, field, submit);
   if (refusal || field.target.by === "text") return { totpDropped: refusal ?? "text-locator" };
-  // A link named by its path is only ever a signed-in marker (ADR 0029).
+  // A link named by its path is only ever a signed-in marker (ADR 0029), and a button named
+  // by its accessible name only a `password` handler's (ADR 0048 amendment of 2026-10-19).
   if (field.target.by === "href" || !isLoginTarget(submit.target))
     return { totpDropped: "href-locator" };
+  if (!isStepTarget(field.target) || !isStepTarget(submit.target))
+    return { totpDropped: "name-locator" };
   return { totp: { field: field.target, target: submit.target } };
+}
+
+/**
+ * The judge's answer as the request log keeps it (ADR 0012, owner 2026-10-18): every
+ * decision, `unclear` and one the local checks refuse included, with each ID that is not
+ * a candidate of the page replaced by `?`. The judge has no slots.
+ */
+function loggedAnswer(
+  page: Pick<LoginObservation, "candidates">,
+  { result }: v.InferOutput<typeof judgedPageSchema>,
+): unknown {
+  const candidate = (id: string) => (page.candidates.some((entry) => entry.id === id) ? id : "?");
+  if (result.decision === "signed-in")
+    return { decision: result.decision, marker: candidate(result.marker) };
+  if (result.decision !== "challenge") return { decision: result.decision };
+  const { passkeyButton, passwordButton, code } = result;
+  return {
+    decision: result.decision,
+    ...(passkeyButton === undefined ? {} : { passkeyButton: candidate(passkeyButton) }),
+    ...(passwordButton === undefined ? {} : { passwordButton: candidate(passwordButton) }),
+    ...(code === undefined
+      ? {}
+      : {
+          code: {
+            field: candidate(code.field),
+            submit: candidate(code.submit),
+            source: code.source,
+          },
+        }),
+  };
 }
 
 export type CompletionRequest = {
@@ -188,8 +236,8 @@ export type CompletionRequest = {
  * Sign-in judge for a page a generated recipe's steps and handlers did not explain.
  * `unclear` is an abstention; a marker that is not a button or link of this page, or a
  * page that still asks for a current password, fails closed as `invalid-output`. A
- * named passkey button that is not a button of this page, and a code that fails the
- * checks of `totpCode`, are dropped.
+ * named passkey or password button that is not a button of this page, and a code that
+ * fails the checks of `totpCode`, are dropped.
  */
 export function createCompletionJudge(config: {
   model: Exclude<LanguageModel, string>;
@@ -235,17 +283,23 @@ export function createCompletionJudge(config: {
       maxOutputTokens,
       abortSignal: request.abortSignal,
       refusalCategory: config.refusalCategory,
+      answer: (output) => loggedAnswer(page, output),
       interpret: (output): Interpreted<SignInJudgement> => {
         const draft = output.result;
         if (draft.decision === "unclear")
           return { status: "abstained", reason: "insufficient-evidence" };
         if (draft.decision === "rejected") return { status: "ok", value: draft };
         if (draft.decision === "challenge") {
-          const found = page.candidates.find(
-            (candidate) => candidate.id === draft.passkeyButton && candidate.role === "button",
-          );
-          const button =
-            found && isLoginTarget(found.target) ? { target: found.target } : undefined;
+          // Only a `password` handler's button may be named by its accessible name (ADR 0048
+          // amendment of 2026-10-19).
+          const buttonOf = (id: string | undefined) =>
+            page.candidates.find((candidate) => candidate.id === id && candidate.role === "button")
+              ?.target;
+          const passkeyTarget = buttonOf(draft.passkeyButton);
+          const passwordTarget = buttonOf(draft.passwordButton);
+          const passkey = passkeyTarget && isStepTarget(passkeyTarget) ? passkeyTarget : undefined;
+          const password =
+            passwordTarget && isLoginTarget(passwordTarget) ? passwordTarget : undefined;
           const totp = totpCode(page, draft.code);
           // A named element that is not a button of this page, or a code that fails the
           // local checks, adds no handler.
@@ -253,7 +307,8 @@ export function createCompletionJudge(config: {
             status: "ok",
             value: {
               decision: "challenge",
-              ...(button ? { passkey: button.target } : {}),
+              ...(passkey ? { passkey } : {}),
+              ...(password ? { password } : {}),
               ...totp,
             },
           };

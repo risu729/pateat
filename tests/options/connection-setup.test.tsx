@@ -1,6 +1,8 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, test, vi } from "vitest";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
+// oxlint-disable-next-line import/no-unassigned-import -- Exercise real modal positioning and transitions.
+import "../../apps/extension/entrypoints/options/style.css";
 import { cleanup, render } from "vitest-browser-react";
 import { BitwardenSetup } from "../../apps/extension/src/options/bitwarden-setup";
 import {
@@ -86,6 +88,31 @@ afterEach(async () => {
   await cleanup();
   vi.restoreAllMocks();
 });
+
+test.each(["o'brien@example.test", "tom&jerry@example.test", "name@example.x"])(
+  "an email the official Bitwarden login accepts, %s, is sent to the worker",
+  async (email) => {
+    const { client } = await mount();
+    await fillNew();
+    await page.getByLabelText("Email", { exact: true }).fill(email);
+    await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+    await vi.waitFor(() => expect(client.begin).toHaveBeenCalledTimes(1));
+    expect(client.begin.mock.calls[0]![0]).toMatchObject({ kind: "new", email });
+  },
+);
+
+test.each(["first..last@example.test", ".first@example.test", "名前@example.test"])(
+  "an email the official Bitwarden login refuses, %s, never starts a permission prompt",
+  async (email) => {
+    const { client } = await mount();
+    await fillNew();
+    await page.getByLabelText("Email", { exact: true }).fill(email);
+    await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+    await expect.element(page.getByText(/valid email and master password/)).toBeVisible();
+    expect(client.requestProviderPermission).not.toHaveBeenCalled();
+    expect(client.begin).not.toHaveBeenCalled();
+  },
+);
 
 test("permission denial clears the password and sends no sign-in request", async () => {
   const client = mockClient();
@@ -219,7 +246,8 @@ test("cancel closes the private lifetime and ignores a late successful begin", a
     .element(page.getByText("Setup stopped. Refresh to confirm the latest state."))
     .toBeVisible();
   expect(changed).toHaveBeenCalledTimes(changes);
-  expect(client.list).toHaveBeenCalledTimes(1);
+  // Stopping re-reads the rows once; the late reply adds no read.
+  expect(client.list).toHaveBeenCalledTimes(2);
 });
 
 test("unmount closes credential work and ignores its late response", async () => {
@@ -592,7 +620,8 @@ test("a running sync says so, can be cancelled from the header, and its reply re
   await expect
     .element(page.getByText("Stopped. Refresh to confirm the latest state.", { exact: true }))
     .toBeVisible();
-  expect(client.list).toHaveBeenCalledTimes(2);
+  // Stopping re-reads the rows once; the late reply adds no read.
+  expect(client.list).toHaveBeenCalledTimes(3);
 });
 
 test("deleting a connection needs an explicit confirmation and then removes it from the list", async () => {
@@ -620,19 +649,25 @@ test("deleting a connection needs an explicit confirmation and then removes it f
   await more.click();
   await remove.click();
   expect(client.deleteConnection).not.toHaveBeenCalled();
-  await expect.element(page.getByText(/^Delete Leftover vault\? This removes/)).toBeVisible();
-  // The confirmation takes focus, and Keep returns it to the row's menu button.
+  const dialog = page.getByRole("alertdialog", { name: "Delete Leftover vault?", exact: true });
+  await expect.element(dialog).toHaveAccessibleName("Delete Leftover vault?");
   await expect
-    .element(page.getByRole("button", { name: "Leftover vault: Confirm delete connection" }))
-    .toHaveFocus();
-  await page.getByRole("button", { name: "Leftover vault: Keep connection", exact: true }).click();
+    .element(dialog)
+    .toHaveAccessibleDescription(
+      "This removes the connection, its local vault cache, unlock key and sync sign-in from this device. It does not sign out other sessions, and saved settings that refer to it will show it as unavailable.",
+    );
+  // Close composes the repo's Button, including its ref and keyboard focus.
+  const keep = dialog.getByRole("button", { name: "Keep connection", exact: true });
+  await expect.element(keep).toHaveFocus();
+  await keep.click();
   await expect.element(page.getByText("Connection kept.")).toBeVisible();
   await expect.element(more).toHaveFocus();
   expect(client.deleteConnection).not.toHaveBeenCalled();
   await more.click();
   await remove.click();
   await page
-    .getByRole("button", { name: "Leftover vault: Confirm delete connection", exact: true })
+    .getByRole("alertdialog", { name: "Delete Leftover vault?", exact: true })
+    .getByRole("button", { name: "Delete connection", exact: true })
     .click();
   await vi.waitFor(() => expect(client.deleteConnection).toHaveBeenCalledWith("leftover"));
   expect(client.deleteConnection).toHaveBeenCalledTimes(1);
@@ -644,6 +679,174 @@ test("deleting a connection needs an explicit confirmation and then removes it f
   await expect.element(page.getByText("Kept vault", { exact: true })).toBeVisible();
   expect(client.list).toHaveBeenCalledTimes(2);
   expect(changed).toHaveBeenCalled();
+});
+
+test("the delete dialog traps focus, ignores its backdrop and keeps its payload through closing", async () => {
+  const client = mockClient();
+  const saved = (connectionId: string, label: string) => ({
+    connectionId,
+    label,
+    email: "saved@example.test",
+    environment: { kind: "cloud" as const, region: "us" as const },
+    state: "configured" as const,
+    autoUnlock: "unknown" as const,
+    providerSession: "none" as const,
+  });
+  client.list.mockResolvedValue({
+    ...status(),
+    connections: [saved("first", "First vault"), saved("second", "Second vault")],
+  });
+  await mount(client);
+  const more = page.getByRole("button", { name: "More for Second vault", exact: true });
+  await more.click();
+  await page
+    .getByRole("menuitem", { name: "Second vault: Delete connection", exact: true })
+    .click();
+  const dialog = page.getByRole("alertdialog", { name: "Delete Second vault?", exact: true });
+  const keep = dialog.getByRole("button", { name: "Keep connection", exact: true });
+  const remove = dialog.getByRole("button", { name: "Delete connection", exact: true });
+  await expect.element(keep).toHaveFocus();
+  await userEvent.keyboard("{Shift>}{Tab}{/Shift}");
+  await expect.element(remove).toHaveFocus();
+  await userEvent.keyboard("{Tab}");
+  await expect.element(keep).toHaveFocus();
+  // A real pointer press on the backdrop leaves the modal and its safe action intact.
+  const backdrop = document.querySelector<HTMLElement>("#bitwarden-delete-backdrop")!;
+  await page.elementLocator(backdrop).click({ position: { x: 8, y: 8 } });
+  await expect.element(dialog).toBeVisible();
+  expect(client.begin).not.toHaveBeenCalled();
+  expect(client.deleteConnection).not.toHaveBeenCalled();
+  await expect
+    .element(page.getByText("Connections loaded. Add a vault or sign in again below."))
+    .toBeVisible();
+  await keep.click();
+  await expect.element(more).toHaveFocus();
+  await more.click();
+  await page
+    .getByRole("menuitem", { name: "Second vault: Delete connection", exact: true })
+    .click();
+  await expect.element(keep).toHaveFocus();
+  const popup = dialog.element();
+  await vi.waitFor(() => expect(getComputedStyle(popup).opacity).toBe("1"));
+  // Hold a real CSS closing transition long enough to inspect the rendered payload.
+  popup.style.transitionDuration = "1s";
+  const title = popup.querySelector("h2")!;
+  let lostPayload = false;
+  const observer = new MutationObserver(() => {
+    if (popup.isConnected && title.textContent !== "Delete Second vault?") lostPayload = true;
+  });
+  observer.observe(popup, { childList: true, characterData: true, subtree: true });
+  try {
+    await userEvent.keyboard("{Escape}");
+    await vi.waitFor(() => expect(popup).toHaveAttribute("data-ending-style"));
+    expect(popup.isConnected).toBe(true);
+    expect(title.textContent).toBe("Delete Second vault?");
+    await expect.element(more).toHaveFocus();
+    await vi.waitFor(() => expect(popup.isConnected).toBe(false), { timeout: 2500 });
+    expect(lostPayload).toBe(false);
+  } finally {
+    observer.disconnect();
+  }
+  await expect.element(page.getByText("Connection kept.", { exact: true })).toBeVisible();
+  expect(client.deleteConnection).not.toHaveBeenCalled();
+});
+
+test.each(["keep", "escape", "delete"] as const)(
+  "the closing dialog cannot activate its retained buttons after %s",
+  async (action) => {
+    const client = mockClient();
+    const saved = {
+      connectionId: "closing",
+      label: "Closing vault",
+      email: "saved@example.test",
+      environment: { kind: "cloud" as const, region: "us" as const },
+      state: "configured" as const,
+      autoUnlock: "unknown" as const,
+      providerSession: "none" as const,
+    };
+    client.list.mockResolvedValue({ ...status(), connections: [saved] });
+    await mount(client);
+    await page.getByRole("button", { name: "More for Closing vault", exact: true }).click();
+    await page
+      .getByRole("menuitem", { name: "Closing vault: Delete connection", exact: true })
+      .click();
+    const dialog = page.getByRole("alertdialog", { name: "Delete Closing vault?", exact: true });
+    const popup = dialog.element();
+    const keep = dialog.getByRole("button", { name: "Keep connection", exact: true });
+    const remove = dialog.getByRole("button", { name: "Delete connection", exact: true });
+    const keepButton = keep.element();
+    const deleteButton = remove.element();
+    await expect.element(keep).toHaveFocus();
+    await vi.waitFor(() => expect(getComputedStyle(popup).opacity).toBe("1"));
+    // The buttons remain rendered during an actual CSS exit; use pointer clicks on them.
+    popup.style.transitionDuration = "5s";
+    try {
+      if (action === "delete") {
+        client.list.mockResolvedValue(status());
+        await remove.click();
+        await expect.element(page.getByText(/^Connection deleted from this device/)).toBeVisible();
+        // A fast result has already cleared busy, so that guard cannot mask this regression.
+        await vi.waitFor(() => expect(deleteButton).not.toBeDisabled());
+      } else if (action === "keep") await keep.click();
+      else await userEvent.keyboard("{Escape}");
+      await vi.waitFor(() => expect(popup).toHaveAttribute("data-ending-style"));
+      expect(popup.isConnected).toBe(true);
+      await page.elementLocator(deleteButton).click();
+      expect(client.deleteConnection).toHaveBeenCalledTimes(action === "delete" ? 1 : 0);
+      if (action === "delete") {
+        await page.elementLocator(keepButton).click();
+        await expect.element(page.getByText(/^Connection deleted from this device/)).toBeVisible();
+        await expect
+          .element(page.getByText("Connection kept.", { exact: true }))
+          .not.toBeInTheDocument();
+      } else {
+        await expect.element(page.getByText("Connection kept.", { exact: true })).toBeVisible();
+        await expect.element(page.getByText("Closing vault", { exact: true })).toBeVisible();
+      }
+    } finally {
+      for (const animation of popup.getAnimations()) animation.finish();
+    }
+    await vi.waitFor(() => expect(popup.isConnected).toBe(false));
+  },
+);
+
+test("the delete dialog fits a phone viewport with a long connection name", async () => {
+  await page.viewport(320, 640);
+  try {
+    const client = mockClient();
+    const label = "Synthetic".repeat(30);
+    client.list.mockResolvedValue({
+      ...status(),
+      connections: [
+        {
+          connectionId: "phone",
+          label,
+          email: "saved@example.test",
+          environment: { kind: "cloud", region: "us" },
+          state: "configured",
+          autoUnlock: "unknown",
+          providerSession: "none",
+        },
+      ],
+    });
+    await mount(client);
+    await page.getByRole("button", { name: `More for ${label}`, exact: true }).click();
+    await page.getByRole("menuitem", { name: `${label}: Delete connection`, exact: true }).click();
+    const dialog = page.getByRole("alertdialog", { name: `Delete ${label}?`, exact: true });
+    await expect
+      .element(dialog.getByRole("button", { name: "Keep connection", exact: true }))
+      .toHaveFocus();
+    const popup = dialog.element();
+    const bounds = popup.getBoundingClientRect();
+    expect(bounds.left).toBeGreaterThanOrEqual(16);
+    expect(bounds.right).toBeLessThanOrEqual(304);
+    expect(bounds.top).toBeGreaterThanOrEqual(16);
+    expect(bounds.bottom).toBeLessThanOrEqual(624);
+    expect(popup.scrollWidth).toBeLessThanOrEqual(popup.clientWidth);
+    await userEvent.keyboard("{Escape}");
+  } finally {
+    await page.viewport(1280, 720);
+  }
 });
 
 test("a failed delete keeps the connection listed and shows the error", async () => {
@@ -665,7 +868,8 @@ test("a failed delete keeps the connection listed and shows the error", async ()
     .getByRole("menuitem", { name: "Leftover vault: Delete connection", exact: true })
     .click();
   await page
-    .getByRole("button", { name: "Leftover vault: Confirm delete connection", exact: true })
+    .getByRole("alertdialog", { name: "Delete Leftover vault?", exact: true })
+    .getByRole("button", { name: "Delete connection", exact: true })
     .click();
   await expect.element(page.getByText(/reached a resource limit/)).toBeVisible();
   await expect.element(page.getByText("Leftover vault", { exact: true })).toBeVisible();
@@ -673,6 +877,350 @@ test("a failed delete keeps the connection listed and shows the error", async ()
   await expect
     .element(page.getByRole("button", { name: "More for Leftover vault", exact: true }))
     .toBeEnabled();
+});
+
+// The background keeps a new connection registered when its first sign-in fails.
+const registered = {
+  connectionId: "registered",
+  label: "Synthetic vault",
+  email: "test@example.test",
+  environment: { kind: "cloud" as const, region: "us" as const },
+  state: "configured" as const,
+  autoUnlock: "unknown" as const,
+  providerSession: "none" as const,
+};
+function addForm() {
+  return document.querySelector("#bitwarden details > summary")?.textContent;
+}
+
+test("a failed first sign-in switches the form to finishing its connection with automatic unlock", async () => {
+  const client = mockClient();
+  client.list
+    .mockResolvedValueOnce(status())
+    .mockResolvedValue({ ...status(), connections: [registered] });
+  client.begin
+    .mockResolvedValueOnce({ ok: false, error: { code: "authentication-rejected" } })
+    .mockImplementation(async () => ready());
+  await mount(client);
+  await fillNew();
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  await expect
+    .element(page.getByRole("button", { name: "Synthetic vault: Sign in again", exact: true }))
+    .toBeVisible();
+  // Connect cannot register a second connection: the form now finishes the listed one.
+  await vi.waitFor(() => expect(addForm()).toBe("Sign in to Synthetic vault again"));
+  await expect.element(page.getByText(/The provider rejected this sign-in/)).toBeVisible();
+  await expect
+    .element(page.getByLabelText("Enable automatic unlock on this device", { exact: true }))
+    .toBeChecked();
+  await expect.element(page.getByLabelText("Master password", { exact: true })).toHaveFocus();
+  await page.getByLabelText("Master password", { exact: true }).fill(password);
+  await page.getByRole("button", { name: "Sign in and sync", exact: true }).click();
+  await vi.waitFor(() => expect(client.begin).toHaveBeenCalledTimes(2));
+  expect(client.begin.mock.calls[1]![0]).toEqual({
+    kind: "existing",
+    connectionId: "registered",
+    password,
+    autoUnlock: "enable",
+  });
+});
+
+test("cancelling a first sign-in's verification lists its connection", async () => {
+  const client = mockClient();
+  client.list
+    .mockResolvedValueOnce(status())
+    .mockResolvedValue({ ...status(), connections: [registered] });
+  client.begin.mockResolvedValue({ ok: true, kind: "mfa-required", flowId, providers: [0] });
+  const { changed } = await mount(client);
+  await fillNew();
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  await expect.element(page.getByLabelText("Verification code", { exact: true })).toBeVisible();
+  const changes = changed.mock.calls.length;
+  await page.getByRole("button", { name: "Cancel setup", exact: true }).click();
+  expect(client.close).toHaveBeenCalledTimes(1);
+  expect(changed).toHaveBeenCalledTimes(changes + 1);
+  await expect
+    .element(page.getByRole("button", { name: "Synthetic vault: Sign in again", exact: true }))
+    .toBeVisible();
+  await expect.element(page.getByLabelText("Name", { exact: true })).toHaveValue("");
+  await expect.element(page.getByLabelText("Email", { exact: true })).toHaveValue("");
+});
+
+test("a connection added from the opened form leaves the form empty", async () => {
+  const client = mockClient();
+  const other = {
+    ...registered,
+    connectionId: "other",
+    label: "Other vault",
+    state: "ready" as const,
+  };
+  client.list.mockResolvedValueOnce({ ...status(), connections: [other] }).mockResolvedValue({
+    ...status(),
+    connections: [other, { ...registered, state: "ready", providerSession: "active" }],
+  });
+  await mount(client);
+  await page.getByText("Add a connection", { exact: true }).first().click();
+  await fillNew();
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  await expect
+    .element(page.getByRole("button", { name: "Synthetic vault: Sync", exact: true }))
+    .toBeVisible();
+  await expect.element(page.getByLabelText("Name", { exact: true })).toHaveValue("");
+  await expect.element(page.getByLabelText("Email", { exact: true })).toHaveValue("");
+});
+
+test("a later refresh keeps the draft after an add refused before registering", async () => {
+  const client = mockClient();
+  const other = { ...registered, connectionId: "other", label: "Other vault" };
+  client.list
+    .mockResolvedValueOnce(status())
+    .mockResolvedValueOnce(status())
+    .mockResolvedValue({ ...status(), connections: [other] });
+  client.begin.mockResolvedValue({ ok: false, error: { code: "resource-limit" } });
+  await mount(client);
+  await fillNew();
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  await expect.element(page.getByText(/reached a resource limit/)).toBeVisible();
+  await vi.waitFor(() => expect(client.list).toHaveBeenCalledTimes(2));
+  await page.getByLabelText("Name", { exact: true }).fill("Edited vault");
+  // Another page adds a connection; only the re-read after this page's own add may clear.
+  await page.getByRole("button", { name: "Refresh connections", exact: true }).click();
+  await expect
+    .element(page.getByRole("button", { name: "Other vault: Sign in again", exact: true }))
+    .toBeVisible();
+  await expect.element(page.getByLabelText("Name", { exact: true })).toHaveValue("Edited vault");
+  await expect
+    .element(page.getByLabelText("Email", { exact: true }))
+    .toHaveValue("test@example.test");
+});
+
+test("a refused add keeps the draft when its re-read lists another page's connection", async () => {
+  const client = mockClient();
+  const other = { ...registered, connectionId: "other", label: "Other vault" };
+  client.list
+    .mockResolvedValueOnce(status())
+    .mockResolvedValue({ ...status(), connections: [other] });
+  client.begin.mockResolvedValue({ ok: false, error: { code: "resource-limit" } });
+  await mount(client);
+  await fillNew();
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  await expect
+    .element(page.getByRole("button", { name: "Other vault: Sign in again", exact: true }))
+    .toBeVisible();
+  await expect.element(page.getByLabelText("Name", { exact: true })).toHaveValue("Synthetic vault");
+  await expect
+    .element(page.getByLabelText("Email", { exact: true }))
+    .toHaveValue("test@example.test");
+});
+
+test("a code rejected after a challenge switches the form to finishing its connection", async () => {
+  const client = mockClient();
+  client.list
+    .mockResolvedValueOnce(status())
+    .mockResolvedValue({ ...status(), connections: [registered] });
+  client.begin.mockResolvedValue({ ok: true, kind: "mfa-required", flowId, providers: [0] });
+  client.continue.mockResolvedValue({ ok: false, error: { code: "authentication-rejected" } });
+  await mount(client);
+  await fillNew();
+  await page.getByLabelText("Email", { exact: true }).fill("Test@Example.test");
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  await page.getByLabelText("Verification code", { exact: true }).fill("000123");
+  await page.getByRole("button", { name: "Verify code", exact: true }).click();
+  await expect
+    .element(page.getByRole("button", { name: "Synthetic vault: Sign in again", exact: true }))
+    .toBeVisible();
+  // The background stores the email lower-cased; the typed form still matches it.
+  await vi.waitFor(() => expect(addForm()).toBe("Sign in to Synthetic vault again"));
+  await expect
+    .element(page.getByLabelText("Enable automatic unlock on this device", { exact: true }))
+    .toBeChecked();
+});
+
+test("an unsupported interaction on a first sign-in switches the form to finishing its connection", async () => {
+  const client = mockClient();
+  client.list
+    .mockResolvedValueOnce(status())
+    .mockResolvedValue({ ...status(), connections: [registered] });
+  client.begin.mockResolvedValue({ ok: true, kind: "interaction-required", reason: "sso" });
+  await mount(client);
+  await fillNew();
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  await vi.waitFor(() => expect(addForm()).toBe("Sign in to Synthetic vault again"));
+  await expect.element(page.getByText(/^Setup is incomplete: sso\./)).toBeVisible();
+});
+
+test("Sign in again on a connection with an unreadable record leaves automatic unlock unchecked", async () => {
+  const client = mockClient();
+  client.list.mockResolvedValue({
+    ...status(),
+    connections: [{ ...registered, state: "unavailable" }],
+  });
+  await mount(client);
+  await page.getByRole("button", { name: "Synthetic vault: Sign in again", exact: true }).click();
+  await expect
+    .element(page.getByLabelText("Enable automatic unlock on this device", { exact: true }))
+    .not.toBeChecked();
+});
+
+test("Sign in again on a connection that never unlocked enables automatic unlock", async () => {
+  const client = mockClient();
+  client.list.mockResolvedValue({ ...status(), connections: [registered] });
+  await mount(client);
+  await page.getByRole("button", { name: "Synthetic vault: Sign in again", exact: true }).click();
+  await expect
+    .element(page.getByLabelText("Enable automatic unlock on this device", { exact: true }))
+    .toBeChecked();
+  await expect
+    .element(page.getByText(/finish setting up this connection\. Automatic unlock is enabled/))
+    .toBeVisible();
+});
+
+test("a connection registered after a stopped first sign-in clears the draft on refresh", async () => {
+  const client = mockClient();
+  client.list
+    .mockResolvedValueOnce(status())
+    .mockResolvedValueOnce(status())
+    .mockResolvedValue({ ...status(), connections: [registered] });
+  client.begin.mockReturnValue(held<SetupReply>().promise);
+  await mount(client);
+  await fillNew();
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  await vi.waitFor(() => expect(client.begin).toHaveBeenCalledTimes(1));
+  await page.getByRole("button", { name: "Cancel setup", exact: true }).click();
+  // The stop's re-read came before the background registered the connection.
+  await vi.waitFor(() => expect(client.list).toHaveBeenCalledTimes(2));
+  await expect.element(page.getByLabelText("Name", { exact: true })).toHaveValue("Synthetic vault");
+  await page.getByRole("button", { name: "Refresh connections", exact: true }).click();
+  await expect
+    .element(page.getByRole("button", { name: "Synthetic vault: Sign in again", exact: true }))
+    .toBeVisible();
+  await expect.element(page.getByLabelText("Name", { exact: true })).toHaveValue("");
+  await expect.element(page.getByLabelText("Email", { exact: true })).toHaveValue("");
+});
+
+test("a failed sync of another connection keeps a stopped add pending", async () => {
+  const client = mockClient();
+  const other = {
+    ...registered,
+    connectionId: "other",
+    label: "Other vault",
+    state: "ready" as const,
+    providerSession: "active" as const,
+  };
+  client.list
+    .mockResolvedValueOnce({ ...status(), connections: [other] })
+    .mockResolvedValueOnce({ ...status(), connections: [other] })
+    .mockResolvedValueOnce({ ...status(), connections: [other] })
+    .mockResolvedValue({ ...status(), connections: [other, registered] });
+  client.begin.mockReturnValue(held<SetupReply>().promise);
+  client.sync.mockResolvedValue({ ok: false, error: { code: "resource-limit" } });
+  await mount(client);
+  await page.getByText("Add a connection", { exact: true }).first().click();
+  await fillNew();
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  await vi.waitFor(() => expect(client.begin).toHaveBeenCalledTimes(1));
+  await page.getByRole("button", { name: "Cancel setup", exact: true }).click();
+  await vi.waitFor(() => expect(client.list).toHaveBeenCalledTimes(2));
+  await page.getByRole("button", { name: "Other vault: Sync", exact: true }).click();
+  await vi.waitFor(() => expect(client.list).toHaveBeenCalledTimes(3));
+  await expect.element(page.getByLabelText("Name", { exact: true })).toHaveValue("Synthetic vault");
+  await page.getByRole("button", { name: "Refresh connections", exact: true }).click();
+  await expect
+    .element(page.getByRole("button", { name: "Synthetic vault: Sign in again", exact: true }))
+    .toBeVisible();
+  await expect.element(page.getByLabelText("Name", { exact: true })).toHaveValue("");
+});
+
+test("Cancel setup with nothing running lets an earlier stop's re-read land", async () => {
+  const client = mockClient();
+  const reread = held<SetupReply>();
+  client.list.mockResolvedValueOnce(status()).mockReturnValueOnce(reread.promise);
+  client.begin.mockReturnValue(held<SetupReply>().promise);
+  await mount(client);
+  await fillNew();
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  await vi.waitFor(() => expect(client.begin).toHaveBeenCalledTimes(1));
+  await page.getByRole("button", { name: "Cancel setup", exact: true }).click();
+  await vi.waitFor(() => expect(client.list).toHaveBeenCalledTimes(2));
+  await page.getByLabelText("Master password", { exact: true }).fill(password);
+  await page.getByRole("button", { name: "Cancel setup", exact: true }).click();
+  reread.resolve({ ...status(), connections: [registered] });
+  await expect
+    .element(page.getByRole("button", { name: "Synthetic vault: Sign in again", exact: true }))
+    .toBeVisible();
+  await expect.element(page.getByLabelText("Name", { exact: true })).toHaveValue("");
+  expect(client.close).toHaveBeenCalledTimes(1);
+});
+
+test("a failed sync re-reads the rows", async () => {
+  const client = mockClient();
+  const saved = { ...registered, state: "ready" as const, providerSession: "active" as const };
+  client.list
+    .mockResolvedValueOnce({ ...status(), connections: [saved] })
+    .mockResolvedValue({ ...status(), connections: [{ ...saved, providerSession: "none" }] });
+  client.sync.mockResolvedValue({ ok: false, error: { code: "setup-reauthentication-required" } });
+  await mount(client);
+  await page.getByRole("button", { name: "Synthetic vault: Sync", exact: true }).click();
+  await expect
+    .element(page.getByRole("button", { name: "Synthetic vault: Sign in again", exact: true }))
+    .toBeVisible();
+  await expect.element(page.getByText(/^Sign in again to sync\./)).toBeVisible();
+});
+
+test("Cancel setup leaves sign-in-again mode and touches nothing when nothing runs", async () => {
+  const client = mockClient();
+  client.list.mockResolvedValue({ ...status(), connections: [registered] });
+  const { changed } = await mount(client);
+  await page.getByRole("button", { name: "Synthetic vault: Sign in again", exact: true }).click();
+  await vi.waitFor(() => expect(addForm()).toBe("Sign in to Synthetic vault again"));
+  await page.getByRole("button", { name: "Cancel setup", exact: true }).click();
+  await vi.waitFor(() => expect(addForm()).toBe("Add a connection"));
+  await expect
+    .element(page.getByRole("button", { name: "Cancel setup", exact: true }))
+    .toBeDisabled();
+  expect(client.close).not.toHaveBeenCalled();
+  expect(changed).not.toHaveBeenCalled();
+  expect(client.list).toHaveBeenCalledTimes(1);
+});
+
+test("stopping the first load re-reads the connections without reloading saved settings", async () => {
+  const client = mockClient();
+  const first = held<SetupReply>();
+  client.list
+    .mockReturnValueOnce(first.promise)
+    .mockResolvedValue({ ...status(), connections: [registered] });
+  const changed = vi.fn();
+  await render(
+    <QueryClientProvider client={createMetadataQueryClient()}>
+      <BitwardenSetup
+        client={client}
+        onCatalogChanged={changed}
+        renderOthers={(listed) => <p>{listed ? `Listed: ${listed.join(", ")}` : "Not listed"}</p>}
+      />
+    </QueryClientProvider>,
+  );
+  await expect.element(page.getByText("Not listed", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Cancel setup", exact: true }).click();
+  first.resolve(status());
+  // Stopping re-reads at once; nothing was written, so saved settings need no reload.
+  await expect.element(page.getByText("Listed: registered", { exact: true })).toBeVisible();
+  await expect
+    .element(page.getByText("Connections loaded. Add a vault or sign in again below."))
+    .toBeVisible();
+  expect(changed).not.toHaveBeenCalled();
+  expect(client.close).toHaveBeenCalledTimes(1);
+});
+
+test("stopping a first load that does not answer says so", async () => {
+  const client = mockClient();
+  client.list.mockReturnValue(held<SetupReply>().promise);
+  await render(
+    <QueryClientProvider client={createMetadataQueryClient()}>
+      <BitwardenSetup client={client} onCatalogChanged={vi.fn()} />
+    </QueryClientProvider>,
+  );
+  await page.getByRole("button", { name: "Cancel setup", exact: true }).click();
+  await expect.element(page.getByText("Loading stopped.", { exact: true })).toBeVisible();
 });
 
 test("sync after automatic unlock was disabled explains how to restore it", async () => {

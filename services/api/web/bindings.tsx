@@ -52,7 +52,7 @@ export function SiteBindings({
                     <ul>
                       {binding.slots.map((entry) => (
                         <li key={entry.slot}>
-                          {entry.slot} from {describeField(entry.field)}
+                          <bdi>{entry.slot}</bdi> from {describeField(entry.field)}
                         </li>
                       ))}
                     </ul>

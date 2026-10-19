@@ -24,7 +24,7 @@ export interface UriMatchEvaluation {
   readonly matched: boolean;
   /** Descriptive only: matching never authorizes release to this origin. */
   readonly targetOrigin: string;
-  readonly matches: readonly { readonly uriIndex: number; readonly match: 0 | 1 | 2 | 3 }[];
+  readonly matches: readonly { readonly uriIndex: number; readonly match: 0 | 1 | 2 | 3 | 4 }[];
   readonly unavailableUris: readonly {
     readonly uriIndex: number;
     readonly reason: UriUnavailableReason;
@@ -32,17 +32,26 @@ export interface UriMatchEvaluation {
 }
 type UriUnavailableReason =
   | "unsupported-uri-match"
+  | "regex-unevaluated"
   | "unsupported-uri-scheme"
   | "invalid-uri"
   | "default-match-unavailable"
   | "equivalent-domains-unavailable";
 
 const maxUris = 1000;
+/** A saved item URI; the Bitwarden server stores at most 10,000 encrypted characters. */
 const maxUrlLength = 8192;
+/**
+ * A page URL, which Bitwarden clients match at any length. Chromium refuses URLs longer
+ * than this (`url::kMaxURLChars`), so no page Pateat can see is longer.
+ */
+export const maxTargetUrlLength = 2 * 1024 * 1024;
 const maxGroups = 1000;
 const maxDomainMembers = 10_000;
-const hostText = v.pipe(v.string(), v.minLength(1), v.maxLength(253));
-const groupSchema = v.array(hostText);
+const maxHostLength = 253;
+const hostText = v.pipe(v.string(), v.minLength(1), v.maxLength(maxHostLength));
+// Entries are checked one by one later, so one bad entry does not void its groups.
+const groupSchema = v.array(v.string());
 const domainsSchema = v.object({
   equivalentDomains: v.nullable(v.array(groupSchema)),
   globalEquivalentDomains: v.nullable(
@@ -82,7 +91,11 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null &&
   !Array.isArray(value) &&
   (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null);
-const ambiguous = (value: string) => /\p{Cc}/u.test(value) || value.includes("\\");
+const controlled = (value: string) => /\p{Cc}/u.test(value);
+// Parsers disagree on a backslash in the authority and WHATWG rewrites it in the path; it
+// stays as is in the query and fragment, where the pinned client compares raw strings.
+const backslashBeforeQuery = (value: string) => (value.split(/[?#]/u, 1)[0] ?? "").includes("\\");
+const ambiguous = (value: string) => controlled(value) || backslashBeforeQuery(value);
 const hasHostnameLabels = (hostname: string) =>
   hostname.startsWith("[") ||
   hostname
@@ -90,25 +103,30 @@ const hasHostnameLabels = (hostname: string) =>
     .split(".")
     .every((label) => label.length > 0);
 
-function webUrl(value: string, allowBareHost: boolean): URL | undefined {
-  if (!value || value.length > maxUrlLength || ambiguous(value)) return undefined;
+function webUrl(value: string, allowBareHost: boolean, maxLength = maxUrlLength): URL | undefined {
+  if (!value || value.length > maxLength || controlled(value)) return undefined;
   if (!allowBareHost && /\s/u.test(value)) return undefined;
-  let candidate = value;
-  if (allowBareHost) {
-    candidate = candidate.trim();
-    if (!candidate.includes("://") && candidate.includes(".")) candidate = `http://${candidate}`;
+  let candidate = value.trim();
+  if (!allowBareHost && backslashBeforeQuery(candidate)) return undefined;
+  if (allowBareHost && !candidate.includes("://") && candidate.includes(".")) {
+    // The pinned client's tldts (its Domain match) ends a bare host only at `/`, `?` or `#`,
+    // so it reads `bank.example\@evil.test` as `evil.test` where WHATWG (its Host match) reads
+    // `bank.example`. After that point, and anywhere after an http(s) scheme, both end the
+    // host at the backslash, as in `https://bank.example\@evil.test` for `bank.example`.
+    // tldts also skips slashes and backslashes after `https:/`, which WHATWG reads as host
+    // `https` here.
+    if (/^[^/?#]*\\/u.test(candidate)) return undefined;
+    if (/^https?:/iu.test(candidate) && backslashBeforeQuery(candidate)) return undefined;
+    candidate = `http://${candidate}`;
   }
   if (!/^https?:\/\/[^/]/iu.test(candidate)) return undefined;
-  const authority = /^https?:\/\/([^/?#]*)/iu.exec(candidate)?.[1];
+  const authority = /^https?:\/\/([^/\\?#]*)/iu.exec(candidate)?.[1];
   if (!authority || authority.includes("@")) return undefined;
-  try {
-    const url = new URL(candidate);
-    if (url.username || url.password || !url.hostname || !hasHostnameLabels(url.hostname))
-      return undefined;
-    return url;
-  } catch {
+  const url = URL.parse(candidate);
+  if (!url) return undefined;
+  if (url.username || url.password || !url.hostname || !hasHostnameLabels(url.hostname))
     return undefined;
-  }
+  return url;
 }
 
 /**
@@ -126,23 +144,20 @@ export function domainKey(url: URL): string | undefined {
 
 function equivalentHostname(value: string): string | undefined {
   if (value !== value.trim() || ambiguous(value) || /[/@?#]/u.test(value)) return undefined;
-  try {
-    const url = new URL(`https://${value}`);
-    if (
-      !url.hostname ||
-      !hasHostnameLabels(url.hostname) ||
-      url.port ||
-      url.username ||
-      url.password ||
-      url.pathname !== "/"
-    )
-      return undefined;
-    // Equivalent groups contain domain names, not service ports or URLs.
-    if (!value.startsWith("[") && value.includes(":")) return undefined;
-    return url.hostname.replace(/\.$/u, "");
-  } catch {
+  const url = URL.parse(`https://${value}`);
+  if (!url) return undefined;
+  if (
+    !url.hostname ||
+    !hasHostnameLabels(url.hostname) ||
+    url.port ||
+    url.username ||
+    url.password ||
+    url.pathname !== "/"
+  )
     return undefined;
-  }
+  // Equivalent groups contain domain names, not service ports or URLs.
+  if (!value.startsWith("[") && value.includes(":")) return undefined;
+  return url.hostname.replace(/\.$/u, "");
 }
 
 function equivalentGroups(input: unknown): string[][] | undefined {
@@ -174,9 +189,11 @@ function equivalentGroups(input: unknown): string[][] | undefined {
   for (const group of groups) {
     const values: string[] = [];
     for (const value of group) {
+      // As in the official clients, which compare raw strings, an entry that is not a
+      // hostname can never match, so it is ignored instead of voiding every group.
+      if (value.length === 0 || value.length > maxHostLength) continue;
       const hostname = equivalentHostname(value);
-      if (!hostname) return undefined;
-      values.push(hostname);
+      if (hostname && hostname.length <= maxHostLength) values.push(hostname);
     }
     normalized.push(values);
   }
@@ -254,9 +271,20 @@ export function admitBitwardenUriMatchContext(
 }
 
 type UriEvaluator = (uris: unknown) => BitwardenResult<UriMatchEvaluation>;
+/**
+ * Whether a Regex URI's pattern matches the page URL, as the pinned clients decide with
+ * `new RegExp(pattern, "i").test(pageUrl)`, or `undefined` when it was not evaluated.
+ * The caller runs patterns where a slow one cannot block it; without an answer the URI
+ * is `regex-unevaluated`.
+ */
+export type RegexUriAnswer = (pattern: string) => boolean | undefined;
 /** Precompute the target and its equivalent set once; each call evaluates one item's URIs. */
-function createEvaluator(targetUrl: string, settings: MatchingSettings): UriEvaluator | undefined {
-  const target = webUrl(targetUrl, false);
+function createEvaluator(
+  targetUrl: string,
+  settings: MatchingSettings,
+  regex?: RegexUriAnswer,
+): UriEvaluator | undefined {
+  const target = webUrl(targetUrl, false, maxTargetUrlLength);
   if (!target) return undefined;
   const targetDomain = domainKey(target);
   const equivalents = new Set<string>();
@@ -270,7 +298,7 @@ function createEvaluator(targetUrl: string, settings: MatchingSettings): UriEval
   return (uris: unknown) => {
     try {
       if (!Array.isArray(uris) || uris.length > maxUris) return failure("invalid-uri-input");
-      const matches: { uriIndex: number; match: 0 | 1 | 2 | 3 }[] = [];
+      const matches: { uriIndex: number; match: 0 | 1 | 2 | 3 | 4 }[] = [];
       const unavailableUris: { uriIndex: number; reason: UriUnavailableReason }[] = [];
       uris.forEach((raw, uriIndex) => {
         const unavailable = (reason: (typeof unavailableUris)[number]["reason"]) =>
@@ -291,13 +319,21 @@ function createEvaluator(targetUrl: string, settings: MatchingSettings): UriEval
           return;
         }
         if (match === 5) return;
-        if (match !== 0 && match !== 1 && match !== 2 && match !== 3) {
+        if (match !== 0 && match !== 1 && match !== 2 && match !== 3 && match !== 4) {
           unavailable("unsupported-uri-match");
           return;
         }
         const stored = parsed.output.uri;
         if (!stored) {
           unavailable("invalid-uri");
+          return;
+        }
+        // The pinned clients test the raw pattern against the raw page URL, with no scheme
+        // or URL check of the pattern; one that does not compile matches nothing.
+        if (match === 4) {
+          const answer = regex?.(stored);
+          if (answer === undefined) unavailable("regex-unevaluated");
+          else if (answer) matches.push({ uriIndex, match });
           return;
         }
         const scheme = /^([a-z][a-z0-9+.-]*):/iu.exec(stored.trim())?.[1]?.toLowerCase();
@@ -363,7 +399,7 @@ export function matchBitwardenLoginUris(
   try {
     if (!Array.isArray(uris) || uris.length > maxUris || typeof targetUrl !== "string")
       return failure("invalid-uri-input");
-    if (!webUrl(targetUrl, false)) return failure("invalid-uri-input");
+    if (!webUrl(targetUrl, false, maxTargetUrlLength)) return failure("invalid-uri-input");
     const settings = matchingSettings(options);
     if (!settings) return failure("invalid-options");
     return createEvaluator(targetUrl, settings)?.(uris) ?? failure("invalid-uri-input");
@@ -372,18 +408,22 @@ export function matchBitwardenLoginUris(
   }
 }
 
-/** Admit retained context and the target once for many items from the same snapshot. */
+/**
+ * Admit retained context and the target once for many items from the same snapshot.
+ * Regex URIs take their result from `regex`, and are `regex-unevaluated` without one.
+ */
 export function createBitwardenUriMatcher(
   targetUrl: unknown,
   context: unknown,
+  regex?: RegexUriAnswer,
 ): BitwardenResult<{ targetOrigin: string; evaluate: UriEvaluator }> {
   try {
     if (typeof targetUrl !== "string") return failure("invalid-uri-input");
-    const target = webUrl(targetUrl, false);
+    const target = webUrl(targetUrl, false, maxTargetUrlLength);
     if (!target) return failure("invalid-uri-input");
     const settings = matchingSettings({ context });
     if (!settings) return failure("invalid-options");
-    const evaluate = createEvaluator(targetUrl, settings);
+    const evaluate = createEvaluator(targetUrl, settings, regex);
     return evaluate
       ? { ok: true, data: { targetOrigin: target.origin, evaluate } }
       : failure("invalid-uri-input");

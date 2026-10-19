@@ -56,6 +56,15 @@ challenge, which the first bound of 1,024 bytes handed on (`invalid-request`, `i
 the page's copy of a buffer already allows. A larger challenge is still handed on, by
 the page before any log (implemented).
 
+Amended on 2026-10-14 by
+[ADR 0029](0029-local-sign-in-state.md#amendment-unconfirmed-completion-2026-10-14):
+only confirmed completion counts as a successful sign-in (implemented); see the dated
+amendment below.
+
+Amended on 2026-10-17: the bridge snapshot relays `timeout`, which only bounds the
+chooser window ([ADR 0021](0021-account-choice-outside-settings.md)); see the dated
+amendment below.
+
 Date: 2026-10-10
 
 ## Context
@@ -72,8 +81,9 @@ requirements, pinned Bitwarden behavior and the SDK surface this design relies o
 ### Bridge topology
 
 Register a MAIN-world wrapper for `navigator.credentials.get` at document start in
-top-level frames only, as a static content script on `https://*/*` under the
-install-time HTTPS access of [ADR 0009](0009-install-time-https-site-access.md), with an
+top-level frames only, as a static content script on `https://*/*` (and, since
+[ADR 0050](0050-http-pages-for-http-items.md), `http://localhost/*`) under the
+install-time access of [ADR 0009](0009-install-time-https-site-access.md), with an
 isolated-world relay on the same pages. It snapshots the request, forwards a bounded
 copy to the isolated content script, and either returns a Pateat assertion or calls the
 browser's original `get` with the original arguments. Delegation is the default for
@@ -351,3 +361,24 @@ credential mapping vectors, signature verification by an independent verifier,
 and probe-build browser tests covering unattended claims, delegation, abort, timeout
 and a synthetic relying party. Real-site interoperability and
 coexistence with the official Bitwarden extension are separate gates.
+
+## Amendment: confirmed login records for registration refusal (2026-10-14)
+
+The owner's decision at 07:24 UTC in
+[issue #546](https://github.com/risu729/pateat/issues/546), recorded in
+[ADR 0029](0029-local-sign-in-state.md#amendment-unconfirmed-completion-2026-10-14),
+amends "Registration after a sign-in": a login reaching `authenticated` counts as
+"Pateat signed in here" only when its completion is confirmed. An undecided completion
+with `unconfirmed: true` adds no sign-in record, so it cannot cause a later registration
+request to be refused. A request with no qualifying record is handed on. Records from
+Pateat's returned assertions and confirmed logins still count under the same origin,
+RP ID, tab and five-minute rules. The earlier accepted text above remains as history.
+
+## Amendment: the relayed `timeout` (2026-10-17)
+
+Admission above says the bridge snapshot drops `timeout`. Since
+[ADR 0021](0021-account-choice-outside-settings.md) the snapshot keeps a numeric
+`timeout` of 0 to 2^32 - 1 milliseconds, truncated to an integer, and the background
+uses it only to bound how long the chooser window may keep the request open. `hints`
+and `extensions` are still dropped. This records the implemented behavior; no decision
+changed. The earlier accepted text above remains as history.

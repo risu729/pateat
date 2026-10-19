@@ -60,10 +60,11 @@ type Saved = Extract<SettingsResponse, { ok: true }>;
 type ExcludedSite = LocalSettings["excludedSites"][number];
 type Tone = "progress" | "success" | "error";
 
-/** The tab's origin when Pateat can run there: an HTTPS page with a valid hostname. */
+/** The tab's origin when Pateat can run there: an HTTP(S) page with a valid hostname. */
 export function popupOrigin(url: string | undefined): string | undefined {
   const parsed = url === undefined ? undefined : parseSiteUrl(url);
-  return parsed?.protocol === "https:" && normalizeHostname(parsed.hostname)
+  return (parsed?.protocol === "https:" || parsed?.protocol === "http:") &&
+    normalizeHostname(parsed.hostname)
     ? parsed.origin
     : undefined;
 }
@@ -305,11 +306,14 @@ export function SiteApp({
   );
   const origin = tab.data === undefined ? undefined : popupOrigin(tab.data?.url);
   const tabId = tab.data?.id;
-  // A login refused because several accounts match waits for a pick (ADR 0021).
+  const saved = settings.data?.ok ? settings.data : undefined;
+  const excluded = Boolean(origin && saved && isSiteExcluded(saved.snapshot.settings, origin));
+  // A login refused because several accounts match waits for a pick (ADR 0021). An excluded
+  // site runs no login, so a choice the worker still keeps from before is not offered.
   const choice = useQuery({
     queryKey: ["popup", "choice", tabId],
     queryFn: () => choices.get(tabId!),
-    enabled: tabId !== undefined && origin !== undefined,
+    enabled: tabId !== undefined && origin !== undefined && saved !== undefined && !excluded,
     // The page may be refused only after the popup opened, or announce again after a
     // restarted worker; asking again while open shows the choice once it waits, and
     // once another tab's login no longer holds the site.
@@ -326,8 +330,6 @@ export function SiteApp({
     staleTime: 0,
     gcTime: 0,
   });
-  const saved = settings.data?.ok ? settings.data : undefined;
-  const excluded = Boolean(origin && saved && isSiteExcluded(saved.snapshot.settings, origin));
   // Only the connections, exclusions and each vault's sync, state and quarantine decide the
   // matches, so saving a default keeps the listed accounts instead of listing them again.
   const accounts = useQuery({
@@ -460,8 +462,8 @@ export function SiteApp({
     body = (
       <p id="popup-unsupported">
         {tab.data?.url
-          ? "Pateat works on HTTPS websites. Open a website, then click the Pateat icon again."
-          : "Pateat cannot read this tab's address. It works on HTTPS websites it has site access to; a page that is still loading shows this too."}
+          ? "Pateat works on websites (HTTP and HTTPS). Open a website, then click the Pateat icon again."
+          : "Pateat cannot read this tab's address. It works on websites it has site access to; a page that is still loading shows this too."}
       </p>
     );
   else if (!saved)
@@ -502,7 +504,9 @@ export function SiteApp({
     const shown = options.some((entry) => entry.value === chosen)
       ? chosen
       : (currentOption?.value ?? "");
-    const offered = choice.data?.ok && choice.data.origin === origin ? choice.data : undefined;
+    // A disabled query keeps its last answer, so the exclusion is checked here too.
+    const offered =
+      !excluded && choice.data?.ok && choice.data.origin === origin ? choice.data : undefined;
     // The choice shows once the site's matches are listed, so each account is named by its
     // username from the first frame rather than by a shortened item ID.
     const labelled = !accounts.isEnabled || !accounts.isPending;

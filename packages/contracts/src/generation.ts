@@ -1,7 +1,7 @@
 import * as v from "valibot";
 import {
+  customSlotIdSchema,
   fillRoles,
-  genericSlotIdSchema,
   loginObservationSchema,
   semanticSlotsSchema,
   type LoginObservation,
@@ -105,7 +105,7 @@ export const generationUnavailableReasonSchema = v.picklist([
   "not-judgeable",
   "recipe-revoked",
   "recipe-conflict",
-  /** A new recipe would exceed the owner's active recipe limit. */
+  /** The owner's recipe count or bytes would exceed the service limit. */
   "recipe-limit",
 ]);
 export const generationFailureSchema = v.picklist([
@@ -236,13 +236,14 @@ export const recipeGenerationResultSchema = v.pipe(
       status: v.literal("recipe"),
       change: activeChange,
       /**
-       * Each recipe slot this call named for a custom-field offer, and the request slot it
-       * fills (ADR 0027). The extension turns it into a binding; the recipe itself never
-       * carries field names. Absent when the answer is a recipe another request produced.
+       * Each recipe slot this call named from the page's text for a custom-field offer, and
+       * the request slot it fills (ADR 0027). The extension turns it into a binding; the
+       * recipe itself never carries field names. Absent when the answer is a recipe another
+       * request produced.
        */
       customSlots: v.optional(
         v.pipe(
-          v.array(v.strictObject({ slot: genericSlotIdSchema, offered: slotReference })),
+          v.array(v.strictObject({ slot: customSlotIdSchema, offered: slotReference })),
           v.minLength(1),
           // One page plan fills at most 8 fields in each of up to 4 variants, and a request
           // offers at most 16 custom fields (ADR 0027).
@@ -322,6 +323,24 @@ export const recipeCompletionRequestSchema = v.pipe(
   ),
 );
 
+/**
+ * `POST /v1/recipes/:recipeId/page-sample`: the signed-in page of a login of the given
+ * revision that its signed-in marker completed without a model call, kept in the request
+ * log for evaluation and never sent to a model (ADR 0029, owner 2026-10-18 08:05 UTC). The
+ * page is on the recipe's origin and described as the judge's page is. The service keeps
+ * one per recipe and branch in `PAGE_SAMPLE_INTERVAL_MS` and answers 201 when it kept this
+ * one, 204 when it already had one.
+ */
+export const recipePageSampleRequestSchema = v.strictObject({
+  version: v.literal(1),
+  revision: writtenRevision,
+  /** The login's route, as the judge is told it; the service checks the revision has it. */
+  route: loginRouteSchema,
+  /** For a chooser recipe (ADR 0028): the branch the login took. */
+  branch: v.optional(chooserBranchSchema),
+  observation: loginObservationSchema,
+});
+
 export const recipeCompletionResultSchema = v.variant("status", [
   /**
    * `change` is the recipe with the page's marker added (ADR 0029); absent when the recipe
@@ -361,5 +380,6 @@ export type EntryGenerationRequest = v.InferOutput<typeof entryGenerationRequest
 export type EntryGenerationResult = v.InferOutput<typeof entryGenerationResultSchema>;
 export type RecipeCompletionRequest = v.InferOutput<typeof recipeCompletionRequestSchema>;
 export type RecipeCompletionResult = v.InferOutput<typeof recipeCompletionResultSchema>;
+export type RecipePageSampleRequest = v.InferOutput<typeof recipePageSampleRequestSchema>;
 export type GenerationOutputRejection = v.InferOutput<typeof generationOutputRejectionSchema>;
 export type GenerationUnavailableReason = v.InferOutput<typeof generationUnavailableReasonSchema>;

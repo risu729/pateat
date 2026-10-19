@@ -1,5 +1,6 @@
 import * as v from "valibot";
 import { decodeBase64 } from "./base64";
+import { bitwardenEmail } from "./email";
 
 const connectionId = v.pipe(v.string(), v.minLength(1), v.maxLength(200));
 const token = v.pipe(
@@ -14,7 +15,7 @@ function authenticationHash(value: string) {
 }
 export const passwordTokenRequestSchema = v.strictObject({
   connectionId,
-  email: v.pipe(v.string(), v.minLength(1), v.maxLength(320), v.email()),
+  email: bitwardenEmail,
   masterPasswordHash: v.pipe(
     v.string(),
     v.regex(/^[A-Za-z0-9+/]{43}=$/),

@@ -4,6 +4,7 @@ import {
   MAX_SETTINGS_DOCUMENT_BYTES,
   settingsDocumentBytes,
   syncRecipeChangeSchema,
+  syncRecipeIdSchema,
   syncSettingsStateSchema,
   syncSettingsWriteSchema,
 } from "./sync";
@@ -13,6 +14,12 @@ import {
 // names; paths and bodies never select an owner.
 
 const timestamp = v.pipe(v.number(), v.integer(), v.minValue(0));
+const headRevision = v.pipe(
+  v.number(),
+  v.integer(),
+  v.minValue(1),
+  v.maxValue(Number.MAX_SAFE_INTEGER - 1),
+);
 
 export const manageDeviceSchema = v.strictObject({
   id: deviceIdSchema,
@@ -53,25 +60,298 @@ export const manageRecipeSchema = v.strictObject({
   change: syncRecipeChangeSchema,
   updatedAt: timestamp,
 });
-/** Most recently changed first. */
+/**
+ * An active head whose stored document no longer passes the recipe contract. Devices
+ * receive it as revoked; it stays active on the service until the owner revokes it.
+ */
+export const manageUnreadableRecipeSchema = v.strictObject({
+  recipeId: syncRecipeIdSchema,
+  revision: headRevision,
+  updatedAt: timestamp,
+});
+/** Both lists are most recently changed first. */
 export const manageRecipesSchema = v.strictObject({
   version: v.literal(1),
   recipes: v.array(manageRecipeSchema),
+  unreadable: v.array(manageUnreadableRecipeSchema),
 });
 /** Revokes the recipe if `expectedRevision` is still its head; devices drop it on sync. */
 export const manageRecipeRevokeSchema = v.strictObject({
   version: v.literal(1),
-  expectedRevision: v.pipe(
-    v.number(),
-    v.integer(),
-    v.minValue(1),
-    v.maxValue(Number.MAX_SAFE_INTEGER - 1),
-  ),
+  expectedRevision: headRevision,
 });
 /** The revocation lost to another write, or the recipe is already revoked. */
 export const manageRecipeConflictSchema = v.strictObject({
   error: v.literal("recipe_conflict"),
   current: v.nullable(syncRecipeChangeSchema),
+});
+
+/**
+ * How long the service keeps each request log row, login result code and login record
+ * (ADR 0012, ADR 0055; owner, 2026-10-18).
+ */
+export const INFERENCE_LOG_RETENTION_MS = 365 * 24 * 60 * 60 * 1000;
+/**
+ * A recipe and branch get one signed-in page sample in this long (ADR 0029, owner
+ * 2026-10-18 08:05 UTC: once in 30 days), on the service and on each device.
+ */
+export const PAGE_SAMPLE_INTERVAL_MS = 30 * 24 * 60 * 60 * 1000;
+const rowCount = v.pipe(v.number(), v.integer(), v.minValue(0));
+/**
+ * The owner's request log (ADR 0012): how many requests it holds, how many login result
+ * codes devices sent (ADR 0019, amended 2026-10-18), how many login records (ADR 0055),
+ * and the oldest row's time of any of them.
+ */
+export const manageRequestLogSchema = v.strictObject({
+  version: v.literal(1),
+  entries: rowCount,
+  outcomes: rowCount,
+  logins: rowCount,
+  oldestAt: v.nullable(timestamp),
+});
+/**
+ * Deleting the whole request log: how many requests, login result codes and login records
+ * it removed.
+ */
+export const manageRequestLogDeletedSchema = v.strictObject({
+  version: v.literal(1),
+  deleted: rowCount,
+  outcomes: rowCount,
+  logins: rowCount,
+});
+
+/** The periods the dashboard summarizes, ending now. */
+export const manageDashboardRangeSchema = v.picklist(["24h", "7d", "30d"]);
+export const MANAGE_DASHBOARD_RANGE_MS = {
+  "24h": 24 * 60 * 60 * 1000,
+  "7d": 7 * 24 * 60 * 60 * 1000,
+  "30d": 30 * 24 * 60 * 60 * 1000,
+} as const satisfies Record<v.InferOutput<typeof manageDashboardRangeSchema>, number>;
+/** Below this many values a p90 says little, so the values themselves are given. */
+export const MANAGE_DASHBOARD_P90_MIN = 20;
+const milliseconds = v.pipe(v.number(), v.integer(), v.minValue(0));
+const dashboardRole = v.picklist(["generate", "judge"]);
+/**
+ * Durations in milliseconds: how many (`n`), the nearest-rank median (null when none) and,
+ * from `MANAGE_DASHBOARD_P90_MIN` values, the p90; below that, the values ascending
+ * instead.
+ */
+export const manageDurationsSchema = v.strictObject({
+  n: rowCount,
+  p50: v.nullable(milliseconds),
+  p90: v.optional(milliseconds),
+  values: v.optional(v.array(milliseconds)),
+});
+/** One request log row or login record in a failure group, newest first. */
+export const manageDashboardEventSchema = v.strictObject({
+  at: timestamp,
+  origin: v.string(),
+  recipeId: v.nullable(v.string()),
+  revision: v.nullable(v.pipe(v.number(), v.integer(), v.minValue(0))),
+  /** The request's role; null for a login result. */
+  role: v.nullable(dashboardRole),
+  /** The login's `cause` code; null for a request or a login that named none. */
+  cause: v.nullable(v.string()),
+});
+/** One result code: how often it came, the last time and site, and its latest 20 rows. */
+export const manageDashboardFailureSchema = v.strictObject({
+  /** `request`: a request log `outcome`; `login`: a login record's result code. */
+  kind: v.picklist(["request", "login"]),
+  code: v.string(),
+  count: rowCount,
+  lastAt: timestamp,
+  lastOrigin: v.string(),
+  lastRecipeId: v.nullable(v.string()),
+  latest: v.array(manageDashboardEventSchema),
+});
+const microUsd = v.pipe(v.number(), v.integer(), v.minValue(0));
+/**
+ * The median of each part of a login's time over `n` signed-in logins: the network part of
+ * the service time (only for answers that named the service's own time, so a lower bound),
+ * the rest of the service time, the wait for the site's answer to the login's steps (page
+ * loads included), and the rest of the login (Pateat's own work and waits, reading pages,
+ * filling and clicking). The person's time is apart, never in the login time.
+ */
+export const manageLoginPartsSchema = v.strictObject({
+  n: rowCount,
+  networkMs: v.nullable(milliseconds),
+  serviceOtherMs: v.nullable(milliseconds),
+  pageMs: v.nullable(milliseconds),
+  otherMs: v.nullable(milliseconds),
+  personMs: v.nullable(milliseconds),
+});
+/**
+ * The owner dashboard over one range, aggregated by the service from the request log, the
+ * login records and result codes devices sent, recipes and spend. Latency counts only the
+ * recorded times; request log rows logged before they were recorded have none.
+ */
+export const manageDashboardSchema = v.strictObject({
+  version: v.literal(1),
+  range: manageDashboardRangeSchema,
+  /** The range's start and end (now). */
+  from: timestamp,
+  to: timestamp,
+  /**
+   * Login speed from the login records devices sent (ADR 0055). A login's time is its
+   * total less the person's time, over the logins that signed in; one waited on the
+   * service when its service time is above 0.
+   */
+  logins: v.strictObject({
+    /** Login records in the range, whatever their result. */
+    count: rowCount,
+    /** Login time of every signed-in login. */
+    loginMs: manageDurationsSchema,
+    /** Login time of the signed-in logins that waited on the service, and of the rest. */
+    withService: manageDurationsSchema,
+    recipeOnly: manageDurationsSchema,
+    parts: v.strictObject({
+      withService: manageLoginPartsSchema,
+      recipeOnly: manageLoginPartsSchema,
+    }),
+    /** Logins per site (the recipe's origin), slowest median login time first. */
+    perSite: v.array(
+      v.strictObject({
+        origin: v.string(),
+        logins: rowCount,
+        signedIn: rowCount,
+        loginMs: manageDurationsSchema,
+      }),
+    ),
+    /** Logins per extension build, most recently used first. */
+    perBuild: v.array(
+      v.strictObject({
+        build: v.string(),
+        logins: rowCount,
+        lastAt: timestamp,
+        loginMs: manageDurationsSchema,
+      }),
+    ),
+  }),
+  /** Per role, generation first. */
+  llm: v.array(
+    v.strictObject({
+      role: dashboardRole,
+      /**
+       * Requests in the range that called the model. The times here count only those;
+       * requests answered without a call are in `stats.requests` and the failures.
+       */
+      calls: rowCount,
+      modelMs: manageDurationsSchema,
+      tokenMs: manageDurationsSchema,
+      preModelMs: manageDurationsSchema,
+      serverMs: manageDurationsSchema,
+      /**
+       * The median of each part of a request's server time, over the rows with all four
+       * times (`n`): before the model call apart from the token exchange, the token
+       * exchange, the model call and after it.
+       */
+      parts: v.strictObject({
+        n: rowCount,
+        preModelOtherMs: v.nullable(milliseconds),
+        tokenMs: v.nullable(milliseconds),
+        modelMs: v.nullable(milliseconds),
+        afterModelMs: v.nullable(milliseconds),
+      }),
+      inputTokens: rowCount,
+      outputTokens: rowCount,
+    }),
+  ),
+  /**
+   * Every UTC day the range touches, oldest first; a median is null on a day without one.
+   * `logins` counts login records, `authenticatedLogins` those that signed in, and
+   * `loginP50` is their median login time.
+   */
+  daily: v.array(
+    v.strictObject({
+      day: v.pipe(v.string(), v.isoDate()),
+      generateRequests: rowCount,
+      judgeRequests: rowCount,
+      generateModelP50: v.nullable(milliseconds),
+      judgeModelP50: v.nullable(milliseconds),
+      logins: rowCount,
+      authenticatedLogins: rowCount,
+      loginP50: v.nullable(milliseconds),
+    }),
+  ),
+  /** The 10 requests that called the model with the longest server time, slowest first. */
+  slowest: v.array(
+    v.strictObject({
+      at: timestamp,
+      role: dashboardRole,
+      origin: v.string(),
+      outcome: v.string(),
+      tokenMs: v.nullable(milliseconds),
+      modelMs: v.nullable(milliseconds),
+      serverMs: milliseconds,
+    }),
+  ),
+  /**
+   * Requests per origin, by median server time, slowest first; the times count only the
+   * requests that called the model.
+   */
+  perSite: v.array(
+    v.strictObject({
+      origin: v.string(),
+      requests: rowCount,
+      serverMs: manageDurationsSchema,
+      modelMs: manageDurationsSchema,
+    }),
+  ),
+  /**
+   * Requests per service build, most recently used first; the times count only the
+   * requests that called the model.
+   */
+  perBuild: v.array(
+    v.strictObject({
+      /** Null for rows logged before the build was recorded. */
+      build: v.nullable(v.string()),
+      requests: rowCount,
+      lastAt: timestamp,
+      modelMs: manageDurationsSchema,
+      serverMs: manageDurationsSchema,
+    }),
+  ),
+  stats: v.strictObject({
+    /** Request log rows by role and outcome, most frequent first. */
+    requests: v.array(
+      v.strictObject({ role: dashboardRole, outcome: v.string(), count: rowCount }),
+    ),
+    /** Login records by outcome, most frequent first: every login a device reported. */
+    logins: v.array(v.strictObject({ outcome: v.string(), count: rowCount })),
+    /** How many of those signed in (`authenticated`); the success rate is this of their sum. */
+    loginsAuthenticated: rowCount,
+    /**
+     * Login result codes by outcome, most frequent first: only the first login with each
+     * recipe revision, kept for the evaluation corpus (ADR 0012).
+     */
+    firstLogins: v.array(v.strictObject({ outcome: v.string(), count: rowCount })),
+    firstLoginsAuthenticated: rowCount,
+    inputTokens: rowCount,
+    outputTokens: rowCount,
+    /** Estimated spend in this UTC day and month, whatever the range, and their limits. */
+    spend: v.strictObject({
+      dayMicroUsd: microUsd,
+      monthMicroUsd: microUsd,
+      dailyLimitMicroUsd: microUsd,
+      monthlyLimitMicroUsd: microUsd,
+    }),
+    /** Active recipes now, whatever the range. */
+    activeRecipes: rowCount,
+    /**
+     * Generation requests in the range that started a recipe and wrote its revision
+     * (`recipe_page` `first` with a written `revision`): new recipes, and recipes
+     * generated again after their revocation.
+     */
+    recipesGenerated: rowCount,
+  }),
+  /**
+   * Request outcomes other than `ok` and login records whose result is not
+   * `authenticated`, by code, most frequent first; `needsPerson` holds the logins that
+   * waited for or were stopped by the person (`challenge`, `challenge-abandoned`,
+   * `watch-abandoned`, `cancelled`), which are not failures.
+   */
+  failures: v.array(manageDashboardFailureSchema),
+  needsPerson: v.array(manageDashboardFailureSchema),
 });
 
 export const manageErrorCodeSchema = v.picklist([
@@ -98,6 +378,15 @@ export type ManageDevice = v.InferOutput<typeof manageDeviceSchema>;
 export type ManageDevices = v.InferOutput<typeof manageDevicesSchema>;
 export type ManageSettingsWrite = v.InferOutput<typeof manageSettingsWriteSchema>;
 export type ManageRecipe = v.InferOutput<typeof manageRecipeSchema>;
+export type ManageUnreadableRecipe = v.InferOutput<typeof manageUnreadableRecipeSchema>;
 export type ManageRecipes = v.InferOutput<typeof manageRecipesSchema>;
+export type ManageRequestLog = v.InferOutput<typeof manageRequestLogSchema>;
+export type ManageRequestLogDeleted = v.InferOutput<typeof manageRequestLogDeletedSchema>;
+export type ManageDashboardRange = v.InferOutput<typeof manageDashboardRangeSchema>;
+export type ManageDurations = v.InferOutput<typeof manageDurationsSchema>;
+export type ManageLoginParts = v.InferOutput<typeof manageLoginPartsSchema>;
+export type ManageDashboardEvent = v.InferOutput<typeof manageDashboardEventSchema>;
+export type ManageDashboardFailure = v.InferOutput<typeof manageDashboardFailureSchema>;
+export type ManageDashboard = v.InferOutput<typeof manageDashboardSchema>;
 export type ManageErrorCode = v.InferOutput<typeof manageErrorCodeSchema>;
 export type ManageError = v.InferOutput<typeof manageErrorSchema>;

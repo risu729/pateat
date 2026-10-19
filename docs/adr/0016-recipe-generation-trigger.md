@@ -16,7 +16,23 @@ that amendment; the service route enforces the retry window as well
 ([API README](../../services/api/README.md#recipe-generation)). Amended on 2026-10-13 by
 ADR 0021's [site count badge](0021-account-choice-outside-settings.md#site-count-badge)
 (not implemented): condition 2's vault match is no longer the only vault access a page
-without a recipe gets.
+without a recipe gets. Amended on 2026-10-16 by
+[ADR 0039](0039-redacted-token-path-segments.md) (owner, 14:10 UTC, implemented): a page
+whose path may carry a token is observed and sent with `[id]` in place of each such
+segment, replacing the 2026-10-11 choice below that such a page is never observed.
+Amended on 2026-10-18 by
+[ADR 0029](0029-local-sign-in-state.md#amendment-signed-in-page-samples-2026-10-18)
+(owner, 08:05 UTC, implemented): a later login's signed-in page is also observed, once
+in 30 days per recipe and branch, as an exception to the Consequences' "Other pages are
+never observed".
+
+Amended on 2026-10-18 by [ADR 0049](0049-start-at-a-later-step.md) (owner, 01:40 UTC,
+implemented): a page that shows a later step a login may start at is not sent; the
+existing recipe logs in there.
+
+Amended on 2026-10-19 (implemented; a clarification, not an owner decision):
+[the identifier input's `autocomplete`](#amendment-2026-10-19-autocomplete-tokens-of-an-identifier-input)
+is read as the attribute's tokens.
 
 Date: 2026-10-11
 
@@ -72,6 +88,9 @@ new owner decision:
   path never reaches the service or the [ADR 0012](0012-inference-request-log.md)
   request log
   ([AI evaluation harness progress](../plan.md#ai-evaluation-harness-progress)).
+  Replaced on 2026-10-16 by [ADR 0039](0039-redacted-token-path-segments.md): such a
+  page is sent with `[id]` in place of each such segment, so the token still never
+  leaves the device.
 - Only a page that shows such an input within 10 seconds of loading is sent, the same
   wait a login step gets; a form shown later, for example after a click, is not. Since
   2026-10-12, a page that could be sent but shows nothing to send by then is logged at
@@ -80,7 +99,10 @@ new owner decision:
   as not described), a page whose description is refused, fails its check or is
   incomplete is read again up to twice, one second apart, before it counts as not
   described, since a form rendered in steps may show its password input before the rest
-  of it. A cancelled or replaced document stops at once.
+  of it. A cancelled or replaced document stops at once. Since 2026-10-17 (added after
+  this decision, after UNSW's Microsoft Entra page was logged as incomplete while its
+  form still faded in), it is read a second apart, at most ten times, so a form that
+  fades in after its input shows is still sent.
 - The vault match is checked only once the input shows, and only matching items'
   built-in fields decide which of the `username`, `password` and `totp` slots are
   offered.
@@ -183,6 +205,16 @@ input goes first. Not covered: an identifier input of type `text` beside another
 input (a company code), words in other languages, and compounds not on the list. Since a
 later owner decision the same day, a sign-in entry whose press leads to such a page
 passes its check ([ADR 0031](0031-sign-in-entry-pages.md)).
+
+## Amendment 2026-10-19: autocomplete tokens of an identifier input
+
+The rule reads the `autocomplete` attribute's tokens, ignoring case, as the locators do,
+since Chromium's `autocomplete` property is empty for a token list that is not a valid
+autofill detail. "No `autocomplete` other than `on` or `off`" means no autofill field
+name among those tokens: a token Chrome ignores, such as `nope` or `chrome-off`, counts
+as none, as the implementation read it before, while a field name among other tokens,
+such as `off given-name`, marks the input. This clarifies the accepted text; the owner
+has not confirmed it.
 
 ## Username shape
 

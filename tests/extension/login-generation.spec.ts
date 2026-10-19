@@ -16,7 +16,11 @@ const password = "test_password";
 async function serveSite(context: BrowserContext, fixture: { origin: string }) {
   await context.route(`${site}/**`, async (route) => {
     const url = new URL(route.request().url());
-    const response = await route.fetch({ url: `${fixture.origin}${url.pathname}${url.search}` });
+    // A redirect goes to the browser, so the page's URL follows it, as on a real site.
+    const response = await route.fetch({
+      url: `${fixture.origin}${url.pathname}${url.search}`,
+      maxRedirects: 0,
+    });
     await route.fulfill({ response });
   });
 }
@@ -62,7 +66,8 @@ function syntheticClaude({ abstainOnPassword = false }: { abstainOnPassword?: bo
       if (!found) throw new Error(`No candidate for ${by} ${value}`);
       return found.id;
     };
-    // The `script-link` fixture's login link has no id, so only its text names it.
+    // The `script-link` and `script-url` fixtures' login links have no id, so only their
+    // text names them.
     const login = () =>
       prompt.observation.candidates.some(
         ({ target }) => target.by === "id" && target.value === "login",
@@ -178,6 +183,7 @@ for (const [button, marker] of [
   ["button", "button"],
   ["anchor", "button"],
   ["script-link", "button"],
+  ["script-url", "button"],
   ["button", "link"],
 ] as const)
   test(`a login page without a recipe is generated on the service, logs in and learns its completion (${button}, ${marker} marker)`, async () => {
@@ -255,6 +261,94 @@ for (const [button, marker] of [
       await fixture.close();
     }
   });
+
+for (const { name, prefix, tenants } of [
+  {
+    name: "tenant UUID",
+    prefix: "",
+    tenants: ["123e4567-e89b-12d3-a456-426614174000", "89abcdef-0123-4567-89ab-cdef01234567"],
+  },
+  {
+    name: "opaque authorization server ID",
+    prefix: "/oauth2",
+    tenants: ["aus1a2b3c4d5e6f7g8h9", "aus9h8g7f6e5d4c3b2a1"],
+  },
+]) {
+  test(`a ${name} is redacted during generation and a second ID reuses the recipe (ADR 0039)`, async () => {
+    const fixture = await startLoginFixture(0, { password });
+    const claude = syntheticClaude();
+    const service = await startSyncService({ claude: claude.answer });
+    const paths = tenants.map((tenant) => `${prefix}/${tenant}/sign-in`);
+    const redactedPath = `${prefix}/[id]/sign-in`;
+    try {
+      await withVaultProfile(
+        async (open, externalRequests) => {
+          const browser = await open();
+          await browser.context.route(`${site}/**`, async (route) => {
+            const url = new URL(route.request().url());
+            const path = paths.includes(url.pathname) ? "/sign-in" : url.pathname;
+            const response = await route.fetch({ url: `${fixture.origin}${path}${url.search}` });
+            await route.fulfill({ response });
+          });
+          const options = await connect(browser, service);
+
+          const runId = fixture.createRun();
+          const page = await browser.context.newPage();
+          await page.goto(`${site}${paths[0]}?runId=${runId}`);
+          await expect(page.locator("#signed-in")).toBeVisible();
+          expect(fixture.evidence(runId)).toMatchObject({ posts: 1, allMatched: true });
+          // Reconciliation waits three seconds and compares readings a second apart.
+          // Allow its bounded loading/judging work to finish on a busy cloud worker.
+          await expect
+            .poll(() => send(options, { version: 1, type: "login.probe.status" }), {
+              timeout: 15_000,
+            })
+            .toMatchObject({ attempts: [{ state: "authenticated", outcome: "authenticated" }] });
+          // The tenant's ID never leaves the device: the page goes with `[id]` in its place.
+          expect(claude.prompts.map((prompt) => [prompt.task, prompt.observation.path])).toEqual([
+            ["generate", redactedPath],
+            ["judge-sign-in", "/account"],
+          ]);
+          expect(JSON.stringify(claude.prompts)).not.toContain(tenants[0]);
+          expect(JSON.stringify(claude.prompts)).not.toContain(password);
+          expect(await service.generationAttempts()).toEqual([
+            { path: redactedPath, base_revision: 0 },
+          ]);
+          const recipes = (await (await service.request("/v1/recipes")).json()) as {
+            changes: { recipe?: { steps: unknown[] } }[];
+          };
+          expect(recipes.changes.map((change) => change.recipe)).toMatchObject([
+            {
+              steps: [
+                { kind: "fill", path: redactedPath },
+                { kind: "click", path: redactedPath },
+              ],
+            },
+          ]);
+
+          // Another tenant's page runs the stored recipe, its steps' path checks passing on
+          // the other ID, with no model call.
+          await page.close();
+          const again = fixture.createRun();
+          const next = await browser.context.newPage();
+          await next.goto(`${site}${paths[1]}?runId=${again}`);
+          await expect(next.locator("#signed-in")).toBeVisible();
+          expect(fixture.evidence(again)).toMatchObject({ posts: 1, allMatched: true });
+          expect(claude.prompts).toHaveLength(2);
+          for (const tenant of tenants) {
+            expect(JSON.stringify(claude.prompts)).not.toContain(tenant);
+            expect(JSON.stringify(recipes)).not.toContain(tenant);
+          }
+          expect([...new Set(externalRequests)].sort()).toEqual(["https://127.0.0.1", site]);
+        },
+        { args: ["--ignore-certificate-errors"] },
+      );
+    } finally {
+      await service.close();
+      await fixture.close();
+    }
+  });
+}
 
 for (const { name, start, query, passwordPath } of [
   // Next hides the account form and shows the password form on the same path.

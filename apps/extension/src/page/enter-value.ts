@@ -7,6 +7,8 @@
 // value is typed as a keyboard would type it. Its characters are one task apart, as fast
 // as the page's handlers allow (owner decision, 2026-10-13).
 
+import { blurElement, focusElement, focusedElement } from "./focus";
+
 /**
  * How long a preparing fill waits between its inputs, between the digits of a split code
  * and after a value's last character, so the page's handlers for one, their microtasks
@@ -20,17 +22,48 @@ const valueProperty = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype
 /** Characters typed with Shift on a US layout. */
 const shifted = /^[A-Z~!@#$%^&*()_+{}|:"<>?]$/u;
 
+/**
+ * The physical key and Chrome's `keyCode` of each digit and symbol on a US layout, unshifted and
+ * shifted: `@` is Shift and the 2 key (`Digit2`, 50), `;` and `:` are `Semicolon` (186).
+ */
+const symbolKeys: ReadonlyMap<string, readonly [code: string, keyCode: number]> = new Map(
+  (
+    [
+      ["`~", "Backquote", 192],
+      ["-_", "Minus", 189],
+      ["=+", "Equal", 187],
+      ["[{", "BracketLeft", 219],
+      ["]}", "BracketRight", 221],
+      ["\\|", "Backslash", 220],
+      [";:", "Semicolon", 186],
+      ["'\"", "Quote", 222],
+      [",<", "Comma", 188],
+      [".>", "Period", 190],
+      ["/?", "Slash", 191],
+      ["1!", "Digit1", 49],
+      ["2@", "Digit2", 50],
+      ["3#", "Digit3", 51],
+      ["4$", "Digit4", 52],
+      ["5%", "Digit5", 53],
+      ["6^", "Digit6", 54],
+      ["7&", "Digit7", 55],
+      ["8*", "Digit8", 56],
+      ["9(", "Digit9", 57],
+      ["0)", "Digit0", 48],
+    ] as const
+  ).flatMap(([pair, code, keyCode]) =>
+    [...pair].map((character) => [character, [code, keyCode]] as const),
+  ),
+);
+
 /** The key a keyboard reports for `character`, as far as a US layout names one. */
 function keyOf(character: string): KeyboardEventInit {
   const upper = character.toUpperCase();
-  const code = /^[A-Za-z]$/u.test(character)
-    ? `Key${upper}`
-    : /^\d$/u.test(character)
-      ? `Digit${character}`
-      : character === " "
-        ? "Space"
-        : "";
-  const keyCode = code ? upper.charCodeAt(0) : 0;
+  const [code, keyCode] = /^[A-Za-z]$/u.test(character)
+    ? [`Key${upper}`, upper.charCodeAt(0)]
+    : character === " "
+      ? ["Space", 32]
+      : (symbolKeys.get(character) ?? ["", 0]);
   return {
     key: character,
     code,
@@ -48,7 +81,7 @@ function keyOf(character: string): KeyboardEventInit {
  * before the next one. It is no timer, which Chrome throttles on a hidden page to a
  * second or, after five minutes hidden, to a minute.
  */
-function nextTask(): Promise<void> {
+export function nextTask(): Promise<void> {
   return new Promise((resolve) => {
     const channel = new MessageChannel();
     channel.port1.onmessage = () => {
@@ -57,6 +90,17 @@ function nextTask(): Promise<void> {
     };
     channel.port2.postMessage(undefined);
   });
+}
+
+/**
+ * `text` with its full-width and half-width forms (U+3000 and U+FF01 to U+FFEF) folded
+ * as Unicode NFKC folds them, and composed, so `ｶﾞ`, `ガ` and `１Ａ`, `1A` fold alike.
+ * Other compatibility characters, such as `①` or `ﬁ`, stay as they are.
+ */
+function widthFolded(text: string): string {
+  return text
+    .replace(/[\u3000\uFF01-\uFFEF]/gu, (character) => character.normalize("NFKC"))
+    .normalize("NFC");
 }
 
 /**
@@ -84,17 +128,23 @@ function gap(): Promise<void> {
  * a value the page changed is never submitted, when the field does not hold `value`
  * after a cancelled event, or holds a value of another length, as when the page's own
  * handlers dropped a character it does not allow. A value of the same length, such as a
- * mask or a case the page changed, is kept. After `change` and blur the page gets
- * another pause, and a value of another length then is `refused` too, unless the page
- * emptied the field, as a form that switches to other fields does; the caller's checks
- * see to that. A page that cancels the clearing `beforeinput` and does not clear the
+ * mask or a case the page changed, is kept, and so is one the page rewrote between
+ * full-width and half-width characters, whatever its length and after a cancelled key
+ * too (owner decision, 2026-10-18 02:07 UTC; see {@link widthFolded}), unless it no
+ * longer fits the field's `maxlength`. After `change` and blur the page gets another
+ * pause, and a value of another length then is `refused` too, unless the page emptied
+ * the field, as a form that switches to other fields does; the caller's checks see to
+ * that. A page that cancels the clearing `beforeinput` and does not clear the
  * field itself within such a pause refuses the value before any character is typed.
  * After each such wait, as between characters (see {@link gap} and {@link nextTask}), it
  * calls `between`, which stops the typing with its cause when the page is no longer the
  * one to type into. A stopped typing leaves the characters typed so far in the field.
  * `beforeInput` runs once the last character is in, just before its `input` event. A
  * page that moved focus elsewhere meanwhile keeps it: `blur` only leaves the input when
- * it still has focus. Resolves to the cause when the typing stopped, else `undefined`.
+ * it still has focus. A field that already holds `value`, as a password field the page or
+ * an earlier fill filled does behind its mask, is left as it is: no focus, no key and no
+ * event, and `beforeInput` runs at once (owner decision, 2026-10-18). Resolves to the
+ * cause when the typing stopped, else `undefined`.
  */
 export async function typeValue<Cause extends string>(
   input: HTMLInputElement,
@@ -109,8 +159,12 @@ export async function typeValue<Cause extends string>(
   } = {},
 ): Promise<Cause | "refused" | undefined> {
   const current = () => (valueProperty?.get ? valueProperty.get.call(input) : input.value);
+  if (current() === value) {
+    beforeInput?.();
+    return undefined;
+  }
   let refused = false;
-  input.focus({ preventScroll: true });
+  focusElement(input);
   if (current() !== "") {
     const clear = { bubbles: true, composed: true, inputType: "deleteContentBackward" };
     if (input.dispatchEvent(new InputEvent("beforeinput", { ...clear, cancelable: true }))) {
@@ -183,7 +237,11 @@ export async function typeValue<Cause extends string>(
     const cause = between?.();
     if (cause) return cause;
     const held = current();
-    return held !== value &&
+    // A rewrite that made the value longer than the field allows is one a person's typing
+    // could not have left in it.
+    if (input.type !== "number" && input.maxLength >= 0 && held.length > input.maxLength)
+      return "refused";
+    return widthFolded(held) !== widthFolded(value) &&
       (cancelledKey || [...held].length !== [...value].length) &&
       !(cleared && held === "")
       ? "refused"
@@ -192,7 +250,7 @@ export async function typeValue<Cause extends string>(
   const entered = settled(refused, false);
   if (entered) return entered;
   input.dispatchEvent(new Event("change", { bubbles: true }));
-  if (document.activeElement === input) input.blur();
+  if (focusedElement() === input) blurElement(input);
   // A page's change or blur handler may rewrite the value it holds, as a framework that
   // sets the state it last rendered does. One that empties the field, as a form switching
   // to another set of fields does, is left to the checks before the click.

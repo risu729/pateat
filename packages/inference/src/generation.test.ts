@@ -246,8 +246,8 @@ describe("recipe generation role", () => {
             result: {
               decision: "plan",
               fields: [
-                { slot: "custom-1", candidate: "branch", name: "branch-number" },
-                { slot: "custom-2", candidate: "account", name: "account-number" },
+                { slot: "custom-1", candidate: "branch" },
+                { slot: "custom-2", candidate: "account" },
                 { slot: "password", candidate: "pin" },
               ],
               action: { candidate: "login", purpose: "submit" },
@@ -260,7 +260,7 @@ describe("recipe generation role", () => {
     };
     const byContract = {
       fields: [
-        { slot: "custom-3", candidate: "contract", name: "contract-number" },
+        { slot: "custom-3", candidate: "contract" },
         { slot: "password", candidate: "pin" },
       ],
       action: { candidate: "login", purpose: "submit" },
@@ -275,7 +275,8 @@ describe("recipe generation role", () => {
           path: "/login",
           effect: "prepare",
           fields: [
-            { slot: "contract-number", target: { by: "id", value: "contract" } },
+            // The page's label for the field, never the vault field's name (ADR 0027).
+            { slot: "または契約者番号", target: { by: "id", value: "contract" } },
             { slot: "password", target: { by: "id", value: "pin" } },
           ],
         },
@@ -289,7 +290,7 @@ describe("recipe generation role", () => {
     expect(
       await answer({
         ...byContract,
-        fields: [{ slot: "custom-3", candidate: "first-time", name: "contract-number" }],
+        fields: [{ slot: "custom-3", candidate: "first-time" }],
       }),
     ).toMatchObject({ status: "failed", error: "invalid-output", detail: "incompatible-role" });
   });
@@ -382,7 +383,7 @@ describe("recipe generation role", () => {
     expect(alternatives).toContain("the page shows now");
     expect(alternatives).toContain("never another form or one behind a tab or link");
     expect(alternatives).toContain("every set's action, the main one too, is a submit");
-    expect(alternatives).toContain("each element fills one slot");
+    expect(alternatives).toContain("Each element fills one slot");
     expect(alternatives).toContain("no set's slots equal or are a subset of another's");
   });
 
@@ -581,6 +582,139 @@ describe("recipe generation role", () => {
         maxOutputTokens: 512,
       }),
     ).toThrow(TypeError);
+  });
+});
+
+// Owner, 2026-10-18: the request log keeps the model's own answer beside the result.
+describe("the answer kept for the request log (ADR 0012)", () => {
+  it("keeps a passkey button the local checks drop", async () => {
+    const myjcb = japanesePageCorpus.find((entry) => entry.id === "ja-myjcb")!;
+    const answer = {
+      decision: "plan",
+      fields: [
+        { slot: "username", candidate: "c1" },
+        { slot: "password", candidate: "c2" },
+      ],
+      action: { candidate: "c3", purpose: "submit" },
+      // A link about passkeys, which the plan check drops.
+      passkeyButton: "c6",
+    };
+    const outcome = await generatorReturning(JSON.stringify({ result: answer })).generate({
+      observation: myjcb.observation,
+      slots: myjcb.slots,
+    });
+    if (outcome.status !== "ok" || "accountList" in outcome.value)
+      throw new Error("expected a plan");
+    expect(outcome.value).not.toHaveProperty("passkeyButton");
+    expect(outcome.answer).toEqual(answer);
+  });
+
+  it("keeps the alternatives and passkey button a later page's result drops", async () => {
+    const twoSets = evaluationCorpus.find((entry) => entry.id === "ja-bank-two-identifier-sets")!;
+    const sets = {
+      decision: "plan",
+      fields: [
+        { slot: "custom-1", candidate: "branch" },
+        { slot: "custom-2", candidate: "account" },
+        { slot: "password", candidate: "pin" },
+      ],
+      action: { candidate: "login", purpose: "submit" },
+      alternatives: [
+        {
+          fields: [
+            { slot: "custom-3", candidate: "contract" },
+            { slot: "password", candidate: "pin" },
+          ],
+          action: { candidate: "login", purpose: "submit" },
+        },
+      ],
+    };
+    const later = await generatorReturning(JSON.stringify({ result: sets })).generate({
+      observation: twoSets.observation,
+      slots: twoSets.slots,
+      startPage: false,
+    });
+    if (later.status !== "ok" || "accountList" in later.value) throw new Error("expected a plan");
+    expect(later.value).not.toHaveProperty("alternatives");
+    expect(later.answer).toEqual(sets);
+    // A sign-in button the start page keeps (see above).
+    const myjcb = japanesePageCorpus.find((entry) => entry.id === "ja-myjcb")!;
+    const passkey = {
+      decision: "plan",
+      fields: [
+        { slot: "username", candidate: "c1" },
+        { slot: "password", candidate: "c2" },
+      ],
+      action: { candidate: "c3", purpose: "submit" },
+      passkeyButton: "c5",
+    };
+    const next = await generatorReturning(JSON.stringify({ result: passkey })).generate({
+      observation: myjcb.observation,
+      slots: myjcb.slots,
+      startPage: false,
+    });
+    if (next.status !== "ok" || "accountList" in next.value) throw new Error("expected a plan");
+    expect(next.value).not.toHaveProperty("passkeyButton");
+    expect(next.value).not.toHaveProperty("passkeyTarget");
+    expect(next.answer).toEqual(passkey);
+  });
+
+  it("reduces IDs the request does not hold to ?", async () => {
+    const outcome = await generatorReturning(
+      JSON.stringify({
+        result: {
+          decision: "plan",
+          fields: [
+            { slot: "email", candidate: "email" },
+            { slot: "Customer password", candidate: "password" },
+          ],
+          action: { candidate: "Sign in now", purpose: "submit" },
+          accountSwitch: "Use another account",
+          alternatives: [
+            {
+              fields: [{ slot: "email", candidate: "Email box" }],
+              action: { candidate: "sign-in", purpose: "submit" },
+            },
+          ],
+          passkeyButton: "Passkey",
+        },
+      }),
+    ).generate(request);
+    expect(outcome).toMatchObject({ status: "failed", error: "invalid-output" });
+    expect(outcome.answer).toEqual({
+      decision: "plan",
+      fields: [
+        { slot: "email", candidate: "email" },
+        { slot: "?", candidate: "password" },
+      ],
+      action: { candidate: "?", purpose: "submit" },
+      accountSwitch: "?",
+      alternatives: [
+        {
+          fields: [{ slot: "email", candidate: "?" }],
+          action: { candidate: "sign-in", purpose: "submit" },
+        },
+      ],
+      passkeyButton: "?",
+    });
+    expect(JSON.stringify(outcome.answer)).not.toMatch(
+      /Member|Customer|Sign in|another|box|Passkey/u,
+    );
+  });
+
+  it("keeps an abstention and an account list, and no answer the format refused", async () => {
+    const abstained = await generatorReturning(
+      JSON.stringify({ result: { decision: "abstain", reason: "ambiguous" } }),
+    ).generate(request);
+    expect(abstained.answer).toEqual({ decision: "abstain", reason: "ambiguous" });
+    const list = await generatorReturning(
+      JSON.stringify({ result: { decision: "account-list", other: "Another account" } }),
+    ).generate(request);
+    expect(list).toMatchObject({ status: "failed", detail: "unexpected-account-list" });
+    expect(list.answer).toEqual({ decision: "account-list", other: "?" });
+    const text = await generatorReturning("Sign in with the email field.").generate(request);
+    expect(text).toMatchObject({ status: "failed", error: "invalid-output" });
+    expect(text).not.toHaveProperty("answer");
   });
 });
 

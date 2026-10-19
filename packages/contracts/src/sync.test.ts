@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import type { LoginRecipe } from "./login";
 import { createDefaultSettings } from "./settings";
 import {
+  loginOutcomeReportSchema,
+  loginRecordSchema,
   syncRecipeChangeSchema,
   syncRecipeWriteSchema,
   syncSettingsStateSchema,
@@ -88,5 +90,89 @@ describe("recipe sync contract", () => {
     expect(
       accepts(syncRecipeWriteSchema, { version: 1, expectedRevision: 0, state: "revoked" }),
     ).toBe(false);
+  });
+});
+
+describe("login outcome report contract", () => {
+  const report = { version: 1, revision: 3, outcome: "unknown-submit", cause: "settled", step: 1 };
+
+  it("accepts codes and numbers only", () => {
+    expect(accepts(loginOutcomeReportSchema, report)).toBe(true);
+    expect(accepts(loginOutcomeReportSchema, { ...report, branch: "other" })).toBe(true);
+    const { cause: _cause, ...withoutCause } = report;
+    expect(accepts(loginOutcomeReportSchema, withoutCause)).toBe(true);
+  });
+
+  it("refuses free text, unknown codes and anything beyond the codes", () => {
+    for (const extra of [
+      { url: "https://bank.example/login" },
+      { reason: "Sign in failed for user@example.com" },
+      { recipeId: "gen-0123" },
+      { at: 1 },
+    ])
+      expect(accepts(loginOutcomeReportSchema, { ...report, ...extra })).toBe(false);
+    for (const changed of [
+      { outcome: "failed" },
+      { cause: "Wrong password" },
+      { branch: "" },
+      { revision: 0 },
+      { step: 41 },
+      { step: 1.5 },
+      { version: 2 },
+    ])
+      expect(accepts(loginOutcomeReportSchema, { ...report, ...changed })).toBe(false);
+  });
+});
+
+describe("login record contract", () => {
+  const record = {
+    version: 1,
+    revision: 3,
+    outcome: "authenticated",
+    extensionBuild: "1c42ad3e9f0b5d7a6c4e2f1a3b5d7e9f0a1c3e5d",
+    totalMs: 4210,
+    serviceMs: 0,
+    networkMs: 0,
+    personMs: 0,
+    pageMs: 0,
+  };
+
+  it("accepts codes, the build and whole milliseconds only", () => {
+    expect(accepts(loginRecordSchema, record)).toBe(true);
+    expect(accepts(loginRecordSchema, { ...record, branch: "other", cause: "settled" })).toBe(true);
+    expect(accepts(loginRecordSchema, { ...record, extensionBuild: "development" })).toBe(true);
+    expect(accepts(loginRecordSchema, { ...record, totalMs: 86_400_000 })).toBe(true);
+  });
+
+  it("refuses a site, free text, typing time and anything beyond the fields", () => {
+    for (const extra of [
+      { origin: "https://bank.example" },
+      { url: "https://bank.example/login" },
+      { reason: "Sign in failed for user@example.com" },
+      { otherMs: 1 },
+      { typingMs: 1 },
+      { step: 1 },
+      { at: 1 },
+    ])
+      expect(accepts(loginRecordSchema, { ...record, ...extra })).toBe(false);
+    for (const changed of [
+      { outcome: "failed" },
+      { cause: "Wrong password" },
+      { branch: "" },
+      { revision: 0 },
+      { totalMs: -1 },
+      { serviceMs: 1.5 },
+      { personMs: 86_400_001 },
+      { pageMs: -1 },
+      { pageMs: 86_400_001 },
+      { extensionBuild: "Release 1" },
+      { extensionBuild: "https://bank.example" },
+      { version: 2 },
+    ])
+      expect(accepts(loginRecordSchema, { ...record, ...changed })).toBe(false);
+    const { totalMs: _totalMs, ...withoutTotal } = record;
+    expect(accepts(loginRecordSchema, withoutTotal)).toBe(false);
+    const { pageMs: _pageMs, ...withoutPage } = record;
+    expect(accepts(loginRecordSchema, withoutPage)).toBe(false);
   });
 });

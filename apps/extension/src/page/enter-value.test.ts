@@ -186,6 +186,59 @@ describe("typeValue", () => {
     expect(upper.value).toBe("AB1");
   });
 
+  it("keeps a value the page rewrote between full-width and half-width, whatever its length", async () => {
+    // A kana field that holds only half-width katakana: `ガ` becomes the two characters `ｶﾞ`.
+    document.body.innerHTML = '<input id="kana"><input id="address"><input id="dropped">';
+    const kana = document.getElementById("kana") as HTMLInputElement;
+    const half = new Map([
+      ["ガ", "ｶﾞ"],
+      ["ン", "ﾝ"],
+      ["ナ", "ﾅ"],
+    ]);
+    kana.addEventListener("input", () => {
+      kana.value = [...kana.value].map((character) => half.get(character) ?? character).join("");
+    });
+    expect(await typeValue(kana, "ガンナ", setter)).toBeUndefined();
+    expect(kana.value).toBe("ｶﾞﾝﾅ");
+    // An address field that cancels each full-width key and writes its half-width form.
+    const address = document.getElementById("address") as HTMLInputElement;
+    address.addEventListener("keydown", (event) => {
+      if (event.key.length !== 1) return;
+      const narrow = event.key.normalize("NFKC");
+      if (narrow === event.key) return;
+      event.preventDefault();
+      address.value += narrow;
+    });
+    expect(await typeValue(address, "１－２－３　Ａ棟", setter)).toBeUndefined();
+    expect(address.value).toBe("1-2-3 A棟");
+    // A rewrite that also drops a character is still refused.
+    const dropped = document.getElementById("dropped") as HTMLInputElement;
+    dropped.addEventListener("input", () => {
+      dropped.value = dropped.value.normalize("NFKC").replaceAll("-", "");
+    });
+    expect(await typeValue(dropped, "１－２", setter)).toBe("refused");
+  });
+
+  it("keeps a half-width value the page made full-width, unless it outgrew `maxlength`", async () => {
+    document.body.innerHTML =
+      '<input id="wide"><input id="capped" maxlength="3"><input id="ellipsis">';
+    const wide = document.getElementById("wide") as HTMLInputElement;
+    wide.addEventListener("input", () => (wide.value = wide.value.normalize("NFKC")));
+    expect(await typeValue(wide, "ｶﾞﾝﾅ", setter)).toBeUndefined();
+    expect(wide.value).toBe("ガンナ");
+    // `ｶﾞﾝﾅ` is four characters a person could not type into three.
+    const capped = document.getElementById("capped") as HTMLInputElement;
+    capped.addEventListener("input", () => {
+      capped.value = capped.value.replaceAll("ガ", "ｶﾞ").replaceAll("ン", "ﾝ").replaceAll("ナ", "ﾅ");
+    });
+    expect(await typeValue(capped, "ガンナ", setter)).toBe("refused");
+    // Only width is folded: a page that turns `…` into `...` changes the value, though
+    // NFKC folds the two alike.
+    const ellipsis = document.getElementById("ellipsis") as HTMLInputElement;
+    ellipsis.addEventListener("input", () => (ellipsis.value = ellipsis.value.replace("…", "...")));
+    expect(await typeValue(ellipsis, "a…", setter)).toBe("refused");
+  });
+
   it("keeps out a character whose key the page cancels, and then refuses the value", async () => {
     document.body.innerHTML = '<input id="field" inputmode="numeric">';
     const field = document.getElementById("field") as HTMLInputElement;
@@ -282,6 +335,36 @@ describe("typeValue", () => {
     expect(keys).toEqual(["a:false", "B:true", "!:true"]);
   });
 
+  it("names a symbol's US key and Chrome's keyCode", async () => {
+    document.body.innerHTML = '<input id="field">';
+    const field = document.getElementById("field") as HTMLInputElement;
+    const keys: string[] = [];
+    field.addEventListener("keydown", (event) =>
+      keys.push(`${event.key}:${event.code}:${event.keyCode}:${event.which}:${event.shiftKey}`),
+    );
+    const pressed: string[] = [];
+    field.addEventListener("keypress", (event) =>
+      pressed.push(`${event.key}:${event.keyCode}:${event.which}:${event.charCode}`),
+    );
+    await typeValue(field, "aA1@;:-_/ é", setter);
+    expect(keys).toEqual([
+      "a:KeyA:65:65:false",
+      "A:KeyA:65:65:true",
+      "1:Digit1:49:49:false",
+      "@:Digit2:50:50:true",
+      ";:Semicolon:186:186:false",
+      "::Semicolon:186:186:true",
+      "-:Minus:189:189:false",
+      "_:Minus:189:189:true",
+      "/:Slash:191:191:false",
+      " :Space:32:32:false",
+      // A character no US key types has neither.
+      "é::0:0:false",
+    ]);
+    // `keypress` names the character itself, as Chrome's does: `;` is 186 on `keydown`.
+    expect(pressed[4]).toBe(";:59:59:59");
+  });
+
   it("clears a field's earlier text before typing", async () => {
     document.body.innerHTML = '<input id="field" value="old">';
     const field = document.getElementById("field") as HTMLInputElement;
@@ -291,6 +374,30 @@ describe("typeValue", () => {
     );
     await typeValue(field, "ab", setter);
     expect(inputs).toEqual(["deleteContentBackward:", "insertText:a", "insertText:ab"]);
+  });
+
+  it("leaves a field that already holds the value as it is, masked or not", async () => {
+    document.body.innerHTML =
+      '<input id="before"><input id="field" type="password" value="pa55"><input id="other" value="pa5">';
+    const before = document.getElementById("before") as HTMLInputElement;
+    const field = document.getElementById("field") as HTMLInputElement;
+    const other = document.getElementById("other") as HTMLInputElement;
+    before.focus();
+    const events: string[] = [];
+    for (const type of ["focus", "keydown", "beforeinput", "input", "change", "blur"])
+      field.addEventListener(type, () => events.push(type));
+    let typed = 0;
+    expect(await typeValue(field, "pa55", setter, { beforeInput: () => typed++ })).toBeUndefined();
+    expect(events).toEqual([]);
+    expect(typed).toBe(1);
+    expect(field.value).toBe("pa55");
+    expect(document.activeElement).toBe(before);
+    // A field holding other text, even a prefix of the value, is cleared and typed into.
+    const inputs: string[] = [];
+    other.addEventListener("input", (event) => inputs.push((event as InputEvent).inputType));
+    await typeValue(other, "pa55", setter);
+    expect(other.value).toBe("pa55");
+    expect(inputs[0]).toBe("deleteContentBackward");
   });
 
   it("stops between characters with the cause the check gives", async () => {

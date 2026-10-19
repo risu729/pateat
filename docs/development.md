@@ -28,6 +28,15 @@ package. The Drizzle schema in `services/api/src/db/schema.ts` owns the D1 schem
 `mise run //services/api:generate:migrations` writes SQL to `services/api/migrations/`
 without contacting a database, and the check graph fails if committed migrations drift.
 
+The ordinary judged-page completion rule of
+[ADR 0029](adr/0029-local-sign-in-state.md#implementation-notes) lives in
+`apps/extension/src/login/completion-policy.ts`: pure functions select an undecided
+candidate, settle it from the fresh reading and disabled-field omission, and choose the
+judged outcome. `runtime.ts` retains the asynchronous page re-read, current-run checks,
+handler takeover and reporting. Its `judgeMove` and `judgeStop` keep their distinct
+completion rules. The policy's table tests pin the existing behavior; extracting it
+does not change what an undecided answer means.
+
 `mise.toml` owns exact tool versions and installation. Tool lockfiles use format
 version 3 and `lockfile_mode = "generate"`, rebuilding them from current requests
 while reusing unchanged artifacts. The repository-wide tasks live in the root
@@ -174,6 +183,7 @@ Focused tasks are available for diagnosis:
 | `mise run //packages/inference:test` | Score AI role adapters on the synthetic corpus with fake providers and check the real-page corpus |
 | `mise run //packages/inference:typecheck` | Check AI adapter, corpus and harness types |
 | `mise run //packages/inference:corpus:formasaurus <checkout>` | Regenerate the real-page corpus from a local Formasaurus checkout ([plan](plan.md#ai-evaluation-harness-progress)) |
+| `mise run //packages/inference:corpus:japanese (--refresh \| --report <file> <url>...)` | Observe public Japanese login pages live: refresh the Japanese corpus, or report listed pages to label ([plan](plan.md#ai-evaluation-harness-progress)) |
 | `mise run //packages/inference:bench --paid [--corpus real\|japanese] [--from n --count n]` | Run the paid Claude benchmark on the synthetic corpus, the Formasaurus real-page corpus or the Japanese pages, whole or one batch; needs `ANTHROPIC_API_KEY` (in cloud sessions, `PATEAT_ANTHROPIC_API_KEY`) and owner approval for each run |
 | `mise run //packages/inference:bench --provider heuristic [--corpus real\|japanese] [--from n --count n]` | Score the free model-free comparator on the same cases, whole or one batch |
 | `mise run test:tools` | Test artifact/provenance helpers |
@@ -199,7 +209,10 @@ system dependencies. Server type checking and the artifact checks depend on the 
 build, whose generated files they read. Set `PATEAT_REVISION` before the build
 and artifact check to verify a particular source revision. Without it, local
 builds use `development`. The default extension build excludes the test probe;
-neither variant grants vault or real-site login capability.
+neither variant grants vault or real-site login capability. Both the extension and
+`/manage` set Vite's `build.cssTarget` to `chrome145`, matching their supported minimum,
+so production CSS preserves native `light-dark()` theme colors without fallback
+custom properties. The Worker's inline `PAGE_CSS` string is not transformed.
 
 Local success is scoped to the tested component. Worker tests and artifact
 checks have passed locally; they do not establish production deployment or
@@ -434,9 +447,11 @@ For a problem that happened earlier, click **Download logs** on the same page, c
 preview and click **Save file**, then attach the `.jsonl` file, or click **Copy all**
 and paste the whole text. Site addresses and recipe IDs are included; check
 **Hide site addresses and recipe IDs** to replace them with `site-1` and `recipe-1`. To
-record more detail, click **Turn on debug logging for 24 hours**, reproduce the problem,
-then download the logs ([local log](architecture.md#local-log)). Debug logging turns
-itself off after 24 hours; **Turn off debug logging** turns it off sooner.
+record more detail, click **Turn on debug logging**, reproduce the problem, then
+download the logs ([local log](architecture.md#local-log)). Until Pateat is published,
+debug logging stays on until **Turn off debug logging** turns it off; a published build
+turns it off after 24 hours, and its button reads
+**Turn on debug logging for 24 hours**.
 
 ### Why a passkey request was delegated
 
@@ -473,8 +488,11 @@ holds:
   looked up again delegates with `settings-changed`, or `vault-incomplete` when the
   vault could not be searched in full;
 - `signedBefore` when Pateat had signed for this RP ID in the tab, so the request asks
-  again. Such a request that cannot open the window is delegated with
-  `chooser-unavailable`;
+  again, or `logoutClicked` when instead a control that logs out was clicked on the RP
+  ID's site in the tab and still waits for the site's first step (at most 10 minutes,
+  while the tab stays on the site), or, after such a click was used, the tab keeps a
+  logout state for an origin of the site (ADR 0021 D). Such a request that cannot open
+  the window is delegated with `chooser-unavailable`;
 - `cause`: for a `cancelled` outcome, who cancelled it (`page-cancelled` or
   `settings-changed`); for the `assertion-failed` reason, the step that threw
   (`login-wait`, `account-lookup`, `passkey-lookup`, `signed-before-lookup`, `chooser`
@@ -502,7 +520,10 @@ holds:
 For example, `siteDefault: 1` with `siteDefaultAccepted: 0` means the default item's
 passkey is not one the request accepts. No entry at all means the request never reached
 Pateat's background: the page's options were not ones the bridge copies, another
-provider's wrapper did not call Pateat's, or the request came from a subframe. Entries
+provider's wrapper did not call Pateat's, the request came from a subframe, or the relay
+refused the document on its own (an insecure context, a permissions policy that refuses
+`publickey-credentials-get`, a document without `document.featurePolicy`, or copied
+options longer than 131,072 characters). Entries
 never hold credential IDs, user handles or item IDs, and the page is never told the
 reason. The origin and RP ID are named only for sites your settings or recipes name;
 other sites appear as `origin:7d2b91aa` and `rp:7d2b91aa`.
@@ -573,10 +594,33 @@ that sign-in does not finish, **Sign in again** completes the setup and keeps th
 choice. Sign-ins never change the entry; the policy is edited on the settings page.
 Like other saved settings, the entry stays after Delete connection.
 
+An error, cancellation or unsupported-interaction reply, and stopping setup, re-read
+the rows, so a connection whose first sign-in failed shows with Sign in again. Name
+and Email clear once a read lists a new connection with the label and email this
+page's add sent, and only while the form still holds them, so Connect does not add it
+twice. After a final reply only that reply's read can match; after a stop, whose read
+can come before the connection is saved, a later Refresh can. A connection another
+settings page added leaves this page's draft as typed. When the add ended in an error
+or an unsupported interaction and the listed connection never unlocked, the form
+also switches from that unchanged draft to Sign in again for the connection, keeping
+the error message and focusing the master password (owner decision, 2026-10-19).
+**Cancel setup** always leaves sign-in-again mode; when nothing is running it changes
+nothing else, so the saved settings draft is not reloaded. It stays available while
+the page first reads its connections (owner decision, 2026-10-19): stopping that read
+says "Loading stopped.", reads the connections again and leaves the saved settings
+draft as it is, since nothing was written.
+
+Sign in again on a connection that never unlocked (automatic unlock "unknown" and a
+readable local record) starts with **Enable automatic unlock on this device**
+checked: the vault cannot be accepted without it, and the add that registered the
+connection asked for it. An unreadable record starts unchecked, since it may hide a
+choice to keep automatic unlock off.
+
 Connecting retains the local unlock key and encrypted cache. Disabling automatic
 unlock removes the retained key; signing in again does not implicitly re-enable
-it. A cancellation or timeout during the durable write can leave an accepted
-record even when setup reports an uncertain result. Reload connection status;
+it, though the box starts checked for a connection that never unlocked. A
+cancellation or timeout during the durable write can leave an accepted record even
+when setup reports an uncertain result. Reload connection status;
 explicitly disable automatic unlock if that retained key should be removed.
 Compensation removes only a positively identified first-enrollment candidate,
 never an unknown or newer record. Connection status and policy metadata contain
@@ -668,6 +712,14 @@ Pateat uses:
 
 [integration]: #integration-conditions-pending-candidates-remain-conditional
 
+DOM listeners that share an installation or effect lifetime use one locally owned
+`AbortController` and register with its `signal`: the code-submission watcher, passkey
+relay and service-pairing return listeners. Stopping the watcher or relay, or unmounting
+the effect, aborts that controller to remove only its listeners; capture flags and
+request cancellation behavior stay unchanged. Mutation observers still disconnect
+separately. Single-listener cleanup and Chrome extension events retain their existing
+removal APIs.
+
 ## Dependency policy
 
 Renovate inherits the pinned `risu729/renovate-config` preset, matching the other owner
@@ -717,21 +769,33 @@ On 2026-10-13 the owner first chose temporal-polyfill-lite for dates and times; 
 a ponyfill, it added about 18 kB gzip to each extension context's bundle. At 16:12 UTC
 the same day the owner asked to enable the native Temporal where it can be enabled and
 otherwise to use `Date` on the server and the native Temporal in the extension. The
-extension uses Chrome's global `Temporal` and requires Chrome 144, the first version
-that ships it. The service keeps `Date`: workerd 1.20261006.1 does not expose Temporal,
-and no compatibility flag enables it (its V8 `harmony_temporal` flag cannot be set for a
-deployed Worker). Lint forbids the global `Temporal` in `services/` and in the packages
-the service imports.
-The current manifests and lockfile describe what is installed. WXT + TypeScript +
-Valibot remain confirmed choices; existing Vitest, Playwright and build tools remain in
-use. WXT drives Vite 8 (Rolldown) for the extension build
+extension uses Chrome's global `Temporal`, which first ships in Chrome 144; the
+extension now requires Chrome 145 for `Map.prototype.getOrInsertComputed`. The service
+keeps `Date`: workerd 1.20261006.1 does not expose Temporal, and no compatibility flag
+enables it (its V8 `harmony_temporal` flag cannot be set for a deployed Worker). Lint
+forbids the global `Temporal` in `services/` and in the packages the service imports. On
+2026-10-18 at 08:39 UTC the owner wrote, about the dashboard's charts,
+「あ、ライブラリは Recharts?いい感じの探して使ってほしい。新しくてメンテされるやつ」
+("Oh, is the library Recharts? Find a good one and use it, a new one that is
+maintained"), leaving the choice to the agent. In its reply (about 08:45 UTC) the agent
+chose Recharts 3 (3.10.1, MIT), used through the shadcn/ui Base UI Chart component
+copied in as owned code (`services/api/web/chart.tsx`), over TanStack Charts 1.x, which
+reached 1.0 only on 2026-10-03, for maturity; uPlot and Observable Plot were the
+smaller, non-React options of the dashboard proposal. The English rendering of the
+owner's words and the choice itself are the agent's, not confirmed by the owner.
+Recharts needs `react-is` as a peer. It is loaded with `React.lazy`, so only the
+dashboard downloads it (about 110 kB gzip). The current manifests and lockfile describe
+what is installed. WXT + TypeScript + Valibot remain confirmed choices; existing Vitest,
+Playwright and build tools remain in use. WXT drives Vite 8 (Rolldown) for the extension
+build
 ([what each layer does](research/2026-10-12-wxt-build-pipeline.md)).
 
 | Area | Choice and integration status | Owning slice |
 | --- | --- | --- |
 | Extension UI | **Implemented:** React through `@wxt-dev/module-react`, Tailwind CSS through its Vite plugin, Base UI with the selected shadcn/ui Button | M2 settings UI migration |
 | Service web UI | **Implemented for the devices page:** React, Tailwind through its Vite plugin, Base UI with the selected shadcn/ui Button and TanStack Query, built by Vite into Worker static assets; **approved:** TanStack Form | M4 owner web UI |
-| Form state | **Implemented:** TanStack Form with Valibot through Standard Schema | M2 settings validation, dirty drafts and field errors |
+| Charts | **Chosen under delegated authority (2026-10-18) and implemented for the `/manage` dashboard:** Recharts 3 through the shadcn/ui Base UI Chart component, which sets series colors as custom properties on the chart's container because the page's Content Security Policy allows no inline stylesheet; loaded lazily; every chart repeated as a table | Phase 1 speed dashboard |
+| Form state | **Implemented:** TanStack Form with Valibot through Standard Schema; options-page drafts subscribe through `useSelector`, re-exported by `@tanstack/react-form` | M2 settings validation, dirty drafts and field errors |
 | Async UI state | **Implemented for settings:** TanStack Query for metadata reads and mutations | M2 extension-message queries; M4 sync integration |
 | Attempt lifecycle | **Implemented:** XState for each login attempt (`loginAttemptMachine`), applied with its pure `transition()`; the runtime around it stays application code | M2 declarative executor |
 | Transport | **Implemented for messages to the background:** `@webext-core/messaging` around validated contracts ([architecture](architecture.md#components-and-trust-boundaries)); the background's tab sends addressed by `documentId`, Ports and `window.postMessage` stay raw, because the library's tab send takes only a tab and frame and it carries no Ports | M2 message transport |
@@ -746,13 +810,39 @@ use. WXT drives Vite 8 (Rolldown) for the extension build
 | Static checks | Existing Oxlint/Oxfmt and TypeScript with applicable React/JSX accessibility rules; **approved:** Knip | M2 React migration |
 | UI icons | **Approved (2026-10-12); implemented for the diagnostics page and `/manage`:** `lucide-react`, imported per icon, in each workspace that uses it | Phase 1 UI polish |
 | UI translation | **Approved (2026-10-12):** i18next with react-i18next, the language chosen in Pateat's settings; the manifest's `description` through a hand-written `_locales` file | Phase 3 Japanese for the extension |
-| Byte encoding | **Approved (2026-10-13) and implemented:** the standard `Uint8Array` `toBase64()`, `fromBase64()` and `toHex()` and `RegExp.escape()`, no library; they need Chrome 140, and the extension's `minimum_chrome_version` is now 144 for Temporal (dates and times). `@scure/base` was the alternative that keeps older Chrome | Phase 1 |
+| Byte encoding | **Approved (2026-10-13) and implemented:** the standard `Uint8Array` `toBase64()`, `fromBase64()` and `toHex()` and `RegExp.escape()`, no library; they need Chrome 140, and the extension's `minimum_chrome_version` is now 145 for `Map.prototype.getOrInsertComputed` (Temporal needs 144). `@scure/base` was the alternative that keeps older Chrome | Phase 1 |
 | Identifiers | **Approved (2026-10-12) and implemented:** `uuid` for UUIDv7, since Web Crypto has only `randomUUID()` (v4) ([identifiers](architecture.md#identifiers)) | Phase 1 |
 | IndexedDB access | **Approved (2026-10-13) and implemented:** `idb` (Jake Archibald, ISC), a promise wrapper over the native API with the same transaction semantics, replacing the hand-written request and transaction wrappers in the vault, provider-session and diagnostics stores; a transaction still awaits only its own requests, because any other await lets it auto-commit; `idb` opens only the global `indexedDB`, so tests stub that global | Phase 1 |
 | DER signatures | **Approved (2026-10-13) and implemented:** `@noble/curves`, importing only the `DER` helper from `@noble/curves/abstract/der.js` (not `p256`), for the P1363/DER conversion of passkey assertion signatures; signing stays WebCrypto ([ADR 0007](adr/0007-existing-passkey-assertions.md)). Low value (about 50 lines removed): revert if bundle size matters | Phase 1 passkeys |
 | CBOR decoding | **Approved (2026-10-13) and implemented:** `cbor2` reads the version from a Bitwarden signed security state after the SDK has verified it; Pateat no longer pre-checks COSE structure and relies on Worker termination when the SDK's initialization cannot parse its input ([vault adapter](architecture.md#vault-adapter)); `@pateat/bitwarden` declares `"sideEffects": false`, so only the crypto Worker bundles it | M3 Bitwarden adapter |
-| Dates and times | **Approved (2026-10-13) and implemented:** the native `Temporal` in the extension (minimum Chrome 144) for formatting, parsing and calendar arithmetic; the service keeps `Date`, because workerd (1.20261006.1) does not expose Temporal and has no compatibility flag for it; `temporal-polyfill-lite` was tried and dropped (bundle +18 kB gzip per context); stored times stay epoch milliseconds and the clock stays `Date.now()` ([times](architecture.md#times)) | Phase 1 |
+| Dates and times | **Approved (2026-10-13) and implemented:** the native `Temporal` in the extension (first shipped in Chrome 144; current minimum 145) for formatting, parsing and calendar arithmetic; the service keeps `Date`, because workerd (1.20261006.1) does not expose Temporal and has no compatibility flag for it; `temporal-polyfill-lite` was tried and dropped (bundle +18 kB gzip per context); stored times stay epoch milliseconds and the clock stays `Date.now()` ([times](architecture.md#times)) | Phase 1 |
 | Server configuration | Existing cf with cloudflare.config.ts and Vite | Retain verified build path |
+
+The extension and `/manage` require Chrome 145 for `Map.prototype.getOrInsertComputed`.
+Promises settled from outside use `Promise.withResolvers()`, input grouping uses
+`Map.groupBy()`, and maps that lazily create an entry use `getOrInsertComputed()` when
+these make the existing behavior clearer. `Promise.withResolvers()` and `Map.groupBy()`
+also run in the Worker. Narrower TypeScript projects add `ES2024.Promise`,
+`ES2024.Collection` and `ESNext.Collection` as needed for the production code they
+import. Collection predicates and maps consumed by a spread use Iterator Helpers instead
+of copying the collection into an array. Callbacks that can change the collection keep
+a snapshot; array results stay arrays. The narrower projects importing this code add
+`ESNext.Iterator`, the Iterator Helpers lib in the pinned TypeScript.
+The passkey relay, conditional login decision, login-account report lookup and
+diagnostics install-type lookup use `Promise.try()` to turn synchronous throws and
+promise rejections into the same failure path. These callbacks start immediately.
+The completed login-runtime audit on 2026-10-14 also adopted `Promise.try()` for
+`quietly`: it still resolves to `undefined` on either success or failure. Session
+loading reaches its first `await` before restoring collections or calling badges, so
+the earlier read does not observe partially initialized state; admission, choices,
+tab removal and replacement still wait for that load. Session saves snapshot before
+their first `await`, after each caller's saved mutations, and dispatch the storage
+write before later badge/report callbacks. Starting a login batches clearing its
+choice, binding its pick to the attempt and updating logout/fill markers into one
+snapshot, rather than relying on a later microtask to see those mutations. Reentrant
+tab cleanup writes the newer state after that snapshot; the attempt journal keeps
+its separate serialized queue and cancellation/restart guards. Projects importing
+these wrappers add `ES2025.Promise`, the corresponding lib in the pinned TypeScript.
 
 ### Integration conditions (pending candidates remain conditional)
 
@@ -793,16 +883,20 @@ before any read or write can access sensitive settings. Preserve
 single-writer revision checks, corruption handling and fail-closed policy;
 storage helpers do not provide compare-and-swap by themselves.
 
-Parse destinations with `new URL()` and pass the normalized hostname to tldts;
-explicitly include private suffix rules where appropriate. PSL information is
-not permission to fill or sign, and does not replace HTTPS, origin, ancestor or
-Permissions Policy checks. OTPAuth covers standard OTP mechanics; test Bitwarden
-Steam compatibility separately and do not advertise HOTP merely because parsing
-supports it. Base64, base64url and hex use the standard `Uint8Array` methods;
+Parse untrusted destinations with `URL.parse()` and explicitly handle its `null` result
+with the caller's existing failure value. Relative inputs still require the same
+explicit base; admission code retains its scheme, credential, exact-origin and hostname
+checks in the same order. Keep `try` blocks around operations that can fail for reasons
+beyond URL parsing, including the login runtime's domain matching. Pass the normalized
+hostname to tldts and explicitly include private suffix rules where appropriate. PSL
+information is not permission to fill or sign, and does not replace HTTPS, origin,
+ancestor or Permissions Policy checks. OTPAuth covers standard OTP mechanics; test
+Bitwarden Steam compatibility separately and do not advertise HOTP merely because
+parsing supports it. Base64, base64url and hex use the standard `Uint8Array` methods;
 strict decoding (`lastChunkHandling: "strict"`) still needs the input checked for
 whitespace and, when unpadded, padded first. Evaluate `@noble/hashes` for actual
-protocol gaps; CBOR is read with the approved `cbor2`, only from data the Bitwarden
-SDK has already verified. Do not write crypto/CBOR primitives ourselves, assume all
+protocol gaps; CBOR is read with the approved `cbor2`, only from data the Bitwarden SDK
+has already verified. Do not write crypto/CBOR primitives ourselves, assume all
 primitives in a package are audited, or substitute a different KDF for Bitwarden
 Argon2id.
 

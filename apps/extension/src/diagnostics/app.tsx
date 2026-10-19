@@ -23,7 +23,7 @@ import {
   serverLabel,
   syncSignIn,
 } from "./labels";
-import { LOG_RETENTION_MS } from "./log";
+import { DEBUG_STAYS_ON, DEBUG_UNTIL_TURNED_OFF, LOG_RETENTION_MS } from "./log";
 import { formatReport, shortRevision, type BrowserInfo } from "./report";
 import type {
   DiagnosticsCheck,
@@ -38,7 +38,7 @@ export type DiagnosticsClient = {
   copy(text: string): Promise<void>;
   exportLogs(includeSites: boolean): Promise<LogsResponse<"diagnostics.logs.export">>;
   clearLogs(): Promise<LogsResponse<"diagnostics.logs.clear">>;
-  /** Turns debug logging on for 24 hours, or off at once. */
+  /** Turns debug logging on for 24 hours, or until turned off before publishing, or off at once. */
   setDebugLogs(enabled: boolean): Promise<LogsResponse<"diagnostics.logs.debug">>;
   /** Saves `text` as a file through the browser's download of a `Blob` link. */
   download(text: string, filename: string): void;
@@ -402,7 +402,11 @@ function Logs({
         <span id="diagnostics-debug">
           Debug logging{" "}
           <span className="text-[13px] text-ink-muted">
-            {debugOff ? "off" : `on until ${time(logs?.debugUntil)}`}
+            {debugOff
+              ? "off"
+              : logs?.debugUntil === DEBUG_UNTIL_TURNED_OFF
+                ? "on until turned off"
+                : `on until ${time(logs?.debugUntil)}`}
           </span>
         </span>
         <Button
@@ -410,7 +414,8 @@ function Logs({
           type="button"
           variant="outline"
           onClick={() => {
-            // On turns itself off after 24 hours; off takes effect at once (owner, 2026-10-12).
+            // On turns itself off after 24 hours (owner, 2026-10-12), or until published stays
+            // on until turned off (owner, 2026-10-18); off takes effect at once.
             const enable = debugOff;
             void client
               .setDebugLogs(enable)
@@ -419,7 +424,9 @@ function Logs({
                 setMessage(
                   response?.ok
                     ? enable
-                      ? "Debug logging is on for 24 hours."
+                      ? DEBUG_STAYS_ON
+                        ? "Debug logging is on until you turn it off."
+                        : "Debug logging is on for 24 hours."
                       : "Debug logging is off."
                     : "Unable to change logging.",
                 );
@@ -428,7 +435,11 @@ function Logs({
               });
           }}
         >
-          {debugOff ? "Turn on debug logging for 24 hours" : "Turn off debug logging"}
+          {debugOff
+            ? DEBUG_STAYS_ON
+              ? "Turn on debug logging"
+              : "Turn on debug logging for 24 hours"
+            : "Turn off debug logging"}
         </Button>
       </div>
       <div className="flex items-start gap-2 rounded-xl bg-warning-tint px-3 py-2.5 text-sm/5">

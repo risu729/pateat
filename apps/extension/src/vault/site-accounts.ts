@@ -9,7 +9,7 @@ import {
 } from "@pateat/contracts";
 import * as v from "valibot";
 import type { LoginFieldSource } from "../login/vault";
-import { rpIdsFor } from "../passkeys/rp-id";
+import { passkeyOrigin, rpIdsFor } from "../passkeys/rp-id";
 import { findVaultPasskeys, type PasskeyFinder } from "../passkeys/vault";
 import { findLiveSiteCandidates, type LiveUriMatcher } from "./site-candidates";
 
@@ -47,9 +47,13 @@ export async function findSiteAccounts(input: {
   >();
   const add = (connectionId: string, itemId: string, via: "uri" | "passkey") => {
     const key = JSON.stringify([connectionId, itemId]);
-    const entry = accounts.get(key) ?? { connectionId, itemId, uri: false, passkey: false };
+    const entry = accounts.getOrInsertComputed(key, () => ({
+      connectionId,
+      itemId,
+      uri: false,
+      passkey: false,
+    }));
     entry[via] = true;
-    accounts.set(key, entry);
   };
   let complete = true;
 
@@ -87,7 +91,10 @@ export async function findSiteAccounts(input: {
     snapshot: { ...input.saved.snapshot, settings },
     catalog: live,
   };
-  for (const rpId of rpIdsFor(input.origin)) {
+  // Passkeys answer only on HTTPS pages and `http://localhost`; any other `http:` page lists
+  // only its URI matches (ADR 0050).
+  const rpIds = passkeyOrigin(input.origin) ? rpIdsFor(input.origin) : [];
+  for (const rpId of rpIds) {
     // Sequential: each query shares the bounded native host.
     // eslint-disable-next-line no-await-in-loop
     const found = await findVaultPasskeys({

@@ -5,7 +5,7 @@
 import { namedHosts } from "../login/entry";
 import { visible } from "./code-submission";
 import { autocompleteTokens } from "./targets";
-import { collapseText, isScriptLink, renderedText, shown } from "./text";
+import { collapseText, isScriptLink, opensHere, renderedText, shown } from "./text";
 
 /** Hosts the worker is asked about at most; a link to any other counts as off-site. */
 export const MAX_ENTRY_HOSTS = 256;
@@ -13,11 +13,7 @@ const textLimit = 480;
 
 /** The link's parsed `href`, or nothing for a link whose `href` does not parse. */
 export function linkUrl(link: HTMLAnchorElement): URL | undefined {
-  try {
-    return new URL(link.href);
-  } catch {
-    return undefined;
-  }
+  return URL.parse(link.href) ?? undefined;
 }
 
 /**
@@ -57,14 +53,6 @@ export type EntryElementRefusal =
   | "download";
 
 /**
- * Where a link opens: its own `target`, else the document's first `<base target>`, as the
- * browser chooses; `null` when neither names one.
- */
-function linkTarget(link: HTMLAnchorElement, target: string | null): string | null {
-  return target ?? link.ownerDocument.querySelector("base[target]")?.getAttribute("target") ?? null;
-}
-
-/**
  * Whether an element covers some area: its own box, or else the union of its descendants'
  * boxes, since a link whose only child floats or is positioned absolutely has an empty
  * box of its own in Chromium while the child shows and takes the click.
@@ -96,13 +84,13 @@ function hasBox(element: Element): boolean {
 export function entryElementRefusal(element: Element): EntryElementRefusal | undefined {
   if (!(element instanceof HTMLAnchorElement) || !element.hasAttribute("href")) return "not-link";
   // Read before `isScriptLink`, whose guard narrows a link that is not one to `never`.
-  const target = linkTarget(element, element.getAttribute("target"));
+  const here = opensHere(element);
   const download = element.hasAttribute("download");
   const boxed = hasBox(element);
   if (isScriptLink(element)) return "script-link";
   if (!shown(element) || !visible(element) || !boxed) return "hidden";
   if (!renderedControlText(element)) return "no-text";
-  if (target !== null && target.trim().toLowerCase() !== "_self") return "new-window";
+  if (!here) return "new-window";
   if (download) return "download";
   return undefined;
 }

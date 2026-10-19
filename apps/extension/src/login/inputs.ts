@@ -1,16 +1,14 @@
+import { autocompleteTokens } from "../page/targets";
 import type { LoginSecretKind } from "./wire";
 
-/** The input attributes the secret fill rule reads. */
+/** The input attributes the secret fill rule reads; `autocomplete` by its attribute. */
 export type SecretInput = Pick<
   HTMLInputElement,
-  "type" | "autocomplete" | "inputMode" | "maxLength"
+  "type" | "inputMode" | "maxLength" | "getAttribute"
 >;
 
-function tokens(input: SecretInput): string[] {
-  return input.autocomplete.toLowerCase().split(/\s+/u);
-}
 function passwordInput(input: SecretInput): boolean {
-  return input.type === "password" || tokens(input).includes("current-password");
+  return input.type === "password" || autocompleteTokens(input).includes("current-password");
 }
 /** A short numeric field, as a code or a PIN goes in. */
 export function shortNumericInput(input: SecretInput): boolean {
@@ -30,6 +28,7 @@ export function shortNumericInput(input: SecretInput): boolean {
 export function acceptsSecret(input: SecretInput, secret: LoginSecretKind | undefined): boolean {
   if (secret === "password") return passwordInput(input);
   if (secret === "hidden") return passwordInput(input) || shortNumericInput(input);
-  if (secret === "otp") return tokens(input).includes("one-time-code") || shortNumericInput(input);
+  if (secret === "otp")
+    return autocompleteTokens(input).includes("one-time-code") || shortNumericInput(input);
   return true;
 }

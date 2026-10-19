@@ -1,25 +1,32 @@
 import {
   deviceIdSchema,
+  manageDashboardRangeSchema,
   manageRecipeRevokeSchema,
   manageSettingsWriteSchema,
   syncRecipeIdSchema,
   type ManageDevices,
   type ManageRecipes,
+  type ManageRequestLog,
+  type ManageRequestLogDeleted,
 } from "@pateat/contracts";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, count, desc, eq, isNull, min } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { Hono } from "hono";
 import * as v from "valibot";
 import type { ApiEnv } from "../auth";
-import { devices, recipeHeads } from "../db/schema";
+import { readDashboard } from "../dashboard";
+import { devices, inferenceLog, loginOutcomes, loginTimings, recipeHeads } from "../db/schema";
 import { apiError } from "../http";
 import { findOwner } from "../owners";
-import { selectHeads, toChange, writeRecipe } from "../recipe-store";
+import { readChange, selectHeads, writeRecipe } from "../recipe-store";
 import { readSettings, writeSettings } from "../settings-store";
 import { jsonBody, requireJsonBody, validate } from "../validation";
 
 const deviceParamSchema = v.strictObject({ deviceId: deviceIdSchema });
 const recipeParamSchema = v.strictObject({ recipeId: syncRecipeIdSchema });
+const dashboardQuerySchema = v.object({
+  range: v.optional(manageDashboardRangeSchema, "7d"),
+});
 
 /**
  * The web UI's JSON API. Every route acts for the owner the verified Access token
@@ -64,6 +71,12 @@ export const manageApiRoutes = new Hono<ApiEnv>()
       return c.body(null, 204);
     },
   )
+  // Speed, counts and failures over the range, aggregated from the owner's rows only.
+  .get("/dashboard", validate("query", dashboardQuerySchema), async (c) => {
+    const ownerId = await findOwner(c.env.DB, c.get("identity"));
+    const { range } = c.req.valid("query");
+    return c.json(await readDashboard(c.env.DB, ownerId, range, Date.now()));
+  })
   // The same revision-checked document devices sync through /v1/settings.
   .get("/settings", async (c) => {
     const ownerId = await findOwner(c.env.DB, c.get("identity"));
@@ -86,9 +99,20 @@ export const manageApiRoutes = new Hono<ApiEnv>()
       ? // Each head write takes the owner's next sequence number.
         await selectHeads(c.env.DB, ownerId).orderBy(desc(recipeHeads.sequence))
       : [];
+    const read = rows.map((row) => ({ ...readChange(row), updatedAt: row.updatedAt }));
     return c.json({
       version: 1,
-      recipes: rows.map((row) => ({ change: toChange(row), updatedAt: row.updatedAt })),
+      recipes: read
+        .filter((entry) => !entry.unreadable)
+        .map(({ change, updatedAt }) => ({ change, updatedAt })),
+      // Devices read these as revoked; the owner sees and revokes them here.
+      unreadable: read
+        .filter((entry) => entry.unreadable)
+        .map(({ change, updatedAt }) => ({
+          recipeId: change.recipeId,
+          revision: change.revision,
+          updatedAt,
+        })),
     } satisfies ManageRecipes);
   })
   .post(
@@ -113,4 +137,55 @@ export const manageApiRoutes = new Hono<ApiEnv>()
       if (result.limited || !result.current) return apiError(c, 404, { error: "not_found" });
       return c.json({ error: "recipe_conflict" as const, current: result.current }, 409);
     },
-  );
+  )
+  // The owner's ADR 0012 request log, the login result codes devices sent (ADR 0019,
+  // amended 2026-10-18) and their login records (ADR 0055): how much they hold, and
+  // deleting all of it. Only these go: recipes, settings, judged pages and the spend the
+  // limits count stay.
+  .get("/request-log", async (c) => {
+    const ownerId = await findOwner(c.env.DB, c.get("identity"));
+    const db = drizzle(c.env.DB);
+    const [[requests], [outcomes], [logins]] = ownerId
+      ? await db.batch([
+          db
+            .select({ entries: count(), oldestAt: min(inferenceLog.createdAt) })
+            .from(inferenceLog)
+            .where(eq(inferenceLog.ownerId, ownerId)),
+          db
+            .select({ entries: count(), oldestAt: min(loginOutcomes.createdAt) })
+            .from(loginOutcomes)
+            .where(eq(loginOutcomes.ownerId, ownerId)),
+          db
+            .select({ entries: count(), oldestAt: min(loginTimings.createdAt) })
+            .from(loginTimings)
+            .where(eq(loginTimings.ownerId, ownerId)),
+        ])
+      : [[], [], []];
+    const oldest = [requests?.oldestAt, outcomes?.oldestAt, logins?.oldestAt].filter(
+      (at): at is number => typeof at === "number",
+    );
+    return c.json({
+      version: 1,
+      entries: requests?.entries ?? 0,
+      outcomes: outcomes?.entries ?? 0,
+      logins: logins?.entries ?? 0,
+      oldestAt: oldest.length ? Math.min(...oldest) : null,
+    } satisfies ManageRequestLog);
+  })
+  .delete("/request-log", async (c) => {
+    const ownerId = await findOwner(c.env.DB, c.get("identity"));
+    const db = drizzle(c.env.DB);
+    const [requests, outcomes, logins] = ownerId
+      ? await db.batch([
+          db.delete(inferenceLog).where(eq(inferenceLog.ownerId, ownerId)),
+          db.delete(loginOutcomes).where(eq(loginOutcomes.ownerId, ownerId)),
+          db.delete(loginTimings).where(eq(loginTimings.ownerId, ownerId)),
+        ])
+      : [];
+    return c.json({
+      version: 1,
+      deleted: requests?.meta.changes ?? 0,
+      outcomes: outcomes?.meta.changes ?? 0,
+      logins: logins?.meta.changes ?? 0,
+    } satisfies ManageRequestLogDeleted);
+  });

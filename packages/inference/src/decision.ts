@@ -86,8 +86,8 @@ export function buildFieldQuestions(observation: LoginObservation, slots: readon
 /**
  * Finite-choice role. Validates returned IDs and probability shapes (through the SDK),
  * then maps low confidence, missing distributions and inconsistent joint mappings to
- * abstention. Confidence never authorizes anything by itself. It names no custom-field
- * slot (ADR 0027), so a mapping that uses a slot with a `fieldName` abstains.
+ * abstention. Confidence never authorizes anything by itself. A custom-field slot it maps
+ * is named from the page, as generation's are (ADR 0027).
  */
 export function createFieldMappingDecider(config: {
   model: FiniteChoiceModel;

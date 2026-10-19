@@ -115,7 +115,8 @@ export type VaultRequest =
         | "corrupt-last"
         | "unavailable"
         | "uri"
-        | "uri-without-context";
+        | "uri-without-context"
+        | "uri-regex";
       autoUnlock?: "enable" | "preserve";
     }
   | { action: "match"; url: string }

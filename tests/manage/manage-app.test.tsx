@@ -2,7 +2,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, test, vi } from "vitest";
 import { page } from "vitest/browser";
 import { cleanup, render } from "vitest-browser-react";
-import { DEVICE_IDLE_LIMIT_MS, type ManageDevices } from "../../packages/contracts/src/index";
+import {
+  DEVICE_IDLE_LIMIT_MS,
+  type ManageDevices,
+  type ManageRequestLog,
+} from "../../packages/contracts/src/index";
 import { createManageClient, ManageApiError, type ManageClient } from "../../services/api/web/api";
 import { ManageApp } from "../../services/api/web/app";
 
@@ -39,7 +43,15 @@ function devices(revokedAt: number | null = null): ManageDevices {
 
 function mockClient(initial = devices()) {
   let current = initial;
+  let logged: ManageRequestLog = {
+    version: 1,
+    entries: 3,
+    outcomes: 1,
+    logins: 12,
+    oldestAt: PAIRED,
+  };
   return {
+    dashboard: vi.fn<ManageClient["dashboard"]>(),
     devices: vi.fn<ManageClient["devices"]>(async () => structuredClone(current)),
     revokeDevice: vi.fn<ManageClient["revokeDevice"]>(async (id) => {
       current = {
@@ -55,14 +67,24 @@ function mockClient(initial = devices()) {
       settings: null,
     })),
     saveSettings: vi.fn<ManageClient["saveSettings"]>(),
-    recipes: vi.fn<ManageClient["recipes"]>(),
+    recipes: vi.fn<ManageClient["recipes"]>(async () => ({
+      version: 1,
+      recipes: [],
+      unreadable: [],
+    })),
     revokeRecipe: vi.fn<ManageClient["revokeRecipe"]>(),
+    requestLog: vi.fn<ManageClient["requestLog"]>(async () => structuredClone(logged)),
+    deleteRequestLog: vi.fn<ManageClient["deleteRequestLog"]>(async () => {
+      const { entries: deleted, outcomes, logins } = logged;
+      logged = { version: 1, entries: 0, outcomes: 0, logins: 0, oldestAt: null };
+      return { version: 1, deleted, outcomes, logins };
+    }),
   } satisfies ManageClient;
 }
 
 async function mount(client: ManageClient, path = "/manage") {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  await render(
+  return render(
     <QueryClientProvider client={queryClient}>
       <ManageApp client={client} path={path} />
     </QueryClientProvider>,
@@ -71,6 +93,54 @@ async function mount(client: ManageClient, path = "/manage") {
 
 afterEach(async () => {
   await cleanup();
+});
+
+test.each([
+  ["/manage/dashboard", "Dashboard – Pateat"],
+  ["/manage", "Devices – Pateat"],
+  ["/manage/sites", "Sites – Pateat"],
+  ["/manage/request-log", "Request log – Pateat"],
+  ["/manage/sites/https/bank.example", "https://bank.example – Pateat"],
+  ["/manage/sites/http/bank.example:8080", "http://bank.example:8080 – Pateat"],
+  ["/manage/sites/https/BANK.example", "Pateat"],
+])("sets the document title for %s", async (path, title) => {
+  await mount(mockClient(), path);
+  expect(document.title).toBe(title);
+});
+
+test("updates the hoisted title on path changes and restores the static title on unmount", async () => {
+  // Match the title retained in manage/index.html before the app renders.
+  const staticTitle = document.createElement("title");
+  staticTitle.textContent = "Pateat";
+  document.head.prepend(staticTitle);
+  const client = mockClient();
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const app = (path: string) => (
+    <QueryClientProvider client={queryClient}>
+      <ManageApp client={client} path={path} />
+    </QueryClientProvider>
+  );
+  try {
+    expect(document.title).toBe("Pateat");
+    const view = await render(app("/manage"));
+    expect(document.title).toBe("Devices – Pateat");
+    expect(document.head.querySelector("title")?.textContent).toBe("Devices – Pateat");
+    expect(staticTitle.textContent).toBe("Pateat");
+
+    await view.rerender(app("/manage/sites"));
+    expect(document.title).toBe("Sites – Pateat");
+    await view.rerender(app("/manage/sites/https/bank.example"));
+    expect(document.title).toBe("https://bank.example – Pateat");
+    await view.rerender(app("/manage"));
+    expect(document.title).toBe("Devices – Pateat");
+
+    await view.unmount();
+    expect(document.title).toBe("Pateat");
+    expect(document.head.querySelector("title")).toBe(staticTitle);
+  } finally {
+    await cleanup();
+    staticTitle.remove();
+  }
 });
 
 test("lists devices and revokes one", async () => {
@@ -142,6 +212,85 @@ test("reports a failed revocation and keeps the device listed", async () => {
   await expect.element(page.getByText("Work laptop")).toBeVisible();
 });
 
+test("deletes the whole request log after a confirmation", async () => {
+  const client = mockClient();
+  await mount(client, "/manage/request-log");
+  await expect
+    .element(page.getByRole("link", { name: "Request log" }))
+    .toHaveAttribute("aria-current", "page");
+  await expect
+    .element(
+      page.getByText(
+        `3 requests, 1 first login result, and 12 login records logged since ${formatted(PAIRED)}.`,
+      ),
+    )
+    .toBeVisible();
+  await expect
+    .element(page.getByText("Each request, login result and login record is kept for 365 days"))
+    .toBeVisible();
+
+  // Cancelling asks nothing of the service and gives the button back.
+  await page.getByRole("button", { name: "Delete all" }).click();
+  await expect
+    .element(
+      page.getByText(
+        "Delete all 3 requests, 1 first login result, and 12 login records? This cannot be undone.",
+      ),
+    )
+    .toBeVisible();
+  await expect.element(page.getByRole("button", { name: "Confirm" })).toHaveFocus();
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await expect.element(page.getByRole("button", { name: "Delete all" })).toHaveFocus();
+  expect(client.deleteRequestLog).not.toHaveBeenCalled();
+
+  await page.getByRole("button", { name: "Delete all" }).click();
+  await page.getByRole("button", { name: "Confirm" }).click();
+  expect(client.deleteRequestLog).toHaveBeenCalledTimes(1);
+  await expect
+    .element(page.getByRole("status"))
+    .toHaveTextContent("3 requests, 1 first login result, and 12 login records deleted");
+  await expect.element(page.getByText("No requests are logged.")).toBeVisible();
+  await expect.element(page.getByRole("button", { name: "Delete all" })).toBeDisabled();
+});
+
+test("names only the login results and records when no request is logged", async () => {
+  const client = mockClient();
+  client.requestLog.mockResolvedValue({
+    version: 1,
+    entries: 0,
+    outcomes: 2,
+    logins: 1,
+    oldestAt: PAIRED,
+  });
+  await mount(client, "/manage/request-log");
+  await expect
+    .element(
+      page.getByText(`2 first login results and 1 login record logged since ${formatted(PAIRED)}.`),
+    )
+    .toBeVisible();
+  await page.getByRole("button", { name: "Delete all" }).click();
+  await expect
+    .element(
+      page.getByText("Delete all 2 first login results and 1 login record? This cannot be undone."),
+    )
+    .toBeVisible();
+});
+
+test("reports a failed deletion and keeps the log shown", async () => {
+  const client = mockClient();
+  client.deleteRequestLog.mockRejectedValue(new ManageApiError("rate_limited"));
+  await mount(client, "/manage/request-log");
+  await page.getByRole("button", { name: "Delete all" }).click();
+  await page.getByRole("button", { name: "Confirm" }).click();
+  await expect
+    .element(page.getByRole("alert"))
+    .toHaveTextContent("Too many requests in the last minute. Wait a minute and try again.");
+  await expect
+    .element(page.getByText(/^3 requests, 1 first login result, and 12 login records logged since/))
+    .toBeVisible();
+  await expect.element(page.getByRole("button", { name: "Delete all" })).toHaveFocus();
+});
+
 test("links the source, its license and the bundled notices", async () => {
   await mount(mockClient());
   await expect.element(page.getByText("Pateat test-revision")).toBeVisible();
@@ -168,6 +317,19 @@ test("the client sends same-origin requests and validates answers", async () => 
   await client.revokeDevice(PHONE);
   expect(fetcher).toHaveBeenLastCalledWith(`/manage/api/devices/${PHONE}/revoke`, {
     method: "POST",
+    credentials: "same-origin",
+    redirect: "error",
+  });
+
+  fetcher.mockResolvedValueOnce(Response.json({ version: 1, deleted: 2, outcomes: 1, logins: 3 }));
+  expect(await client.deleteRequestLog()).toEqual({
+    version: 1,
+    deleted: 2,
+    outcomes: 1,
+    logins: 3,
+  });
+  expect(fetcher).toHaveBeenLastCalledWith("/manage/api/request-log", {
+    method: "DELETE",
     credentials: "same-origin",
     redirect: "error",
   });

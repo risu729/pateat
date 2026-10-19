@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { page } from "vitest/browser";
+import { cdp, page } from "vitest/browser";
 import { cleanup, render } from "vitest-browser-react";
 // oxlint-disable-next-line import/no-unassigned-import -- Apply the options page stylesheet.
 import "../../apps/extension/entrypoints/options/style.css";
@@ -14,7 +14,14 @@ import {
 // The theme choice is presentation only: a localStorage value and the root's data-theme.
 
 const root = document.documentElement;
-const token = (name: string) => getComputedStyle(root).getPropertyValue(name).trim();
+function token(name: string): string {
+  const probe = document.createElement("span");
+  probe.style.backgroundColor = `var(${name})`;
+  root.append(probe);
+  const color = getComputedStyle(probe).backgroundColor;
+  probe.remove();
+  return color;
+}
 
 beforeEach(() => {
   localStorage.clear();
@@ -23,6 +30,7 @@ beforeEach(() => {
 
 afterEach(async () => {
   await cleanup();
+  await cdp().send("Emulation.setEmulatedMedia", { features: [] });
   vi.restoreAllMocks();
   localStorage.clear();
   root.removeAttribute("data-theme");
@@ -64,20 +72,36 @@ test("stores and applies light and dark, and the tokens switch with them", () =>
   saveThemePreference("light");
   expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe("light");
   expect(root.getAttribute("data-theme")).toBe("light");
-  expect(token("--bg")).toBe("#f1f5f9");
-  expect(token("--accent")).toBe("#115e59");
+  expect(token("--bg")).toBe("rgb(241, 245, 249)");
+  expect(token("--accent")).toBe("rgb(17, 94, 89)");
 
   saveThemePreference("dark");
   expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe("dark");
   expect(root.getAttribute("data-theme")).toBe("dark");
-  expect(token("--bg")).toBe("#0e1316");
-  expect(token("--accent")).toBe("#5cc7ad");
+  expect(token("--bg")).toBe("rgb(14, 19, 22)");
+  expect(token("--accent")).toBe("rgb(92, 199, 173)");
   expect(getComputedStyle(root).colorScheme).toBe("dark");
 
   saveThemePreference("system");
   expect(readThemePreference()).toBe("system");
   expect(root.hasAttribute("data-theme")).toBe(false);
 });
+
+test.each(["light", "dark"] as const)(
+  "browser setting follows %s while explicit choices override it",
+  async (scheme) => {
+    await cdp().send("Emulation.setEmulatedMedia", {
+      features: [{ name: "prefers-color-scheme", value: scheme }],
+    });
+    saveThemePreference("system");
+    expect(token("--bg")).toBe(scheme === "light" ? "rgb(241, 245, 249)" : "rgb(14, 19, 22)");
+    saveThemePreference(scheme === "light" ? "dark" : "light");
+    expect(token("--bg")).toBe(scheme === "light" ? "rgb(14, 19, 22)" : "rgb(241, 245, 249)");
+    saveThemePreference("system");
+    expect(root.hasAttribute("data-theme")).toBe(false);
+    expect(token("--bg")).toBe(scheme === "light" ? "rgb(241, 245, 249)" : "rgb(14, 19, 22)");
+  },
+);
 
 test("follows a choice another page makes", () => {
   const seen = vi.fn();

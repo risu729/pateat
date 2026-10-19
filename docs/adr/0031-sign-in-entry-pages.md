@@ -109,11 +109,12 @@ recipe, or is generated, as any login page is today; on pixiv that is the
   the control to press,
   `{"origin":"https://www.pixiv.net","entry":{"path":"/en/","target":{"by":"text","value":"Login"}}}`.
   ADR 0028's `chooser` needs the same kind of recipe, one whose start has no fill step.
-- **When the page is sent.** A top-level HTTPS page of a site that is not excluded, with
-  a vault item whose URI matches its origin, on whose path no recipe starts, and that 10
-  seconds after loading shows no sign-in input. Its URL must carry a query value naming
-  another path of the same site, such as `return_to=/bookmark_new_illust.php`. ADR
-  0016's 10-minute retry window applies.
+- **When the page is sent.** A top-level HTTPS page (or HTTP page, whose item must be
+  saved with an `http://` URI; [ADR 0050](0050-http-pages-for-http-items.md)) of a site
+  that is not excluded, with a vault item whose URI matches its origin, on whose path no
+  recipe starts, and that 10 seconds after loading shows no sign-in input. Its URL must
+  carry a query value naming another path of the same site, such as
+  `return_to=/bookmark_new_illust.php`. ADR 0016's 10-minute retry window applies.
 - **What the AI sees and answers.** The visible, enabled buttons and links that carry
   text, outside forms with fields. Links to another site are dropped on the device, so
   off-site social sign-ins never reach the model. It names one of them as `entry`, or
@@ -261,6 +262,10 @@ that evidence before the rule is widened.
   origin of the site, ended or not: a tab that already ran a login there, failed or not,
   is not sent back to the login page. "Nothing holds the site" means ADR 0022's holding
   rules, and no logout state kept for an origin of the site in any tab.
+- Amended on 2026-10-16 by
+  [ADR 0021 D's logout clicks](0021-account-choice-outside-settings.md#logout-clicks):
+  no entry is pressed in a tab while a control that logs out, clicked there on the site
+  in the last 10 minutes, waits for the site's first step (`logout-clicked`).
 
 Neither the press nor the recipe's start is an ADR 0022 attempt. The press starts no
 attempt, holds no origin, is not a first step for ADR 0021 D's logout detection and is
@@ -351,7 +356,8 @@ with the reason (warn).
 - A manual logout that lands on the bare top page is never undone, because that URL has
   no query value naming a same-site path. A logout that redirects to a URL carrying
   `return_to`, in a tab where Pateat never logged in to the site and while no tab keeps
-  a logout state for it, would be pressed.
+  a logout state for it, would be pressed, unless the person clicked a control that logs
+  out there (ADR 0021 D, since 2026-10-16).
 - A wrong answer that leads to another site, to a page without a sign-in input or to a
   sign-up form blocks the recipe on the device after one press.
 

@@ -66,6 +66,23 @@ describe("accountEntries", () => {
     expect(entries.map((entry) => entry.accounts)).toEqual([["a@example.com"], ["b@example.com"]]);
   });
 
+  it("reads an address split by <wbr> or a format character", () => {
+    for (const html of [
+      "<button>me@&shy;example.com</button>",
+      "<button>me@&#8203;example.com</button>",
+      "<button>me@<wbr>example.com</button>",
+      "<button><span>me@<wbr>example.com</span><small>Last used</small></button>",
+    ]) {
+      const entries = list(html);
+      expect
+        .soft(
+          entries.map((entry) => entry.accounts),
+          html,
+        )
+        .toEqual([["me@example.com"]]);
+    }
+  });
+
   it("takes the innermost entry and leaves out page chrome", () => {
     const entries = list(`
       <header><button>me@example.com</button></header>
@@ -409,6 +426,8 @@ describe("namesUsername", () => {
     expect(namesUsername("Continue as taro.yamada", "taro.yamada")).toBe(false);
     expect(namesUsername("taro***", "taro.yamada")).toBe(false);
     expect(namesUsername("taro@example.com", "taro@example.com")).toBe(false);
+    // Page text is read without format characters, such as the ZWNJ of a Persian name.
+    expect(namesUsername("علیرضا", "علی\u200Cرضا")).toBe(true);
   });
 });
 

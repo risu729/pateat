@@ -15,8 +15,13 @@ migrations to that database before activation
 
 All responses carry `Cache-Control: no-store` and `nosniff`; no route sends CORS
 headers. API routes answer JSON, and owner pages answer script-free HTML that cannot be
-framed. Contracts live in `packages/contracts/src/sync.ts`, `pairing.ts` and
-`generation.ts`.
+framed. Device routes (`/v1/*`) also send `Server-Timing` with `total` from the Worker
+receiving the request, before device authentication. A generation or completion request
+that reached the Claude credential step adds `token` (that step) and, once it sent the
+model request, `model`; a request refused at the credential step or by the role's local
+checks reports `token` alone. Parse it by metric name, as Cloudflare may add entries; no
+`Timing-Allow-Origin` is sent. Contracts live in `packages/contracts/src/sync.ts`,
+`pairing.ts` and `generation.ts`.
 
 | Route | Purpose |
 | --- | --- |
@@ -29,18 +34,24 @@ framed. Contracts live in `packages/contracts/src/sync.ts`, `pairing.ts` and
 | `PUT /v1/recipes/:recipeId` | Publish an active revision or a tombstone when `expectedRevision` matches |
 | `POST /v1/recipes/generate` | Generate or extend this origin's recipe from one login page observation |
 | `POST /v1/recipes/:recipeId/completion` | Judge the page after a recipe's final submission and learn its completion |
+| `POST /v1/recipes/:recipeId/outcome` | Keep how the first login of a revision ended, as result codes only; 204 |
+| `POST /v1/recipes/:recipeId/logins` | Keep one record of a login that ended: its result codes, extension build and times, with the recipe's origin; 204 |
+| `POST /v1/recipes/:recipeId/page-sample` | Log a repeat login's signed-in page for evaluation, without a model call; 201 when kept, 204 when a sample of the recipe and branch is from the last 30 days |
 | `GET /v1/device` | The calling device's paired time, the owner's live recipe count and settings revision, and whether recipe generation would run now, for the diagnostics page |
 | `DELETE /v1/device` | Revoke the calling device's own credential |
 | `POST /pair` | Create a device for the signed-in owner from an allowed extension; 201 with the credential, once |
 | `GET /pair/signed-in` | The page the extension opens when pairing needs a sign-in; it asks the user to go back to Pateat's settings |
-| `GET /manage`, `/manage/sites`, `/manage/sites/:scheme/:host` | Owner web UI (React app): devices; the sites list with excluded sites and revoked recipes; one origin's default account, recipes and bindings |
+| `GET /manage/dashboard`, `/manage`, `/manage/sites`, `/manage/sites/:scheme/:host`, `/manage/request-log` | Owner web UI (React app): the dashboard of login and request speed, counts, spend and failures; devices; the sites list with excluded sites, unreadable and revoked recipes; one origin's default account, recipes and bindings; the request log with Delete all |
 | `GET /manage/assets/*` | The web UI's built script, styles and notices |
+| `GET /manage/api/dashboard?range=24h\|7d\|30d` | The dashboard's aggregates over the range ending now (default `7d`; another value is 400 `bad_request`), computed in the Worker from only the owner's rows: login time (total less the person's) of the signed-in login records, apart for those that waited on the service, with the median of each part (network, the rest of the service, waiting for the site, the rest, and the person apart) and per site and extension build; model, token, pre-model and server times per role, site and build (of requests that called the model; a request answered without a call counts only as a request and, unless its outcome is `recipe`, a failure; a signed-in page sample, outcome `sampled`, is left out), the median login and model time per UTC day (null on a day without one), the 10 slowest requests, counts, every login's result with how many signed in (in total and per day), the first-login result codes apart, tokens, this UTC day's and month's spend with the limits, active recipes, recipes generated, and failures by code with their latest 20; every set of durations has `n`, and below 20 its values instead of a p90 |
 | `GET /manage/api/devices` | The owner's devices with their last use, newest first |
 | `POST /manage/api/devices/:deviceId/revoke` | Revoke one of the owner's devices; 204 |
 | `GET /manage/api/settings` | The settings `/v1/settings` serves; revision 0 before the first write; 404 `not_paired` without a paired device |
 | `PUT /manage/api/settings` | Replace them like `PUT /v1/settings`; `connections` must be empty and the document at most 120 KiB |
-| `GET /manage/api/recipes` | Every recipe head with its document, most recently changed first |
+| `GET /manage/api/recipes` | Every recipe head with its document, most recently changed first; active heads whose document no longer validates are listed apart in `unreadable` |
 | `POST /manage/api/recipes/:recipeId/revoke` | Revoke one recipe if `expectedRevision` is its head; otherwise 409 with the current head |
+| `GET /manage/api/request-log` | How many request log rows (`entries`), login result codes (`outcomes`) and login records (`logins`) the owner has, and the oldest one's time (`oldestAt`, null when none) |
+| `DELETE /manage/api/request-log` | Delete every request log row, login result code and login record of the owner, and nothing else; answers how many (`deleted`, `outcomes`, `logins`) |
 | `GET /manage/claude` | Access page showing the Console values and the owner's WIF identifiers |
 | `POST /manage/claude` | Save the owner's four WIF identifiers |
 | `POST /manage/claude/test` | Exchange one assertion and show only the outcome, never the token |
@@ -54,7 +65,9 @@ day; migration 0007 started existing devices at their pairing time. Bodies must 
 `application/json` and at most 128 KiB. Synced settings are server-readable policy
 metadata; device-local field policies, vault values and provider sessions are rejected
 by the strict schemas. Stored documents are revalidated on read and fail closed with a
-500 `internal_error`.
+500 `internal_error`, except an active recipe whose document no longer validates, which
+devices receive as revoked
+([minimal service](../../docs/architecture.md#minimal-service)).
 
 One Cloudflare Access application covers the whole host, and a more specific Bypass
 application exempts `/v1/*`, `/health`, `/.well-known/openid-configuration` and
@@ -73,8 +86,9 @@ subject, never by email. The
 ([ADR 0020](../../docs/adr/0020-direct-device-pairing.md)). The extension's background
 sends `{ "version": 1, "label": "…" }` with the browser's login session. The Worker
 checks, in this order, the Access token, the `Origin`, the rate limit and then the body;
-it creates the owner on an identity's first pairing, stores only the credential's
-SHA-256 and answers 201 `{ version: 1, deviceId, credential }`. `Origin` must equal
+it creates the owner on an identity's first pairing in the same transaction as the
+device (a failed pairing leaves no owner), stores only the credential's SHA-256 and
+answers 201 `{ version: 1, deviceId, credential }`. `Origin` must equal
 `chrome-extension://<id>` exactly for an ID in `PAIRING_EXTENSION_IDS`, a JSON array
 committed in `cloudflare.config.ts` (Pateat's own production ID; a self-hosted extension
 build with its own key lists its ID instead). It is not a secret. The `PAIR_LIMITER`
@@ -121,13 +135,24 @@ so a losing writer changes nothing. Each head write takes the owner's next seque
 number; clients sync by passing the last `cursor` back as `after`. A tombstone keeps
 its revision, and only an explicit later write can republish the recipe.
 
-[Per-owner limits](../../docs/architecture.md#service-limits) live in `src/limits.ts`.
-The `OWNER_LIMITER` binding allows 120 requests a minute per owner on `/v1` and per
-Access identity on `/manage/api`, checked before any body is read; over it, 429
-`rate_limited` with `Retry-After: 60`. An owner holds at most 1,000 active recipes: a
-write that would add one more answers 409 `recipe_limit`, checked in the claim
-statement itself. The same batch deletes revisions older than the newest 10, and every
-earlier revision when the write revokes the recipe.
+[Per-owner limits](../../docs/architecture.md#service-limits) live in `src/limits.ts`
+and the shared recipe byte constants in `@pateat/contracts`. The `OWNER_LIMITER` binding
+allows 120 requests a minute per owner on `/v1` and per Access identity on
+`/manage/api`, checked before any body is read; over it, 429 `rate_limited` with
+`Retry-After: 60`. An owner holds at most 1,000 active recipes: a write that would add
+one more answers 409 `recipe_limit`. Active head documents also share a 1.5 MiB UTF-8
+byte cap, checked in the claim statement itself on creation, republishing or a growing
+update. Equal and shrinking updates and revocations always pass; tombstones and
+historical revisions do not count. The shared device cache limit is 2 MiB, leaving
+margin for its envelope. New recipes can initially overflow a stale device cache before
+later shrinking current heads are reached. The extension saves removals and non-growing
+newer heads during bounded lookahead, checkpoints its scan separately and resumes across
+syncs and worker restarts without advancing past pending active changes. A settled feed
+under this cap can therefore recover; see
+[ADR 0013](../../docs/adr/0013-service-held-recipes-and-settings.md#amendment-durable-recovery-under-cache-pressure-2026-10-14).
+The feed contains current heads, rather than every historical revision: a write moves
+its recipe's head to a new increasing sequence. The same batch deletes revisions older
+than the newest 10, and every earlier revision when the write revokes the recipe.
 
 ## Claude credentials
 
@@ -189,32 +214,49 @@ the path ending before it), or `{ check: "plan", reason }` with the plan check's
   recipe back, a `base` whose recipe is revoked answers `recipe-revoked` while the
   revoked recipe's start page is generated again as the revision after its tombstone, a
   `base` whose recipe was not generated for this origin and its start path answers
-  `recipe-conflict`, a first page that would exceed the active recipe limit answers
-  `recipe-limit` (before the model call, or after it if the last place was taken
-  meanwhile), and a `base` that is not a generated recipe ID is 400. The model maps the
-  slots, the plan is checked with `validatePagePlan`, and the steps are stored with a
-  conditional write. Up to 20 slots are accepted; a slot with a `fieldName` (and
-  `fieldPosition` for a duplicate name) is a custom-field offer, and each offer names a
-  different field ([ADR 0027](../../docs/adr/0027-per-account-login-routes.md)). The
-  model gives each offer it uses a generic ID in lowercase words, such as
-  `branch-number`, which the steps store instead of the request's slot ID. The answer
-  that wrote the recipe adds `customSlots: [{ slot, offered }]` for those slots; an
-  answer with a recipe another request stored has none. On a continuation, a generic ID
-  the `base` recipe already uses answers `failed` with `recipe-invalid`. A start page
-  that offers several identifier sets (such as branch and account numbers, or a contract
-  number) may get up to 3 `alternatives`, each with its own `slots` and `steps`, stored
-  as further variants of the recipe's `password` route; the top-level `slots` and
-  `steps` are its first variant. Each variant fills exactly its slots, starts on the
-  start path and submits, so a recipe with alternatives is never continued. No element
-  is filled as different slots in different variants, and no two variants fill the same
-  elements. A continuation's answer has its alternatives dropped before assembly.
-  `customSlots` covers the custom slots of every variant, and the request log records
-  the alternatives with the plan. The answer may also name the start page's passkey
-  sign-in button (`passkeyButton`); a candidate with the button role whose label or
-  locator names a passkey or security key, not named like a registration and not used by
-  any set or the account switch is stored as the recipe's `passkey` route, any other is
-  dropped without failing the call, and a continuation's is ignored. The request log
-  records the kept button.
+  `recipe-conflict`. A first page needs room under the active recipe count limit; every
+  generated page, including continuations and entry pages, needs at least 32 KiB of byte
+  room before the model call. A refused write after the call also answers
+  `recipe-limit`. A judge write refused for bytes keeps the page's answer (`challenge`,
+  or `signed-in` once the recipe has a marker or the page is on another origin of the
+  site) and is logged; only a first marker on the recipe's own origin refused for bytes
+  answers `recipe-limit`. A `base` that is not a generated recipe ID is 400. The model
+  maps the slots, the plan is checked with `validateGeneratedPage`, and the steps are
+  stored with a conditional write. Up to 20 slots are accepted; a slot with a
+  `fieldName` (and `fieldPosition` for a duplicate name) is a custom-field offer, and
+  each offer names a different field
+  ([ADR 0027](../../docs/adr/0027-per-account-login-routes.md)). Each offer the plan
+  uses is named from the page's text for its element, such as `店番号`
+  (`customSlotNames` in `packages/inference`), and the steps store that name instead of
+  the request's slot ID; the model gives no names. An offer whose field the owner's
+  saved bindings of the same origin and recipe ID already name (a `{ custom }` field of
+  the same name, `position` and `count`) keeps that binding's slot name, unless the
+  bindings give the field different names, the name is not a custom slot ID or equals a
+  built-in slot or request slot ID, or another offer the page fills would carry it too.
+  Every offer's carried name, filled on the page or not, is reserved before any page
+  text, so page names are numbered apart from it
+  ([ADR 0027](../../docs/adr/0027-per-account-login-routes.md#amendment-2026-10-19-slot-names-from-the-bindings)).
+  Only the bindings' slot names and field references are read, and the prompt is
+  unchanged. The answer that wrote the recipe adds `customSlots: [{ slot, offered }]`
+  for those slots; an answer with a recipe another request stored has none. On a
+  continuation, a name the `base` recipe already uses, compared without case, answers
+  `failed` with `recipe-invalid`, whether it is carried or the name the page's text
+  alone would give. A start page that offers several identifier sets (such as branch and
+  account numbers, or a contract number) may get up to 3 `alternatives`, each with its
+  own `slots` and `steps`, stored as further variants of the recipe's `password` route;
+  the top-level `slots` and `steps` are its first variant. Each variant fills exactly
+  its slots, starts on the start path and submits, so a recipe with alternatives is
+  never continued. No element is filled as different slots in different variants, and no
+  two variants fill the same elements. A continuation's answer, or a chooser branch
+  page's, has its alternatives checked and dropped before its slots are named, so they
+  name none. `customSlots` covers the custom slots of every variant, and the request log
+  records the alternatives with the plan (on a continuation or chooser-branch page, only
+  in `answer`). The answer may also name the start page's passkey sign-in button
+  (`passkeyButton`); a candidate with the button role whose label or locator names a
+  passkey or security key, not named like a registration and not used by any set or the
+  account switch is stored as the recipe's `passkey` route, any other is dropped without
+  failing the call, and a continuation's is dropped. The request log records the kept
+  button.
 - `POST /v1/recipes/generate` also takes `{ version: 1, observation }` without `slots`:
   an entry request ([ADR 0031](../../docs/adr/0031-sign-in-entry-pages.md)) for a page
   without a login form, whose observation has no fill candidate and no `accounts`, and
@@ -340,21 +382,122 @@ version (`prompt_version`: the first 12 hex digits of the SHA-256 of its instruc
 newline and its response format's JSON Schema, computed once per set of instructions:
 the generate role has one for a form, one for an entry request and one for a list of
 accounts, whose instructions add one list line), the instructions
-and input as sent, the structured result, the outcome code, usage and estimated cost; a
-request refused locally before any model call is not logged. For `invalid-output`,
-the result is `{ rejection }` when a check named it (the judge role's
-check of its marker refuses without one, leaving the result empty) and, when the plan
-check refused a plan, that plan as `output`: a candidate or slot that is not one of the
-request's IDs becomes `?`, and each name the model gave that is not a request slot ID
-becomes `name-1`, `name-2` and so on by first appearance, so equal names stay visible.
-An unchecked string may quote the page or a field name, so the model's text is never
-stored, and the Worker logs only `Model output refused` with the role, its prompt
-version and the `rejection`. A schema `path` resolves each key where the output format
-defines it, so a key the format defines only in another object also ends the path as
-`unknown-key`; the options of a variant are read together, so a key of a sibling option
-gives that object's issue instead. Rows older than 90 days are deleted whenever a call
-is logged and on every `GET /v1/recipes`, because routine releases do not apply cron
-triggers.
+and input as sent, the structured result, the outcome code, usage and estimated cost.
+Since 2026-10-18
+([ADR 0012](../../docs/adr/0012-inference-request-log.md#amendment-2026-10-18-rows-for-a-real-page-corpus))
+it also records the recipe the call is for (`recipe_id`, `branch`, empty without one),
+`base_revision` (the head revision when the call was made: 0 for none, the tombstone's
+for a revoked recipe generated again, the judged one for the judge), `recipe_page` for
+generation (`first` for a page sent without a base: a new recipe, one generated again, a
+list of accounts or an entry page; `continuation` for one sent with a base, a chooser
+branch's pages included), `build` (`PATEAT_BUILD_REVISION`) and `observation_hash` (12
+hex digits of the SHA-256 of the request's observation as JSON). `callClaude` returns
+the row's ID, and once the answer's recipe write succeeds `keepLogRevision` sets
+`revision`; a write refused or lost to a device leaves it null, and a failed update is
+logged as `Inference log revision not kept` and never fails the request. Since the
+[timings amendment](../../docs/adr/0012-inference-request-log.md#amendment-2026-10-18-request-timings),
+`pre_model_ms` (from the Worker receiving the request to just before the model call:
+authentication, the request limit, the route's reads, the lock and checks, the
+credential and the reservation), `token_ms` (resolving the credential: its D1 read,
+signing the assertion and the token exchange, new on every call) and `model_ms` (the
+model call and its output checks) are written with the row. `server_ms` (to the
+response, the recipe write included) is set on every logged row, also one answered
+without a model call, by an owner-scoped update through `waitUntil` once the route
+answered, so it never delays the response. It stays null when that update failed,
+logged as `Inference log server time not kept`, or when releasing the owner's lock threw
+after the row was written, which fails the request. `src/request-timing.ts` does this
+and adds the call's `token` and `model` to `Server-Timing`. `answer` holds
+the model's own answer for every decision, `unclear` and refused output included, before
+the local checks: `{ "decision": "signed-in", "marker": "c7" }`, or a generated plan
+with a passkey button the plan check dropped. A candidate or slot it names that is not
+one of the request's IDs is `?`, as for a refused plan below; output the response format
+refused has no answer. For `invalid-output`, the result is `{ rejection }` when a check
+named it (the judge role's check of its marker refuses without one, leaving the result
+empty) and, when the plan check refused a plan, that plan as `output`: a candidate or
+slot that is not one of the request's IDs becomes `?`. An unchecked string may quote the
+page or a field name, so the model's text is never stored, and the Worker logs only
+`Model output refused` with the role, its prompt version and the `rejection`. A schema
+`path` resolves each key where the output format defines it, so a key the format defines
+only in another object also ends the path as `unknown-key`; the options of a variant are
+read together, so a key of a sibling option gives that object's issue instead.
+
+A request answered without a model call is logged too
+([ADR 0012](../../docs/adr/0012-inference-request-log.md#amendment-2026-10-18-requests-answered-without-a-model-call)),
+by the route through `logUnsent`: one refused locally (`input-too-large`) or by any
+check above, `recently-tried`, a judgement gate, `not-judgeable`, a recipe state
+refusal, `incomplete-observation`, `invalid-request`, or a recipe another request
+stored. Its `outcome` is the answer's code (`recipe` for a stored recipe); `provider`,
+`model_id`, `result`, `answer` and the token counts are null, the cost is 0 and nothing
+is charged. `request` is what the model would have received; a judgement refused before
+its route is found (`recipe-revoked`, `recipe-conflict`) has no `loginPaths`.
+`base_revision` is the head read when the request arrived. A request answered the same
+way within 10 minutes, with the same whole `request`, role, prompt version, origin,
+path, recipe, branch and base revision, adds no row (the check and the insert are not
+atomic, so two identical requests at once can both land), and past
+`CLAUDE_CALL_LIMITS.unsentRowsPerDay` (500) such rows an owner's UTC day adds none,
+logged as `Inference log row over the daily cap`. A failed write is logged as
+`Inference log row not kept` with the role and outcome and never changes the answer.
+Invalid bodies and requests answered 400 or 404 are not logged: a `base` ID not in the
+`gen-…` form, a judged page of an origin no move reaches, a missing recipe. Such a row
+has `server_ms` but no `pre_model_ms`, `token_ms` or `model_ms`.
+
+`POST /v1/recipes/:recipeId/page-sample` takes `{ version: 1, revision, route, branch?,
+observation }`: the signed-in page of a login that the recipe's marker completed
+([ADR 0029](../../docs/adr/0029-local-sign-in-state.md#amendment-signed-in-page-samples-2026-10-18),
+owner 2026-10-18 08:05 UTC). The revision must be a kept, active revision of the owner's
+recipe (404 otherwise, a tombstone, another owner's recipe and a revoked recipe's
+earlier revisions included), with the route and branch, and the page on the recipe's
+origin, complete, with no list of accounts and none of the password route's fill fields,
+as the judge requires (400). The route then writes one `judge` row with the outcome
+`sampled` (`logPageSample`): `request` is built as the judge's request would be
+(`instructions`, `recipeId`, `route`, `loginPaths` from that revision, `observation`),
+though the judge route answers such a page `not-judgeable` and never sends it, under the
+judge's prompt version, `base_revision` is that revision, and `provider`, `model_id`,
+`result`, `answer`, `revision`, `recipe_page`, the token counts, `pre_model_ms`,
+`token_ms` and `model_ms` are null, at cost 0; `server_ms` is set as on every logged
+row.
+No model is called and no spend or judgement row is written. One statement writes it
+only while the owner has no `sampled` row of the recipe and branch from the last
+`PAGE_SAMPLE_INTERVAL_MS` (30 days, in `packages/contracts/src/manage.ts`), across
+devices; otherwise the answer is 204 and nothing is written. Invalid bodies, 400 and 404
+answers are not logged. Sampled rows are not limited by the ten-minute rule or
+`unsentRowsPerDay` for requests answered without a call, and do not count toward that
+daily cap; the dashboard leaves them out, so they count neither as requests nor as
+failures (agent's choices, not confirmed by the owner).
+
+Rows older than one year are deleted whenever a request is logged and on every
+`GET /v1/recipes`, because routine releases do not apply cron triggers.
+`DELETE /manage/api/request-log` deletes all of the owner's rows; a call still running
+then logs its row afterwards.
+
+`POST /v1/recipes/:recipeId/outcome` takes
+`{ version: 1, revision, branch?, outcome, cause?, step }`: how the first login of that
+revision on a device ended
+([ADR 0019](../../docs/adr/0019-local-diagnostics-and-logs.md#amendment-2026-10-18-first-login-results-for-evaluation)).
+`outcome` is a `loginOutcomeSchema` code, `cause` one of `loginOutcomeCauseSchema`'s
+fixed codes and `step` the attempt's step index; any other field, a URL or free text
+answers 400, a body over 1 KiB 413. A recipe the owner does not hold, a revision above
+its head or a revoked head's tombstone answers 404. The `login_outcomes` row keeps the
+owner, recipe, branch (empty without one), revision, the codes and the service's own
+time; the first report of a revision is kept and any later one, from any device, is
+answered 204 and ignored. Its rows follow the request log's one-year retention (deleted
+with the expired log rows, also on each report) and its delete-all.
+
+`POST /v1/recipes/:recipeId/logins` takes `{ version: 1, revision, branch?, outcome,
+cause?, extensionBuild, totalMs, serviceMs, networkMs, personMs, pageMs }`: one login of
+that revision that ended
+([ADR 0055](../../docs/adr/0055-login-records-sent-to-the-service.md)). The codes are
+those of `/outcome`, `extensionBuild` a 7 to 40 digit commit or `development`, and the
+times whole milliseconds up to a day: `networkMs` is the part of `serviceMs` spent to
+and from this service, counted only for answers that named their `Server-Timing`
+`total`, and `pageMs` the time the login waited for the site; any other field (an
+origin, a URL, free text, `otherMs`) answers 400, a body over 1 KiB 413. A recipe the
+owner does not hold, a revision above its head, a revoked head's tombstone, or a recipe
+with no kept document (as after its revocation) answers 404. Each report is one
+`login_timings` row: the owner, recipe, branch (empty without one), revision, the
+recipe's `origin` read from the reported revision's document (or the newest kept one
+when that revision was pruned), the codes, the build, the times and the service's own
+time. Its rows follow the request log's one-year retention and its delete-all.
 
 ## Schema and tests
 

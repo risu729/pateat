@@ -1,4 +1,5 @@
 import { visible } from "./code-submission";
+import { autocompleteTokens } from "./targets";
 import { collapseText, readBehindModal, renderedText } from "./text";
 
 // The page signs of ADR 0029, read after an effect step that no check explained. Nothing
@@ -83,7 +84,6 @@ function writableInput(element: Element): element is HTMLInputElement {
     !element.readOnly
   );
 }
-const tokens = (input: HTMLInputElement) => input.autocomplete.toLowerCase().split(/\s+/u);
 const ariaInvalid = (input: HTMLInputElement) =>
   input.getAttribute("aria-invalid")?.trim().toLowerCase() === "true";
 
@@ -269,12 +269,12 @@ export function submittedPage(
 function showsPassword(document: Document): boolean {
   const passwords = [...document.querySelectorAll("input")].filter(
     (input) =>
-      (input.type === "password" || tokens(input).includes("current-password")) &&
+      (input.type === "password" || autocompleteTokens(input).includes("current-password")) &&
       writableInput(input),
   );
   return passwords.some(
     (input) =>
-      !tokens(input).includes("new-password") &&
+      !autocompleteTokens(input).includes("new-password") &&
       passwords.filter((other) => other.form === input.form).length < 2,
   );
 }
@@ -284,7 +284,7 @@ function showsCode(document: Document): boolean {
   // As the executor's `acceptsSecret` for a code; the attributes first, as they cost less.
   return [...document.querySelectorAll("input")].some(
     (input) =>
-      (tokens(input).includes("one-time-code") ||
+      (autocompleteTokens(input).includes("one-time-code") ||
         ((input.inputMode === "numeric" || input.type === "tel" || input.type === "number") &&
           input.maxLength >= 1 &&
           input.maxLength <= 10)) &&
@@ -309,12 +309,8 @@ export function passedCaptcha(document: Document): boolean {
 /** S4: a shown frame of a CAPTCHA service large enough to be solved. */
 export function showsCaptcha(document: Document): boolean {
   return [...document.querySelectorAll("iframe")].some((frame) => {
-    let url: URL;
-    try {
-      url = new URL(frame.src);
-    } catch {
-      return false;
-    }
+    const url = URL.parse(frame.src);
+    if (!url) return false;
     if (
       !captchaFrames.some(
         ({ host, path }) => host.test(url.hostname) && url.pathname.startsWith(path),
@@ -332,7 +328,12 @@ export function showsCaptcha(document: Document): boolean {
  * read behind an open modal dialog too, as the signed-in page's description is.
  */
 function showsUsername(document: Document, username: string): boolean {
-  const name = username.normalize("NFKC").trim().toLowerCase();
+  // Page text is read without format characters, so the username is compared without them.
+  const name = username
+    .replace(/\p{Cf}+/gu, "")
+    .normalize("NFKC")
+    .trim()
+    .toLowerCase();
   if (name.length < minUsernameLength) return false;
   const texts = readBehindModal(document, () =>
     [...document.querySelectorAll(landmarkSelector)].map(

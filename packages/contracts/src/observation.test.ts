@@ -2,7 +2,7 @@ import * as v from "valibot";
 import { describe, expect, it } from "vitest";
 import {
   builtInLoginSlots,
-  genericSlotIdSchema,
+  customSlotIdSchema,
   loginObservationSchema,
   semanticSlotsSchema,
   isCodeField,
@@ -75,6 +75,11 @@ describe("observation contract", () => {
     expect(parse({ ...base, candidates: [{ ...candidate, target: name }, button] })).toBe(true);
     expect(parse({ ...base, candidates: [candidate, { ...button, target: name }] })).toBe(false);
     expect(parse({ ...base, candidates: [candidate, { ...link, target: name }] })).toBe(false);
+    // An accessible name names a button only (ADR 0048 amendment of 2026-10-19).
+    const named = { by: "accessible-name", value: "Select Password." };
+    expect(parse({ ...base, candidates: [candidate, { ...button, target: named }] })).toBe(true);
+    expect(parse({ ...base, candidates: [candidate, { ...link, target: named }] })).toBe(false);
+    expect(parse({ ...base, candidates: [{ ...candidate, target: named }, button] })).toBe(false);
     expect(parse({ ...base, path: "/login?next=/" })).toBe(false);
     expect(parse({ ...base, origin: "https://shop.example.test/login" })).toBe(false);
     expect(parse({ ...base, html: "<form></form>" })).toBe(false);
@@ -377,35 +382,38 @@ describe("custom-field slots (ADR 0027)", () => {
   });
 
   it.each([
-    ["branch", true],
     ["branch-number", true],
-    ["store-branch-code-id", true],
-    ["store-branch-code-id-x", false],
-    ["store-branch-code-ids-extra", false],
-    ["a", false],
-    ["branch-n", false],
-    ["Branch-number", false],
-    ["branch_number", false],
-    ["branch--number", false],
-    ["-branch", false],
-    ["branch-", false],
-    ["branch2", false],
-    ["account-number-1234", false],
-    ["支店番号", false],
-    ["username", false],
-    ["password", false],
-    ["totp", false],
-    ["user-name", true],
+    ["店番号", true],
+    ["会員番号 (ログインID)", true],
+    ["Enter your Security number", true],
+    ["欄 1", true],
+    ["brchNum", true],
+    ["custom-1", true],
+    ["Password 2", true],
     ["", false],
-  ])("treats %j as a generic slot ID: %s", (value, valid) => {
-    expect(v.is(genericSlotIdSchema, value)).toBe(valid);
+    [" 店番号", false],
+    ["店番号 ", false],
+    ["店番  号", false],
+    ["店番\u3000号", false],
+    ["店番\t号", false],
+    ["店番\n号", false],
+    ["店番\u200b号", false],
+    ["\u202e店番号", false],
+    ["店番\u034f号", false],
+    ["店番号\ufe0f", false],
+    ["\u1160", false],
+    ["店番\u115f号", false],
+    ["Ｂｒａｎｃｈ", false],
+    ["ｺｰﾄﾞ", false],
+    ["username", false],
+    ["Password", false],
+    ["TOTP", false],
+  ])("treats %j as a custom slot ID: %s", (value, valid) => {
+    expect(v.is(customSlotIdSchema, value)).toBe(valid);
   });
 
-  it("bounds a generic slot ID at 40 characters", () => {
-    const words = (length: number) =>
-      ["a".repeat(length - 30), "b".repeat(9), "c".repeat(9), "d".repeat(9)].join("-");
-    expect(words(40)).toHaveLength(40);
-    expect(v.is(genericSlotIdSchema, words(40))).toBe(true);
-    expect(v.is(genericSlotIdSchema, words(41))).toBe(false);
+  it("bounds a slot ID at 60 characters", () => {
+    expect(v.is(customSlotIdSchema, "店".repeat(60))).toBe(true);
+    expect(v.is(customSlotIdSchema, "店".repeat(61))).toBe(false);
   });
 });

@@ -94,6 +94,19 @@ describe("heuristic comparator", () => {
     });
   });
 
+  it("names a custom-field slot it fills from the page, as generation does (ADR 0027)", () => {
+    const bank = byId("ja-bank-branch-account");
+    const outcome = heuristicPlan(bank.observation, bank.slots);
+    if (outcome.status !== "ok") throw new Error(outcome.status);
+    const [fill] = outcome.value.steps;
+    // It reads no labels to map, so it takes the field before the password, the account
+    // number field, which the page labels 口座番号.
+    expect(fill).toMatchObject({
+      kind: "fill",
+      fields: [{ slot: "口座番号" }, { slot: "password" }],
+    });
+  });
+
   it("reports each case's plan in candidate IDs", async () => {
     const cases = realPageCorpus.slice(0, 5);
     const report = await runHeuristicBenchmark(cases);

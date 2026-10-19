@@ -1,4 +1,5 @@
 export { decodeBase64 } from "./base64";
+export { bitwardenEmail } from "./email";
 export {
   BITWARDEN_READ_PROTOCOL,
   normalizeBitwardenProfile,
@@ -26,7 +27,9 @@ export {
   createBitwardenUriMatcher,
   domainKey,
   matchBitwardenLoginUris,
+  maxTargetUrlLength,
   type BitwardenUriMatchContext,
+  type RegexUriAnswer,
   type UriMatchEvaluation,
   type UriMatchOptions,
 } from "./uri";

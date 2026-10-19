@@ -53,14 +53,10 @@ export function createConnectionRuntime(
   const sessionStores = new Map<string, ReturnType<typeof createIndexedDbProviderSessionStore>>();
   const sessions = createProviderSessions({
     ...(options.onRefresh ? { report: options.onRefresh } : {}),
-    storeFor(profile) {
-      let store = sessionStores.get(profile.connectionId);
-      if (!store) {
-        store = createIndexedDbProviderSessionStore({ profile });
-        sessionStores.set(profile.connectionId, store);
-      }
-      return store;
-    },
+    storeFor: (profile) =>
+      sessionStores.getOrInsertComputed(profile.connectionId, () =>
+        createIndexedDbProviderSessionStore({ profile }),
+      ),
   });
   function vaultFor(profile: BitwardenProfile): {
     store: ReturnType<typeof createIndexedDbVaultStore>;

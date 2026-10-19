@@ -147,11 +147,19 @@ export const inferenceCredentials = sqliteTable(
   (table) => [check("inference_credentials_kind_check", sql`${table.kind} IN ('wif')`)],
 );
 
+/** Where a generated page sits in its recipe, for the request log (ADR 0012). */
+export const inferenceLogRecipePages = ["first", "continuation"] as const;
 /**
- * Every inference request the service sent and its local outcome (ADR 0012), kept for
- * 90 days (ADR 0018). A request refused locally before any model call is not logged.
- * `request` is the instructions and input exactly as sent; vault values never reach
- * inference, so they are never here.
+ * Every generation and judgement request the service received and its local outcome (ADR
+ * 0012), kept for one year (owner, 2026-10-18) unless the owner deletes them all from the
+ * web UI. A request answered without a model call (owner, 2026-10-18 08:04 UTC) and a
+ * repeat login's signed-in page sample (ADR 0029, owner 2026-10-18 08:05 UTC; a `judge`
+ * row with the outcome `sampled`) have no provider, model, usage, result or answer and
+ * cost 0. `request` is the instructions and input exactly as sent, or as they would have
+ * been sent (for a sample, built as the judge's request would be); vault values never
+ * reach inference, so they are never here. The recipe columns, `build`,
+ * `observation_hash`, `answer` and the timing columns are null on rows logged before they
+ * were recorded.
  */
 export const inferenceLog = sqliteTable(
   "inference_log",
@@ -161,8 +169,9 @@ export const inferenceLog = sqliteTable(
       .notNull()
       .references(() => owners.id),
     role: text("role", { enum: ["generate", "judge"] }).notNull(),
-    provider: text("provider").notNull(),
-    modelId: text("model_id").notNull(),
+    /** Null for a request answered without a model call. */
+    provider: text("provider"),
+    modelId: text("model_id"),
     /**
      * The role's prompt version: 12 hex digits of the SHA-256 of its instructions and
      * response format (`promptVersion`). Rows logged before it was recorded have none.
@@ -177,17 +186,158 @@ export const inferenceLog = sqliteTable(
      * references (`{ rejection, output? }`); otherwise null.
      */
     result: text("result", { mode: "json" }),
-    /** `ok`, `abstained` or the failure code. */
+    /**
+     * The model's own answer before any local check or adjustment, for every decision and
+     * for a refused one too: candidate and slot IDs the request does not hold are `?`, so
+     * it quotes no page text or vault field name. Null when the output failed the response
+     * format or no answer came.
+     */
+    answer: text("answer", { mode: "json" }),
+    /**
+     * `ok`, `abstained` or the failure code; for a request answered without a model call,
+     * the code it was answered with (`busy`, `daily-limit`, `input-too-large`…), or `recipe`
+     * for a recipe another request already stored; `sampled` for a signed-in page sample
+     * (ADR 0029), at most one per owner, recipe and branch in 30 days.
+     */
     outcome: text("outcome").notNull(),
+    /** The generated recipe the call is for: the one it starts or continues, or judges. */
+    recipeId: text("recipe_id"),
+    /** The chooser branch (ADR 0028), or empty for any other page. */
+    branch: text("branch"),
+    /**
+     * The recipe's head revision when the call was made: 0 when it had none, the
+     * tombstone's for a revoked recipe generated again, the judged one for the judge. A
+     * request answered without a call has the head read when it arrived, and a signed-in
+     * page sample the revision it sampled.
+     */
+    baseRevision: integer("base_revision"),
+    /**
+     * The revision this call's answer wrote, set once that write succeeded; null when it
+     * wrote none, as for a judged page that kept no handler or a write lost to a device.
+     */
+    revision: integer("revision"),
+    /**
+     * For generation: `first` for a page that starts its recipe (a new one, one generated
+     * again after its revocation, a list of accounts or an entry page), `continuation` for
+     * a page sent with a base (a later page, a chooser branch's pages included).
+     */
+    recipePage: text("recipe_page", { enum: inferenceLogRecipePages }),
+    /** The service commit that made the call (`PATEAT_BUILD_REVISION`). */
+    build: text("build"),
+    /**
+     * 12 hex digits of the SHA-256 of the request's observation as JSON, to count the
+     * same page sent more than once.
+     */
+    observationHash: text("observation_hash"),
     inputTokens: integer("input_tokens"),
     outputTokens: integer("output_tokens"),
     costMicroUsd: integer("cost_micro_usd").notNull(),
+    /**
+     * Milliseconds from the Worker receiving the request to just before the model call:
+     * device authentication, the request limit, the route's own reads, the owner's lock,
+     * the gate and spend checks, the credential with its token exchange, and the spend
+     * reservation.
+     */
+    preModelMs: integer("pre_model_ms"),
+    /**
+     * Milliseconds of that spent resolving the owner's Claude credential, which signs an
+     * assertion and exchanges it for a new token on every call (ADR 0015).
+     */
+    tokenMs: integer("token_ms"),
+    /**
+     * Milliseconds of the role's model call and its local output checks. A retried request
+     * would count every attempt, though the service allows none (`maxRetries: 0`).
+     */
+    modelMs: integer("model_ms"),
+    /**
+     * Milliseconds from the Worker receiving the request to its response, the recipe write
+     * included. Set after the response is sent; null when that update failed.
+     */
+    serverMs: integer("server_ms"),
     createdAt: integer("created_at").notNull(),
   },
   (table) => [
     index("inference_log_owner_created").on(table.ownerId, table.createdAt),
+    // Joins a recipe's rows with its revisions, for the backfill and the corpus.
+    index("inference_log_owner_recipe").on(table.ownerId, table.recipeId),
     index("inference_log_created").on(table.createdAt),
     check("inference_log_role_check", sql`${table.role} IN ('generate', 'judge')`),
+  ],
+);
+
+/**
+ * How the first login of each recipe revision ended, as a device reported it (ADR 0019 and
+ * ADR 0012, amended 2026-10-18): result codes only, never a URL, page text or value. The
+ * first report of a revision is kept and later ones from any device are ignored. Kept one
+ * year like the request log, and deleted with it.
+ */
+export const loginOutcomes = sqliteTable(
+  "login_outcomes",
+  {
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => owners.id),
+    recipeId: text("recipe_id").notNull(),
+    /** The chooser branch the login took (ADR 0028), or empty for any other recipe. */
+    branch: text("branch").notNull().default(""),
+    revision: integer("revision").notNull(),
+    /** A `loginOutcomeSchema` code. */
+    outcome: text("outcome").notNull(),
+    /** A `loginOutcomeCauseSchema` code, or null when the login named none. */
+    cause: text("cause"),
+    /** The attempt's step index when it ended. */
+    step: integer("step").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.ownerId, table.recipeId, table.branch, table.revision] }),
+    index("login_outcomes_created").on(table.createdAt),
+  ],
+);
+
+/**
+ * Every login on a recipe revision that a device reported when it ended, signed in or
+ * blocked (ADR 0055): its result code and how long it took, one row per report. `origin`
+ * is the recipe revision's own, which the service reads when the row is written; the device
+ * sends no URL or origin. Kept one year like the request log, and deleted with it.
+ */
+export const loginTimings = sqliteTable(
+  "login_timings",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => owners.id),
+    recipeId: text("recipe_id").notNull(),
+    /** The chooser branch the login took (ADR 0028), or empty for any other recipe. */
+    branch: text("branch").notNull().default(""),
+    revision: integer("revision").notNull(),
+    /** The recipe's origin, from the reported revision or else its newest kept one. */
+    origin: text("origin").notNull(),
+    /** A `loginOutcomeSchema` code. */
+    outcome: text("outcome").notNull(),
+    /** A `loginOutcomeCauseSchema` code, or null when the login named none. */
+    cause: text("cause"),
+    /** The extension commit that ran the login, or `development`. */
+    extensionBuild: text("extension_build").notNull(),
+    /** From the login's first page until it ended, in milliseconds. */
+    totalMs: integer("total_ms").notNull(),
+    /** Waiting for the service. */
+    serviceMs: integer("service_ms").notNull(),
+    /**
+     * Of the service time, the network's: only for answers that named the service's own
+     * time in `Server-Timing`, so a lower bound.
+     */
+    networkMs: integer("network_ms").notNull(),
+    /** Waiting for the person. */
+    personMs: integer("person_ms").notNull(),
+    /** Waiting for the site's answer to the login's steps, page loads included. */
+    pageMs: integer("page_ms").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [
+    index("login_timings_owner_created").on(table.ownerId, table.createdAt),
+    index("login_timings_created").on(table.createdAt),
   ],
 );
 

@@ -2,8 +2,10 @@ import * as v from "valibot";
 import type { LoginMarkerTarget, LoginTarget } from "@pateat/contracts";
 import { browser } from "wxt/browser";
 import { accountText, showsOtherAccount, shownAccounts } from "../page/accounts";
-import { isButton, isScriptButton } from "../page/text";
-import { findTargets } from "../page/targets";
+import { isButton } from "../page/text";
+import { pressElement } from "../page/script-url-click";
+import { autocompleteTokens, findTargets } from "../page/targets";
+import { clickable, passwordChoice, targetState, writable } from "../page/target-state";
 import { identifierInput } from "../page/identifier-field";
 import {
   CODE_SETTLE_MS,
@@ -12,6 +14,7 @@ import {
   watchCodeSubmission,
 } from "../page/code-submission";
 import { fillBaseline, inputValueMismatch, rejectsFill, unreadyForm } from "../page/fill-checks";
+import { clickDestinations, formDestination, type FormDestination } from "../page/form-destination";
 import { FIELD_GAP_MS, typeValue } from "../page/enter-value";
 import {
   extractAccountListObservation,
@@ -32,6 +35,7 @@ import {
   type OtherMiss,
 } from "../page/account-list";
 import { entryElementRefusal, entryHosts, showsSignUp } from "../page/entry";
+import { clickedLogout } from "../page/logout-click";
 import {
   pageSigns,
   passedCaptcha,
@@ -39,46 +43,31 @@ import {
   submittedPage,
   type SubmittedPage,
 } from "../page/sign-in-state";
+import { observedPath } from "../observation/path";
 import { sendMessage } from "../messaging/protocol";
 import { acceptsSecret } from "./inputs";
 import {
   commandSchema,
+  destinationAnswerSchema,
   LOGIN_STEP_WAIT_MS,
   readySchema,
   START_TRIES,
   reconnectSchema,
   type ExecutionDetail,
   type LoginReadiness,
-  type TargetRequirement,
   type TargetState,
 } from "./wire";
 import { newId } from "@pateat/contracts/ids";
 
+/**
+ * This page's path as observations and recipes carry it, each token-like segment replaced
+ * (`observedPath`, ADR 0039): every path this script reports, or compares with a step's,
+ * reads this, so a step on `/[id]/login` runs on the same page of any tenant.
+ */
+const pagePath = () => observedPath(location.pathname);
 /** Fixed locators deliberately reject duplicates rather than taking the first match. */
 function matches(target: LoginMarkerTarget, links = false): Element[] {
   return findTargets(document, target, { links });
-}
-/** An input of a kind Pateat fills, whether or not it is shown or can be written now. */
-function textInput(element: Element | undefined): element is HTMLInputElement {
-  return (
-    element instanceof HTMLInputElement &&
-    !["hidden", "file", "submit", "button", "image", "reset", "checkbox", "radio"].includes(
-      element.type,
-    )
-  );
-}
-function writable(element: Element | undefined): element is HTMLInputElement {
-  return textInput(element) && visible(element) && !element.disabled && !element.readOnly;
-}
-function clickable(element: Element | undefined): element is HTMLElement {
-  if (element === undefined) return false;
-  if (isButton(element)) return visible(element) && !element.disabled;
-  return (
-    element instanceof HTMLElement &&
-    isScriptButton(element) &&
-    visible(element) &&
-    element.getAttribute("aria-disabled") !== "true"
-  );
 }
 function followable(element: Element | undefined): element is HTMLAnchorElement {
   return element instanceof HTMLAnchorElement && element.hasAttribute("href") && visible(element);
@@ -97,36 +86,13 @@ function switchable(element: Element | undefined): element is HTMLElement {
   const submits = element.type === "submit" || element.type === "image";
   return !(submits && element.form);
 }
-/**
- * One target's state: `unique` when it matches one element that is what `require` asks for
- * (a shown writable input, a shown enabled button, any shown element, an input of a kind
- * Pateat fills, or such an input shown); without it, or with `present`, any one element
- * counts.
- */
-function targetState(
-  target: LoginMarkerTarget,
-  require?: TargetRequirement,
-  links = false,
-): TargetState {
-  const found = matches(target, links);
-  if (found.length !== 1) return found.length === 0 ? "missing" : "ambiguous";
-  const [element] = found;
-  const shown = element instanceof HTMLElement && visible(element);
-  return (require === "writable" && !writable(element)) ||
-    (require === "clickable" && !clickable(element)) ||
-    (require === "shown" && !shown) ||
-    (require === "input" && !textInput(element)) ||
-    (require === "shown-input" && !(textInput(element) && shown))
-    ? "unusable"
-    : "unique";
-}
 /** Whether the page lists an account by its email, masked or not (ADR 0028). */
 function listsAccounts(): boolean {
   return accountEntries(document).length > 0 || besideEmails(document).length > 0;
 }
 /** Whether a step's elements are ready now: the path matches and each target is unique and usable. */
 function ready(readiness: LoginReadiness): boolean {
-  if (location.pathname !== readiness.path) return false;
+  if (pagePath() !== readiness.path) return false;
   // A chooser's list (ADR 0028): one of its buttons, or an account it lists by email.
   if (readiness.accounts)
     return (
@@ -134,13 +100,20 @@ function ready(readiness: LoginReadiness): boolean {
       (readiness.targets.some((target) => listControls(document, target).length === 1) ||
         listsAccounts())
     );
-  return readiness.targets.every((target) => {
-    const found = matches(target);
-    if (found.length !== 1) return false;
-    if (readiness.require === "writable") return writable(found[0]);
-    if (readiness.require === "clickable") return clickable(found[0]);
-    return true;
-  });
+  return (
+    readiness.targets.every((target) => {
+      const found = matches(target);
+      if (found.length !== 1) return false;
+      if (readiness.require === "writable") return writable(found[0]);
+      // A control named by its accessible name may be a link to a fragment of its page.
+      if (readiness.require === "clickable")
+        return clickable(found[0], { fragment: target.by === "accessible-name" });
+      return true;
+    }) &&
+    // A later step is no start while the page also asks for an identifier the step does not
+    // fill, as a form for another account with its own email input (ADR 0049).
+    !(readiness.later && credentialInputs(readiness.targets).identifier)
+  );
 }
 /**
  * Whether the page shows a visible password input, or one marked for a username or a
@@ -149,7 +122,7 @@ function ready(readiness: LoginReadiness): boolean {
  */
 function showsSignIn(): boolean {
   return [...document.querySelectorAll("input")].some((input) => {
-    const tokens = input.autocomplete.toLowerCase().split(/\s+/u);
+    const tokens = autocompleteTokens(input);
     return (
       (input.type === "password" ||
         tokens.includes("username") ||
@@ -174,9 +147,10 @@ function credentialInputs(targets: readonly LoginMarkerTarget[]): {
   identifier: boolean;
 } {
   const own = new Set(targets.flatMap((target) => matches(target)));
-  const tokens = (input: HTMLInputElement) => input.autocomplete.toLowerCase().split(/\s+/u);
   const other = (input: HTMLInputElement) =>
-    tokens(input).some((token) => token === "new-password" || token === "one-time-code");
+    autocompleteTokens(input).some(
+      (token) => token === "new-password" || token === "one-time-code",
+    );
   const inputs = [...document.querySelectorAll("input")].filter(
     (input) =>
       !own.has(input) &&
@@ -196,7 +170,7 @@ function credentialInputs(targets: readonly LoginMarkerTarget[]): {
     identifier: inputs.some(
       (input) =>
         input.type === "email" ||
-        tokens(input).some((token) => token === "username" || token === "email"),
+        autocompleteTokens(input).some((token) => token === "username" || token === "email"),
     ),
   };
 }
@@ -317,7 +291,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             type: "login.document.ready",
             token,
             unoffered: {
-              path: location.pathname,
+              path: pagePath(),
               why: afterSubmitted() ? "after-sign-in" : showsSignIn() ? "sign-in-shown" : "no-list",
             },
           }).catch(() => undefined);
@@ -403,14 +377,14 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
    * watching, and no generation is offered for it.
    */
   function noteShown(): void {
-    const path = location.pathname;
+    const path = pagePath();
     if (shownTimer || shown.has(path) || !showsSignIn()) return;
     shownTimer = setTimeout(() => {
       shownTimer = undefined;
       if (
         !observer ||
         cancelled ||
-        location.pathname !== path ||
+        pagePath() !== path ||
         shown.has(path) ||
         starts.some(ready) ||
         !showsSignIn()
@@ -427,7 +401,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   }
   /** Whether this path is the one this document showed next after a submitted password form. */
   function afterSubmitted(): boolean {
-    const path = location.pathname;
+    const path = pagePath();
     if (submitPath !== undefined && path !== submitPath) afterSubmit ??= path;
     return path === afterSubmit;
   }
@@ -445,7 +419,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         missed?: EntryMiss;
       }
     | undefined {
-    const path = location.pathname;
+    const path = pagePath();
     // A list by email may be sent without an email username only for its control to sign
     // in with another account (ADR 0028).
     if (listsAccounts())
@@ -487,17 +461,17 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       version: 1,
       type: "login.document.ready",
       token,
-      ...(start ? { start: { path: location.pathname } } : {}),
+      ...(start ? { start: { path: pagePath() } } : {}),
       ...(signIn
         ? {
             signIn: {
-              path: location.pathname,
+              path: pagePath(),
               ...(signIn === "identifier" ? { identifier: true as const } : {}),
             },
           }
         : {}),
       ...(list ? { list } : {}),
-      ...(entryPage ? { entry: { path: location.pathname } } : {}),
+      ...(entryPage ? { entry: { path: pagePath() } } : {}),
     });
     const parsed = v.safeParse(readySchema, result);
     if (parsed.success && parsed.output.ok && parsed.output.starts) {
@@ -552,7 +526,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     }
     if (command.type === "login.choose") {
       const choice =
-        cancelled || location.pathname !== command.path || showsSignIn()
+        cancelled || pagePath() !== command.path || showsSignIn()
           ? undefined
           : listChoice(document, command.list);
       command.list.username = "";
@@ -574,12 +548,21 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         !cancelled &&
         pending?.operationId === command.operationId &&
         Date.now() < pending.expiresAt &&
-        location.pathname === pending.path &&
+        pagePath() === pending.path &&
         switchable(pending.element) &&
         isOnly(findTargets(document, pending.target, { links: true }), pending.element);
-      if (click) pending.element.click();
-      respond({ ok: click });
-      return false;
+      if (!click) {
+        respond({ ok: false });
+        return false;
+      }
+      // The switch is withdrawn only when the page got no press: one the page stopped after
+      // `pointerdown` may already have switched.
+      const pressing = () => !cancelled && pagePath() === pending.path;
+      void pressElement(pending.element, pressing).then(
+        (pressed) => respond({ ok: pressed !== "missed" }),
+        () => respond({ ok: true }),
+      );
+      return true;
     }
     if (command.type === "login.await") {
       // Polls the current DOM serially until the step's elements are ready; never mutates.
@@ -676,9 +659,25 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         return false;
       }
       watchPressedUrl();
-      element.click();
-      respond({ ok: true });
-      return false;
+      // A press the page stopped after `pointerdown` is answered as made, so the link is not
+      // pressed again; one that never reached `pointerdown` did not press it.
+      void pressElement(element, () => !cancelled && location.href === command.url).then(
+        (pressed) =>
+          respond(
+            pressed !== "missed"
+              ? { ok: true }
+              : {
+                  ok: false,
+                  reason: cancelled
+                    ? "cancelled"
+                    : location.href === command.url
+                      ? "target-changed"
+                      : "page-changed",
+                },
+          ),
+        () => respond({ ok: true }),
+      );
+      return true;
     }
     if (command.type === "login.entry.check") {
       // The page after an entry press: polls until a sign-in input, an input that asks for
@@ -748,9 +747,9 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         return false;
       }
       respond({
-        path: location.pathname,
+        path: pagePath(),
         targets: command.targets.map((target, index) =>
-          targetState(target, command.require?.[index], command.links?.[index] === true),
+          targetState(document, target, command.require?.[index], command.links?.[index] === true),
         ),
         ...(command.signIn
           ? {
@@ -793,13 +792,52 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         operationId: operation.operationId,
       });
       if (authorized !== true) return fail("cancelled", "not-authorized");
+      /**
+       * Why the step may not send its form where `read` says it goes: a destination the
+       * page refuses, or one off the document's origin that the background does not allow
+       * by the login's vault item (ADR 0051). The destinations are read again after the
+       * answers, and one that changed meanwhile refuses the step as a changed form.
+       */
+      const destinationRefusal = async (
+        read: () => FormDestination[],
+      ): Promise<ExecutionDetail | undefined> => {
+        const destinations = read();
+        if (destinations.some((entry) => entry.kind === "refused")) return "form-off-origin";
+        const answers = await Promise.all(
+          destinations.flatMap((entry) =>
+            entry.kind === "other-origin"
+              ? [
+                  sendMessage("login", {
+                    version: 1,
+                    type: "login.destination.check",
+                    token,
+                    attemptId: operation.attemptId,
+                    operationId: operation.operationId,
+                    destination: entry.url,
+                  })
+                    // A worker that cannot answer, as while it restarts, leaves it unchecked.
+                    .catch(() => undefined)
+                    .then((answer) => v.safeParse(destinationAnswerSchema, answer)),
+                ]
+              : [],
+          ),
+        );
+        if (cancelled) return "document-cancelled";
+        if (Date.now() >= operation.expiresAt) return "operation-expired";
+        if (answers.some((answer) => !answer.success)) return "form-destination-unchecked";
+        const refusals = answers.flatMap((answer) =>
+          answer.success && !answer.output.ok ? [answer.output.reason] : [],
+        );
+        if (refusals.some((reason) => reason !== "unchecked")) return "form-off-origin";
+        if (refusals.length) return "form-destination-unchecked";
+        if (JSON.stringify(read()) !== JSON.stringify(destinations)) return "form-changed";
+        return undefined;
+      };
       if (cancelled) return fail("cancelled", "document-cancelled");
       if (used.has(operation.operationId)) return fail("cancelled", "operation-used");
       if (Date.now() >= operation.expiresAt) return fail("cancelled", "operation-expired");
-      if (
-        operation.document.origin !== location.origin ||
-        operation.step.path !== location.pathname
-      )
+      // The document's own origin, opaque ("null") in a sandboxed document whatever its URL.
+      if (operation.document.origin !== self.origin || operation.step.path !== pagePath())
         return fail("cancelled", "page-changed");
       used.add(operation.operationId);
       const step = operation.step;
@@ -813,7 +851,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       // the click or the first input; the answer reports them (ADR 0013).
       const measureNext = () => {
         const next = command.next;
-        if (next) before = next.targets.map((target) => targetState(target, next.require));
+        if (next)
+          before = next.targets.map((target) => targetState(document, target, next.require));
       };
       if (step.kind === "fill") {
         // Resolve every target first so a partial/ambiguous mapping never causes partial fill.
@@ -835,6 +874,14 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         const form = writableInputs[0]!.form;
         if (writableInputs.some((input) => input.form !== form))
           return fail("structural-mismatch", "fields-split");
+        // The form sends its values only to this document's origin, or to a destination
+        // the background allows (ADR 0051).
+        const formRefused = await destinationRefusal(() => [
+          formDestination(writableInputs[0]!, "fill"),
+        ]);
+        if (formRefused === "document-cancelled" || formRefused === "operation-expired")
+          return fail("cancelled", formRefused);
+        if (formRefused) return fail("structural-mismatch", formRefused);
         if (
           step.fields.some(
             (field, index) =>
@@ -870,7 +917,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                 operationId: operation.operationId,
                 element,
                 target: command.accountSwitch,
-                path: location.pathname,
+                path: pagePath(),
                 expiresAt: Date.now() + switchTimeoutMs,
               };
               return { ...fail("wrong-account"), switchable: true as const };
@@ -927,7 +974,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
             const value = command.values.find((entry) => entry.slot === field.slot)!;
             if (
               cancelled ||
-              location.pathname !== step.path ||
+              pagePath() !== step.path ||
               current.length !== 1 ||
               current[0] !== input ||
               !writable(input) ||
@@ -939,7 +986,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                 "cancelled",
                 cancelled
                   ? "document-cancelled"
-                  : location.pathname !== step.path
+                  : pagePath() !== step.path
                     ? "page-changed"
                     : "field-changed",
               );
@@ -966,7 +1013,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                 const scope = () =>
                   cancelled
                     ? "document-cancelled"
-                    : location.pathname !== step.path
+                    : pagePath() !== step.path
                       ? "page-changed"
                       : !writable(digit) ||
                           digit.form !== form ||
@@ -999,7 +1046,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                 beforeInput: code?.typed,
                 between: () => {
                   if (cancelled) return "document-cancelled";
-                  if (location.pathname !== step.path) return "page-changed";
+                  if (pagePath() !== step.path) return "page-changed";
                   const now = matches(field.target);
                   return now.length !== 1 ||
                     now[0] !== input ||
@@ -1074,11 +1121,31 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           element = choice.click === command.list.click ? choice.element : undefined;
           if (!element) return fail("structural-mismatch", "target-missing");
         } else {
+          // A control named by its accessible name is only ever a `password` handler's
+          // button, which may be a link to a fragment of the page (ADR 0048 amendment of
+          // 2026-10-19).
+          const named = step.target.by === "accessible-name";
+          if (named && !command.passwordChoice)
+            return fail("structural-mismatch", "target-missing");
           const found = matches(step.target);
           const only = found.length === 1 ? found[0] : undefined;
-          if (!clickable(only)) return fail("structural-mismatch", "target-missing");
+          if (!clickable(only, { fragment: named }))
+            return fail("structural-mismatch", "target-missing");
+          // A `password` handler's button whose text no longer names the password, as one
+          // the page rendered again with other text, is never pressed (ADR 0048).
+          if (command.passwordChoice && !passwordChoice(only, { fragment: named }))
+            return fail("structural-mismatch", "target-missing");
           element = only;
         }
+        // A click that submits a form sends it, through the button's own `formaction` too,
+        // only to this document's origin or a destination the background allows (ADR 0051),
+        // also when the element sits inside the submit button or labels it. Any other click
+        // submits no form.
+        const clicked = element;
+        const submitRefused = await destinationRefusal(() => clickDestinations(clicked));
+        if (submitRefused === "document-cancelled" || submitRefused === "operation-expired")
+          return fail("cancelled", submitRefused);
+        if (submitRefused) return fail("structural-mismatch", submitRefused);
         // The click's form's inputs, or the page's for an element outside a form.
         const form = isButton(element) ? element.form : element.closest("form");
         const formInputs = [...(form ? form.elements : document.querySelectorAll("input"))].filter(
@@ -1109,7 +1176,19 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         if (!command.list && showsCaptcha(document) && !passedCaptcha(document))
           return fail("captcha");
         mutated = true;
-        element.click();
+        // The page may change between the press's events, as the fill's checks allow for:
+        // a press the page stopped after `pointerdown` may have acted as the click, so it is
+        // answered as made; one the moving events already stopped clicked nothing.
+        const pressing = () =>
+          !cancelled && pagePath() === step.path && Date.now() < operation.expiresAt;
+        if ((await pressElement(element, pressing)) === "missed")
+          return cancelled
+            ? fail("cancelled", "document-cancelled")
+            : pagePath() !== step.path
+              ? fail("cancelled", "page-changed")
+              : Date.now() >= operation.expiresAt
+                ? fail("cancelled", "operation-expired")
+                : fail("structural-mismatch", "target-missing");
         return { ok: true, mutation: "possible" };
       }
       const satisfied = () => {
@@ -1123,7 +1202,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       const until = Math.min(operation.expiresAt, Date.now() + step.timeoutMs);
       // Cancellation is set by the independent background message listener.
       // eslint-disable-next-line no-unmodified-loop-condition
-      while (!cancelled && Date.now() < until && location.pathname === step.path) {
+      while (!cancelled && Date.now() < until && pagePath() === step.path) {
         if (satisfied()) return { ok: true, mutation: "none" };
         // Poll the current DOM serially; parallel polls cannot observe later render states.
         // eslint-disable-next-line no-await-in-loop
@@ -1132,7 +1211,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       // The page moving to another path ends the wait early; that is not a timeout.
       return cancelled
         ? fail("cancelled", "document-cancelled")
-        : location.pathname !== step.path
+        : pagePath() !== step.path
           ? fail("timeout", "page-changed")
           : fail("timeout");
     })()
@@ -1199,19 +1278,35 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       )
     )
       return;
-    submitPath = location.pathname;
+    submitPath = pagePath();
     afterSubmit = undefined;
     void sendMessage("login", { version: 1, type: "login.document.submitted", token }).catch(
       () => undefined,
     );
   };
+  /**
+   * The person clicked a control that logs out (ADR 0021 D, owner 2026-10-16): the tab's
+   * next sign-in form of the site asks instead of logging in. Only on a page of an origin
+   * with recipes, only for the person's own clicks (a page's script clicking for an expired
+   * session is not one), and only the fact is sent, never the control's text.
+   */
+  const onClick = (event: MouseEvent) => {
+    if (cancelled || !event.isTrusted || !starts.length || !clickedLogout(event)) return;
+    void sendMessage("login", { version: 1, type: "login.document.logout-clicked", token }).catch(
+      () => undefined,
+    );
+  };
   document.addEventListener("submit", onSubmit, true);
+  // On the window in the capture phase, so the click is read before most of the page's
+  // own handlers act on it, such as one that removes the menu holding the control.
+  addEventListener("click", onClick, true);
   browser.runtime.onMessage.addListener(listener);
   void announce(false).catch(() => undefined);
   return () => {
     cancelled = true;
     unwatch();
     document.removeEventListener("submit", onSubmit, true);
+    removeEventListener("click", onClick, true);
     browser.runtime.onMessage.removeListener(listener);
   };
 }

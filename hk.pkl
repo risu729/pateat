@@ -52,7 +52,11 @@ steps = (
     steps {
       ["fix-smart-quotes"] {
         // Page text copied from real sites is evaluation data; rewriting it changes the data.
-        exclude = List("packages/inference/src/corpus/formasaurus.json")
+        exclude =
+          List(
+            "packages/inference/src/corpus/formasaurus.json",
+            "packages/inference/src/corpus/japanese.json",
+          )
       }
     }
   }

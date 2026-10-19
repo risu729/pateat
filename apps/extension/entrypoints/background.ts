@@ -34,12 +34,16 @@ import {
   type VaultPasskeyCandidate,
 } from "../src/passkeys/vault";
 import { createLoginGeneration } from "../src/service/generation";
+import { createLoginRecords } from "../src/service/login-records";
+import { createLoginOutcomes } from "../src/service/outcomes";
 import { createRecipeSync } from "../src/service/recipes";
 import { createServiceRuntime } from "../src/service/runtime";
 import { createSettingsSync } from "../src/service/settings-sync";
 import {
   createBrowserGeneratedSlotStorage,
   createBrowserGenerationAttemptStorage,
+  createBrowserLoginOutcomeStorage,
+  createBrowserPageSampleStorage,
   createBrowserRecipeCacheStorage,
   createBrowserRecipeScheduleStorage,
   createBrowserServiceStorage,
@@ -143,6 +147,21 @@ export default defineBackground(() => {
       return current.ok ? current.catalog : undefined;
     },
   });
+  // ADR 0019, amended 2026-10-18: the first login of each recipe revision sends its result
+  // code; one the service could not take goes with the next ended login or recipe sync.
+  const loginOutcomes = createLoginOutcomes({
+    service,
+    transport: serviceTransport,
+    storage: createBrowserLoginOutcomeStorage(),
+    report: diagnosticsLog.loginOutcome,
+  });
+  // ADR 0055: every login on a recipe revision sends its result and times once it ended.
+  const loginRecords = createLoginRecords({
+    service,
+    transport: serviceTransport,
+    build: PATEAT_BUILD_REVISION,
+    report: diagnosticsLog.loginRecord,
+  });
   const recipeCacheStorage = createBrowserRecipeCacheStorage();
   const recipeScheduleStorage = createBrowserRecipeScheduleStorage();
   const recipeSync = createRecipeSync({
@@ -151,7 +170,10 @@ export default defineBackground(() => {
     storage: recipeCacheStorage,
     schedule: recipeScheduleStorage,
     settings: settingsSync,
-    report: diagnosticsLog.recipeSync,
+    report: (outcome, changes) => {
+      diagnosticsLog.recipeSync(outcome, changes);
+      if (outcome === "synced") void loginOutcomes.flush();
+    },
   });
   // Workers stop when idle, so the persisted schedule, not each start, paces syncs.
   recipeSync.refreshIfStale();
@@ -214,9 +236,11 @@ export default defineBackground(() => {
         generateRecipe: (...request) => keepAlive(serviceTransport.generateRecipe(...request)),
         generateEntry: (...request) => keepAlive(serviceTransport.generateEntry(...request)),
         judgeCompletion: (...request) => keepAlive(serviceTransport.judgeCompletion(...request)),
+        samplePage: (...request) => keepAlive(serviceTransport.samplePage(...request)),
       },
       storage: createBrowserGenerationAttemptStorage(),
       slotStorage: createBrowserGeneratedSlotStorage(),
+      sampleStorage: createBrowserPageSampleStorage(),
       sync: () => recipeSync.sync(),
       refresh: () => recipeSync.sync({ settings: false }),
     }),
@@ -227,6 +251,8 @@ export default defineBackground(() => {
     report: (report) => {
       diagnosticsLog.login(report);
       loginBadge.observe(report);
+      loginOutcomes.observe(report);
+      loginRecords.observe(report);
     },
     signedIn: (tabId, origin) => noteSignIn(tabId, origin),
     badge: loginBadge,
@@ -259,6 +285,7 @@ export default defineBackground(() => {
   const signedTabs = createSignedTabs(sessionValue(SIGNED_TABS_KEY), (listener) =>
     browser.tabs.onRemoved.addListener(listener),
   );
+
   // A tab Chrome discards to save memory gets a new ID; its sign-ins and badge stay with it.
   browser.tabs.onReplaced.addListener((added, removed) => {
     loginBadge.replaced(added, removed);
@@ -303,6 +330,8 @@ export default defineBackground(() => {
         requested: login.passkeyRequested,
         answered: passkeyAnswered,
         signedTabs,
+        // ADR 0021 D: so does one after a control that logs out was clicked in the tab.
+        logoutClicked: login.logoutClicked,
         conditional: login.conditionalRequest,
         hold: () => vaultSync.enter(false),
       })
@@ -319,6 +348,8 @@ export default defineBackground(() => {
         // ADR 0022: a login that moves on to the passkey's site after an answer completes.
         answered: passkeyAnswered,
         signedTabs,
+        // ADR 0021 D: so does one after a control that logs out was clicked in the tab.
+        logoutClicked: login.logoutClicked,
         // ADR 0034: the page's own conditional request waits for the login of its page.
         conditional: login.conditionalRequest,
         // The open vault is not replaced while a passkey request is looked up or signed.
@@ -351,7 +382,11 @@ export default defineBackground(() => {
     },
     permissions: () => browser.permissions.getAll(),
     declaredOrigins: browser.runtime.getManifest().host_permissions ?? [],
-    hasAllSiteAccess: () => browser.permissions.contains({ origins: ["https://*/*"] }),
+    // The probe build declares loopback HTTP only.
+    hasAllSiteAccess: () =>
+      browser.permissions.contains({
+        origins: browser.runtime.getManifest().host_permissions ?? [],
+      }),
     connections: {
       status: () => connections.service.status(),
       check: async (connectionId) => (await vaultSyncRecords.read()).connections[connectionId],

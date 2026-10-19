@@ -12,6 +12,7 @@ import type { Pseudonyms } from "./pseudonym";
 import {
   age,
   deviceFailureLabel,
+  formatHours,
   generationLabel,
   plural,
   problemCounts,
@@ -47,7 +48,7 @@ export type DiagnosticsDependencies = {
   permissions(): Promise<{ permissions?: string[]; origins?: string[] }>;
   /** The manifest's own host patterns; any other granted origin is only counted. */
   declaredOrigins: readonly string[];
-  /** Whether the install-time `https://*\/*` access is still granted. */
+  /** Whether the install-time `https://*\/*` and `http://*\/*` access is still granted. */
   hasAllSiteAccess(): Promise<boolean>;
   connections: {
     status(): Promise<SetupReply>;
@@ -470,7 +471,7 @@ function serviceChecks(value: DiagnosticsStatus["service"], now: number): Diagno
     checks.push({
       id: "recipe-sync",
       level: "warn",
-      detail: `recipe sync overdue by ${Math.floor(Temporal.Duration.from({ milliseconds: now - value.syncedAt - RECIPE_SYNC_OVERDUE_MS }).total("hours"))} h`,
+      detail: `recipe sync overdue by ${formatHours(Math.floor(Temporal.Duration.from({ milliseconds: now - value.syncedAt - RECIPE_SYNC_OVERDUE_MS }).total("hours")))}`,
     });
   else checks.push({ id: "recipe-sync", level: "ok", detail: "recipes synced in the last 24 h" });
   return checks;
@@ -506,8 +507,12 @@ export async function collectDiagnostics(
   const collectedAt = now();
   const checks: DiagnosticsCheck[] = [
     siteAccess
-      ? { id: "site-access", level: "ok", detail: "https://*/* site access granted" }
-      : { id: "site-access", level: "error", detail: "https://*/* site access withheld" },
+      ? { id: "site-access", level: "ok", detail: "https://*/* and http://*/* site access granted" }
+      : {
+          id: "site-access",
+          level: "error",
+          detail: "https://*/* or http://*/* site access withheld",
+        },
     host.ready
       ? { id: "crypto-host", level: "ok", detail: "crypto host ready" }
       : { id: "crypto-host", level: "info", detail: "crypto host idle (starts on demand)" },

@@ -61,6 +61,17 @@ test("names the site and lists each passkey by its user name, item and connectio
     .toBeChecked();
 });
 
+test("says why it asks again: Pateat's sign-in in the tab, or a logout clicked there", async () => {
+  await render(<ChooserApp client={client(view({ again: true }))} />);
+  await expect.element(page.getByText("Pateat signed in here from this tab before")).toBeVisible();
+  await cleanup();
+  await render(<ChooserApp client={client(view({ again: true, loggedOut: true }))} />);
+  await expect.element(page.getByText("You logged out of this site in this tab")).toBeVisible();
+  await expect
+    .element(page.getByText("Pateat signed in here from this tab before"))
+    .not.toBeInTheDocument();
+});
+
 test("offers to replace an existing default, unticked", async () => {
   const value = client(view({ replacesDefault: true }));
   await render(<ChooserApp client={value} />);

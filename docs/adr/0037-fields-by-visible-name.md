@@ -6,6 +6,13 @@ Status: accepted by the owner on 2026-10-13 at 04:50 UTC (decision card
 [architecture](../architecture.md#declarative-recipes-and-ai) keeps; no earlier ADR
 lists them. Corrected on 2026-10-14 by the
 [wording changes amendment](#amendment-wording-changes) (item 5 of the decision).
+Amended on 2026-10-18 by
+[ADR 0027](0027-per-account-login-routes.md#amendment-2026-10-18-slot-names-from-the-page)
+(owner, 08:58:31 UTC): recipes also store page text as custom-field slot names
+([slot names](#amendment-2026-10-18-slot-names)).
+Amended on 2026-10-19 by [ADR 0048](0048-password-method-button.md)'s amendment (owner,
+01:26 UTC, option A1): a control may be named by its accessible name
+([amendment](#amendment-controls-named-by-their-accessible-names)).
 
 Date: 2026-10-13
 
@@ -100,3 +107,30 @@ revoked. Only a revoked recipe is generated again
 ([architecture](../architecture.md#declarative-recipes-and-ai)); repairing a recipe
 whose elements no longer match is planned early in
 [phase 3](../plan.md#phase-3-public-release).
+
+## Amendment 2026-10-18: slot names
+
+Since ADR 0027's amendment of 2026-10-18, a recipe also stores page text as the name of
+each custom-field slot, taken under this ADR's rule against numbers and with redacted
+text skipped. That text is wider than a visible name: the extractor's label also takes
+the text before a field and its `title`, and the placeholder, description, `id`, `name`
+and test ID follow. A person's display name that a label shows, as in this ADR's
+consequences, can therefore become a slot name as well. All of it is text the service
+and Anthropic already receive with the observation and the request log keeps.
+
+## Amendment: controls named by their accessible names
+
+Accepted by the owner on 2026-10-19 at 01:26 UTC, on the decision card that chose
+option A1 of `designs/select-by-accessible-name-proposal-ja.md`; the rules are in
+[ADR 0048's amendment](0048-password-method-button.md#amendment-controls-told-apart-by-their-accessible-names).
+Option A2 was not chosen.
+
+Item 2 says a field's visible name is never used for a button, link or checkbox. That
+stays: the `label` locator still names only fillable inputs. A separate locator,
+`{ "by": "accessible-name", "value": "Select Password." }`, names a control by the
+rendered text of the elements its `aria-labelledby` names, else its `aria-label`, never
+its `<label>` or `placeholder`. The two are counted apart, so a control whose name
+equals a field's never makes the field's step ambiguous. It names only a `password`
+handler's button, which may be a link to a fragment of its own page, and is given on
+the conditions of item 2 (one on the page, no number, unchanged by redaction). The
+service must accept it before an extension that sends it, as for the `label` locator.

@@ -1,3 +1,5 @@
+import { browser } from "wxt/browser";
+
 /** Elements whose text is never page text: code, styles, raw markup and control contents. */
 const textless = new Set([
   "SCRIPT",
@@ -88,7 +90,102 @@ function hiddenByAttribute(element: Element): boolean {
 }
 
 /**
- * Rendered: not hidden by CSS, a closed `<details>` or an attribute (opacity optional).
+ * The parent of `element` in the flat tree, as `checkVisibility` walks it, or `undefined`
+ * when its slot in its parent's shadow root cannot be found. A closed shadow root hides
+ * the slot from `assignedSlot`; a content script reaches the root through
+ * `dom.openOrClosedShadowRoot`.
+ */
+function flatParent(element: Element): Element | null | undefined {
+  if (element.assignedSlot) return element.assignedSlot;
+  const parent = element.parentNode;
+  if (parent instanceof ShadowRoot) return parent.host;
+  const host = element.parentElement;
+  const root = host && browser?.dom?.openOrClosedShadowRoot?.(host);
+  if (!root) return host;
+  return [...root.querySelectorAll("slot")].find((slot) => slot.assignedNodes().includes(element));
+}
+
+/** Whether the current iteration of `animation` plays toward its effect's last keyframe. */
+function forward(animation: Animation, timing: ComputedEffectTiming): boolean {
+  const odd = (timing.currentIteration ?? Math.floor(timing.iterationStart ?? 0)) % 2 === 1;
+  const reversed =
+    timing.direction === "reverse" ||
+    (timing.direction === "alternate" && odd) ||
+    (timing.direction === "alternate-reverse" && !odd);
+  return reversed === animation.playbackRate < 0;
+}
+
+/**
+ * Whether an animation of `element` that has not finished, running or paused, still
+ * takes its opacity above 0 in its current iteration: a CSS animation, a CSS transition
+ * or a script's `animate()` with a keyframe ahead of its current progress, in the
+ * direction it plays, whose opacity is above 0. One that holds the opacity at 0 for the
+ * rest of the iteration, as a fade-out that then holds or a carousel's slide hidden
+ * until its next cycle, does not count. One still waiting out its delay counts from the
+ * iteration's start.
+ */
+function fades(element: Element): boolean {
+  return element.getAnimations().some((animation) => {
+    const effect = animation.effect;
+    if (
+      (animation.playState !== "running" && animation.playState !== "paused") ||
+      !(effect instanceof KeyframeEffect)
+    )
+      return false;
+    const timing = effect.getComputedTiming();
+    const ahead = forward(animation, timing);
+    // Before its delay ends without a backwards fill, the effect is not applied yet.
+    const waiting = timing.localTime !== null && Number(timing.localTime) < (timing.delay ?? 0);
+    const at = timing.progress ?? (waiting ? (ahead ? 0 : 1) : undefined);
+    if (at === undefined) return false;
+    return effect
+      .getKeyframes()
+      .some(
+        (frame) =>
+          (ahead ? frame.computedOffset >= at : frame.computedOffset <= at) &&
+          Number(frame["opacity"] ?? 0) > 0,
+      );
+  });
+}
+
+/**
+ * Whether `element` is transparent only while it fades in: each of it and its flat-tree
+ * ancestors whose opacity is 0, which `checkVisibility` counts as hidden, has an
+ * animation of its opacity under way ({@link fades}). A sign-in form often fades in, as
+ * Microsoft Entra's did: its email field stayed under a container at opacity 0 until
+ * about 1.3 seconds after the page started in cloud Chromium (2026-10-17). An animation
+ * does not advance while the tab is not rendered (inferred for the owner's Chrome), so
+ * one held at its start counts, paused ones too. An input at opacity 0 with no such
+ * animation, as a trap, is not fading.
+ */
+function fadingIn(element: Element): boolean {
+  const view = element.ownerDocument.defaultView;
+  if (!view) return false;
+  let transparent = false;
+  for (let node: Element | null = element; node;) {
+    if (Number(view.getComputedStyle(node).opacity) === 0) {
+      if (!fades(node)) return false;
+      transparent = true;
+    }
+    const parent = flatParent(node);
+    // A slot it cannot find may sit under a transparent element that is not fading.
+    if (parent === undefined) return false;
+    node = parent;
+  }
+  return transparent;
+}
+
+/** `checkVisibility`, with an element that is fading in counted as opaque. */
+function rendered(element: Element, opacity: boolean): boolean {
+  return (
+    element.checkVisibility(visibility(opacity)) ||
+    (opacity && element.checkVisibility(visibility(false)) && fadingIn(element))
+  );
+}
+
+/**
+ * Rendered: not hidden by CSS, a closed `<details>` or an attribute (opacity optional; an
+ * element still fading in from opacity 0 counts as opaque, {@link fadingIn}).
  * An element with `display: contents` has no box of its own, so `checkVisibility` is
  * false for it although its children render in its place; it counts as shown when its
  * parent is, the parent renders its content (not a closed `<details>` or
@@ -103,7 +200,7 @@ export function shown(element: Element, opacity = true): element is HTMLElement 
     hiddenByAttribute(element)
   )
     return false;
-  if (element.checkVisibility(visibility(opacity))) return true;
+  if (rendered(element, opacity)) return true;
   const parent = element.parentElement;
   const view = element.ownerDocument.defaultView;
   const style = view?.getComputedStyle(element);
@@ -123,9 +220,7 @@ export function shown(element: Element, opacity = true): element is HTMLElement 
   return (
     !children.length ||
     children.some(
-      (child) =>
-        child.checkVisibility(visibility(opacity)) ||
-        view.getComputedStyle(child).display === "contents",
+      (child) => rendered(child, opacity) || view.getComputedStyle(child).display === "contents",
     )
   );
 }
@@ -137,7 +232,10 @@ export function shown(element: Element, opacity = true): element is HTMLElement 
  * rendering does: `<div>Customer</div><div>Number</div>` and
  * `<p>Customer</p><label>Number</label>`. With `everyElement`, every element boundary
  * separates words (`<span>a@example.com</span><a>Not you?</a>`), and elements matching
- * `skip` contribute nothing.
+ * `skip` contribute nothing. A line-break opportunity never separates words: a `<wbr>`
+ * adds nothing, and format characters such as a zero-width space or soft hyphen are
+ * left out, so `taro@<wbr>example.com` and `taro@\u200Bexample.com` read as
+ * `taro@example.com`.
  */
 export function renderedText(
   root: Element,
@@ -156,7 +254,7 @@ export function renderedText(
   while (pending.length > 0 && text.length <= limit) {
     const node = pending.pop();
     if (node === undefined) text += " ";
-    else if (node instanceof Text) text += node.data;
+    else if (node instanceof Text) text += node.data.replace(/\p{Cf}+/gu, "");
     else if (
       node instanceof Element &&
       !textless.has(node.tagName) &&
@@ -164,7 +262,10 @@ export function renderedText(
       !(skip && node.matches(skip))
     ) {
       if (node instanceof HTMLBRElement) text += " ";
-      else if (everyElement || !view?.getComputedStyle(node).display.startsWith("inline")) {
+      else if (
+        node.localName !== "wbr" &&
+        (everyElement || !view?.getComputedStyle(node).display.startsWith("inline"))
+      ) {
         text += " ";
         pending.push(undefined);
       }
@@ -208,15 +309,74 @@ function scriptHref(link: HTMLAnchorElement): boolean {
   // A `data:` or `vbscript:` link does not navigate either: Chrome blocks top-level
   // `data:` navigations and has no `vbscript:`, so a click runs only the page's script.
   if (["javascript:", "data:", "vbscript:"].includes(link.protocol)) return true;
-  // As URL parsing does: tabs and newlines go anywhere, C0 controls and spaces at the
-  // ends. A `<base href>` naming another document would make `#` navigate; that is rare.
-  const href = link
-    .getAttribute("href")!
-    .replace(/[\t\n\r]/gu, "")
-    .replace(/^[\0-\x20]+|[\0-\x20]+$/gu, "");
+  // A `<base href>` naming another document would make `#` navigate; that is rare.
+  const href = parsedHref(link);
   return (
     (href === "" || href.startsWith("#")) && (link.hasAttribute("onclick") || roleButton(link))
   );
+}
+
+/**
+ * A link's `href` as URL parsing reads it: tabs and newlines go anywhere, C0 controls and
+ * spaces at the ends.
+ */
+const parsedHref = (link: HTMLAnchorElement) =>
+  (link.getAttribute("href") ?? "")
+    .replace(/[\t\n\r]/gu, "")
+    .replace(/^[\0-\x20]+|[\0-\x20]+$/gu, "");
+
+/**
+ * Where a link opens: its own `target`, else the document's first `<base target>`, as the
+ * browser chooses; `null` when neither names one.
+ */
+function linkTarget(link: HTMLAnchorElement): string | null {
+  return (
+    link.getAttribute("target") ??
+    link.ownerDocument.querySelector("base[target]")?.getAttribute("target") ??
+    null
+  );
+}
+
+/** Whether a link opens in its own tab: its {@link linkTarget} is none or `_self`. */
+export function opensHere(link: HTMLAnchorElement): boolean {
+  const target = linkTarget(link);
+  return target === null || target.trim().toLowerCase() === "_self";
+}
+
+/**
+ * True for an `<a href>` that only moves to a fragment of its own document, whose click a
+ * page script may handle without any `onclick` attribute or role {@link isScriptButton}
+ * sees, as `<a href="#" aria-label="Select Password.">Select</a>` on a page that asks how
+ * to confirm the sign-in (ADR 0048 amendment of 2026-10-19): its `href` starts with `#`,
+ * it resolves to the document's URL apart from the fragment (a `<base href>` naming
+ * another document makes it navigate, so it does not count), it opens in its own tab
+ * ({@link opensHere}, also through `<base target>`) and has no `download`. An empty `href`
+ * reloads the page and never counts, nor does a script link, nor a fragment that starts
+ * with `#/` or `#!`, which a page's router reads as a route (`#/account/delete`), so such
+ * a link may go to another page in all but its URL. Only an accessible-name
+ * locator, which only a `password` handler's button uses, counts such a link as a button;
+ * everywhere else it stays a link.
+ */
+export function isFragmentButton(element: Element): element is HTMLAnchorElement {
+  if (!(element instanceof HTMLAnchorElement)) return false;
+  const href = parsedHref(element);
+  if (
+    !element.hasAttribute("href") ||
+    element.hasAttribute("download") ||
+    !href.startsWith("#") ||
+    href.startsWith("#/") ||
+    href.startsWith("#!") ||
+    isScriptButton(element) ||
+    !opensHere(element)
+  )
+    return false;
+  const url = URL.parse(element.href);
+  // Read past any element the document names `URL`.
+  const page = URL.parse(Reflect.get(Document.prototype, "URL", element.ownerDocument) as string);
+  if (!url || !page) return false;
+  url.hash = "";
+  page.hash = "";
+  return url.href === page.href;
 }
 
 const roleButton = (element: Element) =>
@@ -345,31 +505,123 @@ export function fieldName(element: Element): string | undefined {
     !shown(element)
   )
     return undefined;
-  const readLimit = fieldNameLimit * 4;
-  // Undefined when the text is cut short, which could collapse to a prefix of it.
-  const read = (elements: readonly Element[]) => {
-    let raw = "";
-    for (const part of elements) {
-      raw += ` ${renderedText(part, readLimit) ?? ""}`;
-      if (raw.length > readLimit) return undefined;
-    }
-    return collapseText(raw);
-  };
+  return firstName([
+    () => readNames(labelledBy(element)),
+    () => readNames([...(element.labels ?? [])]),
+    () => collapseText(element.getAttribute("aria-label") ?? ""),
+    () => collapseText(element.placeholder),
+  ]);
+}
+
+/** The elements `element`'s `aria-labelledby` names, in its order. */
+function labelledBy(element: Element): Element[] {
   const document = element.ownerDocument;
-  const referenced = (element.getAttribute("aria-labelledby") ?? "").split(/\s+/u).flatMap((id) => {
+  return (element.getAttribute("aria-labelledby") ?? "").split(/\s+/u).flatMap((id) => {
     const target = id ? document.getElementById(id) : null;
     return target ? [target] : [];
   });
-  const sources = [
-    () => read(referenced),
-    () => read([...(element.labels ?? [])]),
-    () => collapseText(element.getAttribute("aria-label") ?? ""),
-    () => collapseText(element.placeholder),
-  ];
+}
+
+/**
+ * The rendered text of `elements`, collapsed; undefined when it is cut short, which could
+ * collapse to a prefix of it.
+ */
+function readNames(elements: readonly Element[]): string | undefined {
+  const readLimit = fieldNameLimit * 4;
+  let raw = "";
+  for (const part of elements) {
+    raw += ` ${renderedText(part, readLimit) ?? ""}`;
+    if (raw.length > readLimit) return undefined;
+  }
+  return collapseText(raw);
+}
+
+/**
+ * The first name of `sources` that is not empty, when it has at most 120 code units; a
+ * name cut short or longer than that gives none, and a later source is never tried in its
+ * place.
+ */
+function firstName(sources: readonly (() => string | undefined)[]): string | undefined {
   for (const source of sources) {
     const name = source();
     if (name === undefined) return undefined;
     if (name) return name.length <= fieldNameLimit ? name : undefined;
   }
   return undefined;
+}
+
+/**
+ * A control an `{ by: "accessible-name" }` locator may name (ADR 0048 amendment of
+ * 2026-10-19): a button, a script button, or a link to a fragment of its own document
+ * ({@link isFragmentButton}).
+ */
+export function isNamedControl(element: Element): element is HTMLElement {
+  return isButton(element) || isScriptButton(element) || isFragmentButton(element);
+}
+
+/**
+ * The accessible name an `{ by: "accessible-name" }` locator compares (ADR 0048 amendment
+ * of 2026-10-19): for a shown {@link isNamedControl}, the rendered text of the elements
+ * its `aria-labelledby` names, else its `aria-label`, the first that is not empty,
+ * collapsed. A control that is not shown, or whose first name is longer than 120 code
+ * units, has none; a later source is never tried in its place. Its visible text, an
+ * image's `alt` and its `title` are not its name here.
+ */
+export function controlName(element: Element): string | undefined {
+  if (!isNamedControl(element) || !shown(element)) return undefined;
+  return firstName([
+    () => readNames(labelledBy(element)),
+    () => collapseText(element.getAttribute("aria-label") ?? ""),
+  ]);
+}
+
+/**
+ * The visible text of a shown {@link isNamedControl}: a button's {@link buttonText}, or a
+ * fragment link's {@link linkText}.
+ */
+export function controlText(element: Element): string | undefined {
+  return buttonText(element) ?? (isFragmentButton(element) ? linkText(element) : undefined);
+}
+
+const contentLimit = buttonTextLimit * 4;
+/** Elements, HTML or SVG, whose text is code or markup, never a control's text. */
+const codeElements = new Set(["script", "style", "template"]);
+/** The `<input>` types whose `value` or `alt` is the text they show. */
+const labelInputTypes = new Set([...buttonInputTypes, "reset"]);
+
+/**
+ * All the text a control holds, for the check that nothing in it names another way or
+ * task than its accessible name does (`namesPasswordControl`, ADR 0048 amendment of
+ * 2026-10-19): the text of `element` and its descendants, shown or not (`aria-hidden`
+ * ones and those in open or closed shadow roots too), every element boundary separating
+ * words, the `alt` of its images and image inputs and the `value` of its other input
+ * buttons, the control's own included, collapsed. Scripts, styles and templates add
+ * nothing. `""` when it holds no text; `undefined` when the text is longer than 480 code
+ * units, which the check counts as not read in full and so refuses, where
+ * {@link controlText} would have no text.
+ */
+export function controlContent(element: Element): string | undefined {
+  let content = "";
+  const pending: Node[] = [element];
+  while (pending.length > 0) {
+    const node = pending.pop()!;
+    let part = "";
+    if (node instanceof Text) part = node.data;
+    else if (node instanceof Element) {
+      if (codeElements.has(node.localName)) continue;
+      if (node instanceof HTMLImageElement) part = node.alt;
+      else if (node instanceof HTMLInputElement && labelInputTypes.has(node.type))
+        part = node.type === "image" ? node.alt : node.value;
+      const root =
+        node instanceof HTMLElement
+          ? (node.shadowRoot ?? browser?.dom?.openOrClosedShadowRoot?.(node))
+          : undefined;
+      const children = [...(root?.childNodes ?? []), ...node.childNodes];
+      for (let index = children.length - 1; index >= 0; index--) pending.push(children[index]!);
+    }
+    const text = collapseText(part);
+    if (text) content = content ? `${content} ${text}` : text;
+    if (content.length > contentLimit) return undefined;
+  }
+  return content;
 }

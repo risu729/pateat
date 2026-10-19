@@ -2,7 +2,11 @@ import * as v from "valibot";
 import type { CryptoHost } from "../crypto/host";
 import { preparedVault } from "../../../../packages/bitwarden/src/__fixtures__/unlock";
 import { accountProfile } from "../../../../packages/bitwarden/src/__fixtures__/account";
-import { uriCiphertexts, v1Password } from "../../../../packages/bitwarden/src/__fixtures__/crypto";
+import {
+  regexUriCiphertexts,
+  uriCiphertexts,
+  v1Password,
+} from "../../../../packages/bitwarden/src/__fixtures__/crypto";
 import { createIndexedDbVaultStore } from "./storage";
 import { createLocalVaultManager, type VaultCheckpoint, type LocalVaultHandle } from "./manager";
 import { vaultFailure, type VaultEntry } from "./record";
@@ -19,6 +23,7 @@ const requestSchema = v.variant("action", [
       "unavailable",
       "uri",
       "uri-without-context",
+      "uri-regex",
     ]),
     autoUnlock: v.optional(v.picklist(["enable", "preserve"]), "enable"),
   }),
@@ -70,10 +75,10 @@ export function createVaultProbe(host: CryptoHost) {
     checkpoint: async (stage) => {
       if (stage !== armed) return;
       reached = true;
-      await new Promise<void>((resolve) => {
-        release = resolve;
-        timer = setTimeout(unpause, 30_000);
-      });
+      const { promise, resolve } = Promise.withResolvers<void>();
+      release = resolve;
+      timer = setTimeout(unpause, 30_000);
+      await promise;
     },
   });
   let handle: LocalVaultHandle | undefined;
@@ -158,6 +163,14 @@ export function createVaultProbe(host: CryptoHost) {
             hidden[state] = "2024-02-01T00:00:00.000Z";
             prepared.ciphers.push(hidden);
           }
+        }
+        if (action.kind === "uri-regex") {
+          // Fixed encrypted synthetic Regex URIs the SDK decrypts: an exact page and a
+          // backtracking pattern.
+          const login = prepared.ciphers[0]!.login!;
+          login.uris = [regexUriCiphertexts.exact, regexUriCiphertexts.backtracking].map(
+            ({ uri, checksum }) => ({ uri, uriChecksum: checksum, match: 4 }),
+          ) as unknown as NonNullable<typeof login.uris>;
         }
         if (action.kind === "unavailable") {
           prepared.unavailableItems.push({

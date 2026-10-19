@@ -2,10 +2,13 @@ import {
   builtInLoginSlots,
   customFieldSlotDescriptions,
   type LoginObservation,
+  type SavedLoginBinding,
   type SemanticSlot,
 } from "@pateat/contracts";
 import { describe, expect, it } from "vitest";
 import {
+  carriedSlotNames,
+  customSlotNames,
   namesPasskey,
   registersPasskey,
   slotAccepts,
@@ -63,24 +66,56 @@ const action = { candidate: "login", purpose: "submit" } as const;
 const validate = (fields: PagePlan["fields"]) =>
   validatePagePlan(observation, slots, { fields, action });
 
-describe("custom-field slot names (ADR 0027)", () => {
-  it("stores a custom-field slot under its generic name and keeps the requested ID", () => {
-    const result = validate([
-      { slot: "username", candidate: "user" },
-      { slot: "custom-1", candidate: "branch", name: "branch-number" },
-      { slot: "password", candidate: "password" },
-    ]);
+describe("an accessible-name locator (ADR 0048 amendment of 2026-10-19)", () => {
+  it("names no route step's element, as only a password handler's button uses it", () => {
+    const named: Candidate = {
+      id: "login",
+      role: "button",
+      target: { by: "accessible-name", value: "Log in" },
+    };
+    const page = {
+      ...observation,
+      candidates: [...observation.candidates.filter((entry) => entry.id !== "login"), named],
+    };
+    expect(
+      validatePagePlan(page, slots, {
+        fields: [
+          { slot: "username", candidate: "user" },
+          { slot: "password", candidate: "password" },
+        ],
+        action,
+      }),
+    ).toEqual({ ok: false, reason: "unknown-candidate" });
+  });
+});
+
+describe("custom-field slot names from the page (ADR 0027)", () => {
+  it("stores a custom-field slot under its field's text and keeps the requested ID", () => {
+    const page: LoginObservation = {
+      ...observation,
+      candidates: observation.candidates.map((entry) =>
+        entry.id === "branch" ? { ...entry, label: "店番号" } : entry,
+      ),
+    };
+    const result = validatePagePlan(page, slots, {
+      fields: [
+        { slot: "username", candidate: "user" },
+        { slot: "custom-1", candidate: "branch" },
+        { slot: "password", candidate: "password" },
+      ],
+      action,
+    });
     if (!result.ok) throw new Error(result.reason);
     expect(result.plan.fields).toEqual([
       { slot: "username", candidate: "user" },
-      { slot: "custom-1", candidate: "branch", name: "branch-number" },
+      { slot: "custom-1", candidate: "branch", name: "店番号" },
       { slot: "password", candidate: "password" },
     ]);
     expect(result.plan.steps[0]).toMatchObject({
       kind: "fill",
       fields: [
         { slot: "username", target: { by: "id", value: "user" } },
-        { slot: "branch-number", target: { by: "id", value: "branch" } },
+        { slot: "店番号", target: { by: "id", value: "branch" } },
         { slot: "password", target: { by: "id", value: "password" } },
       ],
     });
@@ -88,51 +123,305 @@ describe("custom-field slot names (ADR 0027)", () => {
     expect(JSON.stringify(result.plan.steps)).not.toContain("支店番号");
   });
 
-  it("requires a name exactly for slots that carry a field name", () => {
-    expect(validate([{ slot: "custom-1", candidate: "branch" }])).toEqual({
-      ok: false,
-      reason: "missing-slot-name",
-    });
-    expect(validate([{ slot: "username", candidate: "user", name: "login-id" }])).toEqual({
-      ok: false,
-      reason: "unexpected-slot-name",
+  /** The name the branch slot gets when its field looks like `extra`. */
+  const nameOf = (
+    extra: Partial<Candidate>,
+    page: Partial<LoginObservation> = {},
+    others: Candidate[] = [],
+  ) =>
+    customSlotNames(
+      { ...observation, ...page, candidates: [...others, input("branch", extra)] },
+      slots,
+      [{ fields: [{ slot: "custom-1", candidate: "branch" }] }],
+    ).get("custom-1");
+
+  it.each<[string, Partial<Candidate>, string]>([
+    ["its label first", { label: "店番号", placeholder: "店番", description: "支店" }, "店番号"],
+    ["its placeholder without a label", { placeholder: "店番", description: "支店" }, "店番"],
+    ["its description without a label or placeholder", { description: "支店" }, "支店"],
+    ["its id without any of those", { target: { by: "id", value: "brchNum" } }, "brchNum"],
+    ["its name attribute", { target: { by: "name", value: "branch_code" } }, "branch_code"],
+    ["its test ID", { target: { by: "test-id", value: "branch.code" } }, "branch.code"],
+    [
+      "a number, never its visible-name locator",
+      { target: { by: "label", value: "店番" } },
+      "欄 1",
+    ],
+    [
+      "a number, never its autocomplete token",
+      { target: { by: "autocomplete", value: "username" } },
+      "欄 1",
+    ],
+    // Owner's choice, 2026-10-18: any language and length, as the page shows it.
+    ["Latin text as it is", { label: "Enter your Security number" }, "Enter your Security number"],
+  ])("names a field by %s", (_label, extra, name) => {
+    expect(nameOf(extra)).toBe(name);
+  });
+
+  it.each<[string, Partial<Candidate>, string]>([
+    ["a redaction mark", { label: "[account] の店番", placeholder: "店番" }, "店番"],
+    [
+      "any redaction mark",
+      { label: "[email]", placeholder: "[masked]", description: "[number]" },
+      "branch",
+    ],
+    ["a number", { label: "口座 1234567", placeholder: "支店 045" }, "branch"],
+    ["a full-width number", { label: "店番３" }, "branch"],
+    ["a number in the locator", { target: { by: "id", value: "ctl00$branch" } }, "欄 1"],
+  ])("skips text with %s", (_label, extra, name) => {
+    expect(nameOf(extra)).toBe(name);
+  });
+
+  it("skips a mark or a number past the 60-character cut", () => {
+    const long = "a".repeat(55);
+    expect(nameOf({ label: `${long} [number] x`, placeholder: "店番" })).toBe("店番");
+    expect(nameOf({ label: `${long} b c d 1`, placeholder: "店番" })).toBe("店番");
+  });
+
+  it("takes NFKC text with whitespace collapsed and trimmed", () => {
+    expect(nameOf({ label: " Ｂｒａｎｃｈ\u3000 ｺｰﾄﾞ\t" })).toBe("Branch コード");
+  });
+
+  it("drops invisible characters from the text", () => {
+    expect(nameOf({ label: "店\u034f番\ufe0f号\u200b" })).toBe("店番号");
+    expect(nameOf({ label: "\u2060\u3164", placeholder: "店番" })).toBe("店番");
+  });
+
+  it("drops a trailing copy of the placeholder or description from the label", () => {
+    expect(nameOf({ label: "店番 半角数字3桁", placeholder: "半角数字3桁" })).toBe("店番");
+    expect(nameOf({ label: "口座番号 半角数字7桁", description: "半角数字7桁" })).toBe("口座番号");
+    expect(nameOf({ label: "店番半角数字", placeholder: "半角数字" })).toBe("店番");
+    // Never inside a Latin word.
+    expect(nameOf({ label: "Keyword", placeholder: "word" })).toBe("Keyword");
+    // A label that is only the hint falls to the next source.
+    expect(nameOf({ label: "支店コード", placeholder: "支店コード" })).toBe("支店コード");
+    expect(nameOf({ label: "3桁", placeholder: "3桁", description: "支店" })).toBe("支店");
+  });
+
+  it("cuts a name to 60 characters, never inside a character", () => {
+    expect(nameOf({ label: `${"a".repeat(59)} b` })).toBe("a".repeat(59));
+    expect(nameOf({ label: "店".repeat(70) })).toBe("店".repeat(60));
+    expect(nameOf({ label: `${"a".repeat(59)}😀` })).toBe("a".repeat(59));
+  });
+
+  it("numbers fields without a name from the top of the page, in its language", () => {
+    const unnamed = [input("c1", { target: { by: "autocomplete", value: "email" } })];
+    const named = [input("c2", { label: "メール" }), input("go", { role: "button" })];
+    const target = { by: "label" as const, value: "店番" };
+    expect(nameOf({ target }, {}, [...unnamed, ...named])).toBe("欄 2");
+    expect(nameOf({ target }, { language: "en" }, [...unnamed, ...named])).toBe("field 2");
+    expect(nameOf({ target }, { language: "mixed" }, named)).toBe("欄 1");
+  });
+
+  it("numbers equal names apart in page order, without case", () => {
+    const page: LoginObservation = {
+      ...observation,
+      candidates: [
+        input("branch", { label: "PIN" }),
+        input("account", { label: "pin" }),
+        input("pin", { role: "password", label: "Pin" }),
+        input("login", { role: "button" }),
+      ],
+    };
+    // The model's order never changes the names.
+    const names = customSlotNames(page, slots, [
+      {
+        fields: [
+          { slot: "custom-3", candidate: "pin" },
+          { slot: "custom-2", candidate: "account" },
+          { slot: "custom-1", candidate: "branch" },
+        ],
+      },
+    ]);
+    expect(Object.fromEntries(names)).toEqual({
+      "custom-1": "PIN",
+      "custom-2": "pin 2",
+      "custom-3": "Pin 3",
     });
   });
 
-  it.each([
-    ["a field name", "支店番号"],
-    ["digits", "branch-1234"],
-    ["a built-in slot", "password"],
-  ])("refuses a name that is %s", (_label, name) => {
-    expect(validate([{ slot: "custom-1", candidate: "branch", name }])).toEqual({
-      ok: false,
-      reason: "invalid-slot-name",
-    });
-  });
-
-  it("refuses a name a requested custom slot already has as its ID", () => {
-    const named = { ...branch, id: "branch" };
+  it("keeps a name apart from the built-in slots and the request's slot IDs", () => {
+    expect(nameOf({ label: "Password" })).toBe("Password 2");
+    expect(nameOf({ label: "TOTP" })).toBe("TOTP 2");
+    const requested = [{ ...branch, id: "Branch" }, account];
+    const page = { ...observation, candidates: [input("account", { label: "branch" })] };
     expect(
-      validatePagePlan(observation, [named, account], {
-        fields: [{ slot: "custom-2", candidate: "account", name: "branch" }],
-        action,
-      }),
-    ).toEqual({ ok: false, reason: "invalid-slot-name" });
+      customSlotNames(page, requested, [{ fields: [{ slot: "custom-2", candidate: "account" }] }]),
+    ).toEqual(new Map([["custom-2", "branch 2"]]));
+    // A numbered name still fits in 60 characters.
+    const long = "a".repeat(60);
+    const twice: LoginObservation = {
+      ...observation,
+      candidates: [input("branch", { label: long }), input("account", { label: long })],
+    };
+    expect(
+      customSlotNames(twice, slots, [
+        {
+          fields: [
+            { slot: "custom-1", candidate: "branch" },
+            { slot: "custom-2", candidate: "account" },
+          ],
+        },
+      ]).get("custom-2"),
+    ).toBe(`${"a".repeat(58)} 2`);
   });
 
-  it("refuses two custom slots given the same name", () => {
+  it("names built-in slots never and leaves out unknown elements", () => {
     expect(
-      validate([
-        { slot: "custom-1", candidate: "branch", name: "branch-number" },
-        { slot: "custom-2", candidate: "account", name: "branch-number" },
+      customSlotNames(observation, slots, [
+        {
+          fields: [
+            { slot: "username", candidate: "user" },
+            { slot: "custom-1", candidate: "nowhere" },
+          ],
+        },
       ]),
-    ).toEqual({ ok: false, reason: "duplicate-slot" });
+    ).toEqual(new Map());
+  });
+});
+
+describe("slot names carried from the saved bindings (ADR 0027, 2026-10-19)", () => {
+  const duplicate: SemanticSlot = {
+    ...account,
+    id: "custom-4",
+    fieldName: "口座番号",
+    fieldPosition: { position: 2, count: 2 },
+  };
+  const requested = [...slots, duplicate];
+  const binding = (...entries: [string, SavedLoginBinding["slots"][number]["field"]][]) => ({
+    slots: entries.map(([slot, field]) => ({ slot, field })),
+  });
+
+  it("matches a custom field by name, position and count", () => {
     expect(
-      validate([
-        { slot: "custom-1", candidate: "branch", name: "branch-number" },
-        { slot: "custom-2", candidate: "account", name: "account-number" },
+      Object.fromEntries(
+        carriedSlotNames(requested, [
+          binding(
+            ["店番", { custom: "支店番号" }],
+            ["口座 2", { custom: "口座番号", position: 2, count: 2 }],
+          ),
+        ]),
+      ),
+    ).toEqual({ "custom-1": "店番", "custom-4": "口座 2" });
+    // A position or count that differs is another field.
+    expect(
+      carriedSlotNames(requested, [
+        binding(["口座", { custom: "口座番号", position: 1, count: 2 }]),
+        binding(["口座 3", { custom: "口座番号", position: 2, count: 3 }]),
       ]),
-    ).toMatchObject({ ok: true });
+    ).toEqual(new Map());
+  });
+
+  it("matches no built-in field", () => {
+    expect(
+      carriedSlotNames(requested, [
+        binding(["username", "username"], ["password", "password"], ["totp", "totp"]),
+      ]),
+    ).toEqual(new Map());
+  });
+
+  it("carries nothing for a field the bindings name differently", () => {
+    expect(
+      Object.fromEntries(
+        carriedSlotNames(requested, [
+          binding(["店番", { custom: "支店番号" }], ["口座", { custom: "口座番号" }]),
+          binding(["支店", { custom: "支店番号" }], ["口座", { custom: "口座番号" }]),
+        ]),
+      ),
+    ).toEqual({ "custom-2": "口座" });
+  });
+
+  const labelled: LoginObservation = {
+    ...observation,
+    candidates: observation.candidates.map((entry) =>
+      entry.id === "branch"
+        ? { ...entry, label: "支店コード" }
+        : entry.id === "account"
+          ? { ...entry, label: "店番" }
+          : entry,
+    ),
+  };
+  const both = [
+    {
+      fields: [
+        { slot: "custom-1", candidate: "branch" },
+        { slot: "custom-2", candidate: "account" },
+      ],
+    },
+  ];
+
+  it("takes a carried name before any page text, which is numbered apart", () => {
+    // The account field's own label is the branch field's carried name.
+    expect(
+      Object.fromEntries(customSlotNames(labelled, slots, both, new Map([["custom-1", "店番"]]))),
+    ).toEqual({ "custom-1": "店番", "custom-2": "店番 2" });
+  });
+
+  it.each<[string, string]>([
+    ["a built-in slot", "Password"],
+    ["a request slot ID", "CUSTOM-3"],
+    ["no recipe slot ID", "店番  号"],
+    ["a name too long", "a".repeat(61)],
+  ])("keeps the page's text over %s", (_label, carried) => {
+    expect(
+      customSlotNames(labelled, slots, both, new Map([["custom-1", carried]])).get("custom-1"),
+    ).toBe("支店コード");
+  });
+
+  it("carries a name two slots would share for neither", () => {
+    expect(
+      Object.fromEntries(
+        customSlotNames(
+          labelled,
+          slots,
+          both,
+          new Map([
+            ["custom-1", "Branch"],
+            ["custom-2", "branch"],
+          ]),
+        ),
+      ),
+    ).toEqual({ "custom-1": "支店コード", "custom-2": "店番" });
+  });
+
+  it("reserves the carried name of a slot the page does not fill", () => {
+    // The account field's label is the name the unfilled PIN slot carries to a later page.
+    const fillsAccount = [{ fields: [{ slot: "custom-2", candidate: "account" }] }];
+    expect(
+      Object.fromEntries(
+        customSlotNames(labelled, slots, fillsAccount, new Map([["custom-3", "店番"]])),
+      ),
+    ).toEqual({ "custom-2": "店番 2" });
+    // Two filled slots carrying one name both take page names, which still avoid it.
+    expect(
+      Object.fromEntries(
+        customSlotNames(
+          labelled,
+          slots,
+          both,
+          new Map([
+            ["custom-1", "店番"],
+            ["custom-2", "店番"],
+          ]),
+        ),
+      ),
+    ).toEqual({ "custom-1": "支店コード", "custom-2": "店番 2" });
+  });
+
+  it("carries a name on a page after the start page and stores it in the steps", () => {
+    const result = validateGeneratedPage(
+      labelled,
+      slots,
+      { fields: [{ slot: "custom-1", candidate: "branch" }], action },
+      false,
+      new Map([["custom-1", "店番"]]),
+    );
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.plan.fields).toEqual([{ slot: "custom-1", candidate: "branch", name: "店番" }]);
+    expect(result.plan.steps[0]).toMatchObject({
+      fields: [{ slot: "店番", target: { by: "id", value: "branch" } }],
+    });
+    expect(JSON.stringify(result.plan.steps)).not.toContain("支店番号");
   });
 });
 
@@ -204,10 +493,10 @@ describe("the Hidden fill rule in plan validation (ADR 0027)", () => {
   });
 
   it("validates a plan that fills a hidden slot into an accepted input only", () => {
-    expect(validate([{ slot: "custom-3", candidate: "pin", name: "pin-code" }])).toMatchObject({
+    expect(validate([{ slot: "custom-3", candidate: "pin" }])).toMatchObject({
       ok: true,
     });
-    expect(validate([{ slot: "custom-3", candidate: "branch", name: "pin-code" }])).toEqual({
+    expect(validate([{ slot: "custom-3", candidate: "branch" }])).toEqual({
       ok: false,
       reason: "incompatible-role",
     });
@@ -327,7 +616,7 @@ describe("a lone new-password field on a sign-in form (ADR 0018, 2026-10-12)", (
     expect(
       plan(sbi(), [
         { slot: "username", candidate: "c1" },
-        { slot: "custom-3", candidate: "c2", name: "pin-code" },
+        { slot: "custom-3", candidate: "c2" },
       ]),
     ).toMatchObject({ ok: true });
     expect(
@@ -441,20 +730,24 @@ describe("several identifier sets on one page (ADR 0027)", () => {
   };
   const page: LoginObservation = {
     ...observation,
-    candidates: [...observation.candidates, input("contract"), input("switch", { role: "link" })],
+    candidates: [
+      ...observation.candidates,
+      input("contract", { label: "契約番号" }),
+      input("switch", { role: "link" }),
+    ],
   };
   const all = [...slots, contract];
   const primary: GeneratedPagePlan = {
     fields: [
-      { slot: "custom-1", candidate: "branch", name: "branch-number" },
-      { slot: "custom-2", candidate: "account", name: "account-number" },
+      { slot: "custom-1", candidate: "branch" },
+      { slot: "custom-2", candidate: "account" },
       { slot: "password", candidate: "password" },
     ],
     action,
   };
   const byContract = {
     fields: [
-      { slot: "custom-4", candidate: "contract", name: "contract-number" },
+      { slot: "custom-4", candidate: "contract" },
       { slot: "password", candidate: "password" },
     ],
     action,
@@ -465,12 +758,16 @@ describe("several identifier sets on one page (ADR 0027)", () => {
   it("validates each set and returns the alternatives' steps", () => {
     const result = check([byContract]);
     if (!result.ok) throw new Error(result.reason);
-    expect(result.plan.fields).toEqual(primary.fields);
+    expect(result.plan.fields).toEqual([
+      { slot: "custom-1", candidate: "branch", name: "branch" },
+      { slot: "custom-2", candidate: "account", name: "account" },
+      { slot: "password", candidate: "password" },
+    ]);
     expect(result.plan.alternatives).toHaveLength(1);
     expect(result.plan.alternatives![0]!.steps[0]).toMatchObject({
       kind: "fill",
       fields: [
-        { slot: "contract-number", target: { by: "id", value: "contract" } },
+        { slot: "契約番号", target: { by: "id", value: "contract" } },
         { slot: "password", target: { by: "id", value: "password" } },
       ],
     });
@@ -479,42 +776,88 @@ describe("several identifier sets on one page (ADR 0027)", () => {
     expect(check([])).toEqual(validatePagePlan(page, all, primary));
   });
 
+  it("names a slot from its element in the first set that fills it, in every set", () => {
+    const result = check([
+      {
+        fields: [
+          { slot: "custom-4", candidate: "contract" },
+          { slot: "custom-2", candidate: "user" },
+        ],
+        action,
+      },
+    ]);
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.plan.alternatives![0]!.fields).toEqual([
+      { slot: "custom-4", candidate: "contract", name: "契約番号" },
+      { slot: "custom-2", candidate: "user", name: "account" },
+    ]);
+  });
+
+  it("on a later page, names slots from the first set alone and drops the rest", () => {
+    // An earlier field of the same name, which only the alternative fills.
+    const later: LoginObservation = {
+      ...page,
+      candidates: [
+        input("old", { label: "契約番号" }),
+        ...page.candidates,
+        input("passkey-login", { role: "button", label: "パスキーでログイン" }),
+      ],
+    };
+    const draft: GeneratedPagePlan = {
+      fields: [
+        { slot: "custom-2", candidate: "contract" },
+        { slot: "password", candidate: "password" },
+      ],
+      action,
+      alternatives: [{ ...byContract, fields: [{ slot: "custom-4", candidate: "old" }] }],
+      passkeyButton: "passkey-login",
+    };
+    const start = validateGeneratedPage(later, all, draft);
+    if (!start.ok) throw new Error(start.reason);
+    expect(start.plan.fields[0]).toEqual({
+      slot: "custom-2",
+      candidate: "contract",
+      name: "契約番号 2",
+    });
+    expect(start.plan.alternatives).toHaveLength(1);
+    expect(start.plan.passkeyButton).toBe("passkey-login");
+    const next = validateGeneratedPage(later, all, draft, false);
+    if (!next.ok) throw new Error(next.reason);
+    expect(next.plan.fields[0]).toEqual({
+      slot: "custom-2",
+      candidate: "contract",
+      name: "契約番号",
+    });
+    expect(next.plan.steps[0]).toMatchObject({
+      fields: [{ slot: "契約番号" }, { slot: "password" }],
+    });
+    expect(next.plan).not.toHaveProperty("alternatives");
+    expect(next.plan).not.toHaveProperty("passkeyButton");
+    expect(next.plan).not.toHaveProperty("passkeyTarget");
+    // The dropped alternatives are still checked.
+    expect(
+      validateGeneratedPage(
+        later,
+        all,
+        {
+          ...draft,
+          alternatives: [{ fields: [{ slot: "custom-4", candidate: "nowhere" }], action }],
+        },
+        false,
+      ),
+    ).toEqual({ ok: false, reason: "unknown-candidate" });
+  });
+
   it.each<[string, GeneratedPagePlan["alternatives"], string]>([
     [
       "an alternative that fails plan validation",
       [
         {
           ...byContract,
-          fields: [{ slot: "custom-4", candidate: "nowhere", name: "contract-number" }],
+          fields: [{ slot: "custom-4", candidate: "nowhere" }],
         },
       ],
       "unknown-candidate",
-    ],
-    [
-      "another name for the same requested slot",
-      [
-        {
-          fields: [
-            { slot: "custom-1", candidate: "branch", name: "branch-code" },
-            { slot: "custom-4", candidate: "contract", name: "contract-number" },
-          ],
-          action,
-        },
-      ],
-      "inconsistent-slot-name",
-    ],
-    [
-      "one name for two requested slots",
-      [
-        {
-          fields: [
-            { slot: "custom-4", candidate: "contract", name: "branch-number" },
-            { slot: "password", candidate: "password" },
-          ],
-          action,
-        },
-      ],
-      "duplicate-slot",
     ],
     [
       "the same slots again",
@@ -538,7 +881,7 @@ describe("several identifier sets on one page (ADR 0027)", () => {
       [
         {
           fields: [
-            { slot: "custom-4", candidate: "branch", name: "contract-number" },
+            { slot: "custom-4", candidate: "branch" },
             { slot: "password", candidate: "password" },
           ],
           action,
@@ -589,15 +932,15 @@ describe("several identifier sets on one page (ADR 0027)", () => {
       },
       {
         fields: [
-          { slot: "custom-1", candidate: "branch", name: "branch-number" },
-          { slot: "custom-3", candidate: "pin", name: "pin-code" },
+          { slot: "custom-1", candidate: "branch" },
+          { slot: "custom-3", candidate: "pin" },
         ],
         action,
       },
       {
         fields: [
-          { slot: "custom-2", candidate: "account", name: "account-number" },
-          { slot: "custom-4", candidate: "contract", name: "contract-number" },
+          { slot: "custom-2", candidate: "account" },
+          { slot: "custom-4", candidate: "contract" },
         ],
         action,
       },
@@ -613,10 +956,7 @@ describe("several identifier sets on one page (ADR 0027)", () => {
     expect(
       check([
         {
-          fields: [
-            ...primary.fields,
-            { slot: "custom-4", candidate: "contract", name: "contract-number" },
-          ],
+          fields: [...primary.fields, { slot: "custom-4", candidate: "contract" }],
           action,
         },
       ]),
@@ -626,7 +966,7 @@ describe("several identifier sets on one page (ADR 0027)", () => {
       check([
         byContract,
         {
-          fields: [...byContract.fields, { slot: "custom-3", candidate: "pin", name: "pin-code" }],
+          fields: [...byContract.fields, { slot: "custom-3", candidate: "pin" }],
           action,
         },
       ]),
@@ -711,7 +1051,7 @@ describe("the start page's passkey sign-in button (ADR 0027)", () => {
     const contract: SemanticSlot = { ...branch, id: "custom-4", fieldName: "契約者番号" };
     const alternative = {
       fields: [
-        { slot: "custom-4", candidate: "contract", name: "contract-number" },
+        { slot: "custom-4", candidate: "contract" },
         { slot: "password", candidate: "password" },
       ],
       action: { candidate: "passkey-login", purpose: "submit" as const },

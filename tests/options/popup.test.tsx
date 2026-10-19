@@ -117,10 +117,10 @@ async function mount(
 
 afterEach(() => cleanup());
 
-test("only HTTPS pages with a valid hostname are a site the popup edits", () => {
+test("only HTTP(S) pages with a valid hostname are a site the popup edits", () => {
   expect(popupOrigin("https://bank.example/login?next=1")).toBe("https://bank.example");
   expect(popupOrigin("https://bank.example:8443/")).toBe("https://bank.example:8443");
-  expect(popupOrigin("http://bank.example/")).toBeUndefined();
+  expect(popupOrigin("http://bank.example/")).toBe("http://bank.example");
   expect(popupOrigin("chrome://extensions/")).toBeUndefined();
   expect(popupOrigin(undefined)).toBeUndefined();
 });
@@ -128,9 +128,7 @@ test("only HTTPS pages with a valid hostname are a site the popup edits", () => 
 test("a tab Pateat cannot run on offers only the settings page", async () => {
   const { client } = store();
   const host = await mount(client, "chrome://newtab/");
-  await expect
-    .element(page.getByText("Pateat works on HTTPS websites.", { exact: false }))
-    .toBeVisible();
+  await expect.element(page.getByText("Pateat works on websites", { exact: false })).toBeVisible();
   await expect
     .element(page.getByRole("button", { name: "Use as default" }))
     .not.toBeInTheDocument();
@@ -372,13 +370,14 @@ test("a tab whose address Pateat cannot read says so", async () => {
   expect(client.findSiteAccounts).not.toHaveBeenCalled();
 });
 
-test("an HTTP page is not a site Pateat runs on", async () => {
-  const { client } = store();
+test("an HTTP page lists the accounts for its own origin (ADR 0050)", async () => {
+  const { client, current } = store();
   await mount(client, "http://bank.example/");
-  await expect
-    .element(page.getByText("Pateat works on HTTPS websites.", { exact: false }))
-    .toBeVisible();
-  expect(client.findSiteAccounts).not.toHaveBeenCalled();
+  await expect.poll(() => client.findSiteAccounts.mock.calls.length).toBeGreaterThan(0);
+  expect(client.findSiteAccounts).toHaveBeenCalledWith(
+    "http://bank.example",
+    current().snapshot.settings,
+  );
 });
 
 test("the saved default is selected and marked, and an incomplete search is flagged", async () => {
@@ -625,6 +624,60 @@ test("a login refused for several matches is restarted with the account picked h
   // The pick itself saves no settings; a default is saved only after the login succeeds.
   expect(client.saveSettings).not.toHaveBeenCalled();
   expect(current().snapshot.revision).toBe(0);
+});
+
+test("an excluded site offers no account choice, even one that waited before", async () => {
+  const settings = createDefaultSettings();
+  settings.excludedSites.push({ hostname: "bank.example", includeSubdomains: false });
+  const { client } = store(saved(0, settings));
+  const choices = noChoice();
+  choices.get.mockResolvedValue({
+    ok: true,
+    origin: "https://bank.example",
+    documentId: "refused-document",
+    candidates: [
+      { connectionId: "demo-personal", itemId: "primary" },
+      { connectionId: "demo-work", itemId: "primary" },
+    ],
+  });
+  await mount(client, "https://bank.example/login", choices);
+  await expect.element(page.getByText("No logins or passkey answers on this site")).toBeVisible();
+  // Give the choice time to be asked for and drawn, as it would be on a site that is on.
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  expect(choices.get).not.toHaveBeenCalled();
+  // The worker keeps a choice from before the exclusion; Log in would only be refused.
+  await expect
+    .element(page.getByRole("heading", { name: "Choose an account" }))
+    .not.toBeInTheDocument();
+  await expect.element(page.getByRole("button", { name: "Log in" })).not.toBeInTheDocument();
+  await expect
+    .element(
+      page.getByText("Checking whether this page waits for an account choice", { exact: false }),
+    )
+    .not.toBeInTheDocument();
+});
+
+test("turning Pateat off for the site hides a waiting account choice", async () => {
+  const { client } = store();
+  const choices = noChoice();
+  choices.get.mockResolvedValue({
+    ok: true,
+    origin: "https://bank.example",
+    documentId: "refused-document",
+    candidates: [
+      { connectionId: "demo-personal", itemId: "primary" },
+      { connectionId: "demo-work", itemId: "primary" },
+    ],
+  });
+  await mount(client, "https://bank.example/login", choices);
+  await expect.element(page.getByRole("heading", { name: "Choose an account" })).toBeVisible();
+  await userEvent.click(page.getByRole("switch", { name: "Pateat on this site" }));
+  await expect.element(page.getByText("bank.example is now excluded")).toBeVisible();
+  await expect.element(page.getByText("No logins or passkey answers on this site")).toBeVisible();
+  await expect
+    .element(page.getByRole("heading", { name: "Choose an account" }))
+    .not.toBeInTheDocument();
+  await expect.element(page.getByRole("button", { name: "Log in" })).not.toBeInTheDocument();
 });
 
 test("a choice that starts waiting after the popup opened is shown while it stays open", async () => {
@@ -1131,9 +1184,7 @@ test("a tab Pateat cannot run on asks nothing about its page", async () => {
   const { client } = store();
   const choices = noChoice();
   await mount(client, "chrome://newtab/", choices);
-  await expect
-    .element(page.getByText("Pateat works on HTTPS websites.", { exact: false }))
-    .toBeVisible();
+  await expect.element(page.getByText("Pateat works on websites", { exact: false })).toBeVisible();
   expect(choices.status).not.toHaveBeenCalled();
 });
 

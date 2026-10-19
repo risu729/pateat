@@ -13,17 +13,19 @@ const revision = v.pipe(
   v.maxValue(Number.MAX_SAFE_INTEGER - 1),
 );
 
-/** Only explicit HTTP(S) URLs are policy inputs; no credentials or ambiguous separators. */
+/**
+ * Only explicit HTTP(S) URLs are policy inputs; no credentials or ambiguous separators.
+ * A backslash is ambiguous only before the query or fragment: parsers disagree on it in the
+ * authority, and WHATWG rewrites it to `/` in the path, but keeps it in the query and fragment.
+ */
 export function parseSiteUrl(value: string): URL | undefined {
-  if (/\s|\\/.test(value) || !/^https?:\/\/[^/]/i.test(value)) return undefined;
+  if (/\s/.test(value) || (value.split(/[?#]/, 1)[0] ?? "").includes("\\")) return undefined;
+  if (!/^https?:\/\/[^/]/i.test(value)) return undefined;
   if (value.split("//")[1]?.split(/[/?#]/)[0]?.includes("@")) return undefined;
-  try {
-    const url = new URL(value);
-    if (!/^https?:$/.test(url.protocol) || url.username || url.password) return undefined;
-    return url;
-  } catch {
-    return undefined;
-  }
+  const url = URL.parse(value);
+  if (!url) return undefined;
+  if (!/^https?:$/.test(url.protocol) || url.username || url.password) return undefined;
+  return url;
 }
 
 export function normalizeHostname(value: string): string | undefined {
@@ -63,6 +65,21 @@ const recipeIdSchema = v.pipe(
   v.maxLength(120),
   v.regex(/^[a-zA-Z0-9_.:-]+$/),
 );
+/**
+ * A recipe slot ID: a built-in slot (`username`, `password`, `totp`) or a custom-field
+ * slot named from the page's text for its field, such as `店番号` (ADR 0027). 1 to 60
+ * characters in NFKC, without control, format, default-ignorable (invisible) or line and
+ * paragraph separator characters, with words apart by single spaces and none at either end.
+ */
+export const recipeSlotIdSchema = v.pipe(
+  v.string(),
+  v.minLength(1),
+  v.maxLength(60),
+  v.regex(
+    /^[^\s\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}]+(?: [^\s\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}]+)*$/u,
+  ),
+  v.check((value) => value.normalize("NFKC") === value, "Use NFKC text"),
+);
 const vaultNameSchema = v.pipe(v.string(), v.minLength(1), v.maxLength(200));
 /**
  * A vault field named the same way on every device (ADR 0013). Custom fields are named;
@@ -98,7 +115,7 @@ export const savedLoginBindingSchema = v.strictObject({
    */
   accountName: v.optional(vaultNameSchema),
   slots: v.pipe(
-    v.array(v.strictObject({ slot: recipeIdSchema, field: vaultFieldReferenceSchema })),
+    v.array(v.strictObject({ slot: recipeSlotIdSchema, field: vaultFieldReferenceSchema })),
     v.minLength(1),
     v.maxLength(20),
     v.check(

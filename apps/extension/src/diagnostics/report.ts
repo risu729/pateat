@@ -10,6 +10,7 @@ import {
   serverLabel,
   syncSignIn,
 } from "./labels";
+import { DEBUG_UNTIL_TURNED_OFF } from "./log";
 import type { DiagnosticsConnection, DiagnosticsStatus } from "./wire";
 
 export type BrowserInfo = { name: string; version: string; installType: string };
@@ -89,7 +90,7 @@ export function formatReport(status: DiagnosticsStatus, browser: BrowserInfo): s
     lines.push(`Storage: storage.local ${Math.ceil(status.storage.localBytes / 1024)} KB`);
   if (status.logs)
     lines.push(
-      `Logs: ${plural(status.logs.entries, "entry", "entries")} (${Math.ceil(status.logs.bytes / 1024)} KB), ${problemCounts(status.logs)} in 24 h${status.logs.debugUntil === undefined ? "" : `, debug until ${isoMinute(status.logs.debugUntil)}`}`,
+      `Logs: ${plural(status.logs.entries, "entry", "entries")} (${Math.ceil(status.logs.bytes / 1024)} KB), ${problemCounts(status.logs)} in 24 h${status.logs.debugUntil === undefined ? "" : status.logs.debugUntil === DEBUG_UNTIL_TURNED_OFF ? ", debug on until turned off" : `, debug until ${isoMinute(status.logs.debugUntil)}`}`,
     );
   const { recent } = status;
   if (recent?.updated)

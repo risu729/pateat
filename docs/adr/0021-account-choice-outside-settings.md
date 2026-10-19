@@ -10,7 +10,9 @@ login is released like a finished one when its first step shows in a new page of
 or of another tab of the site (implemented). Amended on 2026-10-13 by ADR 0027 (owner's
 「このタブだけ」): a watched login is no longer released as a logout; only its own tab
 asks (implemented, see the end of D). Amended on 2026-10-13 by the owner's
-[site count badge](#site-count-badge) decision (part B, not implemented).
+[site count badge](#site-count-badge) decision (part B, not implemented). Amended on
+2026-10-16 by the owner: in D, a click on a control that logs out also makes the tab ask
+(implemented, see [logout clicks](#logout-clicks)).
 
 Amended on 2026-10-11 by [ADR 0023](0023-synced-vault-policy.md): the popup also repairs
 a binding that names a missing custom field (not implemented yet). Amended on 2026-10-11
@@ -77,6 +79,16 @@ that offer a choice while the rejected tab still asks choose no account either (
 popup's answer carries `rejectedElsewhere`); the owner chose this on 2026-10-13
 (14:43 UTC, decision card answer 「他のタブもそろえる」) over leaving them on the first
 account (implemented).
+
+Amended on 2026-10-14 by
+[ADR 0029](0029-local-sign-in-state.md#amendment-unconfirmed-completion-2026-10-14):
+only confirmed completion counts as a successful sign-in (implemented); see the dated
+amendment below.
+
+Amended on 2026-10-18 by [ADR 0049](0049-start-at-a-later-step.md) (owner, 01:40 UTC,
+implemented): in D, a later step a login may start at counts as the first step does,
+and a fill-only login after a logout starts at it; this closes the known gap for sites
+that show only a password step after a logout.
 
 Date: 2026-10-11
 
@@ -291,7 +303,8 @@ is opened out of their expected order (owner, 07:42 UTC). So a tab treats a logi
 as a logout only after this tab's own login (finished, or stopped after a submission as
 above) or while another tab of the site asks after its logout. A session
 carried over from a login in another tab, or from an earlier browser session, is
-therefore not detected: after a logout there, Pateat logs in again automatically.
+therefore not detected by the form alone: after a logout there, Pateat logs in again
+automatically, unless the logout was a click [counted since 2026-10-16](#logout-clicks).
 Rejected for this reason: counting a signed-in marker seen in the tab (it would make
 every expiry after such a page ask), and counting another tab's finished login (also
 against ADR 0022's choice that a new tab logs in).
@@ -319,7 +332,8 @@ Known gaps:
 
 - Frame logins are not detected (ADR 0017).
 - Sites that show only a password step after logout are not detected, because no
-  recipe's first step appears.
+  recipe's first step appears. (Closed on 2026-10-18 by
+  [ADR 0049](0049-start-at-a-later-step.md): such a step counts as the first step does.)
 - A login form that stays in the page after login, or a re-authentication form shaped
   like the first step, can ask for a choice while still logged in.
 
@@ -340,6 +354,88 @@ nothing. When the window cannot open (the
 same cases as C) or a connection or item could not be searched, the request goes to
 the browser instead of being signed unasked.
 
+#### Logout clicks
+
+Amended 2026-10-16 by the owner (14:06 UTC, decision card answer 「B: 語のクリック」,
+then 「表示テキスト以外、ariaとかも見て」「後周りのテキストとか。他と同様です」: read
+ARIA names and the text around a control as other page reading does). Evidence: on
+dash.cloudflare.com the owner logged out of a session that no Pateat login in that tab
+had started, and Pateat logged in again with the site default. A click on a control that
+logs out now counts as a logout of that tab's site, so the case above is detected when
+the person logs out by hand. An expired session still logs in by itself, since nobody
+clicked, so the constraint holds; the tab asks wrongly only when the session also
+expires within 10 minutes after such a click.
+
+- The content script listens for clicks on the window in the capture phase, so the click
+  is read before most of the page's handlers act on it, and reads the nearest control
+  around the clicked element (a button, a link, an element with a control role or a
+  `tabindex` of 0 or more, or the element that sets `cursor: pointer`), also inside an
+  open shadow root. A field, a `<label>` or a control that sets a state (a checkbox,
+  switch, radio button or slider), or a click inside one, never counts: its words
+  describe a setting, as "Log out when I close the browser" does. Only trusted clicks
+  count: a page's own script that clicks for an expired session is not a person's
+  logout.
+- The control's name is read in the order an accessible name is computed and the
+  observation names a control (ADR 0037): the first of the text its `aria-labelledby`
+  names, its `aria-label`, its rendered text (an input button's `value` or `alt`) and
+  its `title`. Only a control with none of them is named by the elements inside it (an
+  image's `alt`, an SVG `<title>`, an `aria-label` or a `title`, as an icon's) and the
+  text its `aria-describedby` names, so a session timeout's "Stay signed in" button
+  described by a warning that it will log out does not count. A control that names
+  nothing even so is named by the nearest text before or after it, at most three levels
+  up, never across another control or out of a form. A name longer than 64 characters
+  does not count, and a control whose name or rendered text is that long counts as
+  named, so nothing else is read for it, as for a container of several controls.
+- A name counts when it holds "log out", "logout", "sign out", "log off" or "sign off"
+  as whole words in English, or ログアウト, サインアウト, ログオフ or サインオフ
+  anywhere, after NFKC normalisation. A name that logs other devices, sessions or
+  accounts out does not count: "other", "others" or "another" followed within three
+  words by a device, session, browser, computer, phone, place or location ("Sign out of
+  all other active web sessions"), "other" or "others" followed within three words by an
+  account ("Log out of other accounts"), "except this", "but this" or "everywhere else",
+  or 他の, ほかの or 別の before 端末, デバイス, セッション, ブラウザ, 場所 or 機器 with
+  at most eight characters between, 他の or ほかの before アカウント the same way,
+  他端末, or 以外 (「このデバイス以外からログアウト」). "Sign out and use another
+  account" and 「ログアウトして別のアカウントでログイン」 log this session out, so they
+  count. Only these fixed words count, never a site name (ADR 0033).
+- Only on a page of an origin with recipes, and only the fact that such a control was
+  clicked goes to the worker, never its text, the page's URL or a locator (ADR 0019).
+- The worker keeps the click by tab and registrable site, so the first step may show on
+  another origin with recipes of the site (`www.` and `accounts.`), in memory and in
+  `pateat.login-logout-clicks.v1` in `chrome.storage.session` (the 256 newest), and a
+  page of the tab announced after the click waits until it is kept. It is forgotten
+  when the tab closes, moves with a tab Chrome replaced, and stops waiting when the
+  tab's page shows another site, after 10 minutes (as a watch of ADR 0027), or when it
+  is used.
+- When a recipe's first step then shows in that tab's page (not a frame) on that site,
+  and the tab has no login record of the origin, it is used as this tab's logout: the
+  tab asks, fills only when one account is to be used, and the site's other tabs ask
+  too, as above. The log shows `login.logout` marked `clicked`; when the tab's own
+  finished login is released there at the same time, that logout alone is logged.
+  Logging out to the top page and pressing the site's own sign-in link later within the
+  10 minutes is caught the same way.
+- While a click waits, the tab presses no sign-in entry of the site (ADR 0031,
+  `logout-clicked`). A username-less passkey request for an RP ID of the site in the tab
+  opens the chooser as after Pateat signed there, saying "You logged out of this site in
+  this tab" (`passkey.request` marked `logoutClicked`), while the click waits and, once
+  used, while the tab keeps a logout state for an origin of the site, so a "Sign in with
+  a passkey" press on the sign-in page asks too.
+- No permission is added: the login content script already runs on every HTTPS page (and
+  HTTP page since [ADR 0050](0050-http-pages-for-http-items.md)).
+- Also counted, by the words alone: a link or button whose name holds them without
+  logging out, such as "Auto sign out settings", "Logout history" or "How do I log
+  out?". Such a click only makes the tab ask when the site's first step shows in it
+  within 10 minutes, and keeps sign-in entries unpressed and passkey requests asking
+  meanwhile.
+- Still missed, so Pateat logs in again: a control with no name and no text beside it, a
+  control in a closed shadow root or a cross-origin frame of another site, a control on
+  an origin without recipes (its page does not send the click), a logout that passes
+  through a page of another site that Pateat reads (the tab left the site), a logout in
+  another tab or on another site (such as an identity provider), a logout link inside a
+  `<label>` or an editable region, a keyboard shortcut that logs out without a click,
+  words in languages other than English and Japanese, and a first step that shows more
+  than 10 minutes later.
+
 ## Considered alternatives
 
 - An in-page card in an extension-origin iframe: needs the no-page-UI rule changed, can
@@ -351,7 +447,9 @@ the browser instead of being signed unasked.
   choosing after logout.
 - Other logout detection:
   - logout locators in recipes: needs recipe-format and generation changes per site;
-  - watching clicks on "log out" text: misses and false positives;
+  - watching clicks on "log out" text: misses and false positives (rejected on
+    2026-10-11; adopted on 2026-10-16 for sessions the tab's own login did not start,
+    see [logout clicks](#logout-clicks));
   - watching cookie removal: new `cookies` permission;
   - watching logout requests: new `webRequest` permission.
 
@@ -369,11 +467,12 @@ switch starts only from the person's choice in the popup; Pateat still never swi
 such an account on its own ([plan](../plan.md#phase-4-issues-and-work-as-needed)).
 
 The owner also asked on 2026-10-11 (17:05 UTC) to record, not build, a toolbar badge
-that counts the matching items on every HTTPS site with at least one match, not only
-while a login waits for a choice (part B). The owner expects it to help two later
-features: the automatic account switching above, by showing whether there is another
-account to switch to, and replacing the official Bitwarden extension, whose own badge
-counts matching logins.
+that counts the matching items on every HTTPS site (HTTP too since
+[ADR 0050](0050-http-pages-for-http-items.md), with its `http://` rule) with at least
+one match, not only while a login waits for a choice (part B). The owner expects it to
+help two later features: the automatic account switching above, by showing whether there
+is another account to switch to, and replacing the official Bitwarden extension, whose
+own badge counts matching logins.
 
 ### Site count badge
 
@@ -390,7 +489,7 @@ Each write sets the badge text, background, text colour and title for one tab:
 
 | State                                  | Badge                           | Colours (background / text)        |
 | -------------------------------------- | ------------------------------- | ---------------------------------- |
-| Not HTTPS, or no matching item         | none                            |                                    |
+| Not HTTP(S), or no matching item       | none                            |                                    |
 | At least one usable item               | the usable count, e.g. `2`      | teal `#115e59` / white             |
 | Matching items, none usable            | the matching count, e.g. `3`    | light gray `#cbd5e1` / `#1e293b`   |
 | A login waits for a choice             | the candidates, e.g. `2`        | amber `#8a5a00` / white            |
@@ -456,3 +555,14 @@ it.
   origin.
 - ADR 0007's item selection now ends with a chooser instead of delegation. Its rejected
   alternative "Show a Pateat chooser" is reversed for this window.
+
+## Amendment: save choices only after confirmed sign-in (2026-10-14)
+
+The owner's decision at 07:24 UTC in
+[issue #546](https://github.com/risu729/pateat/issues/546), recorded in
+[ADR 0029](0029-local-sign-in-state.md#amendment-unconfirmed-completion-2026-10-14),
+changes the save-after-`authenticated` rule in B: a pending automatic choice or popup
+pick marked "make default" is saved only on a confirmed completion. An undecided
+completion drops the pending choice and saves no default or binding. It still ends
+`authenticated`, releases the site to other tabs and counts as a finished login for
+D's detection of a later logout. The earlier accepted rules above remain as history.

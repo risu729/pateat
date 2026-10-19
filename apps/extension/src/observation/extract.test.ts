@@ -938,10 +938,12 @@ describe("extractLoginObservation", () => {
     ]);
   });
 
-  it("refuses paths with matrix parameters and documents without a location", () => {
+  it("sends a path with a matrix parameter as [id], and refuses documents without a location", () => {
     page(`<input id="u">`);
     history.replaceState(null, "", "/login.do;jsessionid=SYNTHETIC123");
-    expect(extractLoginObservation()).toEqual({ ok: false, reason: "unsupported-page" });
+    // The whole segment goes, never the session ID (ADR 0039).
+    expect(extractLoginObservation()).toMatchObject({ ok: true, observation: { path: "/[id]" } });
+    expect(JSON.stringify(extractLoginObservation())).not.toContain("SYNTHETIC123");
     const detached = document.implementation.createHTMLDocument();
     expect(extractLoginObservation(detached)).toEqual({ ok: false, reason: "unsupported-page" });
   });
@@ -1174,6 +1176,105 @@ describe("extractLoginObservation", () => {
     expect(observe().complete).toBe(false);
   });
 
+  describe("a form fading in from opacity 0 (Microsoft Entra, 2026-10-17)", () => {
+    const keyframes = `<style>
+      @keyframes in { from { opacity: 0 } }
+      @keyframes out { to { opacity: 0 } }
+      @keyframes hold { from, to { opacity: 0 } }
+      @keyframes show { from { opacity: 0 } to { opacity: 1 } }
+      @keyframes outhold { 0% { opacity: 1 } 5%, 100% { opacity: 0 } }
+      @keyframes slide { 0%, 30% { opacity: 1 } 33%, 100% { opacity: 0 } }
+    </style>`;
+    const fields = `<input id="u" type="email"><input id="p" type="password">
+      <button id="go">Next</button>`;
+    const ids = (observation: LoginObservation) =>
+      observation.candidates.map((candidate) => candidate.target.value);
+    const container = () => document.querySelector<HTMLElement>("#fade")!;
+    /** A container whose opacity transitions from 0 to 1 over 5 seconds. */
+    const transition = () => {
+      page(`<div id="fade" style="opacity:0"><form id="f">${fields}</form></div>`);
+      const fade = container();
+      // Read the style so the change below starts a transition.
+      expect(getComputedStyle(fade).opacity).toBe("0");
+      fade.style.transition = "opacity 5s";
+      fade.style.opacity = "1";
+      return fade;
+    };
+
+    it("is complete while a CSS animation or transition is still at opacity 0", () => {
+      for (const animation of [
+        "in 5s",
+        // Held at its start, as an animation stays while the tab is not rendered.
+        "in 5s 1000s both",
+        "in 5s paused",
+      ]) {
+        page(
+          `${keyframes}<div id="fade" style="animation:${animation}"><form id="f">${fields}</form></div>`,
+        );
+        expect(getComputedStyle(container()).opacity, animation).toBe("0");
+        const observation = observe();
+        expect(observation.complete, animation).toBe(true);
+        expect(ids(observation), animation).toEqual(["u", "p", "go"]);
+        expect(observation.candidates.at(-1), animation).toMatchObject({ label: "Next" });
+      }
+      transition();
+      expect(getComputedStyle(container()).opacity).toBe("0");
+      expect(observe().complete).toBe(true);
+      // Transparent by its own style until a delayed animation without a fill starts.
+      page(`${keyframes}<div id="fade" style="opacity:0;animation:show 5s 1000s">
+        <form id="f">${fields}</form></div>`);
+      expect(getComputedStyle(container()).opacity).toBe("0");
+      expect(observe().complete).toBe(true);
+      // Paused at its start by a script.
+      const fade = transition();
+      const [running] = fade.getAnimations();
+      running!.pause();
+      running!.currentTime = 0;
+      expect(running!.playState).toBe("paused");
+      expect(getComputedStyle(fade).opacity).toBe("0");
+      expect(ids(observe())).toEqual(["u", "p", "go"]);
+    });
+
+    it("counts an animation on an ancestor further up and in a script's animate()", () => {
+      page(`<main id="fade"><div><form id="f">${fields}</form></div></main>`);
+      container()
+        .animate([{ opacity: 0 }, { opacity: 1 }], { duration: 5000 })
+        .pause();
+      expect(getComputedStyle(container()).opacity).toBe("0");
+      expect(observe().complete).toBe(true);
+    });
+
+    it("keeps transparent inputs that are not fading in unfillable", () => {
+      const outcome = (html: string) => {
+        page(`${keyframes}${html}`);
+        for (const animation of container().getAnimations())
+          if (animation.effect?.getTiming().fill === "forwards") animation.finish();
+        const result = extractLoginObservation();
+        return result.ok ? [result.observation.complete, result.gap] : result.reason;
+      };
+      // A trap at opacity 0 of its own inside a form that fades in.
+      expect(
+        outcome(`<div id="fade" style="animation:in 5s paused"><form id="f">${fields}
+          <input id="trap" style="opacity:0"></form></div>`),
+      ).toEqual([false, "unfillable-field"]);
+      // A form at opacity 0 is refused alike with no animation, with one that holds the
+      // opacity at 0, after a fade-out finished, halfway through a fade-out that then
+      // holds for 100 seconds, and as a carousel's slide hidden until its next cycle.
+      const still = outcome(`<div id="fade" style="opacity:0"><form id="f">${fields}</form></div>`);
+      expect(still).toBe("no-candidates");
+      for (const animation of [
+        "hold 5s infinite",
+        "out 5s forwards",
+        "outhold 100s -50s",
+        "slide 10s -5s infinite",
+      ]) {
+        const html = `<div id="fade" style="animation:${animation}"><form id="f">${fields}</form></div>`;
+        expect(outcome(html), animation).toEqual(still);
+        expect(getComputedStyle(container()).opacity, animation).toBe("0");
+      }
+    });
+  });
+
   it("names the first cause of an incomplete observation, without page text (ADR 0019)", () => {
     const gap = (html: string, shadow?: string) => {
       page(html);
@@ -1341,13 +1442,13 @@ describe("extractLoginObservation", () => {
     expect(observe().complete).toBe(true);
   });
 
-  it("refuses paths that may carry a session ID or token, and hides them on a signed-in page", () => {
+  it("sends each path segment that may carry a session ID or token as [id] on every page (ADR 0039)", () => {
     page(`<input id="u"><input id="p" type="password"><button id="go">Log in</button>`);
     const magento = btoa("https://shop.example/en/?SID=synthetic0session1&___SID=U")
       .replaceAll("+", "-")
       .replaceAll("/", "_")
       .replaceAll("=", ",");
-    for (const refused of [
+    for (const redacted of [
       "/(S(lit3py55t21z5))/default.aspx",
       `/customer/account/login/referer/${magento}/`,
       // An `=`, such as base64 padding.
@@ -1360,24 +1461,38 @@ describe("extractLoginObservation", () => {
       "/s/0123456789abcdef0123456789abcdef/login",
       "/login/sid1234567890123456",
     ]) {
-      history.replaceState(null, "", refused);
-      expect(extractLoginObservation(), refused).toEqual({ ok: false, reason: "unsupported-page" });
-      // A signed-in page is described with each such segment replaced (ADR 0029).
+      history.replaceState(null, "", redacted);
+      // A login page and a signed-in page carry the same path, each such segment replaced
+      // as a whole, so the token never leaves the device.
+      const login = extractLoginObservation();
       const signedIn = extractSignedInObservation();
-      if (!signedIn.ok) throw new Error(refused);
-      expect(signedIn.observation.path, refused).toContain("/[id]");
-      expect(signedIn.observation.path.split("/").length, refused).toBe(refused.split("/").length);
+      if (!login.ok || !signedIn.ok) throw new Error(redacted);
+      expect(login.observation.path, redacted).toContain("/[id]");
+      expect(login.observation.path.split("/").length, redacted).toBe(redacted.split("/").length);
+      expect(signedIn.observation.path, redacted).toBe(login.observation.path);
     }
-    history.replaceState(null, "", "/0123456789abcdef0123456789abcdef/home");
-    expect(extractSignedInObservation()).toMatchObject({
-      ok: true,
-      observation: { path: "/[id]/home" },
-    });
-    history.replaceState(null, "", "/s/0123456789abcdef0123456789abcdef/login");
-    expect(extractSignedInObservation()).toMatchObject({
-      ok: true,
-      observation: { path: "/s/[id]/login" },
-    });
+    for (const [raw, sent] of [
+      // A tenant's UUID, as on a Microsoft Entra sign-in page.
+      ["/123e4567-e89b-12d3-a456-426614174000/oauth2/authorize", "/[id]/oauth2/authorize"],
+      ["/89abcdef-0123-4567-89ab-cdef01234567/oauth2/authorize", "/[id]/oauth2/authorize"],
+      // An authorization server's ID, as on an Okta sign-in page.
+      ["/oauth2/aus1a2b3c4d5e6f7g8h9/v1/authorize", "/oauth2/[id]/v1/authorize"],
+      // A matrix parameter replaces its whole segment.
+      ["/app/login;jsessionid=Synthetic0Session1", "/app/[id]"],
+      ["/app/register;jsessionid=Synthetic0Session2", "/app/[id]"],
+      ["/0123456789abcdef0123456789abcdef/home", "/[id]/home"],
+      ["/s/0123456789abcdef0123456789abcdef/login", "/s/[id]/login"],
+    ] as const) {
+      history.replaceState(null, "", raw);
+      expect(extractLoginObservation(), raw).toMatchObject({
+        ok: true,
+        observation: { path: sent },
+      });
+      expect(extractSignedInObservation(), raw).toMatchObject({
+        ok: true,
+        observation: { path: sent },
+      });
+    }
     for (const allowed of [
       "/customer/account/login/",
       "/ib/login-2fa-step2",
@@ -1389,12 +1504,42 @@ describe("extractLoginObservation", () => {
       "/tenant.onmicrosoft.com/B2C_1_signupsignin1/oauth2",
     ]) {
       history.replaceState(null, "", allowed);
-      expect(extractLoginObservation().ok, allowed).toBe(true);
+      expect(extractLoginObservation(), allowed).toMatchObject({
+        ok: true,
+        observation: { path: allowed },
+      });
       expect(extractSignedInObservation(), allowed).toMatchObject({
         ok: true,
         observation: { path: allowed },
       });
     }
+  });
+
+  it("locates nothing by an ID or name that may be a token on a page whose path had one replaced (ADR 0039)", () => {
+    // Stable-looking, so only the token rule keeps it out (`changingId` would not).
+    const token = "SYNTHETIC0TOKEN1234";
+    page(
+      `<form><label>Email <input id="email-${token}" name="loginfmt" type="email"></label>
+      <input id="pw-${token}" name="pw-${token}" type="password" autocomplete="current-password">
+      <button id="go-${token}" type="submit">Next</button></form>`,
+    );
+    history.replaceState(null, "", "/123e4567-e89b-12d3-a456-426614174000/oauth2/authorize");
+    const observation = observe();
+    expect(observation.path).toBe("/[id]/oauth2/authorize");
+    expect(observation.complete).toBe(true);
+    expect(summary(observation).map((candidate) => candidate.target)).toEqual([
+      { by: "name", value: "loginfmt" },
+      { by: "autocomplete", value: "current-password" },
+      { by: "text", value: "Next" },
+    ]);
+    expect(JSON.stringify(observation)).not.toContain(token);
+    // A page whose path carries no token keeps its IDs, as before.
+    history.replaceState(null, "", "/oauth2/authorize");
+    expect(summary(observe()).map((candidate) => candidate.target)).toEqual([
+      { by: "id", value: `email-${token}` },
+      { by: "id", value: `pw-${token}` },
+      { by: "id", value: `go-${token}` },
+    ]);
   });
 
   it("detects language without counting redaction placeholders", () => {
@@ -1553,6 +1698,12 @@ describe("extractSignedInObservation", () => {
       <button id="logout" type="button">Sign out</button>`,
     );
     expect(signedIn().headerText).toBe("Account taro.yamada");
+    // A <wbr> or a zero-width space does not split an address out of its redaction.
+    page(
+      `<header><span>taro.yamada@<wbr>example.com</span><span>me@&#8203;example.com</span></header>
+      <button id="logout" type="button">Sign out</button>`,
+    );
+    expect(signedIn().headerText).toBe("[email] [email]");
     // Cut at 1,000 characters.
     page(
       `<nav>${"<a href='/x'>Menu</a> ".repeat(300)}</nav>
@@ -2798,6 +2949,189 @@ describe("extractSignedInObservation", () => {
     page(`<p>Loading</p>`);
     expect(extractSignedInObservation()).toEqual({ ok: false, reason: "no-candidates" });
   });
+
+  // A page that asks how to confirm the sign-in, as read in the owner's Chrome on
+  // 2026-10-18 (values not kept): row headings, and in each row a link to `#` that shows
+  // "Select", which only its accessible name tells apart and whose click a page script
+  // handles (ADR 0048 amendment of 2026-10-19).
+  describe("controls that show the same text and differ by their accessible names", () => {
+    const style = `<style>.factor{display:inline-block;width:63px;height:40px}</style>`;
+    const select = (name: string, extra = "") =>
+      `<a href="#" class="factor" data-se="button" aria-label="${name}"${extra}>Select</a>`;
+    const choice = (
+      password = select("Select Password."),
+      phone = select("Select Phone - +61 4•• ••• 123"),
+    ) =>
+      page(
+        `${style}<main><h1>Let's confirm it's you</h1><form>
+          <div><h3>Password</h3>${password}</div>
+          <div><h3>Mobile</h3>${phone}</div>
+        </form><a href="/signout">Cancel</a></main>
+        <footer><a href="/contact">Contact us</a> <a href="/terms">Terms</a></footer>`,
+        "Sign in",
+      );
+    const named = { by: "accessible-name", value: "Select Password." } as const;
+    const byName = (observation: LoginObservation) =>
+      observation.candidates.filter((candidate) => candidate.target.by === "accessible-name");
+
+    it("offers the password one as a button located by its name, never the phone one", () => {
+      choice();
+      const observation = signedIn();
+      expect(observation.complete).toBe(true);
+      expect(summary(observation)).toEqual([
+        { role: "button", target: named, label: "Select Password.", group: "f1" },
+        { role: "link", target: { by: "href", value: "/signout" }, label: "Cancel" },
+        { role: "link", target: { by: "text", value: "Contact us" }, label: "Contact us" },
+        { role: "link", target: { by: "text", value: "Terms" }, label: "Terms" },
+      ]);
+      // The executor finds the same control by it.
+      expect(findTargets(document, named)).toEqual([document.querySelector("a.factor")]);
+    });
+
+    it("never locates a name that holds a number", () => {
+      choice(select("Select Password 2"), select("Select Phone"));
+      expect(byName(signedIn())).toEqual([]);
+      choice(select("Select Password."), select("Select Password 2"));
+      expect(byName(signedIn()).map(({ target }) => target)).toEqual([named]);
+    });
+
+    it("offers nothing when two shown controls share the name", () => {
+      choice(select("Select Password."), select("Select Password."));
+      expect(byName(signedIn())).toEqual([]);
+      // Nor when the other one is a button that shows text of its own.
+      choice(
+        select("Select Password."),
+        `<button type="button" aria-label="Select Password.">Continue</button>`,
+      );
+      expect(byName(signedIn())).toEqual([]);
+    });
+
+    it("never counts a hidden control with the name", () => {
+      for (const hidden of [
+        select("Select Password.", " hidden"),
+        select("Select Password.", ' style="display:none"'),
+        `<button type="button" aria-label="Select Password." hidden>Select</button>`,
+      ]) {
+        choice(select("Select Password."), hidden);
+        expect(
+          byName(signedIn()).map(({ target }) => target),
+          hidden,
+        ).toEqual([named]);
+      }
+    });
+
+    it("needs a name that names the password and a text with no other way", () => {
+      for (const password of [
+        select("Select Phone"),
+        `<button type="button" aria-label="Select Password.">Send code</button>`,
+        `<a href="#" aria-label="Select Password.">Use mobile</a>`,
+      ]) {
+        choice(password, select("Select Phone"));
+        expect(byName(signedIn()), password).toEqual([]);
+      }
+      // Text hidden from assistive technology, or too long to read in full, still counts.
+      for (const password of [
+        `<a href="#" aria-label="Select Password."><span aria-hidden="true">Send code</span></a>`,
+        `<a href="#" aria-label="Select Password.">Send a code to your phone${" now".repeat(40)}</a>`,
+        `<a href="#" aria-label="Select Password.">${"Select ".repeat(80)}</a>`,
+        `<a href="#" aria-label="Select Password.">Sign out</a>`,
+      ]) {
+        choice(password, select("Select Phone"));
+        expect(byName(signedIn()), password).toEqual([]);
+      }
+      // A name that redaction would change, as one that holds an email address.
+      for (const name of ["Use password for taro@example.com", "Use password ••••"]) {
+        choice(select(name), select("Select Phone"));
+        expect(byName(signedIn()), name).toEqual([]);
+      }
+      choice(select("Use password for Taro"), select("Select Phone"));
+      expect(byName(signedIn()).map(({ target }) => target)).toEqual([
+        { by: "accessible-name", value: "Use password for Taro" },
+      ]);
+      // A link to a route of the page's router is no control here.
+      choice(
+        `<a href="#/account/delete" aria-label="Select Password.">Select</a>`,
+        select("Select Phone"),
+      );
+      expect(byName(signedIn())).toEqual([]);
+      // A name from `aria-labelledby` comes before `aria-label`.
+      choice(
+        `<span id="row">Password</span><button type="button" aria-labelledby="row" aria-label="Select Phone">Select</button>`,
+        `<button type="button" aria-label="Select Phone">Select</button>`,
+      );
+      expect(byName(signedIn()).map(({ target }) => target)).toEqual([
+        { by: "accessible-name", value: "Password" },
+      ]);
+    });
+
+    it("keeps a button's unique text and attribute locators first", () => {
+      choice(
+        `<button type="button" aria-label="Select Password.">Use password</button>`,
+        `<button type="button" data-testid="phone" aria-label="Select Phone">Select</button>`,
+      );
+      expect(summary(signedIn()).slice(0, 2)).toEqual([
+        {
+          role: "button",
+          target: { by: "text", value: "Use password" },
+          label: "Select Password.",
+          group: "f1",
+        },
+        {
+          role: "button",
+          target: { by: "test-id", value: "phone" },
+          label: "Select Phone",
+          group: "f1",
+        },
+      ]);
+    });
+
+    it("counts a link as such a button only when it stays on its document in the same tab", () => {
+      // Fragment links with their own `onclick` are script buttons already.
+      const onclick = ' onclick="void 0"';
+      choice(select("Select Password.", onclick), select("Select Phone", onclick));
+      expect(summary(signedIn())[0]).toEqual({
+        role: "button",
+        target: named,
+        label: "Select Password.",
+        group: "f1",
+      });
+      for (const extra of [' target="_blank"', " download", ' target="other"']) {
+        choice(select("Select Password.", extra), select("Select Phone"));
+        expect(byName(signedIn()), extra).toEqual([]);
+      }
+      // An empty `href` reloads the page.
+      choice(`<a href="" aria-label="Select Password.">Select</a>`, select("Select Phone"));
+      expect(byName(signedIn())).toEqual([]);
+      const base = document.createElement("base");
+      document.head.append(base);
+      try {
+        // A `<base target>` opens it elsewhere, and a `<base href>` naming another document
+        // makes `#` navigate there.
+        base.target = "_blank";
+        choice();
+        expect(byName(signedIn())).toEqual([]);
+        base.removeAttribute("target");
+        base.href = "https://elsewhere.example/";
+        choice();
+        expect(byName(signedIn())).toEqual([]);
+        // One that names this document keeps it here.
+        base.href = location.href;
+        choice();
+        expect(byName(signedIn()).map(({ target }) => target)).toEqual([named]);
+      } finally {
+        base.remove();
+      }
+    });
+
+    it("is never offered on a login page", () => {
+      page(
+        `${style}<form><input id="pw" type="password">
+          ${select("Select Password.")}${select("Select Phone")}
+          <button id="go" type="submit">Sign in</button></form>`,
+      );
+      expect(byName(observe())).toEqual([]);
+    });
+  });
 });
 
 describe("extractAccountListObservation", () => {
@@ -2898,6 +3232,23 @@ describe("extractAccountListObservation", () => {
     expect(extractAccountListObservation(document, ["taro"])).toEqual({
       ok: false,
       reason: "unsupported-page",
+    });
+    // The raw path is read, before a token-like name becomes `[id]` (ADR 0039).
+    const name = "taro0123456789abcdef";
+    history.replaceState(null, "", `/u/${name}/`);
+    page(`<div><span>${name}</span><button>Continue</button></div>`);
+    expect(extractAccountListObservation(document, [name])).toEqual({
+      ok: false,
+      reason: "unsupported-page",
+    });
+  });
+
+  it("sends a list on a path with a token-like segment as [id] (ADR 0039)", () => {
+    history.replaceState(null, "", "/123e4567-e89b-12d3-a456-426614174000/oauth2/authorize");
+    page(`<div><span>taro</span><button>Continue</button></div>`);
+    expect(extractAccountListObservation(document, ["taro"])).toMatchObject({
+      ok: true,
+      observation: { path: "/[id]/oauth2/authorize", accounts: ["[account]"] },
     });
   });
 
@@ -3162,6 +3513,9 @@ describe("extractEntryObservation (ADR 0031)", () => {
       ["button", "Show more"],
       ["link", "Create account"],
       ["link", "Login"],
+      // This test page is served over plain HTTP, so an `http:` link on the site is kept
+      // (ADR 0050); `entry.test.ts` covers its refusal on an HTTPS page.
+      ["link", "Plain login"],
       ["link", "Same tab login"],
       // A script link is described as the button it acts as; only a link is ever pressed.
       ["button", "Script link"],
@@ -3216,12 +3570,30 @@ describe("extractEntryObservation (ADR 0031)", () => {
     }
   });
 
-  it("refuses a path that may carry a token", () => {
-    page(`<a href="https://accounts.synthetic.example/login">Login</a>`);
-    history.replaceState(null, "", "/s/0123456789abcdef0123456789abcdef/");
-    expect(extractEntryObservation(document, onSite)).toEqual({
-      ok: false,
-      reason: "unsupported-page",
-    });
+  it("sends a path that may carry a token with [id] in its place, and no token locator (ADR 0039)", () => {
+    const token = "SYNTHETIC0TOKEN1234";
+    page(
+      `<a id="${token}" href="https://accounts.synthetic.example/login">Login</a>
+      <a id="help" href="https://www.synthetic.example/help">Help</a>`,
+    );
+    for (const [raw, sent] of [
+      ["/s/0123456789abcdef0123456789abcdef/", "/s/[id]/"],
+      // An Okta-style authorization server ID.
+      ["/oauth2/aus1a2b3c4d5e6f7g8h9/v1/authorize", "/oauth2/[id]/v1/authorize"],
+    ] as const) {
+      history.replaceState(null, "", raw);
+      const observation = entry();
+      expect(observation.path, raw).toBe(sent);
+      expect(observation.candidates.map(({ target }) => target)).toEqual([
+        { by: "text", value: "Login" },
+        { by: "id", value: "help" },
+      ]);
+      const sentText = JSON.stringify(observation);
+      expect(sentText).not.toContain(token);
+      expect(sentText).not.toContain("aus1a2b3c4d5e6f7g8h9");
+    }
+    // A path without a token keeps the link's ID.
+    history.replaceState(null, "", "/oauth2/default/v1/authorize");
+    expect(entry().candidates[0]!.target).toEqual({ by: "id", value: token });
   });
 });

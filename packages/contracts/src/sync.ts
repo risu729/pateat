@@ -1,5 +1,10 @@
 import * as v from "valibot";
-import { loginIdentifierSchema, storedLoginRecipeSchema } from "./login";
+import {
+  chooserBranchSchema,
+  loginIdentifierSchema,
+  loginOutcomeSchema,
+  storedLoginRecipeSchema,
+} from "./login";
 import { localSettingsSchema } from "./settings";
 
 // Contracts for the optional private settings/recipe service. Synced documents are
@@ -40,6 +45,10 @@ export const syncSettingsStateSchema = v.pipe(
  * to 128 KiB; the document leaves room for the rest of the write.
  */
 export const MAX_SETTINGS_DOCUMENT_BYTES = 120 * 1024;
+/** UTF-8 bytes of an owner's active recipe documents; tombstones do not count. */
+export const MAX_ACTIVE_RECIPE_BYTES = 1.5 * 1024 * 1024;
+/** Serialized device cache, including its envelope; leaves margin above the service cap. */
+export const MAX_RECIPE_CACHE_BYTES = 2 * 1024 * 1024;
 export const settingsDocumentBytes = (settings: unknown) =>
   new TextEncoder().encode(JSON.stringify(settings)).byteLength;
 
@@ -125,7 +134,7 @@ export const syncErrorCodeSchema = v.picklist([
   "payload_too_large",
   "unsupported_media_type",
   "rate_limited",
-  /** The write would make the owner hold more active recipes than the service keeps. */
+  /** The write would make the owner hold more active recipes or recipe bytes than the service keeps. */
   "recipe_limit",
   "internal_error",
 ]);
@@ -168,3 +177,107 @@ export const syncDeviceStateSchema = v.strictObject({
   ]),
 });
 export type SyncDeviceState = v.InferOutput<typeof syncDeviceStateSchema>;
+
+/**
+ * Why a login ended where it did, as a fixed code (ADR 0019, amended 2026-10-18): the
+ * worker's stop causes, the page's own reasons for a failed or cancelled step, `settled`
+ * for a result that settled as unknown, and `unconfirmed` for a sign-in on an undecided
+ * page. The extension's `StopCause` must stay inside this list.
+ */
+export const loginOutcomeCauseSchema = v.picklist([
+  // The worker's stop causes.
+  "elements-timeout",
+  "answer-failed",
+  "code-not-submitted",
+  "no-operation",
+  "operation-invalid",
+  "slot-unbound",
+  "no-answer",
+  "page-submitted",
+  "document-gone",
+  "captcha-shown",
+  "sign-in-shown",
+  // The page's reasons for a cancelled or failed step.
+  "not-authorized",
+  "document-cancelled",
+  "operation-used",
+  "operation-expired",
+  "page-changed",
+  "field-changed",
+  "threw",
+  "form-replaced",
+  "target-missing",
+  "form-changed",
+  "assert-failed",
+  "unexpected-values",
+  "fields-split",
+  "secret-refused",
+  "unsupported-input",
+  "code-watch-failed",
+  "form-off-origin",
+  "form-destination-unchecked",
+  // Flags of the attempt itself.
+  "settled",
+  "unconfirmed",
+]);
+/**
+ * `POST /v1/recipes/:recipeId/outcome`: how the first login of a recipe revision on this
+ * device ended, for the evaluation corpus (ADR 0019 and ADR 0012, amended 2026-10-18). Codes
+ * and numbers only: never a URL, page text, reason text, label, value or username. The
+ * service adds the time.
+ */
+export const loginOutcomeReportSchema = v.strictObject({
+  version: v.literal(1),
+  revision: writtenRevision,
+  /** For a chooser recipe (ADR 0028): the branch the login took. */
+  branch: v.optional(chooserBranchSchema),
+  outcome: loginOutcomeSchema,
+  cause: v.optional(loginOutcomeCauseSchema),
+  /** The attempt's step index when it ended: route steps and entered handlers' (at most 40). */
+  step: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(40)),
+});
+/** The longest time a login record carries: a day; no login takes that long. */
+export const MAX_LOGIN_RECORD_MS = 86_400_000;
+const loginMilliseconds = v.pipe(
+  v.number(),
+  v.integer(),
+  v.minValue(0),
+  v.maxValue(MAX_LOGIN_RECORD_MS),
+);
+/**
+ * `POST /v1/recipes/:recipeId/logins`: one login on a recipe revision that ended, signed in
+ * or blocked (ADR 0055), with its result code, a cause from the fixed list, the extension
+ * build and how long it took, for the owner's dashboard. Codes and whole milliseconds
+ * only: never a URL, origin, page text, reason text, label, value, username or typing
+ * time. The service adds the site, from the recipe revision, and the time.
+ */
+export const loginRecordSchema = v.strictObject({
+  version: v.literal(1),
+  revision: writtenRevision,
+  /** For a chooser recipe (ADR 0028): the branch the login took. */
+  branch: v.optional(chooserBranchSchema),
+  outcome: loginOutcomeSchema,
+  cause: v.optional(loginOutcomeCauseSchema),
+  /** The extension's build: its commit, or `development` for a build outside git. */
+  extensionBuild: v.pipe(v.string(), v.regex(/^(?:[0-9a-f]{7,40}|development)$/u)),
+  /** From when the extension saw the login's first page until the login ended. */
+  totalMs: loginMilliseconds,
+  /** Waiting for the service: generation, judging and the recipe sync after them. */
+  serviceMs: loginMilliseconds,
+  /**
+   * Of `serviceMs`, the network part: each request's round trip less the service's own time
+   * from its `Server-Timing` header. A request whose answer did not name that time, or that
+   * got no answer, adds nothing.
+   */
+  networkMs: loginMilliseconds,
+  /** Waiting for the person: a code or approval, a click left to them, an account pick. */
+  personMs: loginMilliseconds,
+  /**
+   * Waiting for the site: from a step that may change the page, or the sign-in entry press
+   * before the login, until the login read the page's answer, a page load included.
+   */
+  pageMs: loginMilliseconds,
+});
+export type LoginOutcomeCause = v.InferOutput<typeof loginOutcomeCauseSchema>;
+export type LoginOutcomeReport = v.InferOutput<typeof loginOutcomeReportSchema>;
+export type LoginRecord = v.InferOutput<typeof loginRecordSchema>;

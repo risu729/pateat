@@ -116,7 +116,10 @@ than in this repository.
   account's entry, the `continue` button or `other`, then the branch, generated as any
   recipe after an `advance` step ([#332](https://github.com/risu729/pateat/pull/332)),
   or ends `account-not-listed` (local tests only). Next, the checks on Cloudflare, Wise
-  and Instagram in the owner's Chrome.
+  and Instagram in the owner's Chrome. Since 2026-10-17 (owner, after Cloudflare's
+  "Sign in with another profile" form started nothing), a form with an account field on
+  the list's path is sent as the `other` branch's first page while the chooser has no
+  such branch (local tests only).
 - Press a site's sign-in link on a page the site sent the visitor to before signing in,
   shown by a query value naming another path of the same site, such as pixiv's top page
   `https://www.pixiv.net/en/?return_to=%2Fbookmark_new_illust.php`, whose "Login" leads
@@ -298,10 +301,11 @@ than in this repository.
     [Pateat design system](https://claude.ai/artifact/WRXAnVi9RDw9cVWccy2fxJ) the owner
     approved (2026-10-12 20:53 UTC). Both stylesheets
     (`apps/extension/entrypoints/options/style.css`, shared by every extension page, and
-    `services/api/web/styles.css`) define its tokens as CSS custom properties and
-    Tailwind colors (`bg-surface`, `text-ink-muted`, `border-border-strong`), the
-    Worker's script-free pages copy them, and the pages use no other colors. Page titles
-    are 28px.
+    `services/api/web/styles.css`) define its tokens once as `light-dark()` color pairs
+    in CSS custom properties and Tailwind colors (`bg-surface`, `text-ink-muted`,
+    `border-border-strong`), the Worker's script-free pages copy them, and
+    `tests/options/design-tokens.test.tsx` compares all three copies and their resolved
+    palettes. The pages use no other colors. Page titles are 28px.
   - Done: light and dark themes with a Theme select (Browser setting, Light, Dark) in
     the extension's settings page and the `/manage` footer; Browser setting, the
     default, follows the browser's `prefers-color-scheme` (owner, 2026-10-12 20:54 UTC).
@@ -420,15 +424,26 @@ than in this repository.
   [ADR 0035](adr/0035-page-kinds-per-site.md) delivery 1. Generation answers each
   page's kind, recipes generated as `confirm` neither run nor count as logouts, a
   passkey re-verification after Pateat's login in the tab is handed on, and the logs for
-  judging whether `confirm` can be split are kept.
-- The toolbar badge counts the matching items on every HTTPS site: teal with the usable
-  count, light gray when every match is excluded, amber while a login waits for a choice
-  (owner, 2026-10-13 14:42 UTC;
+  judging whether `confirm` can be split are kept. The request log's recipe ID and
+  revision landed ahead of it, and every row is kept one year (owner, 2026-10-18 06:08
+  UTC,
+  [ADR 0012](adr/0012-inference-request-log.md#amendment-2026-10-18-rows-for-a-real-page-corpus)),
+  so its retention rule needs no work. The first login result of each revision reaches
+  the service as codes
+  ([ADR 0035](adr/0035-page-kinds-per-site.md#amendment-2026-10-18-login-results-on-the-service)).
+- The toolbar badge counts the matching items on every HTTP(S) site (on an `http:` page
+  only items saved with an `http://` URI;
+  [ADR 0050](adr/0050-http-pages-for-http-items.md)): teal with the usable count, light
+  gray when every match is excluded, amber while a login waits for a choice (owner,
+  2026-10-13 14:42 UTC;
   [ADR 0021](adr/0021-account-choice-outside-settings.md#site-count-badge)).
 - The owner uses Pateat on many sites and reports bugs; Claude may also fix problems it
   finds on its own. Reading the extension's error logs without a report needs a way for
   them to leave the device, which [ADR 0019](adr/0019-local-diagnostics-and-logs.md)
-  keeps local; that is a design to bring to the owner first.
+  keeps local; that is a design to bring to the owner first. The one exception so far is
+  the value-free result code of each recipe revision's first login, which reaches the
+  service's `login_outcomes` table (owner, 2026-10-18 06:08 UTC,
+  [ADR 0019](adr/0019-local-diagnostics-and-logs.md#amendment-2026-10-18-first-login-results-for-evaluation)).
 - Moved from phase 1 (owner, 2026-10-12 20:35 UTC): the daily-use sites not tested
   yet, about 50 in the project's list. They are no longer tested in batches; the
   owner uses them, and Claude fixes what fails, from the owner's reports, the local log
@@ -439,6 +454,17 @@ than in this repository.
   there is not decided.
 - Installed-Chrome checks moved from phase 1 (owner, 2026-10-12 20:35 UTC), checked
   when daily use reaches them:
+  - A plain HTTP site whose item is saved with an `http://` URI logs in, submit
+    included, and an item saved only for `https://` is not offered there (owner,
+    2026-10-18 01:41 UTC; [ADR 0050](adr/0050-http-pages-for-http-items.md); synthetic
+    tests only). Passkeys on `http://localhost` (owner, 2026-10-19 01:25 UTC): local
+    tests only. Evidence on 2026-10-19 at 01:20 UTC, in Chrome for Testing 156 in the
+    cloud on `http://localhost:<port>`: a probe build changed locally (not committed) to
+    run the shared login scripts there, with its synthetic vault item's URI replaced,
+    logged in with the URI `http://localhost` and offered nothing for
+    `https://localhost`, `localhost` or `http://127.0.0.1` (`default-not-set`). The
+    owner's Chrome, vault and a service-generated recipe for an `http:` origin are still
+    unchecked.
   - On 三菱UFJ銀行, after an expired QR code, the sign-in page in the same tab is filled
     without pressing anything, while a new tab logs in as before (owner, 2026-10-13:
     「このタブだけ」; ADR 0027).
@@ -472,9 +498,130 @@ than in this repository.
   located by their visible name ([ADR 0037](adr/0037-fields-by-visible-name.md), owner,
   2026-10-13 04:50 UTC; synthetic tests only). Check in the owner's Chrome that the
   second visit logs in with the saved recipe and no generation call.
+- Sign-in pages whose path carries a tenant or authorization server ID were never sent
+  (2026-10-16): UNSW's single sign-on at
+  `login.microsoftonline.com/<tenant UUID>/oauth2/authorize` on build `747d237` (03:35
+  UTC), and UniSuper's `member.id.unisuper.com.au/oauth2/<auth server ID>/v1/authorize`
+  entry page on `d4faf03` (14:12 UTC), both logged `recipe.generate` `skipped`
+  `unsupported-page`. Since 2026-10-16 every observed page sends such a segment as
+  `[id]`, a recipe is stored and matched under that path, and a handler may be learned
+  there ([ADR 0039](adr/0039-redacted-token-path-segments.md), owner, 14:10 UTC; local
+  tests only; the synthetic browser test now also covers an opaque authorization-server
+  ID in a middle path segment and verifies recipe reuse without another model call.
+  Both cases passed in isolated cloud Chromium on 2026-10-17). Check both sites in the
+  owner's Chrome.
+- UniSuper's login stopped on the page after its username and Next (2026-10-17, 01:33
+  UTC, build `d29951d`): "Let's confirm it's you", on the same path, offered only a
+  "Password" and a "Mobile" button, the judge answered `unclear`, and the owner pressed
+  "Password" themselves. Since 2026-10-18 the judge may name such a page's button that
+  goes on to the password as a `password` handler, which a login presses only when the
+  button shows and its text names the password by a shared English and Japanese word
+  list, and the page after the press is continued as after a final `advance`
+  ([ADR 0048](adr/0048-password-method-button.md), owner, 01:38 UTC). Implemented with
+  local tests only (unit, service and a synthetic browser fixture); check UniSuper in
+  the owner's Chrome, which needs one more judge call and one continuation call.
+  On 2026-10-18 at 08:11 UTC, on build `4356c9a`, the login still stopped there: the
+  judge answered `challenge` and nothing was pressed. "Password" and "Mobile" are row
+  headings, and each is followed by an `<a href="#">` that reads "Select", told apart
+  only by its `aria-label` ("Select Password." and "Select Phone - " with a masked
+  number), with no `id`, `name`, `data-testid`, `onclick` or `role`. No locator named
+  either alone, such a link was not a button, and "Select" fails the word list, so the
+  judge never saw them. Since 2026-10-19 a `password` handler's button may be named by
+  its accessible name, may be such a fragment link, and passes when that name names
+  the password and its text holds no refused word
+  ([ADR 0048's amendment](adr/0048-password-method-button.md#amendment-controls-told-apart-by-their-accessible-names),
+  owner, 01:26 UTC, option A1); the judge's prompt version changed. Local tests only
+  (unit, DOM, service and a synthetic browser fixture); check UniSuper in the owner's
+  Chrome, one judge call and one continuation call. The service deploys before the
+  extension build is installed.
+- UNSW's single sign-on page on Microsoft Entra
+  (`login.microsoftonline.com/<tenant>/oauth2/authorize`) was logged `recipe.generate`
+  `skipped` `incomplete-observation` with `unfillable-field` in the owner's Chrome on
+  build `d29951d` (2026-10-17, about 01:40 UTC). In cloud Chromium 141 the extractor,
+  run every 20 ms from the page's start, found no candidates at 459 ms, an incomplete
+  page with 3 candidates from about 1,120 to 1,315 ms, and a complete one with 9 from
+  about 1,400 ms: the email field sat under a container whose opacity faded in from 0,
+  so it counted as transparent. The page's hidden password input for the browser
+  (`aria-hidden`) was already skipped. That the fade stayed at 0 through the runtime's
+  three reads a second apart because the tab was not rendered, as in a background tab,
+  is inferred, not shown. Since 2026-10-17 an element that is fading in counts as
+  opaque ([AI evaluation harness progress](#ai-evaluation-harness-progress); agent fix,
+  local tests only). Check the page in the owner's Chrome.
+- The same page was logged `skipped` `incomplete-observation` with `unfillable-field`
+  again in the owner's Chrome on build `97ccbb8` (2026-10-17, 04:11:34 UTC, about 3 s
+  after the page started), while a later visit on that build (04:18 UTC) was sent about
+  2 s after the page started and logged in end to end. A timed read there showed the
+  form inside two fading layers: one whose fade had ended about 1.0 s after navigation,
+  and an inner one held at opacity 0, with no animation, until its fade began at 1.0 to
+  1.5 s, so the email field stayed transparent until about 1.5 s on a warm load. In a
+  cloud Chromium probe the content script offered the page, since its offer check
+  ignores opacity and counts the page's off-screen password input kept for the browser,
+  while its description still reported `unfillable-field`, so on a slow load the three
+  reads a second apart could all see the transparent form (inferred from the 04:11 log;
+  not reproduced). Since 2026-10-17 such a page is read a second apart, at most ten
+  times ([ADR 0016](adr/0016-recipe-generation-trigger.md); agent fix applying ADR 0016,
+  local tests only; that ten reads cover the slow load is not shown). A known cost of
+  the longer window: a form whose description stays incomplete while the person moves
+  on to its next step on the same path may have that step sent as the first page.
+  Making the offer check ignore inputs the description does not count as visible would
+  remove the early offer itself; it changes when pages are offered and is not done.
+  Check the UNSW sign-in page in the owner's Chrome.
+- On that page in the owner's Chrome on build `64d105b` (2026-10-17, 05:53 UTC), a login
+  with its generated recipe (revision 4: the email, Next, the password and Sign in, all
+  on one path) clicked Next, the page swapped in its password view in the same document,
+  and about 10 seconds later the login settled `unknown-submit` (`login.state` decision
+  `unknown`, `recipe.judge` `not-sent` with `sign-in-shown`) without typing the
+  password. The email view keeps a password input off-screen, transparent and hidden
+  from assistive technology for the browser to fill (read in the owner's Chrome at
+  04:14 UTC), which the content script's
+  visibility check counted as a writable field just before Next, so the advance whose
+  next step is on its own path was never confirmed
+  ([architecture](architecture.md#declarative-recipes-and-ai)). That the recipe's
+  password locator named that input on the email view is inferred from the log and the
+  code, not read on the live page. Since 2026-10-17 such an advance's next fields and
+  buttons count only when they are also visible as the page's description reads them,
+  before and after the advance (agent fix applying ADR 0013; since 2026-10-18 a probe
+  E2E spec on `/identifier-swap` drives that structure with synthetic values). An
+  attempt in the owner's Chrome on build `6b1cc1d` (2026-10-18) still stopped after
+  Next. On build `4356c9a` (2026-10-18, 08:10 UTC), in a fresh foreground tab with the
+  window visible, the revision 4 recipe logged in end to end without a model call: the
+  password step continued about 2 s after Next, the login submitted, the TOTP handler
+  ran on the next page and the attempt ended `authenticated`. That the earlier stop
+  came from a tab Chrome was not rendering, so the password view's fade stayed at 0, is
+  inferred, not shown; the page navigated away before a timed read of it returned.
+- A login control that is a link whose `javascript:` URL alone submits never submitted:
+  on 2026-10-17 (build `d29951d`, 01:55 UTC) the owner's Chrome filled SMBC Trust Bank's
+  sign-on page and clicked サインオン, and Chrome refused the URL under the content
+  script's own `script-src` policy. Such a click is now made in the page's main world
+  ([architecture](architecture.md#declarative-recipes-and-ai); agent implementation
+  choice under the owner's 2026-10-11 decision that script links are clicked as buttons;
+  local DOM tests, a standalone extension in Chromium 141 and the synthetic browser test
+  in CI). On build `a0a4c2e` (2026-10-18, 22:09 UTC) the owner's Chrome filled that
+  page, clicked サインオン, landed on the signed-in Prestia Online home and the attempt
+  ended `authenticated` after the judge answered `signed-in`, with no `script-src` error
+  in the diagnostics.
+- SMBC Trust Bank's sign-in page in the owner's Chrome on build `d29951d` (2026-10-17,
+  01:54 to 02:16 UTC): the submit click had no effect, so the login settled as unknown
+  in the same document and was watched
+  ([ADR 0027](adr/0027-per-account-login-routes.md#watching-after-a-challenge)). After
+  each worker restart (01:57, 01:58, 02:00 UTC) that document announced again and was
+  read again (`login.state` with `reshownMiss` `no-effect`, `recipe.judge` `not-sent`
+  with `watched`), and the popup said "Logging in…". Since 2026-10-17 a restarted worker
+  does not read the watch's own document again, and the popup shows such a login as
+  watched (agent fix applying ADR 0027, local tests only). The 2026-10-18 22:09 UTC
+  login above submitted, so no watch or worker restart happened there; the restart case
+  is still untested in the owner's Chrome.
 - Known faults moved from phase 1 (owner, 2026-10-12 20:35 UTC), fixed when a real site
   shows them again: the `reconciling` exception seen on SBI証券, and `generate` ignoring
   a failed sync after generation (both recorded under phase 1).
+- Since 2026-10-18 the worker drops a waiting account choice, a choice after a logout
+  included, once its site is excluded: saved or synced settings clear it and the tab's
+  badge, and `choiceFor` in `apps/extension/src/login/runtime.ts` answers the popup and
+  a pick with `no-choice` (agent fix, owner's word 2026-10-18 04:29 UTC; local tests
+  only). Before, only the popup hid it
+  ([#683](https://github.com/risu729/pateat/pull/683)) and the badge kept asking until
+  the page reloaded. Check in the owner's Chrome that excluding a site whose page shows
+  the choice badge clears the badge.
 - Claude also watches the service's D1 records, such as the inference request log
   ([ADR 0012](adr/0012-inference-request-log.md)), not only logs the owner sends from
   the device (owner, 2026-10-11 18:45 UTC).
@@ -693,6 +840,17 @@ Once the fixes have settled:
   rejection. The review comes before the Japanese text below, so that the English text
   is settled before it is translated (owner, 2026-10-13 15:17 UTC). Not started without
   the owner's confirmation (owner, 2026-10-13 15:10 UTC).
+- Before publishing, turn off or remove `DEBUG_STAYS_ON` in
+  `apps/extension/src/diagnostics/log.ts`, which keeps debug logging on until it is
+  turned off, or keep it only behind a feature flag (owner, 2026-10-18 01:50 UTC;
+  whatever replaces it must still read the stored `DEBUG_UNTIL_TURNED_OFF` deadline as
+  off, or reset it, so a published build never inherits debug logging left on;
+  [ADR 0019](adr/0019-local-diagnostics-and-logs.md#amendment-debug-logging-stays-on-before-publishing)).
+- Before Pateat has other users, revisit sending a record of every login (its result,
+  times, site and time on the service side) to the service, and keep logs from ever
+  going from the service to a device (owner, 2026-10-18 08:38 UTC:
+  「リリース前の考慮事項として記録はしておいて。一旦ユーザー私だけなので大丈夫」;
+  [ADR 0055](adr/0055-login-records-sent-to-the-service.md)).
 - Next, before the rest of the work below that makes Pateat public: Japanese alongside
   English for Pateat itself (owner, 2026-10-12 13:59 UTC): the README, the docs and the
   extension's UI text. The service's pages, such as `/manage`, come later. The owner
@@ -707,7 +865,9 @@ Once the fixes have settled:
 - The docs website (VitePress 2, see
   [decisions still requiring evidence](#decisions-still-requiring-evidence)) with
   user-facing pages for installation, setup and permissions, plus the M6 operational
-  docs.
+  docs. The [operations runbook](operations.md) now documents current retry/revert
+  procedures and the unverified D1 restore and rollback-automation boundaries; this
+  does not complete installed-Chrome or disaster-recovery acceptance.
 - A mode without the service. Where recipes, settings and AI calls come from without the
   service, which [ADR 0013](adr/0013-service-held-recipes-and-settings.md) makes their
   source of truth, needs a design the owner approves before implementation.
@@ -745,7 +905,16 @@ Once the fixes have settled:
   forbid "building an interpreter to run complex commands fetched from a remote source,
   even if those commands are fetched as data". A reviewer may count service-held recipes
   (`fill`, `click` and handler steps) as such commands and reject the item; then
-  GitHub Releases stays the only channel.
+  GitHub Releases stays the only channel. The
+  [research note](research/2026-10-17-chrome-web-store-remote-code.md) (2026-10-17)
+  finds the risk real but undecidable from the documentation: recipes have no control
+  flow and are the user's own synced data, which the policy allows, but AdGuard reports
+  rejections that cited scriptlets and their parameters. Proposed, not decided by the
+  owner: keep the recipe vocabulary closed (no control flow, expressions, selectors,
+  URLs beyond exact same-origin paths, or values), explain recipes, their schema and
+  how to test them in the submission, have the owner submit a Private trusted-tester
+  item early to get a review verdict, and consider an unminified store build. A mode
+  without the service that gets recipes from a model API directly reopens the question.
 - Proposed: the checks that matter once other people install Pateat: the install-time
   site-access warning and the prompt after site access was withheld, installed-Chrome
   dummy-account tests and measured limits.
@@ -758,6 +927,51 @@ Once the fixes have settled:
   own. Each scan writes them to a `CLAUDE-SECURITY-<timestamp>/` directory in the
   repository. Which scans run and when is decided when it is adopted. Not started
   without the owner's confirmation (owner, 2026-10-13 15:10 UTC).
+  - Started (owner, 2026-10-15 11:09 UTC): the owner added the plugin to their claude.ai
+    account from the plugin directory, which loads it into this project's cloud threads.
+    A repository `.claude/settings.json` does not, because cloud sessions do not install
+    the plugins a repository enables
+    ([cloud environments](https://code.claude.com/docs/en/cloud-environments)). The
+    plugin's license forbids distributing it, so it is not copied into the repository.
+  - First scan (2026-10-16, owner's go-ahead 13:24 UTC): the whole repository on main
+    [8883745](https://github.com/risu729/pateat/commit/8883745)
+    at `medium` effort, verification status `verified`. Six findings survived the
+    panel, four distinct problems, each filed as an issue at the owner's request; none
+    is fixed without the owner's word (owner, 13:25 UTC):
+    [#636](https://github.com/risu729/pateat/issues/636) form destination not checked
+    before filling and submitting (medium),
+    [#637](https://github.com/risu729/pateat/issues/637) sandboxed documents treated as
+    their URL's origin (medium),
+    [#638](https://github.com/risu729/pateat/issues/638) passkey assertions signed with
+    UP and UV and no gesture, the [ADR 0007](adr/0007-existing-passkey-assertions.md)
+    deviation (medium), and [#639](https://github.com/risu729/pateat/issues/639) a
+    quadratic padding regex in the Bitwarden passkey decoder (low). Which scans run
+    later, and when, is still open.
+  - The owner's triage (2026-10-16 19:14 UTC):
+    [#638](https://github.com/risu729/pateat/issues/638) is by design (ADR 0007) and was
+    closed without a change; fix [#636](https://github.com/risu729/pateat/issues/636)
+    and [#637](https://github.com/risu729/pateat/issues/637) first, then
+    [#639](https://github.com/risu729/pateat/issues/639) if Bitwarden's own
+    extension shows a simple way to avoid it. The scan's report is committed as
+    [2026-10-16-claude-security](research/2026-10-16-claude-security/CLAUDE-SECURITY-RESULTS.md),
+    reformatted for the repository's Markdown and JSON checks.
+  - [#637](https://github.com/risu729/pateat/issues/637) fixed at the owner's request
+    (2026-10-16 19:14 UTC): a document whose browser-reported origin is not its URL's,
+    such as a page served with a CSP `sandbox` header or a sandboxed frame, is refused
+    for logins, recipe generation and passkeys
+    ([architecture](architecture.md#components-and-trust-boundaries)).
+  - [#639](https://github.com/risu729/pateat/issues/639) fixed by
+    [#644](https://github.com/risu729/pateat/pull/644): the passkey decoder strips at
+    most two trailing `=` without a regex, as Bitwarden's clients avoid a backtracking
+    pattern, and accepts the same inputs as before.
+  - [#636](https://github.com/risu729/pateat/issues/636) fixed at the owner's request
+    (2026-10-16 19:14 UTC): a fill into a form, or a click on a submit control, is
+    refused unless the submission's destination (the `formaction` or `action`, resolved
+    against the base URL) has the document's own origin
+    ([architecture](architecture.md#background-execution)). A `javascript:`
+    destination is allowed (owner, 2026-10-18 04:19 UTC). Another host of the same site
+    is allowed when the login's item matches it under its URI match detection (owner,
+    2026-10-19 01:29 UTC, [ADR 0051](adr/0051-form-destinations-by-item-uri-match.md)).
 
 ### Phase 4: issues and work as needed
 
@@ -779,10 +993,9 @@ items the owner mentioned and gates still open on 2026-10-11.
 
 - From the [external review](research/2026-10-13-external-review.md): decrypted item
   copies in the crypto Worker that hold only the fields a request needs instead of the
-  whole item; a scheduled purge of the inference log, reconsidered once
-  [ADR 0035](adr/0035-page-kinds-per-site.md) changes which rows the purge keeps (a
-  trigger is a deployment change the owner approves); and syncing which recipes exist
-  and which are revoked separately from their bodies, if
+  whole item; a scheduled purge of the inference log, which since 2026-10-18 keeps
+  every row one year (a trigger is a deployment change the owner approves); and syncing
+  which recipes exist and which are revoked separately from their bodies, if
   [#544](https://github.com/risu729/pateat/issues/544) and the recipe limits are not
   enough.
 - Signing in through an identity provider
@@ -852,6 +1065,18 @@ items the owner mentioned and gates still open on 2026-10-11.
     [Research](#research)): it fills only a page of a login, not a sign-up or checkout.
   - Which part of the guess runs locally, and whether the AI may see the names of card
     or identity items, is left to the design; their values never leave the device.
+- Entering a value on a page's software keyboard (owner, 2026-10-17 03:35 UTC): a
+  login whose field takes characters only from buttons the page draws, such as an input
+  that is `readonly` and opens a keypad on focus. Pateat leaves such a page to the
+  person today, as the [phase 1](#phase-1-usable) row for these pages (エポスNet)
+  records: its fill writes only into inputs that are not `readonly`, and its events are
+  not trusted (`isTrusted` is false), which some keypads check
+  ([architecture](architecture.md#background-execution)). A page that only offers a
+  software keyboard beside an ordinary input, as SMBC Direct does with its software
+  keyboard button, is typed into as usual. The design is still to come: how a recipe
+  names a keypad's keys, keys that change position or show their character only as an
+  image, and keeping the value's characters out of what reaches the service and the AI.
+  A PIN or card code asked in an ordinary input is the item above.
 - Optional confirmation pages after a login, such as
   GitHub's "Verify your two-factor authentication (2FA) settings": Pateat should
   complete them itself (owner, 2026-10-12 04:08 UTC), as a general rule rather than for
@@ -895,6 +1120,11 @@ items the owner mentioned and gates still open on 2026-10-11.
   approval for real-account use.
 - Proposed: the remaining checks, namely pairing while signed out of Access and the
   Access cookie settings, real sites that wrap `get`, and a navigation during signing.
+  The packaged synthetic browser suite also covers a page-owned `get` wrapper that
+  clones request options: Pateat answers an eligible request once, native fallback
+  remains reachable, and caller cancellation survives the copied options. This added
+  coverage passed in isolated cloud Chromium on 2026-10-17; it does not close the
+  real-site wrapper gate.
 
 ### Research
 
@@ -966,6 +1196,11 @@ items the owner mentioned and gates still open on 2026-10-11.
   an external list, adopted, not adopted or experimental, under the
   [platform feature rules](development.md#platform-features), and the issues for the
   adopted ones.
+- Whether a Chrome Web Store reviewer may count service-held recipes as remote commands
+  (2026-10-17): the [note](research/2026-10-17-chrome-web-store-remote-code.md) reads
+  the MV3 code rule, the review process and AdGuard's precedent against the recipe
+  schema, and proposes what would lower the risk
+  ([phase 3](#phase-3-public-release)).
 - Earlier research kept as dated notes:
   [identity provider screens](research/2026-10-11-identity-provider-screens.md) behind
   [ADR 0026](adr/0026-sign-in-through-identity-providers.md);
@@ -1215,12 +1450,13 @@ the connection setup section.
 
 ## URI candidate matching progress
 
-The isolated provider matcher uses the approved tldts dependency for public and
-private suffix handling after WHATWG URL normalization. It implements ordinary
-Domain/Host/Exact/StartsWith/Never modes and direct equivalent-domain groups;
-Regex remains explicitly unsupported. Output contains candidate indices, modes,
-a descriptive target origin and per-URI unavailable reasons, without raw URLs.
-The trusted host must supply URIs and effective settings from the same selected
+The isolated provider matcher uses the approved tldts dependency for public and private
+suffix handling after WHATWG URL normalization. It implements ordinary
+Domain/Host/Exact/StartsWith/Never modes and direct equivalent-domain groups; Regex runs
+in a nested Worker with a 5-second limit
+([ADR 0056](adr/0056-regex-uris-in-a-nested-worker.md)). Output contains candidate
+indices, modes, a descriptive target origin and per-URI unavailable reasons, without raw
+URLs. The trusted host must supply URIs and effective settings from the same selected
 account/snapshot.
 
 Raw prefix/equality behavior follows the pinned provider. Matching is not a fill
@@ -1236,13 +1472,16 @@ an enforced organization URI-match-defaults policy applies, using the pinned SDK
 exemptions for owners, admins and provider users. Pateat cannot see the official
 clients' local default setting. Differing enforced defaults, or malformed policy or
 domain data, mark that part unavailable; affected URIs report unavailable rather than
-falling back. A retained context that no longer readmits, for example after an IDNA
-table change, is dropped: fields keep working, and URI matching reports unavailable
-until the next accepted sync.
+falling back. An equivalent-domain entry that is not a hostname, including an empty or
+overlong one, is ignored, as in the official clients, while the rest of its group still
+applies. A retained context that no longer readmits, for example after an IDNA table
+change, is dropped: fields keep working, and URI matching reports unavailable until the
+next accepted sync.
 
-The owner asked for official-client URI rules. The remaining differences (Regex, no
-Domain fallback on unavailable context, no access to the local default setting) are
-recorded in the [architecture](architecture.md) for later reconsideration.
+The owner asked for official-client URI rules. The remaining differences (Regex time
+limit, no Domain fallback on unavailable context, no access to the local default
+setting) are recorded in
+[Differences from the official Bitwarden clients](bitwarden-differences.md).
 
 The crypto Worker captures login URI rules while verifying every received item,
 skipping deleted and archived items, and answers fixed snapshot-bound match requests
@@ -1345,7 +1584,8 @@ real Bitwarden Cloud US account in their Chrome
   (ADR 0013). Several matches refuse as `account-ambiguous`, none as `default-not-set`
   (which asks for a vault check,
   [ADR 0025](adr/0025-automatic-vault-sync.md#after-no-item-matches));
-  an unevaluated item (including Regex rules) as `item-uri-unevaluated`; and a
+  an unevaluated item (including a Regex rule that ran out of time) as
+  `item-uri-unevaluated`; and a
   connection that cannot answer, or a locked vault, as `vault-unavailable`. Each
   document asks once and reuses the answer while every connection's snapshot is
   unchanged, so a new match from a later sync stops the attempt; every policy check
@@ -1396,8 +1636,10 @@ real Bitwarden Cloud US account in their Chrome
   check for that document only, and is reused while the connection's snapshot is
   unchanged; it never saves `allowedOrigins` or grants a field. Each new document is
   matched again, so an Exact rule refuses a later page at another path. No match refuses
-  as `item-origin-mismatch` and asks for the same vault check. Page URLs over 8192
-  characters and answers from another snapshot refuse as `vault-unavailable`. Static
+  as `item-origin-mismatch` and asks for the same vault check. Page URLs are matched
+  up to Chromium's 2,097,152-character limit, so a long SAML or OIDC page logs in as
+  in the official clients; a longer URL refuses as `url-too-long` without asking the
+  vault. Answers from another snapshot refuse as `vault-unavailable`. Static
   `allowedOrigins` remain empty for live items; Domain-mode subdomains and raw
   StartsWith rules cannot be expressed as exact origins, so do not derive them.
   Synthetic unit tests cover these paths, and `tests/extension/login-service.spec.ts`
@@ -1410,7 +1652,8 @@ real Bitwarden Cloud US account in their Chrome
   immediately before a fill. An unavailable connection or an item awaiting field review
   is refused before an attempt starts. A denied, locked or failed field read, or a
   replacement snapshot before delivery, blocks the attempt as `policy-changed` without
-  filling. Production admits HTTPS documents on a non-excluded site with
+  filling. Production admits HTTP(S) documents
+  ([ADR 0050](adr/0050-http-pages-for-http-items.md)) on a non-excluded site with
   granted host access (a frame also needs its tab's page admitted;
   [ADR 0017](adr/0017-login-forms-in-frames.md)), with or without a saved default
   ([ADR 0009](adr/0009-install-time-https-site-access.md)); without a cached recipe they
@@ -1433,15 +1676,17 @@ real Bitwarden Cloud US account in their Chrome
   inputs share one `<form>` (or all sit outside any form), and each secret value lands
   in an input made for it. A Bitwarden `login.password` (or the probe's dummy
   `password`) fills only `type="password"` inputs or inputs whose `autocomplete`
-  includes `current-password`. A `login.totp-code` fills `autocomplete="one-time-code"`
-  inputs, or `inputmode="numeric"`, `type="tel"` or `type="number"` inputs with a
-  `maxlength` from 1 to 10. A Hidden custom field fills the password inputs above or
-  those short numeric inputs (a PIN), never a plain `type="text"` input such as a
-  passphrase field. A Linked custom field follows the rule of the built-in field it
-  reads, so one linked to `login.password` fills only password inputs. The owner chose
-  this rule on 2026-10-10. Each write rechecks the same conditions. Usernames, Text
-  custom fields and other values fill any writable input. There is no per-binding
-  exception, so a bank PIN rendered as `<input type="tel">` and
+  attribute holds `current-password`. A `login.totp-code` fills inputs whose
+  `autocomplete` holds `one-time-code`, or `inputmode="numeric"`, `type="tel"` or
+  `type="number"` inputs with a `maxlength` from 1 to 10. The token counts in any case
+  and among other tokens, read from the attribute: Chromium's `autocomplete` property
+  is empty for a list such as `off one-time-code`. A Hidden custom field fills the
+  password inputs above or those short numeric inputs (a PIN), never a plain
+  `type="text"` input such as a passphrase field. A Linked custom field follows the rule
+  of the built-in field it reads, so one linked to `login.password` fills only password
+  inputs. The owner chose this rule on 2026-10-10. Each write rechecks the same
+  conditions. Usernames, Text custom fields and other values fill any writable input.
+  There is no per-binding exception, so a bank PIN rendered as `<input type="tel">` and
   bound to `login.password` is refused; revisit if such sites are common.
 - A real Bitwarden Cloud US connection passed on 2026-10-11 (see
   [connection setup](#connection-setup-and-live-catalog-progress)). Individual MFA
@@ -1513,12 +1758,13 @@ revocable device credential; request paths and bodies never select an owner. Set
 writes and recipe heads use conditional revision writes, and a recipe's history row
 is recorded in the same D1 batch only when that request won the head.
 
-Local Miniflare tests cover unknown, malformed and revoked credentials, owner and
-device isolation, stale and concurrent writes, tombstones, cursor paging, strict
-schema rejection, media type and body limits, and fail-closed handling of corrupt
-stored documents. Concurrent cases interleave within one local runtime, not hosted
-D1. A migration check regenerates SQL from the Drizzle schema. The D1 database was
-created on 2026-10-11 and the service is deployed at `pateat.takuk.me` (see
+Local Miniflare tests cover unknown, malformed and revoked credentials, owner and device
+isolation, stale and concurrent writes, tombstones, cursor paging, strict schema
+rejection, media type and body limits, fail-closed handling of corrupt stored documents,
+and stored recipes that no longer validate, which devices receive as revoked. Concurrent
+cases interleave within one local runtime, not hosted D1. A migration check regenerates
+SQL from the Drizzle schema. The D1 database was created on 2026-10-11 and the service
+is deployed at `pateat.takuk.me` (see
 [delivery](delivery.md)).
 
 The second slice adds the service side of
@@ -1596,7 +1842,8 @@ The fourth slice syncs recipes into a last-known-good cache that the login execu
 reads. The background pulls `GET /v1/recipes` pages from the stored cursor with the
 paired device's credential, applies active and revoked changes, and writes the cursor
 and recipes together, so a failed page or write leaves the previous consistent copy. It
-reads at most 50 pages per sync and refuses a page that moves the cursor backwards or
+reads at most 50 pages per sync, plus one blocked-page retry after an overflow walk,
+and refuses a page that moves the cursor backwards or
 does not advance it. The cache belongs to one paired device: a new pairing starts from
 an empty cache, nothing is served while no device is paired or the pairing cannot be
 read, and disconnecting or forgetting an unreadable pairing clears it. Sync runs right
@@ -1608,10 +1855,22 @@ one after pairing, for 15 minutes. A lookup does not wait for the network or for
 and disconnect requests. The serialized cache is limited to 2 MiB of the extension's 10
 MB `storage.local` quota, which it shares with settings, login attempts and other
 extension state (the vault cache is in IndexedDB); a page that would exceed it is not
-applied, and the settings page says the recipes no longer fit. How many recipes that
-holds, and the planned service cap that keeps an owner within it, are under [service
-limits](architecture.md#service-limits). A 401 marks the device as rejected: syncing
-stops, login keeps using the cached recipes, and the settings page says to pair again.
+fully applied. Sync walks later current heads within the shared 50-page budget,
+saving revocations and newer non-growing updates to already cached recipes with
+the old applied cursor. A separate device-bound checkpoint resumes lookahead
+across syncs and worker restarts, including freeing changes beyond the first
+50 pages, without adding bytes to the capped recipe cache. Safe cache writes
+precede checkpoint advancement. One additional fresh request retries the
+blocked page from the applied cursor; pending active changes wait until their
+entire page fits. The settled current-head feed can therefore recover when its
+active documents fit the service cap, while storage and transport failures
+retain earlier durable reductions. Disconnect clearing waits for pending
+writes and removes both records
+([ADR 0013 amendment](adr/0013-service-held-recipes-and-settings.md#amendment-durable-recovery-under-cache-pressure-2026-10-14)).
+How many recipes the cache holds and the implemented service cap are under
+[service limits](architecture.md#service-limits). A 401 marks the device as
+rejected: syncing stops, login keeps using the cached recipes, and the settings
+page says to pair again.
 Lookup uses `selectLoginRecipe` for a new attempt and the recipe ID for a resumed one;
 two recipes starting on one page find no recipe. Unit tests use synthetic pages and
 in-memory storage; sync against the deployed service has no recorded check yet.
@@ -1693,6 +1952,60 @@ tests cover it.
   and JSON API behind Access, with the devices, sites, account bindings and recipes
   pages. Settings edits and recipe revocations there use the same revision checks as
   device sync, and a stale page changes nothing.
+- Done: the request log keeps each row one year with its recipe, branch, base and
+  written revisions, build, observation hash and the model's reduced answer, and the web
+  UI's Request log page deletes all of the owner's rows
+  ([ADR 0012](adr/0012-inference-request-log.md#amendment-2026-10-18-rows-for-a-real-page-corpus)).
+  The 154 earlier rows were filled in where the stored records decide each value
+  ([ADR 0012](adr/0012-inference-request-log.md#amendment-2026-10-18-earlier-rows-filled-in)).
+- Done (local tests only, not deployed): each request log row records the time before
+  the model call, the token exchange, the model call and the whole request, and device
+  responses carry `Server-Timing`
+  ([ADR 0012](adr/0012-inference-request-log.md#amendment-2026-10-18-request-timings)).
+- Done (local tests only, not deployed): the web UI's Dashboard tab
+  (`/manage/dashboard`, the first tab) shows the request log's model, token, pre-model
+  and server times per role, per site, per build and by day, the slowest requests,
+  counts and spend against the limits, the share of first logins that signed in and
+  their count per day (only the first login with each recipe revision is reported for
+  now), and failures by result code apart from the
+  logins that needed the person, over 24 hours, 7 days or 30 days, with Recharts charts
+  each repeated as a table ([owner web UI](architecture.md#owner-web-ui)).
+- Done (local tests only, not deployed): every login on a recipe revision that ends,
+  signed in or blocked, sends its result code, cause, extension build and total,
+  service, network, person and site time to `POST /v1/recipes/:recipeId/logins`, once
+  and without retry; the service adds the recipe's origin and keeps one row per login in
+  `login_timings` for a year, deleted with the request log
+  ([ADR 0055](adr/0055-login-records-sent-to-the-service.md)). The dashboard's speed
+  section starts with login time (total less the person's) of signed-in logins, apart
+  for those that waited on the service, its parts, by day, site and extension build; its
+  login counts and login failures come from these records, and the first-login codes are
+  listed apart. The site time (`pageMs`) was split from the rest after a real login in
+  the owner's Chrome on build
+  [a0a4c2e](https://github.com/risu729/pateat/commit/a0a4c2e) (2026-10-18) logged 10.4 s
+  of `otherMs` around a page navigation, which could not be told from Pateat's own time;
+  the same login's `networkMs` of 0 came from the production service not yet sending
+  `Server-Timing`, so 0 there means unknown
+  ([timing](architecture.md#request-and-login-timing)).
+- Done: the first login of each recipe revision on a
+  device sends its outcome, a cause from a fixed list and the step index to
+  `POST /v1/recipes/:recipeId/outcome`, kept one row per revision in `login_outcomes`
+  for a year and deleted with the request log
+  ([ADR 0019](adr/0019-local-diagnostics-and-logs.md#amendment-2026-10-18-first-login-results-for-evaluation)).
+- Done (local tests only, not deployed): the extension's local log records how long
+  each generation, judgement and sync request took, and on a login's ending entry its
+  total, service, network, person and other time
+  ([ADR 0019](adr/0019-local-diagnostics-and-logs.md#amendment-2026-10-18-how-long-requests-and-logins-take)).
+  Until the service sends `Server-Timing`, a request has only its round trip
+  (`roundTripMs`), with no service or network part.
+- Done (local tests only, not deployed): the request log also keeps each generation and
+  judgement request answered without a model call, under its answer's code at no cost
+  (owner, 2026-10-18 08:04 UTC,
+  [ADR 0012](adr/0012-inference-request-log.md#amendment-2026-10-18-requests-answered-without-a-model-call)).
+- Done (local tests only, not deployed): a repeat login that its recipe's marker
+  completed sends its signed-in page, described as for the judge, once in 30 days per
+  recipe and branch, and the service logs it as a `sampled` request log row without a
+  model call (owner, 2026-10-18 08:05 UTC,
+  [ADR 0029](adr/0029-local-sign-in-state.md#amendment-signed-in-page-samples-2026-10-18)).
 - Done: the generation routes stop at
   $100 of estimated Claude spend per owner a month and $5 a day (`CLAUDE_CALL_LIMITS` in
   `services/api/src/claude/calls.ts`,
@@ -1711,9 +2024,8 @@ tests cover it.
   from `onclick`.
 - Every table is owner-scoped, and any identity the Access policy admits becomes an
   owner on first pairing. Per-owner [service limits](architecture.md#service-limits)
-  cap requests (120 a minute), active recipes (1,000) and kept recipe revisions (10),
-  sized for the owner's own use; a byte quota is still needed before the service is
-  offered to other people.
+  cap requests (120 a minute), active recipes (1,000 recipes and 1.5 MiB of their
+  documents) and kept recipe revisions (10), sized for the owner's own use.
 
 ## Passkey progress
 
@@ -1955,8 +2267,11 @@ filling. Automatic generation sends the username's shape when every matching ite
 ([ADR 0016](adr/0016-recipe-generation-trigger.md#username-shape)), and custom fields as
 `fieldName` offers, with `fieldPosition` for duplicate names and Text shapes under the
 same rule ([ADR 0027](adr/0027-per-account-login-routes.md)). Their opaque request IDs
-(`custom-1`) carry no meaning; the corpus's bank cases send theirs the same way, and the
-model names each one it uses with a generic recipe slot ID. `valueShapeOf`
+(`custom-1`) carry no meaning; the corpus's bank cases send theirs the same way, and
+plan validation names each one a plan uses from the page's text for its field
+(`customSlotNames`, ADR 0027 amended on 2026-10-18), or, in the service, with the name
+the owner's saved bindings of the recipe give that field (`carriedSlotNames`, ADR 0027
+amended on 2026-10-19). `valueShapeOf`
 (`packages/contracts/src/values.ts`) takes `{ source: "username" | "text", value }`, so
 a caller must resolve Linked fields and never pass Hidden, password or TOTP values.
 
@@ -2070,8 +2385,10 @@ Remaining M4 AI work:
   2026-10-11: custom-field names and Text shapes in generation, page handlers for a
   security key and TOTP learned by the judge, start-page routes (password variants,
   passkey, SSO), in the PR order the ADR lists. Delivery 1 is implemented: custom-field
-  offers (Text, Hidden and Linked, by name and position) with Text shapes, generic slot
-  IDs named by the model and returned as `customSlots`, the device-local generated slot
+  offers (Text, Hidden and Linked, by name and position) with Text shapes, slot IDs
+  returned as `customSlots` (named by the model until 2026-10-18, since then from the
+  page's text for the field, or since 2026-10-19 from the saved bindings that already
+  name it), the device-local generated slot
   map, bindings built from another item's saved binding or that map, and the `hidden`
   slot kind. Unit, service and extension runtime tests cover it with synthetic data; no
   paid generation call and no real-account login has used it yet, and its check on SMBC
@@ -2141,10 +2458,12 @@ Remaining M4 AI work:
   ([architecture](architecture.md#background-execution)). Runtime tests and three probe
   E2E specs on `/identifier-first` (the password form shown in place, the same after a
   `history.pushState` that keeps the path, and a page that shows the password form from
-  the start never continuing) cover that with synthetic values only. A generated recipe
-  that ends in an `advance` is continued too: after its final `advance`, a page that has
-  loaded, shows a password, username or email input for a slot the recipe does not fill
-  yet, and stays on one path for a second is sent once per step; the running login takes
+  the start never continuing) and one on `/identifier-swap` (one button and a kept
+  password input across a view swap) cover that with synthetic values only. A
+  generated recipe that ends in an `advance` is continued too: after its final
+  `advance`, a page that has loaded, shows a password, username or email input for a
+  slot the recipe does not fill yet, and stays on one path for a second is sent once per
+  step; the running login takes
   the continued revision over and runs its new steps, then the page after the submission
   is judged for `completion`, and the account choice saved after `authenticated` covers
   both pages' slots. A page that fills one of the recipe's slots again is refused by the
@@ -2178,7 +2497,11 @@ Remaining M4 AI work:
   ([Background execution](architecture.md#background-execution)).
 - More Japanese pages. The owner chose on 2026-10-11 to take them from both public
   login pages opened in Chrome on the owner's PC and the request log; six public pages
-  are in (below). On 2026-10-11 the request log held one Japanese row, a MyJCB
+  are in (below). Next, in a browser that can reach the sites (a cloud environment whose
+  network access allows them, or the owner's PC): refresh the six with the current
+  extractor, and observe more public login pages of banks, securities firms, card
+  issuers, shops and telecom carriers, retrying the twelve that gave no or an incomplete
+  observation. On 2026-10-11 the request log held one Japanese row, a MyJCB
   generation that abstained (`insufficient-evidence`) on an observation from before
   #206 with no login control, so it adds no case. The finite-choice provider waited
   for a Claude baseline, which now exists for both page sets.
@@ -2268,6 +2591,25 @@ branch):
 The two failed synthetic cases are `ja-bank-branch-account` and
 `ja-bank-unlabeled-lengths`, which were false submits before.
 
+Since custom-field slots are named from the page (ADR 0027, amended 2026-10-18), the
+heuristic's plans on those pages pass validation. It puts the request's first
+identifier slot, here the branch number, into a username-hinted field or else the
+identifier-like field nearest before the password, which on these pages is another
+field. On main `4d4f5d7` the same five cases (the three synthetic bank cases below,
+`ja-smbc-direct` and `ja-paypay-bank`) failed as `missing-slot-name`, so the plans are
+unchanged and only the outcome moved from failed to false submit; accuracy is the same.
+The heuristic is a benchmark baseline only, with no production path. Measured on
+2026-10-18 on the change that made it, with the synthetic corpus at 17 cases:
+
+| Corpus | Correct | Correct abstentions | Missed | False submits | Failed | Semantic accuracy |
+| --- | --- | --- | --- | --- | --- | --- |
+| Real pages (131) | 109 | 14 | 1 | 7 | 0 | 0.939 |
+| Synthetic (17) | 7 | 2 | 2 | 6 | 0 | 0.529 |
+
+The synthetic false submits are now the three bank cases (`ja-bank-branch-account`,
+`ja-bank-unlabeled-lengths`, `ja-bank-two-identifier-sets`), `ja-password-step`,
+`en-label-injection` and `en-sso-alternative`.
+
 The owner approved the Claude baseline on this corpus on 2026-10-11, to run about five
 cases at a time with fixes between batches, once the MyJCB generation fix (#206) was in.
 It first ran on main `c409d0a` in 19 batches of five and scored 95/95 ($0.808). After
@@ -2330,9 +2672,24 @@ The heuristic scored 3 of 6 with 2 false submits. Claude (`claude-opus-5-5`, eff
 
 After the re-keying (2026-10-11, `1ddf138`) the heuristic scores 3 correct, 1 missed
 (Mizuho Direct), 0 false submits and 2 failed with `missing-slot-name` (`ja-smbc-direct`
-and `ja-paypay-bank`), accuracy 0.5. The Claude results on this corpus and on the
+and `ja-paypay-bank`), accuracy 0.5. Since slot names come from the page (2026-10-18)
+those two are false submits again, as in the table above: 3 correct, 1 missed, 2 false
+submits, accuracy 0.5. The Claude results on this corpus and on the
 synthetic corpus were measured with the old descriptive slot IDs; a Claude rerun on the
 bank cases is a paid run and needs the owner's approval.
+
+`mise run //packages/inference:corpus:japanese` repeats the observation of the Japanese
+pages in Playwright's Chromium, or in another browser named with `--chromium <path>`
+such as the installed Chrome. `--refresh` observes each case's page again and moves its
+label to the new observation by the role and locator of each labelled candidate. A case
+keeps its old observation and is reported for a person to relabel when the new one is of
+another path, is incomplete, shows other fields to fill, or lacks a labelled control or
+has it in another role. Listed URLs are observed into a local report for labelling by
+hand. Each case records the date and the commit of its observation, and refreshed page
+text is reviewed for personal data again before it is committed. A cloud session on
+2026-10-15 reached none of the pages: the cloud environment's network policy refused
+every site (`ERR_TUNNEL_CONNECTION_FAILED`), so the six pages of 2026-10-11 are still
+the corpus.
 
 The same import measured the extractor on real markup (2026-10-11, main `9cf8356`). Of
 the 241 pages with an annotated login form, 6 gave no observation and 109 an incomplete
@@ -2351,25 +2708,27 @@ added the rule below, and the `e48b4e7` regeneration above reflects it and #211.
 locators, labels, placeholders, descriptions, `autocomplete` (the sign-in tokens, `off`,
 and the personal-data tokens that mark a sign-up form) and declared input constraints,
 plus the title and visible `h1`-`h3`. It never reads input values, hidden inputs or
-query strings, and refuses a path that may carry a session ID or another token: a
-segment, percent-decoded, with a matrix parameter such as `;jsessionid=`, an ASP.NET
-part such as `(S(...))`, a query (`?`, `&` or `=`, as in Magento's base64-encoded
-`/referer/<URL with ?SID=...>/`), a UUID, a run of 16 or more letters and digits that
-contains a digit, or a base64url-like run of 16 or more letters, digits, `-` and `_`
-that contains a digit and switches case or between letters and digits often. Each
-segment is checked as it is and percent-decoded up to three times.
-`extractSignedInObservation` refuses the same paths. The rule is a heuristic: it misses
-tokens shorter than 16 characters and some plain-looking ones, and it also refuses paths
-that carry no session, such as Microsoft Entra tenant IDs
+query strings. Since 2026-10-16 it sends a path that may carry a session ID or another
+token with each such segment as `[id]`, as every observed page does
+([ADR 0039](adr/0039-redacted-token-path-segments.md)); until then it refused it. Such a
+segment is one, percent-decoded, with a matrix parameter such as `;jsessionid=`, an
+ASP.NET part such as `(S(...))`, a query (`?`, `&` or `=`, as in Magento's
+base64-encoded `/referer/<URL with ?SID=...>/`), a UUID, a run of 16 or more letters and
+digits that contains a digit, or a base64url-like run of 16 or more letters, digits, `-`
+and `_` that contains a digit and switches case or between letters and digits often.
+Each segment is checked as it is and percent-decoded up to three times.
+`extractSignedInObservation` replaces the same segments. The rule is a heuristic: it
+misses tokens shorter than 16 characters and some plain-looking ones, and it also
+replaces segments that carry no session, such as Microsoft Entra tenant IDs
 (`/<tenant UUID>/oauth2/v2.0/authorize`), mixed-case Azure AD B2C policy names such as
-`B2C_1A_SignUpOrSignIn`, Okta authorization server IDs and long numeric IDs, so
-generation is not offered there. On the Formasaurus pages of the real-page corpus it
-refused 10 of 954 paths (2026-10-11). Label text is rendered text only: scripts, styles,
-`<noscript>`, SVG, hidden elements and select or text area contents never contribute.
-Only forms that hold a field count, or every control outside a form when a field is
-outside one. In those forms the candidates are visible text, email, tel, number and
-password inputs, checkboxes, buttons (disabled ones too, since many enable after
-typing), script links (an `<a>` without `href` that has an `onclick` attribute or
+`B2C_1A_SignUpOrSignIn`, Okta authorization server IDs and long numeric IDs; until
+2026-10-16 generation was not offered there. On the Formasaurus pages of the real-page
+corpus it refused 10 of 954 paths (2026-10-11). Label text is rendered text only:
+scripts, styles, `<noscript>`, SVG, hidden elements and select or text area contents
+never contribute. Only forms that hold a field count, or every control outside a form
+when a field is outside one. In those forms the candidates are visible text, email, tel,
+number and password inputs, checkboxes, buttons (disabled ones too, since many enable
+after typing), script links (an `<a>` without `href` that has an `onclick` attribute or
 `role="button"`, or an `<a href>` with a `javascript:` URL or with an empty or
 fragment-only `href` and an `onclick` attribute or `role="button"`) as buttons, other
 elements with `role="button"` that have an `id`, `name` or `data-testid`, or in a login
@@ -2389,8 +2748,18 @@ page action. On the 954 Formasaurus pages of the real-page corpus (2026-10-11) t
 turned 371 candidates on 121 pages, 32 of them login pages, into buttons, mostly from
 links; no page's completeness changed, and five pages that are not login pages lost some
 context links to the 48-candidate limit or to shared text. Hidden, collapsed,
-`aria-hidden` and before-the-page-start inputs are skipped as likely traps. Labels come
-from `aria-labelledby`, `aria-label`, `<label>`, the text next to a field (the preceding
+`aria-hidden` and before-the-page-start inputs are skipped as likely traps; a
+transparent (opacity 0, also through an ancestor) or tiny field makes the form
+incomplete. Since 2026-10-17 an element transparent only because it or each transparent
+ancestor has a running or paused CSS animation, CSS transition or script animation that
+still takes its opacity above 0 later in its current iteration, in the direction it
+plays (one still in its delay from the iteration's start), counts as opaque, wherever
+the content script reads whether an element is shown (fields, buttons and their text,
+lists of accounts, sign-in entries and the signed-in page). An input at opacity 0 with
+no such animation stays transparent, as does one under an animation that holds the
+opacity at 0 for the rest of its iteration (a fade-out that then holds, a carousel's
+slide hidden until its next cycle) or finished at 0. Labels come from
+`aria-labelledby`, `aria-label`, `<label>`, the text next to a field (the preceding
 table cell, `<dt>` or sibling, at most three levels up, never across another control or
 its label), then `title`; image `alt` names buttons, including `<input type="image">`. A
 text, email, tel, number or password field also gets a `description`: the rendered text
@@ -2416,56 +2785,55 @@ holding a random-looking run or Mantine's `mantine-` prefix (2026-10-13) last, a
 an input without one, its first `autocomplete` token that is `username`, `email`,
 `current-password`, `one-time-code` or `webauthn` and that no other input carries, then
 its visible name when no other shown fillable input has it, before such an `id`
-([ADR 0037](adr/0037-fields-by-visible-name.md)); a
-button without one gets a text locator when its text matches exactly one button and
-redaction leaves it unchanged, and a script link when its text matches no button and
-exactly one script link. In a login form, a field, button or
-checkbox without a target, a control the executor cannot act on (a select, radio, text
-area, another input type, or a read-only, disabled, transparent or tiny field) or a
-control in a shadow root makes the observation incomplete, as do more than 48
-candidates, so inference rejects it; a page without a field, or where nothing in a login
-form can be located or acted on, is refused. The login forms are those with one password
-field that is not `new-password`, or with a `username` or `one-time-code` field, as ADR
-0016 detects a login; failing that, any with a password field; otherwise every form that
-holds a field. Any other form with such a control, such as a search form with a category
-select or a sign-up form with a birth-date select, is left out entirely, so every form
-the observation describes is complete. On the 233 observed Formasaurus login pages of
-the real-page corpus (2026-10-11), this cut the incomplete ones from 108 to 52: 55
-became complete, each still showing the form Formasaurus labels as the login form, and
-one whose login form has no locatable control now gives no observation. A field in any
-open shadow root marks it incomplete too, as it may be the real login. Links are context
-only: the plan check accepts only a button as the page action. Known limits: a read-only
-username shown again on a password step makes that step incomplete, and honeypot inputs
-moved to the right or clipped by `overflow: hidden` stay candidates.
-`extractSignedInObservation` describes the page after a generated recipe's final
-submission the same way, but over the whole page: every field, then buttons and links up
-to 48 candidates, listed in document order. A field it cannot describe marks it
-incomplete, except a read-only, transparent or tiny field that does not look like a
-sign-in field, which is left out since 2026-10-12: the page after アパホテル's login was
-logged as `unfillable-field` and never judged, and a read-only date picker of its hotel
-search is the inferred cause. In the owner's Chrome on 2026-10-12 (06:17 UTC) the page
-after the login was then judged `signed-in` with the ログアウト button as its marker.
-A disabled field that does not look like a sign-in field is left out too since
-2026-10-12 (22:03 UTC), but such a page completes only on `signed-in`
-([ADR 0029](adr/0029-local-sign-in-state.md)): Q-move's signed-in page was logged
-`disabled-field` and never judged.
-Buttons and links past the limit or without a locator are left out, since they are only
-possible sign-in markers. Links are located by their text too, and those in a page
-header or navigation, where account menus usually sit, are kept first; the rank reads
-only the page's structure, never words of one language. A text locator with a digit,
-such as a points balance or an unread count, never names a marker there, and the judge
-is told that the marker must show on every signed-in visit of every account, and that a
-marker located by its text keeps that text in the recipe, so it must read the same
-everywhere, never the person's name, a count or a balance. A marker located by `id`
-stores no text: on リクルートID (2026-10-12, 08:07 UTC) the judge named the points
-balance `{"by":"id","value":"total-point1"}`, which the earlier wording forbade although
-nothing private is stored, so the rule now names text targets only. On ポイントインカム
-(2026-10-12) the page after sign-in gave 21 candidates, all carousel controls, news tabs
-and an ad's close button, because its header links have no `id`; the judge answered
-`unclear`. A synthetic page of that shape now keeps the header's links. There, an
-attribute locator that redaction would change counts as no locator, so an account number
-in an `id` is never sent. `mise run //apps/extension:test:dom` covers these cases in
-Chromium with synthetic pages.
+([ADR 0037](adr/0037-fields-by-visible-name.md)); a button without one gets a text
+locator when its text matches exactly one button and redaction leaves it unchanged, and
+a script link when its text matches no button and exactly one script link. In a login
+form, a field, button or checkbox without a target, a control the executor cannot act on
+(a select, radio, text area, another input type, or a read-only, disabled, transparent
+or tiny field) or a control in a shadow root makes the observation incomplete, as do
+more than 48 candidates, so inference rejects it; a page without a field, or where
+nothing in a login form can be located or acted on, is refused. The login forms are
+those with one password field that is not `new-password`, or with a `username` or
+`one-time-code` field, as ADR 0016 detects a login; failing that, any with a password
+field; otherwise every form that holds a field. Any other form with such a control, such
+as a search form with a category select or a sign-up form with a birth-date select, is
+left out entirely, so every form the observation describes is complete. On the 233
+observed Formasaurus login pages of the real-page corpus (2026-10-11), this cut the
+incomplete ones from 108 to 52: 55 became complete, each still showing the form
+Formasaurus labels as the login form, and one whose login form has no locatable control
+now gives no observation. A field in any open shadow root marks it incomplete too, as it
+may be the real login. Links are context only: the plan check accepts only a button as
+the page action. Known limits: a read-only username shown again on a password step makes
+that step incomplete, and honeypot inputs moved to the right or clipped by
+`overflow: hidden` stay candidates. `extractSignedInObservation` describes the page
+after a generated recipe's final submission the same way, but over the whole page: every
+field, then buttons and links up to 48 candidates, listed in document order. A field it
+cannot describe marks it incomplete, except a read-only, transparent or tiny field that
+does not look like a sign-in field, which is left out since 2026-10-12: the page after
+アパホテル's login was logged as `unfillable-field` and never judged, and a read-only
+date picker of its hotel search is the inferred cause. In the owner's Chrome on
+2026-10-12 (06:17 UTC) the page after the login was then judged `signed-in` with the
+ログアウト button as its marker. A disabled field that does not look like a sign-in
+field is left out too since 2026-10-12 (22:03 UTC), but such a page completes only on
+`signed-in` ([ADR 0029](adr/0029-local-sign-in-state.md)): Q-move's signed-in page was
+logged `disabled-field` and never judged. Buttons and links past the limit or without a
+locator are left out, since they are only possible sign-in markers. Links are located by
+their text too, and those in a page header or navigation, where account menus usually
+sit, are kept first; the rank reads only the page's structure, never words of one
+language. A text locator with a digit, such as a points balance or an unread count,
+never names a marker there, and the judge is told that the marker must show on every
+signed-in visit of every account, and that a marker located by its text keeps that text
+in the recipe, so it must read the same everywhere, never the person's name, a count or
+a balance. A marker located by `id` stores no text: on リクルートID (2026-10-12, 08:07
+UTC) the judge named the points balance `{"by":"id","value":"total-point1"}`, which the
+earlier wording forbade although nothing private is stored, so the rule now names text
+targets only. On ポイントインカム (2026-10-12) the page after sign-in gave 21
+candidates, all carousel controls, news tabs and an ad's close button, because its
+header links have no `id`; the judge answered `unclear`. A synthetic page of that shape
+now keeps the header's links. There, an attribute locator that redaction would change
+counts as no locator, so an account number in an `id` is never sent.
+`mise run //apps/extension:test:dom` covers these cases in Chromium with synthetic
+pages.
 
 Evaluation data candidates, checked 2026-10-10 (terms are as published by each
 source; confirm before use):
@@ -2506,7 +2874,7 @@ owner added account choice outside the settings page to initial delivery
 current site's default and exclusion, choosing among several password matches there
 (once or as the default), a passkey chooser window, and choosing again after a logout in
 the same tab. They land as separate PRs in that order. The toolbar popup is implemented:
-clicking the icon opens `popup.html` for the active HTTPS tab, whose "Pateat on this
+clicking the icon opens `popup.html` for the active HTTP(S) tab, whose "Pateat on this
 site" switch shows whether the site is excluded and which lists the vault items that
 match its origin as the default account. A rule that includes subdomains is shown but
 changed only in settings, because it also covers other sites. On 2026-10-11 the popup
@@ -2566,10 +2934,16 @@ submission with its sign-in form again (its password input and no other sign, ev
 the result stays unknown) or the login ends `credential-rejected`; its record is
 released then, so other tabs of the site ask instead of being held, and the badge and
 popup say the site did not accept the login (`pateat.login-rejected-asks.v1`). Frame
-logins and sites whose logout page shows only a password step are not detected. By the
+logins are not detected. Since 2026-10-18 (owner, 01:40 UTC;
+[ADR 0049](adr/0049-start-at-a-later-step.md); local tests only, not yet on a real site)
+a later password step a login may start at counts as the first step does, so a site
+whose logout page shows only a password step is detected. By the
 owner's constraint (2026-10-12) a session that only expired never needs a manual press,
 so a logout of a session carried over from another tab's login or an earlier browser
-session is not detected either: Pateat logs in again there.
+session is not detected by the form alone. Since 2026-10-16 (owner, after
+dash.cloudflare.com) a click on a control whose name or nearby text says log out makes
+the tab's next first step of that site within 10 minutes ask the same way
+(`pateat.login-logout-clicks.v1`, ADR 0021 D); otherwise Pateat logs in again there.
 
 Later work includes independently permitted vault create/update operations, nonzero
 passkey counter writeback and passkey creation; Bitwarden provider login with passkeys,
