@@ -2921,8 +2921,15 @@ export function createLoginRuntime(
       outcome("account-changed");
       return;
     }
-    // Saving bumps the revision every attempt checks; never stop another login with it.
-    if (attempts.values().some((other) => other !== run && inProgress(other))) {
+    // Saving bumps the revision every attempt checks; never stop another login with it. A
+    // login between pages has no current run, as while its next page is admitted or after
+    // a worker restart, so its stored record counts too, as `active` counts it.
+    if (
+      attempts.values().some((other) => other !== run && inProgress(other)) ||
+      persisted
+        .values()
+        .some((other) => other.id !== run.metadata.id && !terminal(other) && !idle(other))
+    ) {
       outcome("login-in-progress");
       return;
     }

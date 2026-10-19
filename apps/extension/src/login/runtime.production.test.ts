@@ -4214,6 +4214,61 @@ describe("production login document admission", () => {
       );
       expect(h.store.update).not.toHaveBeenCalled();
     });
+    it("saves nothing while another login is between pages after a worker restart", async () => {
+      const report = vi.fn<(report: LoginReport) => void>();
+      const second = "https://second.example";
+      const sites = {
+        siteDefaults: [{ origin: second, provider: "bitwarden" as const, userId, itemId }],
+        bindings: [],
+      };
+      const setup = {
+        allowedOrigins: [second],
+        uris: async () => ({ ok: true as const, data: uriMatch() }),
+      };
+      const first = harness(sites, setup);
+      first.recipes.recipe.mockImplementation(async (at: string) =>
+        at === second ? { ...recipe, origin: second } : undefined,
+      );
+      fake.state.tabUrls[2] = `${second}/signin`;
+      let held = false;
+      fake.state.onExecute = async (message, tabId) => {
+        if (tabId !== 2 || (message["operation"] as { step: LoginStep }).step.kind !== "click")
+          return;
+        held = true;
+        await new Promise(() => undefined);
+      };
+      expect(await first.hello({ tab: { id: 2 }, url: `${second}/signin` })).toEqual({ ok: true });
+      await vi.waitFor(() => expect(held).toBe(true));
+      await vi.waitFor(() =>
+        expect(fake.state.storage["pateat.login-attempts.v4"]).toMatchObject([
+          { state: "submit-intent" },
+        ]),
+      );
+      fake.state.onExecute = undefined;
+      const query = fake.browser.tabs.query;
+      fake.browser.tabs.query = async () => [{ id: 1 }, { id: 2 }] as never;
+      try {
+        // The restarted worker has no run of tab 2 until its next page announces; its
+        // record still says a password was submitted there.
+        const h = harness(sites, { ...setup, report });
+        h.recipes.recipe.mockImplementation(async (at: string) =>
+          at === origin ? recipe : at === second ? { ...recipe, origin: second } : undefined,
+        );
+        expect(await h.login.active()).toBe(true);
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() =>
+          expect(report).toHaveBeenCalledWith({
+            type: "choice",
+            tabId: 1,
+            origin,
+            outcome: "login-in-progress",
+          }),
+        );
+        expect(h.store.update).not.toHaveBeenCalled();
+      } finally {
+        fake.browser.tabs.query = query;
+      }
+    });
     it("saves the choice next to a login whose result settled as unknown", async () => {
       const second = "https://second.example";
       const { completion: _unlearned, ...generated } = recipe;
