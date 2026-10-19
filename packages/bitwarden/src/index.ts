@@ -26,6 +26,7 @@ export {
   createBitwardenUriMatcher,
   domainKey,
   matchBitwardenLoginUris,
+  maxTargetUrlLength,
   type BitwardenUriMatchContext,
   type UriMatchEvaluation,
   type UriMatchOptions,

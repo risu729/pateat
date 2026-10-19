@@ -1,8 +1,9 @@
 import * as v from "valibot";
-import type {
-  BitwardenResult,
-  LocalFieldReference,
-  PreparedBitwardenAccount,
+import {
+  maxTargetUrlLength,
+  type BitwardenResult,
+  type LocalFieldReference,
+  type PreparedBitwardenAccount,
 } from "@pateat/bitwarden";
 
 export const CRYPTO_PORT = "pateat.crypto-host.v1";
@@ -96,7 +97,7 @@ export const commandSchema = v.strictObject({
     v.strictObject({
       kind: v.literal("match-uris"),
       session: sessionSchema,
-      targetUrl: v.pipe(v.string(), v.minLength(1), v.maxLength(8192)),
+      targetUrl: v.pipe(v.string(), v.minLength(1), v.maxLength(maxTargetUrlLength)),
     }),
     v.strictObject({
       kind: v.literal("custom-digest"),

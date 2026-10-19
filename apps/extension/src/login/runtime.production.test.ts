@@ -1,5 +1,6 @@
 import * as v from "valibot";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
+import { maxTargetUrlLength } from "@pateat/bitwarden";
 import {
   createSettingsStore,
   laterStartSteps,
@@ -4167,6 +4168,46 @@ describe("production login document admission", () => {
       expect(h.fields).not.toHaveBeenCalled();
       expect(executes()).toEqual([]);
       expect(h.store.update).not.toHaveBeenCalled();
+    });
+    it("logs in on a page URL longer than a saved URI may be, as Bitwarden matches it", async () => {
+      const uris = vi.fn<LiveUriMatcher>(async () => ({ ok: true, data: uriMatch() }));
+      fake.state.pageUrl = `https://login.example/signin?SAMLRequest=${"a".repeat(8200)}`;
+      const h = harness(unsaved, { allowedOrigins: [], uris });
+      expect(await h.hello()).toEqual({ ok: true });
+      expect(uris).toHaveBeenCalledWith(connectionId, fake.state.pageUrl, undefined);
+      await vi.waitFor(() =>
+        expect(JSON.stringify(fake.state.messages)).toContain("authenticated"),
+      );
+    });
+    it("refuses a page URL longer than Chromium allows as a URL, not a vault failure", async () => {
+      // The crypto host rejects a target over Chromium's URL limit as an invalid request.
+      const uris = vi.fn<LiveUriMatcher>(async (_connection, url) =>
+        url.length > maxTargetUrlLength
+          ? vaultFailure("invalid-request")
+          : { ok: true, data: uriMatch() },
+      );
+      const report = vi.fn<(report: LoginReport) => void>();
+      fake.state.pageUrl = `https://login.example/signin?SAMLRequest=${"a".repeat(maxTargetUrlLength)}`;
+      const h = harness(unsaved, { allowedOrigins: [], uris, report });
+      expect(await h.hello()).toEqual({ ok: false, reason: "url-too-long" });
+      expect(report).toHaveBeenCalledWith({
+        type: "refused",
+        tabId: 1,
+        origin,
+        reason: "url-too-long",
+      });
+      expect(uris).not.toHaveBeenCalled();
+      expect(h.fields).not.toHaveBeenCalled();
+      expect(executes()).toEqual([]);
+    });
+    it("refuses a saved default's page URL longer than Chromium allows as a URL", async () => {
+      const uris = vi.fn<LiveUriMatcher>(async () => ({ ok: true, data: uriMatch() }));
+      fake.state.pageUrl = `https://login.example/signin?SAMLRequest=${"a".repeat(maxTargetUrlLength)}`;
+      const h = harness({}, { allowedOrigins: [], uris });
+      expect(await h.hello()).toEqual({ ok: false, reason: "url-too-long" });
+      expect(uris).not.toHaveBeenCalled();
+      expect(h.fields).not.toHaveBeenCalled();
+      expect(executes()).toEqual([]);
     });
     describe("when no item matches, after a vault check (ADR 0025)", () => {
       const none: Awaited<ReturnType<LiveUriMatcher>> = {

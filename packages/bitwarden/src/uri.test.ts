@@ -10,6 +10,7 @@ import {
   createBitwardenUriMatchContext,
   createBitwardenUriMatcher,
   matchBitwardenLoginUris,
+  maxTargetUrlLength,
 } from "./uri";
 import { createLocalCryptoSession } from "./local-crypto";
 import { uriMatchCases } from "./__fixtures__/uri";
@@ -785,8 +786,24 @@ describe("strict destination and unsupported rule admission", () => {
     }
   });
 
-  it("rejects an oversized actual target before returning a canonical origin", () => {
-    expect(matchBitwardenLoginUris(saved(), `https://example.com/${"x".repeat(8192)}`)).toEqual({
+  it("matches a page URL longer than a saved URI may be, as Bitwarden clients do", () => {
+    const long = `https://example.com/${"x".repeat(8192)}`;
+    expect(matchBitwardenLoginUris([{ uri: "https://example.com/", match: 2 }], long)).toEqual({
+      ok: true,
+      data: {
+        matched: true,
+        targetOrigin: "https://example.com",
+        matches: [{ uriIndex: 0, match: 2 }],
+        unavailableUris: [],
+      },
+    });
+  });
+
+  it("rejects a target longer than Chromium allows before returning a canonical origin", () => {
+    const base = "https://example.com/";
+    const longest = `${base}${"x".repeat(maxTargetUrlLength - base.length)}`;
+    expect(matchBitwardenLoginUris(saved(), longest).ok).toBe(true);
+    expect(matchBitwardenLoginUris(saved(), `${longest}x`)).toEqual({
       ok: false,
       error: { code: "invalid-uri-input" },
     });

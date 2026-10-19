@@ -1,3 +1,4 @@
+import { maxTargetUrlLength } from "@pateat/bitwarden";
 import {
   getItemEligibility,
   isSiteExcluded,
@@ -35,7 +36,7 @@ export type LiveSiteCandidates =
       /** Connections whose live snapshot could not answer; never treated as "no match". */
       unavailableConnections: { connectionId: string; reason: string }[];
     }
-  | { ok: false; reason: "invalid-url" | "site-excluded" };
+  | { ok: false; reason: "invalid-url" | "url-too-long" | "site-excluded" };
 
 /** Provider URI matches for one page, narrowed by local settings before anything else.
  * Matches are candidate scope only: they never become `allowedOrigins`, site defaults,
@@ -51,6 +52,8 @@ export async function findLiveSiteCandidates(input: {
   signal?: AbortSignal;
 }): Promise<LiveSiteCandidates> {
   const { settings, catalog, url } = input;
+  // Longer than Chromium allows; a vault would refuse it as an invalid request.
+  if (url.length > maxTargetUrlLength) return { ok: false, reason: "url-too-long" };
   const parsed = parseSiteUrl(url);
   if (!parsed) return { ok: false, reason: "invalid-url" };
   // Excluded sites never reach vault matching.
