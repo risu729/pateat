@@ -283,7 +283,8 @@ export function BitwardenSetup({
     setName("");
     setEmail("");
     // The failure's message stays: it says why the password or code has to be entered again.
-    if (failed && listed.autoUnlock === "unknown") signInAgain(listed, false);
+    if (failed && listed.autoUnlock === "unknown" && listed.state !== "unavailable")
+      signInAgain(listed, false);
   }
   /** Rows may have changed after an error or cancellation; a failed read keeps the message. */
   function rereadConnections(epoch: number, endsAdd = false, failed = false) {
@@ -492,6 +493,10 @@ export function BitwardenSetup({
         .catch(() => {
           if (epoch === generation.current)
             setMessage("Unable to read connection status. Refresh to retry.");
+        })
+        .finally(() => {
+          // As after the first read: other settings show even when the status is unreadable.
+          if (epoch === generation.current) setStatusKnown(true);
         });
       return;
     }
@@ -516,7 +521,8 @@ export function BitwardenSetup({
   function signInAgain(connection: Connection, explain = true) {
     // A connection that never unlocked has no automatic unlock to keep, and accepting its vault
     // without enabling it is refused, so finishing its setup enables it as adding would have.
-    const unfinished = connection.autoUnlock === "unknown";
+    // "unknown" with an unreadable record may hide a choice to keep it off, so that stays unchecked.
+    const unfinished = connection.autoUnlock === "unknown" && connection.state !== "unavailable";
     clearSecrets();
     setExisting(connection);
     setEnableUnlock(unfinished);

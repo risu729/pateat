@@ -1036,6 +1036,32 @@ test("a code rejected after a challenge switches the form to finishing its conne
     .toBeChecked();
 });
 
+test("an unsupported interaction on a first sign-in switches the form to finishing its connection", async () => {
+  const client = mockClient();
+  client.list
+    .mockResolvedValueOnce(status())
+    .mockResolvedValue({ ...status(), connections: [registered] });
+  client.begin.mockResolvedValue({ ok: true, kind: "interaction-required", reason: "sso" });
+  await mount(client);
+  await fillNew();
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  await vi.waitFor(() => expect(addForm()).toBe("Sign in to Synthetic vault again"));
+  await expect.element(page.getByText(/^Setup is incomplete: sso\./)).toBeVisible();
+});
+
+test("Sign in again on a connection with an unreadable record leaves automatic unlock unchecked", async () => {
+  const client = mockClient();
+  client.list.mockResolvedValue({
+    ...status(),
+    connections: [{ ...registered, state: "unavailable" }],
+  });
+  await mount(client);
+  await page.getByRole("button", { name: "Synthetic vault: Sign in again", exact: true }).click();
+  await expect
+    .element(page.getByLabelText("Enable automatic unlock on this device", { exact: true }))
+    .not.toBeChecked();
+});
+
 test("Sign in again on a connection that never unlocked enables automatic unlock", async () => {
   const client = mockClient();
   client.list.mockResolvedValue({ ...status(), connections: [registered] });
