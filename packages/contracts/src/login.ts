@@ -399,18 +399,21 @@ export const loginRecipeSchema = v.pipe(
     maxSubmissions: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(8)),
   }),
   v.check(
+    (recipe) => recipe.passkeyOnly === true || recipe.slots.length > 0,
+    "A recipe has at least one slot",
+  ),
+  v.check(
     (recipe) =>
-      recipe.passkeyOnly
-        ? recipe.slots.length === 0 &&
-          recipe.alternatives === undefined &&
-          recipe.passkey !== undefined &&
-          recipe.steps.length === 1 &&
-          recipe.steps[0]!.kind === "click" &&
-          recipe.steps[0]!.purpose === "submit" &&
-          recipe.steps[0]!.path === recipe.passkey.path &&
-          sameLoginTarget(recipe.steps[0]!.target, recipe.passkey.target) &&
-          recipe.maxSubmissions === 1
-        : recipe.slots.length > 0,
+      !recipe.passkeyOnly ||
+      (recipe.slots.length === 0 &&
+        recipe.alternatives === undefined &&
+        recipe.passkey !== undefined &&
+        recipe.steps.length === 1 &&
+        recipe.steps[0]!.kind === "click" &&
+        recipe.steps[0]!.purpose === "submit" &&
+        recipe.steps[0]!.path === recipe.passkey.path &&
+        sameLoginTarget(recipe.steps[0]!.target, recipe.passkey.target) &&
+        recipe.maxSubmissions === 1),
     "A passkey-only recipe has only its passkey submit",
   ),
   v.check(

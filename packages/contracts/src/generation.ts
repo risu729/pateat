@@ -159,14 +159,17 @@ export const recipeGenerationRequestSchema = v.pipe(
     branch: v.optional(chooserBranchSchema),
   }),
   v.check(
+    (request) => request.passkeyOnly === true || request.slots.length > 0,
+    "A request has at least one slot",
+  ),
+  v.check(
     (request) =>
-      request.passkeyOnly
-        ? request.slots.length === 0 &&
-          !request.base &&
-          !request.branch &&
-          isEntryObservation(request.observation)
-        : request.slots.length > 0,
-    "Only a passkey-only first page has no slots",
+      !request.passkeyOnly ||
+      (request.slots.length === 0 &&
+        !request.base &&
+        !request.branch &&
+        isEntryObservation(request.observation)),
+    "A passkey-only request is a first page with no slots, fields or accounts",
   ),
   v.check((request) => !request.branch || request.base !== undefined, "A branch needs a base"),
 );
