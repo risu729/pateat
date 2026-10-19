@@ -30,17 +30,8 @@ import {
   extractSignedInObservation,
   presence,
 } from "../observation/extract";
-import {
-  accountEntries,
-  accountEntryMiss,
-  accountNames,
-  besideEmails,
-  listChoice,
-  listControls,
-  otherAccountMiss,
-  type EntryMiss,
-  type OtherMiss,
-} from "../page/account-list";
+import { listChoice, listControls } from "../page/account-list";
+import { listsAccounts, noInputOffer, type ListedAccounts } from "./no-input-offer";
 import { entryElementRefusal, entryHosts, showsSignUp } from "../page/entry";
 import { clickedLogout } from "../page/logout-click";
 import {
@@ -93,10 +84,6 @@ function switchable(element: Element | undefined): element is HTMLElement {
   const submits = element.type === "submit" || element.type === "image";
   return !(submits && element.form);
 }
-/** Whether the page lists an account by its email, masked or not (ADR 0028). */
-function listsAccounts(): boolean {
-  return accountEntries(document).length > 0 || besideEmails(document).length > 0;
-}
 /** Whether a step's elements are ready now: the path matches and each target is unique and usable. */
 function ready(readiness: LoginReadiness): boolean {
   if (pagePath() !== readiness.path) return false;
@@ -105,7 +92,7 @@ function ready(readiness: LoginReadiness): boolean {
     return (
       !showsSignIn() &&
       (readiness.targets.some((target) => listControls(document, target).length === 1) ||
-        listsAccounts())
+        listsAccounts(document))
     );
   return (
     readiness.targets.every((target) => {
@@ -277,31 +264,14 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         // button (ADR 0053). The page right after a submitted password form offers none of
         // them.
         const bare = !cancelled && !starts.some(ready) && !showsSignIn() && !afterSubmitted();
-        const accounts = bare ? listed() : undefined;
-        // A page asking for an account identifier alone is offered as a sign-in page (ADR
-        // 0016) unless it lists accounts by email; an entry goes first unless the input is
-        // the page's only text input, so a newsletter field does not hide it. A list by
-        // names only, or one announced only for the log, is dropped for it.
-        const identifier =
-          bare && !(accounts && !accounts.names && !accounts.missed)
-            ? identifierInput(document)
-            : undefined;
-        // A page that shows only a button to sign in with a passkey (ADR 0053), read in this
-        // same wait as the other pages without a sign-in input.
-        const passkey = bare && !accounts && !identifier && extractPasskeyObservation(document).ok;
-        const entry = bare && entryWanted && !entryOffered && identifier !== "sole";
-        // A page with both a passkey button and a sign-in entry is offered as the passkey
-        // page. Which should win is open with the owner (ADR 0053); these two lines alone
-        // decide it.
-        const offerPasskey = passkey;
-        const offerEntry = entry && !offerPasskey;
-        if (offerEntry) entryOffered = true;
+        const noInput = bare ? noInputOffer(document, entryWanted && !entryOffered) : undefined;
+        if (noInput?.kind === "list" && noInput.entry) entryOffered = true;
         watch(starts);
-        if (offerPasskey) void announce(false, "passkey").catch(() => undefined);
-        else if (identifier && !offerEntry)
+        if (noInput?.kind === "passkey") void announce(false, "passkey").catch(() => undefined);
+        else if (noInput?.kind === "identifier")
           void announce(false, "identifier").catch(() => undefined);
-        else if (accounts || offerEntry)
-          void announce(false, false, accounts, offerEntry).catch(() => undefined);
+        else if (noInput?.kind === "list")
+          void announce(false, false, noInput.accounts, noInput.entry).catch(() => undefined);
         // Nothing to send: the log says why (ADR 0019).
         else if (!cancelled && !starts.some(ready))
           void sendMessage("login", {
@@ -423,55 +393,11 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     if (submitPath !== undefined && path !== submitPath) afterSubmit ??= path;
     return path === afterSubmit;
   }
-  /**
-   * What this page offers as a list of accounts (ADR 0028): its path once it lists an
-   * account by email, or else the short texts that may name one by a username that is not
-   * an email; and whether it shows a control to sign in with another account.
-   */
-  function listed():
-    | {
-        path: string;
-        names?: string[];
-        other?: true;
-        otherMiss?: OtherMiss;
-        missed?: EntryMiss;
-      }
-    | undefined {
-    const path = pagePath();
-    // A list by email may be sent without an email username only for its control to sign
-    // in with another account (ADR 0028).
-    if (listsAccounts())
-      return {
-        path,
-        ...(otherAccountMiss(document) === undefined ? { other: true as const } : {}),
-      };
-    const names = accountNames(document);
-    // Why a shown email address is not an entry, so a list missed is logged (ADR 0028).
-    const missed = accountEntryMiss(document);
-    if (!names.length && !missed) return undefined;
-    // A control to sign in with another account lets a list of names that name no item be
-    // sent too (ADR 0028).
-    const otherMiss = names.length > 0 ? otherAccountMiss(document, names) : "no-other";
-    return {
-      path,
-      ...(names.length ? { names } : {}),
-      ...(otherMiss === undefined ? { other: true as const } : {}),
-      // Why no such control counts, for the log, when the words show at all.
-      ...(otherMiss && otherMiss !== "no-other" ? { otherMiss } : {}),
-      ...(missed ? { missed } : {}),
-    };
-  }
   async function announce(
     start: boolean,
     /** `identifier` for a page that asks for an account identifier alone (ADR 0016). */
     signIn: boolean | "identifier" | "passkey" = false,
-    list?: {
-      path: string;
-      names?: string[];
-      other?: true;
-      otherMiss?: OtherMiss;
-      missed?: EntryMiss;
-    },
+    list?: ListedAccounts,
     entryPage = false,
   ): Promise<unknown> {
     announced = start;

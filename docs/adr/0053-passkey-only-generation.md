@@ -63,8 +63,10 @@ Implementation details chosen by the agent, not confirmed by the owner separatel
 - The extractor (`extractPasskeyObservation`) qualifies a page with no fillable,
   unsupported or shadow-root field and one to 48 enabled, locatable buttons whose label
   or locator names a passkey and not a registration; it sends only those buttons, in
-  the same value-free observation as other pages. A page that shows accounts or an
-  identifier input is offered as that instead.
+  the same value-free observation as other pages. A list of accounts by email or an
+  identifier input goes first; a list by names only, or an address that is no account
+  entry (such as a heading or a support address beside the button), does not hide the
+  passkey page.
 - The page right after a submitted password form is not sent, by the existing
   post-submission guard; a manual passkey exchange without a password form is not seen
   as a submission.
@@ -78,8 +80,8 @@ Implementation details chosen by the agent, not confirmed by the owner separatel
   route (covered by a runtime test).
 
 Open with the owner: on a page that shows both a passkey button and an ADR 0031 sign-in
-entry, which is offered? For now the passkey page is, decided in one place in the
-content script (`offerPasskey` in `apps/extension/src/login/content.ts`).
+entry, which is offered? For now the passkey page is, decided in one place
+(`offerPasskey` in `apps/extension/src/login/no-input-offer.ts`).
 
 ## Consequences
 
