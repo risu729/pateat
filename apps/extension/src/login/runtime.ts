@@ -1283,6 +1283,20 @@ function inPlaceNext(
   };
 }
 const probeMode = import.meta.env.MODE === "probe";
+/** How many of an unconfirmed in-place advance's next targets the log names (ADR 0019). */
+const ADVANCE_LOG_TARGETS = 4;
+/**
+ * Why an advance whose next step is on its own path was not confirmed, for the log only
+ * (ADR 0019): per next target, joined by `.`, its state just before the advance
+ * (`TargetState`, or `unmeasured`), its state when the advance settled, and the check that
+ * decided that (`TargetCheck`), and whether the page was on the step's path. Codes only.
+ */
+type AdvanceMiss = {
+  advanceBefore: string;
+  advanceAfter: string;
+  advanceWhy: string;
+  advancePath: "same" | "other";
+};
 /**
  * The order in which handlers shown together are tried: a `password` handler first, so a
  * login that types its password goes on to it rather than to a passkey beside it (ADR
@@ -1621,7 +1635,8 @@ export type LoginReport = (
       reshownMiss?: ReshownMiss;
       /** Why F2 does not hold on the sign-in form shown again. */
       alertMiss?: AlertMiss;
-    } & SignInSigns)
+    } & SignInSigns &
+      Partial<AdvanceMiss>)
   | {
       /**
        * A site's sign-in entry (ADR 0031): `pressed`; `refused` with the check before the
@@ -3880,6 +3895,7 @@ export function createLoginRuntime(
     require?: TargetRequirement[],
     links?: boolean[],
     signIn = false,
+    explain = false,
   ) {
     // Exclusion/default/policy checks precede even metadata observation.
     if (!(await allowed(run))) return undefined;
@@ -3890,6 +3906,7 @@ export function createLoginRuntime(
       ...(require ? { require } : {}),
       ...(links ? { links } : {}),
       ...(signIn ? { signIn: true } : {}),
+      ...(explain ? { explain: true } : {}),
     });
     if (!current(run)) return undefined;
     const parsed = v.safeParse(observationSchema, response);
@@ -4179,7 +4196,10 @@ export function createLoginRuntime(
       (Date.now() - run.answeredAt < REQUEST_HOLD_MS || (await showsNothing(run)))
     )
       return current(run) ? "held" : undefined;
-    const state = effectful(run.metadata) ? await signInState(run) : undefined;
+    // An advance on the next step's own path that was never confirmed says why in the log.
+    const advance = inPlace && next ? await advanceMiss(run, inPlace, next.path) : undefined;
+    if (!current(run) || terminal(run.metadata)) return undefined;
+    const state = effectful(run.metadata) ? await signInState(run, advance) : undefined;
     if (!current(run) || terminal(run.metadata)) return undefined;
     // Evidence of a sign-in completes the login without a model call, and a failure shown
     // next to the sign-in fields rejects it (ADR 0029).
@@ -4327,7 +4347,10 @@ export function createLoginRuntime(
    * read again and never confirmed, so it is logged only. A login in a frame is not read,
    * as the ADR reads the top document.
    */
-  async function signInState(run: Execution): Promise<SignInReading | undefined> {
+  async function signInState(
+    run: Execution,
+    advance?: AdvanceMiss,
+  ): Promise<SignInReading | undefined> {
     let reading = await readSignInState(run);
     let confirmed = false;
     // A decision counts once a later reading agrees in a fully loaded document, so a page
@@ -4371,12 +4394,46 @@ export function createLoginRuntime(
       decision: reading.decision,
       ...(run.metadata.settled ? { settled: true as const } : {}),
       ...reading.misses,
+      ...advance,
     });
     return {
       decision: reading.decision,
       confirmed,
       ...(reading.signs.reshown ? { reshown: true as const } : {}),
       ...(formAgain(reading.signs) ? { formAgain: true as const } : {}),
+    };
+  }
+  /**
+   * Why an advance whose next step is on its own path (ADR 0013) was not confirmed, for the
+   * log only (ADR 0019): the next step's first targets as measured just before the advance
+   * (`unmeasured` without that measurement, as in another document after a worker restart
+   * or for another operation), as read now with the same requirement, the check that
+   * decided each reading now, and whether the page is on the step's path. Codes only.
+   */
+  async function advanceMiss(
+    run: Execution,
+    inPlace: InPlaceNext,
+    path: string,
+  ): Promise<AdvanceMiss | undefined> {
+    const targets = inPlace.targets.slice(0, ADVANCE_LOG_TARGETS);
+    const observed = await observe(
+      run,
+      targets,
+      targets.map(() => inPlace.require),
+      undefined,
+      false,
+      true,
+    );
+    if (!observed?.checks) return undefined;
+    const measured =
+      run.inPlace && run.inPlace.operationId === run.metadata.operationId
+        ? run.inPlace.before
+        : undefined;
+    return {
+      advanceBefore: measured ? measured.slice(0, ADVANCE_LOG_TARGETS).join(".") : "unmeasured",
+      advanceAfter: observed.targets.join("."),
+      advanceWhy: observed.checks.join("."),
+      advancePath: observed.path === path ? "same" : "other",
     };
   }
   /** Whether a sign-in target is the passkey route's button rather than a field (ADR 0027). */

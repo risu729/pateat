@@ -3,8 +3,8 @@ import {
   namesPasswordControl,
   type LoginMarkerTarget,
 } from "@pateat/contracts";
-import type { TargetRequirement, TargetState } from "../login/wire";
-import { presence } from "../observation/extract";
+import type { TargetCheck, TargetRequirement, TargetState } from "../login/wire";
+import { presence, presenceMiss } from "../observation/extract";
 import { visible } from "./code-submission";
 import { findTargets } from "./targets";
 import {
@@ -107,4 +107,38 @@ export function targetState(
     (require === "password-choice" && !passwordChoice(element, { fragment }))
     ? "unusable"
     : "unique";
+}
+/**
+ * The check that decided {@link targetState} for one target, for the log only (ADR 0019):
+ * `ok` when it is `unique`, `missing`, `matches-N` for several elements (9 standing for 9
+ * or more), or why the one element is `unusable`: the input or button test
+ * (`not-writable`, `not-clickable`), then, for a `described-…` requirement, the first
+ * reason the page's description does not see it ({@link presenceMiss}). Never any text or
+ * value of the page.
+ */
+export function targetCheck(
+  document: Document,
+  target: LoginMarkerTarget,
+  require?: TargetRequirement,
+  links = false,
+): TargetCheck {
+  const found = findTargets(document, target, { links });
+  if (found.length === 0) return "missing";
+  if (found.length > 1) return `matches-${Math.min(found.length, 9)}` as TargetCheck;
+  if (targetState(document, target, require, links) === "unique") return "ok";
+  const [element] = found;
+  const fragment = byName(target);
+  if ((require === "writable" || require === "described-writable") && !writable(element))
+    return "not-writable";
+  if (
+    (require === "clickable" || require === "described-clickable") &&
+    !clickable(element, { fragment })
+  )
+    return "not-clickable";
+  if (
+    (require === "described-writable" || require === "described-clickable") &&
+    element instanceof HTMLElement
+  )
+    return presenceMiss(element) ?? "unusable";
+  return "unusable";
 }

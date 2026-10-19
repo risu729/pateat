@@ -46,6 +46,35 @@ export const targetRequirementSchema = v.picklist([
 ]);
 export type TargetRequirement = v.InferOutput<typeof targetRequirementSchema>;
 /**
+ * The check that decided a target's state, for the log only (ADR 0019): `ok` for `unique`,
+ * `missing`, `matches-2` to `matches-9` for several elements (9 or more), or why the one
+ * element failed `require`: not a writable input (`not-writable`) or a clickable button
+ * (`not-clickable`), or, with `described-writable` or `described-clickable`, the first
+ * reason the page's description would not see it (`presenceMiss`: `hidden-attr`,
+ * `not-rendered`, `off-start`, `transparent`, `tiny`); `unusable` for another requirement.
+ */
+export const targetCheckSchema = v.picklist([
+  "ok",
+  "missing",
+  "matches-2",
+  "matches-3",
+  "matches-4",
+  "matches-5",
+  "matches-6",
+  "matches-7",
+  "matches-8",
+  "matches-9",
+  "not-writable",
+  "not-clickable",
+  "hidden-attr",
+  "not-rendered",
+  "off-start",
+  "transparent",
+  "tiny",
+  "unusable",
+]);
+export type TargetCheck = v.InferOutput<typeof targetCheckSchema>;
+/**
  * What confirms an advance whose next step is on its own path (ADR 0013): that step's
  * elements, each measured with `require` just before the advance and after it.
  */
@@ -325,6 +354,8 @@ export const commandSchema = v.variant("type", [
      * `targets` it shows, to continue a recipe on (ADR 0018).
      */
     signIn: v.optional(v.literal(true)),
+    /** Also answer `checks`, why each target has its state, for the log (ADR 0019). */
+    explain: v.optional(v.literal(true)),
   }),
   v.strictObject({
     version: v.literal(1),
@@ -662,6 +693,8 @@ export const observationSchema = v.strictObject({
   signIn: v.optional(
     v.strictObject({ loaded: v.boolean(), password: v.boolean(), identifier: v.boolean() }),
   ),
+  /** With `explain` asked: per target, the check that decided its state. */
+  checks: v.optional(v.pipe(v.array(targetCheckSchema), v.maxLength(24))),
 });
 export const configureSchema = v.strictObject({
   version: v.literal(1),

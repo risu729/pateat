@@ -212,8 +212,25 @@ const fake = vi.hoisted(() => {
                   (require?.startsWith("described-") === true && state.faint.has(value))
                 ? "unusable"
                 : "unique";
+        /** Why a target has its state, as the content script explains it for the log. */
+        const checkOf = (value: string, require: string | undefined) => {
+          const found = stateOf(value, require);
+          if (found === "unique") return "ok";
+          if (found === "missing") return "missing";
+          if (found === "ambiguous") return "matches-2";
+          if (require?.startsWith("described-") === true && state.faint.has(value))
+            return "transparent";
+          return require?.endsWith("writable") === true ? "not-writable" : "unusable";
+        };
         if (message["type"] === "login.observe")
           return {
+            ...(message["explain"] && state.present
+              ? {
+                  checks: (message["targets"] as { value: string }[]).map((entry, index) =>
+                    checkOf(entry.value, (message["require"] as string[] | undefined)?.[index]),
+                  ),
+                }
+              : {}),
             path: state.observedPath,
             targets: state.present
               ? (message["targets"] as { value: string }[]).map((entry, index) =>
@@ -16190,6 +16207,94 @@ describe("an advance whose next step is on the same path (ADR 0013)", () => {
     await until(settled("authenticated"));
     expect(executed()).toEqual(allSteps);
     expect(status()![0]).toMatchObject({ stepIndex: 3, submissions: 2 });
+  });
+
+  describe("says in the log why such an advance was never confirmed (ADR 0019)", () => {
+    const states = (report: ReturnType<typeof vi.fn<(report: LoginReport) => void>>) =>
+      report.mock.calls.flatMap(([value]) => (value.type === "state" ? [value] : []));
+    // The page's signs: a password input shows, and nothing else.
+    beforeEach(() => {
+      fake.state.signs = {
+        password: true,
+        code: false,
+        captcha: false,
+        invalid: false,
+        alert: false,
+      };
+    });
+
+    it("names a password input that stayed transparent after Next", async () => {
+      fake.state.unusable = new Set(["login"]);
+      fake.state.faint = new Set(["password"]);
+      // Next shows the password view, but its input never becomes visible as described.
+      swapForms(() => {
+        fake.state.unusable = new Set(["login"]);
+      });
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = start(identifierFirst(), { report });
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("reconciling", "unknown-submit"), 15_000);
+      expect(states(report)).toEqual([
+        expect.objectContaining({
+          decision: "unknown",
+          reshownMiss: "not-submit",
+          advanceBefore: "unusable",
+          advanceAfter: "unusable",
+          advanceWhy: "transparent",
+          advancePath: "same",
+        }),
+      ]);
+      // Only codes: no locator of the step's fields goes to the log.
+      expect(JSON.stringify(states(report))).not.toContain('"value"');
+    });
+
+    it("names a password form that already showed before Next", async () => {
+      fake.state.unusable = new Set();
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = start(identifierFirst(), { report });
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("reconciling", "unknown-submit"), 15_000);
+      expect(states(report)).toEqual([
+        expect.objectContaining({
+          reshownMiss: "not-submit",
+          advanceBefore: "unique",
+          advanceAfter: "unique",
+          advanceWhy: "ok",
+          advancePath: "same",
+        }),
+      ]);
+    });
+
+    it("names several password inputs and another path", async () => {
+      swapForms(() => {
+        fake.state.ambiguous = new Set(["password"]);
+        fake.state.observedPath = "/signin/password";
+      });
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = start(identifierFirst(), { report });
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("reconciling", "unknown-submit"), 15_000);
+      expect(states(report)).toEqual([
+        expect.objectContaining({
+          advanceBefore: "unusable",
+          advanceAfter: "ambiguous",
+          advanceWhy: "matches-2",
+          advancePath: "other",
+        }),
+      ]);
+    });
+
+    it("leaves the fields out when the advance is confirmed", async () => {
+      swapForms();
+      const report = vi.fn<(report: LoginReport) => void>();
+      const h = start(identifierFirst(), { report });
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("authenticated"));
+      expect(JSON.stringify(report.mock.calls)).not.toContain("advanceBefore");
+      expect(
+        fake.state.messages.filter((entry) => entry.type === "login.observe" && "explain" in entry),
+      ).toEqual([]);
+    });
   });
 
   it("never continues while the password view has not shown the kept input", async () => {

@@ -55,6 +55,27 @@ async function inactiveTab(worker: Worker, url: string) {
   }, url);
 }
 
+/** The fields of the local log's `login.state` entries, read from the worker's IndexedDB. */
+async function stateLogs(worker: Worker): Promise<Record<string, unknown>[]> {
+  return worker.evaluate(
+    () =>
+      new Promise<Record<string, unknown>[]>((resolve, reject) => {
+        const open = indexedDB.open("pateat.diagnostics.v1");
+        open.onerror = () => reject(open.error);
+        open.onsuccess = () => {
+          const all = open.result.transaction("entries").objectStore("entries").getAll();
+          all.onerror = () => reject(all.error);
+          all.onsuccess = () =>
+            resolve(
+              (all.result as { event: string; fields: Record<string, unknown> }[])
+                .filter((entry) => entry.event === "login.state")
+                .map((entry) => entry.fields),
+            );
+        };
+      }),
+  );
+}
+
 async function clicks(page: Page) {
   return page.evaluate(() => Number(sessionStorage.getItem("submitClicks") || 0));
 }
@@ -900,7 +921,7 @@ test("never presses a learned button whose text does not name the password (ADR 
 test("an identifier-first page that shows the password form from the start never continues after Next (ADR 0013)", async () => {
   const fixture = await startLoginFixture();
   try {
-    await withLoginExtension(async (context, _worker, id) => {
+    await withLoginExtension(async (context, worker, id) => {
       const options = await context.newPage();
       await configure(options, id, fixture.origin);
       const page = await context.newPage();
@@ -920,6 +941,18 @@ test("an identifier-first page that shows the password form from the start never
           password: (document.getElementById("password") as HTMLInputElement).value,
         })),
       ).toEqual({ identityClicks: 1, submitClicks: 0, password: "" });
+      // The log says why, as codes: the password input was ready before Next (ADR 0019).
+      await expect
+        .poll(async () => await stateLogs(worker))
+        .toContainEqual(
+          expect.objectContaining({
+            reshownMiss: "not-submit",
+            advanceBefore: "unique",
+            advanceAfter: "unique",
+            advanceWhy: "ok",
+            advancePath: "same",
+          }),
+        );
     });
   } finally {
     await fixture.close();

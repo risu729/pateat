@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { targetState } from "./target-state";
+import type { TargetRequirement } from "../login/wire";
+import { targetCheck, targetState } from "./target-state";
 
 // Runs in Chromium (vitest browser mode) so layout and computed styles decide what shows.
 const page = (html: string) => {
@@ -68,6 +69,42 @@ describe("targetState", () => {
     expect(targetState(document, password, "described-writable")).toBe("unusable");
     page(`<input id="pw" type="password"><input id="pw" type="password">`);
     expect(targetState(document, password, "described-writable")).toBe("ambiguous");
+  });
+
+  // For the log (ADR 0019): why an advance on its next step's own path was not confirmed.
+  it("names the check that decided each state, as codes", () => {
+    const check = (html: string, require: TargetRequirement = "described-writable") => {
+      page(html);
+      return targetCheck(document, password, require);
+    };
+    expect(check(`<input id="pw" type="password">`)).toBe("ok");
+    expect(check(`<input id="other" type="password">`)).toBe("missing");
+    expect(check(`<input id="pw" type="password"><input id="pw" type="password">`)).toBe(
+      "matches-2",
+    );
+    expect(check(`<input id="pw"><input id="pw"><input id="pw">`.repeat(4))).toBe("matches-9");
+    expect(check(`<input id="pw" type="password" disabled>`)).toBe("not-writable");
+    expect(check(`<input id="pw" type="password" readonly>`)).toBe("not-writable");
+    expect(
+      check(`<button id="pw" type="button" disabled>Next</button>`, "described-clickable"),
+    ).toBe("not-clickable");
+    expect(check(`<div aria-hidden="true"><input id="pw" type="password"></div>`)).toBe(
+      "hidden-attr",
+    );
+    expect(check(`<div inert><input id="pw" type="password"></div>`)).toBe("hidden-attr");
+    expect(check(`<div style="opacity:0"><input id="pw" type="password"></div>`)).toBe(
+      "transparent",
+    );
+    expect(
+      check(`<input id="pw" type="password" style="width:1px;height:1px;padding:0;border:0">`),
+    ).toBe("tiny");
+    expect(check(`<input id="pw" type="password" style="position:absolute;left:-10000px">`)).toBe(
+      "off-start",
+    );
+    // The input the email view keeps for the browser: hidden from assistive technology first.
+    page(emailView);
+    expect(targetCheck(document, password, "described-writable")).toBe("hidden-attr");
+    expect(targetCheck(document, password, "present")).toBe("ok");
   });
 
   // A page that asks how to confirm the sign-in (ADR 0048): the button is pressed only

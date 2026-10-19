@@ -17,6 +17,7 @@ import type { observationGaps } from "../login/wire";
 import { autocompleteTokens, linkPath, namedControls } from "../page/targets";
 import { observedPath, redactsPath, tokenSegment } from "./path";
 import {
+  attributeHidden,
   buttonText,
   collapseText,
   controlContent,
@@ -258,11 +259,28 @@ function headerText(document: Document): string | undefined {
  * opaque, as `shown` does (2026-10-17).
  */
 export function presence(element: HTMLElement): "visible" | "faint" | "absent" {
+  const miss = presenceMiss(element);
+  if (miss === undefined) return "visible";
+  return miss === "transparent" || miss === "tiny" ? "faint" : "absent";
+}
+/**
+ * Why {@link presence} does not read a control as `visible`, checked in its order: an
+ * attribute hides it (`hidden-attr`: `hidden`, `inert` or `aria-hidden`), it is not
+ * rendered otherwise (`not-rendered`), it is moved before the page's start (`off-start`),
+ * it is transparent and not fading in (`transparent`), or it is under 2 pixels wide or
+ * high (`tiny`). Undefined when it is visible. For the log only (ADR 0019).
+ */
+export function presenceMiss(
+  element: HTMLElement,
+): "hidden-attr" | "not-rendered" | "off-start" | "transparent" | "tiny" | undefined {
   const view = element.ownerDocument.defaultView;
-  if (!view || !shown(element, false)) return "absent";
+  if (!view) return "not-rendered";
+  if (!shown(element, false)) return attributeHidden(element) ? "hidden-attr" : "not-rendered";
   const rect = element.getBoundingClientRect();
-  if (rect.right + view.scrollX <= 0 || rect.bottom + view.scrollY <= 0) return "absent";
-  return shown(element) && rect.width >= 2 && rect.height >= 2 ? "visible" : "faint";
+  if (rect.right + view.scrollX <= 0 || rect.bottom + view.scrollY <= 0) return "off-start";
+  if (!shown(element)) return "transparent";
+  if (rect.width < 2 || rect.height < 2) return "tiny";
+  return undefined;
 }
 const visible = (element: HTMLElement) => presence(element) === "visible";
 
