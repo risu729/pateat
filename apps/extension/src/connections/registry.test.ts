@@ -39,6 +39,13 @@ describe("value-free immutable connection registry", () => {
     entries[0]!.label = "Modified detached metadata";
     expect((await h.registry.list())[0]!.label).toBe(a.label);
   });
+  it("admits stored emails by the official Bitwarden login rule", () => {
+    const accepted = { ...configuration(), email: "o'brien@example.x" };
+    expect(admitConnectionConfigurations([accepted])).toEqual([accepted]);
+    expect(() =>
+      admitConnectionConfigurations([{ ...configuration(), email: "first..last@example.test" }]),
+    ).toThrow();
+  });
   it.each(["provider", "email", "device"] as const)(
     "cannot retarget a configured ID by changing %s",
     async (part) => {

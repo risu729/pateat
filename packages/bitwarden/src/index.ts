@@ -1,4 +1,5 @@
 export { decodeBase64 } from "./base64";
+export { bitwardenEmail } from "./email";
 export {
   BITWARDEN_READ_PROTOCOL,
   normalizeBitwardenProfile,

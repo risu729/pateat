@@ -1,5 +1,5 @@
 import * as v from "valibot";
-import { normalizeBitwardenProfile } from "@pateat/bitwarden";
+import { bitwardenEmail, normalizeBitwardenProfile } from "@pateat/bitwarden";
 import { trustedRecord } from "../storage";
 import type { BitwardenConnectionConfiguration, ConnectionRegistry } from "./types";
 
@@ -9,7 +9,7 @@ const schema = v.pipe(
     v.strictObject({
       profile: v.unknown(),
       label: v.pipe(v.string(), v.minLength(1), v.maxLength(200)),
-      email: v.pipe(v.string(), v.email(), v.maxLength(320)),
+      email: bitwardenEmail,
       deviceIdentifier: v.pipe(v.string(), v.uuid()),
     }),
   ),

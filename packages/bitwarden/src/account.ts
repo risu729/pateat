@@ -2,6 +2,7 @@ import type * as Sdk from "@bitwarden/sdk-internal";
 import * as v from "valibot";
 
 import { decodeBase64, decodeBase64Url } from "./base64";
+import { bitwardenEmail } from "./email";
 import { normalizeBitwardenProfile, type BitwardenProfile } from "./environment";
 import {
   failure,
@@ -28,7 +29,7 @@ const uuid = v.pipe(
   v.uuid(),
   v.transform((value) => value.toLowerCase()),
 );
-const email = v.pipe(v.string(), v.minLength(1), v.maxLength(320), v.email());
+const email = bitwardenEmail;
 const bindingSchema = v.variant("kind", [
   v.strictObject({ kind: v.literal("bootstrap"), email }),
   v.strictObject({
@@ -285,7 +286,7 @@ function identifier(input: unknown): string {
 function normalizedEmail(input: unknown): string {
   const parsed = v.safeParse(email, input);
   if (!parsed.success) reject();
-  return parsed.output.replace(/^\p{White_Space}+|\p{White_Space}+$/gu, "").toLowerCase();
+  return parsed.output.toLowerCase();
 }
 function list(input: unknown, maximum = 10_000): unknown[] {
   if (!Array.isArray(input) || input.length > maximum) reject();

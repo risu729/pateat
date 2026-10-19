@@ -1,4 +1,8 @@
-import { normalizeBitwardenProfile, type BitwardenProfile } from "@pateat/bitwarden";
+import {
+  bitwardenEmail,
+  normalizeBitwardenProfile,
+  type BitwardenProfile,
+} from "@pateat/bitwarden";
 import type { SettingsResponse, VaultItemMetadata } from "@pateat/contracts";
 import { AlertDialog } from "@base-ui/react/alert-dialog";
 import { Menu } from "@base-ui/react/menu";
@@ -19,6 +23,7 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import * as v from "valibot";
 import type { SetupBegin, SetupReply } from "../connections/types";
 import { providerPermissionOrigins } from "../connections/permissions";
 import { localSyncTime } from "../time";
@@ -362,11 +367,7 @@ export function BitwardenSetup({
         ? { kind: "self-hosted", baseUrl }
         : { kind: "cloud", region: region === "eu" ? "eu" : "us" });
     const profile = normalizeBitwardenProfile({ connectionId: "setup-preview", environment });
-    if (
-      !profile.ok ||
-      (!existing && (!name.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) ||
-      !password
-    ) {
+    if (!profile.ok || (!existing && (!name.trim() || !v.is(bitwardenEmail, email))) || !password) {
       setMessage(
         "Enter a connection name, valid email and master password. Self-hosted addresses must be ordinary HTTPS roots without a path, credentials, query or fragment.",
       );
