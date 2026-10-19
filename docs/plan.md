@@ -572,10 +572,9 @@ than in this repository.
   and about 10 seconds later the login settled `unknown-submit` (`login.state` decision
   `unknown`, `recipe.judge` `not-sent` with `sign-in-shown`) without typing the
   password. The email view keeps a password input off-screen, transparent and hidden
-  from assistive technology for the browser to fill (read in the owner's Chrome at
-  04:14 UTC), which the content script's
-  visibility check counted as a writable field just before Next, so the advance whose
-  next step is on its own path was never confirmed
+  from assistive technology for the browser to fill (read in the owner's Chrome at 04:14
+  UTC), which the content script's visibility check counted as a writable field just
+  before Next, so the advance whose next step is on its own path was never confirmed
   ([architecture](architecture.md#declarative-recipes-and-ai)). That the recipe's
   password locator named that input on the email view is inferred from the log and the
   code, not read on the live page. Since 2026-10-17 such an advance's next fields and
@@ -586,9 +585,20 @@ than in this repository.
   Next. On build `4356c9a` (2026-10-18, 08:10 UTC), in a fresh foreground tab with the
   window visible, the revision 4 recipe logged in end to end without a model call: the
   password step continued about 2 s after Next, the login submitted, the TOTP handler
-  ran on the next page and the attempt ended `authenticated`. That the earlier stop
-  came from a tab Chrome was not rendering, so the password view's fade stayed at 0, is
-  inferred, not shown; the page navigated away before a timed read of it returned.
+  ran on the next page and the attempt ended `authenticated`. That the earlier stop came
+  from a tab Chrome was not rendering, so the password view's fade stayed at 0, is
+  inferred, not shown; the page navigated away before a timed read of it returned. On
+  build `cfce11f` (2026-10-19, 12:48 UTC), in a visible, focused tab, the login stopped
+  after Next again: `login.state` `unknown` with `reshownMiss` `not-submit`,
+  `recipe.judge` `not-sent` with `sign-in-shown`, then `unknown-submit`. That only says
+  the advance was not confirmed within 10 seconds while a route field still counted as
+  shown; synthetic pages give the same entries when the password view shows after 10
+  seconds, stays transparent, or already showed before Next. No change between `4356c9a`
+  and `cfce11f` touches that decision. Since 2026-10-19 such an entry also names, as
+  codes, the password step's states before Next and when it settled, the check that
+  decided the state when it settled and whether the path changed
+  ([local log](architecture.md#local-log); agent change, local tests and the synthetic
+  browser test only). Check UNSW in the owner's Chrome again and read those codes.
 - A login control that is a link whose `javascript:` URL alone submits never submitted:
   on 2026-10-17 (build `d29951d`, 01:55 UTC) the owner's Chrome filled SMBC Trust Bank's
   sign-on page and clicked サインオン, and Chrome refused the URL under the content

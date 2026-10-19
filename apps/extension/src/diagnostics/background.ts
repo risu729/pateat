@@ -575,6 +575,11 @@ export function createDiagnosticsLog(options: {
             // Why S1 was not read as the form shown again, or no alert beside it counted.
             reshownMiss: report.reshownMiss,
             alertMiss: report.alertMiss,
+            // Why an advance on its next step's own path was not confirmed (ADR 0013).
+            advanceBefore: report.advanceBefore,
+            advanceAfter: report.advanceAfter,
+            advanceWhy: report.advanceWhy,
+            advancePath: report.advancePath,
             settled: report.settled,
           },
           // Later pages of a settled attempt repeat what its first page showed.

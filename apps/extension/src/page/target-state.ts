@@ -3,8 +3,8 @@ import {
   namesPasswordControl,
   type LoginMarkerTarget,
 } from "@pateat/contracts";
-import type { TargetRequirement, TargetState } from "../login/wire";
-import { presence } from "../observation/extract";
+import type { TargetCheck, TargetRequirement, TargetState } from "../login/wire";
+import { presence, presenceMiss } from "../observation/extract";
 import { visible } from "./code-submission";
 import { findTargets } from "./targets";
 import {
@@ -107,4 +107,42 @@ export function targetState(
     (require === "password-choice" && !passwordChoice(element, { fragment }))
     ? "unusable"
     : "unique";
+}
+/**
+ * The check that decided {@link targetState} for one target, for the log only (ADR 0019):
+ * `ok` when it is `unique`, `missing`, `matches-N` for several elements (9 standing for 9
+ * or more), or why the one element is `unusable`: for an input or button requirement, an
+ * element the content script's visibility check does not see, under a `hidden` attribute
+ * (`hidden-attr`) or not rendered otherwise (`not-rendered`), then one it sees that is
+ * disabled, read-only or no such control (`not-writable`, `not-clickable`); then, for a
+ * `described-…` requirement, the first reason the page's description does not see it
+ * ({@link presenceMiss}). Never any text or
+ * value of the page.
+ */
+export function targetCheck(
+  document: Document,
+  target: LoginMarkerTarget,
+  require?: TargetRequirement,
+  links = false,
+): TargetCheck {
+  const found = findTargets(document, target, { links });
+  if (found.length === 0) return "missing";
+  if (found.length > 1) return `matches-${Math.min(found.length, 9)}` as TargetCheck;
+  if (targetState(document, target, require, links) === "unique") return "ok";
+  const [element] = found;
+  const fragment = byName(target);
+  const writing = require === "writable" || require === "described-writable";
+  const clicking = require === "clickable" || require === "described-clickable";
+  // The input and button tests require the content script's visibility first: an element
+  // it does not see is named by why, apart from one that shows but takes no input.
+  if ((writing || clicking) && element instanceof HTMLElement && !visible(element))
+    return element.closest("[hidden]") ? "hidden-attr" : "not-rendered";
+  if (writing && !writable(element)) return "not-writable";
+  if (clicking && !clickable(element, { fragment })) return "not-clickable";
+  if (
+    (require === "described-writable" || require === "described-clickable") &&
+    element instanceof HTMLElement
+  )
+    return presenceMiss(element) ?? "unusable";
+  return "unusable";
 }

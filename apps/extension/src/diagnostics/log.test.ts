@@ -249,6 +249,57 @@ describe("diagnostics log", () => {
     vi.restoreAllMocks();
   });
 
+  it("logs why an advance on its next step's own path was not confirmed, as codes (ADR 0013)", async () => {
+    const log = createDiagnosticsLog({
+      build: { version: "0.1.0", revision: "1c42ad3" },
+      settings: async () => {
+        throw new Error("not needed");
+      },
+      recipeCache: async () => undefined,
+      connections: async () => ({ ok: true, kind: "status", connections: [] }),
+      databaseName: `log-test-${crypto.randomUUID()}`,
+      scope: { addEventListener: () => undefined } as never,
+    });
+    for (const level of ["debug", "info", "warn"] as const)
+      vi.spyOn(console, level).mockImplementation(() => undefined);
+    const signs = { s1: true, s2: true, s3: false, s4: false, s5: false };
+    log.login({
+      type: "state",
+      tabId: 4,
+      origin: "https://login.example",
+      recipeId: "gen-1",
+      recipeRevision: 4,
+      route: "password",
+      decision: "unknown",
+      ...signs,
+      f1: false,
+      f2: false,
+      e1: false,
+      e2: false,
+      e3: false,
+      reshownMiss: "not-submit",
+      advanceBefore: "unusable.missing",
+      advanceAfter: "unusable.ambiguous",
+      advanceWhy: "transparent.matches-2",
+      advancePath: "same",
+    });
+    await vi.waitFor(async () =>
+      expect(
+        (await log.logger.entries()).filter((entry) => entry.event === "login.state"),
+      ).toHaveLength(1),
+    );
+    const entry = (await log.logger.entries()).find((value) => value.event === "login.state")!;
+    expect(entry.fields).toMatchObject({
+      decision: "unknown",
+      reshownMiss: "not-submit",
+      advanceBefore: "unusable.missing",
+      advanceAfter: "unusable.ambiguous",
+      advanceWhy: "transparent.matches-2",
+      advancePath: "same",
+    });
+    vi.restoreAllMocks();
+  });
+
   it("logs each first login result sent to the service as codes (ADR 0019)", async () => {
     const log = createDiagnosticsLog({
       build: { version: "0.1.0", revision: "1c42ad3" },

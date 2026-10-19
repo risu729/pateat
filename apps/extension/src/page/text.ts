@@ -90,6 +90,14 @@ function hiddenByAttribute(element: Element): boolean {
 }
 
 /**
+ * Whether an attribute hides `element` as {@link shown} reads it: a `hidden` ancestor or
+ * itself, or an `inert` or `aria-hidden="true"` one.
+ */
+export function attributeHidden(element: Element): boolean {
+  return element.closest("[hidden]") !== null || hiddenByAttribute(element);
+}
+
+/**
  * The parent of `element` in the flat tree, as `checkVisibility` walks it, or `undefined`
  * when its slot in its parent's shadow root cannot be found. A closed shadow root hides
  * the slot from `assignedSlot`; a content script reaches the root through

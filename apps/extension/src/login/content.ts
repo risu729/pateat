@@ -5,7 +5,13 @@ import { accountText, showsOtherAccount, shownAccounts } from "../page/accounts"
 import { isButton } from "../page/text";
 import { pressElement } from "../page/script-url-click";
 import { autocompleteTokens, findTargets } from "../page/targets";
-import { clickable, passwordChoice, targetState, writable } from "../page/target-state";
+import {
+  clickable,
+  passwordChoice,
+  targetCheck,
+  targetState,
+  writable,
+} from "../page/target-state";
 import { identifierInput } from "../page/identifier-field";
 import {
   CODE_SETTLE_MS,
@@ -757,6 +763,18 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
                 loaded: document.readyState === "complete",
                 ...credentialInputs(command.targets),
               },
+            }
+          : {}),
+        ...(command.explain
+          ? {
+              checks: command.targets.map((target, index) =>
+                targetCheck(
+                  document,
+                  target,
+                  command.require?.[index],
+                  command.links?.[index] === true,
+                ),
+              ),
             }
           : {}),
       });
