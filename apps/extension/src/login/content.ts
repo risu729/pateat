@@ -273,8 +273,9 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         offered = true;
         // A page that shows no sign-in input by now may list accounts (ADR 0028) or, when
         // its URL names another path of its site, hold the site's sign-in entry (ADR
-        // 0031), or ask for an account identifier alone (ADR 0016). The page right after a
-        // submitted password form offers none of them.
+        // 0031), ask for an account identifier alone (ADR 0016) or show only a passkey
+        // button (ADR 0053). The page right after a submitted password form offers none of
+        // them.
         const bare = !cancelled && !starts.some(ready) && !showsSignIn() && !afterSubmitted();
         const accounts = bare ? listed() : undefined;
         // A page asking for an account identifier alone is offered as a sign-in page (ADR
@@ -285,12 +286,18 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           bare && !(accounts && !accounts.names && !accounts.missed)
             ? identifierInput(document)
             : undefined;
+        // A page that shows only a button to sign in with a passkey (ADR 0053), read in this
+        // same wait as the other pages without a sign-in input.
         const passkey = bare && !accounts && !identifier && extractPasskeyObservation(document).ok;
-        const offerEntry =
-          bare && !passkey && entryWanted && !entryOffered && identifier !== "sole";
+        const entry = bare && entryWanted && !entryOffered && identifier !== "sole";
+        // A page with both a passkey button and a sign-in entry is offered as the passkey
+        // page. Which should win is open with the owner (ADR 0053); these two lines alone
+        // decide it.
+        const offerPasskey = passkey;
+        const offerEntry = entry && !offerPasskey;
         if (offerEntry) entryOffered = true;
         watch(starts);
-        if (passkey) void announce(false, "passkey").catch(() => undefined);
+        if (offerPasskey) void announce(false, "passkey").catch(() => undefined);
         else if (identifier && !offerEntry)
           void announce(false, "identifier").catch(() => undefined);
         else if (accounts || offerEntry)
