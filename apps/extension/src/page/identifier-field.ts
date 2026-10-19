@@ -1,3 +1,4 @@
+import { observedAutocompleteTokens } from "@pateat/contracts";
 import { visible } from "./code-submission";
 import { autocompleteTokens } from "./targets";
 
@@ -64,6 +65,9 @@ function names(input: HTMLInputElement, whole: ReadonlySet<string>, parts: reado
   });
 }
 
+/** Autofill field names that mark an input for something; `on`, `off` and others do not. */
+const fieldNames: ReadonlySet<string> = new Set(observedAutocompleteTokens);
+
 function writable(input: HTMLInputElement): boolean {
   return visible(input) && !input.disabled && !input.readOnly;
 }
@@ -94,11 +98,12 @@ function signUpForm(input: HTMLInputElement): boolean {
  * 2026-10-12), and how: `sole` when the input is the page's only text-like one, `email`
  * for an email input beside others. An input counts when it is visible and writable and
  * either an email input by its type or `autocomplete`, or the page's only text-like
- * input with no `autocomplete` and a word of its name, id, placeholder, `aria-label` or
- * label that names an identifier. A search box, or an input with a word of a coupon,
- * order, tracking, postal or newsletter field, neither counts nor is counted beside one,
- * and an input in a sign-up form never counts. Only the page's own markup is read, never
- * a value.
+ * input with no autofill field name among its `autocomplete` tokens (so `off`, or a
+ * value Chrome ignores such as `chrome-off`, still counts) and a word of its name, id,
+ * placeholder, `aria-label` or label that names an identifier. A search box, or an
+ * input with a word of a coupon, order, tracking, postal or newsletter field, neither
+ * counts nor is counted beside one, and an input in a sign-up form never counts. Only
+ * the page's own markup is read, never a value.
  */
 export function identifierInput(document: Document): "sole" | "email" | undefined {
   const inputs = [...document.querySelectorAll("input")].filter(
@@ -111,7 +116,7 @@ export function identifierInput(document: Document): "sole" | "email" | undefine
   if (emails.length) return inputs.length === 1 ? "sole" : "email";
   if (inputs.length !== 1) return undefined;
   const [input] = inputs as [HTMLInputElement];
-  const unmarked = autocompleteTokens(input).every((token) => token === "on" || token === "off");
+  const unmarked = !autocompleteTokens(input).some((token) => fieldNames.has(token));
   return input.type === "text" &&
     unmarked &&
     !signUpForm(input) &&

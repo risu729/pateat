@@ -82,6 +82,13 @@ describe("identifierInput", () => {
     expect(asks('<input name="login" autocomplete="off given-name">')).toBeUndefined();
   });
 
+  it.each(["chrome-off", "false"])(
+    "takes the sole input whose autocomplete %s names no autofill field",
+    (value) => {
+      expect(asks(`<input name="login" autocomplete="${value}">`)).toBe("sole");
+    },
+  );
+
   it("leaves out a sign-up form whose new password has several tokens", () => {
     expect(
       asks(
