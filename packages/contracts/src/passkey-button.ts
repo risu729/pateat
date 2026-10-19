@@ -30,20 +30,22 @@ export const registersPasskey = (button: Pick<ObservedCandidate, "label" | "targ
   );
 
 /**
- * Words that name a passkey or a security key ("Sign in with a passkey", "Use security
- * key", "パスキーでログイン", `#passkeyLoginButton`), matched case-insensitively. Latin words
+ * Words that name a passkey, a security key or the device unlock a passkey uses ("Sign
+ * in with a passkey", "Use security key", "Sign in with Face ID", "パスキーでログイン",
+ * "指紋認証でログイン", `#passkeyLoginButton`), matched case-insensitively. Latin words
  * match whole words of a label, or whole camelCase, kebab or snake parts of a locator, so
- * "MyFido" or "Fidor" in a label never match; Japanese words match anywhere, except that
- * セキュリティキー followed by more katakana is another word, such as
- * セキュリティキーボード ("security keyboard").
+ * "MyFido" or "Fidor" in a label never match, nor "Facebook" or "interface" for "Face
+ * ID"; Japanese words match anywhere, except that セキュリティキー followed by more
+ * katakana is another word, such as セキュリティキーボード ("security keyboard"). The
+ * device unlock words were widened on 2026-10-19 by the owner ("broad is fine", ADR 0053).
  */
 const passkeyWording =
-  /\b(?:pass\s*keys?|security\s*keys?|webauthn|fido\d*)\b|パスキー|セキュリティー?\s*キー(?![\p{sc=Katakana}ー])|生体認証/iu;
+  /\b(?:pass\s*keys?|security\s*keys?|webauthn|fido\d*|face\s*id|touch\s*id|windows\s*hello|biometrics?|fingerprints?|face\s*recognition)\b|パスキー|セキュリティー?\s*キー(?![\p{sc=Katakana}ー])|生体認証|指紋|顔\s*認証/iu;
 /**
  * Whether a button's label, text or `id`, `name` or test ID locator names a passkey or a
- * security key (ADR 0027). The generated passkey route keeps only such a button, so a
- * mislabelled "Sign in with Google" never becomes a passkey click; the judge's `passkey`
- * handler may use it later.
+ * security key (ADR 0027). The generated passkey route and a passkey-only start page (ADR
+ * 0053) keep only such a button, so a mislabelled "Sign in with Google" never becomes a
+ * passkey click; the judge's `passkey` handler may use it later.
  */
 export const namesPasskey = (button: Pick<ObservedCandidate, "label" | "target">) =>
   (button.label !== undefined && passkeyWording.test(labelWords(button.label))) ||
