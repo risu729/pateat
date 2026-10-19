@@ -7870,6 +7870,120 @@ describe("production login document admission", () => {
         expect(passkeyItems).toHaveBeenCalledOnce();
       });
 
+      describe("beside a passkey button (ADR 0053, owner 2026-10-19 22:44 UTC)", () => {
+        const passkeyPage = {
+          ok: true,
+          observation: {
+            version: 1,
+            origin,
+            path: "/signin",
+            language: "en",
+            complete: true,
+            candidates: [
+              { id: "key", role: "button", label: "Sign in with a passkey", target: target("key") },
+            ],
+          },
+        };
+        /** A page with a passkey button and short texts that may name an account. */
+        const passkeyListHello = (
+          h: ReturnType<typeof harness>,
+          names: string[],
+          from: Record<string, unknown> = {},
+        ) =>
+          h.login.handle(
+            {
+              version: 1,
+              type: "login.document.ready",
+              token: "synthetic-token",
+              signIn: { path: "/signin", passkey: true },
+              list: { path: "/signin", names },
+            },
+            sender(from),
+          );
+        const named = (live: Partial<Parameters<typeof harness>[1]>) => {
+          const shown = setup(live);
+          fake.state.extracted = { accounts: listPage, passkey: passkeyPage };
+          shown.h.fields.mockImplementation(async ({ fieldId }) =>
+            fieldId === "login.username" ? "risu729" : "synthetic-secret",
+          );
+          return shown;
+        };
+        const extracted = () =>
+          fake.state.messages.filter((entry) => entry.type === "login.extract");
+
+        it("sends the passkey-only page when a matching item holds a passkey", async () => {
+          const passkeyItems = vi.fn(async () => [{ connectionId, itemId }]);
+          const { service, h, generations } = named({ passkeyItems });
+          expect(await h.hello({}, false)).toMatchObject({ generate: true });
+          expect(await passkeyListHello(h, ["Help"])).toEqual({
+            ok: false,
+            reason: "generating",
+          });
+          await vi.waitFor(() => expect(service.generate).toHaveBeenCalledOnce());
+          expect(service.generate.mock.calls[0]![0]).toMatchObject({
+            passkeyOnly: true,
+            slots: [],
+          });
+          expect(extracted()).toEqual([expect.objectContaining({ page: "passkey" })]);
+          expect(generations()).not.toContainEqual(expect.objectContaining({ outcome: "skipped" }));
+        });
+
+        it("handles the list as without the button for an item without a passkey", async () => {
+          const passkeyItems = vi.fn(async () => []);
+          const { service, h, generations } = named({ passkeyItems });
+          expect(await h.hello({}, false)).toMatchObject({ generate: true });
+          // No shown text names the item: logged as for the list alone, not `no-passkey`.
+          expect(await passkeyListHello(h, ["Help"])).toMatchObject({
+            ok: false,
+            reason: "recipe-not-found",
+          });
+          expect(generations()).toEqual([
+            {
+              type: "generation",
+              tabId: 1,
+              origin,
+              outcome: "skipped",
+              reason: "no-listed-account",
+              detail: "no-name-match",
+            },
+          ]);
+          expect(service.generate).not.toHaveBeenCalled();
+          // A text that names the item sends the page as a list of accounts.
+          expect(await h.hello({ documentId: "next-page" }, false)).toMatchObject({
+            generate: true,
+          });
+          expect(await passkeyListHello(h, ["@risu729"], { documentId: "next-page" })).toEqual({
+            ok: false,
+            reason: "generating",
+          });
+          await vi.waitFor(() => expect(service.generate).toHaveBeenCalledOnce());
+          expect(service.generate.mock.calls[0]![0]).not.toHaveProperty("passkeyOnly");
+          expect(extracted()).toEqual([
+            expect.objectContaining({ page: "accounts", names: ["@risu729"] }),
+          ]);
+          expect(passkeyItems).toHaveBeenCalledTimes(2);
+        });
+
+        it("never sends the tab's next page, as without the button", async () => {
+          const passkeyItems = vi.fn(async () => [{ connectionId, itemId }]);
+          const { service, h, generations } = named({ passkeyItems });
+          await h.login.handle(
+            { version: 1, type: "login.document.submitted", token: "synthetic-token" },
+            sender(),
+          );
+          expect(await h.hello({ documentId: "after-sign-in" }, false)).toMatchObject({
+            generate: true,
+          });
+          expect(
+            await passkeyListHello(h, ["@risu729"], { documentId: "after-sign-in" }),
+          ).not.toEqual({ ok: false, reason: "generating" });
+          // A list of names alone is ordinary browsing, so nothing is logged for it.
+          expect(generations()).toEqual([]);
+          expect(passkeyItems).not.toHaveBeenCalled();
+          expect(service.generate).not.toHaveBeenCalled();
+        });
+      });
+
       it("sends a list that loads more than a minute after the submission", async () => {
         const { service, h, generations } = setup();
         const at = Date.now();
@@ -8063,6 +8177,7 @@ describe("production login document admission", () => {
           entries?: LoginEntryRecipe[];
           overrides?: Partial<LocalSettings>;
           uris?: LiveUriMatcher;
+          passkeyItems?: (origin: string) => Promise<readonly PasskeyItem[]>;
         } = {},
       ) => {
         fake.state.extracted = { entry: entryPage };
@@ -8078,6 +8193,7 @@ describe("production login document admission", () => {
             generation: service,
             report,
             ...(options.entries ? { entries: options.entries } : {}),
+            ...(options.passkeyItems ? { passkeyItems: options.passkeyItems } : {}),
           },
         );
         h.recipes.recipe.mockResolvedValue(undefined);
@@ -8140,6 +8256,70 @@ describe("production login document admission", () => {
             { type: "generation", tabId: 1, origin, outcome: "sent", page: "entry" },
             { type: "generation", tabId: 1, origin, outcome: "recipe", page: "entry" },
           ]);
+        });
+
+        describe("beside a passkey button (ADR 0053, owner 2026-10-19 22:44 UTC)", () => {
+          /** The document shows a passkey button beside the site's sign-in entry. */
+          const passkeyEntryHello = (h: ReturnType<typeof harness>) =>
+            h.login.handle(
+              {
+                version: 1,
+                type: "login.document.ready",
+                token: "synthetic-token",
+                signIn: { path: "/", passkey: true },
+                entry: { path: "/" },
+              },
+              sender(),
+            );
+
+          it("sends the entry, as without the button, when no matching item holds a passkey", async () => {
+            const passkeyItems = vi.fn(async () => []);
+            const { service, h, reports } = setup({ passkeyItems });
+            expect(await h.hello({}, false)).toMatchObject({ generate: true, entry: true });
+            service.generateEntry.mockImplementation(async (_request, sentNow) => {
+              sentNow?.();
+              return { outcome: "recipe", recipe: entryRecipe };
+            });
+            expect(await passkeyEntryHello(h)).toEqual({ ok: false, reason: "generating" });
+            await vi.waitFor(() => expect(sent("login.reconnect")).toHaveLength(1));
+            expect(passkeyItems).toHaveBeenCalledOnce();
+            expect(sent("login.extract")).toEqual([expect.objectContaining({ page: "entry" })]);
+            expect(service.generate).not.toHaveBeenCalled();
+            // Logged as the entry alone: the missing passkey is not the outcome.
+            expect(reports("generation")).toEqual([
+              { type: "generation", tabId: 1, origin, outcome: "sent", page: "entry" },
+              { type: "generation", tabId: 1, origin, outcome: "recipe", page: "entry" },
+            ]);
+          });
+
+          it("sends the passkey-only page instead when a matching item holds a passkey", async () => {
+            const { service, h } = setup({ passkeyItems: async () => [{ connectionId, itemId }] });
+            fake.state.extracted = {
+              entry: entryPage,
+              passkey: {
+                ok: true,
+                observation: {
+                  ...page("/", [
+                    {
+                      id: "key",
+                      role: "button",
+                      label: "Sign in with a passkey",
+                      target: target("key"),
+                    },
+                  ]).observation,
+                },
+              },
+            };
+            expect(await h.hello({}, false)).toMatchObject({ entry: true });
+            expect(await passkeyEntryHello(h)).toEqual({ ok: false, reason: "generating" });
+            await vi.waitFor(() => expect(service.generate).toHaveBeenCalledOnce());
+            expect(service.generate.mock.calls[0]![0]).toMatchObject({
+              passkeyOnly: true,
+              slots: [],
+            });
+            expect(sent("login.extract")).toEqual([expect.objectContaining({ page: "passkey" })]);
+            expect(service.generateEntry).not.toHaveBeenCalled();
+          });
         });
 
         it.each([
@@ -24920,6 +25100,73 @@ describe("revoking a recipe the chosen item cannot run (ADR 0058 A)", () => {
       observation: { origin, path: "/signin" },
     });
     expect(generation.replace).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends the list a passkey-only recipe's page shows once a password-only item revoked it (ADR 0053)", async () => {
+    fake.state.present = new Set(["passkey-login"]);
+    const passkeyOnly = parseLoginRecipe({
+      version: 1,
+      id: generatedId,
+      revision: 3,
+      origin,
+      slots: [],
+      passkeyOnly: true,
+      passkey: { path: "/signin", target: target("passkey-login") },
+      steps: [
+        { kind: "click", path: "/signin", target: target("passkey-login"), purpose: "submit" },
+      ],
+      maxSubmissions: 1,
+    });
+    const passkeyItems = vi.fn(async (): Promise<readonly PasskeyItem[]> => []);
+    const { h, reports, generation } = start({
+      used: passkeyOnly,
+      password: true,
+      passkey: { passkey: false, discoverable: false },
+      replace: dropped(),
+      live: { uris: async () => ({ ok: true as const, data: uriMatch() }), passkeyItems },
+    });
+    expect(await h.hello()).toEqual({ ok: false, reason: "generating" });
+    await vi.waitFor(() => expect(fake.state.reconnects).toHaveLength(1));
+    expect(revokes(reports)).toMatchObject([{ route: "password", outcome: "revoked" }]);
+    expect(await h.hello()).toMatchObject({ reason: "recipe-not-found", generate: true });
+    fake.state.extracted = {
+      accounts: {
+        ok: true,
+        observation: {
+          version: 1,
+          origin,
+          path: "/signin",
+          language: "en",
+          complete: true,
+          candidates: [
+            { id: "c1", role: "button", target: target("other"), label: "Use another account" },
+          ],
+          accounts: ["[account]"],
+        },
+      },
+    };
+    // The page still shows the passkey button, beside a list with a control for another
+    // account: no matching item holds a passkey, so the list is sent as without the button.
+    expect(
+      await h.login.handle(
+        {
+          version: 1,
+          type: "login.document.ready",
+          token: "synthetic-token",
+          signIn: { path: "/signin", passkey: true },
+          list: { path: "/signin", names: ["Help"], other: true },
+        },
+        sender(),
+      ),
+    ).toEqual({ ok: false, reason: "generating" });
+    await vi.waitFor(() => expect(generation.generate).toHaveBeenCalledOnce());
+    expect(passkeyItems).toHaveBeenCalledOnce();
+    expect(generation.generate.mock.calls[0]![0]).not.toHaveProperty("passkeyOnly");
+    expect(fake.state.messages.filter((entry) => entry.type === "login.extract")).toEqual([
+      expect.objectContaining({ page: "accounts" }),
+    ]);
+    expect(generation.replace).toHaveBeenCalledOnce();
+    expect(reports).not.toContainEqual(expect.objectContaining({ detail: "no-passkey" }));
   });
 
   it.each<[string, Awaited<ReturnType<Replace>>]>([

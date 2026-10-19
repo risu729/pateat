@@ -233,7 +233,9 @@ Owner decisions of 2026-10-19, recorded in [ADR 0053](0053-passkey-only-generati
 - **Condition 3.** A page also qualifies when it shows no input but only a button that
   names a passkey or security key (the ADR 0027 words, not a registration button), and
   a URI-matching item holds a passkey for the site. It is read in the shared no-input
-  page wait, as identifier-only pages are; currently the ten seconds above.
+  page wait, as identifier-only pages are; currently the ten seconds above. Beside a
+  sign-in entry or a list of accounts, the button is used only when such an item exists;
+  otherwise the page is offered as the entry or the list (22:44 UTC).
 - **Condition 2** (decision card, 14:08 UTC). For such a page only, the extension also
   looks up which items hold a discoverable, usable passkey for the page's RP ID, and
   sends the page only when one of the URI-matching items does. (That the lookup runs

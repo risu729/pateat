@@ -158,7 +158,9 @@ export const helloSchema = v.strictObject({
    * A visible password, username or one-time-code input shows on this path, so a page
    * without a recipe may be sent for generation (ADR 0016); `identifier` when the page,
    * after the shared no-input page wait, asks for an account identifier alone instead, or
-   * `passkey` when it shows only a button that signs in with a passkey (ADR 0053).
+   * `passkey` when it shows a button that signs in with a passkey and no identifier input
+   * (ADR 0053). A passkey page also carries the `list` and `entry` it would otherwise be
+   * announced with, used when no matching item holds a discoverable passkey.
    */
   signIn: v.optional(
     v.pipe(

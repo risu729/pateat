@@ -8448,7 +8448,10 @@ export function createLoginRuntime(
         chooser?.chooser.other && !chooser.chooser.afterOther && !previous ? chooser : undefined;
       const otherOffer = otherless && (await offersOther(live, otherless));
       if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
-      const otherShown = otherless && signIn?.path === live.path ? otherless : undefined;
+      // A passkey page carries the list and entry it would be announced with otherwise
+      // (ADR 0053); only a plain sign-in page counts as such below.
+      const plain = signIn?.passkey ? undefined : signIn;
+      const otherShown = otherless && plain?.path === live.path ? otherless : undefined;
       // Logged only for a shown form: the list may still show on this path.
       if (
         otherShown &&
@@ -8486,16 +8489,51 @@ export function createLoginRuntime(
       if (availability === "sending" || availability === "sent") skipGeneration(live, availability);
       // Without the service no page is sent; logged at debug level, as every page is.
       if (availability === "not-connected") skipGeneration(live, availability);
-      const shownList = !signIn && list?.path === live.path ? list : undefined;
-      // A shown email address that is no list entry is logged only (ADR 0028).
-      if (offer && shownList?.missed)
-        skipGeneration(live, "not-a-list", undefined, shownList.missed);
+      const shownList = !plain && list?.path === live.path ? list : undefined;
       const listing = shownList && (shownList.names || !shownList.missed) ? shownList : undefined;
       // A page whose URL names another path of its site may be sent as a sign-in entry
       // once no sign-in input showed (ADR 0031); a list of accounts goes first.
       const entryPage =
         offer && namesReturnPath(new URL(live.url), sameSiteAs(live.url)) ? true : undefined;
-      const entryOffer = !signIn && entryHello?.path === live.path;
+      const entryOffer = !plain && entryHello?.path === live.path;
+      // A page with a passkey button is sent as a passkey-only page when a matching item
+      // holds a discoverable passkey; otherwise the list or entry it also shows is handled
+      // below as on a page without the button, logged as such (ADR 0053, owner 2026-10-19
+      // 22:44 UTC).
+      if (offer && signIn?.passkey && signIn.path === live.path) {
+        const fallback = listing !== undefined || entryOffer;
+        // Nor is the page right after a sign-in sent as a passkey-only page.
+        if (afterSignIn.get(document.tabId) === document.documentId) {
+          if (!fallback) {
+            skipGeneration(live, "after-sign-in");
+            offer = false;
+          }
+        } else {
+          let missed: [GenerationMiss, (string | undefined)?] = ["vault-unavailable", "error"];
+          const scope = await generationSlotsFor(
+            live,
+            (...reason) => {
+              missed = reason;
+            },
+            true,
+          ).catch(() => undefined);
+          if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
+          if (scope) {
+            live.state = "generating";
+            delete live.reason;
+            await publish(live);
+            void generateFor(live, scope, undefined, undefined, true);
+            return { ok: false, reason: "generating" };
+          }
+          if (!fallback) {
+            skipGeneration(live, missed[0], undefined, missed[1]);
+            offer = false;
+          }
+        }
+      }
+      // A shown email address that is no list entry is logged only (ADR 0028).
+      if (offer && shownList?.missed)
+        skipGeneration(live, "not-a-list", undefined, shownList.missed);
       // A list announced only for the log is never sent, but may hold the site's entry.
       if (shownList && !listing && !entryOffer) offer = false;
       // The page right after a sign-in is never sent as a list of accounts (ADR 0028) or as
@@ -8522,23 +8560,15 @@ export function createLoginRuntime(
       }
       // Nor as a page that asks for an identifier alone (ADR 0016), such as a profile page
       // with an email field.
-      if (
-        offer &&
-        (signIn?.identifier || signIn?.passkey) &&
-        afterSignIn.get(document.tabId) === document.documentId
-      ) {
+      if (offer && signIn?.identifier && afterSignIn.get(document.tabId) === document.documentId) {
         skipGeneration(live, "after-sign-in");
         offer = false;
       }
-      if (offer && (signIn?.path === live.path || listing)) {
+      if (offer && (plain?.path === live.path || listing)) {
         let missed: [GenerationMiss, (string | undefined)?] = ["vault-unavailable", "error"];
-        const scope = await generationSlotsFor(
-          live,
-          (...reason) => {
-            missed = reason;
-          },
-          signIn?.passkey === true,
-        ).catch(() => undefined);
+        const scope = await generationSlotsFor(live, (...reason) => {
+          missed = reason;
+        }).catch(() => undefined);
         if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
         // Without an email listed, a shown text must name a matching item's username. A
         // list on a page whose path holds one is not sent: the page would be refused as
@@ -8567,13 +8597,7 @@ export function createLoginRuntime(
           live.state = "generating";
           delete live.reason;
           await publish(live);
-          void generateFor(
-            live,
-            scope,
-            listing ? { names: otherOnly ?? names ?? [] } : undefined,
-            undefined,
-            signIn?.passkey === true,
-          );
+          void generateFor(live, scope, listing ? { names: otherOnly ?? names ?? [] } : undefined);
           return { ok: false, reason: "generating" };
         }
         // No vault item matches this page, the vault could not tell, or no shown text names

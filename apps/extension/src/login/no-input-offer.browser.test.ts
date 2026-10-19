@@ -12,17 +12,20 @@ const passkeyPage = `<main><h1>Welcome back</h1>
   <button id="login-key">Sign in with a passkey</button></main>`;
 
 describe("what a page without a sign-in input is offered as (ADR 0053)", () => {
-  it("offers a heading beside a passkey button as a passkey page, not a list of names", () => {
+  it("offers a heading beside a passkey button as a passkey page with its list of names", () => {
     page(passkeyPage);
-    // The heading alone reads as a short text beside the buttons.
-    expect(listedAccounts(document)?.names).toBeDefined();
-    expect(noInputOffer(document, false)).toEqual({ kind: "passkey" });
+    // The heading alone reads as a short text beside the buttons; the runtime uses it only
+    // when no matching item holds a passkey.
+    const accounts = listedAccounts(document);
+    expect(accounts?.names).toBeDefined();
+    expect(noInputOffer(document, false)).toEqual({ kind: "passkey", accounts, entry: false });
   });
 
   it("still offers it as a passkey page with a support address in the footer", () => {
     page(`${passkeyPage}<footer>Contact support@example.com</footer>`);
-    expect(listedAccounts(document)).toBeDefined();
-    expect(noInputOffer(document, false)).toEqual({ kind: "passkey" });
+    const accounts = listedAccounts(document);
+    expect(accounts).toBeDefined();
+    expect(noInputOffer(document, false)).toEqual({ kind: "passkey", accounts, entry: false });
   });
 
   it("offers a list of accounts by email as the list", () => {
@@ -43,10 +46,13 @@ describe("what a page without a sign-in input is offered as (ADR 0053)", () => {
     expect(noInputOffer(document, false)).toEqual({ kind: "identifier" });
   });
 
-  it("offers the passkey page before the site's sign-in entry, as currently decided", () => {
-    page(passkeyPage);
-    expect(noInputOffer(document, true)).toEqual({ kind: "passkey" });
-    // Without a passkey button the entry is offered.
+  it("offers the passkey page together with the site's sign-in entry", () => {
+    // The runtime sends the entry when no matching item holds a passkey (owner 2026-10-19
+    // 22:44 UTC).
+    page(`<main><h1>Welcome</h1><a href="/login">Log in</a>
+      <button id="login-key">Sign in with a passkey</button></main>`);
+    expect(noInputOffer(document, true)).toMatchObject({ kind: "passkey", entry: true });
+    // Without a passkey button the entry is offered as before.
     page(`<main><h1>Welcome</h1><a href="/login">Log in</a></main>`);
     expect(noInputOffer(document, true)).toMatchObject({ kind: "list", entry: true });
   });
@@ -57,6 +63,6 @@ describe("what a page without a sign-in input is offered as (ADR 0053)", () => {
     `<main><h1>Home</h1><button>Continue</button></main>`,
   ])("offers nothing for a registration, hidden or other button: %s", (html) => {
     page(html);
-    expect(noInputOffer(document, false)).not.toEqual({ kind: "passkey" });
+    expect(noInputOffer(document, false)?.kind).not.toBe("passkey");
   });
 });

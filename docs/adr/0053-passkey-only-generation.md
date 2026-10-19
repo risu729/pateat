@@ -8,11 +8,13 @@ passkey button words, "broad is fine" (20:29); give such pages their own generat
 instructions (20:30, card), with the standing rule
 「指示は汎用化する必要がない、分けてよい」 ("instructions need not be generalized;
 splitting them is fine", 20:30); and the recipe shape `passkeyOnly: true`, `slots: []`,
-one click (20:31). The shared no-input page wait was decided the same day. Amends
+one click (20:31); and, on a page that also shows a sign-in entry or a list of accounts,
+the method each item can use (22:44, card 「項目で分ける」, "split by item"). The
+shared no-input page wait was decided the same day. Amends
 [ADR 0016](0016-recipe-generation-trigger.md) (conditions 2 and 3) and
 [ADR 0027](0027-per-account-login-routes.md) (passkey-only start pages are generated;
 wider passkey words). Preserves [ADR 0034](0034-answer-page-passkey-requests.md)'s
-delegation of passkey requests on pages without a recipe. One question is open (below).
+delegation of passkey requests on pages without a recipe.
 
 Date: 2026-10-17 (proposed); accepted 2026-10-19
 
@@ -56,6 +58,12 @@ Owner decisions of 2026-10-19:
 6. **Recipe shape.** `passkeyOnly: true`, `slots: []`, one click step on the button
    with purpose `submit`, `maxSubmissions: 1`, and the same button as the `passkey`
    route; there is no `password` route.
+7. **Beside an entry or a list.** A page that shows a passkey button beside an ADR 0031
+   sign-in entry or an ADR 0028 list of accounts, including one by names only, is sent
+   as a passkey-only page when a matching item holds a discoverable passkey for the RP
+   ID. Otherwise its entry or list is handled exactly as on a page without the button,
+   so every item logs in with the method it can use, with no site rule
+   ([ADR 0033](0033-no-site-specific-features.md)).
 
 What happens to such a recipe once its items lose their passkey is separate work, not
 part of this decision.
@@ -71,7 +79,11 @@ Implementation details chosen by the agent, not confirmed by the owner separatel
   the same value-free observation as other pages. A list of accounts by email or an
   identifier input goes first; a list by names only, or an address that is no account
   entry (such as a heading or a support address beside the button), does not hide the
-  passkey page.
+  passkey page. The content script announces the passkey page together with the list
+  and entry it would announce without the button, and the runtime chooses: the passkey
+  lookup first, then, when no matching item holds a passkey, the list and entry
+  handling unchanged, logged as such rather than as `no-passkey`. A page with neither
+  logs `no-passkey`.
 - The page right after a submitted password form is not sent, by the existing
   post-submission guard; a manual passkey exchange without a password form is not seen
   as a submission.
@@ -83,21 +95,21 @@ Implementation details chosen by the agent, not confirmed by the owner separatel
 - After a logout ([ADR 0021](0021-account-choice-outside-settings.md) D), the start page
   showing again in the tab asks for an account and presses nothing, as for any passkey
   route (covered by a runtime test).
-
-Open with the owner: what a page that shows a passkey button beside an ADR 0031 sign-in
-entry, or beside an ADR 0028 list of accounts by short names, is offered as. The
-content script decides before the vault is checked, so the passkey button currently wins
-over both (`offerPasskey` in `apps/extension/src/login/no-input-offer.ts`, the one place
-that decides it). When no matching item then holds a passkey, the runtime logs
-`no-passkey` and sends nothing: there is no fallback to the entry or the list. The owner
-is asked to decide both cases.
+- After [ADR 0058](0058-automatic-recipe-removal.md) A revokes a passkey-only recipe
+  for an item that has only a password, the page's next announcement falls back to its
+  entry or list when no matching item holds a passkey; when another matching item does,
+  the passkey-only page is generated again, and ADR 0058's once in 30 days bounds that
+  repeat.
 
 ## Consequences
 
 No permission, provider capability, site rule or account operation is added. A
 conditional passkey request alone never qualifies a page or authorizes a signature, and
 pages without a recipe still delegate their requests. Each such page costs one
-generation call at most once in ADR 0016's 10-minute window. The wider words also widen
+generation call at most once in ADR 0016's 10-minute window. A page with a passkey
+button beside an entry or a list checks the vault for passkeys before the list or
+entry is handled, and its sent recipe depends on which items match on the device that
+sent it first. The wider words also widen
 what ADR 0027's generated `passkey` route keeps. Only local fake-model and synthetic
 tests cover this; no real site, paid inference or deployment is claimed.
 

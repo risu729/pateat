@@ -265,13 +265,19 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         // them.
         const bare = !cancelled && !starts.some(ready) && !showsSignIn() && !afterSubmitted();
         const noInput = bare ? noInputOffer(document, entryWanted && !entryOffered) : undefined;
-        if (noInput?.kind === "list" && noInput.entry) entryOffered = true;
+        if (noInput?.kind !== "identifier" && noInput?.entry) entryOffered = true;
         watch(starts);
-        if (noInput?.kind === "passkey") void announce(false, "passkey").catch(() => undefined);
-        else if (noInput?.kind === "identifier")
+        // A passkey page also carries its list and entry, which the runtime uses when no
+        // matching item holds a passkey (ADR 0053).
+        if (noInput?.kind === "identifier")
           void announce(false, "identifier").catch(() => undefined);
-        else if (noInput?.kind === "list")
-          void announce(false, false, noInput.accounts, noInput.entry).catch(() => undefined);
+        else if (noInput)
+          void announce(
+            false,
+            noInput.kind === "passkey" ? "passkey" : false,
+            noInput.accounts,
+            noInput.entry,
+          ).catch(() => undefined);
         // Nothing to send: the log says why (ADR 0019).
         else if (!cancelled && !starts.some(ready))
           void sendMessage("login", {
