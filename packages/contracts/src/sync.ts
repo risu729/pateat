@@ -278,6 +278,18 @@ export const loginRecordSchema = v.strictObject({
    */
   pageMs: loginMilliseconds,
 });
+/**
+ * `POST /v1/recipes/:recipeId/use`: a login started on this recipe revision, whatever
+ * happened after, so the service does not revoke the recipe as unused (ADR 0058). It also
+ * covers the logins that send no login record, as a fill-only one or one that stops before
+ * an item's missing password. The revision only: never a URL, origin, page text, value or
+ * username, and the service adds the time.
+ */
+export const recipeUseReportSchema = v.strictObject({
+  version: v.literal(1),
+  revision: writtenRevision,
+});
 export type LoginOutcomeCause = v.InferOutput<typeof loginOutcomeCauseSchema>;
 export type LoginOutcomeReport = v.InferOutput<typeof loginOutcomeReportSchema>;
 export type LoginRecord = v.InferOutput<typeof loginRecordSchema>;
+export type RecipeUseReport = v.InferOutput<typeof recipeUseReportSchema>;

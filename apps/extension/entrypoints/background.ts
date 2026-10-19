@@ -36,6 +36,7 @@ import {
 import { createLoginGeneration } from "../src/service/generation";
 import { createLoginRecords } from "../src/service/login-records";
 import { createLoginOutcomes } from "../src/service/outcomes";
+import { createRecipeUse } from "../src/service/recipe-use";
 import { createRecipeSync } from "../src/service/recipes";
 import { createServiceRuntime } from "../src/service/runtime";
 import { createSettingsSync } from "../src/service/settings-sync";
@@ -162,6 +163,12 @@ export default defineBackground(() => {
     build: PATEAT_BUILD_REVISION,
     report: diagnosticsLog.loginRecord,
   });
+  // ADR 0058: every login that starts on a recipe revision tells the service it was used.
+  const recipeUse = createRecipeUse({
+    service,
+    transport: serviceTransport,
+    report: diagnosticsLog.recipeUse,
+  });
   const recipeCacheStorage = createBrowserRecipeCacheStorage();
   const recipeScheduleStorage = createBrowserRecipeScheduleStorage();
   const recipeSync = createRecipeSync({
@@ -253,6 +260,7 @@ export default defineBackground(() => {
       loginBadge.observe(report);
       loginOutcomes.observe(report);
       loginRecords.observe(report);
+      recipeUse.observe(report);
     },
     signedIn: (tabId, origin) => noteSignIn(tabId, origin),
     badge: loginBadge,

@@ -17,6 +17,7 @@ import {
   type RecipeGenerationRequest,
   type RecipeGenerationResult,
   type RecipePageSampleRequest,
+  type RecipeUseReport,
   type SyncDeviceState,
   type SyncRecipeChanges,
   type SyncSettingsState,
@@ -163,7 +164,7 @@ export type InferenceResult<T> = (
   Timed;
 
 /**
- * `POST /v1/recipes/:recipeId/outcome`'s and `/logins`' answer: `kept` for a 204 (a repeat
+ * `POST /v1/recipes/:recipeId/outcome`'s, `/logins`' and `/use`'s answer: `kept` for a 204 (a repeat
  * outcome is one too), `refused` for any other answer below 500 the service gives a request
  * it will never take, such as a recipe it does not hold.
  */
@@ -238,6 +239,16 @@ export interface ServiceTransport {
     credential: string,
     recipeId: string,
     record: LoginRecord,
+  ): Promise<OutcomeResult>;
+  /**
+   * `POST /v1/recipes/:recipeId/use`: a login started on a recipe revision, its revision
+   * only, so the service keeps the recipe (ADR 0058).
+   */
+  reportUse(
+    origin: string,
+    credential: string,
+    recipeId: string,
+    report: RecipeUseReport,
   ): Promise<OutcomeResult>;
   /** `POST /v1/recipes/:recipeId/completion`: the page after a recipe's final submission. */
   judgeCompletion(
@@ -552,6 +563,9 @@ export function createServiceTransport(
     },
     reportLogin(origin, credential, recipeId, record) {
       return post(origin, credential, `/v1/recipes/${encodeURIComponent(recipeId)}/logins`, record);
+    },
+    reportUse(origin, credential, recipeId, report) {
+      return post(origin, credential, `/v1/recipes/${encodeURIComponent(recipeId)}/use`, report);
     },
     judgeCompletion(origin, credential, recipeId, request) {
       return infer(

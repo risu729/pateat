@@ -36,6 +36,7 @@ checks reports `token` alone. Parse it by metric name, as Cloudflare may add ent
 | `POST /v1/recipes/:recipeId/completion` | Judge the page after a recipe's final submission and learn its completion |
 | `POST /v1/recipes/:recipeId/outcome` | Keep how the first login of a revision ended, as result codes only; 204 |
 | `POST /v1/recipes/:recipeId/logins` | Keep one record of a login that ended: its result codes, extension build and times, with the recipe's origin; 204 |
+| `POST /v1/recipes/:recipeId/use` | Mark an active recipe used because a login started on one of its revisions; 204, or 404 |
 | `POST /v1/recipes/:recipeId/page-sample` | Log a repeat login's signed-in page for evaluation, without a model call; 201 when kept, 204 when a sample of the recipe and branch is from the last 30 days |
 | `GET /v1/device` | The calling device's paired time, the owner's live recipe count and settings revision, and whether recipe generation would run now, for the diagnostics page |
 | `DELETE /v1/device` | Revoke the calling device's own credential |
@@ -153,8 +154,8 @@ under this cap can therefore recover; see
 The feed contains current heads, rather than every historical revision: a write moves
 its recipe's head to a new increasing sequence. The same batch deletes revisions older
 than the newest 10, and every earlier revision when the write revokes the recipe.
-Every winning write sets the head's `last_used_at`, and so does each accepted
-`/logins` record while the head is active. `GET /v1/recipes` and
+Every winning write sets the head's `last_used_at`, and so do each accepted `/logins`
+record and `/use` report while the head is active. `GET /v1/recipes` and
 `GET /manage/api/recipes` first revoke up to 50 of the owner's active recipes whose
 `last_used_at` is more than 90 days old, oldest first and never an entry recipe, as
 tombstones with no writing device; a write that marks one used before its revocation
@@ -507,6 +508,15 @@ when that revision was pruned), the codes, the build, the times and the service'
 time. Its rows follow the request log's one-year retention and its delete-all. The same
 batch marks the recipe used (`last_used_at`) while its head is active, whichever
 revision the record names.
+
+`POST /v1/recipes/:recipeId/use` takes `{ version: 1, revision }`: a login started on
+that revision, whatever happened after
+([ADR 0058](../../docs/adr/0058-automatic-recipe-removal.md)), including the fill-only
+logins and the logins that stop before an item's missing password, which send no
+`/logins` record. Any other field answers 400, a body over 256 bytes 413. It sets the
+head's `last_used_at` to the service's time when the head is active and the revision is
+at most its head, and answers 204; a recipe the owner does not hold, a revision above
+its head or a revoked recipe answers 404. Nothing else is stored.
 
 ## Schema and tests
 

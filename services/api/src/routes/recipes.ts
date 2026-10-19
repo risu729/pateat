@@ -4,12 +4,13 @@ import {
   loginOutcomeReportSchema,
   loginRecordSchema,
   recipeCompletionRequestSchema,
+  recipeUseReportSchema,
   recipePageSampleRequestSchema,
   syncRecipeIdSchema,
   syncRecipeWriteSchema,
 } from "@pateat/contracts";
 import { newId } from "@pateat/contracts/ids";
-import { and, asc, desc, eq, gt, isNotNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, isNotNull, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
@@ -27,6 +28,8 @@ const recipeParam = validate("param", v.strictObject({ recipeId: syncRecipeIdSch
 const MAX_OUTCOME_BYTES = 1024;
 /** A login record is a few short codes, the build and five numbers. */
 const MAX_LOGIN_RECORD_BYTES = 1024;
+/** A recipe use report is a version and a revision. */
+const MAX_USE_REPORT_BYTES = 256;
 
 const changesQuerySchema = v.strictObject({
   after: v.optional(
@@ -248,6 +251,41 @@ export const recipeRoutes = new Hono<ApiEnv>()
         console.error("Inference log purge failed");
       }
       return c.body(null, 204);
+    },
+  )
+  /**
+   * A login started on a recipe revision the owner holds, whatever happened after
+   * (ADR 0058): it marks the active recipe used, so it is not revoked as unused. Unlike a
+   * login record it covers fill-only logins and ones that stop before an item's missing
+   * password. As for a login record, any revision up to the head counts, and a revoked or
+   * unknown recipe answers 404.
+   */
+  .post(
+    "/:recipeId/use",
+    recipeParam,
+    bodyLimit({
+      maxSize: MAX_USE_REPORT_BYTES,
+      onError: (c) => apiError(c, 413, { error: "payload_too_large" }),
+    }),
+    requireJsonBody,
+    jsonBody(recipeUseReportSchema),
+    async (c) => {
+      const { ownerId } = c.get("scope");
+      const { recipeId } = c.req.valid("param");
+      const report = c.req.valid("json");
+      const used = await drizzle(c.env.DB)
+        .update(recipeHeads)
+        .set({ lastUsedAt: Date.now() })
+        .where(
+          and(
+            eq(recipeHeads.ownerId, ownerId),
+            eq(recipeHeads.recipeId, recipeId),
+            eq(recipeHeads.state, "active"),
+            gte(recipeHeads.revision, report.revision),
+          ),
+        )
+        .returning({ recipeId: recipeHeads.recipeId });
+      return used.length ? c.body(null, 204) : apiError(c, 404, { error: "not_found" });
     },
   )
   // A repeat login's signed-in page, logged for evaluation without a model call (ADR 0029).

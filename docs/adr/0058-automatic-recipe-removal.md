@@ -47,10 +47,14 @@ recipe and requests generation for the page in the same visit.
 The service revokes an active recipe that has not been used for 90 days.
 
 - A recipe counts as used when the service writes a revision of it (generation, a
-  continuation page, a judged handler or marker, or a device write) and when a device
+  continuation page, a judged handler or marker, or a device write), when a device
   reports a login on it that ended, whatever its result
-  ([ADR 0055](0055-login-records-sent-to-the-service.md)). The head's `last_used_at`
-  holds the newest of these.
+  ([ADR 0055](0055-login-records-sent-to-the-service.md)), and when a device starts a
+  login on one of its revisions. A device sends the service that start, the recipe ID
+  and revision only (`POST /v1/recipes/:recipeId/use`), so a login that sends no ADR
+  0055 record still counts: a fill-only login, one that stops before the password a
+  passkey item lacks ([ADR 0036](0036-passkey-after-the-identifier.md)), or one that
+  ends `policy-changed`. The head's `last_used_at` holds the newest of these.
 - The revocation is an ordinary tombstone write, as the owner's revoke on `/manage` is:
   devices drop their copy on their next sync, the place under the limits is freed, and
   the next visit to the page generates the recipe again under the same ID.
@@ -63,6 +67,8 @@ Claude's choices beyond the owner's answer, not confirmed by the owner:
 - Any ended login counts as use, not only a signed-in one, so a recipe that keeps
   failing is left to repair ([#617](https://github.com/risu729/pateat/pull/617)) rather
   than revoked as unused.
+- Use is a login that started, not only one that ended: a device tells the service when
+  a login starts on a recipe revision, at most once an hour for each revision.
 - Entry recipes ([ADR 0031](0031-sign-in-entry-pages.md)) are never revoked as unused.
   Pressing an entry sends the service nothing, so the service cannot tell an entry
   pressed every day from one never pressed.
@@ -77,20 +83,23 @@ Claude's choices beyond the owner's answer, not confirmed by the owner:
 - A site visited less often than every 90 days pays for one generation on its next
   visit and loses what the revoked recipe had learned (handlers, markers and
   continuation pages), which later logins learn again. Its bindings stay.
+- A recipe sync that runs just as a login starts can revoke its recipe at about 90 days
+  idle. That login's use report and records then get 404, and the next visit generates
+  the recipe again.
 - An offline device keeps using its copy until it syncs, as after the owner's revoke.
 - The owner's `/manage` revoke stays as it was.
 
 ## Delivery
 
 Part B is implemented in the service (`last_used_at` on `recipe_heads`,
-`RECIPE_IDLE_LIMIT_MS` in `services/api/src/limits.ts`).
+`RECIPE_IDLE_LIMIT_MS` in `services/api/src/limits.ts`,
+`POST /v1/recipes/:recipeId/use`) and in the extension, which sends a login's start
+(`apps/extension/src/service/recipe-use.ts`).
 
 Part A has nothing to act on yet: every login recipe on `main` has a `password` route,
-and an item without a password but with a passkey already goes on to the passkey on that
-route ([ADR 0036](0036-passkey-after-the-identifier.md)), so no item lacks every route
-that generating the page again would give it. It lands with the first recipe kind that
-can lack the `password` route, the passkey-only recipe of
-[#663](https://github.com/risu729/pateat/pull/663), or right after it.
+so the owner's example, a recipe that only presses a passkey button for an item with
+only a password, cannot occur on `main`. Part A lands with the passkey-only recipe of
+[#663](https://github.com/risu729/pateat/pull/663) or right after it.
 
 ## Alternatives
 

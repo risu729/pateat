@@ -91,15 +91,17 @@ export const recipeHeads = sqliteTable(
     writeId: text("write_id").notNull(),
     updatedAt: integer("updated_at").notNull(),
     /**
-     * The newest write of the recipe or reported ended login on it (ADR 0058). An active
-     * head unused for `RECIPE_IDLE_LIMIT_MS` is revoked by the service. Every write sets
-     * it; the default exists only because SQLite adds a NOT NULL column with one.
+     * The newest write of the recipe, or reported started or ended login on it (ADR 0058).
+     * An active head unused for `RECIPE_IDLE_LIMIT_MS` is revoked by the service. Every
+     * write sets it; the default exists only because SQLite adds a NOT NULL column with one.
      */
     lastUsedAt: integer("last_used_at").notNull().default(0),
   },
   (table) => [
     primaryKey({ columns: [table.ownerId, table.recipeId] }),
     uniqueIndex("recipe_heads_owner_sequence_unique").on(table.ownerId, table.sequence),
+    // The idle check reads an owner's least recently used heads first (ADR 0058).
+    index("recipe_heads_owner_last_used").on(table.ownerId, table.lastUsedAt),
     check("recipe_heads_state_check", sql`${table.state} IN ('active', 'revoked')`),
   ],
 );

@@ -9,6 +9,7 @@ import type { PasskeyCreateReport } from "../passkeys/create";
 import type { PasskeyRequestReport } from "../passkeys/runtime";
 import type { LoginRecordSent } from "../service/login-records";
 import type { LoginOutcomeSent } from "../service/outcomes";
+import type { RecipeUseSent } from "../service/recipe-use";
 import type { RecipeSyncChanges, RecipeSyncOutcome } from "../service/recipes";
 import type { ServiceTiming } from "../service/transport";
 import {
@@ -59,6 +60,9 @@ const WARN_STATES: ReadonlySet<string> = new Set([
 
 /** Results of a login record's send that are expected, so logged at info (ADR 0055). */
 const QUIET_LOGIN_RECORDS: ReadonlySet<string> = new Set(["kept", "refused", "failed:unreachable"]);
+
+/** Results of a recipe use's send that change nothing worth noting, logged at debug (ADR 0058). */
+const QUIET_RECIPE_USES: ReadonlySet<string> = new Set(["kept", "refused"]);
 
 /** A service request's timing as log fields (ADR 0019); none for a request not sent. */
 const requestTimes = (timing: ServiceTiming | undefined) => ({
@@ -314,6 +318,24 @@ export function createDiagnosticsLog(options: {
           result: sent.result,
         },
         { level: QUIET_LOGIN_RECORDS.has(sent.result) ? "info" : "warn" },
+      );
+    },
+    /**
+     * A started login's use of a recipe revision sent to the service (ADR 0058): debug when
+     * kept or refused (a 404 for a recipe revoked meanwhile, or a service without the
+     * route), info when the service was unreachable, else warn. A failed send is not retried.
+     */
+    recipeUse(sent: RecipeUseSent) {
+      void logger.log(
+        "service.use",
+        { recipe: sent.recipeId, recipeRevision: sent.revision, result: sent.result },
+        {
+          level: QUIET_RECIPE_USES.has(sent.result)
+            ? "debug"
+            : sent.result === "failed:unreachable"
+              ? "info"
+              : "warn",
+        },
       );
     },
     /**

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "860f897a-eefe-480c-a3ed-c0c1f15d75e3",
+  "id": "c2798ba5-050a-4ecd-bceb-8fadf5e25a9c",
   "prevId": "035c9e86-6c58-4c3c-aeee-1905eaedde06",
   "tables": {
     "devices": {
@@ -1037,6 +1037,11 @@
           "name": "recipe_heads_owner_sequence_unique",
           "columns": ["owner_id", "sequence"],
           "isUnique": true
+        },
+        "recipe_heads_owner_last_used": {
+          "name": "recipe_heads_owner_last_used",
+          "columns": ["owner_id", "last_used_at"],
+          "isUnique": false
         }
       },
       "foreignKeys": {
