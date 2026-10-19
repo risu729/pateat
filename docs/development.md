@@ -592,9 +592,10 @@ or an unsupported interaction and the listed connection never unlocked, the form
 also switches from that unchanged draft to Sign in again for the connection, keeping
 the error message and focusing the master password (owner decision, 2026-10-19).
 **Cancel setup** always leaves sign-in-again mode; when nothing is running it changes
-nothing else, so the saved settings draft is not reloaded. It stays available while the page first reads its connections (owner decision,
-2026-10-19): stopping that read says "Loading stopped.", reads the connections again
-and leaves the saved settings draft as it is, since nothing was written.
+nothing else, so the saved settings draft is not reloaded. It stays available while
+the page first reads its connections (owner decision, 2026-10-19): stopping that read
+says "Loading stopped.", reads the connections again and leaves the saved settings
+draft as it is, since nothing was written.
 
 Sign in again on a connection that never unlocked (automatic unlock "unknown" and a
 readable local record) starts with **Enable automatic unlock on this device**
