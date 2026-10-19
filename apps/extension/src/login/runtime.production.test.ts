@@ -15829,6 +15829,56 @@ describe("the start page's passkey route (ADR 0027)", () => {
       expect(serialized).not.toContain(key);
   });
 
+  it("never presses a passkey-only page's button again after a logout (ADR 0021 D)", async () => {
+    const only = parseLoginRecipe({
+      version: 1,
+      id: "synthetic-passkey-only",
+      revision: 1,
+      origin,
+      slots: [],
+      passkeyOnly: true,
+      passkey: { path: "/signin", target: button },
+      steps: [{ kind: "click", path: "/signin", target: button, purpose: "submit" }],
+      completion: home,
+      maxSubmissions: 1,
+    });
+    onClick({ [button.value]: toHome });
+    const { h, report } = start(only);
+    h.recipes.starts.mockResolvedValue(startsOf(only.steps));
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]));
+    expect(status()![0]).toMatchObject({ route: "passkey" });
+    expect(clicks(button.value)).toBe(1);
+    // A page of the site without the button only watches for it.
+    expect(await h.hello({ documentId: "home" }, false)).toMatchObject({
+      ok: false,
+      reason: "logged-in",
+    });
+    // The site logs out: the same tab shows the start page with its button again.
+    fake.state.observedPath = "/signin";
+    fake.state.present = new Set([button.value]);
+    expect(await h.hello({ documentId: "signed-out" })).toEqual({
+      ok: false,
+      reason: "logged-out",
+    });
+    // The tab asks for an account, and the passkey route fills and presses nothing.
+    expect(fake.state.badges[1]?.text).toBe("1");
+    expect(fake.state.session["pateat.login-logouts.v1"]).toEqual([{ tabId: 1, origin }]);
+    expect(report).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "logout", tabId: 1, origin, recipeId: only.id }),
+    );
+    // Announcing again, as a re-render does, still only asks.
+    expect(await h.hello({ documentId: "signed-out" })).toEqual({
+      ok: false,
+      reason: "logged-out",
+    });
+    expect(clicks(button.value)).toBe(1);
+    expect(fills()).toBe(0);
+    expect(h.fields).not.toHaveBeenCalled();
+    // The finished login's record is released, as after any logout, and none starts.
+    expect(status()).toEqual([]);
+  });
+
   describe("a totp handler after the passkey click, probed independently", () => {
     const codeHandler = {
       kind: "totp" as const,
