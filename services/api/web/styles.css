@@ -36,6 +36,16 @@
   color-scheme: dark;
 }
 
+/* The dashboard's chart series, in the categorical order checked for color-vision
+   deficiency, stepped separately for each scheme. The two light slots below 3:1 against
+   the surface are always shown with labelled values and a table. */
+.chart-palette {
+  --chart-1: light-dark(#2a78d6, #3987e5);
+  --chart-2: light-dark(#eb6834, #d95926);
+  --chart-3: light-dark(#1baf7a, #199e70);
+  --chart-4: light-dark(#eda100, #c98500);
+}
+
 /* Tailwind utilities for the tokens: bg-surface, text-ink-muted, border-border-strong,
    outline-focus and so on. */
 @theme inline {

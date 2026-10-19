@@ -1930,6 +1930,15 @@ tests cover it.
   the model call, the token exchange, the model call and the whole request, and device
   responses carry `Server-Timing`
   ([ADR 0012](adr/0012-inference-request-log.md#amendment-2026-10-18-request-timings)).
+- Done (local tests only, not deployed): the web UI's Dashboard tab
+  (`/manage/dashboard`, the first tab) shows the request log's model, token, pre-model
+  and server times per role, per site, per build and by day, the slowest requests,
+  counts and spend against the limits, the share of first logins that signed in and
+  their count per day (only the first login with each recipe revision is reported for
+  now), and failures by result code apart from the
+  logins that needed the person, over 24 hours, 7 days or 30 days, with Recharts charts
+  each repeated as a table ([owner web UI](architecture.md#owner-web-ui)). Login times
+  sent from the extension come in a later slice.
 - Done: the first login of each recipe revision on a
   device sends its outcome, a cause from a fixed list and the step index to
   `POST /v1/recipes/:recipeId/outcome`, kept one row per revision in `login_outcomes`

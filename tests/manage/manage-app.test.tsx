@@ -45,6 +45,7 @@ function mockClient(initial = devices()) {
   let current = initial;
   let logged: ManageRequestLog = { version: 1, entries: 3, outcomes: 1, oldestAt: PAIRED };
   return {
+    dashboard: vi.fn<ManageClient["dashboard"]>(),
     devices: vi.fn<ManageClient["devices"]>(async () => structuredClone(current)),
     revokeDevice: vi.fn<ManageClient["revokeDevice"]>(async (id) => {
       current = {
@@ -89,6 +90,7 @@ afterEach(async () => {
 });
 
 test.each([
+  ["/manage/dashboard", "Dashboard – Pateat"],
   ["/manage", "Devices – Pateat"],
   ["/manage/sites", "Sites – Pateat"],
   ["/manage/request-log", "Request log – Pateat"],

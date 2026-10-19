@@ -45,6 +45,7 @@ const bankDefault = {
 function mockClient(initial: SyncSettingsState, recipes: ManageRecipes["recipes"] = []) {
   let state = initial;
   return {
+    dashboard: vi.fn<ManageClient["dashboard"]>(),
     devices: vi.fn<ManageClient["devices"]>(async () => ({ version: 1, devices: [] })),
     revokeDevice: vi.fn<ManageClient["revokeDevice"]>(),
     settings: vi.fn<ManageClient["settings"]>(async () => structuredClone(state)),

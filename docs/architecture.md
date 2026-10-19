@@ -2696,24 +2696,51 @@ Status: design approved by the owner on 2026-10-11, and its reorganisation into 
 and Devices tabs with a page per site on 2026-10-12 (21:08 UTC). The Request log tab
 follows the owner's decision of 2026-10-18 (06:08 UTC) to build the request log's
 delete-all action ([ADR 0012](adr/0012-inference-request-log.md)); implemented and
-tested locally, not deployed. The app, its
-Access-checked assets and API, and the devices, sites and site pages are implemented and
-tested locally; the deployed service still has the earlier sites, account bindings and
-recipes pages until the next deployment. It replaces the extension's settings page
-for the data the service holds
+tested locally, not deployed. The Dashboard tab follows the owner's approval of the
+speed dashboard on 2026-10-18 (08:38 UTC), with Recharts for its charts (08:39 UTC,
+[development](development.md#dependency-policy)); implemented and tested locally, not
+deployed. The app, its Access-checked assets and API, and the devices, sites and site
+pages are implemented and tested locally; the deployed service still has the earlier
+sites, account bindings and recipes pages until the next deployment. It replaces the
+extension's settings page for the data the service holds
 ([ADR 0013](adr/0013-service-held-recipes-and-settings.md)), except item selection,
 field exclusions and custom-field review, which need the device's vault catalog
 ([ADR 0023](adr/0023-synced-vault-policy.md)).
 
 - Pages. A React app under `/manage`, built with the same approved stack as the
   extension's pages ([ADR 0004](adr/0004-library-composition.md)) and served by the
-  Worker as static assets. Its header shows the logo and three tabs, Sites, Devices and
-  Request log, and its footer the version, links to the source and the GPL text at the
-  built commit and to the third-party notices, and the Theme select. React's rendered
-  `<title>` sets the tab title to `Devices – Pateat`, `Sites – Pateat`,
-  `Request log – Pateat` or `<origin> – Pateat`; the static HTML keeps `Pateat` before
-  the app renders. Each page is its own path, a full page load that the Worker serves
-  only for these paths:
+  Worker as static assets. Its header shows the logo and four tabs, Dashboard, Sites,
+  Devices and Request log, and its footer the version, links to the source and the GPL
+  text at the built commit and to the third-party notices, and the Theme select. React's
+  rendered `<title>` sets the tab title to `Dashboard – Pateat`, `Devices – Pateat`,
+  `Sites – Pateat`, `Request log – Pateat` or `<origin> – Pateat`; the static HTML keeps
+  `Pateat` before the app renders. Each page is its own path, a full page load that the
+  Worker serves only for these paths:
+  - Dashboard (`/manage/dashboard`): the owner's request log, login result codes,
+    recipes and spend over 24 hours, 7 days or 30 days (7 days first), aggregated by the
+    Worker from the owner's rows (`GET /manage/api/dashboard`). Speed comes first: per
+    role, the model time's median and p90 with the count, and the token exchange, the
+    time before the model call and the server time; a stacked bar of the median of each
+    part of the server time; the median model time per UTC day, with a gap on a day
+    without one; tables per site (linking the site's page), per service build and of the
+    10 slowest requests. Then the request counts by role and outcome, the first-login
+    results with the share that signed in and their count per UTC day (devices report
+    only the first login with each recipe revision for now, so these are not every
+    login), tokens, this UTC day's and month's spend against the limits, the active
+    recipes and the recipes generated in the range (generation requests for a recipe's
+    first page that wrote its revision, so a recipe generated again after its revocation
+    counts again). Last, the failures by result code (request outcomes other than `ok`,
+    login results other than `authenticated`), each opening its latest 20, and apart
+    from them the logins that needed the person (`challenge`, `challenge-abandoned`,
+    `watch-abandoned`, `cancelled`). A request answered without a model call
+    ([ADR 0012](adr/0012-inference-request-log.md#amendment-2026-10-18-requests-answered-without-a-model-call))
+    counts as a request by its outcome and, unless it answered with a stored `recipe`,
+    as a failure, but never as a model call or in the speed numbers: the per-role count
+    is of model calls, and the server times, per site and build, and the slowest
+    requests count only requests that called the model. Latency counts only recorded
+    times; every number comes with its count, and below 20 values the values are shown
+    instead of a p90. Each chart is hidden from assistive technology and repeated as a
+    table; Recharts loads only with this page.
   - Devices (`/manage`): the current list and revocation, moved into the app.
   - Request log (`/manage/request-log`): how many requests the
     [request log](adr/0012-inference-request-log.md) holds for the owner

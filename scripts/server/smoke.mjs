@@ -37,13 +37,15 @@ assert.ok(
 const assetsDirectory = join(workerDirectory, "assets");
 const appFiles = await readdir(join(assetsDirectory, "manage", "assets"));
 const appScripts = appFiles.filter((name) => name.endsWith(".js"));
-assert.equal(appScripts.length, 1, "The web UI is one script bundle");
-assert.ok(
-  (await readFile(join(assetsDirectory, "manage", "index.html"), "utf8")).includes(
-    `src="/manage/assets/${appScripts[0]}"`,
-  ),
-  "The app document loads the built script",
+// One entry script; the dashboard's charts are a chunk that only that page loads.
+const appDocument = await readFile(join(assetsDirectory, "manage", "index.html"), "utf8");
+const entryScripts = appScripts.filter((name) =>
+  appDocument.includes(`src="/manage/assets/${name}"`),
 );
+assert.equal(entryScripts.length, 1, "The app document loads one built entry script");
+for (const name of appScripts)
+  if (!entryScripts.includes(name))
+    assert.match(name, /^dashboard-charts-/, `${name} is neither the entry nor the charts chunk`);
 assert.match(
   await readFile(join(assetsDirectory, "manage", "assets", "licenses.md"), "utf8"),
   /react/,

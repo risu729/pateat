@@ -109,6 +109,186 @@ export const manageRequestLogDeletedSchema = v.strictObject({
   outcomes: rowCount,
 });
 
+/** The periods the dashboard summarizes, ending now. */
+export const manageDashboardRangeSchema = v.picklist(["24h", "7d", "30d"]);
+export const MANAGE_DASHBOARD_RANGE_MS = {
+  "24h": 24 * 60 * 60 * 1000,
+  "7d": 7 * 24 * 60 * 60 * 1000,
+  "30d": 30 * 24 * 60 * 60 * 1000,
+} as const satisfies Record<v.InferOutput<typeof manageDashboardRangeSchema>, number>;
+/** Below this many values a p90 says little, so the values themselves are given. */
+export const MANAGE_DASHBOARD_P90_MIN = 20;
+const milliseconds = v.pipe(v.number(), v.integer(), v.minValue(0));
+const dashboardRole = v.picklist(["generate", "judge"]);
+/**
+ * Durations in milliseconds: how many (`n`), the nearest-rank median (null when none) and,
+ * from `MANAGE_DASHBOARD_P90_MIN` values, the p90; below that, the values ascending
+ * instead.
+ */
+export const manageDurationsSchema = v.strictObject({
+  n: rowCount,
+  p50: v.nullable(milliseconds),
+  p90: v.optional(milliseconds),
+  values: v.optional(v.array(milliseconds)),
+});
+/** One request log row or login result code in a failure group, newest first. */
+export const manageDashboardEventSchema = v.strictObject({
+  at: timestamp,
+  /** Null when neither the row nor any kept recipe revision names it. */
+  origin: v.nullable(v.string()),
+  recipeId: v.nullable(v.string()),
+  revision: v.nullable(v.pipe(v.number(), v.integer(), v.minValue(0))),
+  /** The request's role; null for a login result. */
+  role: v.nullable(dashboardRole),
+  /** The login's `cause` code; null for a request or a login that named none. */
+  cause: v.nullable(v.string()),
+});
+/** One result code: how often it came, the last time and site, and its latest 20 rows. */
+export const manageDashboardFailureSchema = v.strictObject({
+  /** `request`: a request log `outcome`; `login`: a login result code. */
+  kind: v.picklist(["request", "login"]),
+  code: v.string(),
+  count: rowCount,
+  lastAt: timestamp,
+  lastOrigin: v.nullable(v.string()),
+  lastRecipeId: v.nullable(v.string()),
+  latest: v.array(manageDashboardEventSchema),
+});
+const microUsd = v.pipe(v.number(), v.integer(), v.minValue(0));
+/**
+ * The owner dashboard over one range, aggregated by the service from the request log, the
+ * login result codes, recipes and spend. Latency counts only the recorded times; rows
+ * logged before they were recorded have none.
+ */
+export const manageDashboardSchema = v.strictObject({
+  version: v.literal(1),
+  range: manageDashboardRangeSchema,
+  /** The range's start and end (now). */
+  from: timestamp,
+  to: timestamp,
+  /** Per role, generation first. */
+  llm: v.array(
+    v.strictObject({
+      role: dashboardRole,
+      /**
+       * Requests in the range that called the model. The times here count only those;
+       * requests answered without a call are in `stats.requests` and the failures.
+       */
+      calls: rowCount,
+      modelMs: manageDurationsSchema,
+      tokenMs: manageDurationsSchema,
+      preModelMs: manageDurationsSchema,
+      serverMs: manageDurationsSchema,
+      /**
+       * The median of each part of a request's server time, over the rows with all four
+       * times (`n`): before the model call apart from the token exchange, the token
+       * exchange, the model call and after it.
+       */
+      parts: v.strictObject({
+        n: rowCount,
+        preModelOtherMs: v.nullable(milliseconds),
+        tokenMs: v.nullable(milliseconds),
+        modelMs: v.nullable(milliseconds),
+        afterModelMs: v.nullable(milliseconds),
+      }),
+      inputTokens: rowCount,
+      outputTokens: rowCount,
+    }),
+  ),
+  /**
+   * Every UTC day the range touches, oldest first; a median is null on a day without one.
+   * `logins` counts login result codes, which are only the first login with each recipe
+   * revision, and `authenticatedLogins` those that signed in.
+   */
+  daily: v.array(
+    v.strictObject({
+      day: v.pipe(v.string(), v.isoDate()),
+      generateRequests: rowCount,
+      judgeRequests: rowCount,
+      generateModelP50: v.nullable(milliseconds),
+      judgeModelP50: v.nullable(milliseconds),
+      logins: rowCount,
+      authenticatedLogins: rowCount,
+    }),
+  ),
+  /** The 10 requests that called the model with the longest server time, slowest first. */
+  slowest: v.array(
+    v.strictObject({
+      at: timestamp,
+      role: dashboardRole,
+      origin: v.string(),
+      outcome: v.string(),
+      tokenMs: v.nullable(milliseconds),
+      modelMs: v.nullable(milliseconds),
+      serverMs: milliseconds,
+    }),
+  ),
+  /**
+   * Requests per origin, by median server time, slowest first; the times count only the
+   * requests that called the model.
+   */
+  perSite: v.array(
+    v.strictObject({
+      origin: v.string(),
+      requests: rowCount,
+      serverMs: manageDurationsSchema,
+      modelMs: manageDurationsSchema,
+    }),
+  ),
+  /**
+   * Requests per service build, most recently used first; the times count only the
+   * requests that called the model.
+   */
+  perBuild: v.array(
+    v.strictObject({
+      /** Null for rows logged before the build was recorded. */
+      build: v.nullable(v.string()),
+      requests: rowCount,
+      lastAt: timestamp,
+      modelMs: manageDurationsSchema,
+      serverMs: manageDurationsSchema,
+    }),
+  ),
+  stats: v.strictObject({
+    /** Request log rows by role and outcome, most frequent first. */
+    requests: v.array(
+      v.strictObject({ role: dashboardRole, outcome: v.string(), count: rowCount }),
+    ),
+    /**
+     * Login result codes by outcome, most frequent first: only the first login with each
+     * recipe revision is reported, so these are not every login.
+     */
+    logins: v.array(v.strictObject({ outcome: v.string(), count: rowCount })),
+    /** How many of those signed in (`authenticated`); the success rate is this of their sum. */
+    loginsAuthenticated: rowCount,
+    inputTokens: rowCount,
+    outputTokens: rowCount,
+    /** Estimated spend in this UTC day and month, whatever the range, and their limits. */
+    spend: v.strictObject({
+      dayMicroUsd: microUsd,
+      monthMicroUsd: microUsd,
+      dailyLimitMicroUsd: microUsd,
+      monthlyLimitMicroUsd: microUsd,
+    }),
+    /** Active recipes now, whatever the range. */
+    activeRecipes: rowCount,
+    /**
+     * Generation requests in the range that started a recipe and wrote its revision
+     * (`recipe_page` `first` with a written `revision`): new recipes, and recipes
+     * generated again after their revocation.
+     */
+    recipesGenerated: rowCount,
+  }),
+  /**
+   * Request outcomes other than `ok` and login results other than `authenticated`, by
+   * code, most frequent first; `needsPerson` holds the login results that waited for or
+   * were stopped by the person (`challenge`, `challenge-abandoned`, `watch-abandoned`,
+   * `cancelled`), which are not failures.
+   */
+  failures: v.array(manageDashboardFailureSchema),
+  needsPerson: v.array(manageDashboardFailureSchema),
+});
+
 export const manageErrorCodeSchema = v.picklist([
   "bad_request",
   /** No Access token: the page must be reloaded through Access. */
@@ -137,5 +317,10 @@ export type ManageUnreadableRecipe = v.InferOutput<typeof manageUnreadableRecipe
 export type ManageRecipes = v.InferOutput<typeof manageRecipesSchema>;
 export type ManageRequestLog = v.InferOutput<typeof manageRequestLogSchema>;
 export type ManageRequestLogDeleted = v.InferOutput<typeof manageRequestLogDeletedSchema>;
+export type ManageDashboardRange = v.InferOutput<typeof manageDashboardRangeSchema>;
+export type ManageDurations = v.InferOutput<typeof manageDurationsSchema>;
+export type ManageDashboardEvent = v.InferOutput<typeof manageDashboardEventSchema>;
+export type ManageDashboardFailure = v.InferOutput<typeof manageDashboardFailureSchema>;
+export type ManageDashboard = v.InferOutput<typeof manageDashboardSchema>;
 export type ManageErrorCode = v.InferOutput<typeof manageErrorCodeSchema>;
 export type ManageError = v.InferOutput<typeof manageErrorSchema>;

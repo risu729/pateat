@@ -1,5 +1,6 @@
 import {
   deviceIdSchema,
+  manageDashboardRangeSchema,
   manageRecipeRevokeSchema,
   manageSettingsWriteSchema,
   syncRecipeIdSchema,
@@ -13,6 +14,7 @@ import { drizzle } from "drizzle-orm/d1";
 import { Hono } from "hono";
 import * as v from "valibot";
 import type { ApiEnv } from "../auth";
+import { readDashboard } from "../dashboard";
 import { devices, inferenceLog, loginOutcomes, recipeHeads } from "../db/schema";
 import { apiError } from "../http";
 import { findOwner } from "../owners";
@@ -22,6 +24,9 @@ import { jsonBody, requireJsonBody, validate } from "../validation";
 
 const deviceParamSchema = v.strictObject({ deviceId: deviceIdSchema });
 const recipeParamSchema = v.strictObject({ recipeId: syncRecipeIdSchema });
+const dashboardQuerySchema = v.object({
+  range: v.optional(manageDashboardRangeSchema, "7d"),
+});
 
 /**
  * The web UI's JSON API. Every route acts for the owner the verified Access token
@@ -66,6 +71,12 @@ export const manageApiRoutes = new Hono<ApiEnv>()
       return c.body(null, 204);
     },
   )
+  // Speed, counts and failures over the range, aggregated from the owner's rows only.
+  .get("/dashboard", validate("query", dashboardQuerySchema), async (c) => {
+    const ownerId = await findOwner(c.env.DB, c.get("identity"));
+    const { range } = c.req.valid("query");
+    return c.json(await readDashboard(c.env.DB, ownerId, range, Date.now()));
+  })
   // The same revision-checked document devices sync through /v1/settings.
   .get("/settings", async (c) => {
     const ownerId = await findOwner(c.env.DB, c.get("identity"));

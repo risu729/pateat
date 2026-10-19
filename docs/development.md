@@ -737,16 +737,28 @@ extension uses Chrome's global `Temporal`, which first ships in Chrome 144; the
 extension now requires Chrome 145 for `Map.prototype.getOrInsertComputed`. The service
 keeps `Date`: workerd 1.20261006.1 does not expose Temporal, and no compatibility flag
 enables it (its V8 `harmony_temporal` flag cannot be set for a deployed Worker). Lint
-forbids the global `Temporal` in `services/` and in the packages the service imports.
-The current manifests and lockfile describe what is installed. WXT + TypeScript +
-Valibot remain confirmed choices; existing Vitest, Playwright and build tools remain in
-use. WXT drives Vite 8 (Rolldown) for the extension build
+forbids the global `Temporal` in `services/` and in the packages the service imports. On
+2026-10-18 at 08:39 UTC the owner wrote, about the dashboard's charts,
+「あ、ライブラリは Recharts?いい感じの探して使ってほしい。新しくてメンテされるやつ」
+("Oh, is the library Recharts? Find a good one and use it, a new one that is
+maintained"), leaving the choice to the agent. In its reply (about 08:45 UTC) the agent
+chose Recharts 3 (3.10.1, MIT), used through the shadcn/ui Base UI Chart component
+copied in as owned code (`services/api/web/chart.tsx`), over TanStack Charts 1.x, which
+reached 1.0 only on 2026-10-03, for maturity; uPlot and Observable Plot were the
+smaller, non-React options of the dashboard proposal. The English rendering of the
+owner's words and the choice itself are the agent's, not confirmed by the owner.
+Recharts needs `react-is` as a peer. It is loaded with `React.lazy`, so only the
+dashboard downloads it (about 110 kB gzip). The current manifests and lockfile describe
+what is installed. WXT + TypeScript + Valibot remain confirmed choices; existing Vitest,
+Playwright and build tools remain in use. WXT drives Vite 8 (Rolldown) for the extension
+build
 ([what each layer does](research/2026-10-12-wxt-build-pipeline.md)).
 
 | Area | Choice and integration status | Owning slice |
 | --- | --- | --- |
 | Extension UI | **Implemented:** React through `@wxt-dev/module-react`, Tailwind CSS through its Vite plugin, Base UI with the selected shadcn/ui Button | M2 settings UI migration |
 | Service web UI | **Implemented for the devices page:** React, Tailwind through its Vite plugin, Base UI with the selected shadcn/ui Button and TanStack Query, built by Vite into Worker static assets; **approved:** TanStack Form | M4 owner web UI |
+| Charts | **Chosen under delegated authority (2026-10-18) and implemented for the `/manage` dashboard:** Recharts 3 through the shadcn/ui Base UI Chart component, which sets series colors as custom properties on the chart's container because the page's Content Security Policy allows no inline stylesheet; loaded lazily; every chart repeated as a table | Phase 1 speed dashboard |
 | Form state | **Implemented:** TanStack Form with Valibot through Standard Schema; options-page drafts subscribe through `useSelector`, re-exported by `@tanstack/react-form` | M2 settings validation, dirty drafts and field errors |
 | Async UI state | **Implemented for settings:** TanStack Query for metadata reads and mutations | M2 extension-message queries; M4 sync integration |
 | Attempt lifecycle | **Implemented:** XState for each login attempt (`loginAttemptMachine`), applied with its pure `transition()`; the runtime around it stays application code | M2 declarative executor |
