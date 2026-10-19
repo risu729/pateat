@@ -520,6 +520,20 @@ than in this repository.
   ([ADR 0048](adr/0048-password-method-button.md), owner, 01:38 UTC). Implemented with
   local tests only (unit, service and a synthetic browser fixture); check UniSuper in
   the owner's Chrome, which needs one more judge call and one continuation call.
+  On 2026-10-18 at 08:11 UTC, on build `4356c9a`, the login still stopped there: the
+  judge answered `challenge` and nothing was pressed. "Password" and "Mobile" are row
+  headings, and each is followed by an `<a href="#">` that reads "Select", told apart
+  only by its `aria-label` ("Select Password." and "Select Phone - " with a masked
+  number), with no `id`, `name`, `data-testid`, `onclick` or `role`. No locator named
+  either alone, such a link was not a button, and "Select" fails the word list, so the
+  judge never saw them. Since 2026-10-19 a `password` handler's button may be named by
+  its accessible name, may be such a fragment link, and passes when that name names
+  the password and its text holds no refused word
+  ([ADR 0048's amendment](adr/0048-password-method-button.md#amendment-controls-told-apart-by-their-accessible-names),
+  owner, 01:26 UTC, option A1); the judge's prompt version changed. Local tests only
+  (unit, DOM, service and a synthetic browser fixture); check UniSuper in the owner's
+  Chrome, one judge call and one continuation call. The service deploys before the
+  extension build is installed.
 - UNSW's single sign-on page on Microsoft Entra
   (`login.microsoftonline.com/<tenant>/oauth2/authorize`) was logged `recipe.generate`
   `skipped` `incomplete-observation` with `unfillable-field` in the owner's Chrome on

@@ -36,6 +36,7 @@ const PROBE_PATHS = [
   "/identifier-first",
   "/identifier-swap",
   "/method-choice",
+  "/method-choice-named",
 ];
 /** Where every synthetic recipe starts, which a fixture document watches for. */
 export function probeStarts(origin: string): LoginRecipeStart[] {
@@ -132,9 +133,24 @@ function methodChoiceRecipe(origin: string, path: string): LoginRecipe {
     handlers: [{ kind: "password", path, target: target("choose-password") }],
   });
 }
+/**
+ * The same choice where both buttons are links to `#` that read "Select", told apart only
+ * by their accessible names (ADR 0048 amendment of 2026-10-19): the handler names the
+ * password one by its name.
+ */
+function namedMethodChoiceRecipe(origin: string, path: string): LoginRecipe {
+  return parseLoginRecipe({
+    ...identifierFirstRecipe(origin, path),
+    id: "demo-method-choice-named",
+    handlers: [
+      { kind: "password", path, target: { by: "accessible-name", value: "Select Password." } },
+    ],
+  });
+}
 export function probeRecipe(origin: string, path: string): LoginRecipe | undefined {
   if (!PROBE_PATHS.includes(path)) return undefined;
   if (path === "/method-choice") return methodChoiceRecipe(origin, path);
+  if (path === "/method-choice-named") return namedMethodChoiceRecipe(origin, path);
   if (path === "/variants") return variantsRecipe(origin, path);
   if (path === "/totp") return totpRecipe(origin, path);
   if (path === "/identifier-first") return identifierFirstRecipe(origin, path);

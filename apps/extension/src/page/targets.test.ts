@@ -238,4 +238,38 @@ describe("findTargets", () => {
       [undefined, undefined, undefined, "x".repeat(120), undefined],
     );
   });
+
+  // ADR 0048 amendment of 2026-10-19: two controls that both show "Select".
+  it("names a shown control by its accessible name, apart from fields and hidden controls", () => {
+    page(
+      `<form><input id="field" aria-label="Select Password.">
+        <a id="a" href="#" aria-label="Select Password.">Select</a>
+        <a id="b" href="#" aria-label="Select Phone">Select</a>
+        <button id="c" type="button" aria-label="Select Phone" hidden>Select</button>
+        <span id="heading">Use password</span>
+        <div id="d" role="button" aria-labelledby="heading" aria-label="Ignored">Go</div>
+        <input id="e" type="submit" aria-label="Submit form" value="Go">
+        <a id="f" href="/elsewhere" aria-label="Leave">Leave</a>
+        <span id="g" aria-label="Not a control">Text</span></form>`,
+    );
+    const named = (value: string) => ids(findTargets(document, { by: "accessible-name", value }));
+    // The field's own name is a `label` locator's, counted apart.
+    expect(named("Select Password.")).toEqual(["a"]);
+    expect(named("Select Phone")).toEqual(["b"]);
+    expect(named("Use password")).toEqual(["d"]);
+    expect(named("Ignored")).toEqual([]);
+    expect(named("Submit form")).toEqual(["e"]);
+    // A link that navigates and an element that is no control never match.
+    expect(named("Leave")).toEqual([]);
+    expect(named("Not a control")).toEqual([]);
+    // Its text locator is unchanged: "Select" names no button, and the links only as links.
+    expect(findTargets(document, { by: "text", value: "Select" })).toEqual([]);
+    expect(ids(findTargets(document, { by: "text", value: "Select" }, { links: true }))).toEqual([
+      "a",
+      "b",
+    ]);
+    // Two shown controls with one name are both returned, for the caller to refuse.
+    document.getElementById("c")!.hidden = false;
+    expect(named("Select Phone")).toEqual(["b", "c"]);
+  });
 });

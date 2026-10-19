@@ -103,5 +103,69 @@ describe("targetState", () => {
       page(`<button id="choose" type="button" aria-label="Password">Text me a code</button>`);
       expect(targetState(document, choose, "password-choice")).toBe("unusable");
     });
+
+    // ADR 0048 amendment of 2026-10-19: controls that show the same neutral text.
+    describe("named by its accessible name", () => {
+      const named = { by: "accessible-name", value: "Select Password." } as const;
+      const phone = { by: "accessible-name", value: "Select Phone" } as const;
+      const choice = (control: string) =>
+        page(`<form>${control}<a href="#" aria-label="Select Phone">Select</a></form>`);
+
+      it("takes a neutral text whose name names the password, a fragment link too", () => {
+        for (const html of [
+          `<a href="#" aria-label="Select Password.">Select</a>`,
+          `<button type="button" aria-label="Select Password.">Select</button>`,
+          `<div role="button" aria-label="Select Password.">Choose</div>`,
+          `<a href="#" aria-label="Select Password."><svg width="20" height="20"></svg></a>`,
+        ]) {
+          choice(html);
+          expect(targetState(document, named, "password-choice"), html).toBe("unique");
+          expect(targetState(document, named, "clickable"), html).toBe("unique");
+          expect(targetState(document, phone, "password-choice"), html).toBe("unusable");
+        }
+      });
+
+      it("refuses a visible text with a refused word, and a name that names another way", () => {
+        for (const html of [
+          `<button type="button" aria-label="Select Password.">Send code</button>`,
+          `<a href="#" aria-label="Select Password.">Use mobile</a>`,
+        ]) {
+          choice(html);
+          expect(targetState(document, named, "password-choice"), html).toBe("unusable");
+        }
+        // A text that names the password is not enough when the name names another way.
+        page(`<button id="choose" type="button" aria-label="Select Phone">Password</button>`);
+        expect(targetState(document, choose, "password-choice")).toBe("unusable");
+      });
+
+      it("reads hidden text and refuses a text too long to read in full", () => {
+        for (const html of [
+          `<a href="#" aria-label="Select Password."><span aria-hidden="true">Send code</span></a>`,
+          `<button type="button" aria-label="Select Password.">Select<span hidden>Sign out</span></button>`,
+          `<a href="#" aria-label="Select Password.">Send a code to your phone${" now".repeat(40)}</a>`,
+          `<a href="#" aria-label="Select Password.">${"Select ".repeat(80)}</a>`,
+        ]) {
+          choice(html);
+          expect(targetState(document, named, "clickable"), html).toBe("unique");
+          expect(targetState(document, named, "password-choice"), html).toBe("unusable");
+        }
+        // A neutral text longer than a button's text still counts when it is read in full.
+        choice(`<a href="#" aria-label="Select Password.">${"Select ".repeat(30)}</a>`);
+        expect(targetState(document, named, "password-choice")).toBe("unique");
+      });
+
+      it("counts a fragment link as clickable only through its accessible name", () => {
+        page(`<a id="choose" href="#" aria-label="Select Password.">Select</a>`);
+        expect(targetState(document, named, "clickable")).toBe("unique");
+        expect(targetState(document, named, "described-clickable")).toBe("unique");
+        expect(targetState(document, choose, "clickable")).toBe("unusable");
+        expect(targetState(document, choose, "password-choice")).toBe("unusable");
+        // A link that opens elsewhere is no control at all.
+        page(`<a href="#" target="_blank" aria-label="Select Password.">Select</a>`);
+        expect(targetState(document, named, "password-choice")).toBe("missing");
+        page(`<a href="#" aria-label="Select Password." aria-disabled="true">Select</a>`);
+        expect(targetState(document, named, "clickable")).toBe("unusable");
+      });
+    });
   });
 });

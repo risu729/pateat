@@ -1,5 +1,6 @@
 import {
   isLoginTarget,
+  isStepTarget,
   totpCodeRefusal,
   loginObservationSchema,
   splitCodeInputs,
@@ -89,6 +90,8 @@ export const completionInstructions = [
   "password, tries another way or cancels, and never a link. Nor is it a button that",
   "uses the device's biometrics or platform sign-in, such as Touch ID, Face ID, a",
   "fingerprint or Windows Hello, even one whose label also names the password.",
+  "A button by accessible-name may show only neutral text, such as Select; judge it by",
+  "that name.",
   "A challenge that asks for a code always fills code: its field, submit and source.",
   "code.source is sms or email when the page says the code was sent to the person or",
   "names where it went (a phone, call, message or address), authenticator-app when it",
@@ -174,9 +177,12 @@ function totpCode(
   if (!submit) return { totpDropped: "unknown-submit" };
   const refusal = totpCodeRefusal(page, field, submit);
   if (refusal || field.target.by === "text") return { totpDropped: refusal ?? "text-locator" };
-  // A link named by its path is only ever a signed-in marker (ADR 0029).
+  // A link named by its path is only ever a signed-in marker (ADR 0029), and a button named
+  // by its accessible name only a `password` handler's (ADR 0048 amendment of 2026-10-19).
   if (field.target.by === "href" || !isLoginTarget(submit.target))
     return { totpDropped: "href-locator" };
+  if (!isStepTarget(field.target) || !isStepTarget(submit.target))
+    return { totpDropped: "name-locator" };
   return { totp: { field: field.target, target: submit.target } };
 }
 
@@ -284,14 +290,16 @@ export function createCompletionJudge(config: {
           return { status: "abstained", reason: "insufficient-evidence" };
         if (draft.decision === "rejected") return { status: "ok", value: draft };
         if (draft.decision === "challenge") {
-          const buttonOf = (id: string | undefined) => {
-            const found = page.candidates.find(
-              (candidate) => candidate.id === id && candidate.role === "button",
-            );
-            return found && isLoginTarget(found.target) ? found.target : undefined;
-          };
-          const passkey = buttonOf(draft.passkeyButton);
-          const password = buttonOf(draft.passwordButton);
+          // Only a `password` handler's button may be named by its accessible name (ADR 0048
+          // amendment of 2026-10-19).
+          const buttonOf = (id: string | undefined) =>
+            page.candidates.find((candidate) => candidate.id === id && candidate.role === "button")
+              ?.target;
+          const passkeyTarget = buttonOf(draft.passkeyButton);
+          const passwordTarget = buttonOf(draft.passwordButton);
+          const passkey = passkeyTarget && isStepTarget(passkeyTarget) ? passkeyTarget : undefined;
+          const password =
+            passwordTarget && isLoginTarget(passwordTarget) ? passwordTarget : undefined;
           const totp = totpCode(page, draft.code);
           // A named element that is not a button of this page, or a code that fails the
           // local checks, adds no handler.

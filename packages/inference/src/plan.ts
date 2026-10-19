@@ -2,7 +2,7 @@ import {
   actionRoles,
   genericSlotIdSchema,
   isCodeField,
-  isLoginTarget,
+  isStepTarget,
   loginStepSchema,
   personalDataAutocompleteTokens,
   sameLoginTarget,
@@ -179,10 +179,11 @@ export function validatePagePlan(
   plan: PagePlan,
 ): { ok: true; plan: ValidatedPagePlan } | { ok: false; reason: PlanRejection } {
   if (plan.fields.length === 0) return { ok: false, reason: "empty-plan" };
-  // A link named by its path is only ever a signed-in marker (ADR 0029), never a step's.
+  // A link named by its path is only ever a signed-in marker (ADR 0029), and a button named
+  // by its accessible name only a `password` handler's (ADR 0048), never a step's.
   const candidates = new Map(
     observation.candidates.flatMap(({ target, ...candidate }) =>
-      isLoginTarget(target) ? [[candidate.id, { ...candidate, target }] as const] : [],
+      isStepTarget(target) ? [[candidate.id, { ...candidate, target }] as const] : [],
     ),
   );
   const requested = new Map(slots.map((slot) => [slot.id, slot]));
@@ -432,7 +433,7 @@ function passkeyButtonOf(
   if (
     !button ||
     button.role !== "button" ||
-    !isLoginTarget(button.target) ||
+    !isStepTarget(button.target) ||
     !namesPasskey(button) ||
     registersPasskey(button)
   )
@@ -568,7 +569,7 @@ export type GeneratedAccountList = {
 /** A list control the extension clicks, with the locator the chooser recipe stores. */
 type ListControl = {
   candidate: string;
-  target: Exclude<LoginTarget, { by: "autocomplete" | "label" }>;
+  target: Exclude<LoginTarget, { by: "autocomplete" | "label" | "accessible-name" }>;
 };
 /** An account list whose named controls passed {@link validateAccountList}. */
 export type ValidatedAccountList = {
@@ -602,7 +603,8 @@ const accountText = /\[(?:email|masked|number|account)\]|@|\d{4}/u;
  * Validates an account-list answer (ADR 0028): the page must list accounts, and each named
  * control must be a button or link of the page, not hold account text and not be the
  * other control. A list whose accounts are all shown beside buttons needs a named
- * control. Its locator is never `autocomplete` or `label`, which name only inputs.
+ * control. Its locator is never `autocomplete` or `label`, which name only inputs, nor
+ * `accessible-name`, which names only a `password` handler's button.
  */
 export function validateAccountList(
   observation: LoginObservation,
@@ -616,7 +618,7 @@ export function validateAccountList(
     const { target } = candidate;
     if (
       (!isActionRole(candidate.role) && candidate.role !== "link") ||
-      !isLoginTarget(target) ||
+      !isStepTarget(target) ||
       target.by === "autocomplete" ||
       target.by === "label"
     )
@@ -664,7 +666,10 @@ export function redactAccountList(
   };
 }
 
-/** The locator a sign-in entry is pressed by: never `autocomplete` or `label` (ADR 0031). */
+/**
+ * The locator a sign-in entry is pressed by: never `autocomplete`, `label` or
+ * `accessible-name` (ADR 0031).
+ */
 export type EntryTarget = LoginEntryRecipe["entry"]["target"];
 /**
  * The generation role's entry answer (ADR 0031): the candidate that opens sign-in to an
@@ -691,7 +696,7 @@ export function validateEntry(
   const { target } = candidate;
   if (
     candidate.role !== "link" ||
-    !isLoginTarget(target) ||
+    !isStepTarget(target) ||
     target.by === "autocomplete" ||
     target.by === "label"
   )

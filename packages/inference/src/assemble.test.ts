@@ -598,6 +598,67 @@ describe("judged password handler (ADR 0048)", () => {
       reason: "step-target",
     });
   });
+
+  describe("a button named by its accessible name (ADR 0048 amendment of 2026-10-19)", () => {
+    const named = { by: "accessible-name", value: "Select Password." } as const;
+    const select = (value: string = named.value, label: string | undefined = value) => ({
+      ...choice(),
+      candidates: [
+        {
+          ...candidate("password", { by: "accessible-name", value }),
+          ...(label === undefined ? {} : { label }),
+        },
+      ],
+    });
+
+    it("adds a password handler for it", () => {
+      const added = addHandler(recipe, select(), password(named));
+      if (!added.ok) throw new Error(added.reason);
+      expect(added.recipe.handlers).toEqual([{ kind: "password", path: "/", target: named }]);
+      expect(extendsRecipe(recipe, added.recipe)).toBe(true);
+    });
+
+    it("checks its name as well as its label", () => {
+      const phone = { by: "accessible-name", value: "Select Phone" } as const;
+      expect(addHandler(recipe, select(phone.value, "Select Password."), password(phone))).toEqual({
+        ok: false,
+        reason: "not-password",
+      });
+      expect(addHandler(recipe, select(named.value, "Select Phone"), password(named))).toEqual({
+        ok: false,
+        reason: "not-password",
+      });
+      expect(addHandler(recipe, select(named.value, undefined), password(named)).ok).toBe(true);
+    });
+
+    it("is never a passkey or totp handler's button", () => {
+      const passkeyPage = select("Use security key");
+      const key = { by: "accessible-name", value: "Use security key" } as const;
+      expect(addHandler(recipe, passkeyPage, { kind: "passkey", target: key })).toEqual({
+        ok: false,
+        reason: "invalid-recipe",
+      });
+      const code = {
+        ...candidate("otp", target("otp"), "text"),
+        autocomplete: "one-time-code" as const,
+      };
+      const verify = { by: "accessible-name", value: "Verify" } as const;
+      expect(
+        addHandler(
+          recipe,
+          { ...choice(), candidates: [code, candidate("verify", verify)] },
+          { kind: "totp", field: target("otp"), target: verify },
+        ),
+      ).toEqual({ ok: false, reason: "invalid-recipe" });
+    });
+
+    it("is never learned as a signed-in marker", () => {
+      expect(addCompletion(recipe, { ...select(), path: "/home" }, named)).toEqual({
+        ok: false,
+        reason: "invalid-recipe",
+      });
+    });
+  });
 });
 
 describe("judged totp handler (ADR 0027)", () => {

@@ -63,6 +63,29 @@ const action = { candidate: "login", purpose: "submit" } as const;
 const validate = (fields: PagePlan["fields"]) =>
   validatePagePlan(observation, slots, { fields, action });
 
+describe("an accessible-name locator (ADR 0048 amendment of 2026-10-19)", () => {
+  it("names no route step's element, as only a password handler's button uses it", () => {
+    const named: Candidate = {
+      id: "login",
+      role: "button",
+      target: { by: "accessible-name", value: "Log in" },
+    };
+    const page = {
+      ...observation,
+      candidates: [...observation.candidates.filter((entry) => entry.id !== "login"), named],
+    };
+    expect(
+      validatePagePlan(page, slots, {
+        fields: [
+          { slot: "username", candidate: "user" },
+          { slot: "password", candidate: "password" },
+        ],
+        action,
+      }),
+    ).toEqual({ ok: false, reason: "unknown-candidate" });
+  });
+});
+
 describe("custom-field slot names (ADR 0027)", () => {
   it("stores a custom-field slot under its generic name and keeps the requested ID", () => {
     const result = validate([

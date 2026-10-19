@@ -100,10 +100,29 @@ export const loginTextTargetSchema = v.strictObject({
  * its `aria-label`, else its `placeholder`, the first that is not empty, with whitespace
  * collapsed to single spaces and format characters removed, and at most 120 characters.
  * It names fields only, for a field with no unique `id`, `name`, `data-testid` or
- * `autocomplete` locator but a stable one; hidden inputs never match.
+ * `autocomplete` locator but a stable one; hidden inputs never match. A control is named
+ * by its accessible name with {@link loginAccessibleNameTargetSchema} instead, which is
+ * counted apart, so a button and a field with the same name never make either ambiguous.
  */
 export const loginLabelTargetSchema = v.strictObject({
   by: v.literal("label"),
+  value: loginTextTargetSchema.entries.value,
+});
+/**
+ * A control locator by its accessible name (ADR 0048 amendment of 2026-10-19): the one
+ * shown control whose name equals the value. The name is the rendered text of the
+ * elements its `aria-labelledby` names, else its `aria-label`, the first that is not
+ * empty, with whitespace collapsed to single spaces and format characters removed, and
+ * at most 120 characters. A control is a button or a script button, as a text locator
+ * matches them, or a link to a fragment of its own document that opens in the same tab
+ * and downloads nothing (`<a href="#">`); fields never match. It names only a `password`
+ * handler's button, such as `<a href="#" aria-label="Select Password.">Select</a>` beside
+ * another "Select" for a phone, when no `id`, `name`, `data-testid` or unique text names
+ * it: route steps, the `passkey` route, other handlers, signed-in markers, the rejection
+ * and the account switch never use it.
+ */
+export const loginAccessibleNameTargetSchema = v.strictObject({
+  by: v.literal("accessible-name"),
   value: loginTextTargetSchema.entries.value,
 });
 /** A locator a fill names its field by: an attribute one, or the field's visible name. */
@@ -111,11 +130,15 @@ export const loginFieldTargetSchema = v.variant("by", [
   ...loginAttributeTargetSchema.options,
   loginLabelTargetSchema,
 ]);
-/** An allowlisted element locator; recipes cannot supply CSS, code, URLs or values. */
+/**
+ * An allowlisted element locator; recipes cannot supply CSS, code, URLs or values. A recipe
+ * uses an accessible-name locator only for a `password` handler's button.
+ */
 export const loginTargetSchema = v.variant("by", [
   ...loginAttributeTargetSchema.options,
   loginTextTargetSchema,
   loginLabelTargetSchema,
+  loginAccessibleNameTargetSchema,
 ]);
 /**
  * A signed-in marker's link locator (ADR 0029): the one `<a href>` link to the page's own
@@ -553,6 +576,25 @@ export const loginRecipeSchema = v.pipe(
       ),
     "A password handler's button is a route step target",
   ),
+  // A control named by its accessible name is only ever a `password` handler's button
+  // (ADR 0048 amendment of 2026-10-19), never another element the executor presses or
+  // checks.
+  v.check(
+    (recipe) =>
+      ![
+        ...variantsOf(recipe).flatMap((variant) =>
+          variant.steps.flatMap((step) => (step.kind === "fill" ? [] : [step.target])),
+        ),
+        ...(recipe.passkey ? [recipe.passkey.target] : []),
+        ...(recipe.completion ?? []).flatMap((marker) => [marker.target, ...(marker.absent ?? [])]),
+        ...(recipe.rejection ? [recipe.rejection] : []),
+        ...(recipe.accountSwitch ? [recipe.accountSwitch] : []),
+        ...(recipe.handlers ?? []).flatMap((handler) =>
+          handler.kind === "password" ? [] : handlerTargets(handler),
+        ),
+      ].some((target) => target.by === "accessible-name"),
+    "Only a password handler's button is named by its accessible name",
+  ),
   // The passkey route starts on the start page, beside the password route.
   v.check(
     (recipe) => !recipe.passkey || recipe.passkey.path === recipe.steps[0]!.path,
@@ -597,7 +639,8 @@ export const loginRecipeSchema = v.pipe(
  * submission budget or login route members, reads no vault field and never gains steps.
  * Only an `<a href>` link is to be pressed, which a `text` target names by its rendered
  * text as an `accountSwitch` does; its target is an `id`, `name`, `test-id` or `text`
- * locator, never `autocomplete` or `label`.
+ * locator, never `autocomplete` or `label`, which name only inputs, nor `accessible-name`,
+ * which names only a `password` handler's button.
  *
  * The service generates it for an entry request (`entryGenerationRequestSchema`) and
  * stores it; devices cache it, but nothing sends such a request or presses it yet, it
@@ -611,7 +654,7 @@ export const loginEntryRecipeSchema = v.strictObject({
   entry: v.strictObject({
     path,
     // A link or button locator; `autocomplete` and `label` name only inputs, which are never
-    // pressed.
+    // pressed, and `accessible-name` only a `password` handler's button.
     target: v.variant("by", [
       loginAttributeTargetSchema.options[0],
       loginAttributeTargetSchema.options[1],
@@ -619,7 +662,10 @@ export const loginEntryRecipeSchema = v.strictObject({
     ]),
   }),
 });
-/** A list control's locator: never `autocomplete` or `label`, which name only inputs. */
+/**
+ * A list control's locator: never `autocomplete` or `label`, which name only inputs, nor
+ * `accessible-name`, which names only a `password` handler's button.
+ */
 const chooserTargetSchema = v.variant("by", [
   loginAttributeTargetSchema.options[0],
   loginAttributeTargetSchema.options[1],
@@ -759,6 +805,15 @@ export type LoginMarkerTarget = v.InferOutput<typeof loginMarkerTargetSchema>;
 /** Whether a locator may name a step's or a handler's element: any but a link's path. */
 export const isLoginTarget = (target: LoginMarkerTarget): target is LoginTarget =>
   target.by !== "href";
+/**
+ * Whether a locator may name a route step's element, or a handler's other than a
+ * `password` handler's button: neither a link's path (ADR 0029) nor an accessible name
+ * (ADR 0048 amendment of 2026-10-19).
+ */
+export const isStepTarget = (
+  target: LoginMarkerTarget,
+): target is Exclude<LoginTarget, { by: "accessible-name" }> =>
+  target.by !== "href" && target.by !== "accessible-name";
 /** Whether two locators name the same element. */
 export const sameLoginTarget = (left: LoginMarkerTarget, right: LoginMarkerTarget) =>
   left.by === right.by && left.value === right.value;

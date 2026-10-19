@@ -1,9 +1,20 @@
-import { namesPasswordChoice, type LoginMarkerTarget } from "@pateat/contracts";
+import {
+  namesPasswordChoice,
+  namesPasswordControl,
+  type LoginMarkerTarget,
+} from "@pateat/contracts";
 import type { TargetRequirement, TargetState } from "../login/wire";
 import { presence } from "../observation/extract";
 import { visible } from "./code-submission";
 import { findTargets } from "./targets";
-import { buttonText, isButton, isScriptButton } from "./text";
+import {
+  controlContent,
+  controlName,
+  controlText,
+  isButton,
+  isFragmentButton,
+  isScriptButton,
+} from "./text";
 
 /** An input of a kind Pateat fills, whether or not it is shown or can be written now. */
 function textInput(element: Element | undefined): element is HTMLInputElement {
@@ -18,30 +29,59 @@ function textInput(element: Element | undefined): element is HTMLInputElement {
 export function writable(element: Element | undefined): element is HTMLInputElement {
   return textInput(element) && visible(element) && !element.disabled && !element.readOnly;
 }
-/** A shown enabled button, or a shown script button that is not `aria-disabled`. */
-export function clickable(element: Element | undefined): element is HTMLElement {
+/**
+ * A shown enabled button, or a shown script button that is not `aria-disabled`; with
+ * `fragment`, which a target named by its accessible name sets, also such a link to a
+ * fragment of its own document ({@link isFragmentButton}, ADR 0048 amendment of
+ * 2026-10-19).
+ */
+export function clickable(
+  element: Element | undefined,
+  { fragment = false }: { fragment?: boolean } = {},
+): element is HTMLElement {
   if (element === undefined) return false;
   if (isButton(element)) return visible(element) && !element.disabled;
   return (
     element instanceof HTMLElement &&
-    isScriptButton(element) &&
+    (isScriptButton(element) || (fragment && isFragmentButton(element))) &&
     visible(element) &&
     element.getAttribute("aria-disabled") !== "true"
   );
 }
-/** A shown button whose text names the password as the way to confirm the sign-in. */
-export function passwordChoice(element: Element | undefined): boolean {
-  const text = element instanceof HTMLElement && visible(element) ? buttonText(element) : undefined;
+/**
+ * A shown control that names the password as the way to confirm the sign-in (ADR 0048):
+ * a button or a script button, or with `fragment` as {@link clickable} takes it a link to a
+ * fragment of its own document, whose accessible name and all the text it holds
+ * ({@link controlContent}, hidden text too) pass `namesPasswordControl` (its 2026-10-19
+ * amendment), so a text too long to read in full refuses it. Without an accessible name,
+ * its visible text must name the password itself (`namesPasswordChoice`).
+ */
+export function passwordChoice(
+  element: Element | undefined,
+  { fragment = false }: { fragment?: boolean } = {},
+): boolean {
+  if (
+    !(element instanceof HTMLElement) ||
+    !visible(element) ||
+    !(isButton(element) || isScriptButton(element) || (fragment && isFragmentButton(element)))
+  )
+    return false;
+  const name = controlName(element);
+  if (name !== undefined) return namesPasswordControl(name, controlContent(element));
+  const text = controlText(element);
   return text !== undefined && namesPasswordChoice(text);
 }
+/** Whether a target names its element by its accessible name, which a fragment link may be. */
+const byName = (target: LoginMarkerTarget) => target.by === "accessible-name";
 /**
  * One target's state in `document`: `unique` when it matches one element that is what
  * `require` asks for (a shown writable input, a shown enabled button, any shown element, an
  * input of a kind Pateat fills, or such an input shown; with `described-writable` or
  * `described-clickable`, a writable input or a clickable button that is also visible as the
- * page's description reads it; with `password-choice`, a shown button whose rendered text
- * names the password choice, ADR 0048); without it, or with `present`, any one element
- * counts.
+ * page's description reads it; with `password-choice`, a shown control that names the
+ * password choice, {@link passwordChoice}, ADR 0048); without
+ * it, or with `present`, any one element counts. A target named by its accessible name may
+ * be a link to a fragment of its own document, which counts as clickable.
  */
 export function targetState(
   document: Document,
@@ -56,14 +96,15 @@ export function targetState(
   // Not hidden from assistive technology, transparent (unless fading in), tiny or moved
   // before the page's start, as a password input an email form keeps for the browser.
   const described = () => element instanceof HTMLElement && presence(element) === "visible";
+  const fragment = byName(target);
   return (require === "writable" && !writable(element)) ||
-    (require === "clickable" && !clickable(element)) ||
+    (require === "clickable" && !clickable(element, { fragment })) ||
     (require === "described-writable" && !(writable(element) && described())) ||
-    (require === "described-clickable" && !(clickable(element) && described())) ||
+    (require === "described-clickable" && !(clickable(element, { fragment }) && described())) ||
     (require === "shown" && !shown) ||
     (require === "input" && !textInput(element)) ||
     (require === "shown-input" && !(textInput(element) && shown)) ||
-    (require === "password-choice" && !passwordChoice(element))
+    (require === "password-choice" && !passwordChoice(element, { fragment }))
     ? "unusable"
     : "unique";
 }

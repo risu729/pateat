@@ -75,6 +75,11 @@ describe("observation contract", () => {
     expect(parse({ ...base, candidates: [{ ...candidate, target: name }, button] })).toBe(true);
     expect(parse({ ...base, candidates: [candidate, { ...button, target: name }] })).toBe(false);
     expect(parse({ ...base, candidates: [candidate, { ...link, target: name }] })).toBe(false);
+    // An accessible name names a button only (ADR 0048 amendment of 2026-10-19).
+    const named = { by: "accessible-name", value: "Select Password." };
+    expect(parse({ ...base, candidates: [candidate, { ...button, target: named }] })).toBe(true);
+    expect(parse({ ...base, candidates: [candidate, { ...link, target: named }] })).toBe(false);
+    expect(parse({ ...base, candidates: [{ ...candidate, target: named }, button] })).toBe(false);
     expect(parse({ ...base, path: "/login?next=/" })).toBe(false);
     expect(parse({ ...base, origin: "https://shop.example.test/login" })).toBe(false);
     expect(parse({ ...base, html: "<form></form>" })).toBe(false);

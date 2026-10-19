@@ -113,7 +113,8 @@ export const observedAutocompleteTokens = [
 export const observedCandidateSchema = v.strictObject({
   id: identifier,
   role: candidateRoleSchema,
-  // A link may be named by its path (`href`) on a signed-in page, as a marker only.
+  // A link may be named by its path (`href`) on a signed-in page, as a marker only, and a
+  // button by its accessible name there, as a `password` handler's button only.
   target: loginMarkerTargetSchema,
   label: v.optional(observedText),
   placeholder: v.optional(observedText),
@@ -250,6 +251,15 @@ export const loginObservationSchema = v.pipe(
           (fillRoles as readonly string[]).includes(role),
       ),
     "Autocomplete and label locators apply only to fields",
+  ),
+  // Only a signed-in page's description offers one, for a button that may go on to the
+  // password (ADR 0048 amendment of 2026-10-19).
+  v.check(
+    (observation) =>
+      observation.candidates.every(
+        ({ role, target }) => target.by !== "accessible-name" || role === "button",
+      ),
+    "Accessible-name locators apply only to buttons",
   ),
 );
 

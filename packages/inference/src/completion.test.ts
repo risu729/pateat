@@ -339,6 +339,77 @@ describe("password button on a page that asks how to verify (ADR 0048)", () => {
     expect(completionInstructions).toMatch(
       /Nor is it a button that uses the device's biometrics or platform sign-in, such as Touch ID, Face ID, a fingerprint or Windows Hello, even one whose label also names the password\./u,
     );
+    // A button that shows only "Select" is told apart by its accessible name (ADR 0048
+    // amendment of 2026-10-19).
+    expect(completionInstructions).toMatch(
+      /A button by accessible-name may show only neutral text, such as Select; judge it by that name\./u,
+    );
+  });
+
+  describe("named by its accessible name (ADR 0048 amendment of 2026-10-19)", () => {
+    // Two buttons that both show "Select", told apart by their accessible names; the one
+    // with a phone number was never offered.
+    const select = {
+      id: "select",
+      role: "button",
+      target: { by: "accessible-name", value: "Select Password." },
+      label: "Select Password.",
+      group: "f1",
+    };
+    const named = {
+      ...request,
+      observation: {
+        ...choice,
+        nearButtons: ["Password", "Mobile"],
+        candidates: [select, choice.candidates[2]],
+      },
+    };
+
+    it("keeps it as the password button", async () => {
+      expect(
+        await judgeReturning({ decision: "challenge", passwordButton: "select" }).judge(named),
+      ).toEqual(
+        expect.objectContaining({
+          status: "ok",
+          value: { decision: "challenge", password: select.target },
+        }),
+      );
+    });
+
+    it("drops it as a passkey button or a code's submit button", async () => {
+      const passkey = await judgeReturning({
+        decision: "challenge",
+        passkeyButton: "select",
+      }).judge(named);
+      expect(passkey).toMatchObject({ status: "ok", value: { decision: "challenge" } });
+      expect(passkey.status === "ok" && "passkey" in passkey.value).toBe(false);
+      const code = {
+        id: "code",
+        role: "text",
+        target: { by: "id", value: "otp" },
+        autocomplete: "one-time-code",
+        group: "f1",
+      };
+      const withCode = {
+        ...named,
+        observation: {
+          ...named.observation,
+          nearButtons: undefined,
+          candidates: [code, select],
+        },
+      };
+      expect(
+        await judgeReturning({
+          decision: "challenge",
+          code: { field: "code", submit: "select", source: "authenticator-app" },
+        }).judge(withCode),
+      ).toEqual(
+        expect.objectContaining({
+          status: "ok",
+          value: { decision: "challenge", totpDropped: "name-locator" },
+        }),
+      );
+    });
   });
 });
 
