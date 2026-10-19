@@ -203,6 +203,7 @@ describe("read-only provider requests", () => {
       "profile",
       "refreshToken",
       "revisionDate",
+      "sendEmailLoginCode",
       "sync",
     ]);
   });

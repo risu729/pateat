@@ -13,16 +13,18 @@ const code = v.pipe(v.string(), v.minLength(1), v.maxLength(1024));
 function authenticationHash(value: string) {
   return decodeBase64(value)?.length === 32;
 }
+const masterPasswordHash = v.pipe(
+  v.string(),
+  v.regex(/^[A-Za-z0-9+/]{43}=$/),
+  v.check(authenticationHash),
+);
+const deviceIdentifier = v.pipe(v.string(), v.uuid());
 export const passwordTokenRequestSchema = v.strictObject({
   connectionId,
   email: bitwardenEmail,
-  masterPasswordHash: v.pipe(
-    v.string(),
-    v.regex(/^[A-Za-z0-9+/]{43}=$/),
-    v.check(authenticationHash),
-  ),
+  masterPasswordHash,
   device: v.strictObject({
-    identifier: v.pipe(v.string(), v.uuid()),
+    identifier: deviceIdentifier,
     name: v.pipe(
       v.string(),
       v.minLength(1),
@@ -41,6 +43,13 @@ export const passwordTokenRequestSchema = v.strictObject({
   newDeviceOtp: v.optional(code),
 });
 export const refreshTokenRequestSchema = v.strictObject({ connectionId, refreshToken: token });
+/** The same hash the password grant sent, for the same server's email code send only. */
+export const emailLoginCodeRequestSchema = v.strictObject({
+  connectionId,
+  email: bitwardenEmail,
+  masterPasswordHash,
+  deviceIdentifier,
+});
 
 const record = v.pipe(
   v.custom<Record<string, unknown>>(
@@ -321,4 +330,27 @@ export function parseRefreshTokenOutcome(
     kind: "rejected",
     reason: body.output["error"] === "invalid_grant" ? "refresh" : "other",
   };
+}
+
+/** What `POST {api}/two-factor/send-email-login` answered. The answer carries no code. */
+export type EmailLoginCodeOutcome =
+  | { kind: "sent" }
+  | { kind: "rate-limited" }
+  /** Vaultwarden without mail settings: `Email 2FA is disabled`. */
+  | { kind: "unavailable" }
+  /** Any other refusal. The official server delays and words every refusal alike. */
+  | { kind: "refused" };
+export function parseEmailLoginCodeOutcome(
+  input: unknown,
+  status: number,
+): EmailLoginCodeOutcome | undefined {
+  if (status === 200) return { kind: "sent" };
+  if (status === 429) return { kind: "rate-limited" };
+  if (status !== 400) return undefined;
+  const body = v.safeParse(record, input);
+  if (!body.success) return undefined;
+  // Vaultwarden email.rs L44: https://github.com/dani-garcia/vaultwarden/blob/7c188967e7a467b19b2757bc3326f9cf3ccae327/src/api/core/two_factor/email.rs#L43-L45
+  return body.output["object"] === "error" && body.output["message"] === "Email 2FA is disabled"
+    ? { kind: "unavailable" }
+    : { kind: "refused" };
 }

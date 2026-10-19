@@ -36,9 +36,9 @@ installed-Chrome checks moved to [phase 2](#phase-2-use-it-and-fix-what-comes-up
 Vaultwarden support is done now, outside the phases, and covers only the latest
 Vaultwarden release (owner, 2026-10-19 22:14 UTC,
 [ADR 0059](adr/0059-latest-vaultwarden-server.md)). Done: item keys Pateat does not read
-are ignored, Vaultwarden's wrong-password and wrong-code answers are shown as such, and
-`http://` server roots are accepted for `localhost` and `127.0.0.1` (local tests). To
-do: sending email two-step codes as the official extension does, and a Vaultwarden test
+are ignored; Vaultwarden's wrong-password and wrong-code answers are shown as such;
+`http://` server roots are accepted for `localhost` and `127.0.0.1`; and email two-step
+codes are sent as the official extension does (local tests). To do: a Vaultwarden test
 server in CI.
 
 ### Phase 1: usable
@@ -1416,16 +1416,16 @@ had stopped with `invalid-response` because `kdfSettings` was required. With thi
 change, real-account setup on Cloud US succeeded at main `f7d3cf5` on 2026-10-11
 ([passkey evidence](#passkey-progress)).
 
-The transport supports explicit manual authenticator/email codes and new-device
-OTP submission as request shapes. Challenge, rejection and interactive/unsupported
-results are distinguished without returning raw server messages or challenge
-URLs. No method is claimed compatible with a real account from synthetic HTTP
-tests. Settings integration, code-delivery initiation, interactive providers,
-token persistence and authoritative account/cache reconciliation remain separate
-gates; an authenticated transport result does not mean an unlocked vault.
-The transport uses the explicit read-protocol profile described in the
-[architecture](architecture.md#vault-adapter). Header acceptance alone does not
-prove real-account compatibility or complete sync coverage.
+The transport supports explicit manual authenticator/email codes and new-device OTP
+submission as request shapes. Challenge, rejection and interactive/unsupported results
+are distinguished without returning raw server messages or challenge URLs. No method is
+claimed compatible with a real account from synthetic HTTP tests. The settings page asks
+the server to email a code when email is the chosen method (ADR 0059). Interactive
+providers, token persistence and authoritative account/cache reconciliation remain
+separate gates; an authenticated transport result does not mean an unlocked vault. The
+transport uses the explicit read-protocol profile described in the
+[architecture](architecture.md#vault-adapter). Header acceptance alone does not prove
+real-account compatibility or complete sync coverage.
 
 ## Account mapping progress
 
