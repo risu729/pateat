@@ -70,6 +70,16 @@ implemented): a later step a login may start at releases a watched login as its 
 step does, and the start page's `passkey` button is not offered to a login that starts
 at a later step.
 
+Amended on 2026-10-18 by the owner (decision card
+「カスタムフィールドのスロット名を、LLM ではなくページの欄の名前から作りますか?」,
+answer 「進める」, 08:58:31 UTC): a custom-field slot is named from the page's text for
+its field, not by the model
+([slot names from the page](#amendment-2026-10-18-slot-names-from-the-page)), which
+replaces the model's names in
+[Custom fields in generation](#custom-fields-in-generation), "Generic IDs" and the
+alternatives' slot names under "Generation" in
+[Implementation choices](#implementation-choices); implemented.
+
 Date: 2026-10-11
 
 ## Context
@@ -423,8 +433,9 @@ new owner decision:
   (`inconsistent-candidate`) rather than being stored as two variants, so an ambiguous
   mapping is never hedged. More than 3 alternatives fail the response format, and plan
   validation also refuses them (`too-many-variants`). On a continuation (a request with
-  `base`), the service drops the answer's valid alternatives before assembly; an answer
-  whose alternatives fail validation still fails the call. The prompt does not mention
+  `base`) or a chooser branch's page, plan validation drops the answer's valid
+  alternatives (`startPage` false), so they name no slot; an answer whose alternatives
+  fail validation still fails the call. The prompt does not mention
   continuations. A recipe with alternatives is
   never continued. A generation answer maps the custom slots of every variant, up to 16.
 - **Passkey route shape.** A recipe's `passkey` route is an optional
@@ -503,7 +514,7 @@ new owner decision:
   check keeps a mislabelled "Sign in with Google" or SSO button from becoming a passkey
   click outside ADR 0026; it is a shared helper the judge's `passkey` handler check does
   not use yet. A button that fails these checks is dropped silently and does not fail
-  the answer. On a continuation the service ignores it. The service stores it as the
+  the answer. On a continuation plan validation drops it. The service stores it as the
   recipe's `passkey` route on the first page, and the request log records the kept
   button. The corpus case `ja-myjcb` expects its passkey sign-in button, and the
   evaluation reports passkey buttons as a separate count (expected, correct, missed,
@@ -941,3 +952,61 @@ npmjs.com or MyJCB where it applies:
    several routes.
 4. The `totp` handler.
 5. The `sso` route, implementing ADR 0026.
+
+## Amendment 2026-10-18: slot names from the page
+
+The owner asked at 07:29 UTC whether the slot names could come from the page's fields
+instead of the model, and at 07:54 UTC asked for no limit on words or length, for
+Japanese names to stay Japanese, and for names that say which field they are, not
+`field-one`. The proposal that followed was reviewed by an independent subagent against
+the code and accepted at 08:58:31 UTC ("進める").
+
+- **The model maps, the service names.** The generation answer has no `name`; it maps
+  request slots to candidates only. Plan validation (`customSlotNames`, run in
+  `validateGeneratedSets` over the identifier sets the recipe keeps: every set on a
+  start page, the first alone on any other) names each custom-field slot from its
+  element's text, the first that gives a name: the label (which already holds the
+  `<label>`, `aria-label`, the text before the field up to three levels up and the
+  `title`), the placeholder, the `aria-describedby` description, then the `id`, `name`
+  or test ID locator value. A field with none is `欄 N`, or `field N` on an English
+  page, N counting the page's fill fields without a name from the top.
+- **Skipped text.** Text holding a redaction mark (`[number]`, `[email]`, `[masked]`,
+  `[account]`) or a number anywhere, even past the 60-character cut, is skipped, as the
+  label locator skips it (ADR 0037), so a value a later page shows back never becomes a
+  name.
+- **Form.** Text is taken in NFKC without default-ignorable (invisible) characters, with
+  whitespace collapsed to single spaces and trimmed; a trailing copy of the placeholder
+  or description is dropped from the label (`店番 半角数字3桁` → `店番`), and a label
+  left empty falls to the next source. Case and language are kept, and a name has at
+  most 60 characters. The recipe slot ID schema takes 1 to 60 NFKC characters without
+  control, format or default-ignorable characters, words apart by single spaces;
+  built-in slot names stay as they are, and login identifiers stay ASCII.
+- **Equal names.** Names are compared without case. One equal to `username`, `password`,
+  `totp`, a request slot ID or an earlier name of the page takes a number after a space
+  (`店番 2`, `店番 3`), in page order rather than the answer's, so an unchanged page
+  always gives the same names. A slot that fills different elements in different sets
+  takes the name of its element in the first set that fills it. A continuation page's
+  name equal to a slot of the recipe it continues still fails `recipe-invalid` and is
+  not numbered: a form shown again after an error would otherwise become a next page
+  that fills the same field again (ADR 0018).
+- **Other roles.** The finite-choice decision role and the benchmark heuristic name
+  custom slots the same way, so they answer on pages that need one. The request log's
+  refused plans no longer carry names to reduce to `name-N` (ADR 0012).
+
+The agent's choices, not confirmed by the owner: a `mixed`-language page gets `欄 N`; a
+trailing copy is kept when it would split a Latin word or number (`word` in `Keyword`);
+format characters are refused as in observed text, and default-ignorable ones are also
+refused and stripped from page text; the continuation's comparison ignores case; a role
+that checks one set names it alone; a page after the start page names its slots from the
+first set alone, since its alternatives are dropped and a name such as `番号 2` must not
+be stored without the `番号` it was numbered apart from; and an accepted plan's logged
+`result` keeps the names it got.
+
+Consequences: a recipe now stores more page text than the label locator does, such as
+"Enter your Security number" or a display name a label shows (ADR 0037), and the
+review before recipes are shared covers slot names too (ADR 0013). A name follows the
+page's wording, so a recipe generated again after a wording change may rename a slot,
+and a saved binding then no longer covers the recipe (`binding-slots-mismatch`) until it
+is removed in `/manage`. A name in another script that looks like a built-in one
+(Cyrillic `раssword`) passes the check; it only reads confusingly. The names the five
+active production recipes already have stay valid.

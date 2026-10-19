@@ -2198,31 +2198,36 @@ never shows, which only the judge is told to refuse. Nothing enforces the rest. 
 are per owner today; before recipes are shared between users, such locators need a
 review.
 
-Site recipes contain meanings such as branch-number/account-number/password. Keep
+Site recipes contain slots such as `店番号`, `口座番号` and `password`. Keep
 account-specific bindings separate from recipes. They are stored in the synced settings
 document as references, never credential values, and resolved to values locally. AI
 input may name the allowed vault fields but never carries bindings, item or account IDs
-([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). The generation role names
-each custom-field slot it uses with a generic ID in lowercase words (`branch-number`;
-not `username`, `password`, `totp` or a requested slot ID), the recipe stores only that
-ID, and the service answers with `customSlots`, which maps each such ID to the offered
-slot. The extension keeps that mapping as the field names it offered, per service,
-device and recipe, in `chrome.storage.local`. An item without a saved binding then binds
-from another item's saved binding of the recipe, else from that map, and the binding is
-saved after `authenticated` as for built-in slots
-([ADR 0027](adr/0027-per-account-login-routes.md#implementation-choices)). When a
-start page shows several identifier sets at once (branch and account numbers, or a
-contract number), the generation role may also return up to 3 alternative sets, each
-with its own fields and submit action; they become the further variants of the recipe's
-`password` route. An element is filled under one slot name in every set and no two sets
-fill the same slots or elements; an answer that hedges an ambiguous mapping that way
-fails as invalid output. The role may also name the start page's passkey sign-in button,
-never one that registers a passkey; the service stores it as the recipe's `passkey`
-route only when its label or locator names a passkey or security key, and drops a
-button that fails its checks without failing the answer. A `hidden`
-slot is filled only into an input the Hidden rule of ADR 0013 accepts; the decision role
-and the heuristic name no custom slot, so they abstain on pages that need one. Signing
-in to a site through Google or Microsoft follows the policy in
+([ADR 0013](adr/0013-service-held-recipes-and-settings.md)). The generation role only
+maps slots to elements; plan validation names each custom-field slot it uses from the
+page's text for that element (`customSlotNames`): its label, else its placeholder, its
+description or its `id`, `name` or test ID, skipping text that holds a redaction mark or
+a number, else `欄 N` (`field N` on an English page). Names are NFKC, at most 60
+characters and kept in their case and language. Compared without case, a name equal to
+a built-in slot, a request slot ID or an earlier name of the page takes a number after a
+space, in page order (`店番号 2`)
+([ADR 0027](adr/0027-per-account-login-routes.md#amendment-2026-10-18-slot-names-from-the-page)).
+The recipe stores only that name, and the service answers with `customSlots`, which maps
+each such name to the offered slot. The extension keeps that mapping as the field names
+it offered, per service, device and recipe, in `chrome.storage.local`. An item without a
+saved binding then binds from another item's saved binding of the recipe, else from that
+map, and the binding is saved after `authenticated` as for built-in slots
+([ADR 0027](adr/0027-per-account-login-routes.md#implementation-choices)). When a start
+page shows several identifier sets at once (branch and account numbers, or a contract
+number), the generation role may also return up to 3 alternative sets, each with its own
+fields and submit action; they become the further variants of the recipe's `password`
+route. An element is filled under one slot name in every set and no two sets fill the
+same slots or elements; an answer that hedges an ambiguous mapping that way fails as
+invalid output. The role may also name the start page's passkey sign-in button, never
+one that registers a passkey; the service stores it as the recipe's `passkey` route only
+when its label or locator names a passkey or security key, and drops a button that fails
+its checks without failing the answer. A `hidden` slot is filled only into an input the
+Hidden rule of ADR 0013 accepts; the decision role and the heuristic name custom slots
+the same way. Signing in to a site through Google or Microsoft follows the policy in
 [ADR 0026](adr/0026-sign-in-through-identity-providers.md) (not implemented).
 
 Split inference into independently configured recipe generation/repair and

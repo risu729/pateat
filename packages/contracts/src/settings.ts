@@ -65,6 +65,21 @@ const recipeIdSchema = v.pipe(
   v.maxLength(120),
   v.regex(/^[a-zA-Z0-9_.:-]+$/),
 );
+/**
+ * A recipe slot ID: a built-in slot (`username`, `password`, `totp`) or a custom-field
+ * slot named from the page's text for its field, such as `店番号` (ADR 0027). 1 to 60
+ * characters in NFKC, without control, format, default-ignorable (invisible) or line and
+ * paragraph separator characters, with words apart by single spaces and none at either end.
+ */
+export const recipeSlotIdSchema = v.pipe(
+  v.string(),
+  v.minLength(1),
+  v.maxLength(60),
+  v.regex(
+    /^[^\s\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}]+(?: [^\s\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}]+)*$/u,
+  ),
+  v.check((value) => value.normalize("NFKC") === value, "Use NFKC text"),
+);
 const vaultNameSchema = v.pipe(v.string(), v.minLength(1), v.maxLength(200));
 /**
  * A vault field named the same way on every device (ADR 0013). Custom fields are named;
@@ -100,7 +115,7 @@ export const savedLoginBindingSchema = v.strictObject({
    */
   accountName: v.optional(vaultNameSchema),
   slots: v.pipe(
-    v.array(v.strictObject({ slot: recipeIdSchema, field: vaultFieldReferenceSchema })),
+    v.array(v.strictObject({ slot: recipeSlotIdSchema, field: vaultFieldReferenceSchema })),
     v.minLength(1),
     v.maxLength(20),
     v.check(

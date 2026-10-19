@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { evaluationCorpus, expectedFields, type EvaluationCase } from "./corpus/cases";
 import { japanesePageCorpus } from "./corpus/real";
-import { customSlotNames } from "./corpus/slots";
 import { evaluateRole, judge } from "./evaluate";
 import type { InferenceOutcome } from "./outcome";
 import { isActionRole, slotFitsRole, validatePagePlan, type ValidatedPagePlan } from "./plan";
@@ -17,8 +16,7 @@ function firstMatch(entry: EvaluationCase): InferenceOutcome<ValidatedPagePlan> 
     );
     if (candidate === undefined) return [];
     used.add(candidate.id);
-    const name = customSlotNames[slot.id];
-    return [{ slot: slot.id, candidate: candidate.id, ...(name ? { name } : {}) }];
+    return [{ slot: slot.id, candidate: candidate.id }];
   });
   const action = entry.observation.candidates.find((item) => isActionRole(item.role));
   const result = validatePagePlan(entry.observation, entry.slots, {

@@ -1291,12 +1291,12 @@ describe("generated slot maps (ADR 0027)", () => {
     ],
   };
   const customSlots = [
-    { slot: "branch-number", offered: "custom-1" },
-    { slot: "pin-code", offered: "custom-2" },
+    { slot: "店番号", offered: "custom-1" },
+    { slot: "暗証番号", offered: "custom-2" },
   ];
   const mapped = [
-    { slot: "branch-number", field: { custom: "Branch number" } },
-    { slot: "pin-code", field: { custom: "PIN", position: 2, count: 2 } },
+    { slot: "店番号", field: { custom: "Branch number" } },
+    { slot: "暗証番号", field: { custom: "PIN", position: 2, count: 2 } },
   ];
   const recipeId = recipeChange.recipeId;
   const idOf = (index: number) => `gen-${index.toString(16).padStart(32, "0")}`;
@@ -1415,14 +1415,14 @@ describe("generated slot maps (ADR 0027)", () => {
     expect(await h.generation.slotFields(recipeId)).toBeUndefined();
     const own = slotSetup({ stored: { version: 1, maps: [entry(connection.deviceId)] } });
     expect(await own.generation.slotFields(recipeId)).toEqual(mapped);
-    // An unreadable record counts as no maps.
+    // An unreadable record counts as no maps: a built-in slot is never a custom slot.
     const broken = slotSetup({
       stored: {
         version: 1,
         maps: [
           {
             ...entry(connection.deviceId),
-            slots: [{ slot: "Branch number", field: { custom: "Branch number" } }],
+            slots: [{ slot: "Password", field: { custom: "Branch number" } }],
           },
         ],
       },
@@ -1431,7 +1431,7 @@ describe("generated slot maps (ADR 0027)", () => {
   });
 
   it.each([
-    ["an unknown request slot", [{ slot: "branch-number", offered: "custom-9" }]],
+    ["an unknown request slot", [{ slot: "店番号", offered: "custom-9" }]],
     ["a built-in slot", [...customSlots, { slot: "secret-word", offered: "password" }]],
     ["no custom slot", []],
   ])("writes nothing for a mapping that names %s", async (_label, mapping) => {
@@ -1478,7 +1478,7 @@ describe("generated slot maps (ADR 0027)", () => {
     expect(after.filter((entry) => entry.recipeId === recipeId)).toHaveLength(1);
   });
 
-  // Page 1 of a recipe mapped `branch-number`; its continuation maps only page 2's slot.
+  // Page 1 of a recipe mapped `店番号`; its continuation maps only page 2's slot.
   const ownMap = (id: string, slots: { slot: string; field: { custom: string } }[]) => ({
     service: connection.origin,
     deviceId: connection.deviceId,
@@ -1491,7 +1491,7 @@ describe("generated slot maps (ADR 0027)", () => {
     recipe: {
       ...recipeChange.recipe,
       revision: 2,
-      slots: ["password", "branch-number", "pin-code"],
+      slots: ["password", "店番号", "暗証番号"],
     },
   };
   const continuation = { ...offered, base: { recipeId, revision: 1 } };
@@ -1517,15 +1517,15 @@ describe("generated slot maps (ADR 0027)", () => {
         revision: 2,
         alternatives: [
           {
-            slots: ["branch-number", "pin-code"],
+            slots: ["店番号", "暗証番号"],
             steps: [
               {
                 kind: "fill" as const,
                 path: "/login",
                 effect: "prepare" as const,
                 fields: [
-                  { slot: "branch-number", target: { by: "id" as const, value: "branch" } },
-                  { slot: "pin-code", target: { by: "id" as const, value: "pin" } },
+                  { slot: "店番号", target: { by: "id" as const, value: "branch" } },
+                  { slot: "暗証番号", target: { by: "id" as const, value: "pin" } },
                 ],
               },
               {

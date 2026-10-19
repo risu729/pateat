@@ -2264,8 +2264,9 @@ filling. Automatic generation sends the username's shape when every matching ite
 ([ADR 0016](adr/0016-recipe-generation-trigger.md#username-shape)), and custom fields as
 `fieldName` offers, with `fieldPosition` for duplicate names and Text shapes under the
 same rule ([ADR 0027](adr/0027-per-account-login-routes.md)). Their opaque request IDs
-(`custom-1`) carry no meaning; the corpus's bank cases send theirs the same way, and the
-model names each one it uses with a generic recipe slot ID. `valueShapeOf`
+(`custom-1`) carry no meaning; the corpus's bank cases send theirs the same way, and
+plan validation names each one a plan uses from the page's text for its field
+(`customSlotNames`, ADR 0027 amended on 2026-10-18). `valueShapeOf`
 (`packages/contracts/src/values.ts`) takes `{ source: "username" | "text", value }`, so
 a caller must resolve Linked fields and never pass Hidden, password or TOTP values.
 
@@ -2379,8 +2380,9 @@ Remaining M4 AI work:
   2026-10-11: custom-field names and Text shapes in generation, page handlers for a
   security key and TOTP learned by the judge, start-page routes (password variants,
   passkey, SSO), in the PR order the ADR lists. Delivery 1 is implemented: custom-field
-  offers (Text, Hidden and Linked, by name and position) with Text shapes, generic slot
-  IDs named by the model and returned as `customSlots`, the device-local generated slot
+  offers (Text, Hidden and Linked, by name and position) with Text shapes, slot IDs
+  returned as `customSlots` (named by the model until 2026-10-18, since then from the
+  page's text for the field), the device-local generated slot
   map, bindings built from another item's saved binding or that map, and the `hidden`
   slot kind. Unit, service and extension runtime tests cover it with synthetic data; no
   paid generation call and no real-account login has used it yet, and its check on SMBC
@@ -2583,6 +2585,25 @@ branch):
 The two failed synthetic cases are `ja-bank-branch-account` and
 `ja-bank-unlabeled-lengths`, which were false submits before.
 
+Since custom-field slots are named from the page (ADR 0027, amended 2026-10-18), the
+heuristic's plans on those pages pass validation. It puts the request's first
+identifier slot, here the branch number, into a username-hinted field or else the
+identifier-like field nearest before the password, which on these pages is another
+field. On main `4d4f5d7` the same five cases (the three synthetic bank cases below,
+`ja-smbc-direct` and `ja-paypay-bank`) failed as `missing-slot-name`, so the plans are
+unchanged and only the outcome moved from failed to false submit; accuracy is the same.
+The heuristic is a benchmark baseline only, with no production path. Measured on
+2026-10-18 on the change that made it, with the synthetic corpus at 17 cases:
+
+| Corpus | Correct | Correct abstentions | Missed | False submits | Failed | Semantic accuracy |
+| --- | --- | --- | --- | --- | --- | --- |
+| Real pages (131) | 109 | 14 | 1 | 7 | 0 | 0.939 |
+| Synthetic (17) | 7 | 2 | 2 | 6 | 0 | 0.529 |
+
+The synthetic false submits are now the three bank cases (`ja-bank-branch-account`,
+`ja-bank-unlabeled-lengths`, `ja-bank-two-identifier-sets`), `ja-password-step`,
+`en-label-injection` and `en-sso-alternative`.
+
 The owner approved the Claude baseline on this corpus on 2026-10-11, to run about five
 cases at a time with fixes between batches, once the MyJCB generation fix (#206) was in.
 It first ran on main `c409d0a` in 19 batches of five and scored 95/95 ($0.808). After
@@ -2645,7 +2666,9 @@ The heuristic scored 3 of 6 with 2 false submits. Claude (`claude-opus-5-5`, eff
 
 After the re-keying (2026-10-11, `1ddf138`) the heuristic scores 3 correct, 1 missed
 (Mizuho Direct), 0 false submits and 2 failed with `missing-slot-name` (`ja-smbc-direct`
-and `ja-paypay-bank`), accuracy 0.5. The Claude results on this corpus and on the
+and `ja-paypay-bank`), accuracy 0.5. Since slot names come from the page (2026-10-18)
+those two are false submits again, as in the table above: 3 correct, 1 missed, 2 false
+submits, accuracy 0.5. The Claude results on this corpus and on the
 synthetic corpus were measured with the old descriptive slot IDs; a Claude rerun on the
 bank cases is a paid run and needs the owner's approval.
 

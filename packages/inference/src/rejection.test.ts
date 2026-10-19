@@ -70,11 +70,7 @@ const generate = (text: string) =>
   })({ observation, slots });
 const answer = (result: Record<string, unknown>) =>
   generate(JSON.stringify({ result: { decision: "plan", ...result } }));
-const field = (slot: string, candidate: string, name?: string) => ({
-  slot,
-  candidate,
-  ...(name === undefined ? {} : { name }),
-});
+const field = (slot: string, candidate: string) => ({ slot, candidate });
 const signIn = { candidate: "c4", purpose: "submit" };
 
 describe("refused generated output", () => {
@@ -99,8 +95,8 @@ describe("refused generated output", () => {
     const others = await Promise.all(
       [
         [field("username", "c1"), field("password", "c2")],
-        [field("username", "c1"), field("custom-1", "c2", "trading-pin")],
-        [field("custom-2", "c1", "email-address"), field("password", "c2")],
+        [field("username", "c1"), field("custom-1", "c2")],
+        [field("custom-2", "c1"), field("password", "c2")],
       ].map((plan) => answer({ fields: plan, action: signIn })),
     );
     for (const other of others) expect(other).toMatchObject({ status: "ok" });
@@ -108,7 +104,7 @@ describe("refused generated output", () => {
 
   it("keeps only references the request holds in a refused plan", async () => {
     const outcome = await answer({
-      fields: [field("username", "c1"), field("custom-1", "c3", "取引暗証番号")],
+      fields: [field("username", "c1"), field("custom-1", "c3")],
       action: { candidate: "ログイン", purpose: "submit" },
       accountSwitch: "c5",
       alternatives: [{ fields: [field("phone", "c6")], action: signIn }],
@@ -118,7 +114,7 @@ describe("refused generated output", () => {
     if (outcome.status !== "failed") throw new Error("expected a failure");
     expect(outcome.output).toEqual({
       result: {
-        fields: [field("username", "c1"), field("custom-1", "c3", "name-1")],
+        fields: [field("username", "c1"), field("custom-1", "c3")],
         action: { candidate: "?", purpose: "submit" },
         accountSwitch: "c5",
         alternatives: [{ fields: [field("?", "c6")], action: signIn }],
@@ -126,46 +122,6 @@ describe("refused generated output", () => {
       },
     });
     expect(JSON.stringify(outcome)).not.toMatch(/取引|ログイン|電話|phone/u);
-  });
-
-  it("replaces each name the model gave by a placeholder, keeping equal names equal", async () => {
-    // Two requested slots under one name, and a name repeated in an alternative.
-    const outcome = await answer({
-      fields: [
-        field("custom-1", "c2", "trading-pin"),
-        field("custom-2", "c1", "trading-pin"),
-        field("username", "c1", "username"),
-      ],
-      action: signIn,
-      alternatives: [
-        {
-          fields: [field("custom-2", "c1", "取引暗証番号"), field("custom-1", "c2", "trading-pin")],
-          action: signIn,
-        },
-      ],
-      passkeyButton: "c6",
-    });
-    if (outcome.status !== "failed") throw new Error("expected a failure");
-    expect(outcome.output).toEqual({
-      result: {
-        fields: [
-          field("custom-1", "c2", "name-1"),
-          field("custom-2", "c1", "name-1"),
-          // A request slot ID is a reference the request holds.
-          field("username", "c1", "username"),
-        ],
-        action: signIn,
-        alternatives: [
-          {
-            fields: [field("custom-2", "c1", "name-2"), field("custom-1", "c2", "name-1")],
-            action: signIn,
-          },
-        ],
-        // A candidate of the request stays, whatever it is.
-        passkeyButton: "c6",
-      },
-    });
-    expect(JSON.stringify(outcome)).not.toMatch(/trading|取引/u);
   });
 
   it.each([
@@ -184,6 +140,18 @@ describe("refused generated output", () => {
         },
       }),
       { check: "schema", issue: "max-length", path: "result.alternatives" },
+    ],
+    [
+      // A custom-field slot is named from the page, never by the model (ADR 0027).
+      "a slot name",
+      JSON.stringify({
+        result: {
+          decision: "plan",
+          fields: [{ ...field("custom-1", "c2"), name: "取引暗証番号" }],
+          action: signIn,
+        },
+      }),
+      { check: "schema", issue: "unknown-key", path: "result.fields.0" },
     ],
     [
       "a key the format does not define",

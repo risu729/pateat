@@ -1,6 +1,7 @@
 import * as v from "valibot";
 import {
   parseSiteUrl,
+  recipeSlotIdSchema,
   resolveSiteAccount,
   type SettingsSnapshot,
   type VaultCatalog,
@@ -157,7 +158,7 @@ export const loginMarkerTargetSchema = v.variant("by", [
   loginLinkTargetSchema,
 ]);
 const fields = v.pipe(
-  v.array(v.strictObject({ slot: identifier, target: loginFieldTargetSchema })),
+  v.array(v.strictObject({ slot: recipeSlotIdSchema, target: loginFieldTargetSchema })),
   v.minLength(1),
   v.maxLength(20),
   v.check((entries) => unique(entries.map((entry) => entry.slot)), "Duplicate fill slots"),
@@ -239,7 +240,7 @@ export const loginHandlerSchema = v.variant("kind", [
 const handlerKey = (handler: v.InferOutput<typeof loginHandlerSchema>) =>
   `${handler.kind} ${handler.path}`;
 const recipeSlotList = v.pipe(
-  v.array(identifier),
+  v.array(recipeSlotIdSchema),
   v.minLength(1),
   v.maxLength(20),
   v.check(unique, "Duplicate recipe slots"),
@@ -743,7 +744,7 @@ export const loginAccountSchema = v.strictObject({
 export const loginAccountBindingSchema = v.strictObject({
   ...loginAccountSchema.entries,
   slots: v.pipe(
-    v.array(v.strictObject({ slot: identifier, fieldId: identifier })),
+    v.array(v.strictObject({ slot: recipeSlotIdSchema, fieldId: identifier })),
     v.maxLength(20),
     v.check((entries) => unique(entries.map((entry) => entry.slot)), "Duplicate binding slots"),
   ),

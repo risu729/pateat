@@ -7,7 +7,7 @@ import {
   type StoredLoginRecipe,
 } from "@pateat/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { describeError, ManageApiError, type ManageClient } from "./api";
 import { Button } from "./button";
 import { formatTime } from "./devices";
@@ -28,14 +28,48 @@ type Step = LoginRecipe["steps"][number];
 
 const describeTarget = (target: LoginMarkerTarget) => `${target.by} "${target.value}"`;
 
-function describeStep(step: Step): string {
+/**
+ * A slot name quoted and isolated, as a name taken from the page's text (ADR 0027) may hold
+ * commas, brackets or right-to-left text, such as `会員番号 (ログインID)`.
+ */
+const slotName = (slot: string) => (
+  <>
+    "<bdi>{slot}</bdi>"
+  </>
+);
+/** Entries joined by commas, each shown by `item`. */
+const joined = <T,>(
+  entries: readonly T[],
+  key: (entry: T) => string,
+  item: (entry: T) => ReactNode,
+) =>
+  entries.map((entry, index) => (
+    <Fragment key={key(entry)}>
+      {index > 0 ? ", " : null}
+      {item(entry)}
+    </Fragment>
+  ));
+const slotNames = (slots: readonly string[]) => joined(slots, (slot) => slot, slotName);
+
+function describeStep(step: Step): ReactNode {
   switch (step.kind) {
     case "fill": {
-      const fields = step.fields
-        .map((field) => `${field.slot} into ${describeTarget(field.target)}`)
-        .join(", ");
+      const fields = joined(
+        step.fields,
+        (field) => field.slot,
+        (field) => (
+          <>
+            {slotName(field.slot)} into {describeTarget(field.target)}
+          </>
+        ),
+      );
       const trigger = step.event ? ` on ${step.event}` : "";
-      return `Fill ${fields} (${step.effect}${trigger})`;
+      return (
+        <>
+          Fill {fields} ({step.effect}
+          {trigger})
+        </>
+      );
     }
     case "click":
       return `Click ${describeTarget(step.target)} to ${step.purpose}`;
@@ -83,7 +117,7 @@ function recipeFacts(recipe: StoredLoginRecipe): {
   }
   return {
     facts: [
-      ["Slots", recipeSlots(recipe).join(", ")],
+      ["Slots", slotNames(recipeSlots(recipe))],
       [
         "Signed-in markers",
         recipe.completion
@@ -130,7 +164,7 @@ function RecipeDetails({ entry }: { entry: ActiveRecipe }) {
         <section key={variantIndex} className="space-y-2">
           {variants.length > 1 ? (
             <h4 className="text-sm font-semibold">
-              Identifier set {variantIndex + 1} ({variant.slots.join(", ")})
+              Identifier set {variantIndex + 1} ({slotNames(variant.slots)})
             </h4>
           ) : null}
           <ol className="flex flex-col gap-2">

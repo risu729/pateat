@@ -1,4 +1,5 @@
 import { loginMarkerTargetSchema, loginOriginSchema, loginStepSchema } from "./login";
+import { recipeSlotIdSchema } from "./settings";
 import * as v from "valibot";
 
 const identifier = v.pipe(
@@ -347,20 +348,16 @@ export const semanticSlotsSchema = v.pipe(
   ),
 );
 
-/** Slot IDs a generic ID may not take: the built-in slots keep their meaning. */
+/** Slot IDs a custom-field slot may not take, in any case: the built-in slots keep theirs. */
 export const reservedSlotIds = ["username", "password", "totp"] as const;
 /**
- * The ID a recipe stores for a custom-field slot (ADR 0027): a short generic English name
- * for what the page asks for, such as `branch-number`, in lowercase ASCII words joined by
- * hyphens. Digits and other scripts never fit, so an account number or a vault field name
- * in Japanese cannot become a slot ID.
+ * The recipe slot ID of a custom-field slot (ADR 0027): any recipe slot ID other than a
+ * built-in slot's, compared without case.
  */
-export const genericSlotIdSchema = v.pipe(
-  v.string(),
-  v.maxLength(40),
-  v.regex(/^[a-z]{2,}(?:-[a-z]{2,}){0,3}$/u),
+export const customSlotIdSchema = v.pipe(
+  recipeSlotIdSchema,
   v.check(
-    (value) => !(reservedSlotIds as readonly string[]).includes(value),
+    (value) => !(reservedSlotIds as readonly string[]).includes(value.toLowerCase()),
     "Use a slot ID other than a built-in slot",
   ),
 );

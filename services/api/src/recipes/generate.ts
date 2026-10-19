@@ -400,6 +400,12 @@ export async function generateRecipe(
   const chooser = before.chooser;
   // The attempt key and the write follow the revision the new one replaces.
   const baseRevision = revisionOf(before);
+  // Every variant starts on the start page, so plan validation drops a continuation's
+  // alternatives rather than failing a call that was already paid for, and names its
+  // slots from the kept set alone. It drops the passkey sign-in button too, which becomes
+  // the `passkey` route of a recipe's first page only. A chooser branch's pages all follow
+  // the click on the list, so none of them is a start page.
+  const startPage = baseRecipe === undefined && chooser === undefined;
   let raced: Extract<RecipeGenerationResult, { status: "recipe" | "unavailable" }> | undefined;
 
   const call = await callClaude(env, scope.ownerId, trace, {
@@ -419,7 +425,8 @@ export async function generateRecipe(
         return revisionOf(latest) !== baseRevision ? "recipe-conflict" : undefined;
       },
     ),
-    invoke: (model) => createRecipeGenerator({ model, ...roleConfig })({ observation, slots }),
+    invoke: (model) =>
+      createRecipeGenerator({ model, ...roleConfig })({ observation, slots, startPage }),
     logValue: (value) => {
       if ("accountList" in value)
         return {
@@ -520,16 +527,13 @@ export async function generateRecipe(
     return recipe.success ? save(recipe.output) : failed("recipe-invalid");
   }
 
-  // Each custom-field slot the model named, in any identifier set: the recipe stores only
-  // the generic name, and the extension maps it back to the offered field (ADR 0027). A
-  // requested slot has one name in every set, so each name appears once. Every variant
-  // starts on the start page, so a continuation's alternatives are dropped rather than
-  // failing a call that was already paid for. So is the passkey sign-in button, which
-  // becomes the `passkey` route of a recipe's first page only. A chooser branch's pages
-  // all follow the click on the list, so none of them is a start page.
-  const later = baseRecipe !== undefined || chooser !== undefined;
-  const alternatives = later ? [] : (value.alternatives ?? []);
-  const passkey = later ? undefined : value.passkeyTarget;
+  // Each custom-field slot of any identifier set, under the name the page's text gave it:
+  // the recipe stores only that name, and the extension maps it back to the offered field
+  // (ADR 0027). A requested slot has one name in every set and names are numbered apart,
+  // so each name appears once. A later page's validated plan has no alternatives and no
+  // passkey button (see `startPage` above).
+  const alternatives = value.alternatives ?? [];
+  const passkey = value.passkeyTarget;
   const customSlots = [
     ...new Map(
       [value, ...alternatives]
@@ -537,10 +541,12 @@ export async function generateRecipe(
         .flatMap(({ slot, name }) => (name === undefined ? [] : [[name, slot] as const])),
     ),
   ].map(([slot, offered]) => ({ slot, offered }));
-  // Appending unites slot IDs, so a name the recipe already uses could silently merge two
-  // different fields.
-  if (baseRecipe && customSlots.some(({ slot }) => recipeSlots(baseRecipe).includes(slot)))
-    return failed("recipe-invalid");
+  // Appending unites slot IDs, so a name the recipe already uses, in any case, could
+  // silently merge two different fields. It is refused rather than numbered apart: a form
+  // shown again after an error names its field the same, and must not become a next page
+  // that fills it again (ADR 0018).
+  const used = new Set(baseRecipe ? recipeSlots(baseRecipe).map((slot) => slot.toLowerCase()) : []);
+  if (customSlots.some(({ slot }) => used.has(slot.toLowerCase()))) return failed("recipe-invalid");
   const assembled = appendPageSteps(baseRecipe, {
     id: recipeId,
     origin,

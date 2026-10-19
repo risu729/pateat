@@ -1,6 +1,6 @@
 import {
   chooserBranchSchema,
-  genericSlotIdSchema,
+  customSlotIdSchema,
   isLoginRouteRecipe,
   PAGE_SAMPLE_INTERVAL_MS,
   storedRecipeSlots,
@@ -103,7 +103,7 @@ const slotMapsSchema = v.strictObject({
         deviceId: v.pipe(v.string(), v.maxLength(200)),
         recipeId: syncRecipeIdSchema,
         slots: v.pipe(
-          v.array(v.strictObject({ slot: genericSlotIdSchema, field: vaultFieldReferenceSchema })),
+          v.array(v.strictObject({ slot: customSlotIdSchema, field: vaultFieldReferenceSchema })),
           v.minLength(1),
           v.maxLength(20),
         ),

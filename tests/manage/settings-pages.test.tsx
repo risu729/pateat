@@ -27,7 +27,8 @@ const binding = {
   itemId: "item-1",
   itemName: "Example Bank",
   slots: [
-    { slot: "branch", field: { custom: "Branch number" } },
+    // A custom-field slot named from the page's text (ADR 0027).
+    { slot: "店番号", field: { custom: "支店番号" } },
     { slot: "pin", field: { custom: "PIN", position: 1, count: 2 } },
     { slot: "password", field: "password" as const },
   ],
@@ -291,7 +292,7 @@ test("lists a site's account bindings with their fields and removes one", async 
   });
   await mount(client, BANK_PAGE);
   const panel = page.getByRole("region", { name: "Account bindings" });
-  await expect.element(panel).toMatchTextContent('branch from custom field "Branch number"');
+  await expect.element(panel).toMatchTextContent('店番号 from custom field "支店番号"');
   await expect.element(panel).toMatchTextContent('pin from custom field "PIN" (1 of 2)');
   await expect.element(panel).toMatchTextContent("password from the password");
   await expect.element(panel).toMatchTextContent("recipe bank-signin");
