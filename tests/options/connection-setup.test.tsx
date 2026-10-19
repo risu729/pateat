@@ -893,23 +893,36 @@ function addForm() {
   return document.querySelector("#bitwarden details > summary")?.textContent;
 }
 
-test("a failed first sign-in lists its connection to sign in again and clears the add form", async () => {
+test("a failed first sign-in switches the form to finishing its connection with automatic unlock", async () => {
   const client = mockClient();
   client.list
     .mockResolvedValueOnce(status())
     .mockResolvedValue({ ...status(), connections: [registered] });
-  client.begin.mockResolvedValue({ ok: false, error: { code: "authentication-rejected" } });
+  client.begin
+    .mockResolvedValueOnce({ ok: false, error: { code: "authentication-rejected" } })
+    .mockImplementation(async () => ready());
   await mount(client);
   await fillNew();
   await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
   await expect
     .element(page.getByRole("button", { name: "Synthetic vault: Sign in again", exact: true }))
     .toBeVisible();
+  // Connect cannot register a second connection: the form now finishes the listed one.
+  await vi.waitFor(() => expect(addForm()).toBe("Sign in to Synthetic vault again"));
   await expect.element(page.getByText(/The provider rejected this sign-in/)).toBeVisible();
-  // Connect again cannot register a second connection from the same draft.
-  await expect.element(page.getByLabelText("Name", { exact: true })).toHaveValue("");
-  await expect.element(page.getByLabelText("Email", { exact: true })).toHaveValue("");
-  expect(client.begin).toHaveBeenCalledTimes(1);
+  await expect
+    .element(page.getByLabelText("Enable automatic unlock on this device", { exact: true }))
+    .toBeChecked();
+  await expect.element(page.getByLabelText("Master password", { exact: true })).toHaveFocus();
+  await page.getByLabelText("Master password", { exact: true }).fill(password);
+  await page.getByRole("button", { name: "Sign in and sync", exact: true }).click();
+  await vi.waitFor(() => expect(client.begin).toHaveBeenCalledTimes(2));
+  expect(client.begin.mock.calls[1]![0]).toEqual({
+    kind: "existing",
+    connectionId: "registered",
+    password,
+    autoUnlock: "enable",
+  });
 });
 
 test("cancelling a first sign-in's verification lists its connection", async () => {
@@ -1000,7 +1013,7 @@ test("a refused add keeps the draft when its re-read lists another page's connec
     .toHaveValue("test@example.test");
 });
 
-test("a code rejected after a challenge lists the connection and clears the add form", async () => {
+test("a code rejected after a challenge switches the form to finishing its connection", async () => {
   const client = mockClient();
   client.list
     .mockResolvedValueOnce(status())
@@ -1017,8 +1030,23 @@ test("a code rejected after a challenge lists the connection and clears the add 
     .element(page.getByRole("button", { name: "Synthetic vault: Sign in again", exact: true }))
     .toBeVisible();
   // The background stores the email lower-cased; the typed form still matches it.
-  await expect.element(page.getByLabelText("Name", { exact: true })).toHaveValue("");
-  await expect.element(page.getByLabelText("Email", { exact: true })).toHaveValue("");
+  await vi.waitFor(() => expect(addForm()).toBe("Sign in to Synthetic vault again"));
+  await expect
+    .element(page.getByLabelText("Enable automatic unlock on this device", { exact: true }))
+    .toBeChecked();
+});
+
+test("Sign in again on a connection that never unlocked enables automatic unlock", async () => {
+  const client = mockClient();
+  client.list.mockResolvedValue({ ...status(), connections: [registered] });
+  await mount(client);
+  await page.getByRole("button", { name: "Synthetic vault: Sign in again", exact: true }).click();
+  await expect
+    .element(page.getByLabelText("Enable automatic unlock on this device", { exact: true }))
+    .toBeChecked();
+  await expect
+    .element(page.getByText(/finish setting up this connection\. Automatic unlock is enabled/))
+    .toBeVisible();
 });
 
 test("a connection registered after a stopped first sign-in clears the draft on refresh", async () => {
@@ -1129,17 +1157,18 @@ test("Cancel setup leaves sign-in-again mode and touches nothing when nothing ru
   expect(client.list).toHaveBeenCalledTimes(1);
 });
 
-test("stopping the first load still reports the listed connections once they are read", async () => {
+test("stopping the first load re-reads the connections without reloading saved settings", async () => {
   const client = mockClient();
   const first = held<SetupReply>();
   client.list
     .mockReturnValueOnce(first.promise)
     .mockResolvedValue({ ...status(), connections: [registered] });
+  const changed = vi.fn();
   await render(
     <QueryClientProvider client={createMetadataQueryClient()}>
       <BitwardenSetup
         client={client}
-        onCatalogChanged={vi.fn()}
+        onCatalogChanged={changed}
         renderOthers={(listed) => <p>{listed ? `Listed: ${listed.join(", ")}` : "Not listed"}</p>}
       />
     </QueryClientProvider>,
@@ -1147,8 +1176,25 @@ test("stopping the first load still reports the listed connections once they are
   await expect.element(page.getByText("Not listed", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Cancel setup", exact: true }).click();
   first.resolve(status());
-  await page.getByRole("button", { name: "Refresh connections", exact: true }).click();
+  // Stopping re-reads at once; nothing was written, so saved settings need no reload.
   await expect.element(page.getByText("Listed: registered", { exact: true })).toBeVisible();
+  await expect
+    .element(page.getByText("Connections loaded. Add a vault or sign in again below."))
+    .toBeVisible();
+  expect(changed).not.toHaveBeenCalled();
+  expect(client.close).toHaveBeenCalledTimes(1);
+});
+
+test("stopping a first load that does not answer says so", async () => {
+  const client = mockClient();
+  client.list.mockReturnValue(held<SetupReply>().promise);
+  await render(
+    <QueryClientProvider client={createMetadataQueryClient()}>
+      <BitwardenSetup client={client} onCatalogChanged={vi.fn()} />
+    </QueryClientProvider>,
+  );
+  await page.getByRole("button", { name: "Cancel setup", exact: true }).click();
+  await expect.element(page.getByText("Loading stopped.", { exact: true })).toBeVisible();
 });
 
 test("sync after automatic unlock was disabled explains how to restore it", async () => {

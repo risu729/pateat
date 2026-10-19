@@ -237,6 +237,8 @@ export function BitwardenSetup({
   const [message, setMessage] = useState("Loading Bitwarden connections…");
   const operation = useRef(false);
   const generation = useRef(0);
+  // The page's first connection read is running.
+  const loading = useRef(false);
   // This page's add of a new connection: the IDs listed before it and what it sent.
   const pendingAdd = useRef<{ before: Set<string>; label: string; email: string }>(undefined);
   // Whether the running sign-in, and so its challenge, is that add.
@@ -253,8 +255,11 @@ export function BitwardenSetup({
     if (passwordInput.current) passwordInput.current.value = "";
     if (codeInput.current) codeInput.current.value = "";
   }
-  /** `endsAdd`: the read after this page's add got its final reply. */
-  async function readConnections(epoch: number, endsAdd = false) {
+  /**
+   * `endsAdd`: the read after this page's add got its final reply; `failed`: that reply
+   * was an error, so the form moves on to finishing the listed connection.
+   */
+  async function readConnections(epoch: number, endsAdd = false, failed = false) {
     const result = await client.list();
     if (epoch !== generation.current) return;
     if (!result.ok || result.kind !== "status") throw new Error("Connection metadata unavailable.");
@@ -265,7 +270,7 @@ export function BitwardenSetup({
     // A stop or a lost reply can come before the row exists, so a later read may list it.
     const add = pendingAdd.current;
     if (!add) return;
-    const listed = result.connections.some(
+    const listed = result.connections.find(
       (connection) =>
         !add.before.has(connection.connectionId) &&
         connection.label === add.label &&
@@ -274,18 +279,20 @@ export function BitwardenSetup({
     if (listed || endsAdd) pendingAdd.current = undefined;
     const { name: typedName, email: typedEmail } = draft.current;
     // A draft edited since the add is a different connection and stays.
-    if (listed && typedName.trim() === add.label && normalEmail(typedEmail) === add.email) {
-      setName("");
-      setEmail("");
-    }
+    if (!listed || typedName.trim() !== add.label || normalEmail(typedEmail) !== add.email) return;
+    setName("");
+    setEmail("");
+    // The failure's message stays: it says why the password or code has to be entered again.
+    if (failed && listed.autoUnlock === "unknown") signInAgain(listed, false);
   }
   /** Rows may have changed after an error or cancellation; a failed read keeps the message. */
-  function rereadConnections(epoch: number, endsAdd = false) {
-    return readConnections(epoch, endsAdd).catch(() => undefined);
+  function rereadConnections(epoch: number, endsAdd = false, failed = false) {
+    return readConnections(epoch, endsAdd, failed).catch(() => undefined);
   }
   useEffect(() => {
     const epoch = ++generation.current;
     operation.current = true;
+    loading.current = true;
     void readConnections(epoch)
       .then(() => {
         if (epoch === generation.current)
@@ -299,6 +306,7 @@ export function BitwardenSetup({
       .finally(() => {
         if (epoch === generation.current) {
           operation.current = false;
+          loading.current = false;
           setBusy(false);
           setStatusKnown(true);
         }
@@ -321,7 +329,7 @@ export function BitwardenSetup({
       // A resolved error may follow a durable cache/configuration change.
       // Preserve the draft and require a fresh catalog before another settings save.
       onCatalogChanged();
-      await rereadConnections(epoch, endsAdd);
+      await rereadConnections(epoch, endsAdd, endsAdd);
       return;
     }
     if (result.kind === "mfa-required" || result.kind === "new-device-verification-required") {
@@ -351,7 +359,7 @@ export function BitwardenSetup({
       await readConnections(epoch, endsAdd);
     } else if (result.kind === "interaction-required") {
       setMessage(`Setup is incomplete: ${result.reason}. This interaction is not supported here.`);
-      await rereadConnections(epoch, endsAdd);
+      await rereadConnections(epoch, endsAdd, endsAdd);
     } else if (result.kind === "cancelled") {
       setMessage("Setup cancelled.");
       await rereadConnections(epoch, endsAdd);
@@ -471,6 +479,22 @@ export function BitwardenSetup({
     setChallenge(undefined);
     setBusy(false);
     client.close();
+    if (loading.current) {
+      // Only the first read was stopped: nothing was written, so saved settings stay current.
+      loading.current = false;
+      setMessage("Loading stopped.");
+      void readConnections(epoch)
+        .then(() => {
+          if (epoch === generation.current)
+            setMessage("Connections loaded. Add a vault or sign in again below.");
+          return undefined;
+        })
+        .catch(() => {
+          if (epoch === generation.current)
+            setMessage("Unable to read connection status. Refresh to retry.");
+        });
+      return;
+    }
     setMessage(stopped);
     catalogChanged.current();
     void rereadConnections(epoch);
@@ -489,19 +513,26 @@ export function BitwardenSetup({
       await receive(await client.sync(connection.connectionId), epoch);
     });
   }
-  function signInAgain(connection: Connection) {
+  function signInAgain(connection: Connection, explain = true) {
+    // A connection that never unlocked has no automatic unlock to keep, and accepting its vault
+    // without enabling it is refused, so finishing its setup enables it as adding would have.
+    const unfinished = connection.autoUnlock === "unknown";
     clearSecrets();
     setExisting(connection);
-    setEnableUnlock(false);
+    setEnableUnlock(unfinished);
     setAddOpen(true);
     focusPassword.current = true;
+    if (!explain) return;
     setMessage(
-      "Enter the master password to sign in again. Automatic unlock stays unchanged unless explicitly enabled.",
+      unfinished
+        ? "Enter the master password to finish setting up this connection. Automatic unlock is enabled, as when adding it."
+        : "Enter the master password to sign in again. Automatic unlock stays unchanged unless explicitly enabled.",
     );
   }
-  // The sign-in form may only now be open; focus its password once it is shown.
+  // The sign-in form may only now be open, or still disabled by the operation that opened it;
+  // focus its password once it is shown and enabled.
   useEffect(() => {
-    if (!focusPassword.current) return;
+    if (!focusPassword.current || busy) return;
     focusPassword.current = false;
     passwordInput.current?.focus();
   });
