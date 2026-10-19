@@ -301,12 +301,13 @@ export const valueShapeSchema = v.strictObject({
 const fieldCount = v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(1000));
 
 /**
- * A semantic slot the caller wants mapped. Values and account bindings never enter
- * inference. `fieldName` is the user's name for an allowed vault field, with
- * `fieldPosition` among the item's custom fields of that name when several share it
- * (ADR 0013, ADR 0027). `hidden` is a Bitwarden Hidden custom field, filled under the
- * Hidden rule of ADR 0013. `valueShape` is allowed only on identifier slots backed by a
- * visible value (ADR 0010), so never on secret, hidden or one-time-code slots.
+ * A semantic slot the caller wants mapped. Values and account bindings are never part of
+ * the model's input; the service matches a slot to the owner's saved bindings only to
+ * keep their slot names (ADR 0027). `fieldName` is the user's name for an allowed vault
+ * field, with `fieldPosition` among the item's custom fields of that name when several
+ * share it (ADR 0013, ADR 0027). `hidden` is a Bitwarden Hidden custom field, filled
+ * under the Hidden rule of ADR 0013. `valueShape` is allowed only on identifier slots
+ * backed by a visible value (ADR 0010), so never on secret, hidden or one-time-code slots.
  */
 export const semanticSlotSchema = v.pipe(
   v.strictObject({

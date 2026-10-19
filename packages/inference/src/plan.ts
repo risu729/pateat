@@ -1,5 +1,6 @@
 import {
   actionRoles,
+  customSlotIdSchema,
   fillRoles,
   isCodeField,
   isStepTarget,
@@ -13,6 +14,7 @@ import {
   type LoginStep,
   type LoginTarget,
   type ObservedCandidate,
+  type SavedLoginBinding,
   type SemanticSlot,
 } from "@pateat/contracts";
 import * as v from "valibot";
@@ -233,6 +235,40 @@ function fieldText(candidate: ObservedCandidate): string | undefined {
 const fold = (name: string) => name.toLowerCase();
 
 /**
+ * The slot name each custom-field request slot carries from the owner's saved bindings of
+ * the recipe being generated (ADR 0027, amended 2026-10-19): the `slot` of the binding
+ * entries whose field is the slot's custom field, by the same name and, for a duplicate
+ * name, the same position and count. A field the bindings give different names, as two
+ * accounts may, carries none, and built-in fields (`username`, `password`, `totp`) are
+ * never matched. Only slot names and field references are read; a name is checked where
+ * it is used ({@link customSlotNames}).
+ */
+export function carriedSlotNames(
+  slots: readonly Pick<SemanticSlot, "id" | "fieldName" | "fieldPosition">[],
+  bindings: readonly Pick<SavedLoginBinding, "slots">[],
+): Map<string, string> {
+  const carried = new Map<string, string>();
+  for (const { id, fieldName, fieldPosition } of slots) {
+    if (fieldName === undefined) continue;
+    const names = new Set(
+      bindings.flatMap((binding) =>
+        binding.slots.flatMap(({ slot, field }) =>
+          typeof field === "object" &&
+          field.custom === fieldName &&
+          field.position === fieldPosition?.position &&
+          field.count === fieldPosition?.count
+            ? [slot]
+            : [],
+        ),
+      ),
+    );
+    const [name, ...others] = names;
+    if (name !== undefined && others.length === 0) carried.set(id, name);
+  }
+  return carried;
+}
+
+/**
  * The recipe slot ID of each custom-field slot (one with a `fieldName`) the sets fill,
  * from the page's own text for its element (ADR 0027): `fieldText`, or else `field N` on
  * an English page and `欄 N` on another, N counting the page's fill fields without a name
@@ -240,13 +276,23 @@ const fold = (name: string) => name.toLowerCase();
  * element in the first set that fills it. Without case, a name never equals a built-in
  * slot or a requested slot ID, nor another of the names, which are given in page order:
  * a later one takes a number after a space (`店番 2`). The model's answer never names a
- * slot, so neither the owner's field names nor the model's words become slot IDs, and an
- * unchanged page always gives the same names. Fields of unknown candidates are left out.
+ * slot, so neither the owner's field names nor the model's words become slot IDs, and,
+ * without `carried`, an unchanged page always gives the same names. Fields of unknown
+ * candidates are left out.
+ *
+ * `carried` holds the names the owner's saved bindings give request slots
+ * ({@link carriedSlotNames}, ADR 0027 amended 2026-10-19). Each one that is a custom-field
+ * slot ID and, without case, equals no built-in slot or requested slot ID is reserved
+ * before any page text, whether or not this page fills its slot, so a page name equal to
+ * one is numbered apart and a later page can still carry it. A filled slot keeps its
+ * carried name unless another filled slot carries the same name, when both are named
+ * from the page.
  */
 export function customSlotNames(
   observation: Pick<LoginObservation, "language" | "candidates">,
   slots: readonly Pick<SemanticSlot, "id" | "fieldName">[],
   sets: readonly Pick<PagePlan, "fields">[],
+  carried: ReadonlyMap<string, string> = new Map(),
 ): Map<string, string> {
   const custom = new Set(slots.flatMap((slot) => (slot.fieldName === undefined ? [] : [slot.id])));
   const at = new Map(observation.candidates.map((candidate, index) => [candidate.id, index]));
@@ -264,7 +310,20 @@ export function customSlotNames(
   const fallback = observation.language === "en" ? "field" : "欄";
   const taken = new Set([...reservedSlotIds, ...slots.map((slot) => slot.id)].map(fold));
   const names = new Map<string, string>();
+  // Every request slot's valid carried name, filled here or not, by its folded form.
+  const claims = new Map<string, string[]>();
+  for (const slot of custom) {
+    const name = carried.get(slot);
+    if (name === undefined || !v.is(customSlotIdSchema, name) || taken.has(fold(name))) continue;
+    claims.set(fold(name), [...(claims.get(fold(name)) ?? []), slot]);
+  }
+  for (const [name, claimants] of claims) {
+    taken.add(name);
+    const filled = claimants.filter((slot) => elements.has(slot));
+    if (filled.length === 1) names.set(filled[0]!, carried.get(filled[0]!)!);
+  }
   for (const [slot, index] of [...elements].sort((left, right) => left[1] - right[1])) {
+    if (names.has(slot)) continue;
     const candidate = observation.candidates[index]!;
     const base = fieldText(candidate) ?? `${fallback} ${unnamed.indexOf(candidate) + 1}`;
     let name = base;
@@ -557,16 +616,18 @@ function passkeyButtonOf(
  * Only a start page keeps alternatives and a passkey button (ADR 0027). On another page
  * (`startPage` false) the alternatives are still checked but dropped, as is the passkey
  * button, and the slots are named from the first set alone, so a stored name never
- * depends on a set that is not stored.
+ * depends on a set that is not stored. `carried` holds the names the owner's saved
+ * bindings give the request's custom-field slots ({@link carriedSlotNames}).
  */
 export function validateGeneratedPage(
   observation: LoginObservation,
   slots: readonly SemanticSlot[],
   draft: GeneratedPagePlan,
   startPage = true,
+  carried: ReadonlyMap<string, string> = new Map(),
 ): { ok: true; plan: ValidatedGeneratedPage } | { ok: false; reason: GeneratedPageRejection } {
   const { passkeyButton, ...sets } = draft;
-  const validated = validateGeneratedSets(observation, slots, sets, startPage);
+  const validated = validateGeneratedSets(observation, slots, sets, startPage, carried);
   if (!validated.ok) return validated;
   if (!startPage) {
     const { alternatives: _alternatives, ...plan } = validated.plan;
@@ -585,12 +646,14 @@ function validateGeneratedSets(
   slots: readonly SemanticSlot[],
   draft: Omit<GeneratedPagePlan, "passkeyButton">,
   startPage: boolean,
+  carried: ReadonlyMap<string, string>,
 ): { ok: true; plan: ValidatedGeneratedPage } | { ok: false; reason: GeneratedPageRejection } {
   const { alternatives = [], ...primaryDraft } = draft;
   const names = customSlotNames(
     observation,
     slots,
     startPage ? [primaryDraft, ...alternatives] : [primaryDraft],
+    carried,
   );
   const primary = validatePagePlan(observation, slots, primaryDraft, names);
   if (!primary.ok || alternatives.length === 0) return primary;

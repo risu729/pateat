@@ -34,7 +34,11 @@ row, see [below](#amendment-2026-10-18-signed-in-page-samples). Implemented. On
 stored records decide each value. Since
 [ADR 0027](0027-per-account-login-routes.md#amendment-2026-10-18-slot-names-from-the-page)
 was amended on 2026-10-18 (owner, 08:58:31 UTC), the model gives no slot names, so no
-answer has a name to become `name-N`.
+answer has a name to become `name-N`. Since
+[ADR 0027](0027-per-account-login-routes.md#amendment-2026-10-19-slot-names-from-the-bindings)
+was amended on 2026-10-19 (owner, 01:22 UTC), an accepted plan's `result` may hold a
+slot name carried from the owner's saved bindings that the logged page does not show,
+such as an earlier page's wording or a name the model gave before 2026-10-18.
 
 Date: 2026-10-10
 

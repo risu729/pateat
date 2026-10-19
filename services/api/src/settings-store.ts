@@ -1,5 +1,6 @@
 import {
   syncSettingsStateSchema,
+  type SavedLoginBinding,
   type SyncSettingsState,
   type SyncSettingsWrite,
 } from "@pateat/contracts";
@@ -21,6 +22,23 @@ export async function readSettings(db: D1Database, ownerId: string): Promise<Syn
     revision: row?.revision ?? 0,
     settings: row?.document ?? null,
   });
+}
+
+/**
+ * The slots of the owner's saved bindings for one recipe of one origin, every account's,
+ * for naming a generated page's custom-field slots (ADR 0027, amended 2026-10-19): only
+ * slot names and field references, never the item or account a binding names.
+ */
+export async function recipeBindingSlots(
+  db: D1Database,
+  ownerId: string,
+  origin: string,
+  recipeId: string,
+): Promise<Pick<SavedLoginBinding, "slots">[]> {
+  const { settings: document } = await readSettings(db, ownerId);
+  return (document?.bindings ?? []).flatMap((binding) =>
+    binding.origin === origin && binding.recipeId === recipeId ? [{ slots: binding.slots }] : [],
+  );
 }
 
 /**
