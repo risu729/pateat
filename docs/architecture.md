@@ -667,8 +667,9 @@ in the same wait (ADR 0057) and sent with `passkeyOnly: true` and no slots, only
 when one of the URI-matching items holds a discoverable, usable passkey for the page's
 RP ID; its recipe has only the `passkey` route, so a password-only item never presses
 the button ([ADR 0053](adr/0053-passkey-only-generation.md)). Beside a sign-in entry or
-a list of accounts the button is used only then; otherwise the entry or the list is
-handled as without it (owner, 2026-10-19 22:44 UTC). A conditional passkey
+a list of accounts the button is used only when every matching item holds such a
+passkey, since the page's recipe is shared; otherwise the entry or the list is handled
+as without it (owner, 2026-10-19 22:44 UTC). A conditional passkey
 request alone sends nothing, and the page right after a submitted password form is not
 sent. The request also offers one
 slot per custom field a matching item allows (Text, Hidden, or Linked with an allowed

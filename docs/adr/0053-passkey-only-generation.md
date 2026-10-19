@@ -60,12 +60,13 @@ Owner decisions of 2026-10-19:
 6. **Recipe shape.** `passkeyOnly: true`, `slots: []`, one click step on the button
    with purpose `submit`, `maxSubmissions: 1`, and the same button as the `passkey`
    route; there is no `password` route.
-7. **Beside an entry or a list.** A page that shows a passkey button beside an ADR 0031
-   sign-in entry or an ADR 0028 list of accounts, including one by names only, is sent
-   as a passkey-only page when a matching item holds a discoverable passkey for the RP
-   ID. Otherwise its entry or list is handled exactly as on a page without the button,
-   so every item logs in with the method it can use, with no site rule
-   ([ADR 0033](0033-no-site-specific-features.md)).
+7. **Beside an entry or a list.** On a page that shows a passkey button beside an ADR
+   0031 sign-in entry or an ADR 0028 list of accounts, including one by names only, an
+   item that holds a discoverable passkey for the RP ID uses the passkey button, and
+   another uses the entry or the list exactly as on a page without the button, so
+   every item logs in with the method it can use, with no site rule
+   ([ADR 0033](0033-no-site-specific-features.md)). How this applies to the page's one
+   recipe is an implementation detail below.
 
 What happens to such a recipe once its items lose their passkey is separate work, not
 part of this decision.
@@ -83,9 +84,16 @@ Implementation details chosen by the agent, not confirmed by the owner separatel
   entry (such as a heading or a support address beside the button), does not hide the
   passkey page. The content script announces the passkey page together with the list
   and entry it would announce without the button, and the runtime chooses: the passkey
-  lookup first, then, when no matching item holds a passkey, the list and entry
-  handling unchanged, logged as such rather than as `no-passkey`. A page with neither
-  logs `no-passkey`.
+  lookup first, then the list and entry handling unchanged, logged as such rather than
+  as `no-passkey`. A page with neither logs `no-passkey`.
+- Decision 7 on a shared recipe: a page has one recipe for all its items, and an item
+  without a passkey cannot run a passkey-only one (it gets `no-route`, and ADR 0058 A
+  would revoke it and regenerate the same page while another item still holds a
+  passkey). So a page that also shows an entry or a list is sent as a passkey-only page
+  only when every URI-matching item holds a discoverable passkey for the RP ID;
+  otherwise its entry or list is sent, which every item can use. A page with only the
+  button keeps decision 2: one such item is enough, since there is nothing else to
+  send.
 - The page right after a submitted password form is not sent, by the existing
   post-submission guard; a manual passkey exchange without a password form is not seen
   as a submission.
@@ -98,10 +106,10 @@ Implementation details chosen by the agent, not confirmed by the owner separatel
   showing again in the tab asks for an account and presses nothing, as for any passkey
   route (covered by a runtime test).
 - After [ADR 0058](0058-automatic-recipe-removal.md) A revokes a passkey-only recipe
-  for an item that has only a password, the page's next announcement falls back to its
-  entry or list when no matching item holds a passkey; when another matching item does,
-  the passkey-only page is generated again, and ADR 0058's once in 30 days bounds that
-  repeat.
+  for an item that has only a password, the page's next announcement sends its entry
+  or list, since that item holds no passkey. A page with only the button is generated
+  as a passkey-only page again when another matching item holds one, and ADR 0058's
+  once in 30 days bounds that repeat.
 
 ## Consequences
 

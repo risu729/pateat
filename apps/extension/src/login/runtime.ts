@@ -6584,12 +6584,14 @@ export function createLoginRuntime(
   /**
    * The slots to generate for when a vault item's URI matches the page, with the
    * matching items. No field value is read here. Without them, `miss` hears why, for the
-   * log: `no-vault-match` when no item fits, or why the vault could not tell.
+   * log: `no-vault-match` when no item fits, or why the vault could not tell. For a
+   * passkey-only page (ADR 0053), `passkeyOnly` says whether `some` matching item or
+   * `every` one must hold a discoverable passkey.
    */
   async function generationSlotsFor(
     live: LiveDocument,
     miss: (reason: GenerationMiss, detail?: string) => void = () => undefined,
-    passkeyOnly = false,
+    passkeyOnly: false | "some" | "every" = false,
   ): Promise<GenerationScope | undefined> {
     if (!uris) return undefined;
     const snapshot = await settings.handle({ version: 1, type: "settings.get" });
@@ -6685,11 +6687,9 @@ export function createLoginRuntime(
       } finally {
         leave?.();
       }
-      if (
-        !items.some(({ connection, item }) =>
-          held.some((key) => key.connectionId === connection.id && key.itemId === item.id),
-        )
-      ) {
+      const holds = ({ connection, item }: (typeof items)[number]) =>
+        held.some((key) => key.connectionId === connection.id && key.itemId === item.id);
+      if (passkeyOnly === "every" ? !items.every(holds) : !items.some(holds)) {
         miss("no-vault-match", "no-passkey");
         return undefined;
       }
@@ -7811,9 +7811,12 @@ export function createLoginRuntime(
       if (hellos.get(helloKey) !== sequence) return { ok: false, reason: "stale-document" };
     }
     if (entryRefused.has(refusedKey)) return refuse("entry-blocked");
-    // A report sent only for the log does not log the tab's hold again.
+    // A report sent only for the log does not log the tab's hold again. A passkey page
+    // (ADR 0053) is answered as the announcement it would be without its button: its list,
+    // its entry, or, with neither, the log-only report of a page that offered nothing.
+    const quiet = signIn?.passkey ? list || !entryHello : shown || list || unoffered;
     if (busy)
-      return (shown || list || unoffered) && !start && !signIn
+      return quiet && !start && (!signIn || signIn.passkey)
         ? { ok: false, reason: "tab-busy" }
         : refuse("tab-busy");
     if (!storageHealthy)
@@ -8500,7 +8503,8 @@ export function createLoginRuntime(
       // A page with a passkey button is sent as a passkey-only page when a matching item
       // holds a discoverable passkey; otherwise the list or entry it also shows is handled
       // below as on a page without the button, logged as such (ADR 0053, owner 2026-10-19
-      // 22:44 UTC).
+      // 22:44 UTC). With a list or an entry to use instead, every matching item must hold
+      // one: the recipe is shared, and an item without a passkey could not run it.
       if (offer && signIn?.passkey && signIn.path === live.path) {
         const fallback = listing !== undefined || entryOffer;
         // Nor is the page right after a sign-in sent as a passkey-only page.
@@ -8516,7 +8520,7 @@ export function createLoginRuntime(
             (...reason) => {
               missed = reason;
             },
-            true,
+            fallback ? "every" : "some",
           ).catch(() => undefined);
           if (documents.get(key) !== live) return { ok: false, reason: "stale-document" };
           if (scope) {

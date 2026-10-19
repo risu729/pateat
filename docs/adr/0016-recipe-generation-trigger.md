@@ -241,8 +241,8 @@ Owner decisions of 2026-10-19, recorded in [ADR 0053](0053-passkey-only-generati
   URI-matching item holds a passkey for the site. It is decided in the no-input page
   wait of [ADR 0057](0057-decide-no-input-pages-when-the-dom-is-quiet.md), as
   identifier-only pages are. Beside a sign-in entry or a list of accounts, the button is
-  used only when such an item exists; otherwise the page is offered as the entry or the
-  list (22:44 UTC).
+  used only when every matching item holds such a passkey; otherwise the page is
+  offered as the entry or the list (22:44 UTC; see ADR 0053).
 - **Condition 2** (decision card, 14:08 UTC). For such a page only, the extension also
   looks up which items hold a discoverable, usable passkey for the page's RP ID, and
   sends the page only when one of the URI-matching items does. (That the lookup runs
