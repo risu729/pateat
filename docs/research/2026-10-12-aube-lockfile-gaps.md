@@ -6,8 +6,9 @@ follows the two lockfile bugs found while moving to aube
 ([ADR 0032](../adr/0032-aube-package-manager.md),
 [package manager research](2026-10-12-package-manager-aube.md)). The owner asked for bug
 reports with minimal reproductions. Nothing had been filed upstream when this note was
-written; whether to file is the owner's call. Fixes for gaps 3 and 4 were later prepared
-as pull requests; see [upstream status](#upstream-status-2026-10-13). Nothing in
+written; whether to file is the owner's call. Fixes for gaps 3 and 4 were later opened
+upstream, and all four fixes shipped in aube 2.7.1; see
+[upstream status](#upstream-status-2026-10-19). Nothing in
 Pateat's setup changes with it. Bun 1.4.3 was npm's `latest`; gaps 1 and 3 gave the same
 results with the Bun canary `1.4.3-canary.20261011.1` (it prints `1.4.4`).
 
@@ -20,10 +21,10 @@ Versions: aube 2.7.0 (release binary through mise `aqua:aubepkg/aube`), aube `ma
 
 | Gap | aube 2.7.0 | aube main 1443128 | Upstream |
 | --- | --- | --- | --- |
-| 1. A `bun.lock` rewrite drops the workspace member entries, then aube's own frozen install fails | reproduces | fixed | [#1721](https://github.com/aubepkg/aube/pull/1721), [#1723](https://github.com/aubepkg/aube/pull/1723), [#1724](https://github.com/aubepkg/aube/pull/1724), merged after 2.7.0, unreleased |
-| 2. `pnpm-lock.yaml` records `workspace:*` dependencies as a version, and pnpm refuses the file | reproduces | fixed; pnpm 12.11.2 accepts the file | reported in [discussion #1718](https://github.com/aubepkg/aube/discussions/1718), fixed by [#1719](https://github.com/aubepkg/aube/pull/1719), unreleased |
-| 3. A `bun.lock` rewrite adds resolved peers to `dependencies`, and Bun later installs a second copy of the peer | reproduces | reproduces | fix proposed in [#1727](https://github.com/aubepkg/aube/pull/1727), open |
-| 4. `aube update` and `aube install --lockfile-only` write `lockfileVersion: 2` back as `1` | reproduces | reproduces | fix on a fork branch, to be opened after #1727 merges |
+| 1. A `bun.lock` rewrite drops the workspace member entries, then aube's own frozen install fails | reproduces | fixed | [#1721](https://github.com/aubepkg/aube/pull/1721), [#1723](https://github.com/aubepkg/aube/pull/1723), [#1724](https://github.com/aubepkg/aube/pull/1724), released in 2.7.1 |
+| 2. `pnpm-lock.yaml` records `workspace:*` dependencies as a version, and pnpm refuses the file | reproduces | fixed; pnpm 12.11.2 accepts the file | reported in [discussion #1718](https://github.com/aubepkg/aube/discussions/1718), fixed by [#1719](https://github.com/aubepkg/aube/pull/1719), released in 2.7.1 |
+| 3. A `bun.lock` rewrite adds resolved peers to `dependencies`, and Bun later installs a second copy of the peer | reproduces | reproduces | fixed by [#1727](https://github.com/aubepkg/aube/pull/1727), released in 2.7.1 |
+| 4. `aube update` and `aube install --lockfile-only` write `lockfileVersion: 2` back as `1` | reproduces | reproduces | fixed by [#1732](https://github.com/aubepkg/aube/pull/1732), released in 2.7.1 |
 
 aube documents that it reads and writes `bun.lock` (text v1 to v3) and `pnpm-lock.yaml`
 v9 in place ([lockfiles](https://aube.sh/package-manager/lockfiles)). It also says "the
@@ -110,6 +111,22 @@ The same `aube update` also changes `"lockfileVersion": 2` (Bun 1.4's default) t
 as does `aube install --lockfile-only --no-frozen-lockfile`. `aube add` and
 `aube install --no-frozen-lockfile` keep `2`. Bun 1.4.3 reads the v1 file and does not
 change it back, so gap 4 only causes lockfile churn.
+
+## Upstream status, 2026-10-19
+
+Checked 2026-10-19 23:30 UTC against aube's `main` history and release tags:
+
+- Gap 3: [#1727](https://github.com/aubepkg/aube/pull/1727) merged as
+  [d7cdd69](https://github.com/aubepkg/aube/commit/d7cdd69) on 2026-10-13.
+- Gap 4: the owner opened the fix as [#1732](https://github.com/aubepkg/aube/pull/1732)
+  from `risu729:fix/bun-lock-version-on-re-resolve`, with bats tests for
+  `aube install --lockfile-only`, `aube update`, `aube dedupe`, the re-resolving
+  `aube remove` and `aube audit --fix`. It merged as
+  [01ed5d9](https://github.com/aubepkg/aube/commit/01ed5d9) on 2026-10-14.
+- All four fixes, with #1719, #1721, #1723 and #1724 for gaps 1 and 2, are in
+  [v2.7.1](https://github.com/aubepkg/aube/releases/tag/v2.7.1) (tagged 2026-10-15) and
+  later releases; Pateat's `mise.toml` pins 2.7.2. The reproductions above were not run
+  again on a release.
 
 ## Upstream status, 2026-10-13
 
