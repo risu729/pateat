@@ -39,9 +39,7 @@ Owner decisions of 2026-10-19:
    discoverable, usable passkey for the page's RP ID: the lookup ADR 0034 uses for a
    popup choice (`passkeyItems`), matched against the same items as the URI match. This
    is a second vault access for a document without a recipe, an exception to ADR 0016
-   condition 2. It runs only once an item's URI matched (the lookup itself is per RP ID,
-   not per item); with no match the page logs `no-item` and the like as other pages do.
-   No value or passkey fact leaves the device; the request carries only
+   condition 2. No value or passkey fact leaves the device; the request carries only
    `passkeyOnly: true`.
 3. **Wait.** The page is read in the content script's shared no-input page wait, the
    same timer callback as identifier-only pages, account lists and entry pages; it has
@@ -64,6 +62,9 @@ part of this decision.
 
 Implementation details chosen by the agent, not confirmed by the owner separately:
 
+- The passkey lookup runs only once an item's URI matched (the lookup itself is per RP
+  ID, not per item); with no match the page logs `no-item` and the like, as other pages
+  do.
 - The extractor (`extractPasskeyObservation`) qualifies a page with no fillable,
   unsupported or shadow-root field and one to 48 enabled, locatable buttons whose label
   or locator names a passkey and not a registration; it sends only those buttons, in
@@ -83,9 +84,13 @@ Implementation details chosen by the agent, not confirmed by the owner separatel
   showing again in the tab asks for an account and presses nothing, as for any passkey
   route (covered by a runtime test).
 
-Open with the owner: on a page that shows both a passkey button and an ADR 0031 sign-in
-entry, which is offered? For now the passkey page is, decided in one place
-(`offerPasskey` in `apps/extension/src/login/no-input-offer.ts`).
+Open with the owner: what a page that shows a passkey button beside an ADR 0031 sign-in
+entry, or beside an ADR 0028 list of accounts by short names, is offered as. The
+content script decides before the vault is checked, so the passkey button currently wins
+over both (`offerPasskey` in `apps/extension/src/login/no-input-offer.ts`, the one place
+that decides it). When no matching item then holds a passkey, the runtime logs
+`no-passkey` and sends nothing: there is no fallback to the entry or the list. The owner
+is asked to decide both cases.
 
 ## Consequences
 

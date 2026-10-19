@@ -443,8 +443,10 @@ than in this repository.
   URI-matching item holds a discoverable passkey for the site, with its own generation
   instructions, and its recipe has only the `passkey` route. Covered by local synthetic
   and fake-model tests only; a real passkey-only site in the owner's Chrome is
-  unchecked. Open: whether a sign-in entry or the passkey button wins on a page with
-  both.
+  unchecked. Open with the owner: the content script decides before the vault check,
+  so the passkey button now wins over an ADR 0031 sign-in entry and over an ADR 0028
+  list by short names; when no matching item holds a passkey, nothing is sent
+  (`no-passkey`) and there is no fallback to the entry or the list.
 - The owner uses Pateat on many sites and reports bugs; Claude may also fix problems it
   finds on its own. Reading the extension's error logs without a report needs a way for
   them to leave the device, which [ADR 0019](adr/0019-local-diagnostics-and-logs.md)

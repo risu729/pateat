@@ -230,9 +230,11 @@ Owner decisions of 2026-10-19, recorded in [ADR 0053](0053-passkey-only-generati
   names a passkey or security key (the ADR 0027 words, not a registration button), and
   a URI-matching item holds a passkey for the site. It is read in the shared no-input
   page wait, as identifier-only pages are; currently the ten seconds above.
-- **Condition 2** (decision card, 14:08 UTC). For such a page only, once an item's URI
-  matched, the extension also looks up which items hold a discoverable, usable passkey
-  for the page's RP ID, and sends the page only when one of the URI-matching items does.
+- **Condition 2** (decision card, 14:08 UTC). For such a page only, the extension also
+  looks up which items hold a discoverable, usable passkey for the page's RP ID, and
+  sends the page only when one of the URI-matching items does. (That the lookup runs
+  only after an item's URI matched is an implementation choice, not the owner's; see
+  ADR 0053.)
   This is an explicit exception to "the only vault access a document without a recipe
   gets to decide whether it is sent". No field value or passkey fact is read into the
   request or leaves the device; the request carries only `passkeyOnly: true` with no
