@@ -95,7 +95,7 @@ export const manageApiRoutes = new Hono<ApiEnv>()
   // The recipes devices sync through /v1/recipes; the web UI only reads and revokes them.
   .get("/recipes", async (c) => {
     const ownerId = await findOwner(c.env.DB, c.get("identity"));
-    // Before the list, so it no longer shows the recipes this revokes (ADR 0058).
+    // Before the list, so it shows the recipes this revokes as revoked (ADR 0058).
     if (ownerId)
       try {
         await revokeUnusedRecipes(c.env.DB, ownerId, Date.now());

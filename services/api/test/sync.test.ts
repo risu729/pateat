@@ -6,10 +6,16 @@ import {
   type LoginRecipe,
   type SyncRecipeChanges,
 } from "@pateat/contracts";
+import type { D1Migration } from "cloudflare:test";
 import { env, exports } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import { createDeviceToken, hashDeviceToken } from "../src/auth";
-import { KEPT_RECIPE_REVISIONS, MAX_ACTIVE_RECIPES } from "../src/limits";
+import {
+  KEPT_RECIPE_REVISIONS,
+  MAX_ACTIVE_RECIPES,
+  MAX_IDLE_REVOCATIONS,
+  RECIPE_IDLE_LIMIT_MS,
+} from "../src/limits";
 import { writeRecipe } from "../src/recipe-store";
 import { documentBytes, seedRecipeBytes, storedRecipeBytes } from "./recipe-byte-helpers";
 import { awaitRoomInMinute } from "./limiter";
@@ -1356,5 +1362,323 @@ describe("login records", () => {
     await insert(3, 366 * DAY_MS).run();
     expect((await send(device, "bank-login", record)).status).toBe(204);
     expect((await stored(device.ownerId)).map((row) => row["total_ms"])).toEqual([2, 9000]);
+  });
+});
+
+describe("unused recipe revocation (ADR 0058)", () => {
+  /** Sets when the owner's recipe was last used, standing in for days without use. */
+  const lastUsedAgo = (ownerId: string, recipeId: string, age: number) =>
+    env.DB.prepare(
+      "UPDATE recipe_heads SET last_used_at = ? WHERE owner_id = ? AND recipe_id = ?",
+    ).bind(Date.now() - age, ownerId, recipeId);
+  const head = (ownerId: string, recipeId: string) =>
+    env.DB.prepare(
+      "SELECT revision, state, sequence, last_used_at FROM recipe_heads WHERE owner_id = ? AND recipe_id = ?",
+    )
+      .bind(ownerId, recipeId)
+      .first<{ revision: number; state: string; sequence: number; last_used_at: number }>();
+  const activeIds = async (ownerId: string) =>
+    (
+      await env.DB.prepare(
+        "SELECT recipe_id FROM recipe_heads WHERE owner_id = ? AND state = 'active' ORDER BY recipe_id",
+      )
+        .bind(ownerId)
+        .all<{ recipe_id: string }>()
+    ).results.map((row) => row.recipe_id);
+  const sync = async (device: Device, path = "/v1/recipes"): Promise<SyncRecipeChanges> => {
+    const response = await api(device, path);
+    expect(response.status).toBe(200);
+    return response.json();
+  };
+  const loginRecord = {
+    version: 1,
+    revision: 1,
+    outcome: "structural-mismatch",
+    cause: "target-missing",
+    extensionBuild: "1c42ad3",
+    totalMs: 9000,
+    serviceMs: 2600,
+    networkMs: 200,
+    personMs: 4000,
+    pageMs: 1800,
+  };
+  const reportLogin = (device: Device, id: string, body: unknown) =>
+    api(device, `/v1/recipes/${id}/logins`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+  it("revokes a recipe unused for 90 days on the next sync, in that sync's feed", async () => {
+    const device = await enrollOwner();
+    expect((await publish(device, "bank-login", 0)).status).toBe(200);
+    expect((await publish(device, "bank-login", 1)).status).toBe(200);
+    expect((await publish(device, "shop-login", 0)).status).toBe(200);
+    await env.DB.batch([
+      lastUsedAgo(device.ownerId, "bank-login", RECIPE_IDLE_LIMIT_MS + DAY_MS),
+      lastUsedAgo(device.ownerId, "shop-login", RECIPE_IDLE_LIMIT_MS - DAY_MS),
+    ]);
+    const page = await sync(device);
+    expect(page).toEqual({
+      version: 1,
+      changes: [
+        { recipeId: "shop-login", revision: 1, state: "active", recipe: recipe("shop-login", 1) },
+        { recipeId: "bank-login", revision: 3, state: "revoked" },
+      ],
+      cursor: 4,
+      complete: true,
+    });
+    // An ordinary tombstone written by the service, keeping only itself.
+    expect(
+      (
+        await env.DB.prepare(
+          "SELECT revision, state, document, created_by_device_id FROM recipe_revisions WHERE owner_id = ? AND recipe_id = 'bank-login'",
+        )
+          .bind(device.ownerId)
+          .all()
+      ).results,
+    ).toEqual([{ revision: 3, state: "revoked", document: null, created_by_device_id: null }]);
+    // A device that already synced past the old head receives only the tombstone.
+    expect(await sync(device, "/v1/recipes?after=3")).toMatchObject({
+      changes: [{ recipeId: "bank-login", revision: 3, state: "revoked" }],
+    });
+    // Nothing more to revoke: another sync writes nothing.
+    expect(await sync(device, "/v1/recipes?after=4")).toEqual({
+      version: 1,
+      changes: [],
+      cursor: 4,
+      complete: true,
+    });
+    // The next visit generates it again as the revision after the tombstone.
+    expect((await publish(device, "bank-login", 3)).status).toBe(200);
+    expect(await head(device.ownerId, "bank-login")).toMatchObject({
+      revision: 4,
+      state: "active",
+    });
+  });
+
+  it("never revokes an entry recipe (ADR 0031), however long unused", async () => {
+    const device = await enrollOwner();
+    const entry = {
+      version: 1,
+      id: "bank-entry",
+      revision: 1,
+      origin: "https://bank.example",
+      entry: { path: "/", target: { by: "text", value: "Login" } },
+    };
+    expect(
+      (
+        await put(device, "/v1/recipes/bank-entry", {
+          version: 1,
+          expectedRevision: 0,
+          state: "active",
+          recipe: entry,
+        })
+      ).status,
+    ).toBe(200);
+    expect((await publish(device, "bank-login", 0)).status).toBe(200);
+    await env.DB.batch([
+      lastUsedAgo(device.ownerId, "bank-entry", 10 * RECIPE_IDLE_LIMIT_MS),
+      lastUsedAgo(device.ownerId, "bank-login", RECIPE_IDLE_LIMIT_MS + DAY_MS),
+    ]);
+    expect((await sync(device)).changes).toEqual([
+      { recipeId: "bank-entry", revision: 1, state: "active", recipe: entry },
+      { recipeId: "bank-login", revision: 2, state: "revoked" },
+    ]);
+    expect(await activeIds(device.ownerId)).toEqual(["bank-entry"]);
+  });
+
+  it("counts a reported login, also on an older revision, as use", async () => {
+    const device = await enrollOwner();
+    expect((await publish(device, "bank-login", 0)).status).toBe(200);
+    expect((await publish(device, "bank-login", 1)).status).toBe(200);
+    expect((await publish(device, "shop-login", 0)).status).toBe(200);
+    await env.DB.batch([
+      lastUsedAgo(device.ownerId, "bank-login", RECIPE_IDLE_LIMIT_MS + DAY_MS),
+      lastUsedAgo(device.ownerId, "shop-login", RECIPE_IDLE_LIMIT_MS + DAY_MS),
+    ]);
+    const before = Date.now();
+    // A failed login on revision 1 while revision 2 is the head still counts.
+    expect((await reportLogin(device, "bank-login", loginRecord)).status).toBe(204);
+    const used = await head(device.ownerId, "bank-login");
+    expect(used?.last_used_at).toBeGreaterThanOrEqual(before);
+    expect(used?.last_used_at).toBeLessThanOrEqual(Date.now());
+    // Marking use writes no revision and takes no sequence number.
+    expect(used).toMatchObject({ revision: 2, state: "active", sequence: 2 });
+    await sync(device);
+    expect(await activeIds(device.ownerId)).toEqual(["bank-login"]);
+    expect(await head(device.ownerId, "shop-login")).toMatchObject({
+      revision: 2,
+      state: "revoked",
+    });
+  });
+
+  it("counts every winning write as use, and a losing one as none", async () => {
+    const device = await enrollOwner();
+    const before = Date.now();
+    expect((await publish(device, "bank-login", 0)).status).toBe(200);
+    const written = (await head(device.ownerId, "bank-login"))!.last_used_at;
+    expect(written).toBeGreaterThanOrEqual(before);
+    expect(written).toBeLessThanOrEqual(Date.now());
+
+    await lastUsedAgo(device.ownerId, "bank-login", RECIPE_IDLE_LIMIT_MS + DAY_MS).run();
+    const aged = (await head(device.ownerId, "bank-login"))!.last_used_at;
+    expect((await publish(device, "bank-login", 0)).status).toBe(409);
+    expect((await head(device.ownerId, "bank-login"))!.last_used_at).toBe(aged);
+
+    const beforeUpdate = Date.now();
+    expect((await publish(device, "bank-login", 1)).status).toBe(200);
+    expect((await head(device.ownerId, "bank-login"))!.last_used_at).toBeGreaterThanOrEqual(
+      beforeUpdate,
+    );
+    await sync(device);
+    expect(await head(device.ownerId, "bank-login")).toMatchObject({
+      revision: 2,
+      state: "active",
+    });
+  });
+
+  it("does not revoke a recipe used again after the idle check read it", async () => {
+    const device = await enrollOwner();
+    expect((await publish(device, "bank-login", 0)).status).toBe(200);
+    const lastUsedAt = Date.now() - RECIPE_IDLE_LIMIT_MS - DAY_MS;
+    await env.DB.prepare(
+      "UPDATE recipe_heads SET last_used_at = ? WHERE owner_id = ? AND recipe_id = 'bank-login'",
+    )
+      .bind(lastUsedAt, device.ownerId)
+      .run();
+    const revoke = { version: 1, expectedRevision: 1, state: "revoked" } as const;
+    // Used at exactly the cutoff, or later, is not unused before it.
+    for (const unusedBefore of [lastUsedAt, lastUsedAt - 1]) {
+      // oxlint-disable-next-line no-await-in-loop -- each write reads the same head
+      const refused = await writeRecipe(env.DB, device.ownerId, "bank-login", revoke, null, {
+        unusedBefore,
+      });
+      expect(refused).toEqual({
+        ok: false,
+        limited: false,
+        current: {
+          recipeId: "bank-login",
+          revision: 1,
+          state: "active",
+          recipe: recipe("bank-login", 1),
+        },
+      });
+    }
+    expect(await head(device.ownerId, "bank-login")).toMatchObject({
+      revision: 1,
+      state: "active",
+      last_used_at: lastUsedAt,
+    });
+    expect(
+      await writeRecipe(env.DB, device.ownerId, "bank-login", revoke, null, {
+        unusedBefore: lastUsedAt + 1,
+      }),
+    ).toEqual({
+      ok: true,
+      change: { recipeId: "bank-login", revision: 2, state: "revoked" },
+    });
+  });
+
+  it("revokes at most 50 recipes per check, the longest unused first", async () => {
+    const device = await enrollOwner();
+    const count = MAX_IDLE_REVOCATIONS + 5;
+    const ids = Array.from(
+      { length: count },
+      (_, index) => `idle-${String(index).padStart(2, "0")}`,
+    );
+    for (const id of ids)
+      // oxlint-disable-next-line no-await-in-loop -- each write takes the next owner sequence
+      await writeRecipe(
+        env.DB,
+        device.ownerId,
+        id,
+        { version: 1, expectedRevision: 0, state: "active", recipe: recipe(id, 1) },
+        device.deviceId,
+      );
+    // idle-00 is the longest unused; the last five were used most recently.
+    await env.DB.batch(
+      ids.map((id, index) =>
+        lastUsedAgo(device.ownerId, id, RECIPE_IDLE_LIMIT_MS + (count - index) * DAY_MS),
+      ),
+    );
+    const first = await sync(device);
+    const revoked = first.changes.filter((change) => change.state === "revoked");
+    expect(revoked).toHaveLength(MAX_IDLE_REVOCATIONS);
+    expect(revoked.map((change) => change.recipeId).toSorted()).toEqual(
+      ids.slice(0, MAX_IDLE_REVOCATIONS),
+    );
+    expect(await activeIds(device.ownerId)).toEqual(ids.slice(MAX_IDLE_REVOCATIONS));
+
+    const second = await sync(device, `/v1/recipes?after=${first.cursor}`);
+    expect(second.changes.map((change) => [change.recipeId, change.state])).toEqual(
+      ids.slice(MAX_IDLE_REVOCATIONS).map((id) => [id, "revoked"]),
+    );
+    expect(await activeIds(device.ownerId)).toEqual([]);
+  });
+
+  it("leaves other owners' recipes alone", async () => {
+    const alice = await enrollOwner();
+    const bob = await enrollOwner();
+    expect((await publish(alice, "bank-login", 0)).status).toBe(200);
+    expect((await publish(bob, "bank-login", 0)).status).toBe(200);
+    await env.DB.batch([
+      lastUsedAgo(alice.ownerId, "bank-login", RECIPE_IDLE_LIMIT_MS + DAY_MS),
+      lastUsedAgo(bob.ownerId, "bank-login", RECIPE_IDLE_LIMIT_MS + DAY_MS),
+    ]);
+    const bobBefore = await head(bob.ownerId, "bank-login");
+    await sync(alice);
+    expect(await head(alice.ownerId, "bank-login")).toMatchObject({ state: "revoked" });
+    expect(await head(bob.ownerId, "bank-login")).toEqual(bobBefore);
+    expect(await revisions(bob.ownerId, "bank-login")).toEqual([{ revision: 1, state: "active" }]);
+    // Bob's own sync revokes his.
+    expect((await sync(bob)).changes).toEqual([
+      { recipeId: "bank-login", revision: 2, state: "revoked" },
+    ]);
+  });
+
+  it("starts existing recipes from the newest of their last write and last login", async () => {
+    const device = await enrollOwner();
+    const stranger = await enrollOwner();
+    for (const id of ["logged-in", "logged-earlier", "never-logged"])
+      // oxlint-disable-next-line no-await-in-loop -- each write takes the next owner sequence
+      expect((await publish(device, id, 0)).status).toBe(200);
+    expect((await publish(stranger, "never-logged", 0)).status).toBe(200);
+    const login = (by: Device, recipeId: string, createdAt: number) =>
+      env.DB.prepare(
+        "INSERT INTO login_timings (id, owner_id, recipe_id, branch, revision, origin, outcome, extension_build, total_ms, service_ms, network_ms, person_ms, page_ms, created_at) VALUES (?, ?, ?, '', 1, 'https://bank.example', 'authenticated', 'development', 1, 0, 0, 0, 0, ?)",
+      ).bind(`login-${crypto.randomUUID()}`, by.ownerId, recipeId, createdAt);
+    await env.DB.batch([
+      env.DB.prepare(
+        "UPDATE recipe_heads SET updated_at = 1000, last_used_at = 0 WHERE owner_id = ?",
+      ).bind(device.ownerId),
+      login(device, "logged-in", 3000),
+      login(device, "logged-in", 5000),
+      login(device, "logged-earlier", 500),
+      // Another owner's login on the same recipe ID is not this owner's use.
+      login(stranger, "never-logged", 9000),
+    ]);
+    const migration = (env as unknown as { TEST_MIGRATIONS: D1Migration[] }).TEST_MIGRATIONS.find(
+      ({ name }) => name.startsWith("0021_"),
+    );
+    // The committed statement, without its comments or the column it fills.
+    const backfill = migration?.queries
+      .map((query) => query.replaceAll(/^--.*$/gm, "").trim())
+      .find((query) => query.startsWith("UPDATE"));
+    expect(backfill).toBeDefined();
+    // Scoped to this owner so it leaves other tests' rows alone.
+    await env.DB.prepare(`${backfill!.replace(/;$/, "")} WHERE owner_id = ?`)
+      .bind(device.ownerId)
+      .run();
+    const { results } = await env.DB.prepare(
+      "SELECT recipe_id, last_used_at FROM recipe_heads WHERE owner_id = ? ORDER BY recipe_id",
+    )
+      .bind(device.ownerId)
+      .all();
+    expect(results).toEqual([
+      { recipe_id: "logged-earlier", last_used_at: 1000 },
+      { recipe_id: "logged-in", last_used_at: 5000 },
+      { recipe_id: "never-logged", last_used_at: 1000 },
+    ]);
   });
 });

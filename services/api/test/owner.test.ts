@@ -741,6 +741,34 @@ describe("owner web UI recipes", () => {
     expect((await list(first)).recipes[0]!.change.state).toBe("active");
   });
 
+  it("revokes recipes unused for 90 days before listing them (ADR 0058)", async () => {
+    const by = await owner();
+    const device = await pairDevice(by);
+    expect((await publish(device.credential, "bank-signin", 0)).status).toBe(200);
+    expect((await publish(device.credential, "shop-signin", 0)).status).toBe(200);
+    const ownerId = await ownerIdFor(by.subject);
+    await env.DB.prepare(
+      "UPDATE recipe_heads SET last_used_at = ? WHERE owner_id = ? AND recipe_id = 'bank-signin'",
+    )
+      .bind(Date.now() - 91 * 24 * 60 * 60 * 1000, ownerId)
+      .run();
+    const { recipes } = await list(by);
+    // The list no longer offers it as active; it shows as the service's tombstone.
+    expect(recipes.map((entry) => entry.change)).toEqual([
+      { recipeId: "bank-signin", revision: 2, state: "revoked" },
+      { recipeId: "shop-signin", revision: 1, state: "active", recipe: recipe("shop-signin", 1) },
+    ]);
+    const rows = await env.DB.prepare(
+      "SELECT revision, state, created_by_device_id FROM recipe_revisions WHERE owner_id = ? AND recipe_id = 'bank-signin'",
+    )
+      .bind(ownerId)
+      .all();
+    expect(rows.results).toEqual([{ revision: 2, state: "revoked", created_by_device_id: null }]);
+    expect(await (await deviceApi(device.credential, "/v1/recipes?after=2")).json()).toMatchObject({
+      changes: [{ recipeId: "bank-signin", revision: 2, state: "revoked" }],
+    });
+  });
+
   it("refuses other methods on the recipes API", async () => {
     const { token } = await owner();
     expect((await manageApi("/manage/api/recipes", token, "PUT")).status).toBe(405);
