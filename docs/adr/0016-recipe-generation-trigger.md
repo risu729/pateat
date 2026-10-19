@@ -35,10 +35,10 @@ Amended on 2026-10-19 (implemented; a clarification, not an owner decision):
 is read as the attribute's tokens.
 
 Amended on 2026-10-19 by [ADR 0057](0057-decide-no-input-pages-when-the-dom-is-quiet.md)
-(owner, 20:22 and 20:23 UTC, implemented):
-[the wait for a sign-in input](#amendment-2026-10-19-the-wait-ends-when-the-dom-is-quiet)
-ends once the page's DOM is quiet for a second, at most 5 seconds, instead of after 10
-seconds.
+(owner, 20:22 and 20:23 UTC, implemented): a page
+[that asks for an identifier alone](#amendment-2026-10-19-the-wait-ends-when-the-dom-is-quiet)
+is offered once the page's DOM is quiet for a second, at most 5 seconds, instead of
+after 10 seconds; the 10 seconds for a sign-in input are unchanged.
 
 Date: 2026-10-11
 
@@ -279,9 +279,11 @@ fields only after a click gets no automatic generation.
 ## Amendment 2026-10-19: the wait ends when the DOM is quiet
 
 Amended by [ADR 0057](0057-decide-no-input-pages-when-the-dom-is-quiet.md) (owner, 20:22
-and 20:23 UTC). "Only a page that shows such an input within 10 seconds of loading is
-sent", and the ten-second step wait after which a page that asks for an account
-identifier alone is offered, are now one wait that ends once the page's DOM has not
-changed for 1 second, or 5 seconds after it began. A login step's own wait stays 10
-seconds, so the two waits are no longer the same. The first visit to a page that asks
-for an identifier alone starts generation after that wait instead of after ten seconds.
+and 20:23 UTC). Only pages without a sign-in input are decided earlier: the ten-second
+step wait after which a page that asks for an account identifier alone is offered is now
+a wait that ends once the page's DOM has not changed for 1 second, or 5 seconds after it
+began, so the first visit to such a page starts generation after that wait instead of
+after ten seconds. "Only a page that shows such an input within 10 seconds of loading is
+sent" is unchanged (an agent's addition, not confirmed by the owner): a page that showed
+nothing to send when that wait ended is still sent if it shows a sign-in input within
+the 10 seconds.

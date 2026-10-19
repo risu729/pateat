@@ -187,8 +187,9 @@ const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
  */
 const fillSettleMs = 500;
 /**
- * A first-visit page with no sign-in input is decided once its DOM has had no change for
- * `offerQuietMs`, or `offerWaitMs` after the wait began while it keeps changing (ADR 0057).
+ * What a first-visit page without a sign-in input is gets decided once its DOM has had no
+ * change for `offerQuietMs`, or `offerWaitMs` after the wait began while it keeps changing
+ * (ADR 0057). A sign-in input is still offered until `LOGIN_STEP_WAIT_MS` (ADR 0016).
  */
 const offerQuietMs = 1000;
 const offerWaitMs = 5000;
@@ -229,9 +230,9 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   // the current path, including after a same-document URL change or a dialog opening.
   let starts: LoginReadiness[] = [];
   let announced = false;
-  // The background may generate a recipe for this page if it shows a sign-in input before
-  // the offer wait ends (ADR 0057); a form shown only later, for example after a click, is
-  // not sent.
+  // The background may generate a recipe for this page if it shows a sign-in input within
+  // the step wait after it may be sent (ADR 0016); a form shown only later, for example
+  // after a click, is not sent.
   let generate = false;
   let offered = false;
   // The path where this document last submitted a form with a password input, and the
@@ -247,30 +248,36 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   // each so the background can log a login that did not start.
   const shown = new Set<string>();
   let shownTimer: ReturnType<typeof setTimeout> | undefined;
-  let offerTimer: ReturnType<typeof setTimeout> | undefined;
-  // When the pending offer is decided even if the DOM is still changing (ADR 0057).
-  let offerBy: number | undefined;
+  // The pending offer's timers: its decision once the DOM is quiet (`offerQuiet`) or at the
+  // latest (`offerCap`, ADR 0057), and the end of its window for a sign-in input
+  // (`offerWindow`, ADR 0016). The decision is pending while `offerCap` is set.
+  let offerQuiet: ReturnType<typeof setTimeout> | undefined;
+  let offerCap: ReturnType<typeof setTimeout> | undefined;
+  let offerWindow: ReturnType<typeof setTimeout> | undefined;
   let observer: MutationObserver | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const navigation = (globalThis as unknown as { navigation?: EventTarget }).navigation;
   const schedule = () => {
     timer ??= setTimeout(check, 100);
   };
+  function clearDecision(): void {
+    clearTimeout(offerQuiet);
+    offerQuiet = undefined;
+    clearTimeout(offerCap);
+    offerCap = undefined;
+  }
   function clearOffer(): void {
-    clearTimeout(offerTimer);
-    offerTimer = undefined;
-    offerBy = undefined;
+    clearDecision();
+    clearTimeout(offerWindow);
+    offerWindow = undefined;
   }
-  /** Decides a pending offer once the DOM has been quiet, or at its deadline (ADR 0057). */
-  function armOffer(): void {
-    if (offerBy === undefined) return;
-    clearTimeout(offerTimer);
-    offerTimer = setTimeout(decideOffer, Math.max(0, Math.min(offerQuietMs, offerBy - Date.now())));
-  }
-  // A DOM change or a same-document URL change: check the starts, and wait again for quiet.
+  // A DOM change or a same-document URL change: check the starts, and wait again for quiet
+  // while the decision is pending.
   const pageChanged = () => {
     schedule();
-    armOffer();
+    if (offerCap === undefined) return;
+    clearTimeout(offerQuiet);
+    offerQuiet = setTimeout(decideOffer, offerQuietMs);
   };
   function unwatch(): void {
     clearOffer();
@@ -283,10 +290,12 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     removeEventListener("popstate", pageChanged);
     navigation?.removeEventListener("currententrychange", pageChanged);
   }
-  /** Decides what a page offered for generation that showed no sign-in input is. */
+  /**
+   * Decides what a page offered for generation that showed no sign-in input is. When it is
+   * nothing to send, a sign-in input may still be offered until the window ends.
+   */
   function decideOffer(): void {
-    clearOffer();
-    offered = true;
+    clearDecision();
     // A page that shows no sign-in input by now may list accounts (ADR 0028) or, when
     // its URL names another path of its site, hold the site's sign-in entry (ADR
     // 0031), or ask for an account identifier alone (ADR 0016). The page right after a
@@ -302,13 +311,19 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         ? identifierInput(document)
         : undefined;
     const offerEntry = bare && entryWanted && !entryOffered && identifier !== "sole";
+    if (!identifier && !accounts && !offerEntry) return;
     if (offerEntry) entryOffered = true;
+    offered = true;
     watch(starts);
     if (identifier && !offerEntry) void announce(false, "identifier").catch(() => undefined);
-    else if (accounts || offerEntry)
-      void announce(false, false, accounts, offerEntry).catch(() => undefined);
-    // Nothing to send: the log says why (ADR 0019).
-    else if (!cancelled && !starts.some(ready))
+    else void announce(false, false, accounts, offerEntry).catch(() => undefined);
+  }
+  /** Ends the window in which a page that showed nothing else is offered a sign-in input. */
+  function endOffer(): void {
+    offered = true;
+    watch(starts);
+    // Nothing was sent: the log says why (ADR 0019).
+    if (!cancelled && !starts.some(ready))
       void sendMessage("login", {
         version: 1,
         type: "login.document.ready",
@@ -324,9 +339,10 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     generate = offer && !offered;
     entryWanted = generate && entryPage;
     if (!generate) clearOffer();
-    else if (offerBy === undefined) {
-      offerBy = Date.now() + offerWaitMs;
-      armOffer();
+    else if (offerWindow === undefined) {
+      offerQuiet = setTimeout(decideOffer, offerQuietMs);
+      offerCap = setTimeout(decideOffer, offerWaitMs);
+      offerWindow = setTimeout(endOffer, LOGIN_STEP_WAIT_MS);
     }
     if ((!starts.length && !generate) || cancelled) {
       unwatch();
@@ -393,8 +409,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       // Offered once per page; the background keeps its own daily limit as well.
       if (generate && !offered && showsSignIn()) {
         offered = true;
-        // The page's one offer: the offer wait's check would only report it for the log,
-        // and could overtake this announcement in the worker.
+        // The page's one offer: the window's end would only report it for the log, and
+        // could overtake this announcement in the worker.
         clearOffer();
         void announce(false, true).catch(() => undefined);
       }

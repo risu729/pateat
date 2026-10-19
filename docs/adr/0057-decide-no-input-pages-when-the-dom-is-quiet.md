@@ -35,8 +35,15 @@ ended the window in which a page that shows a sign-in input is sent.
   `value`), plus a same-document URL change (`popstate` or the Navigation API's
   `currententrychange`). The background answering the page again while it waits does
   not move the 5-second limit.
-- Not confirmed by the owner: since the window for sending a page that shows a sign-in
-  input ends with this wait, that window is now the same 1 to 5 seconds.
+- Not confirmed by the owner, added so that ADR 0016's window stays as it was: this wait
+  only decides what a page without a sign-in input is. When it finds a list of accounts,
+  a sign-in entry or an identifier input, the page is sent at once and nothing else is
+  offered for it. Otherwise a page that shows a sign-in input within 10 seconds of the
+  wait's start is still sent as a sign-in page, and the `nothing-offered` log is still
+  written at those 10 seconds, with the reason as it stands then.
+- Not confirmed by the owner: the 5-second limit and the 10-second window are timers
+  started once when the wait begins; the quiet second is a timer started again on each
+  DOM change.
 - The other 10-second waits do not change: a login step's wait for its elements, the
   log's `not-started` for a sign-in input that shows without a ready first step, and the
   checks on the page after an entry press.
@@ -47,11 +54,13 @@ ended the window in which a page that shows a sign-in input is sent.
   script starts watching. In the synthetic browser test, the entry page reached the
   synthetic model about 1.2 seconds after navigation began, and one whose text changes
   every 200 ms about 5.2 seconds after, instead of over 10 seconds for both.
-- A page that renders its sign-in form, account list, entry link or identifier input
-  only after a quiet pause of more than a second, such as after a slow request, or later
-  than 5 seconds, is decided before it shows them: it is logged as `nothing-offered`
-  (`no-list`) and not sent on that visit. A later visit that shows them in time is sent
-  as before.
+- A page that renders its account list, entry link or identifier input only after a
+  quiet pause of more than a second, such as after a slow request, or later than 5
+  seconds, is decided before it shows them and is not sent for them on that visit; it is
+  logged as `nothing-offered` (`no-list`) at 10 seconds unless a sign-in input shows
+  first. A later visit that shows them in time is sent as before. A sign-in form shown
+  after such a pause, but within 10 seconds, is still sent, as the synthetic browser
+  test with a form shown after 2.5 quiet seconds checks.
 - Changes outside the observed attributes, such as a canvas drawing or a CSS animation
   that changes no attribute, do not count, so such a page is decided after a second.
 

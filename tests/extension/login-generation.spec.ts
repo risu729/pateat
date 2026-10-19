@@ -643,7 +643,7 @@ for (const { name, loginPage } of [
   });
 
 for (const changing of [false, true])
-  test(`a page without a sign-in input is sent ${changing ? "five seconds after loading while its DOM keeps changing" : "once its DOM is quiet for a second"} (ADR 0057)`, async () => {
+  test(`a page without a sign-in input is sent ${changing ? "at its five-second limit while its DOM keeps changing" : "once its DOM is quiet for a second"} (ADR 0057)`, async () => {
     const fixture = await startLoginFixture(0, { password, accountName: username });
     const claude = syntheticClaude();
     const service = await startSyncService({ claude: claude.answer });
@@ -690,3 +690,50 @@ for (const changing of [false, true])
       await fixture.close();
     }
   });
+
+test("a sign-in form shown after the page was quiet for over a second is still sent (ADR 0016, ADR 0057)", async () => {
+  const fixture = await startLoginFixture(0, { password, accountName: username });
+  const claude = syntheticClaude();
+  const service = await startSyncService({ claude: claude.answer });
+  // A page on another host of the site that shows nothing, changes nothing for 2.5 seconds,
+  // as behind a CSS-only spinner, and then shows its sign-in form.
+  const top = "https://www.synthetic.example.test";
+  try {
+    await withVaultProfile(
+      async (open) => {
+        const browser = await open();
+        await serveSite(browser.context, fixture);
+        await browser.context.route(`${top}/**`, (route) =>
+          route.fulfill({
+            contentType: "text/html",
+            body: `<!doctype html><html lang="en"><head><title>Synthetic sign-in</title></head><body>
+            <main id="main"><h1>Synthetic sign-in</h1></main>
+            <script>setTimeout(() => {
+              document.querySelector("#main").insertAdjacentHTML("beforeend",
+                '<form><label>Password <input id="password" type="password"></label>' +
+                '<button id="login" type="button">Log in</button></form>');
+            }, 2500);</script>
+          </body></html>`,
+          }),
+        );
+        await connect(browser, service);
+
+        const page = await browser.context.newPage();
+        await page.goto(`${top}/account`);
+        await expect(page.locator("#password")).toBeVisible();
+        // The page was decided as nothing else after its first quiet second, but its form
+        // still shows within the step wait, so it is sent as a sign-in page.
+        await expect.poll(() => claude.prompts.length, { timeout: 20_000 }).toBeGreaterThan(0);
+        expect(claude.prompts[0]).toMatchObject({
+          task: "generate",
+          observation: { path: "/account" },
+        });
+        expect(claude.prompts.map((prompt) => prompt.task)).not.toContain("entry");
+      },
+      { args: ["--ignore-certificate-errors"] },
+    );
+  } finally {
+    await service.close();
+    await fixture.close();
+  }
+});

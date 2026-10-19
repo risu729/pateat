@@ -7336,7 +7336,7 @@ describe("production login document admission", () => {
           accounts: ["[account]"],
         },
       };
-      /** The document announces, ten seconds after loading, that it lists accounts. */
+      /** The document announces, once its offer wait ends (ADR 0057), that it lists accounts. */
       const listHello = (
         h: ReturnType<typeof harness>,
         names?: string[],
@@ -8013,7 +8013,7 @@ describe("production login document admission", () => {
         url: fake.state.pageUrl,
         ...overrides,
       });
-      /** The document announces, ten seconds after loading, that it shows no sign-in input. */
+      /** The document announces, once its offer wait ends (ADR 0057), that it shows no sign-in input. */
       const entryHello = (h: ReturnType<typeof harness>, from: Record<string, unknown> = {}) =>
         h.login.handle(
           {

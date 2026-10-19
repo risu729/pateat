@@ -142,10 +142,11 @@ export const LOGIN_STEP_WAIT_MS = 10000;
  */
 export const HELD_CLICK_WAIT_MS = 120_000;
 /**
- * Why a page offered for generation sent nothing after the offer wait (ADR 0057): it
- * showed no list of accounts, sign-in entry or identifier input (`no-list`), it is the page
- * right after a submitted password form (`after-sign-in`), or a sign-in input showed only
- * at the end of the wait (`sign-in-shown`).
+ * Why a page offered for generation sent nothing by the end of the step wait: it showed no
+ * list of accounts, sign-in entry or identifier input when its offer wait ended (ADR 0057)
+ * and no sign-in input since (`no-list`), it is the page right after a submitted password
+ * form (`after-sign-in`), or a sign-in input showed only at the end of the wait
+ * (`sign-in-shown`).
  */
 export const unofferedReasons = ["no-list", "after-sign-in", "sign-in-shown"] as const;
 export const helloSchema = v.strictObject({
@@ -193,8 +194,8 @@ export const helloSchema = v.strictObject({
    */
   entry: v.optional(v.strictObject({ path })),
   /**
-   * The page was offered for generation, but the offer wait (ADR 0057) found nothing to
-   * send: why, for the log only (ADR 0019).
+   * The page was offered for generation, but nothing was sent by the end of the step wait:
+   * why, for the log only (ADR 0019).
    */
   unoffered: v.optional(v.strictObject({ path, why: v.picklist(unofferedReasons) })),
 });
