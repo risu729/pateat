@@ -11,5 +11,10 @@ export function pageMatches<T extends { uriIndex: number }>(
   uris: readonly { uri: string | null }[],
 ): T[] {
   if (!targetOrigin.startsWith("http://")) return [...entries];
-  return entries.filter((entry) => /^http:\/\//iu.test(uris[entry.uriIndex]?.uri?.trim() ?? ""));
+  return entries.filter((entry) => countsOnHttpPage(uris[entry.uriIndex]?.uri ?? ""));
+}
+
+/** Whether a saved URI, or a Regex URI's pattern, names `http://` and so counts on an `http:` page. */
+export function countsOnHttpPage(uri: string): boolean {
+  return /^http:\/\//iu.test(uri.trim());
 }

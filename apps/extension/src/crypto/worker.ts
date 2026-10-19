@@ -16,7 +16,8 @@ import {
 } from "@pateat/bitwarden";
 import { loadBrowserCryptoSdk } from "@pateat/bitwarden/browser-sdk";
 import { customFieldsDigest, importDigestKey } from "./custom-digest";
-import { pageMatches } from "./http-page";
+import { countsOnHttpPage, pageMatches } from "./http-page";
+import { createRegexRunner } from "./regex";
 import { findStoredPasskeys, selectPasskeyItem, signStoredPasskey } from "./passkey";
 import {
   commandSchema,
@@ -48,11 +49,16 @@ let owned:
       metadataContext: PreparedBitwardenAccount["encryptedMetadata"];
       catalog?: LocalVaultMetadata;
       uriContext?: BitwardenUriMatchContext;
-      /** Decrypted login URI rules captured during verification; this Worker only. */
+      /**
+       * Decrypted login URI rules captured during verification. They stay in this Worker,
+       * except that Regex patterns run in the nested Regex Worker it owns (ADR 0056).
+       */
       loginUris: Map<string, { uri: string | null; match: number | null }[]>;
     }
   | undefined;
 let busy = false;
+// Started on the first Regex URI and terminated with this Worker, as on lock.
+const regexRunner = createRegexRunner();
 const fail = (
   code:
     | "crypto-failed"
@@ -241,8 +247,37 @@ async function execute(command: HostCommand) {
     if (!owned.verified) return fail("invalid-request");
     if (!owned.uriContext) return fail("uri-context-unavailable");
     // Admit the context and target once; each item then costs only its own URI rules.
-    const matcher = createBitwardenUriMatcher(op.targetUrl, owned.uriContext);
+    // Regex URIs are answered from `regexResults`. A first pass collects the patterns not
+    // answered yet, they run together in the Regex Worker, and only the items that had
+    // one are evaluated again with the results.
+    const regexResults = new Map<string, boolean>();
+    const regexPending = new Set<string>();
+    let httpPage = false;
+    let waiting = false;
+    const matcher = createBitwardenUriMatcher(op.targetUrl, owned.uriContext, (pattern) => {
+      const answer = regexResults.get(pattern);
+      // On an `http:` page a pattern not saved with `http://` would not count (ADR 0050).
+      if (answer === undefined && (!httpPage || countsOnHttpPage(pattern))) {
+        regexPending.add(pattern);
+        waiting = true;
+      }
+      return answer;
+    });
     if (!matcher.ok || matcher.data.targetOrigin.length > 8192) return fail("invalid-uri-input");
+    httpPage = matcher.data.targetOrigin.startsWith("http://");
+    const evaluations = new Map<string, ReturnType<typeof matcher.data.evaluate>>();
+    const waitingItems = new Set<string>();
+    for (const [itemId, uris] of owned.loginUris) {
+      waiting = false;
+      evaluations.set(itemId, matcher.data.evaluate(uris));
+      if (waiting) waitingItems.add(itemId);
+    }
+    if (regexPending.size > 0) {
+      for (const [pattern, matched] of await regexRunner.run([...regexPending], op.targetUrl))
+        regexResults.set(pattern, matched);
+      for (const itemId of waitingItems)
+        evaluations.set(itemId, matcher.data.evaluate(owned.loginUris.get(itemId)));
+    }
     const result: UriCandidates = {
       connectionId: command.connectionId,
       userId: owned.ref.userId,
@@ -253,7 +288,7 @@ async function execute(command: HostCommand) {
       unavailableItemIds: [],
     };
     for (const [itemId, uris] of owned.loginUris) {
-      const evaluated = matcher.data.evaluate(uris);
+      const evaluated = evaluations.get(itemId)!;
       // A single oversized item is reported without hiding unrelated candidates.
       if (!evaluated.ok) {
         result.unavailableItemIds.push(itemId);

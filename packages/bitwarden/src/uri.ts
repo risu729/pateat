@@ -24,7 +24,7 @@ export interface UriMatchEvaluation {
   readonly matched: boolean;
   /** Descriptive only: matching never authorizes release to this origin. */
   readonly targetOrigin: string;
-  readonly matches: readonly { readonly uriIndex: number; readonly match: 0 | 1 | 2 | 3 }[];
+  readonly matches: readonly { readonly uriIndex: number; readonly match: 0 | 1 | 2 | 3 | 4 }[];
   readonly unavailableUris: readonly {
     readonly uriIndex: number;
     readonly reason: UriUnavailableReason;
@@ -32,6 +32,7 @@ export interface UriMatchEvaluation {
 }
 type UriUnavailableReason =
   | "unsupported-uri-match"
+  | "regex-unevaluated"
   | "unsupported-uri-scheme"
   | "invalid-uri"
   | "default-match-unavailable"
@@ -270,8 +271,19 @@ export function admitBitwardenUriMatchContext(
 }
 
 type UriEvaluator = (uris: unknown) => BitwardenResult<UriMatchEvaluation>;
+/**
+ * Whether a Regex URI's pattern matches the page URL, as the pinned clients decide with
+ * `new RegExp(pattern, "i").test(pageUrl)`, or `undefined` when it was not evaluated.
+ * The caller runs patterns where a slow one cannot block it; without an answer the URI
+ * is `regex-unevaluated`.
+ */
+export type RegexUriAnswer = (pattern: string) => boolean | undefined;
 /** Precompute the target and its equivalent set once; each call evaluates one item's URIs. */
-function createEvaluator(targetUrl: string, settings: MatchingSettings): UriEvaluator | undefined {
+function createEvaluator(
+  targetUrl: string,
+  settings: MatchingSettings,
+  regex?: RegexUriAnswer,
+): UriEvaluator | undefined {
   const target = webUrl(targetUrl, false, maxTargetUrlLength);
   if (!target) return undefined;
   const targetDomain = domainKey(target);
@@ -286,7 +298,7 @@ function createEvaluator(targetUrl: string, settings: MatchingSettings): UriEval
   return (uris: unknown) => {
     try {
       if (!Array.isArray(uris) || uris.length > maxUris) return failure("invalid-uri-input");
-      const matches: { uriIndex: number; match: 0 | 1 | 2 | 3 }[] = [];
+      const matches: { uriIndex: number; match: 0 | 1 | 2 | 3 | 4 }[] = [];
       const unavailableUris: { uriIndex: number; reason: UriUnavailableReason }[] = [];
       uris.forEach((raw, uriIndex) => {
         const unavailable = (reason: (typeof unavailableUris)[number]["reason"]) =>
@@ -307,13 +319,21 @@ function createEvaluator(targetUrl: string, settings: MatchingSettings): UriEval
           return;
         }
         if (match === 5) return;
-        if (match !== 0 && match !== 1 && match !== 2 && match !== 3) {
+        if (match !== 0 && match !== 1 && match !== 2 && match !== 3 && match !== 4) {
           unavailable("unsupported-uri-match");
           return;
         }
         const stored = parsed.output.uri;
         if (!stored) {
           unavailable("invalid-uri");
+          return;
+        }
+        // The pinned clients test the raw pattern against the raw page URL, with no scheme
+        // or URL check of the pattern; one that does not compile matches nothing.
+        if (match === 4) {
+          const answer = regex?.(stored);
+          if (answer === undefined) unavailable("regex-unevaluated");
+          else if (answer) matches.push({ uriIndex, match });
           return;
         }
         const scheme = /^([a-z][a-z0-9+.-]*):/iu.exec(stored.trim())?.[1]?.toLowerCase();
@@ -388,10 +408,14 @@ export function matchBitwardenLoginUris(
   }
 }
 
-/** Admit retained context and the target once for many items from the same snapshot. */
+/**
+ * Admit retained context and the target once for many items from the same snapshot.
+ * Regex URIs take their result from `regex`, and are `regex-unevaluated` without one.
+ */
 export function createBitwardenUriMatcher(
   targetUrl: unknown,
   context: unknown,
+  regex?: RegexUriAnswer,
 ): BitwardenResult<{ targetOrigin: string; evaluate: UriEvaluator }> {
   try {
     if (typeof targetUrl !== "string") return failure("invalid-uri-input");
@@ -399,7 +423,7 @@ export function createBitwardenUriMatcher(
     if (!target) return failure("invalid-uri-input");
     const settings = matchingSettings({ context });
     if (!settings) return failure("invalid-options");
-    const evaluate = createEvaluator(targetUrl, settings);
+    const evaluate = createEvaluator(targetUrl, settings, regex);
     return evaluate
       ? { ok: true, data: { targetOrigin: target.origin, evaluate } }
       : failure("invalid-uri-input");

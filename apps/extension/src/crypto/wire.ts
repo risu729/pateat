@@ -176,7 +176,7 @@ export const uriCandidatesSchema = v.strictObject({
           v.array(
             v.strictObject({
               uriIndex: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(999)),
-              match: v.picklist([0, 1, 2, 3]),
+              match: v.picklist([0, 1, 2, 3, 4]),
             }),
           ),
           v.minLength(1),
@@ -193,6 +193,7 @@ export const uriCandidatesSchema = v.strictObject({
         uriIndex: v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(999)),
         reason: v.picklist([
           "unsupported-uri-match",
+          "regex-unevaluated",
           "unsupported-uri-scheme",
           "invalid-uri",
           "default-match-unavailable",

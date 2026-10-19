@@ -257,19 +257,21 @@ need an explicit support test; missing support is reported, never guessed.
 
 The isolated URI matcher evaluates provider candidates only, following the
 [pinned provider modes](https://github.com/bitwarden/clients/blob/8246ae9c9a484a0a69f8b27203034555fb872523/libs/common/src/vault/models/view/login-uri.view.ts#L132-L207).
-It supports Domain, Host, raw-string Exact and StartsWith, and Never. Regex returns an
-explicit unsupported result without executing a pattern. Domain matching uses tldts
-after WHATWG URL parsing, including private suffixes and direct equivalent-domain groups
-from the same account. Host includes the parsed port; Exact and StartsWith preserve the
-original strings. A backslash in the query or fragment, as in
-`https://bank.example/login?next=a\b`, is kept in a page URL and a stored URI, and they
-match like any other. Before the query or fragment, a page URL with one is refused:
-WHATWG reads `https://bank.example\@evil.test` as host `bank.example` where other
-parsers, such as Python's `urlsplit`, read `evil.test`, and WHATWG rewrites one in the
-path to `/`, so a tab URL never holds one there. In a stored URI, a backslash in the
-host or path matches as the pinned client matches it: after an `http://` or `https://`
-scheme, or after the first `/` of a bare host, WHATWG URL (its Host match) and tldts
-(its Domain match) both end the host at the backslash, so
+It supports Domain, Host, raw-string Exact and StartsWith, Regex and Never. The crypto
+Worker runs Regex patterns in a nested Worker it owns, which receives only the patterns
+and the page URL and is terminated after 5 seconds for one URL; a pattern without a
+result is `regex-unevaluated` ([ADR 0056](adr/0056-regex-uris-in-a-nested-worker.md)).
+Domain matching uses tldts after WHATWG URL parsing, including private suffixes and
+direct equivalent-domain groups from the same account. Host includes the parsed port;
+Exact and StartsWith preserve the original strings. A backslash in the query or
+fragment, as in `https://bank.example/login?next=a\b`, is kept in a page URL and a
+stored URI, and they match like any other. Before the query or fragment, a page URL with
+one is refused: WHATWG reads `https://bank.example\@evil.test` as host `bank.example`
+where other parsers, such as Python's `urlsplit`, read `evil.test`, and WHATWG rewrites
+one in the path to `/`, so a tab URL never holds one there. In a stored URI, a backslash
+in the host or path matches as the pinned client matches it: after an `http://` or
+`https://` scheme, or after the first `/` of a bare host, WHATWG URL (its Host match)
+and tldts (its Domain match) both end the host at the backslash, so
 `https://bank.example\@evil.test`, `https://bank.example/a\b` and `bank.example/a\b`
 match `bank.example`. Malformed or unsupported individual stored URIs receive
 unavailable metadata without blocking unrelated valid candidates. The page URL is
