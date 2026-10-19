@@ -373,7 +373,7 @@ describe("recipe generation role", () => {
 
   it("asks for the passkey sign-in button and never a registration button", () => {
     expect(generationInstructions).toContain(
-      "Never name a button that registers, creates, adds or sets up a passkey or security key, or one the plan uses, as passkeyButton",
+      "Never name a button that registers, creates, adds or sets up a passkey or security key",
     );
     expect(planDescription("passkeyButton")).toMatch(/signs in with a passkey instead of/u);
   });

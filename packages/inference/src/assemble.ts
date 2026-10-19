@@ -137,6 +137,7 @@ export function appendPageSteps(
     accountSwitch?: LoginTarget;
     /** The start page's passkey sign-in button, the `passkey` route (ADR 0027). */
     passkey?: LoginTarget;
+    passkeyOnly?: true;
   },
 ): { ok: true; recipe: LoginRecipe } | { ok: false; reason: AssemblyRejection } {
   const alternatives = page.alternatives ?? [];
@@ -179,6 +180,7 @@ export function appendPageSteps(
           })),
         }
       : {}),
+    ...(page.passkeyOnly ? { passkeyOnly: true } : {}),
     ...(page.passkey ? { passkey: { path: steps[0]!.path, target: page.passkey } } : {}),
     maxSubmissions: Math.max(1, ...variants.map(effects)),
   });

@@ -499,6 +499,14 @@ recipe's `origin` read from the reported revision's document (or the newest kept
 when that revision was pruned), the codes, the build, the times and the service's own
 time. Its rows follow the request log's one-year retention and its delete-all.
 
+A passkey-only first page sends `passkeyOnly: true` with `slots: []`
+([provisional ADR 0053](../../docs/adr/0053-passkey-only-generation.md)). It cannot
+supply `base` or `branch` and its observation has no fill fields or account list.
+The model must select one existing-passkey sign-in button, locally checked against
+the observed button and registration wording. The stored recipe explicitly has only
+the passkey route. It uses the same retry window, authenticated route, spending bounds
+and request log as other first pages; it grants no passkey signing permission.
+
 ## Schema and tests
 
 `src/db/schema.ts` is the Drizzle schema. Run
