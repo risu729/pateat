@@ -1516,6 +1516,17 @@ describe("unhandled errors", () => {
       baseRevision: 1,
       takenOver: true,
     });
+    // One not taken over says why, as a code (ADR 0027, amended 2026-10-19).
+    log.login({
+      type: "generation",
+      tabId: 3,
+      origin: recipeOrigin,
+      outcome: "recipe",
+      recipeId: "synthetic-recipe",
+      baseRevision: 1,
+      takenOver: false,
+      notTakenOver: "binding-slots-mismatch",
+    });
     log.login({
       type: "handler",
       ...page,
@@ -1627,7 +1638,7 @@ describe("unhandled errors", () => {
       reason: "incomplete-observation",
       detail: "unlocated-button",
     });
-    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(22));
+    await vi.waitFor(async () => expect(await log.logger.entries()).toHaveLength(23));
     const entries = (await log.logger.entries()).filter((entry) => entry.event !== "log.debug");
     expect(entries.map((entry) => [entry.event, entry.level, entry.fields])).toEqual([
       // An unchanged sync is a debug entry; one that changed a recipe is info.
@@ -1717,6 +1728,18 @@ describe("unhandled errors", () => {
           recipe: expect.any(String),
           baseRevision: 1,
           takenOver: true,
+        },
+      ],
+      [
+        "recipe.generate",
+        "info",
+        {
+          origin: recipeOrigin,
+          outcome: "recipe",
+          recipe: expect.any(String),
+          baseRevision: 1,
+          takenOver: false,
+          notTakenOver: "binding-slots-mismatch",
         },
       ],
       [

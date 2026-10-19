@@ -88,6 +88,16 @@ which amends [ADR 0018](0018-recipe-generation-route.md) (the service reads the
 bindings while generating) and [ADR 0012](0012-inference-request-log.md) (a logged
 result may hold a name the page does not show); implemented.
 
+Amended on 2026-10-19 by the owner (22:48 UTC, "yeah sounds good. go ahead"): the slots
+a saved binding does not name are filled as for an item without one, after the variants
+were tried with the binding as it is, and the binding is widened by them after
+`authenticated`, at login start, at a continuation's takeover and at each step; a
+refused takeover logs why
+([saved bindings that lack a slot](#amendment-2026-10-19-saved-bindings-that-lack-a-slot)),
+which amends [ADR 0013](0013-service-held-recipes-and-settings.md) (bindings are
+widened), [ADR 0018](0018-recipe-generation-route.md) (the takeover) and
+[ADR 0019](0019-local-diagnostics-and-logs.md) (`notTakenOver`); implemented.
+
 Date: 2026-10-11
 
 ## Context
@@ -377,7 +387,9 @@ new owner decision:
   built-in fields, other slots take the template's reference, and the first template
   whose references all resolve on the item wins. It is saved after `authenticated` like
   an automatic choice. Until one login authenticates somewhere, other devices cannot
-  fill the custom slots.
+  fill the custom slots. (Since 2026-10-19 the slots a saved binding lacks are filled
+  the same way, and the binding is widened after `authenticated`:
+  [saved bindings that lack a slot](#amendment-2026-10-19-saved-bindings-that-lack-a-slot).)
 - **Lost response.** A device that never receives the answer (a worker restart during
   the request) or that gets a recipe another request stored has no map; the recipe
   cannot fill its custom slots on that device until a binding is saved by a login on
@@ -411,10 +423,14 @@ new owner decision:
   variant's slots skips that variant and is never bypassed by a template; otherwise the
   automatic binding for built-in slots, then the templates, with the generated slot map
   read at most once per plan resolution (each later step's authorization resolves its
-  plan again). The attempt records the variant (attempt store `pateat.login-attempts.v3`
-  then, `pateat.login-attempts.v4` since the watch below; a previous store is left
-  unread), and a running or resumed login checks only that variant's binding: the
-  binding check ignores the fields of other variants.
+  plan again). (Amended 2026-10-19: the saved binding's entries are still used as they
+  are and every variant is tried with it as it is first, but when none fits, the slots
+  it lacks are filled as for an item without one and the variants are tried again:
+  [saved bindings that lack a slot](#amendment-2026-10-19-saved-bindings-that-lack-a-slot).)
+  The attempt records the variant (attempt store `pateat.login-attempts.v3` then,
+  `pateat.login-attempts.v4` since the watch below; a previous store is left unread),
+  and a running or resumed login checks only that variant's binding: the binding check
+  ignores the fields of other variants.
 - **Bindings with other slots.** A binding resolves for a set of slots when it holds an
   entry for each of them; entries for other slots are ignored. This also applies to a
   recipe with one variant, so a saved binding that still names a slot the recipe no
@@ -1015,9 +1031,12 @@ Consequences: a recipe now stores more page text than the label locator does, su
 review before recipes are shared covers slot names too (ADR 0013). A name follows the
 page's wording, so a recipe generated again after a wording change may rename a slot,
 and a saved binding then no longer covers the recipe (`binding-slots-mismatch`) until it
-is removed in `/manage`. A name in another script that looks like a built-in one
-(Cyrillic `раssword`) passes the check; it only reads confusingly. The names the five
-active production recipes already have stay valid.
+is removed in `/manage`. (Since 2026-10-19 the renamed slot is filled when a template
+names it, and refuses so only otherwise:
+[saved bindings that lack a slot](#amendment-2026-10-19-saved-bindings-that-lack-a-slot).)
+A name in another script that looks like a built-in one (Cyrillic `раssword`) passes
+the check; it only reads confusingly. The names the five active production recipes
+already have stay valid.
 
 ## Amendment 2026-10-19: slot names from the bindings
 
@@ -1086,3 +1105,89 @@ same owner and recipe. It does not help when the account's vault field is named
 otherwise, when the start path (and so the recipe ID) changed, or for a field no binding
 names yet; there the 2026-10-18 consequence (`binding-slots-mismatch` until the binding
 is removed) still holds. Recipe repair, once built, can use the same matching.
+
+## Amendment 2026-10-19: saved bindings that lack a slot
+
+On 2026-10-19 at 12:50 UTC, in the owner's Chrome on build `cfce11f`, UniSuper's login
+pressed "Select" for the password ([ADR 0048](0048-password-method-button.md)), and the
+service returned the continuation that fills the password and presses Verify. The login
+did not take it over and settled `unknown`. The item's saved binding of the recipe,
+saved on 2026-10-17 at 01:34 UTC after revision 1, which filled only the username, and a
+login wrongly judged `authenticated` (fixed since
+[#571](https://github.com/risu729/pateat/pull/571)), named only `username`. The rule
+above ("a saved binding for the item is the only source") made the takeover refuse
+`binding-slots-mismatch`, every later login of the item would refuse the same way until
+the binding was removed in `/manage`, and the log named no reason (`recipe.generate`
+`takenOver: false` only). The proposal was reviewed by an independent subagent against
+the code. The owner approved a revised proposal, which replaced its option A (fill
+built-in slots only), at 22:48 UTC on 2026-10-19 ("yeah sounds good. go ahead"):
+
+- **Saved entries.** The entries a saved binding names are used as they are.
+- **Gaps.** The slots of the route that the saved binding does not name are filled the
+  same way as for an item with no saved binding: `username`, `password` and `totp` from
+  the item's built-in fields, and custom slots from the templates (the recipe's other
+  saved bindings of the origin, then the generated slot map), with the same name-match
+  rules and the same `field-missing` and `field-ambiguous` refusals
+  (`fillLoginBinding` in `packages/contracts`).
+- **Variants.** In a recipe with several `password` variants, the variants are first
+  tried with the saved binding as it is; only when none fits are the gaps filled, again
+  in recipe order. An item whose binding fits its second variant keeps that variant,
+  even when the first could be filled.
+- **Widening.** After an `authenticated` login, the filled slots are written into the
+  saved binding (`saveLoginChoice` replaces a binding with one that keeps each of its
+  entries and adds slots), so the binding is widened.
+- **Everywhere a plan is built.** The same rule applies at login start, to the
+  continuation's takeover (`continueWith`, ADR 0018) and to each step's authorization,
+  which plans the recorded route again.
+- **Logged refusals.** A takeover the login refuses is logged with why, as a value-free
+  code: `recipe.generate` gains `notTakenOver` beside `takenOver: false`
+  ([ADR 0019](0019-local-diagnostics-and-logs.md)), such as the plan's
+  `binding-slots-mismatch` or `field-missing`.
+
+Claude's details, not confirmed by the owner:
+
+- A built-in field the saved binding already reads under another slot (as
+  `{ "slot": "Web password", "field": "password" }`) never fills a missing built-in
+  slot, so the same value is not typed into a second field; that slot stays unfilled and
+  the plan refuses as before.
+- Existing entries are never overwritten, also when a template names another field for
+  the same slot.
+- A gap that no template names stays unfilled and refuses `binding-slots-mismatch`, as a
+  saved binding that lacks a slot did before, not `binding-not-found`. A widened binding
+  over the binding schema's 20 slots refuses the same way.
+- A variant fits as it is when it passes every check of "Choosing a variant" without a
+  gap filled (fields allowed, bound password or TOTP fields holding values, the stop of
+  an item without a password). The second round runs only when the first refused some
+  variant `binding-slots-mismatch`, and its result, with its refusals, is the plan's.
+- The widened binding keeps the saved one's display names (`itemName`, `accountName`)
+  and its place in the list; the site default is written only as before. As before,
+  nothing is saved when a list is full, and a login that does not authenticate widens
+  nothing. A fill-only login after a logout and a pick made for one login only fill
+  gaps for that login and save nothing.
+- The generated slot map is read at most once per plan resolution; with the two rounds
+  and each step's authorization it may be read several times per login.
+- `notTakenOver` is logged on the `recipe.generate` entry of the document that asked for
+  the continuation. A revision taken from the recipe cache, or an answer a later
+  document waited for, still logs no `recipe.generate` entry, so its refusal is not
+  logged there. The codes are `left` (the login ended or moved meanwhile),
+  `route-missing` (a chooser's answer without the login's branch), `route-not-password`,
+  `recipe-changed`, `not-continued` (the revision does not continue the one the login
+  ran), `settings-unavailable`, `settings-revision` (the settings changed since the
+  login was authorized), the plan's own refusal, `account-changed`, `stop:<miss>` (a
+  login stopping before its item's missing password that the continuation cannot stop
+  in, with the miss of [ADR 0036](0036-passkey-after-the-identifier.md)), `not-ready`,
+  `budget-exceeded` (more steps or effects than one page may add) and `not-recorded`
+  (the takeover was not recorded).
+
+Consequences: a binding saved before a recipe grew no longer blocks the item: UniSuper's
+binding is widened by the next login that signs in. A binding written by the owner gains
+entries too, which `/manage` shows; nothing tells the owner when that happens. The gap
+filling reaches the same fields an item without a saved binding already reaches, and
+the exclusions, the item's facts and the TOTP rules apply to the filled binding as to
+any. A slot renamed when a recipe is generated again
+([slot names from the page](#amendment-2026-10-18-slot-names-from-the-page)) is filled
+when a template names its new name, as this device's generated slot map does after the
+generation; without one it still refuses `binding-slots-mismatch`, and the stale entry
+stays in the binding. A gap filled from a sibling binding or the generated map is a
+guess by field name, checked only by resolution and the login's outcome, as for an item
+without a saved binding.

@@ -233,6 +233,36 @@ export function templateLoginBinding(
   | { ok: true; binding: SavedLoginBinding }
   | { ok: false; reason: "binding-not-found" }
   | { ok: false; slot: string; reason: FieldRefusal } {
+  const { accountName, ...owner } = account;
+  const built = fromTemplates(slots, templates, fields, (bound) => {
+    const binding = v.safeParse(savedLoginBindingSchema, {
+      recipeId: recipe.id,
+      origin: recipe.origin,
+      ...owner,
+      ...loginDisplayNames(account.itemId, account.itemName, accountName),
+      slots: bound,
+    });
+    return binding.success ? binding.output : undefined;
+  });
+  return built.ok ? { ok: true, binding: built.value } : built;
+}
+
+/**
+ * The template loop of `templateLoginBinding`: each of `slots` named `username`,
+ * `password` or `totp` reads the item's built-in field of that name, and every other slot
+ * takes the template's reference. The first template whose references all resolve on the
+ * item and that `build` accepts wins; without one, the first resolution refusal, or
+ * `binding-not-found` when no template covers every slot.
+ */
+function fromTemplates<T>(
+  slots: readonly string[],
+  templates: readonly LoginBindingTemplate[],
+  fields: readonly LocalItemField[],
+  build: (bound: { slot: string; field: VaultFieldReference }[]) => T | undefined,
+):
+  | { ok: true; value: T }
+  | { ok: false; reason: "binding-not-found" }
+  | { ok: false; slot: string; reason: FieldRefusal } {
   let refusal: { ok: false; slot: string; reason: FieldRefusal } | undefined;
   for (const template of templates) {
     const references = slots.map((slot) => ({
@@ -251,17 +281,59 @@ export function templateLoginBinding(
       refusal ??= { ok: false, ...failed };
       continue;
     }
-    const { accountName, ...owner } = account;
-    const binding = v.safeParse(savedLoginBindingSchema, {
-      recipeId: recipe.id,
-      origin: recipe.origin,
-      ...owner,
-      ...loginDisplayNames(account.itemId, account.itemName, accountName),
-      slots: bound,
-    });
-    if (binding.success) return { ok: true, binding: binding.output };
+    const value = build(bound);
+    if (value !== undefined) return { ok: true, value };
   }
   return refusal ?? { ok: false, reason: "binding-not-found" };
+}
+
+/** The slots of `slots` that a binding holds no entry for. */
+export function bindingGaps(
+  binding: Pick<SavedLoginBinding, "slots">,
+  slots: readonly string[],
+): string[] {
+  return slots.filter((slot) => !binding.slots.some((entry) => entry.slot === slot));
+}
+
+/**
+ * A saved binding with its gaps, the slots of `slots` it holds no entry for, filled as for
+ * an item without a saved binding (ADR 0027, amended 2026-10-19): a gap named `username`,
+ * `password` or `totp` reads the item's built-in field of that name, and the other gaps
+ * take a template's references by name, the first template whose references for every
+ * such gap resolve on the item winning. `templates` are those `templateLoginBinding` would
+ * get: the recipe's other saved bindings of the origin, then the generated slot map. The
+ * saved entries are kept as they are and in their order, and the filled ones follow in
+ * `slots` order; `widened` says whether any was added. A built-in field the saved binding
+ * already reads under another slot never fills a gap. A gap left unfilled refuses
+ * `binding-slots-mismatch`, as a saved binding that lacks a slot did before; a template
+ * reference that does not resolve on the item refuses with its field's reason when no
+ * template fills every gap. The result is resolved by `resolveBindingFields` like any.
+ */
+export function fillLoginBinding(
+  saved: SavedLoginBinding,
+  slots: readonly string[],
+  templates: readonly LoginBindingTemplate[],
+  fields: readonly LocalItemField[],
+):
+  | { ok: true; binding: SavedLoginBinding; widened: boolean }
+  | { ok: false; reason: "binding-slots-mismatch" }
+  | { ok: false; slot: string; reason: FieldRefusal } {
+  const gaps = bindingGaps(saved, slots);
+  if (gaps.length === 0) return { ok: true, binding: saved, widened: false };
+  // One login never types the same built-in value into a second field.
+  if (gaps.some((slot) => saved.slots.some((entry) => entry.field === slot)))
+    return { ok: false, reason: "binding-slots-mismatch" };
+  // Built-in gaps alone need no template.
+  const sources = gaps.every((slot) => builtinSlots.has(slot)) ? [[]] : templates;
+  const filled = fromTemplates(gaps, sources, fields, (bound) => {
+    const binding = v.safeParse(savedLoginBindingSchema, {
+      ...saved,
+      slots: [...saved.slots, ...bound],
+    });
+    return binding.success ? binding.output : undefined;
+  });
+  if (filled.ok) return { ok: true, binding: filled.value, widened: true };
+  return "slot" in filled ? filled : { ok: false, reason: "binding-slots-mismatch" };
 }
 
 /** Synced bindings are unique per recipe, origin and vault item. */
@@ -284,12 +356,37 @@ const maxSavedEntries = 1000;
 export type LoginChoiceAccount = Omit<SavedLoginBinding, "recipeId" | "slots">;
 
 /**
+ * Whether `wider` keeps every entry of `binding` as it is and adds at least one: the
+ * binding a login filled the gaps of (ADR 0027, amended 2026-10-19).
+ */
+function widensLoginBinding(binding: SavedLoginBinding, wider: SavedLoginBinding): boolean {
+  return (
+    sameLoginBinding(binding, wider) &&
+    wider.slots.length > binding.slots.length &&
+    binding.slots.every((entry) =>
+      wider.slots.some(
+        (other) => other.slot === entry.slot && sameFieldReference(other.field, entry.field),
+      ),
+    )
+  );
+}
+
+function sameFieldReference(left: VaultFieldReference, right: VaultFieldReference): boolean {
+  if (typeof left === "string" || typeof right === "string") return left === right;
+  return (
+    left.custom === right.custom && left.position === right.position && left.count === right.count
+  );
+}
+
+/**
  * Saves an account choice after an `authenticated` outcome: the site default for the
  * binding's origin and the binding itself, each only when none exists yet. A saved
  * choice therefore keeps winning, and a binding written by the owner or by AI
- * generation is never replaced. When the origin's saved default names another account,
- * nothing is saved unless `replace` is set: an account the user picked to become the
- * default (ADR 0021) replaces it. When a list is full, nothing is saved. A new default
+ * generation is never replaced; it is only widened: a binding that keeps each of its
+ * entries and adds slots the login filled (ADR 0027, amended 2026-10-19) takes its place,
+ * with the saved one's display names. When the origin's saved default names another
+ * account, nothing is saved unless `replace` is set: an account the user picked to become
+ * the default (ADR 0021) replaces it. When a list is full, nothing is saved. A new default
  * names the binding's provider account and item and copies its display names. A choice
  * without slots (`LoginChoiceAccount`) saves the site default only. Returns the same
  * object when nothing changes, so the caller can skip the write.
@@ -307,11 +404,19 @@ export function saveLoginChoice(
     saved.userId === binding.userId;
   if (saved && !sameAccount && !options.replace) return settings;
   const kept = sameAccount ? saved : undefined;
-  const { bindings } = settings;
   // A choice without slots has no binding to add, as if one were already saved.
-  const hasBinding =
-    !("slots" in binding) || bindings.some((entry) => sameLoginBinding(entry, binding));
-  if (kept && hasBinding) return settings;
+  const existing =
+    "slots" in binding
+      ? settings.bindings.find((entry) => sameLoginBinding(entry, binding))
+      : undefined;
+  const widened = existing && "slots" in binding && widensLoginBinding(existing, binding);
+  const bindings = widened
+    ? settings.bindings.map((entry) =>
+        entry === existing ? { ...existing, slots: binding.slots } : entry,
+      )
+    : settings.bindings;
+  const hasBinding = !("slots" in binding) || existing !== undefined;
+  if (kept && hasBinding && !widened) return settings;
   if (
     (!saved && settings.siteDefaults.length >= maxSavedEntries) ||
     (!hasBinding && bindings.length >= maxSavedEntries)

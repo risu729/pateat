@@ -482,6 +482,7 @@ export function createDiagnosticsLog(options: {
             recipe: report.recipeId,
             baseRevision: report.baseRevision,
             takenOver: report.takenOver,
+            notTakenOver: report.notTakenOver,
             page: report.page,
             ...requestTimes(report.timing),
           },

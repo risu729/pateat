@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import * as v from "valibot";
 import { parseLoginRecipe, type LoginRecipe, type StoredLoginRecipe } from "./login";
 import {
+  bindingGaps,
   customFieldReference,
   defaultLoginBinding,
+  fillLoginBinding,
   findLoginBinding,
   loginDisplayNames,
   loginRecipesForOrigin,
@@ -434,6 +436,66 @@ describe("automatic account choice", () => {
     expect(saveLoginChoice({ ...saved, bindings: [manual] }, chosen).bindings).toEqual([manual]);
   });
 
+  it("widens a saved binding by the slots a login filled, keeping its entries (ADR 0027)", () => {
+    const signin = recipe("bank-signin", "/login");
+    const settings = createDefaultSettings({ connections: [] });
+    const narrow = defaultLoginBinding(["username"], signin, {
+      ...account,
+      itemName: "Bank (renamed)",
+    })!;
+    const saved = saveLoginChoice(settings, narrow);
+    const wide = { ...narrow, itemName: "Example Bank", accountName: "Personal" };
+    wide.slots = [...narrow.slots, { slot: "password", field: "password" }];
+    const widened = saveLoginChoice(saved, wide);
+    // The binding takes the new entries and keeps its own display names; the default stays.
+    expect(widened.bindings).toEqual([{ ...narrow, slots: wide.slots }]);
+    expect(widened.siteDefaults).toBe(saved.siteDefaults);
+    expect(v.is(localSettingsSchema, widened)).toBe(true);
+    expect(saveLoginChoice(widened, wide)).toBe(widened);
+    // Other bindings keep their place.
+    const other = { ...narrow, recipeId: "other-signin" };
+    const both = { ...saved, bindings: [other, ...saved.bindings] };
+    expect(saveLoginChoice(both, wide).bindings).toEqual([other, { ...narrow, slots: wide.slots }]);
+    // Widened without a saved default, the default is saved too.
+    const unset = saveLoginChoice({ ...saved, siteDefaults: [] }, wide);
+    expect(unset.bindings).toEqual(widened.bindings);
+    expect(unset.siteDefaults).toEqual([expect.objectContaining({ itemId: account.itemId })]);
+
+    // Not a widening: the same entries, fewer, a changed entry, or a changed reference.
+    expect(saveLoginChoice(widened, { ...wide, slots: narrow.slots })).toBe(widened);
+    const changed = {
+      ...wide,
+      slots: [
+        { slot: "username", field: { custom: "Login ID" } },
+        { slot: "password", field: "password" },
+        { slot: "totp", field: "totp" },
+      ],
+    } satisfies SavedLoginBinding;
+    expect(saveLoginChoice(widened, changed)).toBe(widened);
+    const pinned = binding({
+      recipeId: "bank-signin",
+      slots: [{ slot: "pin", field: { custom: "PIN", position: 1, count: 2 } }],
+    });
+    const pinSaved = { ...settings, bindings: [pinned] };
+    const otherPosition = {
+      ...pinned,
+      slots: [
+        { slot: "pin", field: { custom: "PIN", position: 2, count: 2 } },
+        { slot: "password", field: "password" },
+      ],
+    } satisfies SavedLoginBinding;
+    expect(saveLoginChoice(pinSaved, otherPosition).bindings).toEqual([pinned]);
+    const samePosition = {
+      ...pinned,
+      slots: [...pinned.slots, { slot: "password", field: "password" }],
+    } satisfies SavedLoginBinding;
+    expect(saveLoginChoice(pinSaved, samePosition).bindings).toEqual([samePosition]);
+    // A binding of another item or recipe is never widened.
+    expect(
+      saveLoginChoice(saved, { ...wide, itemId: "00000000-0000-4000-8000-000000000003" }).bindings,
+    ).toEqual(saved.bindings);
+  });
+
   it("saves only the site default for a choice without slots (ADR 0027)", () => {
     const signin = recipe("bank-signin", "/login");
     const chosen = defaultLoginBinding(signin.slots, signin, {
@@ -689,6 +751,121 @@ describe("bindings built from templates (ADR 0027)", () => {
     );
     expect(unnamed.ok && unnamed.binding.itemName).toBe(account.itemId);
     expect(unnamed.ok && "accountName" in unnamed.binding).toBe(false);
+  });
+});
+
+describe("saved bindings with gaps (ADR 0027, amended 2026-10-19)", () => {
+  const saved = binding({ slots: [{ slot: "username", field: "username" }] });
+  const branch = [{ slot: "branch", field: { custom: "Branch number" } }];
+
+  it("lists the slots a binding holds no entry for", () => {
+    expect(bindingGaps(saved, ["username", "password", "branch"])).toEqual(["password", "branch"]);
+    expect(bindingGaps(saved, ["username"])).toEqual([]);
+  });
+
+  it("uses a binding that covers the slots as it is", () => {
+    expect(fillLoginBinding(saved, ["username"], [branch], fields)).toEqual({
+      ok: true,
+      binding: saved,
+      widened: false,
+    });
+  });
+
+  it("fills built-in gaps from the item's built-in fields and keeps the saved entries", () => {
+    const manual = binding({
+      slots: [{ slot: "username", field: { custom: "PIN", position: 2, count: 2 } }],
+    });
+    const filled = fillLoginBinding(manual, ["password", "username", "totp"], [], fields);
+    expect(filled).toEqual({
+      ok: true,
+      widened: true,
+      binding: {
+        ...manual,
+        slots: [
+          ...manual.slots,
+          { slot: "password", field: "password" },
+          { slot: "totp", field: "totp" },
+        ],
+      },
+    });
+    // Filled entries resolve like any.
+    expect(filled.ok && resolve(filled.binding)).toMatchObject({ ok: true });
+    // A built-in field the item lacks is a missing field.
+    const withoutPassword = fields.filter((field) => field.id !== "login.password");
+    expect(fillLoginBinding(saved, ["username", "password"], [], withoutPassword)).toEqual({
+      ok: false,
+      slot: "password",
+      reason: "field-missing",
+    });
+  });
+
+  it("fills custom gaps from the first template that resolves, as without a saved binding", () => {
+    const missing = [{ slot: "branch", field: { custom: "Region" } }];
+    const ambiguous = [{ slot: "branch", field: { custom: "PIN" } }];
+    const filled = fillLoginBinding(
+      saved,
+      ["username", "branch", "password"],
+      [[], missing, ambiguous, branch],
+      fields,
+    );
+    expect(filled).toEqual({
+      ok: true,
+      widened: true,
+      binding: {
+        ...saved,
+        slots: [
+          { slot: "username", field: "username" },
+          { slot: "branch", field: { custom: "Branch number" } },
+          { slot: "password", field: "password" },
+        ],
+      },
+    });
+    // The first refusal when no template resolves.
+    expect(fillLoginBinding(saved, ["username", "branch"], [missing, ambiguous], fields)).toEqual({
+      ok: false,
+      slot: "branch",
+      reason: "field-missing",
+    });
+    expect(fillLoginBinding(saved, ["username", "branch"], [ambiguous], fields)).toEqual({
+      ok: false,
+      slot: "branch",
+      reason: "field-ambiguous",
+    });
+    // No template names the slot: the gap stays, as before.
+    expect(fillLoginBinding(saved, ["username", "branch", "password"], [], fields)).toEqual({
+      ok: false,
+      reason: "binding-slots-mismatch",
+    });
+  });
+
+  it("never fills a gap with a built-in field the binding already reads under another slot", () => {
+    const elsewhere = binding({
+      slots: [
+        { slot: "username", field: "username" },
+        { slot: "Web password", field: "password" },
+      ],
+    });
+    expect(fillLoginBinding(elsewhere, ["username", "password"], [], fields)).toEqual({
+      ok: false,
+      reason: "binding-slots-mismatch",
+    });
+    // Another built-in field still fills.
+    expect(
+      fillLoginBinding(elsewhere, ["username", "Web password", "totp"], [], fields),
+    ).toMatchObject({ ok: true, widened: true });
+  });
+
+  it("refuses a binding that would grow past the schema's 20 slots", () => {
+    const full = binding({
+      slots: Array.from({ length: 20 }, (_, index) => ({
+        slot: `slot ${index}`,
+        field: { custom: "Branch number" },
+      })),
+    });
+    expect(fillLoginBinding(full, ["password"], [], fields)).toEqual({
+      ok: false,
+      reason: "binding-slots-mismatch",
+    });
   });
 });
 

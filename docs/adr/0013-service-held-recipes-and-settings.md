@@ -37,6 +37,13 @@ Amended on 2026-10-18 by [ADR 0049](0049-start-at-a-later-step.md) (owner, 01:40
 implemented): an attempt may also start at a later `fill` step the page shows when no
 first step does ([Recipe lookup](#recipe-lookup)).
 
+Amended on 2026-10-19 by
+[ADR 0027](0027-per-account-login-routes.md#amendment-2026-10-19-saved-bindings-that-lack-a-slot)
+(owner, 22:48 UTC, implemented): a saved binding is no longer saved only once. The slots
+of a login's route that it does not name are filled as for an item without a binding,
+and after `authenticated` they are added to it, keeping each of its entries; a binding's
+entries are never replaced.
+
 Amended on 2026-10-18 by
 [ADR 0027](0027-per-account-login-routes.md#amendment-2026-10-18-slot-names-from-the-page)
 (owner, 08:58:31 UTC): custom-field slot names come from the page's text, so the check
@@ -124,7 +131,10 @@ A saved account choice selects the item. Without one, when the provider URI matc
 finds exactly one eligible item, the attempt uses that item, and the choice is saved
 only after the outcome is `authenticated`. Nothing is saved on `credential-rejected` or
 an unknown outcome. A saved choice wins even if more items match later; deleting it
-restores automatic choice. Two or more matches still need a manual choice, and so
+restores automatic choice. (Since 2026-10-19 a saved binding that lacks a slot of the
+route is widened by the slots the login filled, after `authenticated`; its entries are
+kept, see the amendment in the status above.) Two or more matches still need a manual
+choice, and so
 does a single match whose account is connected more than once (`account-ambiguous`,
 as for a saved choice of that account; 2026-10-11). The manual choice is made in the
 toolbar popup and is saved like an automatic one, only after `authenticated`, unless

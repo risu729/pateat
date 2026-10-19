@@ -14913,9 +14913,9 @@ describe("password route variants (ADR 0027)", () => {
     ]);
   });
 
-  it("never bypasses a saved binding with an automatic one", async () => {
-    // A generated map could fill the branch variant, but the item's own binding names the
-    // contract variant only.
+  it("keeps the variant a saved binding fits as it is, though an earlier one could be filled", async () => {
+    // A generated map could fill the branch variant's gap, but the item's own binding fits
+    // the contract variant as it is (ADR 0027, amended 2026-10-19).
     const service = {
       available: vi.fn<LoginGeneration["available"]>(async () => "sent"),
       generate: vi.fn<LoginGeneration["generate"]>(async () => ({
@@ -14932,12 +14932,46 @@ describe("password route variants (ADR 0027)", () => {
     expect(await h.hello()).toEqual({ ok: true });
     await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]));
     expect(status()![0]).toMatchObject({ variant: 1 });
+    expect(filled()).toEqual([["contract", "password"]]);
     expect(service.slotFields).not.toHaveBeenCalled();
-    // A saved binding that covers no variant refuses; nothing else is tried.
+    // Nothing was filled, so the binding stays as it was.
+    expect(h.settings.settings.bindings).toEqual([byContract]);
+  });
+
+  it("fills the gaps of a saved binding that fits no variant as it is, in variant order", async () => {
+    const slotFields = vi.fn<LoginGeneration["slotFields"]>(async () => [
+      { slot: "branch", field: { custom: "Branch" } },
+      { slot: "contract", field: { custom: "Contract" } },
+    ]);
+    const service = {
+      available: vi.fn<LoginGeneration["available"]>(async () => "sent"),
+      generate: vi.fn<LoginGeneration["generate"]>(async () => ({
+        outcome: "skipped",
+        reason: "sent",
+      })),
+      generateEntry: vi.fn<LoginGeneration["generateEntry"]>(),
+      judge: vi.fn<LoginGeneration["judge"]>(async () => ({ verdict: "unclear" })),
+      slotFields,
+    };
+    // A binding whose slot the recipe no longer has: its entries are kept, and the first
+    // variant's gap is filled from the generated map.
     const stale = bound([
       { slot: "region", field: { custom: "Branch" } },
       { slot: "password", field: "password" },
     ]);
+    const { h } = start({ bindings: [stale] }, { ...both, generation: service });
+    expect(await h.hello()).toEqual({ ok: true });
+    await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]));
+    expect(status()![0]).toMatchObject({ variant: 0 });
+    expect(filled()).toEqual([["branch", "password"]]);
+    expect(slotFields).toHaveBeenCalled();
+    await vi.waitFor(() =>
+      expect(h.settings.settings.bindings).toEqual([
+        { ...stale, slots: [...stale.slots, { slot: "branch", field: { custom: "Branch" } }] },
+      ]),
+    );
+    // Without a template for either gap, nothing fills it and the variants refuse as before.
+    slotFields.mockResolvedValue(undefined);
     const refused = start({ bindings: [stale] }, { ...both, generation: service });
     expect(await refused.h.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({
       ok: false,
@@ -14947,6 +14981,129 @@ describe("password route variants (ADR 0027)", () => {
       expect.objectContaining({ reason: "no-route", detail: "binding-slots-mismatch" }),
     ]);
     expect(refused.h.fields).not.toHaveBeenCalled();
+  });
+
+  describe("a saved binding that lacks a slot of the recipe (amended 2026-10-19)", () => {
+    const signIn = parseLoginRecipe({
+      ...varied,
+      ...set(["username", "password"]),
+      alternatives: undefined,
+    });
+    const branchFirst = parseLoginRecipe({ ...varied, alternatives: undefined });
+    const narrow = bound([{ slot: "username", field: "username" }]);
+    const service = (slotFields: LoginGeneration["slotFields"] = async () => undefined) => ({
+      available: vi.fn<LoginGeneration["available"]>(async () => "sent"),
+      generate: vi.fn<LoginGeneration["generate"]>(async () => ({
+        outcome: "skipped",
+        reason: "sent",
+      })),
+      generateEntry: vi.fn<LoginGeneration["generateEntry"]>(),
+      judge: vi.fn<LoginGeneration["judge"]>(async () => ({ verdict: "unclear" })),
+      slotFields: vi.fn<LoginGeneration["slotFields"]>(slotFields),
+    });
+
+    it("fills a built-in slot from the item and widens the binding after authenticated", async () => {
+      const { h, report } = start({ bindings: [narrow] }, { ...both, username: true }, signIn);
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]));
+      expect(filled()).toEqual([["username", "password"]]);
+      expect(h.fields.mock.calls.map(([read]) => read.fieldId)).toEqual([
+        "login.username",
+        "login.password",
+      ]);
+      // The saved entry stays and the filled one follows; the saved default is kept.
+      await vi.waitFor(() =>
+        expect(h.settings.settings.bindings).toEqual([
+          { ...narrow, slots: [...narrow.slots, { slot: "password", field: "password" }] },
+        ]),
+      );
+      expect(h.settings.settings.siteDefaults).toEqual([
+        { origin, provider: "bitwarden", userId, itemId },
+      ]);
+      expect(report.mock.calls.map(([entry]) => entry)).toContainEqual(
+        expect.objectContaining({ type: "choice", outcome: "saved" }),
+      );
+    });
+
+    it.each<[string, Partial<LocalSettings>, LoginGeneration["slotFields"] | undefined]>([
+      ["the generated slot map", {}, async () => [{ slot: "branch", field: { custom: "Branch" } }]],
+      [
+        "another item's saved binding of the recipe",
+        {
+          bindings: [
+            bound([{ slot: "password", field: "password" }]),
+            {
+              ...bound([{ slot: "branch", field: { custom: "Branch" } }]),
+              itemId: otherItemId,
+              itemName: "Other synthetic item",
+            },
+          ],
+        },
+        undefined,
+      ],
+    ])("fills a custom slot from %s", async (_label, overrides, slotFields) => {
+      const own = bound([{ slot: "password", field: "password" }]);
+      const generation = service(slotFields);
+      const { h } = start({ bindings: [own], ...overrides }, { ...both, generation }, branchFirst);
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]));
+      expect(filled()).toEqual([["branch", "password"]]);
+      expect(h.fields.mock.calls.map(([read]) => read.fieldId)).toEqual([
+        branchField,
+        "login.password",
+      ]);
+      await vi.waitFor(() =>
+        expect(h.settings.settings.bindings).toContainEqual({
+          ...own,
+          slots: [...own.slots, { slot: "branch", field: { custom: "Branch" } }],
+        }),
+      );
+    });
+
+    it.each<[string, LoginGeneration["slotFields"], string]>([
+      [
+        "names a field the item lacks",
+        async () => [{ slot: "branch", field: { custom: "Region" } }],
+        "field-missing",
+      ],
+      [
+        "names a field the item has twice",
+        async () => [{ slot: "branch", field: { custom: "Twice" } }],
+        "field-ambiguous",
+      ],
+    ])("refuses when the only template %s", async (_label, slotFields, reason) => {
+      const own = bound([{ slot: "password", field: "password" }]);
+      const { h, report } = start(
+        { bindings: [own] },
+        {
+          custom: [
+            { name: "Branch", kind: "text" },
+            { name: "Twice", kind: "text" },
+            { name: "Twice", kind: "text" },
+          ],
+          generation: service(slotFields),
+        },
+        branchFirst,
+      );
+      expect(await h.hello()).toEqual({ ok: false, reason });
+      expect(refusals(report)).toEqual([expect.objectContaining({ reason })]);
+      expect(h.fields).not.toHaveBeenCalled();
+      expect(h.settings.settings.bindings).toEqual([own]);
+    });
+
+    it("never fills a built-in slot with a field the binding reads under another slot", async () => {
+      const elsewhere = bound([
+        { slot: "username", field: "username" },
+        { slot: "Web password", field: "password" },
+      ]);
+      const { h, report } = start({ bindings: [elsewhere] }, { ...both, username: true }, signIn);
+      expect(await h.hello()).toEqual({ ok: false, reason: "binding-slots-mismatch" });
+      expect(refusals(report)).toEqual([
+        expect.objectContaining({ reason: "binding-slots-mismatch" }),
+      ]);
+      expect(h.fields).not.toHaveBeenCalled();
+      expect(h.settings.settings.bindings).toEqual([elsewhere]);
+    });
   });
 
   it("builds each variant's binding from the generated map when none is saved", async () => {
@@ -18001,7 +18158,7 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
     }
   });
 
-  it.each<[string, LoginRecipe]>([
+  it.each<[string, LoginRecipe, string]>([
     [
       "changes a step the login ran",
       parseLoginRecipe({
@@ -18011,10 +18168,15 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
           ...continuedOn("/signin").steps.slice(1),
         ],
       }),
+      "not-continued",
     ],
-    ["is another recipe", parseLoginRecipe({ ...continuedOn("/signin"), id: "gen-other" })],
-    ["is not newer", parseLoginRecipe({ ...continuedOn("/signin"), revision: 1 })],
-  ])("never takes over a revision that %s", async (_label, next) => {
+    [
+      "is another recipe",
+      parseLoginRecipe({ ...continuedOn("/signin"), id: "gen-other" }),
+      "recipe-changed",
+    ],
+    ["is not newer", parseLoginRecipe({ ...continuedOn("/signin"), revision: 1 }), "not-continued"],
+  ])("never takes over a revision that %s", async (_label, next, reason) => {
     inPlace();
     let h!: ReturnType<typeof harness>;
     const reports: LoginReport[] = [];
@@ -18026,33 +18188,127 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
     expect(executed()).toEqual(allSteps.slice(0, 2));
     expect(service.judge).not.toHaveBeenCalled();
     expect(status()![0]).toMatchObject({ recipeRevision: 1 });
+    // Why it was not taken over is logged with it, as a code (ADR 0019).
     expect(reports.filter((entry) => entry.type === "generation")).toEqual([
-      expect.objectContaining({ outcome: "recipe", takenOver: false }),
+      expect.objectContaining({ outcome: "recipe", takenOver: false, notTakenOver: reason }),
     ]);
   });
 
-  it("never takes over a revision the saved binding cannot fill", async () => {
+  /** A binding saved for the recipe by an earlier login: the username slot only. */
+  const usernameOnly: SavedLoginBinding = {
+    ...savedBinding,
+    recipeId: emailFirst.id,
+    slots: [{ slot: "username", field: "username" }],
+  };
+  /** The service's next revision, whose page asks for a customer number instead. */
+  const continuedWithCustomer = parseLoginRecipe({
+    ...emailFirst,
+    revision: 2,
+    slots: ["username", "Customer number"],
+    steps: [
+      ...emailFirst.steps,
+      {
+        kind: "fill",
+        path: "/signin",
+        fields: [{ slot: "Customer number", target: target("customer") }],
+      },
+      { kind: "click", path: "/signin", target: target("login"), purpose: "submit" },
+    ],
+    maxSubmissions: 2,
+  });
+
+  it("takes over a revision the saved binding lacks a slot of and widens it (amended 2026-10-19)", async () => {
     inPlace();
+    const reports: LoginReport[] = [];
     let h!: ReturnType<typeof harness>;
     const service = generation(answering(() => h, continuedOn("/signin")));
-    // A binding saved for the recipe holds the username slot only.
     h = start(service, {
       settings: {
-        bindings: [
-          {
-            ...savedBinding,
-            recipeId: emailFirst.id,
-            slots: [{ slot: "username", field: "username" }],
-          },
-        ],
+        siteDefaults: [{ origin, provider: "bitwarden", userId, itemId }],
+        bindings: [usernameOnly],
       },
+      report: reports,
     });
     expect(await h.hello()).toEqual({ ok: true });
-    await until(settled("reconciling", "unknown-submit"));
-    await vi.advanceTimersByTimeAsync(20_000);
-    expect(service.generate).toHaveBeenCalledTimes(1);
-    expect(executed()).toEqual(allSteps.slice(0, 2));
+    await until(settled("authenticated"));
+    expect(executed()).toEqual(allSteps);
+    expect(status()![0]).toMatchObject({ recipeRevision: 2, stepCount: 4 });
+    expect(h.fields.mock.calls.map(([request]) => request.fieldId)).toContain("login.password");
+    expect(reports.filter((entry) => entry.type === "generation")).toEqual([
+      expect.objectContaining({ outcome: "recipe", takenOver: true }),
+    ]);
+    // The binding keeps its entry and gains the password; the default stays as it was.
+    expect(h.settings.settings.bindings).toEqual([
+      {
+        ...usernameOnly,
+        slots: [...usernameOnly.slots, { slot: "password", field: "password" }],
+      },
+    ]);
+    expect(h.settings.settings.siteDefaults).toEqual([
+      { origin, provider: "bitwarden", userId, itemId },
+    ]);
+  });
+
+  it.each<[string, (() => LoginGeneration["slotFields"]) | undefined, CustomField[], string]>([
+    [
+      "no template names it",
+      undefined,
+      [{ name: "Customer", kind: "text" }],
+      "binding-slots-mismatch",
+    ],
+    [
+      "the generated map names a field the item lacks",
+      () => async () => [{ slot: "Customer number", field: { custom: "Customer" } }],
+      [],
+      "field-missing",
+    ],
+  ])(
+    "never takes over a revision whose new slot the saved binding lacks when %s, and logs why",
+    async (_label, slotFields, custom, reason) => {
+      inPlace(() => fake.state.present?.add("customer"));
+      const reports: LoginReport[] = [];
+      let h!: ReturnType<typeof harness>;
+      const service = generation(answering(() => h, continuedWithCustomer));
+      if (slotFields) service.slotFields.mockImplementation(slotFields());
+      h = start(service, { settings: { bindings: [usernameOnly] }, report: reports, custom });
+      expect(await h.hello()).toEqual({ ok: true });
+      await until(settled("reconciling", "unknown-submit"));
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(service.generate).toHaveBeenCalledTimes(1);
+      expect(executed()).toEqual(allSteps.slice(0, 2));
+      expect(h.fields.mock.calls.map(([request]) => request.fieldId)).not.toContain(
+        "login.password",
+      );
+      expect(reports.filter((entry) => entry.type === "generation")).toEqual([
+        expect.objectContaining({ outcome: "recipe", takenOver: false, notTakenOver: reason }),
+      ]);
+      expect(h.settings.settings.bindings).toEqual([usernameOnly]);
+    },
+  );
+
+  it("takes over a revision whose new custom slot the generated map fills", async () => {
+    inPlace(() => fake.state.present?.add("customer"));
+    let h!: ReturnType<typeof harness>;
+    const service = generation(answering(() => h, continuedWithCustomer));
+    service.slotFields.mockResolvedValue([
+      { slot: "Customer number", field: { custom: "Customer" } },
+    ]);
+    h = start(service, {
+      settings: { bindings: [usernameOnly] },
+      custom: [{ name: "Customer", kind: "text" }],
+    });
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(settled("authenticated"));
+    expect(executed()).toEqual(["fill:email", "click:next", "fill:customer", "click:login"]);
+    const executes = fake.state.messages.filter((entry) => entry.type === "login.execute");
+    expect(executes[2]!.values).toEqual([{ slot: "Customer number", value: "synthetic-secret" }]);
     expect(h.fields.mock.calls.map(([request]) => request.fieldId)).not.toContain("login.password");
+    expect(h.settings.settings.bindings).toEqual([
+      {
+        ...usernameOnly,
+        slots: [...usernameOnly.slots, { slot: "Customer number", field: { custom: "Customer" } }],
+      },
+    ]);
   });
 
   it("judges the page instead when the recipe already has a completion", async () => {
@@ -18736,23 +18992,17 @@ describe("continuing a generated recipe after its final advance (ADR 0018)", () 
     });
 
     it("refuses a cached takeover the saved binding cannot fill: no fill, unknown", async () => {
-      inPlace();
+      inPlace(() => fake.state.present?.add("customer"));
       let h!: ReturnType<typeof harness>;
-      const next = continuedOn("/signin");
+      // The new slot is one no template names, so the saved binding's gap stays.
+      const next = continuedWithCustomer;
       const service = generation(async () => {
         h.recipes.recipe.mockResolvedValue(next);
         return { outcome: "failed", reason: "invalid-output" };
       });
       h = start(service, {
-        settings: {
-          bindings: [
-            {
-              ...savedBinding,
-              recipeId: emailFirst.id,
-              slots: [{ slot: "username", field: "username" }],
-            },
-          ],
-        },
+        settings: { bindings: [usernameOnly] },
+        custom: [{ name: "Customer", kind: "text" }],
       });
       expect(await h.hello()).toEqual({ ok: true });
       await until(settled("reconciling", "unknown-submit"));

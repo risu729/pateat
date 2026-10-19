@@ -339,6 +339,8 @@ export const LOG_EVENTS = {
       recipe: "recipe",
       baseRevision: "count",
       takenOver: "flag",
+      // Why a returned recipe was not taken over (ADR 0027, amended 2026-10-19).
+      notTakenOver: "code",
       // `accounts` for a list of accounts (ADR 0028), `entry` for a sign-in entry (ADR 0031),
       // `other` for a form on a chooser's path sent as its `other` branch (ADR 0028).
       page: "code",
