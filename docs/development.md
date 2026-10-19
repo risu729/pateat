@@ -782,10 +782,19 @@ a snapshot; array results stay arrays. The narrower projects importing this code
 `ESNext.Iterator`, the Iterator Helpers lib in the pinned TypeScript.
 The passkey relay, conditional login decision, login-account report lookup and
 diagnostics install-type lookup use `Promise.try()` to turn synchronous throws and
-promise rejections into the same failure path. These callbacks start immediately;
-the login runtime's `quietly` helper keeps its deferred invocation so session snapshots
-retain their existing timing. Projects importing these wrappers add `ES2025.Promise`,
-the corresponding lib in the pinned TypeScript.
+promise rejections into the same failure path. These callbacks start immediately.
+The completed login-runtime audit on 2026-10-14 also adopted `Promise.try()` for
+`quietly`: it still resolves to `undefined` on either success or failure. Session
+loading reaches its first `await` before restoring collections or calling badges, so
+the earlier read does not observe partially initialized state; admission, choices,
+tab removal and replacement still wait for that load. Session saves snapshot before
+their first `await`, after each caller's saved mutations, and dispatch the storage
+write before later badge/report callbacks. Starting a login batches clearing its
+choice, binding its pick to the attempt and updating logout/fill markers into one
+snapshot, rather than relying on a later microtask to see those mutations. Reentrant
+tab cleanup writes the newer state after that snapshot; the attempt journal keeps
+its separate serialized queue and cancellation/restart guards. Projects importing
+these wrappers add `ES2025.Promise`, the corresponding lib in the pinned TypeScript.
 
 ### Integration conditions (pending candidates remain conditional)
 
