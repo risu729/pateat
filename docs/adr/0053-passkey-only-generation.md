@@ -1,59 +1,101 @@
 # ADR 0053: Generation on passkey-only start pages
 
-Status: proposed, implementation in progress. The owner authorized agents to finish
-unstarted plan work autonomously, record questions as proposals and continue with the
-recommended choice. That authorization is permission to proceed, not acceptance of the
-detailed policy below. The agent-selected decisions remain unconfirmed. Proposes an
-extension of [ADR 0016](0016-recipe-generation-trigger.md) and
-[ADR 0018](0018-recipe-generation-route.md); preserves
-[ADR 0034](0034-answer-page-passkey-requests.md)'s delegation without a recipe.
+Status: accepted by the owner on 2026-10-19 (UTC), implemented. The owner brought this
+phase-4 item into the current work and decided its rules on 2026-10-19: generate a
+recipe for a start page that shows only a passkey button when a URI-matching item holds
+a passkey for the site; use the shared no-input page wait; widen the passkey button
+words ("broad is fine", keeping 生体認証); and give such pages their own generation
+instructions (20:30 UTC: 「指示は汎用化する必要がない、分けてよい」, "instructions need
+not be generalized; splitting them is fine"). Amends
+[ADR 0016](0016-recipe-generation-trigger.md) (conditions 2 and 3) and
+[ADR 0027](0027-per-account-login-routes.md) (passkey-only start pages are generated;
+wider passkey words). Preserves [ADR 0034](0034-answer-page-passkey-requests.md)'s
+delegation of passkey requests on pages without a recipe. One question is open (below).
 
-Date: 2026-10-17
+Date: 2026-10-17 (proposed); accepted 2026-10-19
 
 ## Context
 
-Automatic generation currently requires sign-in inputs or an account list. A page
-with only a button to sign in with an existing passkey therefore gets no recipe,
-even when an eligible vault item matches its URI and holds a usable passkey.
+Generation sends a page without a recipe when it shows a sign-in input (a password,
+username or one-time-code input), asks for an account identifier alone
+([ADR 0016](0016-recipe-generation-trigger.md)), lists accounts
+([ADR 0028](0028-account-chooser-login-pages.md)) or, without any input, holds the
+site's sign-in entry ([ADR 0031](0031-sign-in-entry-pages.md)). A start page whose only
+way in is a button that signs in with an existing passkey matched none of these, so it
+got no recipe even when a matching vault item holds a passkey for the site.
 
 ## Decision
 
-Proposed recommended choice, unconfirmed by the owner: after the existing ten-second
-observation window, offer a top-level HTTPS page showing a locatable, enabled button
-that names a passkey or security key, with no visible fill fields. Exclude buttons
-whose labels or locators name registration, setup or management. Do not offer the
-page immediately following an observed password-form submission, using the existing
-post-submission guard. Require both the existing eligible URI match
-and a usable discoverable passkey belonging to one of those items.
+Owner decisions of 2026-10-19:
 
-Send a value-free observation with `passkeyOnly: true` and empty `slots`, through
-the existing authenticated generation route and its retry, spend and request bounds.
-The model must identify a sign-in to an existing account and may abstain. Locally
-validate its selected button and require an empty fill plan and one submit action.
-Store a declarative recipe explicitly marked `passkeyOnly` with no password route.
-The ordinary login account choice and passkey route perform execution, so a
-password-only item never clicks that button or supplies a password fallback.
+1. **Qualifying page.** ADR 0016 condition 3 also admits a top-level page with no
+   input that shows only a button naming a passkey or security key, when a URI-matching
+   item holds a passkey for the site. Such pages are now generated, as an exception to
+   ADR 0027's "start pages without a password input are never generated"; SSO-only
+   start pages still are not.
+2. **Vault check.** The page is sent only when an eligible URI-matching item holds a
+   discoverable, usable passkey for the page's RP ID: the lookup ADR 0034 uses for a
+   popup choice (`passkeyItems`), matched against the same items as the URI match. This
+   is a second vault access for a document without a recipe, an exception to ADR 0016
+   condition 2. No value or passkey fact leaves the device; the request carries only
+   `passkeyOnly: true`.
+3. **Wait.** The page is read in the content script's shared no-input page wait, the
+   same timer callback as identifier-only pages, account lists and entry pages; it has
+   no timer of its own. A change to that wait applies to it too.
+4. **Words.** The words that name a passkey button keep 生体認証 and add Face ID, Touch
+   ID, Windows Hello, biometric(s), fingerprint(s), face recognition, 指紋 and 顔認証
+   (Latin as whole words, Japanese anywhere). The registration words are unchanged.
+   The list is shared with ADR 0027's generated `passkey` route
+   ([ADR 0027 amendment](0027-per-account-login-routes.md#amendment-2026-10-19-passkey-only-start-pages-and-wider-passkey-words)).
+5. **Instructions.** A passkey-only request has its own generation instructions and
+   prompt version (`passkeyOnlyGenerationInstructions`), as an entry request does; the
+   generation role's instructions are unchanged. Standing rule: instructions per page
+   kind are preferred to generalizing the shared prompt.
+6. **Recipe shape.** `passkeyOnly: true`, `slots: []`, one click step on the button
+   with purpose `submit`, `maxSubmissions: 1`, and the same button as the `passkey`
+   route; there is no `password` route.
 
-Questions for owner review: approve this button-only qualification, the ten-second
-window, and the explicit passkey-only recipe shape? The implementation proceeds with
-these recommendations under the owner's autonomous-work instruction.
+What happens to such a recipe once its items lose their passkey is separate work
+(proposed as ADR 0058), not part of this decision.
+
+Implementation details chosen by the agent, not confirmed by the owner separately:
+
+- The extractor (`extractPasskeyObservation`) qualifies a page with no fillable,
+  unsupported or shadow-root field and one to 48 enabled, locatable buttons whose label
+  or locator names a passkey and not a registration; it sends only those buttons, in
+  the same value-free observation as other pages. A page that shows accounts or an
+  identifier input is offered as that instead.
+- The page right after a submitted password form is not sent, by the existing
+  post-submission guard; a manual passkey exchange without a password form is not seen
+  as a submission.
+- The request has no `base` or `branch` and its observation no fill field or account
+  list. The plan check accepts only `fields: []` and one `submit` action on a `button`
+  candidate that names a passkey and not a registration, also named as `passkeyButton`.
+- A recipe is used through the ordinary account choice and the `passkey` route: an item
+  without a discoverable passkey gets `no-route` and never presses the button.
+- After a logout ([ADR 0021](0021-account-choice-outside-settings.md) D), the start page
+  showing again in the tab asks for an account and presses nothing, as for any passkey
+  route (covered by a runtime test).
+
+Open with the owner: on a page that shows both a passkey button and an ADR 0031 sign-in
+entry, which is offered? For now the passkey page is, decided in one place in the
+content script (`offerPasskey` in `apps/extension/src/login/content.ts`).
 
 ## Consequences
 
-No new permissions, provider capability, site rules, or account operations are added.
-A conditional request alone does not qualify a page or authorize a signature. Pages
-without a recipe still delegate their requests. The inherited post-submission guard
-observes password forms only; a manual passkey exchange without a password form is
-not detected as a preceding submission. A generated recipe starts through
-normal document/account checks; no direct signing is added to generation.
-
-Local fake-provider and synthetic checks are required. No paid inference, deployment
-or real-account compatibility is claimed by this proposal.
+No permission, provider capability, site rule or account operation is added. A
+conditional passkey request alone never qualifies a page or authorizes a signature, and
+pages without a recipe still delegate their requests. Each such page costs one
+generation call at most once in ADR 0016's 10-minute window. The wider words also widen
+what ADR 0027's generated `passkey` route keeps. Only local fake-model and synthetic
+tests cover this; no real site, paid inference or deployment is claimed.
 
 ## Alternatives
 
-- Keep passkey-only generation deferred, requiring manual recipes.
-- Generate from every conditional request: exposes ordinary pages and may sign in
-  without clear sign-in intent.
-- Represent the passkey button as a password route: allows password-only items to
-  press a button they cannot complete and creates an unsafe fallback.
+- Keep passkey-only generation in phase 4, with manual recipes only.
+- Generate from every page that makes a conditional passkey request: exposes ordinary
+  pages and lacks a clear sign-in intent.
+- Store the passkey button as a `password` route: a password-only item would press a
+  button it cannot complete.
+- Add a passkey line to the generation role's instructions (as the first implementation
+  did): changes the shared prompt for every page; the owner preferred a separate text.

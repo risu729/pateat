@@ -301,7 +301,7 @@ export const loginRecipeSchema = v.pipe(
       v.maxLength(20),
       v.check(unique, "Duplicate recipe slots"),
     ),
-    /** A button-only start page: no password route or fallback (ADR 0053, proposed). */
+    /** A button-only start page: no password route or fallback (ADR 0053). */
     passkeyOnly: v.optional(v.literal(true)),
     /** The password route's first variant (variant 0): its steps. */
     steps: routeStepList,
@@ -1138,7 +1138,7 @@ export function laterStartSteps(
 }
 /**
  * Whether the recipe offers the route. A passkey-only recipe has no password route
- * (ADR 0053, proposed); ordinary recipes keep their password variants.
+ * (ADR 0053); every other recipe has it.
  */
 export function recipeHasRoute(recipe: LoginRecipe, route: LoginRoute): boolean {
   return route === "passkey"

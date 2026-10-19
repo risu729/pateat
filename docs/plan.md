@@ -437,6 +437,14 @@ than in this repository.
   gray when every match is excluded, amber while a login waits for a choice (owner,
   2026-10-13 14:42 UTC;
   [ADR 0021](adr/0021-account-choice-outside-settings.md#site-count-badge)).
+- Generation for passkey-only start pages, moved from phase 4 (owner, 2026-10-19;
+  [ADR 0053](adr/0053-passkey-only-generation.md)): implemented. A page that shows only
+  a button to sign in with a passkey is sent in the shared no-input page wait when a
+  URI-matching item holds a discoverable passkey for the site, with its own generation
+  instructions, and its recipe has only the `passkey` route. Covered by local synthetic
+  and fake-model tests only; a real passkey-only site in the owner's Chrome is
+  unchecked. Open: whether a sign-in entry or the passkey button wins on a page with
+  both.
 - The owner uses Pateat on many sites and reports bugs; Claude may also fix problems it
   finds on its own. Reading the extension's error logs without a report needs a way for
   them to leave the device, which [ADR 0019](adr/0019-local-diagnostics-and-logs.md)
@@ -1122,12 +1130,8 @@ items the owner mentioned and gates still open on 2026-10-11.
 - The items under [later work](#initial-delivery-and-later-scope) and the ADRs' later
   sections, including synced vault policy ([ADR 0023](adr/0023-synced-vault-policy.md)),
   more settings profiles ([ADR 0024](adr/0024-settings-profiles.md)), the ADR 0025 later
-  work, the ADR 0027 cases it does not handle. Generation for passkey-only start pages
-  has an implementation under the provisional policy in
-  [ADR 0053](adr/0053-passkey-only-generation.md): a button-only page needs a matching
-  eligible item with a discoverable usable passkey, and its recipe has no password
-  fallback. Owner confirmation of the detailed policy and real-site verification remain
-  open; no paid inference or deployment is included.
+  work and the ADR 0027 cases it does not handle. Generation for passkey-only start
+  pages moved to [phase 2](#phase-2-use-it-and-fix-what-comes-up) on 2026-10-19.
 - Real-account checks of individual Bitwarden two-step methods, other KDFs, V2 keys and
   organization items. The owner moved them after the public release on 2026-10-11
   (18:35 UTC), since few users are expected to need them; each needs the owner's

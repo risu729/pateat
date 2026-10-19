@@ -90,8 +90,10 @@ result may hold a name the page does not show); implemented.
 
 Amended on 2026-10-19 by the owner through [ADR 0053](0053-passkey-only-generation.md)
 ([passkey-only start pages and wider passkey words](#amendment-2026-10-19-passkey-only-start-pages-and-wider-passkey-words)):
-the words that name a passkey button also take device unlock words such as Face ID,
-Touch ID, Windows Hello and 指紋認証; implemented.
+a start page that shows only a passkey button is generated, as a recipe with only the
+`passkey` route (SSO-only start pages still are not), and the words that name a passkey
+button also take device unlock words such as Face ID, Touch ID, Windows Hello and
+指紋認証; implemented.
 
 Date: 2026-10-11
 
@@ -931,7 +933,10 @@ Not handled:
   learned: if a TOTP account is judged first, the security-key handler on that path is
   not learned until a new revision or judge prompt version.
 - Start pages without a password input (passkey-only or SSO-only) are never generated
-  (ADR 0016 condition 3); that is left to the SSO work.
+  (ADR 0016 condition 3); that is left to the SSO work. Passkey-only start pages are
+  generated since 2026-10-19
+  ([amendment](#amendment-2026-10-19-passkey-only-start-pages-and-wider-passkey-words));
+  SSO-only ones still are not.
 - Passkey requests the bridge already passes on: `silent` or `immediate` mediation
   (`conditional` is answered through a login since ADR 0034, `required` since an
   amendment of ADR 0007), external-only transports, a nonzero counter, an incomplete
@@ -1095,6 +1100,16 @@ names yet; there the 2026-10-18 consequence (`binding-slots-mismatch` until the 
 is removed) still holds. Recipe repair, once built, can use the same matching.
 
 ## Amendment 2026-10-19: passkey-only start pages and wider passkey words
+
+**Passkey-only start pages** (owner, 2026-10-19;
+[ADR 0053](0053-passkey-only-generation.md)). A start page that shows no input, only a
+button naming a passkey or security key, is generated when a URI-matching item holds a
+discoverable passkey for the site. Its recipe has `passkeyOnly: true`, no slots, one
+click step on that button that submits, `maxSubmissions: 1`, and the same button as its
+`passkey` route; it has no `password` route, so only an item with a discoverable passkey
+takes it, and a password-only item gets `no-route`. This replaces, for such pages, the
+limit under [Consequences](#consequences) that they are never generated. SSO-only start
+pages are still not generated.
 
 **Wider passkey button words** (owner, 2026-10-19: keep 生体認証 and widen the list,
 "broad is fine"). The words that name a passkey (`passkeyWording` in
