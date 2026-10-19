@@ -2152,6 +2152,27 @@ describe("revoking a recipe the chosen item cannot run (ADR 0058 A)", () => {
     expect(h.revokeRecipe).toHaveBeenCalledTimes(1);
   });
 
+  it("frees the record after a conflict with a newer active head, which revoked nothing", async () => {
+    const newer = {
+      ...recipeChange,
+      revision: 5,
+      recipe: { ...recipeChange.recipe, revision: 5 },
+    };
+    const h = replaceSetup({ answer: { kind: "conflict", current: newer, timing } });
+    expect(await h.generation.replace!(target)).toEqual({ outcome: "conflict", timing });
+    expect(h.store.order).toEqual(["record", "send", "record", "refresh"]);
+    expect(entries(h)).toEqual([]);
+    // The next plan on the newer head revokes it.
+    h.revokeRecipe.mockResolvedValueOnce({
+      kind: "revoked",
+      change: { ...tombstone, revision: 6 },
+    });
+    expect(await h.generation.replace!({ ...target, revision: 5 })).toEqual({
+      outcome: "revoked",
+    });
+    expect(h.revokeRecipe).toHaveBeenCalledTimes(2);
+  });
+
   it("keeps the record after a conflict without a head", async () => {
     const h = replaceSetup({ answer: { kind: "conflict", current: null } });
     expect(await h.generation.replace!(target)).toEqual({ outcome: "conflict" });

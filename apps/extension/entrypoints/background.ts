@@ -245,7 +245,7 @@ export default defineBackground(() => {
         generateEntry: (...request) => keepAlive(serviceTransport.generateEntry(...request)),
         judgeCompletion: (...request) => keepAlive(serviceTransport.judgeCompletion(...request)),
         samplePage: (...request) => keepAlive(serviceTransport.samplePage(...request)),
-        revokeRecipe: (...request) => serviceTransport.revokeRecipe(...request),
+        revokeRecipe: (...request) => keepAlive(serviceTransport.revokeRecipe(...request)),
       },
       storage: createBrowserGenerationAttemptStorage(),
       slotStorage: createBrowserGeneratedSlotStorage(),

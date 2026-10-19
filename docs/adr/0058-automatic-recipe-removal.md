@@ -56,7 +56,8 @@ Claude's choices beyond the owner's answer, not confirmed by the owner:
   passkey that is not discoverable never counts.
 - A device revokes a recipe this way at most once per recipe ID in 30 days for each
   paired service and device, recorded before the request leaves; a failed request that
-  did not reach the service, was rate limited or was rejected frees it again. A
+  did not reach the service, was rate limited or was rejected frees it again, and so
+  does a conflict with a newer active revision, which revoked nothing. A
   regenerated recipe keeps its ID, so this bounds a page whose new recipe the item still
   cannot run, and the service's own retry windows do not.
 - Only generated recipes (`gen-` IDs, derived from the origin and start path) are
@@ -117,6 +118,13 @@ Claude's choices beyond the owner's answer, not confirmed by the owner:
 - A recipe sync that runs just as a login starts can revoke its recipe at about 90 days
   idle. That login's use report and records then get 404, and the next visit generates
   the recipe again.
+- Part A can repeat on a page whose regenerated recipe the item still cannot run, as a
+  page with no passkey button for an item that only has a passkey: each device then
+  revokes and generates it again once every 30 days, and each round loses the learned
+  handlers, markers and continuation pages, as above.
+- A revocation under part A tells the service that the chosen item could not run the
+  recipe, which hints at what the item lacks (its password, its TOTP secret or a
+  passkey). It sends no value or fact by name, and the service is the owner's own.
 - An offline device keeps using its copy until it syncs, as after the owner's revoke.
 - The owner's `/manage` revoke stays as it was.
 
