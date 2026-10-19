@@ -9,7 +9,7 @@ import {
 } from "@pateat/contracts";
 import * as v from "valibot";
 import type { LoginFieldSource } from "../login/vault";
-import { rpIdsFor } from "../passkeys/rp-id";
+import { passkeyOrigin, rpIdsFor } from "../passkeys/rp-id";
 import { findVaultPasskeys, type PasskeyFinder } from "../passkeys/vault";
 import { findLiveSiteCandidates, type LiveUriMatcher } from "./site-candidates";
 
@@ -91,8 +91,9 @@ export async function findSiteAccounts(input: {
     snapshot: { ...input.saved.snapshot, settings },
     catalog: live,
   };
-  // Passkeys answer only on HTTPS pages; an `http:` page lists only its URI matches (ADR 0050).
-  const rpIds = input.origin.startsWith("https://") ? rpIdsFor(input.origin) : [];
+  // Passkeys answer only on HTTPS pages and `http://localhost`; any other `http:` page lists
+  // only its URI matches (ADR 0050).
+  const rpIds = passkeyOrigin(input.origin) ? rpIdsFor(input.origin) : [];
   for (const rpId of rpIds) {
     // Sequential: each query shares the bounded native host.
     // eslint-disable-next-line no-await-in-loop

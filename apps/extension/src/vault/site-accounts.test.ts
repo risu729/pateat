@@ -124,6 +124,30 @@ describe("findSiteAccounts", () => {
     ]);
   });
 
+  it.each([
+    ["http://localhost:8080", ["localhost"]],
+    ["http://127.0.0.1:8080", []],
+    ["http://router.example", []],
+  ])("on %s searches passkeys for %j only, as Bitwarden (ADR 0050)", async (page, rpIds) => {
+    const matchUris = vi
+      .fn<LiveUriMatcher>()
+      .mockResolvedValue({ ok: true, data: uris({ targetOrigin: page, candidates: [] }) });
+    const findPasskeys = vi.fn(passkeys({ localhost: [passkeyItem] }));
+    const result = await findSiteAccounts({
+      saved: saved(),
+      settings: draft(),
+      origin: page,
+      matchUris,
+      findPasskeys,
+    });
+    expect(findPasskeys.mock.calls).toEqual(rpIds.map((rpId) => ["live", rpId]));
+    expect(result).toMatchObject({
+      ok: true,
+      accounts: rpIds.length
+        ? [{ connectionId: "live", itemId: passkeyItem, uri: false, passkey: true }]
+        : [],
+    });
+  });
   it("reads the login username of matched live items only", async () => {
     const readField = vi.fn<LoginFieldSource>(async ({ account }) =>
       account.itemId === uriItem ? "alice@example.test" : undefined,
@@ -422,5 +446,6 @@ describe("rpIdsFor", () => {
     // WebAuthn refuses IP addresses and plain HTTP outside localhost.
     expect(rpIdsFor("https://127.0.0.1")).toEqual([]);
     expect(rpIdsFor("http://bank.example")).toEqual([]);
+    expect(rpIdsFor("http://localhost:8080")).toEqual(["localhost"]);
   });
 });

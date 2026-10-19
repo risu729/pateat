@@ -2193,6 +2193,33 @@ describe("production login document admission", () => {
         expect(await h.login.active()).toBe(false);
         expect(executes()).toHaveLength(2);
       });
+      it("completes when an http://localhost login moves to another port there (ADR 0050)", async () => {
+        const local = "http://localhost:3000";
+        const localRecipe = parseLoginRecipe({ ...recipe, id: "local-signin", origin: local });
+        holdClicks(local);
+        fake.state.pageUrl = `${local}/signin`;
+        fake.state.tabUrls[1] = fake.state.pageUrl;
+        const h = harness(
+          {
+            siteDefaults: [{ origin: local, provider: "bitwarden", userId, itemId }],
+            bindings: [{ ...savedBinding, recipeId: localRecipe.id, origin: local }],
+          },
+          { allowedOrigins: [local] },
+        );
+        h.recipes.recipe.mockImplementation(async (from: string, path: string) =>
+          from === local && path === "/signin" ? localRecipe : undefined,
+        );
+        h.recipes.starts.mockImplementation(async (from: string) =>
+          startsOf(from === local ? [localRecipe.steps[0]!] : []),
+        );
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(executes()).toHaveLength(2));
+        h.login.passkeyAnswered(1, local, "localhost");
+        // The new page shows no username: only the passkey answer lets the move count.
+        fake.state.signs = quiet;
+        await navigate(h, "http://localhost:4000/home", "home-document", false);
+        expect(at(local)).toMatchObject({ state: "authenticated", outcome: "authenticated" });
+      });
       it("waits until the new page has loaded", async () => {
         const h = await submitted();
         fake.state.loaded = false;
