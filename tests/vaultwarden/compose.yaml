@@ -1,0 +1,28 @@
+# Synthetic Vaultwarden test server (ADR 0059): only the latest release is supported, and
+# Renovate's docker-compose manager keeps both digest-pinned images current.
+# server.ts starts it under a unique project name; nothing in it is persistent.
+services:
+  vaultwarden:
+    image: ghcr.io/dani-garcia/vaultwarden:1.37.4@sha256:efb3cde962015fcc036b2ea625242248611943b27212ebf4392841fb30fad055
+    environment:
+      # Each run starts from an empty database, which `down -v` discards.
+      I_REALLY_WANT_VOLATILE_STORAGE: "true"
+      SIGNUPS_ALLOWED: "true"
+      SIGNUPS_VERIFY: "false"
+      # Tests sign in many times in a row from one address.
+      LOGIN_RATELIMIT_MAX_BURST: "1000"
+      LOGIN_RATELIMIT_SECONDS: "1"
+      DISABLE_ICON_DOWNLOAD: "true"
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      SMTP_SECURITY: "off"
+      SMTP_FROM: vaultwarden@example.test
+    ports:
+      # Plain HTTP on a random loopback port, which `docker compose port` reports.
+      - 127.0.0.1::80
+    depends_on: [mailpit]
+  mailpit:
+    image: ghcr.io/axllent/mailpit:v1.31.6@sha256:23fe39e81bde596a918000b3135c0f85dc8bb4c9ea6be274b051143f3e300387
+    ports:
+      # Only the HTTP API is published; Vaultwarden reaches SMTP on the compose network.
+      - 127.0.0.1::8025

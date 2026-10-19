@@ -38,8 +38,9 @@ Vaultwarden release (owner, 2026-10-19 22:14 UTC,
 [ADR 0059](adr/0059-latest-vaultwarden-server.md)). Done: item keys Pateat does not read
 are ignored; Vaultwarden's wrong-password and wrong-code answers are shown as such;
 `http://` server roots are accepted for `localhost` and `127.0.0.1`; and email two-step
-codes are sent as the official extension does (local tests). To do: a Vaultwarden test
-server in CI.
+codes are sent as the official extension does. CI signs in to a Vaultwarden 1.37.4
+container through the settings page (password, wrong password, authenticator and email
+codes through Mailpit, an imported passkey item) over `http://localhost`.
 
 The owner chose to merge six pull requests built ahead of their phases now instead of
 at their phase (2026-10-19 13:36 UTC, 「今入れる」, over keeping them until their
