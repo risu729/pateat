@@ -161,11 +161,17 @@ export const helloSchema = v.strictObject({
    * `passkey` when it shows only a button that signs in with a passkey (ADR 0053).
    */
   signIn: v.optional(
-    v.strictObject({
-      path,
-      identifier: v.optional(v.literal(true)),
-      passkey: v.optional(v.literal(true)),
-    }),
+    v.pipe(
+      v.strictObject({
+        path,
+        identifier: v.optional(v.literal(true)),
+        passkey: v.optional(v.literal(true)),
+      }),
+      v.check(
+        (signIn) => !(signIn.identifier && signIn.passkey),
+        "A page asks for an identifier or shows a passkey button, not both",
+      ),
+    ),
   ),
   /**
    * Such an input shows on this path but no first step is ready; sent once per path, only

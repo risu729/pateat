@@ -14218,6 +14218,25 @@ describe("second-factor page handlers chosen per account (ADR 0027)", () => {
       expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.extract");
     });
 
+    it("refuses a page announced as both an identifier page and a passkey page", async () => {
+      const { h, service, lookup, skipped } = passkeyOnlySetup(async () => [
+        { connectionId, itemId },
+      ]);
+      const both = await h.login.handle(
+        {
+          version: 1,
+          type: "login.document.ready",
+          token: "synthetic-token",
+          signIn: { path: reportedPath(fake.state.pageUrl), identifier: true, passkey: true },
+        },
+        sender(),
+      );
+      expect(both).not.toEqual({ ok: false, reason: "generating" });
+      expect(skipped()).toEqual([]);
+      expect(lookup).not.toHaveBeenCalled();
+      expect(service.generate).not.toHaveBeenCalled();
+    });
+
     it("never looks up passkeys when no vault item matches the page", async () => {
       const { h, service, lookup, skipped } = passkeyOnlySetup(
         async () => [{ connectionId, itemId }],
