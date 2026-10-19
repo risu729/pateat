@@ -3,7 +3,8 @@
 Status: accepted by the owner on 2026-10-10. The retention period was 90 days (one year
 since 2026-10-18), chosen with the service route in
 [ADR 0018](0018-recipe-generation-route.md). The service logs every request its
-generation routes send; the delete-all action comes with the web UI. Amended on
+generation routes receive (since 2026-10-18; before, every request they sent); the
+delete-all action comes with the web UI. Amended on
 2026-10-12 by [ADR 0035](0035-page-kinds-per-site.md) (not implemented): rows of
 `confirm` or `unclear` pages, or sent with `signedIn` true, are kept past 90 days until
 labelled, for at most one year, and rows gain the recipe ID and revision. Amended on
@@ -18,6 +19,10 @@ each recipe revision's first login beside the log. Implemented. On 2026-10-18 (o
 08:58 UTC) the
 [earlier rows were filled in](#amendment-2026-10-18-earlier-rows-filled-in) where the
 stored records decide each value.
+Amended on 2026-10-18 by the owner (08:04 UTC):
+[requests answered without a model call](#amendment-2026-10-18-requests-answered-without-a-model-call)
+are kept too, which amends [ADR 0018](0018-recipe-generation-route.md); invalid bodies
+and requests answered 400 or 404 are not. Implemented.
 
 Date: 2026-10-10
 
@@ -135,6 +140,45 @@ So on a row with no `build`, an empty column means unknown, not none: a generati
 there may have no `branch`, `recipe_page` or `base_revision` although it had one.
 Undoing the fill sets the same columns of those rows back to empty; D1 Time Travel
 restores the whole database, recipes and settings included, and is the last resort.
+
+## Amendment 2026-10-18: requests answered without a model call
+
+The owner chose on a decision card at 08:04 UTC that a request answered without calling
+the model is logged too ("残す"). The log keeps every generation and judgement request
+the service receives, not only each one it sends, replacing ADR 0018's "Requests
+refused locally before any model call are not logged". A body that fails validation is
+still not logged.
+
+- The row's `outcome` is the code the request was answered with: a spend limit, `busy`,
+  a credential code, `recently-tried`, `judgement-limit`, a page judged before
+  (`already-judged`, `judged-*`, `judgement-unanswered`), `not-judgeable`,
+  `recipe-revoked`, `recipe-conflict`, `recipe-limit`, `incomplete-observation`,
+  `invalid-request` or `input-too-large`. It has no provider, model, usage, result or
+  answer and costs nothing, so the spend limits never count it.
+- `request` is what the model would have received, and the recipe columns, build and
+  observation hash are kept as for a call, with `base_revision` the head read when the
+  request arrived. A judgement refused before its route is found in the stored revision
+  (`recipe-revoked`, `recipe-conflict`) has no `loginPaths`.
+
+The agent's choices, not confirmed by the owner:
+
+- A request answered with a recipe another request already stored is logged with the
+  outcome `recipe`.
+- A request the route refuses with 400 or 404 is not logged: a `base` ID not in the
+  `gen-…` form, a page of an origin no move reaches, a missing recipe. A `gen-` ID of
+  another origin answers `recipe-conflict` and is logged.
+- The same request answered the same way within ten minutes (the whole `request`, with
+  the role, outcome, prompt version, origin, path, recipe, branch and base revision)
+  adds no row, so a client repeating a page refused as `busy` or over a limit cannot
+  fill the log. The check and the insert are not atomic, so two identical requests at
+  once can both be logged.
+- At most 500 such rows are logged per owner and UTC day, since spend no longer bounds
+  them; past that a request is answered as before and logged nowhere but the Worker log.
+- A failed row write never changes the answer.
+
+Consequences: page descriptions are now kept even when no model is called, including
+those of an owner without Claude credentials (`credentials-not-configured`) and of
+requests at a spend limit or answered `busy`.
 
 ## Consequences
 

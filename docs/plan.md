@@ -1930,6 +1930,10 @@ tests cover it.
   ([ADR 0019](adr/0019-local-diagnostics-and-logs.md#amendment-2026-10-18-how-long-requests-and-logins-take)).
   Until the service sends `Server-Timing`, a request has only its round trip
   (`roundTripMs`), with no service or network part.
+- Done (local tests only, not deployed): the request log also keeps each generation and
+  judgement request answered without a model call, under its answer's code at no cost
+  (owner, 2026-10-18 08:04 UTC,
+  [ADR 0012](adr/0012-inference-request-log.md#amendment-2026-10-18-requests-answered-without-a-model-call)).
 - Done: the generation routes stop at
   $100 of estimated Claude spend per owner a month and $5 a day (`CLAUDE_CALL_LIMITS` in
   `services/api/src/claude/calls.ts`,

@@ -2565,9 +2565,12 @@ people.
   `MAX_RECIPE_CACHE_BYTES` are defined together in the contracts; no migration is
   required.
 - Unchanged. Settings are one document of at most 120 KiB per owner. The inference
-  request log and the login result codes are kept one year (owner, 2026-10-18); the log
-  is bounded by the $5 daily spend limit and the codes by one per recipe revision, and
-  the owner deletes both on the web UI's Request log page. Devices are not
+  request log and the login result codes are kept one year (owner, 2026-10-18). The
+  log's calls are bounded by the $5 daily spend limit; requests answered without a call
+  are logged too (owner, 08:04 UTC) within the request limit above, the same request
+  answered the same way once in 10 minutes and at most 500 such rows per owner a UTC
+  day; and the codes are bounded by one per recipe revision. The owner deletes both on
+  the web UI's Request log page. Devices are not
   counted: each pairing needs an interactive Access login.
 
 ### Unsupported service edge cases
@@ -2708,7 +2711,8 @@ field exclusions and custom-field review, which need the device's vault catalog
   only for these paths:
   - Devices (`/manage`): the current list and revocation, moved into the app.
   - Request log (`/manage/request-log`): how many requests the
-    [request log](adr/0012-inference-request-log.md) holds for the owner, and how many
+    [request log](adr/0012-inference-request-log.md) holds for the owner
+    (requests answered without Claude included), and how many
     [login result codes](#first-login-results-on-the-service), since when, that each is
     kept one year, and Delete all, which after a confirmation naming the counts deletes
     every one of the owner's rows of both. Recipes, settings, judged pages and the spend

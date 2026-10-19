@@ -56,9 +56,12 @@ import type { DeviceScope } from "../auth";
 import {
   callClaude,
   keepLogRevision,
+  logUnsent,
   MAX_OUTPUT_TOKENS,
   ROLE_LIMITS,
   type ClaudeCall,
+  type UnsentOutcome,
+  type UnsentRequest,
 } from "../claude/calls";
 import { generationAttempts, pageJudgements, type PageJudgementVerdict } from "../db/schema";
 import { hasRecipeByteRoom, hasRecipeRoom, readHead, writeRecipe } from "../recipe-store";
@@ -79,6 +82,11 @@ const utcDayStart = (now: number) => now - (now % DAY_MS);
 type AttemptDb = Parameters<NonNullable<ClaudeCall<unknown>["gate"]>>[0];
 type GenerationEnv = { DB: D1Database; OIDC_ISSUER?: string; OIDC_SIGNING_KEYS?: string };
 type Failure = Extract<RecipeGenerationResult, { status: "failed" }>["error"];
+/** An answer given without a model call: a refusal, a failure, or a stored recipe. */
+type UnsentAnswer = Extract<
+  RecipeGenerationResult | EntryGenerationResult | RecipeCompletionResult,
+  { status: "unavailable" | "failed" | "recipe" }
+>;
 
 const roleConfig = {
   limits: ROLE_LIMITS,
@@ -97,6 +105,27 @@ export async function generatedRecipeId(origin: string, startPath: string) {
     new TextEncoder().encode(JSON.stringify([origin, startPath])),
   );
   return `gen-${new Uint8Array(digest).toHex().slice(0, 32)}`;
+}
+
+/**
+ * Answers without a model call, logging the request under the answer's code (ADR 0012,
+ * owner 2026-10-18 08:04 UTC): the reason or failure code, or `recipe` for a recipe
+ * another request stored.
+ */
+async function answerUnsent<Answer extends UnsentAnswer>(
+  env: GenerationEnv,
+  ownerId: string,
+  unsent: UnsentRequest,
+  answer: Answer,
+) {
+  const code: UnsentOutcome =
+    answer.status === "unavailable"
+      ? answer.reason
+      : answer.status === "failed"
+        ? answer.error
+        : answer.status;
+  await logUnsent(env.DB, ownerId, unsent, code);
+  return answer;
 }
 
 const unavailable = (reason: GenerationUnavailableReason) =>
@@ -234,8 +263,9 @@ const sameRoute = (left: LoginRecipe | undefined, right: LoginRecipe | undefined
     JSON.stringify({ ...left, revision: 0 }) === JSON.stringify({ ...right, revision: 0 }));
 
 /**
- * `POST /v1/recipes/generate`. Returns `undefined` when `base` names a recipe other
- * than one generated for this origin, which the route answers as a bad request.
+ * `POST /v1/recipes/generate`. Returns `undefined` when `base` names a recipe ID that is
+ * not a generated one (`gen-…`), which the route answers as a bad request; a generated ID
+ * of another origin or start path answers `recipe-conflict`.
  *
  * A page that lists accounts (ADR 0028) starts a chooser recipe; a page sent with a
  * `branch` is the next page of that chooser branch: its first, after the click on the
@@ -251,10 +281,35 @@ export async function generateRecipe(
   // A first page starts its own recipe; a later page continues the one in `base`.
   const recipeId = base?.recipeId ?? (await generatedRecipeId(origin, path));
   if (!/^gen-[0-9a-f]{32}$/u.test(recipeId)) return undefined;
-  if (!observation.complete) return failed("incomplete-observation");
-  // A list of accounts is only ever a recipe's first page.
   const list = observation.accounts !== undefined;
-  if (list && base) return failed("invalid-request");
+  const headAtStart = await readHead(env.DB, scope.ownerId, recipeId);
+  const attemptBranch = branch ?? "";
+  // What the request log keeps of the request, sent or not (ADR 0012).
+  const logged = {
+    role: "generate",
+    // Only a list of accounts gets the list line (ADR 0028).
+    promptVersion: await (list ? accountListGenerationPromptVersion : generationPromptVersion)(),
+    origin,
+    path,
+    request: {
+      instructions: list ? accountListGenerationInstructions : generationInstructions,
+      slots,
+      observation,
+    },
+    // A recipe generated again after its revocation has a tombstone but no base: its page
+    // starts the recipe, as a new one's does.
+    recipe: {
+      recipeId,
+      branch: attemptBranch,
+      baseRevision: headAtStart?.revision ?? 0,
+      page: base ? "continuation" : "first",
+    },
+  } satisfies UnsentRequest;
+  const unsent = (answer: Extract<RecipeGenerationResult, UnsentAnswer>) =>
+    answerUnsent(env, scope.ownerId, logged, answer);
+  if (!observation.complete) return unsent(failed("incomplete-observation"));
+  // A list of accounts is only ever a recipe's first page.
+  if (list && base) return unsent(failed("invalid-request"));
   /** Whether a stored recipe is the one generated for this origin under this ID. */
   const generatedHere = async (recipe: StoredLoginRecipe) =>
     recipe.origin === origin &&
@@ -272,7 +327,7 @@ export async function generateRecipe(
   const decide = async (
     head: SyncRecipeChange | null,
   ): Promise<
-    | { answer: RecipeGenerationResult }
+    | { answer: Extract<RecipeGenerationResult, { status: "recipe" | "unavailable" }> }
     | {
         base: LoginRecipe | undefined;
         chooser?: LoginChooserRecipe;
@@ -327,34 +382,17 @@ export async function generateRecipe(
     chooser?: LoginChooserRecipe | undefined;
     revoked?: number | undefined;
   }) => decision.chooser?.revision ?? decision.base?.revision ?? decision.revoked ?? 0;
-  const before = await decide(await readHead(env.DB, scope.ownerId, recipeId));
-  if ("answer" in before) return before.answer;
+  const before = await decide(headAtStart);
+  if ("answer" in before) return unsent(before.answer);
   const baseRecipe = before.base;
   const chooser = before.chooser;
   // The attempt key and the write follow the revision the new one replaces.
   const baseRevision = revisionOf(before);
-  const attemptBranch = branch ?? "";
-  let raced: RecipeGenerationResult | undefined;
+  let raced: Extract<RecipeGenerationResult, { status: "recipe" | "unavailable" }> | undefined;
 
   const call = await callClaude(env, scope.ownerId, {
-    role: "generate",
-    // Only a list of accounts gets the list line (ADR 0028).
-    promptVersion: await (list ? accountListGenerationPromptVersion : generationPromptVersion)(),
-    origin,
-    path,
-    request: {
-      instructions: list ? accountListGenerationInstructions : generationInstructions,
-      slots,
-      observation,
-    },
-    // A recipe generated again after its revocation has a tombstone but no base: its page
-    // starts the recipe, as a new one's does.
-    recipe: {
-      recipeId,
-      branch: attemptBranch,
-      baseRevision,
-      page: base ? "continuation" : "first",
-    },
+    ...logged,
+    recipe: { ...logged.recipe, baseRevision },
     ...attemptWindow(
       scope.ownerId,
       { recipeId, branch: attemptBranch, origin, path, baseRevision },
@@ -394,10 +432,15 @@ export async function generateRecipe(
       };
     },
   });
-  if (call.status === "unavailable") return raced ?? unavailable(call.reason);
+  if (call.status === "unavailable") return unsent(raced ?? unavailable(call.reason));
   const { logId } = call;
   const result = unsettled(call.outcome);
-  if ("answer" in result) return result.answer;
+  // A request the role refused locally, as one too large, was never sent; the roles refuse
+  // locally only with a failure.
+  if ("answer" in result)
+    return call.outcome.calls === 0 && result.answer.status === "failed"
+      ? unsent(result.answer)
+      : result.answer;
   /**
    * Writes the recipe after `baseRevision` and answers with it, with `customSlots` when
    * given, or with what won the race: only the recipe this call wrote has a mapping to
@@ -535,7 +578,19 @@ export async function generateEntry(
   const { observation } = request;
   const { origin, path } = observation;
   const recipeId = await generatedRecipeId(origin, path);
-  if (!observation.complete) return failed("incomplete-observation");
+  const headAtStart = await readHead(env.DB, scope.ownerId, recipeId);
+  // What the request log keeps of the request, sent or not (ADR 0012).
+  const logged = {
+    role: "generate",
+    promptVersion: await entryGenerationPromptVersion(),
+    origin,
+    path,
+    request: { instructions: entryGenerationInstructions, observation },
+    recipe: { recipeId, branch: "", baseRevision: headAtStart?.revision ?? 0, page: "first" },
+  } satisfies UnsentRequest;
+  const unsent = (answer: Extract<EntryGenerationResult, UnsentAnswer>) =>
+    answerUnsent(env, scope.ownerId, logged, answer);
+  if (!observation.complete) return unsent(failed("incomplete-observation"));
 
   /**
    * What the stored head means for this request: an answer without a model call, or the
@@ -543,7 +598,10 @@ export async function generateEntry(
    */
   const decide = async (
     head: SyncRecipeChange | null,
-  ): Promise<{ answer: EntryGenerationResult } | { revision: number }> => {
+  ): Promise<
+    | { answer: Extract<EntryGenerationResult, { status: "recipe" | "unavailable" }> }
+    | { revision: number }
+  > => {
     const current = active(head);
     if (current) {
       // Only the entry recipe generated here answers; a login or chooser recipe on its path,
@@ -565,18 +623,14 @@ export async function generateEntry(
       return { answer: unavailable("recipe-limit") };
     return { revision: head?.revision ?? 0 };
   };
-  const before = await decide(await readHead(env.DB, scope.ownerId, recipeId));
-  if ("answer" in before) return before.answer;
+  const before = await decide(headAtStart);
+  if ("answer" in before) return unsent(before.answer);
   const baseRevision = before.revision;
-  let raced: EntryGenerationResult | undefined;
+  let raced: Extract<EntryGenerationResult, { status: "recipe" | "unavailable" }> | undefined;
 
   const call = await callClaude(env, scope.ownerId, {
-    role: "generate",
-    promptVersion: await entryGenerationPromptVersion(),
-    origin,
-    path,
-    request: { instructions: entryGenerationInstructions, observation },
-    recipe: { recipeId, branch: "", baseRevision, page: "first" },
+    ...logged,
+    recipe: { ...logged.recipe, baseRevision },
     ...attemptWindow(
       scope.ownerId,
       { recipeId, branch: "", origin, path, baseRevision },
@@ -593,9 +647,14 @@ export async function generateEntry(
     invoke: (model) => createEntryGenerator({ model, ...roleConfig })({ observation }),
     logValue: ({ entry: candidate }) => ({ entry: candidate }),
   });
-  if (call.status === "unavailable") return raced ?? unavailable(call.reason);
+  if (call.status === "unavailable") return unsent(raced ?? unavailable(call.reason));
   const result = unsettled(call.outcome);
-  if ("answer" in result) return result.answer;
+  // A request the role refused locally, as one too large, was never sent; the roles refuse
+  // locally only with a failure.
+  if ("answer" in result)
+    return call.outcome.calls === 0 && result.answer.status === "failed"
+      ? unsent(result.answer)
+      : result.answer;
   // A recipe generated again follows its tombstone's revision.
   const built = entryRecipe({
     id: recipeId,
@@ -651,12 +710,41 @@ export async function judgeCompletion(
 ): Promise<RecipeCompletionResult | undefined | null> {
   const head = await readHead(env.DB, scope.ownerId, recipeId);
   if (!head) return undefined;
-  if (head.state === "revoked") return unavailable("recipe-revoked");
   const { observation, route, branch, partial } = request;
   // A page at a `password` login's stop before its item's missing password (ADR 0036, owner
   // 2026-10-13 05:39 UTC): judged though it shows the route's password field, for a
   // `passkey` handler only.
   const stop = request.stop === true;
+  // Each branch of a chooser is judged on its own; its limit per day is the chooser's.
+  const judgedBranch = branch ?? "";
+  // A stop's page is judged under its own prompt version, so its row never answers another
+  // login's page of the path, nor theirs it (ADR 0036). Rows of either current version stay.
+  const usualVersion = await completionPromptVersion();
+  const stopVersion = await completionStopPromptVersion();
+  const promptVersion = stop ? stopVersion : usualVersion;
+  /**
+   * What the request log keeps of the request, sent or not (ADR 0012): without the login
+   * paths while the request names no route of the stored revision to take them from.
+   */
+  const logged = (loginPaths?: string[]) =>
+    ({
+      role: "judge",
+      promptVersion,
+      origin: observation.origin,
+      path: observation.path,
+      request: {
+        instructions: stop ? completionStopInstructions : completionInstructions,
+        recipeId,
+        route,
+        ...(loginPaths ? { loginPaths } : {}),
+        observation,
+        ...(stop ? { stop } : {}),
+      },
+      recipe: { recipeId, branch: judgedBranch, baseRevision: head.revision },
+    }) satisfies UnsentRequest;
+  const unsent = (answer: Extract<RecipeCompletionResult, UnsentAnswer>, loginPaths?: string[]) =>
+    answerUnsent(env, scope.ownerId, logged(loginPaths), answer);
+  if (head.state === "revoked") return unsent(unavailable("recipe-revoked"));
   // Only a page of the revision that ran, on a route the stored recipe has, is judged: the
   // recipe's own, or for a chooser (ADR 0028) the route of the branch the login took. An
   // entry recipe (ADR 0031) has no route.
@@ -673,13 +761,22 @@ export async function judgeCompletion(
   )
     return null;
   if (!recipe || head.revision !== request.revision || !recipeHasRoute(recipe, route))
-    return unavailable("recipe-conflict");
-  if (!observation.complete) return failed("incomplete-observation");
+    return unsent(unavailable("recipe-conflict"));
+  // The login paths come from the stored recipe, never from the request; a branch's
+  // login started on its chooser's list.
+  const loginPaths = [
+    ...new Set([
+      ...("chooser" in head.recipe ? [head.recipe.chooser.path] : []),
+      ...routeSignInPaths(recipe, route),
+      ...(recipe.handlers ?? []).map((handler) => handler.path),
+    ]),
+  ];
+  if (!observation.complete) return unsent(failed("incomplete-observation"), loginPaths);
   // A list of accounts shown again is the sign-in's start, not its result (ADR 0028). A
   // stop's page is judged only on a recipe without a chooser and on its own origin: the
   // extension never sends a chooser branch's stop (ADR 0036, account lists).
   if (observation.accounts || (stop && (moved || "chooser" in head.recipe)))
-    return unavailable("not-judgeable");
+    return unsent(unavailable("not-judgeable"), loginPaths);
   // The checks use the stored recipe, never the request: a page that still shows one of
   // the password route's fill fields, of any variant and on any path, or a signed-in
   // marker is not judged. The request never names the variant the login ran. The passkey
@@ -714,42 +811,14 @@ export async function judgeCompletion(
         (routeSignInPaths(recipe, route).includes(observation.path) &&
           shown(routeSignInTargets(recipe, route)))
   )
-    return unavailable("not-judgeable");
+    return unsent(unavailable("not-judgeable"), loginPaths);
 
-  // The login paths come from the stored recipe, never from the request; a branch's
-  // login started on its chooser's list.
-  const loginPaths = [
-    ...new Set([
-      ...("chooser" in head.recipe ? [head.recipe.chooser.path] : []),
-      ...routeSignInPaths(recipe, route),
-      ...(recipe.handlers ?? []).map((handler) => handler.path),
-    ]),
-  ];
   const ofRecipe = and(
     eq(pageJudgements.ownerId, scope.ownerId),
     eq(pageJudgements.recipeId, recipeId),
   );
-  // Each branch of a chooser is judged on its own; its limit per day is the chooser's.
-  const judgedBranch = branch ?? "";
-  // A stop's page is judged under its own prompt version, so its row never answers another
-  // login's page of the path, nor theirs it (ADR 0036). Rows of either current version stay.
-  const usualVersion = await completionPromptVersion();
-  const stopVersion = await completionStopPromptVersion();
-  const promptVersion = stop ? stopVersion : usualVersion;
   const call = await callClaude(env, scope.ownerId, {
-    role: "judge",
-    promptVersion,
-    origin: observation.origin,
-    path: observation.path,
-    request: {
-      instructions: stop ? completionStopInstructions : completionInstructions,
-      recipeId,
-      route,
-      loginPaths,
-      observation,
-      ...(stop ? { stop } : {}),
-    },
-    recipe: { recipeId, branch: judgedBranch, baseRevision: head.revision },
+    ...logged(loginPaths),
     // Each revision, origin and path is judged once per judge prompt version, and a recipe
     // 20 times a UTC day (ADR 0027), counting a stop's pages.
     gate: async (db, now) => {
@@ -844,9 +913,13 @@ export async function judgeCompletion(
       }),
     logValue: (judgement) => judgement,
   });
-  if (call.status === "unavailable") return unavailable(call.reason);
+  if (call.status === "unavailable") return unsent(unavailable(call.reason), loginPaths);
   const { outcome } = call;
-  if (outcome.status === "failed") return failed(failureOf(outcome.error));
+  if (outcome.status === "failed") {
+    const answer = failed(failureOf(outcome.error));
+    // A request the role refused locally, as one too large, was never sent.
+    return outcome.calls === 0 ? unsent(answer, loginPaths) : answer;
+  }
   // The verdict goes on the path's row, which tells a later login of the revision what
   // the page was (ADR 0029). A row left without one never completes a login, so a failed
   // write only costs that.

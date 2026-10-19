@@ -32,6 +32,11 @@ Amended on 2026-10-18 by
 [ADR 0012](0012-inference-request-log.md#amendment-2026-10-18-rows-for-a-real-page-corpus)
 (owner, 06:08 UTC): [request log retention](#request-log-retention-of-one-year) is one
 year for every row, and the web UI's delete-all action exists; implemented.
+Amended on 2026-10-18 by
+[ADR 0012](0012-inference-request-log.md#amendment-2026-10-18-requests-answered-without-a-model-call)
+(owner, 08:04 UTC):
+[requests answered without a model call](#requests-answered-without-a-model-call) are
+logged too; implemented.
 
 Date: 2026-10-11
 
@@ -312,6 +317,13 @@ The owner chose on 2026-10-18 at 06:08 UTC
 every row of the request log is kept one year instead of 90 days, and rows older than
 that are deleted at the same two points. The delete-all action is the web UI's Request
 log page (`DELETE /manage/api/request-log`).
+
+### Requests answered without a model call
+
+The owner chose on 2026-10-18 at 08:04 UTC
+([ADR 0012](0012-inference-request-log.md#amendment-2026-10-18-requests-answered-without-a-model-call)):
+a request answered without a model call, refused locally included, is logged with the
+code it was answered with, at no cost.
 
 ## Consequences
 

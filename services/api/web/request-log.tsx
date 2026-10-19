@@ -19,9 +19,9 @@ const held = (entries: number, outcomes: number) =>
     .join(" and ") || requests(0);
 
 /**
- * The service's log of the requests it sent to Claude (ADR 0012) and the login result codes
- * devices sent (ADR 0019), and deleting all of it. Deletion cannot be undone, so it takes a
- * second, explicit confirmation.
+ * The service's log of the generation and judgement requests it received (ADR 0012) and the
+ * login result codes devices sent (ADR 0019), and deleting all of it. Deletion cannot be undone,
+ * so it takes a second, explicit confirmation.
  */
 export function RequestLogPage({ client }: { client: ManageClient }) {
   const queryClient = useQueryClient();
@@ -57,10 +57,11 @@ export function RequestLogPage({ client }: { client: ManageClient }) {
         Request log
       </h1>
       <p>
-        The service keeps each request it sent to Claude to generate a recipe or judge a page: the
-        page as described, the instructions and what Claude answered. For the first login with each
-        recipe version, it also keeps how the login ended, as a result code without any page text or
-        value. They are used to evaluate and improve generation.
+        The service keeps each request to generate a recipe or judge a page: the page as described,
+        the instructions and what Claude answered. A request answered without Claude, such as one
+        over a spend limit, is kept with its reason. For the first login with each recipe version,
+        it also keeps how the login ended, as a result code without any page text or value. They are
+        used to evaluate and improve generation.
       </p>
       <SuccessNotice
         id="request-log-deleted"
