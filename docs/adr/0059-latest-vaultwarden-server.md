@@ -11,8 +11,9 @@ supported one is the latest one)." Replaces "Vaultwarden support is later work" 
 email two-step codes like the official extension, by a button, or not at all, the owner
 wrote 「テストじゃなくてもそれないと困らないか？そうなら実装して」 (wouldn't it be a
 problem without it, even outside tests? if so, implement it), read as "like the official
-extension". Decision 6 was accepted at 22:40 UTC, when the owner picked Mailpit on a
-card that offered it and the in-process `smtp-server` library (recommended). Decisions 2
+extension". Decision 6 was accepted at 22:40 UTC by a card tap: offered Mailpit and the
+in-process `smtp-server` library, with `smtp-server` recommended, the owner picked
+Mailpit. Decisions 2
 and 4 are implemented (local tests only); decisions 3 and 5 and the Vaultwarden test
 server are not yet. Unknown-key handling outside nested cipher objects (legacy flat
 `data`) and the exact message list in decision 4 are the agent's reading of the answers,
@@ -45,10 +46,10 @@ custom fields, passkeys and organization items worked. Two things did not:
 1. Vaultwarden is a supported, tested server. Only its latest release is supported
    (1.37.4 on 2026-10-19); older releases are not, even where they work. Tests pin the
    latest image and Renovate keeps it current (the test server is still to do). It is
-   supported now, outside the
-   roadmap's phases. The synthetic official-shape fixtures stay, because passing on
-   Vaultwarden is no evidence for the official server; V2 (signing-key) accounts and
-   new-device OTP, which Vaultwarden does not have, stay covered only by them.
+   supported now, outside the roadmap's phases. The synthetic official-shape fixtures
+   stay, because passing on Vaultwarden is no evidence for the official server; V2
+   (signing-key) accounts and new-device OTP, which Vaultwarden does not have, stay
+   covered only by them.
 2. Keys Pateat does not read are ignored inside a received item, like the official
    clients: nested objects (`login`, its `uris` and `fido2Credentials`, `fields`,
    `card`, `identity`, the other type objects, `attachments`, `passwordHistory`,
@@ -67,7 +68,8 @@ custom fields, passkeys and organization items worked. Two things did not:
    source (checked in Chromium 141 on 2026-10-19), so it is left out; `http://localhost`
    reaches a server listening on `::1`. That narrowing is the agent's, not confirmed by
    the owner. No permission is added. The official clients accept any `http://` URL; the
-   difference is recorded in [Differences from Bitwarden](../bitwarden-differences.md).
+   implementation records the difference in
+   [Differences from Bitwarden](../bitwarden-differences.md).
 4. A 400 password-grant answer in Vaultwarden's error shape (keys only `message`,
    `validationErrors`, `errorModel`, `error`, `error_description`, `exceptionMessage`,
    `exceptionStackTrace`, `innerExceptionMessage`, `object`, with `error` empty and the
@@ -83,7 +85,9 @@ custom fields, passkeys and organization items worked. Two things did not:
    every server: when email becomes the selected method on the settings page's sign-in,
    it sends one code (`POST {api}/two-factor/send-email-login`, with the master-password
    hash the password grant already sent, to that server only), and shows "Resend code".
-   Automatic sync uses the refresh token and never asks for a code.
+   The hash stays in memory for that one sign-in only; it is never stored or sent
+   anywhere else. This changes sign-in for the official server too, not only
+   Vaultwarden. Automatic sync uses the refresh token and never asks for a code.
 6. The Vaultwarden test server's email goes to
    [Mailpit](https://github.com/axllent/mailpit), a second digest-pinned container
    beside Vaultwarden (`ghcr.io/axllent/mailpit`), whose HTTP API the tests read the

@@ -892,7 +892,7 @@ describe("received-envelope item mapping", () => {
     expect(result.ok && result.data.login?.password).toBe("test_password");
   });
 
-  it.each(["Envelope", "WrappedCek", "FormatVersion"])(
+  it.each(["Envelope", "WrappedCek", "FormatVersion", "ENVELOPE", "WRAPPED_CEK", "Format_Version"])(
     "does not read flat Data with the sealed-blob key %s as legacy fields",
     (key) => {
       const raw = rawV1Account();
@@ -929,7 +929,7 @@ describe("received-envelope item mapping", () => {
       username: "2.conflicting-username",
       password: raw.sync.ciphers[0]!.login.password,
     });
-    expect(mapRaw(raw).ok).toBe(false);
+    expect(mapRaw(raw)).toMatchObject({ ok: false, error: { code: "invalid-response" } });
   });
 
   it("does not reinterpret an unknown claimed sealed format as legacy fields", () => {

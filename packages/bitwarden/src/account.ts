@@ -614,8 +614,10 @@ function cipherDto(input: RecordValue, type: number, itemId: string): Sdk.Cipher
       // spelling of a sealed blob's keys is read as legacy fields.
       if (
         !Object.hasOwn(flat, "name") ||
-        ["formatVersion", "format_version", "wrappedCek", "wrapped_cek", "envelope"].some((key) =>
-          Object.hasOwn(flat, key),
+        Object.keys(flat).some((key) =>
+          ["formatversion", "wrappedcek", "envelope"].includes(
+            key.replaceAll("_", "").toLowerCase(),
+          ),
         )
       )
         reject("unsupported-crypto");
@@ -634,9 +636,11 @@ function cipherDto(input: RecordValue, type: number, itemId: string): Sdk.Cipher
       // The response model is authoritative; its stored Data copy must not contradict it.
       // Both are compared as admitted, so keys Pateat does not read differ freely.
       const response = admittedCipher(output);
-      const copy = admittedCipher(stored);
+      // A copy that cannot be admitted contradicts the admitted response.
+      const admittedCopy = admitLocalCryptoCipher(stored);
+      if (!admittedCopy.ok) reject();
       const responseRecord = response as unknown as RecordValue;
-      const copyRecord = copy as unknown as RecordValue;
+      const copyRecord = admittedCopy.data as unknown as RecordValue;
       if (!compared.every((name) => sameStored(responseRecord[name], copyRecord[name]))) reject();
       // Known, checked flat legacy Data is redundant. Never pass it to the sealed-blob gate.
       return response;
