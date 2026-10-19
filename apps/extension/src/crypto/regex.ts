@@ -97,10 +97,14 @@ export function createRegexRunner(
       }
       const id = ++nextId;
       const { promise, resolve } = Promise.withResolvers<void>();
+      // When the last answer arrived, or the patterns were sent.
+      let progressAt = Date.now();
       const timer = setTimeout(() => {
-        // Answers arrive in order, so the first pattern without one is still running.
+        // Answers arrive in order, so the first pattern without one is still running. It is
+        // remembered only when it ran for at least half the budget on its own, so a fast
+        // pattern that happened to run last after several slower ones is tried again.
         const running = pending[results.size];
-        if (running !== undefined) {
+        if (running !== undefined && Date.now() - progressAt >= budgetMs / 2) {
           if (slow.size >= maxSlowPairs) slow.clear();
           slow.add(`${page}\n${running}`);
         }
@@ -122,6 +126,7 @@ export function createRegexRunner(
           return;
         }
         results.set(pattern, answer.output.matched);
+        progressAt = Date.now();
         if (results.size === pending.length) {
           clearTimeout(timer);
           started.receive = undefined;

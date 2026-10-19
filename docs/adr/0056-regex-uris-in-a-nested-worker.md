@@ -43,9 +43,11 @@ backreferences, so it would still need a time limit and a pattern rewriter.
   ready (its start has a separate 5-second bound). When the time runs out, the Worker is
   terminated, a new one is started on the next request, and the patterns without a
   result are `regex-unevaluated`, so their item stays unevaluated as before this ADR.
-  The pattern that was running is remembered with a digest of that URL (up to 1,000
-  pairs), so later requests for the same page, such as the frame's top page check, the
-  item origin checks and the popup, answer at once instead of waiting again.
+  The pattern that was running, when it ran for at least half the time on its own, is
+  remembered with a digest of that URL (up to 1,000 pairs) and skipped in later requests
+  for the same page, such as the frame's top page check, the item origin checks and the
+  popup. A page with several slow patterns waits once for each of them, and a page whose
+  URL changes on every visit, as with a one-time `state` query, waits on every visit.
 - A Regex match counts as any other mode does (C1 of the proposal): it can choose the
   account on its own, admit the item's origin for a fill, and allow a form destination
   under [ADR 0051](0051-form-destinations-by-item-uri-match.md). On an `http:` page only

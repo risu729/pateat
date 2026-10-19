@@ -96,8 +96,10 @@ function track<T>(promise: Promise<T>) {
 }
 
 beforeEach(() => {
-  // Only the runner's timers are fake; the digest and the polling above use real turns.
-  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  // Only the runner's timers and clock are fake; the digest and the polling above use real
+  // turns.
+  // `Date` moves with them, as the runner measures progress with `Date.now()`.
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
 });
 afterEach(() => {
   vi.clearAllTimers();
@@ -252,6 +254,62 @@ describe("createRegexRunner (ADR 0056)", () => {
       expect(await runner.run([slow], url)).toEqual(new Map());
       expect(start).toHaveBeenCalledTimes(2);
       expect(started[1]!.requests).toHaveLength(1);
+    });
+
+    describe("is remembered only when it ran alone for at least half the budget", () => {
+      /** Times out a run whose first pattern answers after `firstMs`, then runs again. */
+      async function afterFirstAnswerAt(firstMs: number) {
+        const { start, started } = workers((pattern) =>
+          pattern === slow ? "runs-forever" : { matched: true, delayMs: firstMs },
+        );
+        const runner = createRegexRunner(start);
+        const run = track(runner.run(["first", slow], url));
+        await until(() => started[0]?.requests.length === 1);
+        await vi.advanceTimersByTimeAsync(firstMs);
+        await settle();
+        expect(run.done).toBe(false);
+        await vi.advanceTimersByTimeAsync(5_000 - firstMs);
+        await settle();
+        expect(run).toEqual({ done: true, value: new Map([["first", true]]) });
+        expect(started[0]!.terminate).toHaveBeenCalledOnce();
+        // The next run shows whether the slow pattern was remembered for this URL.
+        void runner.run(["first", slow], url);
+        await until(() => started[1]?.requests.length === 1);
+        return started[1]!.requests[0]!.patterns;
+      }
+
+      it("not after earlier answers used more than half of it", async () => {
+        // It ran only 2 s of the 5 s budget on its own.
+        expect(await afterFirstAnswerAt(3_000)).toEqual(["first", slow]);
+      });
+
+      it("after running alone for more than half of it", async () => {
+        expect(await afterFirstAnswerAt(2_000)).toEqual(["first"]);
+      });
+
+      it("after running alone for exactly half of it", async () => {
+        expect(await afterFirstAnswerAt(2_500)).toEqual(["first"]);
+      });
+
+      it("not after running alone for just under half of it", async () => {
+        expect(await afterFirstAnswerAt(2_501)).toEqual(["first", slow]);
+      });
+
+      it("with any budget, measured from when the patterns were sent", async () => {
+        const { start, started } = workers(answer, "manually");
+        const runner = createRegexRunner(start, 1_000);
+        const run = track(runner.run([slow], url));
+        await until(() => started.length === 1);
+        // Startup time does not count as the pattern's own running time.
+        await vi.advanceTimersByTimeAsync(4_000);
+        started[0]!.emit("ready");
+        await until(() => started[0]!.requests.length === 1);
+        await vi.advanceTimersByTimeAsync(1_000);
+        await settle();
+        expect(run).toEqual({ done: true, value: new Map() });
+        expect(await runner.run([slow], url)).toEqual(new Map());
+        expect(start).toHaveBeenCalledOnce();
+      });
     });
 
     it("still runs for another URL", async () => {
