@@ -90,6 +90,10 @@ implemented): in D, a later step a login may start at counts as the first step d
 and a fill-only login after a logout starts at it; this closes the known gap for sites
 that show only a password step after a logout.
 
+Amended on 2026-10-19 by [ADR 0052](0052-immediate-ui-stored-passkeys.md) (owner, 20:48
+UTC, implemented): C and D apply to Chrome Immediate UI requests (`uiMode: "immediate"`)
+as to other passkey get requests.
+
 Date: 2026-10-11
 
 ## Context

@@ -94,26 +94,53 @@ describe("MAIN-world passkey wrapper", () => {
     expect(page.nativeGet.mock.contexts[0]).toBe(page.container);
   });
 
-  it("relays Immediate UI's uiMode as immediate mediation and delegates the caller's call", async () => {
+  it("preserves Immediate UI uiMode and delegates the caller's exact call", async () => {
     const page = fakePage(answer({ kind: "delegate" }));
     const options = { publicKey, uiMode: "immediate" };
     await expect(page.container.get(options)).resolves.toBe("native");
     expect(page.posted[0]).toMatchObject({
       type: "get",
-      request: { mediation: "immediate" },
+      request: { uiMode: "immediate" },
     });
     expect(page.nativeGet.mock.calls[0]![0]).toBe(options);
   });
 
-  it("relays uiMode immediate over any mediation and leaves other uiMode values to the browser", async () => {
-    expect(snapshotGetOptions({ publicKey, uiMode: 1 })).toBeUndefined();
+  it("keeps uiMode beside mediation and leaves other uiMode values to the browser", () => {
+    for (const extra of [{ uiMode: 1 }, { uiMode: "other" }])
+      expect(snapshotGetOptions({ publicKey, ...extra })).toBeUndefined();
     expect(
       snapshotGetOptions({ publicKey, uiMode: "immediate", mediation: "optional" }),
-    ).toMatchObject({ mediation: "immediate" });
+    ).toMatchObject({
+      uiMode: "immediate",
+      mediation: "optional",
+    });
+  });
+
+  it("relays Immediate UI with a signal or an allow list as it relays other requests", () => {
     expect(
-      snapshotGetOptions({ publicKey, uiMode: "immediate", mediation: "conditional" }),
-    ).toMatchObject({ mediation: "immediate" });
-    expect(snapshotGetOptions({ publicKey, uiMode: "other" })).toBeUndefined();
+      snapshotGetOptions({ publicKey, uiMode: "immediate", signal: new AbortController().signal }),
+    ).toMatchObject({ uiMode: "immediate" });
+    expect(
+      snapshotGetOptions({
+        publicKey: {
+          ...publicKey,
+          allowCredentials: [{ type: "public-key", id: new Uint8Array([1]) }],
+        },
+        uiMode: "immediate",
+      }),
+    ).toMatchObject({ uiMode: "immediate", allowCredentials: [{ id: "AQ" }] });
+  });
+
+  it.each([
+    ["password", { password: true }],
+    ["identity", { identity: { providers: [] } }],
+  ])("hands Immediate UI %s options directly to the original provider", async (_, extra) => {
+    const page = fakePage();
+    const options = { publicKey, uiMode: "immediate", ...extra };
+    await expect(page.container.get(options)).resolves.toBe("native");
+    expect(page.posted).toHaveLength(0);
+    expect(page.nativeGet.mock.calls[0]![0]).toBe(options);
+    expect(page.nativeGet.mock.contexts[0]).toBe(page.container);
   });
 
   it("delegates promptly when no relay acknowledges", async () => {

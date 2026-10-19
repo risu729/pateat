@@ -47,6 +47,7 @@ export const bridgedGetRequestSchema = v.strictObject({
   allowCredentials: v.pipe(v.array(credentialDescriptorSchema), v.maxLength(MAX_ALLOW_CREDENTIALS)),
   userVerification: v.optional(shortText),
   mediation: v.optional(shortText),
+  uiMode: v.optional(v.literal("immediate")),
   timeout: v.optional(v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(0xff_ff_ff_ff))),
 });
 export type BridgedGetRequest = v.InferInput<typeof bridgedGetRequestSchema>;
@@ -59,6 +60,7 @@ export type DelegationReason =
   | "invalid-rp-id"
   | "rp-id-mismatch"
   | "external-transports-only"
+  | "immediate-allow-credentials"
   | "no-user-activation";
 
 export interface AdmittedGetRequest {
@@ -76,6 +78,11 @@ export interface AdmittedGetRequest {
    * only through a login's `passkey` route (ADR 0034).
    */
   readonly conditional?: true;
+  /**
+   * Chrome Immediate UI (ADR 0052): answered as a modal request, but only with a user gesture
+   * and outside incognito, where Chrome would answer it.
+   */
+  readonly immediate?: true;
 }
 
 export type Admission =
@@ -89,6 +96,7 @@ const REPORTED_MEMBERS = new Map([
   ["allowCredentials", "allow-credentials"],
   ["userVerification", "user-verification"],
   ["mediation", "mediation"],
+  ["uiMode", "ui-mode"],
   ["timeout", "timeout"],
 ]);
 const REPORTED_DESCRIPTOR_MEMBERS = new Map([
@@ -164,7 +172,9 @@ export function admitGetRequest(input: {
   const parsed = v.safeParse(bridgedGetRequestSchema, input.request);
   if (!parsed.success) return { kind: "delegate", reason: "invalid-request" };
   const request = parsed.output;
-  const conditional = request.mediation === "conditional" && input.conditional === true;
+  const immediate = request.uiMode === "immediate";
+  const conditional =
+    !immediate && request.mediation === "conditional" && input.conditional === true;
   // `required` asks for the person as `optional` does: a passkey request always shows the
   // browser's prompt, which Pateat answers in its place.
   const modal =
@@ -172,6 +182,10 @@ export function admitGetRequest(input: {
     request.mediation === "optional" ||
     request.mediation === "required";
   if (!modal && !conditional) return { kind: "delegate", reason: "unsupported-mediation" };
+  // Chrome rejects an Immediate UI allowlist to prevent cross-session tracking. Even a
+  // descriptor of an unknown type must not turn it into an admitted discoverable request.
+  if (immediate && request.allowCredentials.length !== 0)
+    return { kind: "delegate", reason: "immediate-allow-credentials" };
   if (request.userVerification === "required" && input.policy.verification !== "always")
     return { kind: "delegate", reason: "user-verification-required" };
   const rpId = resolveRpId(input.origin, request.rpId);
@@ -193,7 +207,7 @@ export function admitGetRequest(input: {
     )
   )
     return { kind: "delegate", reason: "external-transports-only" };
-  if (input.policy.presence !== "always" && !input.userActivation)
+  if ((immediate || input.policy.presence !== "always") && !input.userActivation)
     return { kind: "delegate", reason: "no-user-activation" };
   return {
     kind: "claim",
@@ -205,6 +219,7 @@ export function admitGetRequest(input: {
       userVerified: input.policy.verification === "always",
       ...(request.timeout === undefined ? {} : { timeoutMs: request.timeout }),
       ...(conditional ? { conditional: true as const } : {}),
+      ...(immediate ? { immediate: true as const } : {}),
     }),
   };
 }
