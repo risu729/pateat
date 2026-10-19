@@ -613,10 +613,10 @@ export function createLoginGeneration(options: {
   /**
    * Revokes a recipe the chosen item cannot run, so its page is generated again (ADR 0058
    * A). Only a page that may be sent now, and once per recipe ID in 30 days; the claim is
-   * kept once the service answered the write, and dropped when the request did not reach it,
-   * was rate limited, the device was rejected or the head had a newer active revision. A revoked or conflicting head pulls
-   * recipes only, so the cache drops the copy without a settings write that would stop
-   * another tab's login.
+   * kept once the service answered the write, and dropped when the request did not reach
+   * it, was rate limited, the device was rejected or the head had a newer active revision.
+   * A revoked or conflicting head pulls recipes only, so the cache drops the copy without a
+   * settings write that would stop another tab's login.
    */
   async function replace(
     store: RecipeReplacementStorage,
