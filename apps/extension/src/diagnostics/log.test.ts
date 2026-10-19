@@ -1229,6 +1229,56 @@ describe("unhandled errors", () => {
     vi.restoreAllMocks();
   });
 
+  it("logs a signed-in page sample (ADR 0029) as codes, a failure as a warning", async () => {
+    const recipeOrigin = "https://login.example";
+    const log = createDiagnosticsLog({
+      build: { version: "0.1.0", revision: "1c42ad3" },
+      settings: async () => ({
+        revision: 7,
+        settings: { connections: [], excludedSites: [], siteDefaults: [], bindings: [] },
+      }),
+      recipeCache: async () => ({ recipes: [{ origin: recipeOrigin }] }),
+      connections: async () => ({ ok: true, kind: "status", connections: [] }),
+      databaseName: `log-test-${crypto.randomUUID()}`,
+      scope: { addEventListener: () => undefined } as never,
+    });
+    for (const level of ["debug", "info", "warn"] as const)
+      vi.spyOn(console, level).mockImplementation(() => undefined);
+    await log.logger.enableDebug();
+    const page = {
+      type: "sample" as const,
+      tabId: 3,
+      origin: recipeOrigin,
+      recipeId: "synthetic-recipe",
+      recipeRevision: 1,
+      route: "password" as const,
+    };
+    log.login({ ...page, outcome: "sent" });
+    log.login({ ...page, outcome: "kept" });
+    log.login({ ...page, outcome: "recent" });
+    log.login({ ...page, outcome: "gone" });
+    log.login({ ...page, outcome: "refused" });
+    log.login({ ...page, outcome: "not-sent", reason: "site-excluded" });
+    log.login({ ...page, outcome: "failed", reason: "unreachable" });
+    await vi.waitFor(async () =>
+      expect(
+        (await log.logger.entries()).filter((entry) => entry.event === "recipe.sample"),
+      ).toHaveLength(7),
+    );
+    const entries = (await log.logger.entries()).filter((entry) => entry.event === "recipe.sample");
+    const fields = { origin: recipeOrigin, recipe: expect.any(String), recipeRevision: 1 };
+    expect(entries.map((entry) => [entry.level, entry.fields])).toEqual([
+      ["debug", { ...fields, route: "password", outcome: "sent" }],
+      ["info", { ...fields, route: "password", outcome: "kept" }],
+      ["debug", { ...fields, route: "password", outcome: "recent" }],
+      ["debug", { ...fields, route: "password", outcome: "gone" }],
+      ["info", { ...fields, route: "password", outcome: "refused" }],
+      ["debug", { ...fields, route: "password", outcome: "not-sent", reason: "site-excluded" }],
+      ["warn", { ...fields, route: "password", outcome: "failed", reason: "unreachable" }],
+    ]);
+    vi.restoreAllMocks();
+  });
+
   it("logs what a sync changed, a judged page, a handler, what stopped a login and refused output", async () => {
     const recipeOrigin = "https://login.example";
     const log = createDiagnosticsLog({

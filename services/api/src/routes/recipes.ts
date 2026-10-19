@@ -4,6 +4,7 @@ import {
   loginOutcomeReportSchema,
   loginRecordSchema,
   recipeCompletionRequestSchema,
+  recipePageSampleRequestSchema,
   syncRecipeIdSchema,
   syncRecipeWriteSchema,
 } from "@pateat/contracts";
@@ -18,7 +19,7 @@ import { loginOutcomes, loginTimings, recipeHeads, recipeRevisions } from "../db
 import { apiError } from "../http";
 import { purgeExpiredLog } from "../claude/calls";
 import { selectHeads, toChange, writeRecipe } from "../recipe-store";
-import { generateEntry, generateRecipe, judgeCompletion } from "../recipes/generate";
+import { generateEntry, generateRecipe, judgeCompletion, samplePage } from "../recipes/generate";
 import { jsonBody, requireJsonBody, validate } from "../validation";
 
 const recipeParam = validate("param", v.strictObject({ recipeId: syncRecipeIdSchema }));
@@ -227,6 +228,26 @@ export const recipeRoutes = new Hono<ApiEnv>()
         console.error("Inference log purge failed");
       }
       return c.body(null, 204);
+    },
+  )
+  // A repeat login's signed-in page, logged for evaluation without a model call (ADR 0029).
+  .post(
+    "/:recipeId/page-sample",
+    recipeParam,
+    requireJsonBody,
+    jsonBody(recipePageSampleRequestSchema),
+    async (c) => {
+      const { recipeId } = c.req.valid("param");
+      const result = await samplePage(
+        c.env,
+        c.get("scope"),
+        recipeId,
+        c.req.valid("json"),
+        c.get("trace"),
+      );
+      if (result === undefined) return apiError(c, 404, { error: "not_found" });
+      if (result === null) return apiError(c, 400, { error: "bad_request" });
+      return c.body(null, result === "sampled" ? 201 : 204);
     },
   )
   .put("/:recipeId", recipeParam, requireJsonBody, jsonBody(syncRecipeWriteSchema), async (c) => {

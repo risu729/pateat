@@ -1998,6 +1998,11 @@ tests cover it.
   judgement request answered without a model call, under its answer's code at no cost
   (owner, 2026-10-18 08:04 UTC,
   [ADR 0012](adr/0012-inference-request-log.md#amendment-2026-10-18-requests-answered-without-a-model-call)).
+- Done (local tests only, not deployed): a repeat login that its recipe's marker
+  completed sends its signed-in page, described as for the judge, once in 30 days per
+  recipe and branch, and the service logs it as a `sampled` request log row without a
+  model call (owner, 2026-10-18 08:05 UTC,
+  [ADR 0029](adr/0029-local-sign-in-state.md#amendment-signed-in-page-samples-2026-10-18)).
 - Done: the generation routes stop at
   $100 of estimated Claude spend per owner a month and $5 a day (`CLAUDE_CALL_LIMITS` in
   `services/api/src/claude/calls.ts`,

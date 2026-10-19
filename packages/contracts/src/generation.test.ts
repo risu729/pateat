@@ -9,6 +9,7 @@ import {
   recipeCompletionRequestSchema,
   recipeCompletionResultSchema,
   recipeGenerationRequestSchema,
+  recipePageSampleRequestSchema,
   recipeGenerationResultSchema,
 } from "./generation";
 
@@ -96,6 +97,20 @@ describe("recipe generation contracts", () => {
     const judged = { version: 1, revision: 2, route: "password", observation };
     expect(v.is(recipeCompletionRequestSchema, { ...judged, branch: "account" })).toBe(true);
     expect(v.is(recipeCompletionRequestSchema, { ...judged, branch: "list" })).toBe(false);
+  });
+
+  it("takes a signed-in page sample (ADR 0029) with its route and only its own fields", () => {
+    const sampled = { version: 1, revision: 2, route: "password", observation };
+    expect(v.is(recipePageSampleRequestSchema, sampled)).toBe(true);
+    expect(v.is(recipePageSampleRequestSchema, { ...sampled, branch: "account" })).toBe(true);
+    for (const invalid of [
+      { ...sampled, branch: "list" },
+      { ...sampled, partial: true },
+      { ...sampled, stop: true },
+      { ...sampled, revision: 0 },
+      { version: 1, revision: 2, observation },
+    ])
+      expect(v.is(recipePageSampleRequestSchema, invalid)).toBe(false);
   });
 
   it("answers recipes only as active changes whose identity matches", () => {

@@ -1,5 +1,6 @@
 import {
   INFERENCE_LOG_RETENTION_MS,
+  PAGE_SAMPLE_INTERVAL_MS,
   type GenerationUnavailableReason,
   type RecipeGenerationResult,
 } from "@pateat/contracts";
@@ -11,7 +12,7 @@ import {
   unknownUsage,
   type InferenceOutcome,
 } from "@pateat/inference";
-import { and, count, eq, gt, gte, inArray, isNull, lt, lte, sql } from "drizzle-orm";
+import { and, count, eq, gt, gte, inArray, isNull, lt, lte, ne, notExists, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
 import {
@@ -20,6 +21,7 @@ import {
   inferenceSpend,
   loginOutcomes,
   loginTimings,
+  owners,
   type inferenceLogRecipePages,
 } from "../db/schema";
 import { resolveClaudeCredential } from "./credentials";
@@ -238,10 +240,11 @@ export async function keepLogRevision(
  * it, no provider, model, usage, result or answer, and no cost. The same request answered
  * the same way within ten minutes adds no row, so a client repeating a page refused as
  * `busy` or over a limit cannot fill the log, and past `unsentRowsPerDay` rows an owner's
- * UTC day adds none. The checks and the insert are not atomic, so two identical requests
- * at once can both be logged. A failed write never changes the answer. The row has no
- * time before the model, token exchange or model call; it names itself on `trace`, so the
- * request's middleware records its server time.
+ * UTC day adds none; signed-in page samples (`logPageSample`) do not count toward it. The
+ * checks and the insert are not atomic, so two identical requests at once can both be
+ * logged. A failed write never changes the answer. The row has no time before the model,
+ * token exchange or model call; it names itself on `trace`, so the request's middleware
+ * records its server time.
  */
 export async function logUnsent(
   d1: D1Database,
@@ -258,7 +261,14 @@ export async function logUnsent(
     const [today] = await db
       .select({ rows: count() })
       .from(inferenceLog)
-      .where(and(unsentOfOwner, gte(inferenceLog.createdAt, now - (now % DAY_MS))));
+      .where(
+        and(
+          unsentOfOwner,
+          // Signed-in page samples have their own once-in-30-days bound (ADR 0029).
+          ne(inferenceLog.outcome, "sampled"),
+          gte(inferenceLog.createdAt, now - (now % DAY_MS)),
+        ),
+      );
     if ((today?.rows ?? 0) >= CLAUDE_CALL_LIMITS.unsentRowsPerDay) {
       console.warn("Inference log row over the daily cap", { role: unsent.role, outcome });
       return;
@@ -339,6 +349,93 @@ export async function keepServerTime(
   } catch {
     console.warn("Inference log server time not kept");
   }
+}
+
+/**
+ * Keeps a repeat login's signed-in page (ADR 0029, owner 2026-10-18 08:05 UTC) as a `judge`
+ * row with the outcome `sampled`: the request built as the judge's would be (the judge
+ * route answers such a page `not-judgeable` and never sends it), no provider, model, usage,
+ * result or answer, and no cost. The statement writes the row only while the owner has no
+ * `sampled` row of the recipe and branch in the last `PAGE_SAMPLE_INTERVAL_MS`, so two
+ * devices sending at once keep one. Like a request answered without a call, the row has no
+ * time before the model, token exchange or model call; a row it writes names itself on
+ * `trace` for its server time. Returns whether it wrote one.
+ */
+export async function logPageSample(
+  d1: D1Database,
+  ownerId: string,
+  sample: UnsentRequest,
+  trace: RequestTrace,
+) {
+  const db = drizzle(d1);
+  const now = Date.now();
+  const id = newId();
+  const { recipeId, branch, baseRevision } = sample.recipe;
+  const hash = await observationHash(sample.request.observation);
+  // Drizzle fills INSERT ... SELECT positionally: keep these in the inferenceLog column order.
+  const written = await db
+    .insert(inferenceLog)
+    .select(
+      db
+        .select({
+          id: sql`${id}`.as("id"),
+          ownerId: owners.id,
+          role: sql`${sample.role}`.as("role"),
+          provider: sql`NULL`.as("provider"),
+          modelId: sql`NULL`.as("model_id"),
+          promptVersion: sql`${sample.promptVersion}`.as("prompt_version"),
+          origin: sql`${sample.origin}`.as("origin"),
+          path: sql`${sample.path}`.as("path"),
+          request: sql`${JSON.stringify(sample.request)}`.as("request"),
+          result: sql`NULL`.as("result"),
+          answer: sql`NULL`.as("answer"),
+          outcome: sql`'sampled'`.as("outcome"),
+          recipeId: sql`${recipeId}`.as("recipe_id"),
+          branch: sql`${branch}`.as("branch"),
+          baseRevision: sql`${baseRevision}`.as("base_revision"),
+          revision: sql`NULL`.as("revision"),
+          recipePage: sql`NULL`.as("recipe_page"),
+          build: sql`${PATEAT_BUILD_REVISION}`.as("build"),
+          observationHash: sql`${hash}`.as("observation_hash"),
+          inputTokens: sql`NULL`.as("input_tokens"),
+          outputTokens: sql`NULL`.as("output_tokens"),
+          costMicroUsd: sql`0`.as("cost_micro_usd"),
+          preModelMs: sql`NULL`.as("pre_model_ms"),
+          tokenMs: sql`NULL`.as("token_ms"),
+          modelMs: sql`NULL`.as("model_ms"),
+          serverMs: sql`NULL`.as("server_ms"),
+          createdAt: sql`${now}`.as("created_at"),
+        })
+        .from(owners)
+        .where(
+          and(
+            eq(owners.id, ownerId),
+            notExists(
+              db
+                .select({ id: inferenceLog.id })
+                .from(inferenceLog)
+                .where(
+                  and(
+                    eq(inferenceLog.ownerId, ownerId),
+                    eq(inferenceLog.outcome, "sampled"),
+                    eq(inferenceLog.recipeId, recipeId),
+                    eq(inferenceLog.branch, branch),
+                    gt(inferenceLog.createdAt, now - PAGE_SAMPLE_INTERVAL_MS),
+                  ),
+                ),
+            ),
+          ),
+        ),
+    )
+    .run();
+  const kept = written.meta.changes === 1;
+  if (kept) trace.logId = id;
+  try {
+    await purgeExpiredLog(db, now);
+  } catch {
+    console.error("Inference log purge failed");
+  }
+  return kept;
 }
 
 const credentialUnavailable = {

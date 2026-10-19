@@ -1,6 +1,10 @@
 import type { VaultSyncRecord } from "../connections/auto-sync";
 import type { ServiceStorage } from "./runtime";
-import type { GeneratedSlotStorage, GenerationAttemptStorage } from "./generation";
+import type {
+  GeneratedSlotStorage,
+  GenerationAttemptStorage,
+  PageSampleStorage,
+} from "./generation";
 import type { LoginOutcomeStorage } from "./outcomes";
 import type { RecipeCacheStorage, RecipeScheduleStorage } from "./recipes";
 import type { SettingsBaseStorage, SettingsHoldStorage } from "./settings-sync";
@@ -59,4 +63,9 @@ export function createBrowserGeneratedSlotStorage(): GeneratedSlotStorage {
 /** Which recipe revisions' first login results were reported (ADR 0019, amended 2026-10-18). */
 export function createBrowserLoginOutcomeStorage(): LoginOutcomeStorage {
   return trustedRecord("pateat.login-outcomes.v1");
+}
+
+/** When this device last sent each recipe's signed-in page sample (ADR 0029). */
+export function createBrowserPageSampleStorage(): PageSampleStorage {
+  return trustedRecord("pateat.page-samples.v1");
 }

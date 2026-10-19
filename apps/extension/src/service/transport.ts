@@ -16,6 +16,7 @@ import {
   type RecipeCompletionResult,
   type RecipeGenerationRequest,
   type RecipeGenerationResult,
+  type RecipePageSampleRequest,
   type SyncDeviceState,
   type SyncRecipeChanges,
   type SyncSettingsState,
@@ -172,6 +173,18 @@ export type OutcomeResult =
   | { kind: "rejected" }
   | { kind: "failed"; error: TransportFailure };
 
+/**
+ * `POST /v1/recipes/:recipeId/page-sample`'s answer (ADR 0029): `kept` when the service
+ * logged the page, `recent` when it had a sample of the recipe and branch already, `gone`
+ * for a 404: the recipe or its revision is no longer the owner's, as when it was revoked
+ * meanwhile, `refused` for a 400: the service turned the page away, as one still showing a
+ * fill field of the route.
+ */
+export type PageSampleResult =
+  | { kind: "kept" | "recent" | "gone" | "refused" }
+  | { kind: "rejected" }
+  | { kind: "failed"; error: TransportFailure };
+
 export interface ServiceTransport {
   /**
    * `POST /pair` with the browser's login session to the service. The only call that
@@ -233,6 +246,16 @@ export interface ServiceTransport {
     recipeId: string,
     request: RecipeCompletionRequest,
   ): Promise<InferenceResult<RecipeCompletionResult>>;
+  /**
+   * `POST /v1/recipes/:recipeId/page-sample`: a repeat login's signed-in page, which the
+   * service logs without a model call (ADR 0029).
+   */
+  samplePage(
+    origin: string,
+    credential: string,
+    recipeId: string,
+    request: RecipePageSampleRequest,
+  ): Promise<PageSampleResult>;
 }
 
 const errorSchema = v.object({ error: v.string() });
@@ -538,6 +561,25 @@ export function createServiceTransport(
         request,
         recipeCompletionResultSchema,
       );
+    },
+    async samplePage(origin, credential, recipeId, request) {
+      const response = await call(
+        origin,
+        `/v1/recipes/${encodeURIComponent(recipeId)}/page-sample`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${credential}`, "Content-Type": "application/json" },
+          body: JSON.stringify(request),
+        },
+      );
+      if ("failed" in response) return { kind: "failed", error: response.failed };
+      if (response.status === 201) return { kind: "kept" };
+      if (response.status === 204) return { kind: "recent" };
+      if (response.status === 404) return { kind: "gone" };
+      if (response.status === 400) return { kind: "refused" };
+      if (rejected(response)) return { kind: "rejected" };
+      if (response.status === 429) return { kind: "failed", error: "rate-limited" };
+      return { kind: "failed", error: "unexpected-response" };
     },
   };
 

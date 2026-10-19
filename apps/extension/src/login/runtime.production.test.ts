@@ -10871,6 +10871,238 @@ describe("production login document admission", () => {
       }, 12_000);
     });
 
+    describe("signed-in page samples (ADR 0029, owner 2026-10-18 08:05 UTC)", () => {
+      // A repeat login: the recipe already has the marker its first login's judge learned.
+      const marked = parseLoginRecipe({ ...generated, completion: [{ target: target("logout") }] });
+      const signedInPage = {
+        ...homePage,
+        observation: { ...homePage.observation, headerText: "Signed in as my2@example.com" },
+      };
+      type Sample = NonNullable<LoginGeneration["samplePage"]>;
+      /** A service that describes the page when asked and keeps it. */
+      function sampling(before?: () => void, answer?: Sample, afterDescribed?: () => void) {
+        const descriptions: unknown[] = [];
+        const samplePage = vi.fn<Sample>(
+          answer ??
+            (async (_sample, describePage, sending) => {
+              before?.();
+              const described = await describePage();
+              descriptions.push(described);
+              if ("unsent" in described) return { outcome: "not-sent", reason: described.unsent };
+              afterDescribed?.();
+              const stop = await sending?.();
+              if (stop) return { outcome: "not-sent", reason: stop };
+              return { outcome: "kept" };
+            }),
+        );
+        const service = { ...generation(), samplePage };
+        return { service, samplePage, descriptions };
+      }
+      /** Logs in on `login`; the click leads to `/home`, where `shown` elements show. */
+      async function signIn(
+        service: LoginGeneration,
+        login: LoginRecipe = marked,
+        shown = ["logout"],
+        created?: (h: ReturnType<typeof harness>) => void,
+      ) {
+        fake.state.extracted = { "signed-in": signedInPage };
+        fake.state.observedPath = "/signin";
+        const report = vi.fn<(report: LoginReport) => void>();
+        const h = harness(unsaved, {
+          allowedOrigins: [],
+          uris,
+          username: true,
+          generation: service,
+          report,
+        });
+        created?.(h);
+        h.fields.mockImplementation(async ({ fieldId }) =>
+          fieldId === "login.username" ? "my2@example.com" : "synthetic-secret",
+        );
+        h.recipes.recipe.mockResolvedValue(login);
+        h.recipes.starts.mockResolvedValue(startsOf([login.steps[0]!]));
+        fake.state.present = new Set(["user", "password", "login"]);
+        fake.state.onExecute = async (message) => {
+          if ((message["operation"] as { step: { kind: string } }).step.kind !== "click") return;
+          fake.state.present = new Set(shown);
+          fake.state.observedPath = "/home";
+        };
+        expect(await h.hello()).toEqual({ ok: true });
+        await vi.waitFor(() => expect(status()).toMatchObject([{ state: "authenticated" }]), {
+          timeout: 8_000,
+        });
+        const samples = () =>
+          report.mock.calls.flatMap(([value]) => (value.type === "sample" ? [value] : []));
+        return { h, report, samples };
+      }
+
+      it("sends the page its marker completed, described as for the judge, after the login ended", async () => {
+        let atSample: unknown;
+        const { service, samplePage, descriptions } = sampling(() => (atSample = status()));
+        const { report, samples } = await signIn(service);
+        await vi.waitFor(() => expect(samples()).toHaveLength(2), { timeout: 5_000 });
+        expect(samplePage).toHaveBeenCalledTimes(1);
+        expect(samplePage.mock.calls[0]![0]).toEqual({
+          recipeId: marked.id,
+          revision: marked.revision,
+          route: "password",
+        });
+        // The login had ended before the sample was asked for.
+        expect(atSample).toMatchObject([{ state: "authenticated", outcome: "authenticated" }]);
+        // The judge's description, with the account's username hidden (ADR 0016).
+        expect(descriptions).toEqual([
+          {
+            observation: { ...homePage.observation, headerText: "Signed in as [account]" },
+          },
+        ]);
+        expect(JSON.stringify(descriptions)).not.toContain("my2@example.com");
+        expect(service.judge).not.toHaveBeenCalled();
+        expect(samples()).toEqual([
+          expect.objectContaining({ type: "sample", recipeId: marked.id, outcome: "sent" }),
+          expect.objectContaining({ type: "sample", recipeId: marked.id, outcome: "kept" }),
+        ]);
+        expect(report).not.toHaveBeenCalledWith(expect.objectContaining({ type: "exception" }));
+      }, 12_000);
+
+      it("never samples a login the judge decided", async () => {
+        const { service, samplePage } = sampling();
+        service.judge.mockImplementation(async (...args) => {
+          args[4]?.();
+          return { verdict: "signed-in" };
+        });
+        // The recipe has no marker yet: the judge completes the login.
+        await signIn(service, generated);
+        expect(service.judge).toHaveBeenCalledTimes(1);
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        expect(samplePage).not.toHaveBeenCalled();
+      }, 12_000);
+
+      it("never samples a login completed without its marker", async () => {
+        const { service, samplePage } = sampling();
+        // The username shows in the header (E2) while the marker does not show.
+        fake.state.signs = {
+          password: false,
+          code: false,
+          captcha: false,
+          invalid: false,
+          alert: false,
+          username: true,
+        };
+        await signIn(service, marked, []);
+        expect(service.judge).not.toHaveBeenCalled();
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        expect(samplePage).not.toHaveBeenCalled();
+      }, 12_000);
+
+      it("sends nothing for a site excluded since the login started", async () => {
+        let h: ReturnType<typeof harness> | undefined;
+        const { service, descriptions } = sampling(() => {
+          h!.settings.settings.excludedSites = [
+            { hostname: "login.example", includeSubdomains: false },
+          ];
+        });
+        const signedIn = await signIn(service, marked, ["logout"], (created) => (h = created));
+        await vi.waitFor(() => expect(signedIn.samples()).toHaveLength(1), { timeout: 5_000 });
+        expect(descriptions).toEqual([{ unsent: "site-excluded" }]);
+        expect(signedIn.samples()).toEqual([
+          expect.objectContaining({ outcome: "not-sent", reason: "site-excluded" }),
+        ]);
+        expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.extract");
+      }, 12_000);
+
+      it("sends nothing for a site excluded after its page was described", async () => {
+        let h: ReturnType<typeof harness> | undefined;
+        const { service, descriptions } = sampling(undefined, undefined, () => {
+          h!.settings.settings.excludedSites = [
+            { hostname: "login.example", includeSubdomains: false },
+          ];
+        });
+        const signedIn = await signIn(service, marked, ["logout"], (created) => (h = created));
+        await vi.waitFor(() => expect(signedIn.samples()).toHaveLength(1), { timeout: 5_000 });
+        expect(descriptions).toHaveLength(1);
+        expect(descriptions[0]).toHaveProperty("observation");
+        // The last check before the request stops it; `sent` is never reported.
+        expect(signedIn.samples()).toEqual([
+          expect.objectContaining({ outcome: "not-sent", reason: "site-excluded" }),
+        ]);
+      }, 12_000);
+
+      it("leaves the login, its record and its badge as they are when the sample fails", async () => {
+        const baseline = sampling(undefined, async () => ({ outcome: "not-due" }));
+        const quiet = await signIn(baseline.service);
+        await vi.waitFor(() => expect(baseline.samplePage).toHaveBeenCalled(), { timeout: 5_000 });
+        /**
+         * The record without its IDs and times, and the badge. Its timing keeps only which
+         * sums it has: they are wall-clock milliseconds, so a slow runner can count one more.
+         */
+        const outcome = () => ({
+          status: (status() as Record<string, unknown>[]).map(
+            ({
+              id: _id,
+              changedAt: _at,
+              operationId: _op,
+              usedOperationIds: _used,
+              timing,
+              ...rest
+            }) => {
+              const { since: _since, ...sums } = (timing ?? {}) as Record<string, unknown>;
+              return {
+                ...rest,
+                timing: Object.fromEntries(Object.keys(sums).map((key) => [key, typeof sums[key]])),
+              };
+            },
+          ),
+          badge: fake.state.badges[1],
+        });
+        const expected = outcome();
+        expect(quiet.samples()).toEqual([]);
+        // A second runtime logs in again on a fresh tab record.
+        for (const listener of fake.state.removed.splice(0)) listener(1);
+        fake.state.storage = {};
+        fake.state.badges = {};
+        fake.state.messages = [];
+        const failing = sampling(undefined, async () => {
+          throw new Error("synthetic sample failure");
+        });
+        const { report, samples } = await signIn(failing.service);
+        await vi.waitFor(() => expect(failing.samplePage).toHaveBeenCalled(), { timeout: 5_000 });
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        expect(outcome()).toEqual(expected);
+        expect(samples()).toEqual([]);
+        expect(report).not.toHaveBeenCalledWith(expect.objectContaining({ type: "exception" }));
+      }, 20_000);
+
+      it("never asks for the page when no service is paired", async () => {
+        const samplePage = vi.fn<ServiceTransport["samplePage"]>();
+        const sampleStorage = { read: vi.fn(async () => undefined), write: vi.fn() };
+        const real = createLoginGeneration({
+          service: { connection: async () => undefined },
+          transport: {
+            generateRecipe: vi.fn(),
+            generateEntry: vi.fn(),
+            judgeCompletion: vi.fn(),
+            samplePage,
+          },
+          storage: { read: async () => undefined, write: async () => undefined },
+          slotStorage: { read: async () => undefined, write: async () => undefined },
+          sampleStorage,
+          sync: async () => "synced",
+          refresh: async () => "synced",
+        });
+        const wrapped = vi.fn<Sample>((...args) => real.samplePage!(...args));
+        const { samples } = await signIn({ ...generation(), samplePage: wrapped });
+        await vi.waitFor(() => expect(wrapped).toHaveBeenCalled(), { timeout: 5_000 });
+        await expect(wrapped.mock.results[0]!.value).resolves.toEqual({
+          outcome: "not-due",
+          reason: "not-connected",
+        });
+        expect(samplePage).not.toHaveBeenCalled();
+        expect(sampleStorage.write).not.toHaveBeenCalled();
+        expect(fake.state.messages.map((entry) => entry.type)).not.toContain("login.extract");
+        expect(samples()).toEqual([]);
+      }, 12_000);
+    });
+
     describe("custom-field offers and their shapes (ADR 0027)", () => {
       const thirdItemId = "80000000-0000-4000-8000-000000000003";
       const matched =
@@ -20994,6 +21226,61 @@ describe("the start page's own passkey request (ADR 0034)", () => {
       expect.any(Function),
     );
     expect(executed()).toEqual([]);
+  });
+
+  it("samples the signed-in page of a marked passkey login on the password route (ADR 0029)", async () => {
+    vi.useFakeTimers();
+    const homePage = {
+      ok: true,
+      observation: {
+        version: 1,
+        origin,
+        path: "/home",
+        language: "en",
+        complete: true,
+        candidates: [
+          { id: "c1", role: "button", target: target("authenticated"), label: "Sign out" },
+        ],
+      },
+    };
+    const samplePage = vi.fn<NonNullable<LoginGeneration["samplePage"]>>(
+      async (_sample, describePage, sending) => {
+        const described = await describePage();
+        if ("unsent" in described) return { outcome: "not-sent", reason: described.unsent };
+        await sending?.();
+        return { outcome: "kept" };
+      },
+    );
+    const service = {
+      available: vi.fn<LoginGeneration["available"]>(async () => "sent"),
+      generate: vi.fn<LoginGeneration["generate"]>(),
+      judge: vi.fn<LoginGeneration["judge"]>(),
+      generateEntry: vi.fn<LoginGeneration["generateEntry"]>(),
+      slotFields: vi.fn<LoginGeneration["slotFields"]>(async () => undefined),
+      samplePage,
+    };
+    // The recipe has its marker and no passkey button: the page asked for a passkey itself.
+    const { h } = start(recipe, { generation: service });
+    const request = ask(h);
+    await flush();
+    expect(await h.hello()).toEqual({ ok: true });
+    await until(() => request.decided() !== undefined, 5_000);
+    fake.state.observedPath = "/home";
+    fake.state.present = new Set(["authenticated"]);
+    fake.state.extracted = { "signed-in": homePage };
+    answerOf(request.decided()).answered(true);
+    await until(settled("authenticated"), 20_000);
+    expect(status()![0]).toMatchObject({ route: "passkey" });
+    await until(() => samplePage.mock.results.length > 0, 5_000);
+    await samplePage.mock.results[0]!.value;
+    // As the judge is told it: the service knows no passkey route on such a recipe.
+    expect(samplePage.mock.calls[0]![0]).toEqual({
+      recipeId: recipe.id,
+      revision: recipe.revision,
+      route: "password",
+    });
+    await expect(samplePage.mock.results[0]!.value).resolves.toEqual({ outcome: "kept" });
+    expect(service.judge).not.toHaveBeenCalled();
   });
 
   describe("while the site may still be on the start page's path after the answer", () => {

@@ -20,6 +20,11 @@ without a recipe gets. Amended on 2026-10-16 by
 [ADR 0039](0039-redacted-token-path-segments.md) (owner, 14:10 UTC, implemented): a page
 whose path may carry a token is observed and sent with `[id]` in place of each such
 segment, replacing the 2026-10-11 choice below that such a page is never observed.
+Amended on 2026-10-18 by
+[ADR 0029](0029-local-sign-in-state.md#amendment-signed-in-page-samples-2026-10-18)
+(owner, 08:05 UTC, implemented): a later login's signed-in page is also observed, once
+in 30 days per recipe and branch, as an exception to the Consequences' "Other pages are
+never observed".
 
 Amended on 2026-10-18 by [ADR 0049](0049-start-at-a-later-step.md) (owner, 01:40 UTC,
 implemented): a page that shows a later step a login may start at is not sent; the

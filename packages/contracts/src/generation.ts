@@ -322,6 +322,24 @@ export const recipeCompletionRequestSchema = v.pipe(
   ),
 );
 
+/**
+ * `POST /v1/recipes/:recipeId/page-sample`: the signed-in page of a login of the given
+ * revision that its signed-in marker completed without a model call, kept in the request
+ * log for evaluation and never sent to a model (ADR 0029, owner 2026-10-18 08:05 UTC). The
+ * page is on the recipe's origin and described as the judge's page is. The service keeps
+ * one per recipe and branch in `PAGE_SAMPLE_INTERVAL_MS` and answers 201 when it kept this
+ * one, 204 when it already had one.
+ */
+export const recipePageSampleRequestSchema = v.strictObject({
+  version: v.literal(1),
+  revision: writtenRevision,
+  /** The login's route, as the judge is told it; the service checks the revision has it. */
+  route: loginRouteSchema,
+  /** For a chooser recipe (ADR 0028): the branch the login took. */
+  branch: v.optional(chooserBranchSchema),
+  observation: loginObservationSchema,
+});
+
 export const recipeCompletionResultSchema = v.variant("status", [
   /**
    * `change` is the recipe with the page's marker added (ADR 0029); absent when the recipe
@@ -361,5 +379,6 @@ export type EntryGenerationRequest = v.InferOutput<typeof entryGenerationRequest
 export type EntryGenerationResult = v.InferOutput<typeof entryGenerationResultSchema>;
 export type RecipeCompletionRequest = v.InferOutput<typeof recipeCompletionRequestSchema>;
 export type RecipeCompletionResult = v.InferOutput<typeof recipeCompletionResultSchema>;
+export type RecipePageSampleRequest = v.InferOutput<typeof recipePageSampleRequestSchema>;
 export type GenerationOutputRejection = v.InferOutput<typeof generationOutputRejectionSchema>;
 export type GenerationUnavailableReason = v.InferOutput<typeof generationUnavailableReasonSchema>;

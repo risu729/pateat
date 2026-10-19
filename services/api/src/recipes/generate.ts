@@ -18,10 +18,12 @@ import {
   type LoginChooserRecipe,
   type LoginRecipe,
   type LoginMarkerTarget,
+  type LoginRoute,
   type RecipeCompletionRequest,
   type RecipeCompletionResult,
   type RecipeGenerationRequest,
   type RecipeGenerationResult,
+  type RecipePageSampleRequest,
   type StoredLoginRecipe,
   type SyncRecipeChange,
 } from "@pateat/contracts";
@@ -56,6 +58,7 @@ import type { DeviceScope } from "../auth";
 import {
   callClaude,
   keepLogRevision,
+  logPageSample,
   logUnsent,
   MAX_OUTPUT_TOKENS,
   ROLE_LIMITS,
@@ -65,7 +68,13 @@ import {
   type UnsentRequest,
 } from "../claude/calls";
 import { generationAttempts, pageJudgements, type PageJudgementVerdict } from "../db/schema";
-import { hasRecipeByteRoom, hasRecipeRoom, readHead, writeRecipe } from "../recipe-store";
+import {
+  hasRecipeByteRoom,
+  hasRecipeRoom,
+  readHead,
+  readRevision,
+  writeRecipe,
+} from "../recipe-store";
 
 // The recipe generation routes of ADR 0018: one page per call, appended to one recipe
 // per origin and start path (ADR 0016), and a page no recipe check explained judged for
@@ -701,6 +710,20 @@ export function staleHead(
 }
 
 /**
+ * The paths the judge is told the login ran on: from the stored recipe, never from the
+ * request; a branch's login started on its chooser's list.
+ */
+function judgedLoginPaths(head: StoredLoginRecipe, recipe: LoginRecipe, route: LoginRoute) {
+  return [
+    ...new Set([
+      ...("chooser" in head ? [head.chooser.path] : []),
+      ...routeSignInPaths(recipe, route),
+      ...(recipe.handlers ?? []).map((handler) => handler.path),
+    ]),
+  ];
+}
+
+/**
  * `POST /v1/recipes/:recipeId/completion`: judges a page after an effect step of the
  * login's route (ADR 0027), on the recipe's origin or on another origin that the login's
  * tab moved to (ADR 0022). Returns `undefined` for a missing recipe and `null` for a page
@@ -767,15 +790,7 @@ export async function judgeCompletion(
     return null;
   if (!recipe || head.revision !== request.revision || !recipeHasRoute(recipe, route))
     return unsent(unavailable("recipe-conflict"));
-  // The login paths come from the stored recipe, never from the request; a branch's
-  // login started on its chooser's list.
-  const loginPaths = [
-    ...new Set([
-      ...("chooser" in head.recipe ? [head.recipe.chooser.path] : []),
-      ...routeSignInPaths(recipe, route),
-      ...(recipe.handlers ?? []).map((handler) => handler.path),
-    ]),
-  ];
+  const loginPaths = judgedLoginPaths(head.recipe, recipe, route);
   if (!observation.complete) return unsent(failed("incomplete-observation"), loginPaths);
   // A list of accounts shown again is the sign-in's start, not its result (ADR 0028). A
   // stop's page is judged only on a recipe without a chooser and on its own origin: the
@@ -1035,4 +1050,63 @@ export async function judgeCompletion(
   if (change) return { ...signedIn, change };
   if (signedInAnyway) return signedIn;
   return unavailable(limited ? "recipe-limit" : "recipe-conflict");
+}
+
+/**
+ * Keeps a repeat login's signed-in page in the request log, with the request built as the
+ * judge's would be, without a model call (ADR 0029, owner 2026-10-18 08:05 UTC): `sampled`
+ * when it wrote the row, `recent` when the owner already has a sample of the recipe and
+ * branch from the last 30 days. `undefined` when the recipe or its revision is not the
+ * owner's or not kept, or the revision is a tombstone; `null` for a page the revision
+ * cannot have ended on: another origin, an incomplete description, a list of accounts, one
+ * of the route's fill fields still shown, or a route or branch the revision does not have.
+ * Nothing is logged for either.
+ */
+export async function samplePage(
+  env: GenerationEnv,
+  scope: DeviceScope,
+  recipeId: string,
+  request: RecipePageSampleRequest,
+  trace: RequestTrace,
+): Promise<"sampled" | "recent" | undefined | null> {
+  const change = await readRevision(env.DB, scope.ownerId, recipeId, request.revision);
+  if (!change || change.state !== "active") return undefined;
+  const { observation, route, branch } = request;
+  const recipe = routeOf(change.recipe, branch);
+  if (
+    !recipe ||
+    !recipeHasRoute(recipe, route) ||
+    observation.origin !== change.recipe.origin ||
+    !observation.complete ||
+    observation.accounts !== undefined ||
+    // As for the judge, a page that still shows one of the password route's fill fields,
+    // of any variant and on any path, is not a signed-in page; kept, it would hold off the
+    // recipe's next sample for 30 days.
+    observation.candidates.some((candidate) =>
+      routeFillTargets(recipe, "password").some((target) =>
+        sameLoginTarget(target, candidate.target),
+      ),
+    )
+  )
+    return null;
+  const sampled = await logPageSample(
+    env.DB,
+    scope.ownerId,
+    {
+      role: "judge",
+      promptVersion: await completionPromptVersion(),
+      origin: observation.origin,
+      path: observation.path,
+      request: {
+        instructions: completionInstructions,
+        recipeId,
+        route,
+        loginPaths: judgedLoginPaths(change.recipe, recipe, route),
+        observation,
+      },
+      recipe: { recipeId, branch: branch ?? "", baseRevision: change.revision },
+    },
+    trace,
+  );
+  return sampled ? "sampled" : "recent";
 }

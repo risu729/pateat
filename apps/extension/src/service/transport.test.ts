@@ -512,6 +512,41 @@ describe("recipe generation", () => {
   });
 
   it.each([
+    ["kept", 201, { kind: "kept" }],
+    ["already sampled", 204, { kind: "recent" }],
+    ["a rejected device", 401, { kind: "rejected" }],
+    ["a rate limit", 429, { kind: "failed", error: "rate-limited" }],
+    ["a recipe revoked meanwhile", 404, { kind: "gone" }],
+    ["a page the service turned away", 400, { kind: "refused" }],
+    ["a server error", 500, { kind: "failed", error: "unexpected-response" }],
+    ["an unexpected success", 200, { kind: "failed", error: "unexpected-response" }],
+  ])(
+    "posts a signed-in page sample (ADR 0029) and reports it %s",
+    async (_name, status, expected) => {
+      const fetch = respond(
+        status,
+        status === 201 || status === 204
+          ? undefined
+          : status === 401
+            ? { error: "device_revoked" }
+            : { error: "synthetic" },
+      );
+      const sample = { version: 1 as const, revision: 2, route: "password" as const, observation };
+      expect(
+        await createServiceTransport({ fetch }).samplePage(ORIGIN, CREDENTIAL, recipeId, sample),
+      ).toEqual(expected);
+      const [url, init] = fetch.mock.calls[0]!;
+      expect(url).toBe(`${ORIGIN}/v1/recipes/${recipeId}/page-sample`);
+      expect(init).toMatchObject({ method: "POST", credentials: "omit", redirect: "error" });
+      expect(init!.headers).toEqual({
+        Authorization: `Bearer ${CREDENTIAL}`,
+        "Content-Type": "application/json",
+      });
+      expect(JSON.parse(init!.body as string)).toEqual(sample);
+    },
+  );
+
+  it.each([
     [
       "an unknown status",
       200,
