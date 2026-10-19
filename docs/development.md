@@ -567,8 +567,9 @@ The sign-ins the check reads are kept per tab in `chrome.storage.session`
 ### Manual Bitwarden setup preview
 
 The connection setup slice is implemented and tested with synthetic responses. Its
-options panel selects Bitwarden Cloud US/EU or an ordinary self-hosted HTTPS root and
-requests access only to that provider's hosts. Setup is a deliberate user action;
+options panel selects Bitwarden Cloud US/EU or an ordinary self-hosted HTTPS root (or
+plain HTTP on `localhost` or `127.0.0.1`, ADR 0059) and requests access only to that
+provider's hosts. Setup is a deliberate user action;
 automated tests use synthetic accounts and responses. Do not enter real account
 credentials during a test unless that account test has been separately authorized.
 
