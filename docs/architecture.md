@@ -391,7 +391,8 @@ codes are distinct from future automatic email/SMS challenge retrieval.
 ### Unsupported Bitwarden sign-in cases
 
 The settings page's Bitwarden setup does not support these cases, checked against the
-code on 2026-10-17; each ends in a refusal rather than a guess:
+code on 2026-10-17 (the email case on 2026-10-19); each ends in a refusal rather than a
+guess:
 
 - A self-hosted server under a path (`https://example.com/bitwarden`) or with separate
   identity and API addresses: the address must be an HTTPS origin
@@ -412,10 +413,13 @@ code on 2026-10-17; each ends in a refusal rather than a guess:
 - Email addresses that the official Bitwarden login page refuses. The settings page and
   the worker use that page's rule (Angular's `Validators.email`), as `bitwardenEmail` in
   `packages/bitwarden/src/email.ts`: only ASCII, no leading, trailing or repeated `.`
-  before the `@`, at most 64 characters before the `@` and 254 in all. So
+  before the `@`, at most 64 characters before the `@` and 254 in all, and a domain of
+  letters, digits and `-` labels of at most 63 characters, with no IP literal. So
   `o'brien@example.com`, `tom&jerry@example.com` and `name@example.x` work, while
-  `名前@example.com` and `user@例え.jp` do not, although the Bitwarden server can
-  register an account at a non-ASCII domain.
+  `名前@example.com` does not. Both pages' email fields send a non-ASCII domain in its
+  punycode form (`user@例え.jp` becomes `user@xn--r8jz45g.jp`), so an account the
+  Bitwarden server registered with the non-ASCII domain itself is not matched, as on the
+  official login page.
 - A sign-in or sync that takes longer than 120 seconds: the settings page's request
   times out and closes its connection to the worker, which cancels the work. A
   verification challenge expires after 5 minutes without a countdown.

@@ -286,7 +286,7 @@ function identifier(input: unknown): string {
 function normalizedEmail(input: unknown): string {
   const parsed = v.safeParse(email, input);
   if (!parsed.success) reject();
-  return parsed.output.replace(/^\p{White_Space}+|\p{White_Space}+$/gu, "").toLowerCase();
+  return parsed.output.toLowerCase();
 }
 function list(input: unknown, maximum = 10_000): unknown[] {
   if (!Array.isArray(input) || input.length > maximum) reject();

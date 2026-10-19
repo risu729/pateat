@@ -20,7 +20,7 @@ describe("setup begin email", () => {
     },
   );
   it.each(["first..last@example.test", "名前@example.test", " user@example.test"])(
-    "refuses %j, which the official Bitwarden login refuses",
+    "refuses %j, which Angular's Validators.email refuses",
     (email) => {
       expect(v.is(setupBeginSchema, begin(email))).toBe(false);
     },
