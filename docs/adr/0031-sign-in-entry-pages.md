@@ -43,6 +43,12 @@ sign-up flow that asks for the email first, also passes, so that entry stays and
 pressed again on later visits (at most once per tab in 10 minutes) while its next page's
 generation abstains; the owner revokes it in the web UI.
 
+Amended on 2026-10-19 by [ADR 0057](0057-decide-no-input-pages-when-the-dom-is-quiet.md)
+(owner, 20:22 and 20:23 UTC, implemented):
+[an entry page is sent](#amendment-2026-10-19-sent-once-the-dom-is-quiet) once its DOM
+is quiet for a second, at most 5 seconds, instead of 10 seconds after loading. The
+checks after the press keep their 10-second waits.
+
 Date: 2026-10-12
 
 ## Context
@@ -407,3 +413,12 @@ with the reason (warn).
   query.
 - Signing in through a social or SSO provider, which waits for
   [ADR 0026](0026-sign-in-through-identity-providers.md).
+
+## Amendment 2026-10-19: sent once the DOM is quiet
+
+Amended by [ADR 0057](0057-decide-no-input-pages-when-the-dom-is-quiet.md) (owner, 20:22
+and 20:23 UTC). "10 seconds after loading shows no sign-in input" in
+[When the page is sent](#decision) now means the wait of ADR 0057: it ends once the
+page's DOM has not changed for 1 second, or 5 seconds after it began. The next page
+after a press is still checked within 10 seconds of the press, with its own wait of up
+to 10 seconds.

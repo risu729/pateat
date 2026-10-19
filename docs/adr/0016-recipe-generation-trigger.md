@@ -34,6 +34,12 @@ Amended on 2026-10-19 (implemented; a clarification, not an owner decision):
 [the identifier input's `autocomplete`](#amendment-2026-10-19-autocomplete-tokens-of-an-identifier-input)
 is read as the attribute's tokens.
 
+Amended on 2026-10-19 by [ADR 0057](0057-decide-no-input-pages-when-the-dom-is-quiet.md)
+(owner, 20:22 and 20:23 UTC, implemented):
+[the wait for a sign-in input](#amendment-2026-10-19-the-wait-ends-when-the-dom-is-quiet)
+ends once the page's DOM is quiet for a second, at most 5 seconds, instead of after 10
+seconds.
+
 Date: 2026-10-11
 
 ## Context
@@ -269,3 +275,13 @@ fields only after a click gets no automatic generation.
   pages but needs a click on every new site.
 - Automatic on every page with a password input, without the vault match: also covers
   sites the vault does not know, but sends far more pages.
+
+## Amendment 2026-10-19: the wait ends when the DOM is quiet
+
+Amended by [ADR 0057](0057-decide-no-input-pages-when-the-dom-is-quiet.md) (owner, 20:22
+and 20:23 UTC). "Only a page that shows such an input within 10 seconds of loading is
+sent", and the ten-second step wait after which a page that asks for an account
+identifier alone is offered, are now one wait that ends once the page's DOM has not
+changed for 1 second, or 5 seconds after it began. A login step's own wait stays 10
+seconds, so the two waits are no longer the same. The first visit to a page that asks
+for an identifier alone starts generation after that wait instead of after ten seconds.

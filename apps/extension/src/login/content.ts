@@ -186,6 +186,12 @@ const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
  * the page accepted the values (ADR 0010).
  */
 const fillSettleMs = 500;
+/**
+ * A first-visit page with no sign-in input is decided once its DOM has had no change for
+ * `offerQuietMs`, or `offerWaitMs` after the wait began while it keeps changing (ADR 0057).
+ */
+const offerQuietMs = 1000;
+const offerWaitMs = 5000;
 export interface LoginContentOptions {
   /** Echo attempt status to the page; only the synthetic probe fixture page may see it. */
   readonly probeStatus?: boolean;
@@ -223,8 +229,9 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   // the current path, including after a same-document URL change or a dialog opening.
   let starts: LoginReadiness[] = [];
   let announced = false;
-  // The background may generate a recipe for this page if it shows a sign-in input soon
-  // after loading; a form shown only later, for example after a click, is not sent.
+  // The background may generate a recipe for this page if it shows a sign-in input before
+  // the offer wait ends (ADR 0057); a form shown only later, for example after a click, is
+  // not sent.
   let generate = false;
   let offered = false;
   // The path where this document last submitted a form with a password input, and the
@@ -232,7 +239,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   // sign-in entry.
   let submitPath: string | undefined;
   let afterSubmit: string | undefined;
-  // The page's URL names another path of its site: once the step wait passes without a
+  // The page's URL names another path of its site: once the offer wait passes without a
   // sign-in input, it is offered as a site's sign-in entry, once (ADR 0031).
   let entryWanted = false;
   let entryOffered = false;
@@ -241,73 +248,92 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   const shown = new Set<string>();
   let shownTimer: ReturnType<typeof setTimeout> | undefined;
   let offerTimer: ReturnType<typeof setTimeout> | undefined;
+  // When the pending offer is decided even if the DOM is still changing (ADR 0057).
+  let offerBy: number | undefined;
   let observer: MutationObserver | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const navigation = (globalThis as unknown as { navigation?: EventTarget }).navigation;
   const schedule = () => {
     timer ??= setTimeout(check, 100);
   };
-  function unwatch(): void {
+  function clearOffer(): void {
     clearTimeout(offerTimer);
     offerTimer = undefined;
+    offerBy = undefined;
+  }
+  /** Decides a pending offer once the DOM has been quiet, or at its deadline (ADR 0057). */
+  function armOffer(): void {
+    if (offerBy === undefined) return;
+    clearTimeout(offerTimer);
+    offerTimer = setTimeout(decideOffer, Math.max(0, Math.min(offerQuietMs, offerBy - Date.now())));
+  }
+  // A DOM change or a same-document URL change: check the starts, and wait again for quiet.
+  const pageChanged = () => {
+    schedule();
+    armOffer();
+  };
+  function unwatch(): void {
+    clearOffer();
     clearTimeout(shownTimer);
     shownTimer = undefined;
     observer?.disconnect();
     observer = undefined;
     clearTimeout(timer);
     timer = undefined;
-    removeEventListener("popstate", schedule);
-    navigation?.removeEventListener("currententrychange", schedule);
+    removeEventListener("popstate", pageChanged);
+    navigation?.removeEventListener("currententrychange", pageChanged);
+  }
+  /** Decides what a page offered for generation that showed no sign-in input is. */
+  function decideOffer(): void {
+    clearOffer();
+    offered = true;
+    // A page that shows no sign-in input by now may list accounts (ADR 0028) or, when
+    // its URL names another path of its site, hold the site's sign-in entry (ADR
+    // 0031), or ask for an account identifier alone (ADR 0016). The page right after a
+    // submitted password form offers none of them.
+    const bare = !cancelled && !starts.some(ready) && !showsSignIn() && !afterSubmitted();
+    const accounts = bare ? listed() : undefined;
+    // A page asking for an account identifier alone is offered as a sign-in page (ADR
+    // 0016) unless it lists accounts by email; an entry goes first unless the input is
+    // the page's only text input, so a newsletter field does not hide it. A list by
+    // names only, or one announced only for the log, is dropped for it.
+    const identifier =
+      bare && !(accounts && !accounts.names && !accounts.missed)
+        ? identifierInput(document)
+        : undefined;
+    const offerEntry = bare && entryWanted && !entryOffered && identifier !== "sole";
+    if (offerEntry) entryOffered = true;
+    watch(starts);
+    if (identifier && !offerEntry) void announce(false, "identifier").catch(() => undefined);
+    else if (accounts || offerEntry)
+      void announce(false, false, accounts, offerEntry).catch(() => undefined);
+    // Nothing to send: the log says why (ADR 0019).
+    else if (!cancelled && !starts.some(ready))
+      void sendMessage("login", {
+        version: 1,
+        type: "login.document.ready",
+        token,
+        unoffered: {
+          path: pagePath(),
+          why: afterSubmitted() ? "after-sign-in" : showsSignIn() ? "sign-in-shown" : "no-list",
+        },
+      }).catch(() => undefined);
   }
   function watch(list: LoginReadiness[], offer = false, entryPage = false): void {
     starts = list;
     generate = offer && !offered;
     entryWanted = generate && entryPage;
-    if (!generate) {
-      clearTimeout(offerTimer);
-      offerTimer = undefined;
-    } else
-      offerTimer ??= setTimeout(() => {
-        offerTimer = undefined;
-        offered = true;
-        // A page that shows no sign-in input by now may list accounts (ADR 0028) or, when
-        // its URL names another path of its site, hold the site's sign-in entry (ADR
-        // 0031), or ask for an account identifier alone (ADR 0016). The page right after a
-        // submitted password form offers none of them.
-        const bare = !cancelled && !starts.some(ready) && !showsSignIn() && !afterSubmitted();
-        const accounts = bare ? listed() : undefined;
-        // A page asking for an account identifier alone is offered as a sign-in page (ADR
-        // 0016) unless it lists accounts by email; an entry goes first unless the input is
-        // the page's only text input, so a newsletter field does not hide it. A list by
-        // names only, or one announced only for the log, is dropped for it.
-        const identifier =
-          bare && !(accounts && !accounts.names && !accounts.missed)
-            ? identifierInput(document)
-            : undefined;
-        const offerEntry = bare && entryWanted && !entryOffered && identifier !== "sole";
-        if (offerEntry) entryOffered = true;
-        watch(starts);
-        if (identifier && !offerEntry) void announce(false, "identifier").catch(() => undefined);
-        else if (accounts || offerEntry)
-          void announce(false, false, accounts, offerEntry).catch(() => undefined);
-        // Nothing to send: the log says why (ADR 0019).
-        else if (!cancelled && !starts.some(ready))
-          void sendMessage("login", {
-            version: 1,
-            type: "login.document.ready",
-            token,
-            unoffered: {
-              path: pagePath(),
-              why: afterSubmitted() ? "after-sign-in" : showsSignIn() ? "sign-in-shown" : "no-list",
-            },
-          }).catch(() => undefined);
-      }, LOGIN_STEP_WAIT_MS);
+    if (!generate) clearOffer();
+    else if (offerBy === undefined) {
+      offerBy = Date.now() + offerWaitMs;
+      armOffer();
+    }
     if ((!starts.length && !generate) || cancelled) {
       unwatch();
       return;
     }
     if (!observer) {
-      observer = new MutationObserver(schedule);
+      observer = new MutationObserver(pageChanged);
       // Only attributes that can change whether a target matches, shows or accepts input.
       observer.observe(document, {
         subtree: true,
@@ -337,8 +363,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           "href",
         ],
       });
-      addEventListener("popstate", schedule);
-      navigation?.addEventListener("currententrychange", schedule);
+      addEventListener("popstate", pageChanged);
+      navigation?.addEventListener("currententrychange", pageChanged);
     }
   }
   /**
@@ -367,10 +393,9 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       // Offered once per page; the background keeps its own daily limit as well.
       if (generate && !offered && showsSignIn()) {
         offered = true;
-        // The page's one offer: the step wait's check would only report it for the log,
+        // The page's one offer: the offer wait's check would only report it for the log,
         // and could overtake this announcement in the worker.
-        clearTimeout(offerTimer);
-        offerTimer = undefined;
+        clearOffer();
         void announce(false, true).catch(() => undefined);
       }
       noteShown();

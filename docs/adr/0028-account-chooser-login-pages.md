@@ -15,6 +15,11 @@ form plan) and the recipe contract in `packages/contracts/src/login.ts`.
 Amended on 2026-10-18 by [ADR 0049](0049-start-at-a-later-step.md) (owner, 01:40 UTC,
 implemented): a chooser's branches never start a login at a later step.
 
+Amended on 2026-10-19 by [ADR 0057](0057-decide-no-input-pages-when-the-dom-is-quiet.md)
+(owner, 20:22 and 20:23 UTC, implemented):
+[a list is checked](#amendment-2026-10-19-checked-once-the-dom-is-quiet) once the page's
+DOM is quiet for a second, at most 5 seconds, instead of 10 seconds after loading.
+
 Date: 2026-10-12
 
 Note added on 2026-10-12 with [ADR 0031](0031-sign-in-entry-pages.md): the retry window
@@ -528,3 +533,12 @@ unchanged, since the entry route reads nothing of the vault.
 - Pateat clicks the default's profile without asking the AI whether the page is an
   account list: rejected by the owner (the AI judges first). It would also need a vault
   read before any recipe exists.
+
+## Amendment 2026-10-19: checked once the DOM is quiet
+
+Amended by [ADR 0057](0057-decide-no-input-pages-when-the-dom-is-quiet.md) (owner, 20:22
+and 20:23 UTC). "10 seconds after loading" in
+[Which pages are sent](#which-pages-are-sent) and the content script's "ten seconds to
+offer a page" now mean the wait of ADR 0057: it ends once the page's DOM has not changed
+for 1 second, or 5 seconds after it began. A list that renders after that wait is not
+sent on that visit.

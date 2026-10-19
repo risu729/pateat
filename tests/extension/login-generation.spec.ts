@@ -32,10 +32,11 @@ type Prompt = { task: string; observation: { path: string; candidates: Candidate
  * Answers the Worker's token exchange and Messages API calls the way Claude would for
  * the fixture pages: fill the password and press "Log in", or on a page without a password
  * input fill the account and press "Next", then mark "Sign out" as the signed-in evidence.
- * The page descriptions it receives are recorded.
+ * The page descriptions it receives, and when each arrived, are recorded.
  */
 function syntheticClaude({ abstainOnPassword = false }: { abstainOnPassword?: boolean } = {}) {
   const prompts: Prompt[] = [];
+  const times: number[] = [];
   function answer(path: string, payload: string): unknown {
     if (path === "/v1/oauth/token")
       return { access_token: "synthetic-access-token", token_type: "Bearer", expires_in: 600 };
@@ -59,6 +60,7 @@ function syntheticClaude({ abstainOnPassword = false }: { abstainOnPassword?: bo
       .find((parsed) => parsed?.task !== undefined);
     if (!prompt) throw new Error("No synthetic prompt found");
     prompts.push(prompt);
+    times.push(Date.now());
     const byTarget = (value: string, by = "id") => {
       const found = prompt.observation.candidates.find(
         (candidate) => candidate.target.by === by && candidate.target.value === value,
@@ -117,7 +119,7 @@ function syntheticClaude({ abstainOnPassword = false }: { abstainOnPassword?: bo
       usage: { input_tokens: 3_000, output_tokens: 900 },
     };
   }
-  return { prompts, answer };
+  return { prompts, times, answer };
 }
 
 /**
@@ -369,7 +371,7 @@ for (const { name, start, query, passwordPath } of [
   // Next opens the password page as a new document on another path.
   { name: "new document", start: "/identifier", query: "", passwordPath: "/identifier/password" },
   // The account input is marked only for an email address: the page is offered once the
-  // step wait ends (ADR 0016). The ADR 0031 identifier-page case covers an input named
+  // offer wait ends (ADR 0016, ADR 0057). The ADR 0031 identifier-page case covers an input named
   // only `login`.
   {
     name: "email input",
@@ -379,7 +381,7 @@ for (const { name, start, query, passwordPath } of [
   },
 ])
   test(`a generated identifier page is continued on the password page it leads to (${name}, ADR 0018)`, async () => {
-    // An identifier input without `autocomplete="username"` waits for the step wait.
+    // An identifier input without `autocomplete="username"` waits for the offer wait.
     test.setTimeout(90_000);
     const fixture = await startLoginFixture(0, { password, accountName: username });
     const claude = syntheticClaude();
@@ -552,8 +554,8 @@ for (const { name, loginPage } of [
   { name: "identifier page", loginPage: "/identifier" },
 ])
   test(`a page that sent the visitor to sign in first presses its Login link to the ${name} (ADR 0031)`, async () => {
-    // The entry page waits ten seconds for a sign-in input before it is sent, and an
-    // identifier page as long again.
+    // The entry page waits for a sign-in input until its DOM is quiet before it is sent,
+    // and an identifier page waits again (ADR 0057).
     test.setTimeout(loginPage === "/sign-in" ? 90_000 : 120_000);
     const fixture = await startLoginFixture(0, { password, accountName: username });
     const claude = syntheticClaude();
@@ -631,6 +633,55 @@ for (const { name, loginPage } of [
             ]),
           );
           expect([...new Set(externalRequests)].sort()).toEqual(["https://127.0.0.1", site, top]);
+        },
+        { args: ["--ignore-certificate-errors"] },
+      );
+    } finally {
+      await service.close();
+      await fixture.close();
+    }
+  });
+
+for (const changing of [false, true])
+  test(`a page without a sign-in input is sent ${changing ? "five seconds after loading while its DOM keeps changing" : "once its DOM is quiet for a second"} (ADR 0057)`, async () => {
+    const fixture = await startLoginFixture(0, { password, accountName: username });
+    const claude = syntheticClaude();
+    const service = await startSyncService({ claude: claude.answer });
+    // An entry page (ADR 0031) on another host of the site, whose clock may tick every
+    // 200 ms.
+    const top = "https://www.synthetic.example.test";
+    try {
+      await withVaultProfile(
+        async (open) => {
+          const browser = await open();
+          await serveSite(browser.context, fixture);
+          await browser.context.route(`${top}/**`, (route) =>
+            route.fulfill({
+              contentType: "text/html",
+              body: `<!doctype html><html lang="en"><head><title>Synthetic art</title></head><body>
+              <header><a href="${site}/sign-in">Login</a></header>
+              <main><h1>Synthetic art</h1><p>Sign in to see your bookmarks.</p>
+              <p id="clock">0</p></main>
+              ${changing ? `<script>let ticks = 0; setInterval(() => { document.querySelector("#clock").textContent = String(++ticks); }, 200);</script>` : ""}
+            </body></html>`,
+            }),
+          );
+          await connect(browser, service);
+
+          const page = await browser.context.newPage();
+          const loading = Date.now();
+          await page.goto(`${top}/en/?return_to=%2Fbookmarks`);
+          await expect.poll(() => claude.prompts.length, { timeout: 20_000 }).toBeGreaterThan(0);
+          expect(claude.prompts[0]).toMatchObject({ task: "entry", observation: { path: "/en/" } });
+          // The wait begins after the page started loading: a changing page is never sent at
+          // its first quiet second, a quiet page is sent well before the five-second limit,
+          // and either well before the step wait's ten seconds. The bounds leave room for a
+          // slow machine.
+          const sent = claude.times[0]! - loading;
+          if (changing) {
+            expect(sent).toBeGreaterThanOrEqual(4_000);
+            expect(sent).toBeLessThan(9_000);
+          } else expect(sent).toBeLessThan(4_000);
         },
         { args: ["--ignore-certificate-errors"] },
       );
