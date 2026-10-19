@@ -23,9 +23,11 @@ can update, preferring `pnpm-lock.yaml` over Bun's or npm's.
   name like the other tools (the owner's rule, 13:06 UTC), so mise uses its default
   `packslip` backend, which checks the release's Sigstore signature. That backend also
   installs aube's agent skill through the GitHub API and fails where the API is
-  restricted (cloud sessions on 2026-10-12), as `hk` does. `mise run install` runs
-  `aube install --frozen-lockfile`; CI and the deployment run `aube ci` (a clean frozen
-  install).
+  restricted (cloud sessions on 2026-10-12), as `hk` does. Both installs go through the
+  mise deps rule `aube_workspace` (since
+  [#605](https://github.com/risu729/pateat/pull/605)): locally it runs
+  `aube install --frozen-lockfile`, and with `CI=true` (CI and the deployment) it runs
+  `aube ci`, a clean frozen install. `mise run install` forces that rule.
 - **mise installs its `npm:` tools with aube.** `[settings.npm] package_manager` is
   gone from `mise.toml`, so mise picks aube, and `mise lock` writes an aube lockfile per
   tool under `.mise/locks/` (oxlint, TypeScript, oxfmt), referenced from `mise.lock`.

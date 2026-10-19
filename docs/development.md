@@ -132,7 +132,8 @@ delegating work to mise. Avoid recursion between hk check and mise checks.
 
 The automatic custom `aube_workspace` mise deps rule prepares the existing frozen aube
 installation before tasks and `mise exec` when an input changes or `node_modules` is
-missing (tooling decision, 2026-10-15). Its inputs include `bun.lock`, every declared
+missing (the owner allowed mise's experimental features on 2026-10-19;
+[platform features](#platform-features)). Its inputs include `bun.lock`, every declared
 workspace manifest, `aube-workspace.yaml` and `bunfig.toml`, so a dependency or
 install-policy change cannot reuse stale preparation. The built-in aube provider
 requires `aube-lock.yaml`, which this repository does not use.
