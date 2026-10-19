@@ -54,7 +54,10 @@ The choice meant answering their design questions now, and the paid calls, permi
 changes and security changes they bring still need the owner's approval one by one.
 [#658](https://github.com/risu729/pateat/pull/658) landed as
 [ADR 0052](adr/0052-immediate-ui-stored-passkeys.md) through
-[#803](https://github.com/risu729/pateat/pull/803); the other five are still open.
+[#803](https://github.com/risu729/pateat/pull/803), and
+[#663](https://github.com/risu729/pateat/pull/663) as
+[ADR 0053](adr/0053-passkey-only-generation.md) through
+[#805](https://github.com/risu729/pateat/pull/805); the other four are still open.
 
 ### Phase 1: usable
 

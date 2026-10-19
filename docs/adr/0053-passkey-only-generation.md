@@ -1,16 +1,16 @@
 # ADR 0053: Generation on passkey-only start pages
 
 Status: accepted by the owner on 2026-10-19, implemented. The owner brought this phase-4
-item into the current work and had ADR 0016 and ADR 0027 amended for it on 2026-10-19,
-and decided its rules through decision cards that day (UTC): send a page only when a
-URI-matching item holds a passkey for its RP ID (14:08); keep 生体認証 and widen the
-passkey button words, "broad is fine" (20:29); give such pages their own generation
-instructions (20:30, card), with the standing rule
+item into the current work and had ADR 0016 and ADR 0027 amended for it on 2026-10-19
+(13:36 UTC, 「今入れる」), and decided its rules through decision cards that day (UTC):
+send a page only when a URI-matching item holds a passkey for its RP ID (14:08); keep
+生体認証 and widen the passkey button words, "broad is fine" (20:29); give such pages
+their own generation instructions (20:30, card), with the standing rule
 「指示は汎用化する必要がない、分けてよい」 ("instructions need not be generalized;
 splitting them is fine", 20:30); and the recipe shape `passkeyOnly: true`, `slots: []`,
 one click (20:31); and, on a page that also shows a sign-in entry or a list of accounts,
-the method each item can use (22:44, card 「項目で分ける」, "split by item"). That
-such pages share the no-input page wait was decided the same day. Amends
+the method each item can use (22:44, card 「項目で分ける」, "split by item"). That such
+pages share the no-input page wait was decided the same day (20:23). Amends
 [ADR 0016](0016-recipe-generation-trigger.md) (conditions 2 and 3) and
 [ADR 0027](0027-per-account-login-routes.md) (passkey-only start pages are generated;
 wider passkey words). Preserves [ADR 0034](0034-answer-page-passkey-requests.md)'s
