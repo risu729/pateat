@@ -10981,8 +10981,8 @@ describe("production login document admission", () => {
           // The content script's input rule, for the step's synthetic inputs: the branch
           // target is a plain text input and the password target a password input.
           const inputs: Record<"branch" | "password", SecretInput> = {
-            branch: { type: "text", autocomplete: "", inputMode: "", maxLength: -1 },
-            password: { type: "password", autocomplete: "", inputMode: "", maxLength: -1 },
+            branch: { type: "text", inputMode: "", maxLength: -1, getAttribute: () => null },
+            password: { type: "password", inputMode: "", maxLength: -1, getAttribute: () => null },
           };
           fake.state.onExecute = async (message) => {
             const values = message["values"] as {

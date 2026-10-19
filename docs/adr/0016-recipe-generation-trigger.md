@@ -25,6 +25,10 @@ Amended on 2026-10-18 by [ADR 0049](0049-start-at-a-later-step.md) (owner, 01:40
 implemented): a page that shows a later step a login may start at is not sent; the
 existing recipe logs in there.
 
+Amended on 2026-10-19 (implemented; a clarification, not an owner decision):
+[the identifier input's `autocomplete`](#amendment-2026-10-19-autocomplete-tokens-of-an-identifier-input)
+is read as the attribute's tokens.
+
 Date: 2026-10-11
 
 ## Context
@@ -196,6 +200,16 @@ input goes first. Not covered: an identifier input of type `text` beside another
 input (a company code), words in other languages, and compounds not on the list. Since a
 later owner decision the same day, a sign-in entry whose press leads to such a page
 passes its check ([ADR 0031](0031-sign-in-entry-pages.md)).
+
+## Amendment 2026-10-19: autocomplete tokens of an identifier input
+
+The rule reads the `autocomplete` attribute's tokens, ignoring case, as the locators do,
+since Chromium's `autocomplete` property is empty for a token list that is not a valid
+autofill detail. "No `autocomplete` other than `on` or `off`" means no autofill field
+name among those tokens: a token Chrome ignores, such as `nope` or `chrome-off`, counts
+as none, as the implementation read it before, while a field name among other tokens,
+such as `off given-name`, marks the input. This clarifies the accepted text; the owner
+has not confirmed it.
 
 ## Username shape
 

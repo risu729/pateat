@@ -1,4 +1,6 @@
+import { observedAutocompleteTokens } from "@pateat/contracts";
 import { visible } from "./code-submission";
+import { autocompleteTokens } from "./targets";
 
 /**
  * Words that name an account identifier (ADR 0016), matched as whole words of an input's
@@ -63,7 +65,29 @@ function names(input: HTMLInputElement, whole: ReadonlySet<string>, parts: reado
   });
 }
 
-const tokens = (input: HTMLInputElement) => input.autocomplete.toLowerCase().split(/\s+/u);
+/**
+ * The HTML autofill field names, which mark an input for something; `on`, `off`, the
+ * section, shipping, billing and contact prefixes and other tokens do not.
+ */
+const fieldNames: ReadonlySet<string> = new Set([
+  ...observedAutocompleteTokens,
+  "cc-name",
+  "cc-given-name",
+  "cc-additional-name",
+  "cc-family-name",
+  "cc-number",
+  "cc-exp",
+  "cc-exp-month",
+  "cc-exp-year",
+  "cc-csc",
+  "cc-type",
+  "transaction-currency",
+  "transaction-amount",
+  "language",
+  "url",
+  "photo",
+  "impp",
+]);
 
 function writable(input: HTMLInputElement): boolean {
   return visible(input) && !input.disabled && !input.readOnly;
@@ -84,7 +108,8 @@ function signUpForm(input: HTMLInputElement): boolean {
   return (
     input.form !== null &&
     [...input.form.elements].some(
-      (element) => element instanceof HTMLInputElement && tokens(element).includes("new-password"),
+      (element) =>
+        element instanceof HTMLInputElement && autocompleteTokens(element).includes("new-password"),
     )
   );
 }
@@ -94,25 +119,25 @@ function signUpForm(input: HTMLInputElement): boolean {
  * 2026-10-12), and how: `sole` when the input is the page's only text-like one, `email`
  * for an email input beside others. An input counts when it is visible and writable and
  * either an email input by its type or `autocomplete`, or the page's only text-like
- * input with no `autocomplete` and a word of its name, id, placeholder, `aria-label` or
- * label that names an identifier. A search box, or an input with a word of a coupon,
- * order, tracking, postal or newsletter field, neither counts nor is counted beside one,
- * and an input in a sign-up form never counts. Only the page's own markup is read, never
- * a value.
+ * input with no autofill field name among its `autocomplete` tokens (so `off`, or a
+ * value Chrome ignores such as `chrome-off`, still counts) and a word of its name, id,
+ * placeholder, `aria-label` or label that names an identifier. A search box, or an
+ * input with a word of a coupon, order, tracking, postal or newsletter field, neither
+ * counts nor is counted beside one, and an input in a sign-up form never counts. Only
+ * the page's own markup is read, never a value.
  */
 export function identifierInput(document: Document): "sole" | "email" | undefined {
   const inputs = [...document.querySelectorAll("input")].filter(
     (input) => textTypes.has(input.type) && writable(input) && !searchField(input),
   );
   const emails = inputs.filter(
-    (input) => (input.type === "email" || tokens(input).includes("email")) && !signUpForm(input),
+    (input) =>
+      (input.type === "email" || autocompleteTokens(input).includes("email")) && !signUpForm(input),
   );
   if (emails.length) return inputs.length === 1 ? "sole" : "email";
   if (inputs.length !== 1) return undefined;
   const [input] = inputs as [HTMLInputElement];
-  const unmarked = tokens(input).every(
-    (token) => token === "" || token === "on" || token === "off",
-  );
+  const unmarked = !autocompleteTokens(input).some((token) => fieldNames.has(token));
   return input.type === "text" &&
     unmarked &&
     !signUpForm(input) &&

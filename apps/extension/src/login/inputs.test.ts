@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { acceptsSecret, type SecretInput } from "./inputs";
 
-const input = (overrides: Partial<SecretInput> = {}): SecretInput => ({
+// The rule reads `autocomplete` by its attribute, as Chromium's property is empty for
+// several tokens; `inputs.browser.test.ts` checks real inputs.
+const input = ({
+  autocomplete,
+  ...overrides
+}: Partial<Omit<SecretInput, "getAttribute">> & { autocomplete?: string } = {}): SecretInput => ({
   type: "text",
-  autocomplete: "",
   inputMode: "",
   maxLength: -1,
+  getAttribute: (name) => (name === "autocomplete" ? (autocomplete ?? null) : null),
   ...overrides,
 });
 const password = input({ type: "password" });
