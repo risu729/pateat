@@ -660,8 +660,16 @@ than in this repository.
   application without WARP for pairing only. With it, the Grok Bot computer paired on
   2026-10-12 and Pateat logged in to Vpass there with the owner's existing Bitwarden
   account, once the connection's policy was enabled by hand. The logins the Bot needs
-  are listed below. Next: ChatGPT Dots once the owner has
-  ChatGPT Pro again.
+  are listed below. ChatGPT Dots is paused: the owner does not plan to resume ChatGPT
+  Pro for a while (owner, 2026-10-19 23:09 UTC), and no Pro purchase reached the
+  owner's mail between 2026-10-12 and then. To resume once the owner has Pro again,
+  Claude opens Dots on the web in the owner's own Chrome and tells the owner exactly
+  what to do there (owner, 2026-10-12 06:14 UTC), in the two stages used on the Grok
+  Bot computer: stage A checks during a takeover whether `chrome://extensions` or the
+  Web Store opens and an unpacked build loads
+  ([check 3](research/2026-10-11-browser-agent-logins.md#what-to-check-next)), and
+  stage B pairs the extension and logs in to one site. No documented install exists for
+  that cloud browser yet.
 - Log in, in the Grok Bot computer's Chrome, on the sites the owner's Bot checks
   regularly, such as card statements and AI usage pages, so the Bot never needs a
   password (owner, 2026-10-12 14:00 UTC; a phase 1 goal until the owner moved it here
