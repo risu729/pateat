@@ -170,7 +170,7 @@ import type { AlertMiss } from "../page/sign-in-state";
 import type { LoginSites } from "./sites";
 import { linkRefusal, namesReturnPath, type OnSite } from "./entry";
 import type { ConditionalDecision, PasskeyItem } from "../passkeys/runtime";
-import { passkeyScriptsRun } from "../passkeys/rp-id";
+import { passkeyOrigin, passkeyScriptsRun } from "../passkeys/rp-id";
 import {
   loginFillsUsername,
   loginSecretKind,
@@ -9939,7 +9939,8 @@ export function createLoginRuntime(
   /**
    * The passkey answer that lets a top-level attempt's tab moving to `siteOrigin` complete
    * (ADR 0022), if any: given after the attempt's last effect step and at most
-   * `SITE_MOVE_MS` ago, for an RP ID that `siteOrigin`'s HTTPS host is or is under. It was
+   * `SITE_MOVE_MS` ago, for an RP ID that `siteOrigin`'s host is or is under, on HTTPS or
+   * `http://localhost` (ADR 0050). It was
    * given to the attempt's page, or to the page of another origin of the site the tab moved
    * to and that asked for it (`passkeyPages`), there signed with the attempt's own item;
    * once such a page asked, only an answer given since counts.
@@ -9954,12 +9955,12 @@ export function createLoginRuntime(
     const kept = passkeyPages.get(tabId);
     const page = kept?.attemptId === record.id ? kept : undefined;
     const moved = page && passkeyAnswers.get(`${tabId} ${page.document.origin}`);
-    const { protocol, hostname } = new URL(siteOrigin);
+    const { hostname } = new URL(siteOrigin);
     const fits = (answer: { at: number; rpId: string } | undefined) =>
       answer !== undefined &&
       answer.at >= (page?.requestedAt ?? effect.at) &&
       Date.now() - answer.at <= SITE_MOVE_MS &&
-      protocol === "https:" &&
+      passkeyOrigin(siteOrigin) &&
       (hostname === answer.rpId || hostname.endsWith(`.${answer.rpId}`));
     return [
       passkeyAnswers.get(`${tabId} ${record.document.origin}`),

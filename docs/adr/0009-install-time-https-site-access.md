@@ -22,7 +22,8 @@ under the page's own policy ([architecture](../architecture.md)). It needs no
 permission of its own and receives no values. Amended on 2026-10-18 by
 [ADR 0050](0050-http-pages-for-http-items.md): `http://*/*` is declared too, the login
 scripts run on plain HTTP pages, and an `http:` page matches only items saved with an
-`http://` URI.
+`http://` URI. Amended on 2026-10-19 by ADR 0050: the passkey bridge also runs on
+top-level `http://localhost` documents, as Bitwarden's does.
 
 Date: 2026-10-10
 

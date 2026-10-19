@@ -2331,14 +2331,15 @@ The bridge, admission rules, assertion format and unattended presence and verifi
 policy are in [ADR 0007](adr/0007-existing-passkey-assertions.md). Like the official
 Bitwarden client, passkey requests search every live login item by RP ID rather than by
 saved URI; a site default only chooses among several matches. Every build registers the
-bridge on top-level `https://*/*` documents: `passkey-main.js` in the MAIN world and
-`passkey-isolated.js` in the isolated world, both at document start, under the
-install-time HTTPS access of [ADR 0009](adr/0009-install-time-https-site-access.md). The
-background answers them from the vault-backed passkey source, which applies the item
-selection. The crypto Worker signs with the stored vault passkey, keeping the private
-key inside the Worker and signing only zero-counter assertion data for that credential's
-RP ID. The probe build adds `http://localhost/*` scripts and a synthetic test-vector key
-for that origin.
+bridge on top-level `https://*/*` documents, and production also on `http://localhost/*`
+as Bitwarden does ([ADR 0050](adr/0050-http-pages-for-http-items.md)): `passkey-main.js`
+in the MAIN world and `passkey-isolated.js` in the isolated world, both at document
+start, under the install-time access of
+[ADR 0009](adr/0009-install-time-https-site-access.md). The background answers them from
+the vault-backed passkey source, which applies the item selection. The crypto Worker
+signs with the stored vault passkey, keeping the private key inside the Worker and
+signing only zero-counter assertion data for that credential's RP ID. The probe build
+adds `http://localhost/*` scripts and a synthetic test-vector key for that origin.
 
 When several signable passkeys match and none is the site default, the background opens
 the chooser window `passkey-picker.html`
@@ -2393,8 +2394,9 @@ request to the browser, and so to any other passkey provider, or answers it wher
 browser's own handling would differ.
 
 - **Where the bridge runs.** The production build wraps `navigator.credentials` only in
-  top-level `https:` documents. Requests from frames, from `http://localhost` (only the
-  probe build covers it) and calls made straight to
+  top-level `https:` and `http://localhost` documents
+  ([ADR 0050](adr/0050-http-pages-for-http-items.md)). Requests from frames, from other
+  loopback hosts such as `127.0.0.1` and calls made straight to
   `CredentialsContainer.prototype.get` or `create` never reach Pateat.
 - **Requests handed on before any vault search.** Besides the
   [admission](adr/0007-existing-passkey-assertions.md#admission) bounds, the whole

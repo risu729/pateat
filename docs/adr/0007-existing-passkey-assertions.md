@@ -81,8 +81,9 @@ requirements, pinned Bitwarden behavior and the SDK surface this design relies o
 ### Bridge topology
 
 Register a MAIN-world wrapper for `navigator.credentials.get` at document start in
-top-level frames only, as a static content script on `https://*/*` under the
-install-time HTTPS access of [ADR 0009](0009-install-time-https-site-access.md), with an
+top-level frames only, as a static content script on `https://*/*` (and, since
+[ADR 0050](0050-http-pages-for-http-items.md), `http://localhost/*`) under the
+install-time access of [ADR 0009](0009-install-time-https-site-access.md), with an
 isolated-world relay on the same pages. It snapshots the request, forwards a bounded
 copy to the isolated content script, and either returns a Pateat assertion or calls the
 browser's original `get` with the original arguments. Delegation is the default for

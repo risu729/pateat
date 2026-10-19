@@ -78,10 +78,20 @@ export function secureOrigin(origin: string): boolean {
 }
 
 /**
+ * Whether passkeys answer on a page of `origin`, as in Bitwarden's browser extension: HTTPS,
+ * or HTTP on the host `localhost` itself, on any port (ADR 0050). Other loopback hosts such
+ * as `127.0.0.1` or `app.localhost` get none, as in Bitwarden.
+ */
+export function passkeyOrigin(origin: string): boolean {
+  const url = URL.parse(origin);
+  return url?.protocol === "https:" || (url?.protocol === "http:" && url.hostname === "localhost");
+}
+
+/**
  * Whether Pateat's passkey scripts run on a page of `origin`, so a login there may take the
- * passkey route: HTTPS, and in the synthetic probe build also a loopback HTTP page, which
- * its own passkey scripts cover. Production declares them for HTTPS only (ADR 0050).
+ * passkey route: a `passkeyOrigin`, and in the synthetic probe build also any loopback HTTP
+ * page, though its own passkey scripts cover only `http://localhost` (ADR 0050).
  */
 export function passkeyScriptsRun(origin: string, probe: boolean): boolean {
-  return URL.parse(origin)?.protocol === "https:" || (probe && secureOrigin(origin));
+  return passkeyOrigin(origin) || (probe && secureOrigin(origin));
 }

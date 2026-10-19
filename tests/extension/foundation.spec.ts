@@ -139,7 +139,7 @@ test("production package permits local storage, the crypto host and the HTTPS lo
     32: "icon-locked/32.png",
   });
   // Owner-approved install-time access (ADR 0009, HTTP since ADR 0050; passkeys stay on
-  // HTTPS); the login script also runs in frames, which need the tab's page admitted too (ADR 0017). The MAIN-world scripts are
+  // HTTPS and `http://localhost`); the login script also runs in frames, which need the tab's page admitted too (ADR 0017). The MAIN-world scripts are
   // the ADR 0007 passkey bridge and, wherever the login script runs, the click on
   // `javascript:` links.
   expect(
@@ -161,12 +161,12 @@ test("production package permits local storage, the crypto host and the HTTPS lo
       js: ["content-scripts/login.js"],
     },
     {
-      matches: ["https://*/*"],
+      matches: ["http://localhost/*", "https://*/*"],
       run_at: "document_start",
       js: ["content-scripts/passkey-isolated.js"],
     },
     {
-      matches: ["https://*/*"],
+      matches: ["http://localhost/*", "https://*/*"],
       run_at: "document_start",
       world: "MAIN",
       js: ["content-scripts/passkey-main.js"],

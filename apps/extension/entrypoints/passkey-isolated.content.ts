@@ -5,7 +5,8 @@ import { installPasskeyRelay } from "../src/passkeys/relay";
 
 /** Relays bounded passkey requests from the MAIN-world bridge to the background. */
 export default defineContentScript({
-  matches: ["https://*/*"],
+  // `http://localhost` too, as in Bitwarden (ADR 0050).
+  matches: ["https://*/*", "http://localhost/*"],
   runAt: "document_start",
   // WXT would otherwise post a start message naming the extension ID to every page.
   noScriptStartedPostMessage: true,

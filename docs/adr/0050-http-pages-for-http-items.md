@@ -1,13 +1,16 @@
 # ADR 0050: Plain HTTP pages log in with items saved for `http://`
 
-Status: accepted by the owner on 2026-10-18 at 01:41 UTC. Asked why Pateat skips
-`http:` pages, and offered the options of filling without submitting there or limiting
-them to items whose URI is saved as `http://`, the owner answered 「ok sure. then follow
-bw. vault の URI が http で保存されている項目に限る、で、自動送信は入れる」 (follow
+Status: accepted by the owner on 2026-10-18 at 01:41 UTC. Asked why Pateat skips `http:`
+pages, and offered the options of filling without submitting there or limiting them to
+items whose URI is saved as `http://`, the owner answered 「ok sure. then follow bw.
+vault の URI が http で保存されている項目に限る、で、自動送信は入れる」 (follow
 Bitwarden; limit it to items whose vault URI is saved with `http`, and include the
 automatic submit). Implemented (local tests only; not yet checked on a real site).
 Amends [ADR 0009](0009-install-time-https-site-access.md), whose "plain HTTP pages are
-never admitted" rule had no recorded reason.
+never admitted" rule had no recorded reason. Amended on 2026-10-19 at 01:25 UTC: asked
+whether `http://localhost` pages should answer passkeys as Bitwarden's extension does,
+the owner chose 「Bitwarden に合わせる」 (follow Bitwarden) over keeping passkeys on
+HTTPS only.
 
 Date: 2026-10-18
 
@@ -28,9 +31,12 @@ the "Read and change all your data on all websites" warning for `https://*/*`, s
 
 - Production declares `http://*/*` beside `https://*/*`, and the login scripts
   (`login.js`, `login-main.js`) run on every HTTP(S) page and frame. The passkey scripts
-  of [ADR 0007](0007-existing-passkey-assertions.md) stay on HTTPS, since WebAuthn needs
-  a secure context. The synthetic probe build keeps the shared login scripts on HTTPS;
-  its own script covers loopback HTTP.
+  of [ADR 0007](0007-existing-passkey-assertions.md) run on HTTPS and on
+  `http://localhost/*` (any port), as Bitwarden's do: WebAuthn needs a secure context,
+  and Bitwarden admits `localhost` as the one HTTP host, not `127.0.0.1`, `[::1]` or
+  `*.localhost` (`passkeyOrigin` in `apps/extension/src/passkeys/rp-id.ts`). The
+  synthetic probe build keeps the shared login and passkey scripts on HTTPS; its own
+  scripts cover loopback HTTP.
 - An `http:` document is admitted as an `https:` one is: on a non-excluded site whose
   host access is still granted for that scheme (`http://host/*`), with a cached recipe
   for its exact origin. Anything else is refused as `not-web`.
@@ -43,15 +49,17 @@ the "Read and change all your data on all websites" warning for `https://*/*`, s
   choice and the recipe generation trigger on an `http:` page all see only those items,
   and so will the site count badge of
   [ADR 0021](0021-account-choice-outside-settings.md#site-count-badge) once it is built.
-  The popup searches no passkeys on an `http:` page. After a logout the popup may still
-  show a saved default whose item no longer matches, as on HTTPS, but a login with it is
-  refused. URI rules that cannot be evaluated count only when saved with `http://`.
-  Bitwarden's own warning case therefore never fills: no person is there to answer a
-  warning during an automatic login.
+  The popup searches no passkeys on an `http:` page other than `http://localhost`. After
+  a logout the popup may still show a saved default whose item no longer matches, as on
+  HTTPS, but a login with it is refused. URI rules that cannot be evaluated count only
+  when saved with `http://`. Bitwarden's own warning case therefore never fills: no
+  person is there to answer a warning during an automatic login.
 - A login on an `http:` page runs as on HTTPS, filling and submitting included, except
-  that it never takes the `passkey` route, since no passkey script runs there. Only the
-  synthetic probe build, whose own passkey scripts cover loopback HTTP, lets a loopback
-  page (a secure context) take it (`passkeyScriptsRun` in
+  that it never takes the `passkey` route, since no passkey script runs there, unless
+  the page is `http://localhost`. There, as on HTTPS, passkeys are found by RP ID
+  (`localhost`) rather than by saved URI, and a passkey answer counts toward a move only
+  to an HTTPS or `http://localhost` page. The synthetic probe build, whose own passkey
+  scripts cover `http://localhost`, lets any loopback page take it (`passkeyScriptsRun` in
   `apps/extension/src/passkeys/rp-id.ts`).
 - A login on an `http:` origin may count a move to an `http:` or `https:` page by the
   rules of [ADR 0022](0022-login-attempts-per-tab-and-origin.md) and
@@ -77,3 +85,8 @@ for tells an HTTP page, and anyone able to change it on the network, that Pateat
 installed. Admission, the recipe lookup and every
 policy check stay as for HTTPS, so a page without a cached recipe still gets no attempt,
 observation or vault access.
+
+The passkey bridge wraps `navigator.credentials` on every `http://localhost` page,
+including local development servers. As on HTTPS, a request Pateat does not claim goes
+to the browser unchanged, and a passkey is offered only when the vault holds one for the
+RP ID `localhost`.

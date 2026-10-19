@@ -72,11 +72,16 @@ export default defineConfig({
       }
     },
     "build:manifestGenerated"(wxt, manifest) {
-      // The synthetic build keeps the shared login scripts on HTTPS: its own login script
-      // covers loopback HTTP, and two would announce the same document.
+      // The synthetic build keeps the shared login and passkey scripts on HTTPS: its own
+      // scripts cover loopback HTTP, and two would announce the same document.
       if (wxt.config.mode !== "probe") return;
-      for (const script of manifest.content_scripts ?? [])
-        script.matches = script.matches?.filter((match) => match !== "http://*/*");
+      for (const script of manifest.content_scripts ?? []) {
+        // Only the shared scripts run on HTTPS; the probe build's own never do.
+        if (!script.matches?.includes("https://*/*")) continue;
+        script.matches = script.matches.filter(
+          (match) => match !== "http://*/*" && match !== "http://localhost/*",
+        );
+      }
     },
     "entrypoints:found"(wxt, entrypoints) {
       // These scripts are compatibility experiments, never production features.
