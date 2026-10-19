@@ -110,9 +110,10 @@ with no answer recorded and no spin, as after a worker restart, says so rather t
 showing the AI as still busy. The reason a page was not sent shows on any page without
 a recipe of its own. For `structural-mismatch`, `timeout` and `retry-limit` the
 section adds that the recipe is not made again automatically. A login that only fills
-the form after a logout (ADR 0021 D) and ends once the form is filled, as designed, says
-that the form was filled and nothing pressed rather than that the login stopped; the
-report and stored page status carry `fillOnly` for it.
+the form after a logout (ADR 0021 D) and ends as designed, before anything is pressed,
+says that after a logout Pateat only fills the form, rather than that the login stopped;
+the attempt report's `fill-only` reason is kept as `fillOnly` in the stored page status
+and the popup's status.
 
 ## Consequences
 

@@ -207,14 +207,15 @@ function attemptLines(status: Status): StatusLine[] {
       },
     ];
   if (login.state !== "blocked") return [{ id: "login", tone: "busy", text: "Logging in…" }];
-  // A login that only fills the form after a logout ends by design once the form is
-  // filled, before anything that would press a button (ADR 0021 D).
+  // A login that only fills the form after a logout ends by design before anything that
+  // would press a button (ADR 0021 D); a page or person that cancelled it first ends the
+  // same way, so the line names the mode rather than claiming a filled form.
   if (login.fillOnly && outcome === "cancelled" && !login.cause)
     return [
       {
         id: "login",
         tone: "idle",
-        text: "Pateat filled the sign-in form and pressed nothing; sign in when you are ready.",
+        text: "After a logout, Pateat only fills the sign-in form and presses nothing; sign in when you are ready.",
       },
     ];
   const why = outcome ? plain(OUTCOMES, outcome) : "no reason was recorded";

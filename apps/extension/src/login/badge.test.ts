@@ -766,6 +766,12 @@ describe("login badge", () => {
         ],
       }),
     );
+    // A later login of the tab that is not fill-only drops it.
+    h.badge.observe(attempt({ state: "ready" }));
+    await h.flush();
+    expect(h.setValue).toHaveBeenLastCalledWith(
+      expect.objectContaining({ statuses: [[tabId, { origin, login: { state: "ready" } }]] }),
+    );
   });
 
   it("restores unexpired results and clears the spins a stopped worker left", async () => {

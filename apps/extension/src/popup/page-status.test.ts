@@ -288,12 +288,12 @@ describe("pageStatusLines", () => {
     ]);
   });
 
-  it("reads a login that only filled the form after a logout as done, not stopped", () => {
+  it("reads a login that only fills the form after a logout as ended by design, not stopped", () => {
     expect(lines({ login: { state: "blocked", outcome: "cancelled", fillOnly: true } })[1]).toEqual(
       [
         "login",
         "idle",
-        "Pateat filled the sign-in form and pressed nothing; sign in when you are ready.",
+        "After a logout, Pateat only fills the sign-in form and presses nothing; sign in when you are ready.",
       ],
     );
     // One that stopped for another reason says so as any login does.
