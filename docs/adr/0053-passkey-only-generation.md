@@ -1,12 +1,14 @@
 # ADR 0053: Generation on passkey-only start pages
 
-Status: accepted by the owner on 2026-10-19 (UTC), implemented. The owner brought this
-phase-4 item into the current work and decided its rules on 2026-10-19: generate a
-recipe for a start page that shows only a passkey button when a URI-matching item holds
-a passkey for the site; use the shared no-input page wait; widen the passkey button
-words ("broad is fine", keeping 生体認証); and give such pages their own generation
-instructions (20:30 UTC: 「指示は汎用化する必要がない、分けてよい」, "instructions need
-not be generalized; splitting them is fine"). Amends
+Status: accepted by the owner on 2026-10-19, implemented. The owner brought this phase-4
+item into the current work and had ADR 0016 and ADR 0027 amended for it on 2026-10-19,
+and decided its rules through decision cards that day (UTC): send a page only when a
+URI-matching item holds a passkey for its RP ID (14:08); keep 生体認証 and widen the
+passkey button words, "broad is fine" (20:29); give such pages their own generation
+instructions (20:30, card), with the standing rule
+「指示は汎用化する必要がない、分けてよい」 ("instructions need not be generalized;
+splitting them is fine", 20:30); and the recipe shape `passkeyOnly: true`, `slots: []`,
+one click (20:31). The shared no-input page wait was decided the same day. Amends
 [ADR 0016](0016-recipe-generation-trigger.md) (conditions 2 and 3) and
 [ADR 0027](0027-per-account-login-routes.md) (passkey-only start pages are generated;
 wider passkey words). Preserves [ADR 0034](0034-answer-page-passkey-requests.md)'s
@@ -37,7 +39,9 @@ Owner decisions of 2026-10-19:
    discoverable, usable passkey for the page's RP ID: the lookup ADR 0034 uses for a
    popup choice (`passkeyItems`), matched against the same items as the URI match. This
    is a second vault access for a document without a recipe, an exception to ADR 0016
-   condition 2. No value or passkey fact leaves the device; the request carries only
+   condition 2. It runs only once an item's URI matched (the lookup itself is per RP ID,
+   not per item); with no match the page logs `no-item` and the like as other pages do.
+   No value or passkey fact leaves the device; the request carries only
    `passkeyOnly: true`.
 3. **Wait.** The page is read in the content script's shared no-input page wait, the
    same timer callback as identifier-only pages, account lists and entry pages; it has
@@ -55,8 +59,8 @@ Owner decisions of 2026-10-19:
    with purpose `submit`, `maxSubmissions: 1`, and the same button as the `passkey`
    route; there is no `password` route.
 
-What happens to such a recipe once its items lose their passkey is separate work
-(proposed as ADR 0058), not part of this decision.
+What happens to such a recipe once its items lose their passkey is separate work, not
+part of this decision.
 
 Implementation details chosen by the agent, not confirmed by the owner separately:
 

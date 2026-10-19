@@ -91,9 +91,9 @@ result may hold a name the page does not show); implemented.
 Amended on 2026-10-19 by the owner through [ADR 0053](0053-passkey-only-generation.md)
 ([passkey-only start pages and wider passkey words](#amendment-2026-10-19-passkey-only-start-pages-and-wider-passkey-words)):
 a start page that shows only a passkey button is generated, as a recipe with only the
-`passkey` route (SSO-only start pages still are not), and the words that name a passkey
-button also take device unlock words such as Face ID, Touch ID, Windows Hello and
-指紋認証; implemented.
+`passkey` route (recipe shape by decision card at 20:31 UTC; SSO-only start pages still
+are not), and the words that name a passkey button also take device unlock words such as
+Face ID, Touch ID, Windows Hello and 指紋認証 (20:29 UTC, "broad is fine"); implemented.
 
 Date: 2026-10-11
 
@@ -513,8 +513,8 @@ new owner decision:
   button role (not a link or another role) whose label or `id`, `name`, test ID or text
   locator names a passkey or security key, case-insensitively (passkey, pass key,
   security key, each also plural, WebAuthn, FIDO, or パスキー, セキュリティキー,
-  セキュリティーキー, 生体認証; widened on 2026-10-19, see
-  [the amendment](#amendment-2026-10-19-passkey-only-start-pages-and-wider-passkey-words)),
+  セキュリティーキー, 生体認証;
+  [widened 2026-10-19](#amendment-2026-10-19-passkey-only-start-pages-and-wider-passkey-words)),
   that is not named like a registration or a setting
   (add, register, create, set up, new, enrol, manage, enable, turn on, or 登録, 追加,
   作成, 設定, 有効, 管理, the words the `passkey` handler check refuses too), and not
@@ -933,10 +933,8 @@ Not handled:
   learned: if a TOTP account is judged first, the security-key handler on that path is
   not learned until a new revision or judge prompt version.
 - Start pages without a password input (passkey-only or SSO-only) are never generated
-  (ADR 0016 condition 3); that is left to the SSO work. Passkey-only start pages are
-  generated since 2026-10-19
-  ([amendment](#amendment-2026-10-19-passkey-only-start-pages-and-wider-passkey-words));
-  SSO-only ones still are not.
+  (ADR 0016 condition 3); that is left to the SSO work.
+  ([Amended 2026-10-19](#amendment-2026-10-19-passkey-only-start-pages-and-wider-passkey-words).)
 - Passkey requests the bridge already passes on: `silent` or `immediate` mediation
   (`conditional` is answered through a login since ADR 0034, `required` since an
   amendment of ADR 0007), external-only transports, a nonzero counter, an incomplete
@@ -1101,7 +1099,7 @@ is removed) still holds. Recipe repair, once built, can use the same matching.
 
 ## Amendment 2026-10-19: passkey-only start pages and wider passkey words
 
-**Passkey-only start pages** (owner, 2026-10-19;
+**Passkey-only start pages** (owner, 2026-10-19; recipe shape 20:31 UTC;
 [ADR 0053](0053-passkey-only-generation.md)). A start page that shows no input, only a
 button naming a passkey or security key, is generated when a URI-matching item holds a
 discoverable passkey for the site. Its recipe has `passkeyOnly: true`, no slots, one
@@ -1111,8 +1109,8 @@ takes it, and a password-only item gets `no-route`. This replaces, for such page
 limit under [Consequences](#consequences) that they are never generated. SSO-only start
 pages are still not generated.
 
-**Wider passkey button words** (owner, 2026-10-19: keep 生体認証 and widen the list,
-"broad is fine"). The words that name a passkey (`passkeyWording` in
+**Wider passkey button words** (owner, 2026-10-19 20:29 UTC: keep 生体認証 and widen
+the list, "broad is fine"). The words that name a passkey (`passkeyWording` in
 `packages/contracts/src/passkey-button.ts`) also take the device unlock a passkey uses:
 Face ID, Touch ID, Windows Hello, biometric, biometrics, fingerprint, fingerprints and
 face recognition, as whole Latin words like the others (so "Facebook" or "interface"

@@ -62,9 +62,9 @@ monthly Claude API credit and chose the model. The offline harness in
   English slot ID that the model returns stays, since it is an output format from
   [ADR 0027](0027-per-account-login-routes.md), not a hint about the page's language.
 - On 2026-10-12 03:44 UTC the owner chose to keep the local word-list safety checks for
-  passkey buttons (`namesPasskey` and `registersPasskey` in
-  `packages/inference/src/plan.ts`, with English and Japanese words): they are not sent
-  to the model and only refuse a button.
+  passkey buttons (`namesPasskey` and `registersPasskey`, now in
+  `packages/contracts/src/passkey-button.ts`, with English and Japanese words): they are
+  not sent to the model and only refuse a button.
 
 Estimated cost per generation call, assuming about 3,000 input tokens and about 1,000
 output tokens including thinking, at $4 and $20 per million: about $0.03, or about
