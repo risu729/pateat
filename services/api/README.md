@@ -277,6 +277,22 @@ the path ending before it), or `{ check: "plan", reason }` with the plan check's
   attempt row, spend limits, request log and revocation apply as for a first page; the
   log row has the entry request's own prompt version and records `{ entry }` with the
   candidate ID.
+- `POST /v1/recipes/generate` also takes
+  `{ version: 1, observation, slots: [], passkeyOnly: true }` for a passkey-only start
+  page ([ADR 0053](../../docs/adr/0053-passkey-only-generation.md)): no `base` or
+  `branch`, and an observation with no fill candidate and no `accounts` (400 otherwise;
+  empty `slots` without `passkeyOnly` is 400 too). Its instructions are their own text,
+  not the generation role's with a line added, and are logged under their own prompt
+  version: the owner prefers instructions per page kind to one generalized prompt
+  (2026-10-19), so a new kind of page gets its own text rather than changing the shared
+  one. The model plans `fields: []` and one `submit` action on the button that signs in
+  with an existing passkey, naming the same button as `passkeyButton`, or abstains. The
+  plan check accepts only a `button` candidate whose label or locator names a passkey or
+  security key and not a registration (the ADR 0027 word lists). The stored recipe has
+  `passkeyOnly: true`, `slots: []`, one click step that submits, `maxSubmissions: 1` and
+  the same button as its `passkey` route, so it has no `password` route. The retry
+  window, attempt row, spend limits, request log and revocation apply as for a first
+  page; it grants no passkey signing permission.
 - `POST /v1/recipes/:recipeId/completion` takes
   `{ version: 1, revision, route, observation, partial?, stop? }` for a page an effect
   step of that revision led to, on the recipe's origin
@@ -498,14 +514,6 @@ with no kept document (as after its revocation) answers 404. Each report is one
 recipe's `origin` read from the reported revision's document (or the newest kept one
 when that revision was pruned), the codes, the build, the times and the service's own
 time. Its rows follow the request log's one-year retention and its delete-all.
-
-A passkey-only first page sends `passkeyOnly: true` with `slots: []`
-([provisional ADR 0053](../../docs/adr/0053-passkey-only-generation.md)). It cannot
-supply `base` or `branch` and its observation has no fill fields or account list.
-The model must select one existing-passkey sign-in button, locally checked against
-the observed button and registration wording. The stored recipe explicitly has only
-the passkey route. It uses the same retry window, authenticated route, spending bounds
-and request log as other first pages; it grants no passkey signing permission.
 
 ## Schema and tests
 

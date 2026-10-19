@@ -22,6 +22,8 @@ import {
   entryInstruction,
   generationInstructions,
   generationPromptVersion,
+  passkeyOnlyGenerationInstructions,
+  passkeyOnlyGenerationPromptVersion,
 } from "@pateat/inference";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDeviceToken, hashDeviceToken } from "../src/auth";
@@ -5896,6 +5898,22 @@ describe("passkey-only authenticated recipe generation", () => {
       },
     });
     expect(sent).toHaveLength(1);
+    // The page goes out with the passkey-only instructions alone, logged under their own
+    // prompt version; a request with slots keeps the generation role's (ADR 0053).
+    const system = (sent[0]!.body as { system: { text: string }[] }).system;
+    expect(system.map((part) => part.text)).toEqual([passkeyOnlyGenerationInstructions]);
+    const [logged] = await rows(
+      "SELECT prompt_version, request FROM inference_log WHERE owner_id = ?",
+      device.ownerId,
+    );
+    expect(logged!["prompt_version"]).toBe(await passkeyOnlyGenerationPromptVersion());
+    expect(JSON.parse(String(logged!["request"]))).toMatchObject({
+      instructions: passkeyOnlyGenerationInstructions,
+      slots: [],
+      passkeyOnly: true,
+    });
+    expect(await passkeyOnlyGenerationPromptVersion()).not.toBe(await generationPromptVersion());
+    expect(passkeyOnlyGenerationInstructions).not.toBe(generationInstructions);
     const again = await post(device, "/v1/recipes/generate", body);
     expect(await again.json()).toEqual(first);
     expect(sent).toHaveLength(1);

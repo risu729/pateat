@@ -14,6 +14,8 @@ export {
   generatedPlanSchema,
   generationInstructions,
   generationPromptVersion,
+  passkeyOnlyGenerationInstructions,
+  passkeyOnlyGenerationPromptVersion,
   type EntryGenerationRequest,
   type GenerationRequest,
 } from "./generation";

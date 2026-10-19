@@ -7,7 +7,13 @@ import {
 import * as v from "valibot";
 import { describe, expect, it } from "vitest";
 import { appendPageSteps } from "./assemble";
-import { createRecipeGenerator } from "./generation";
+import {
+  createRecipeGenerator,
+  generationInstructions,
+  generationPromptVersion,
+  passkeyOnlyGenerationInstructions,
+  passkeyOnlyGenerationPromptVersion,
+} from "./generation";
 import { validateGeneratedPage } from "./plan";
 import { textModel, textResult } from "./testing/fake-models";
 
@@ -122,5 +128,28 @@ describe("passkey-only generation boundaries", () => {
       value: { passkeyOnly: true },
     });
     expect(await generate({ observation, slots: [] })).toMatchObject({ status: "failed" });
+  });
+
+  it("sends its own instructions and leaves the generation role's unchanged", async () => {
+    const model = textModel(async () =>
+      textResult(JSON.stringify({ result: { decision: "plan", ...draft } })),
+    );
+    await createRecipeGenerator({
+      model,
+      limits: { timeoutMs: 1000, maxInputBytes: 16384 },
+      maxOutputTokens: 512,
+    })({ observation, slots: [], passkeyOnly: true });
+    expect(
+      model.doGenerateCalls[0]!.prompt.filter((message) => message.role === "system").map(
+        (message) => message.content,
+      ),
+    ).toEqual([passkeyOnlyGenerationInstructions]);
+    // Nothing of the passkey-only text reaches a request with slots (owner, 2026-10-19).
+    expect(generationInstructions).not.toContain("passkeyOnly");
+    expect(generationInstructions).not.toContain("fields: []");
+    expect(generationInstructions).toContain(
+      "Never name a button that registers, creates, adds or sets up a passkey or security key, or one the plan uses, as passkeyButton.",
+    );
+    expect(await passkeyOnlyGenerationPromptVersion()).not.toBe(await generationPromptVersion());
   });
 });

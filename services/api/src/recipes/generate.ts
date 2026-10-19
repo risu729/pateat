@@ -50,6 +50,8 @@ import {
   generationInstructions,
   generationPromptVersion,
   outputRejection,
+  passkeyOnlyGenerationInstructions,
+  passkeyOnlyGenerationPromptVersion,
   type InferenceErrorCode,
   type InferenceOutcome,
 } from "@pateat/inference";
@@ -302,12 +304,23 @@ export async function generateRecipe(
   // What the request log keeps of the request, sent or not (ADR 0012).
   const logged = {
     role: "generate",
-    // Only a list of accounts gets the list line (ADR 0028).
-    promptVersion: await (list ? accountListGenerationPromptVersion : generationPromptVersion)(),
+    // Only a list of accounts gets the list line (ADR 0028), and a passkey-only page its
+    // own instructions (ADR 0053).
+    promptVersion: await (
+      passkeyOnly
+        ? passkeyOnlyGenerationPromptVersion
+        : list
+          ? accountListGenerationPromptVersion
+          : generationPromptVersion
+    )(),
     origin,
     path,
     request: {
-      instructions: list ? accountListGenerationInstructions : generationInstructions,
+      instructions: passkeyOnly
+        ? passkeyOnlyGenerationInstructions
+        : list
+          ? accountListGenerationInstructions
+          : generationInstructions,
       slots,
       ...(passkeyOnly ? { passkeyOnly } : {}),
       observation,
