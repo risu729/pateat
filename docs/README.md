@@ -104,6 +104,7 @@ another also updates the other's `Status:`. Number a new ADR after the highest o
 - [0055: Every login's result and times are sent to the service](adr/0055-login-records-sent-to-the-service.md)
 - [0056: Regex URIs run in a nested Worker with a 5-second limit](adr/0056-regex-uris-in-a-nested-worker.md)
 - [0058: Recipes that are not used or cannot run are removed automatically](adr/0058-automatic-recipe-removal.md)
+- [0059: The latest Vaultwarden release is a supported server](adr/0059-latest-vaultwarden-server.md)
 
 This layout follows the useful separation in
 [Kogane ADR 0041](https://github.com/risu729/kogane/blob/main/docs/adr/0041-documentation-scope.md),

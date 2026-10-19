@@ -144,6 +144,47 @@ function legacyProviderIds(input: unknown) {
   return [...new Set(input.map(Number))].sort((a, b) => a - b);
 }
 
+// Vaultwarden's error JSON repeats one message in `message`, `validationErrors` and `errorModel`
+// (src/error.rs L226-L260). Line numbers below are in the same tree:
+// https://github.com/dani-garcia/vaultwarden/tree/7c188967e7a467b19b2757bc3326f9cf3ccae327/src
+const vaultwardenErrorKeys = new Set([
+  "message",
+  "validationErrors",
+  "errorModel",
+  "error",
+  "error_description",
+  "exceptionMessage",
+  "exceptionStackTrace",
+  "innerExceptionMessage",
+  "object",
+]);
+function vaultwardenRejection(body: Record<string, unknown>): PasswordTokenOutcome {
+  const unsupported = { kind: "interaction-required", reason: "unsupported-challenge" } as const;
+  const model = body["errorModel"];
+  const message = v.safeParse(record, model).success
+    ? (model as Record<string, unknown>)["message"]
+    : undefined;
+  if (
+    Object.keys(body).some((key) => !vaultwardenErrorKeys.has(key)) ||
+    typeof message !== "string" ||
+    body["message"] !== message
+  )
+    return unsupported;
+  // api/identity.rs L382 and L421 (unknown email, wrong password).
+  if (message === "Username or password is incorrect. Try again")
+    return { kind: "rejected", reason: "credentials" };
+  // Authenticator code (api/core/two_factor/authenticator.rs L166, L176), email code
+  // (api/core/two_factor/email.rs L285, L300) and recovery code (api/identity.rs L890).
+  if (
+    message.startsWith("Invalid TOTP code! ") ||
+    message.startsWith("Token is invalid! ") ||
+    message === "Token has expired" ||
+    message === "Two-step token is invalid. Try again."
+  )
+    return { kind: "rejected", reason: "mfa" };
+  return unsupported;
+}
+
 /** Token parsing grants no unlock, cache, subject verification or authoritative vault capability. */
 export function parsePasswordTokenOutcome(
   input: unknown,
@@ -231,6 +272,7 @@ export function parsePasswordTokenOutcome(
       if (typeof sso !== "string" || !sso) return undefined;
       return { kind: "interaction-required", reason: "sso" };
     }
+    if (body["error"] === "" && body["object"] === "error") return vaultwardenRejection(body);
     // Unknown concurrent guards must not be advertised as a usable manual-code challenge.
     // No undocumented CAPTCHA fields or arbitrary provider URLs are interpreted.
     if (Object.keys(body).some((key) => !challengeKeys.has(key)))

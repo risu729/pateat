@@ -556,23 +556,6 @@ describe("strict cipher isolation and disposal", () => {
         },
       },
     },
-    {
-      name: "unknown nested login field",
-      cipher: {
-        ...legacyCipher(),
-        login: { ...legacyCipher().login, futureField: "not-guessed" },
-      },
-    },
-    {
-      name: "unknown nested FIDO field",
-      cipher: {
-        ...legacyCipher(),
-        login: {
-          ...legacyCipher().login,
-          fido2Credentials: [{ ...fidoCredential, futureField: "not-guessed" }],
-        },
-      },
-    },
   ])("rejects $name before invoking the SDK cipher deserializer", async ({ cipher }) => {
     const active = await session();
     const decrypt = vi.spyOn(sdk.CiphersClient.prototype, "decrypt");
@@ -581,6 +564,44 @@ describe("strict cipher isolation and disposal", () => {
       error: { code: "invalid-crypto-input" },
     });
     expect(decrypt).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["card", []],
+    ["card", ["2.x"]],
+    ["permissions", []],
+    ["localData", Object.create({ lastUsedDate: null })],
+  ])("refuses %s that is not a plain object", async (name, value) => {
+    const active = await session();
+    const cipher = { ...legacyCipher(), [name]: value };
+    expect((await active.decryptCipher({ connectionId, cipher })).ok).toBe(false);
+  });
+
+  it("passes the SDK nested objects without keys Pateat does not read", async () => {
+    // Vaultwarden returns client-stored JSON as is; `bw import` stores `response: null` in a passkey.
+    const original = legacyCipher();
+    const cipher = {
+      ...original,
+      login: {
+        ...original.login,
+        futureField: "not-guessed",
+        fido2Credentials: [{ ...fidoCredential, response: null }],
+      },
+      fields: [{ name: null, value: null, type: 0, linkedId: null, futureField: "not-guessed" }],
+      permissions: { delete: true, restore: true, futureField: "not-guessed" },
+      passwordHistory: [],
+    };
+    const active = await session();
+    const decrypt = vi.spyOn(sdk.CiphersClient.prototype, "decrypt");
+    expect((await active.decryptCipher({ connectionId, cipher })).ok).toBe(true);
+    expect((await active.decryptFido2Credentials({ connectionId, cipher })).ok).toBe(true);
+    expect(await active.decryptFido2PrivateKey({ connectionId, cipher })).toEqual({
+      ok: true,
+      data: fidoPrivateKey,
+    });
+    expect(decrypt).toHaveBeenCalled();
+    for (const [received] of decrypt.mock.calls)
+      expect(JSON.stringify(received)).not.toMatch(/futureField|"response"/u);
   });
 
   it("decodes independent synthetic FIDO2 metadata and its exact PKCS8 private key", async () => {
