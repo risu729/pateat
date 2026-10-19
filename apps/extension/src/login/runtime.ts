@@ -102,6 +102,8 @@ import { createLoginBadge, memoryBadgeStorage, setActionBadge, type LoginBadge }
 import { domainKey } from "@pateat/bitwarden";
 import {
   authorizeSchema,
+  destinationCheckSchema,
+  type DestinationAnswer,
   entryCheckResultSchema,
   entryHostsResultSchema,
   entryInspectResultSchema,
@@ -3178,6 +3180,45 @@ export function createLoginRuntime(
     return { catalog: withItemOrigin(catalog, selected, live.document.origin) };
   }
   /**
+   * Whether the chosen item matches `url`: by its static `allowedOrigins` in `granted`, or
+   * by a live provider URI match of the full URL, which needs a Bitwarden connection with a
+   * snapshot. `vault-unavailable` and `item-uri-unevaluated` when rules that could match
+   * were not evaluated, and the matcher's own reason when it could not run.
+   */
+  async function itemMatchesUrl(
+    snapshot: Extract<SettingsResponse, { ok: true }>,
+    selected: { connectionId: string; itemId: string },
+    url: string,
+    granted: VaultCatalog,
+  ): Promise<{ snapshotId?: string } | { reason: string }> {
+    const item = granted.connections
+      .find((entry) => entry.id === selected.connectionId)
+      ?.items.find((entry) => entry.id === selected.itemId);
+    if (item?.allowedOrigins.includes(new URL(url).origin)) return {};
+    const connection = snapshot.catalog.connections.find(
+      (entry) => entry.id === selected.connectionId,
+    );
+    if (!uris || !connection?.snapshotId || connection.provider !== "bitwarden")
+      return { reason: "mismatch" };
+    const scope = await findLiveSiteCandidates({
+      settings: snapshot.snapshot.settings,
+      catalog: { connections: [connection] },
+      url,
+      match: uris,
+    });
+    if (!scope.ok) return { reason: scope.reason };
+    if (
+      scope.candidates.some(
+        (entry) => entry.itemId === selected.itemId && entry.snapshotId === connection.snapshotId,
+      )
+    )
+      return { snapshotId: connection.snapshotId };
+    if (scope.unavailableConnections.length > 0) return { reason: "vault-unavailable" };
+    if (scope.incompleteItems.some((entry) => entry.itemId === selected.itemId))
+      return { reason: "item-uri-unevaluated" };
+    return { reason: "mismatch" };
+  }
+  /**
    * For a document in a frame inside the page, the chosen item must also match the tab's
    * URL, as the official Bitwarden client requires before it fills a frame (ADR 0017).
    * `granted` is the catalog whose static `allowedOrigins` count; a live provider URI
@@ -3192,46 +3233,73 @@ export function createLoginRuntime(
     if (!live.topUrl) return undefined;
     const top = new URL(live.topUrl).origin;
     if (isSiteExcluded(snapshot.snapshot.settings, top)) return { reason: "site-excluded" };
-    const item = granted.connections
-      .find((entry) => entry.id === selected.connectionId)
-      ?.items.find((entry) => entry.id === selected.itemId);
-    if (item?.allowedOrigins.includes(top)) return undefined;
     const connection = snapshot.catalog.connections.find(
       (entry) => entry.id === selected.connectionId,
     );
-    if (!uris || !connection?.snapshotId || connection.provider !== "bitwarden")
-      return { reason: "frame-top-mismatch" };
     const cached = live.topMatch;
     if (
       cached?.connectionId === selected.connectionId &&
       cached.itemId === selected.itemId &&
-      cached.snapshotId === connection.snapshotId
+      cached.snapshotId === connection?.snapshotId
     )
       return undefined;
     delete live.topMatch;
-    const scope = await findLiveSiteCandidates({
-      settings: snapshot.snapshot.settings,
-      catalog: { connections: [connection] },
-      url: live.topUrl,
-      match: uris,
-    });
-    if (!scope.ok) return { reason: scope.reason };
-    if (
-      scope.candidates.some(
-        (entry) => entry.itemId === selected.itemId && entry.snapshotId === connection.snapshotId,
-      )
-    ) {
+    const matched = await itemMatchesUrl(snapshot, selected, live.topUrl, granted);
+    if ("reason" in matched)
+      return { reason: matched.reason === "mismatch" ? "frame-top-mismatch" : matched.reason };
+    if (matched.snapshotId)
       live.topMatch = {
         connectionId: selected.connectionId,
         itemId: selected.itemId,
-        snapshotId: connection.snapshotId,
+        snapshotId: matched.snapshotId,
       };
-      return undefined;
-    }
-    if (scope.unavailableConnections.length > 0) return { reason: "vault-unavailable" };
-    if (scope.incompleteItems.some((entry) => entry.itemId === selected.itemId))
-      return { reason: "item-uri-unevaluated" };
-    return { reason: "frame-top-mismatch" };
+    return undefined;
+  }
+  /**
+   * Why a step's form may not submit to `destination`, an HTTP(S) URL off the document's
+   * origin (ADR 0051): it must be on the document's site, with no credentials in the URL
+   * (`cross-site`), through HTTPS
+   * unless the document itself is HTTP (`insecure`), at a site Pateat may act on
+   * (`no-site-access`, also for an excluded site), and matched by the login's item under
+   * its URI match detection (`item-mismatch`). `unchecked` when the settings changed or the
+   * item's rules could not be evaluated now.
+   */
+  async function destinationRefusal(
+    run: Execution,
+    destination: URL,
+  ): Promise<Exclude<DestinationAnswer, { ok: true }>["reason"] | undefined> {
+    const page = new URL(run.live.document.origin);
+    // HTTPS, or HTTP from an HTTP document (ADR 0050); the content script sends no other.
+    if (
+      destination.protocol !== "https:" &&
+      (destination.protocol !== "http:" || page.protocol !== "http:")
+    )
+      return "insecure";
+    if (destination.username || destination.password || !sameSiteAs(page.origin)(destination))
+      return "cross-site";
+    const admission = probeDocument(destination)
+      ? "admitted"
+      : await sites?.admission(destination).catch(() => "settings-unavailable" as const);
+    if (admission === "settings-unavailable") return "unchecked";
+    if (admission !== "admitted") return "no-site-access";
+    const snapshot = await settings
+      .handle({ version: 1, type: "settings.get" })
+      .catch(() => undefined);
+    if (!snapshot?.ok || snapshot.snapshot.revision !== run.metadata.policyRevision)
+      return "unchecked";
+    const matched = await itemMatchesUrl(
+      snapshot,
+      run.metadata.account,
+      destination.href,
+      snapshot.catalog,
+    );
+    if (!("reason" in matched)) return undefined;
+    // A Bitwarden connection without a snapshot is one whose vault is not readable now.
+    const connection = snapshot.catalog.connections.find(
+      (entry) => entry.id === run.metadata.account.connectionId,
+    );
+    const unreadable = connection?.provider === "bitwarden" && !connection.snapshotId;
+    return matched.reason === "mismatch" && !unreadable ? "item-mismatch" : "unchecked";
   }
   /**
    * The chosen item's binding for one route's `slots` (ADR 0027): the synced binding, else
@@ -9324,30 +9392,65 @@ export function createLoginRuntime(
         hello.output.unoffered,
       );
     }
+    const destinationCheck = v.safeParse(destinationCheckSchema, message);
+    if (destinationCheck.success) {
+      const found = await operationRun(destinationCheck.output, sender);
+      const destination = URL.parse(destinationCheck.output.destination);
+      if (
+        !found ||
+        !destination ||
+        !validateLoginOperation(
+          found.operation,
+          found.run.metadata,
+          found.document,
+          found.run.metadata.policyRevision,
+        )
+      )
+        return { ok: false, reason: "not-authorized" };
+      const reason = await destinationRefusal(found.run, destination);
+      return reason ? { ok: false, reason } : { ok: true };
+    }
     const authorization = v.safeParse(authorizeSchema, message);
     if (!authorization.success) return undefined;
+    const found = await operationRun(authorization.output, sender);
+    if (!found) return false;
+    return validateLoginOperation(
+      found.operation,
+      found.run.metadata,
+      found.document,
+      found.run.metadata.policyRevision,
+    );
+  }
+  /**
+   * The attempt whose current operation the sender's document asks about, while that
+   * document still holds it and the settings still allow it; a frame's attempt holds only
+   * while the tab still shows the page it matched.
+   */
+  async function operationRun(
+    request: { token: string; attemptId: string; operationId: string },
+    sender: Sender,
+  ): Promise<
+    | { run: Execution; operation: NonNullable<Execution["operation"]>; document: LoginDocument }
+    | undefined
+  > {
     const document = await identify(sender);
-    if (!document) return false;
+    if (!document) return undefined;
     const run = attempts.get(document.tabId);
+    const operation = run?.operation;
     if (
       !run ||
+      !operation ||
       !current(run) ||
-      run.live.token !== authorization.output.token ||
-      run.metadata.id !== authorization.output.attemptId ||
-      run.operation?.operationId !== authorization.output.operationId ||
+      run.live.token !== request.token ||
+      run.metadata.id !== request.attemptId ||
+      operation.operationId !== request.operationId ||
       !sameLoginDocument(run.live.document, document) ||
-      // A frame's attempt holds only while the tab still shows the page it matched.
       (run.live.topUrl !== undefined &&
         (!sender.tab?.url || new URL(sender.tab.url).origin !== new URL(run.live.topUrl).origin))
     )
-      return false;
-    if (!(await allowed(run))) return false;
-    return validateLoginOperation(
-      run.operation,
-      run.metadata,
-      document,
-      run.metadata.policyRevision,
-    );
+      return undefined;
+    if (!(await allowed(run))) return undefined;
+    return { run, operation, document };
   }
   /**
    * Settings were synced from the service or saved locally: stops every running login but

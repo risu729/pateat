@@ -963,6 +963,138 @@ describe("production login document admission", () => {
     await vi.waitFor(() => expect(answers).toHaveLength(2));
     expect(answers).toEqual([false, true]);
   });
+  describe("a form destination off the document's origin (ADR 0051)", () => {
+    /** Each destination's answer, asked while the attempt's first step runs. */
+    const check = async (
+      destinations: string[],
+      live: Parameters<typeof harness>[1] = {},
+      during?: (h: ReturnType<typeof harness>) => void,
+      request: Record<string, unknown> = {},
+      settings: Partial<LocalSettings> = {},
+    ) => {
+      const h = harness(settings, live);
+      const answers: unknown[] = [];
+      fake.state.onExecute = async (message) => {
+        fake.state.onExecute = undefined;
+        const operation = message["operation"] as { attemptId: string; operationId: string };
+        during?.(h);
+        for (const destination of destinations)
+          answers.push(
+            // oxlint-disable-next-line no-await-in-loop -- one check at a time, as asked in order
+            await h.login.handle(
+              {
+                version: 1,
+                type: "login.destination.check",
+                token: "synthetic-token",
+                attemptId: operation.attemptId,
+                operationId: operation.operationId,
+                destination,
+                ...request,
+              },
+              sender(),
+            ),
+          );
+      };
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(answers).toHaveLength(destinations.length));
+      return answers;
+    };
+    // The item's URIs match the page and `auth.login.example`, as a base-domain URI of
+    // `login.example` with a host-only rule for `other.login.example` would.
+    const uris = vi.fn<LiveUriMatcher>(async (_connection, url) => ({
+      ok: true,
+      data: uriMatch({
+        targetOrigin: new URL(url).origin,
+        ...(["login.example", "auth.login.example"].includes(new URL(url).hostname)
+          ? {}
+          : { candidates: [] }),
+      }),
+    }));
+    it("allows another host of the site only when the item matches the destination", async () => {
+      expect(
+        await check(
+          [
+            "https://auth.login.example/session",
+            "https://other.login.example/session",
+            "https://attacker.example/collect",
+            "https://user@auth.login.example/session",
+            "http://auth.login.example/session",
+          ],
+          { allowedOrigins: [], uris },
+        ),
+      ).toEqual([
+        { ok: true },
+        { ok: false, reason: "item-mismatch" },
+        { ok: false, reason: "cross-site" },
+        { ok: false, reason: "cross-site" },
+        { ok: false, reason: "insecure" },
+      ]);
+      expect(uris.mock.calls.map((call) => call[1])).toEqual([
+        "https://login.example/signin",
+        "https://auth.login.example/session",
+        "https://other.login.example/session",
+      ]);
+    });
+    it("counts the item's static allowed origins", async () => {
+      expect(
+        await check(["https://auth.login.example/session", "https://other.login.example/x"], {
+          allowedOrigins: [origin, "https://auth.login.example"],
+        }),
+      ).toEqual([{ ok: true }, { ok: false, reason: "item-mismatch" }]);
+    });
+    it("refuses a destination on an excluded host of the site", async () => {
+      expect(
+        await check(
+          ["https://auth.login.example/session"],
+          { allowedOrigins: [], uris },
+          undefined,
+          {},
+          { excludedSites: [{ hostname: "auth.login.example", includeSubdomains: false }] },
+        ),
+      ).toEqual([{ ok: false, reason: "no-site-access" }]);
+    });
+    it("refuses every check once site access is withdrawn", async () => {
+      expect(
+        await check(["https://auth.login.example/session"], { allowedOrigins: [], uris }, () => {
+          fake.state.granted = false;
+        }),
+      ).toEqual([{ ok: false, reason: "not-authorized" }]);
+    });
+    it("answers unchecked when the item's rules could not be evaluated", async () => {
+      const unevaluated = vi.fn<LiveUriMatcher>(async (_connection, url) => ({
+        ok: true,
+        data: uriMatch({
+          targetOrigin: new URL(url).origin,
+          ...(new URL(url).hostname === "login.example"
+            ? {}
+            : { candidates: [], unavailableItemIds: [itemId] }),
+        }),
+      }));
+      expect(
+        await check(["https://auth.login.example/session"], {
+          allowedOrigins: [],
+          uris: unevaluated,
+        }),
+      ).toEqual([{ ok: false, reason: "unchecked" }]);
+    });
+    it("refuses every check once the settings changed under the login", async () => {
+      expect(
+        await check(["https://auth.login.example/session"], { allowedOrigins: [], uris }, (h) => {
+          h.settings.revision += 1;
+        }),
+      ).toEqual([{ ok: false, reason: "not-authorized" }]);
+    });
+    it("refuses a check for another operation", async () => {
+      expect(
+        await check(
+          ["https://auth.login.example/session"],
+          { allowedOrigins: [], uris },
+          undefined,
+          { operationId: "another-operation" },
+        ),
+      ).toEqual([{ ok: false, reason: "not-authorized" }]);
+    });
+  });
   const signinStart = {
     path: "/signin",
     require: "writable",

@@ -212,6 +212,38 @@ export const authorizeSchema = v.strictObject({
   operationId: id,
 });
 /**
+ * Asks whether a step's form may submit to `destination`, an HTTP(S) URL off the document's
+ * origin (ADR 0051). The background answers with {@link destinationAnswerSchema}.
+ */
+export const destinationCheckSchema = v.strictObject({
+  version: v.literal(1),
+  type: v.literal("login.destination.check"),
+  token: id,
+  attemptId: id,
+  operationId: id,
+  destination: v.pipe(v.string(), v.maxLength(8192)),
+});
+/**
+ * The background's answer to a destination check: allowed only on the document's site,
+ * through HTTPS unless the document is HTTP, at a site Pateat may act on, and matched by
+ * the login's vault item; `unchecked` when that could not be decided now (ADR 0051).
+ */
+export const destinationAnswerSchema = v.variant("ok", [
+  v.strictObject({ ok: v.literal(true) }),
+  v.strictObject({
+    ok: v.literal(false),
+    reason: v.picklist([
+      "not-authorized",
+      "insecure",
+      "cross-site",
+      "no-site-access",
+      "item-mismatch",
+      "unchecked",
+    ]),
+  }),
+]);
+export type DestinationAnswer = v.InferOutput<typeof destinationAnswerSchema>;
+/**
  * What a chooser's login needs to choose on its list (ADR 0028): the chosen item's
  * username, the other matching items' usernames and the chooser's buttons. The usernames
  * never leave the content script.
@@ -492,8 +524,9 @@ export const executionResultSchema = v.strictObject({
    * `password` handler's click, its text no longer names the password, ADR 0048), the form
    * changed before a click, an `assert` did not hold, the step was sent values it does not
    * fill, its fields are in different forms, an input refused its secret, the page's inputs
-   * have no value setter, a code field's submission watch could not start, or the form or
-   * the clicked button would send the form off the document's origin.
+   * have no value setter, a code field's submission watch could not start, the form or
+   * the clicked button would send the form off the document's origin to a destination the
+   * background did not allow, or the background could not decide that now (ADR 0051).
    */
   detail: v.optional(
     v.picklist([
@@ -514,6 +547,7 @@ export const executionResultSchema = v.strictObject({
       "unsupported-input",
       "code-watch-failed",
       "form-off-origin",
+      "form-destination-unchecked",
     ]),
   ),
   /**

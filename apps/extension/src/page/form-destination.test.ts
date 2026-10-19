@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { clickRefusal, formRefusal, submitsForm } from "./form-destination";
+import {
+  clickDestinations,
+  clickRefusal,
+  formDestination,
+  formRefusal,
+  submitsForm,
+} from "./form-destination";
 
 afterEach(() => {
   document.body.innerHTML = "";
@@ -307,6 +313,44 @@ describe("formRefusal", () => {
     expect(control("#password").form).toBeNull();
     expect(formRefusal(control("#password"), "fill")).toBeUndefined();
     expect(formRefusal(control("#login"), "click")).toBeUndefined();
+  });
+});
+
+describe("formDestination", () => {
+  it("leaves an HTTP(S) destination on another origin to the background", () => {
+    for (const [action, url] of [
+      [attacker, attacker],
+      [otherHost(), otherHost()],
+      [otherPort(), otherPort()],
+      ["//attacker.example/collect", `${location.protocol}//attacker.example/collect`],
+      ["http://attacker.example/collect", "http://attacker.example/collect"],
+    ]) {
+      form(`<form action="${action}"><input name="password"></form>`);
+      expect(formDestination(control(), "fill"), action).toEqual({ kind: "other-origin", url });
+    }
+  });
+
+  it("allows the document's origin and javascript: URLs and refuses other schemes", () => {
+    for (const [action, kind] of [
+      ["/login", "allowed"],
+      ["javascript:void(0)", "allowed"],
+      ["data:text/html,collected", "refused"],
+      ["vbscript:collect", "refused"],
+      ["mailto:collect@attacker.example", "refused"],
+      ["ftp://attacker.example/collect", "refused"],
+      ["http://[unparsable/", "refused"],
+    ] as const) {
+      form(`<form action="${action}"><input name="password"></form>`);
+      expect(formDestination(control(), "fill"), action).toEqual({ kind });
+    }
+  });
+
+  it("names each control a click submits through", () => {
+    document.body.innerHTML = `<form action="${otherHost()}"><label for="other" role="button"><button id="submit" formaction="/login"><span id="inner">Log in</span></button></label></form><form action="${attacker}"><input id="other" type="submit"></form>`;
+    expect(clickDestinations(document.getElementById("inner")!)).toEqual([
+      { kind: "allowed" },
+      { kind: "other-origin", url: attacker },
+    ]);
   });
 });
 

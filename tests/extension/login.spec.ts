@@ -1576,7 +1576,7 @@ test("values never go into or submit a form bound for another origin", async () 
       const options = await context.newPage();
       await configure(options, id, fixture.origin);
       const status = async () => await send(options, { version: 1, type: "login.probe.status" });
-      // The password's form posts to another origin: the fill is refused on every retry, so
+      // The password's form posts to another site: the fill is refused on every retry, so
       // nothing is filled or clicked.
       const fill = await context.newPage();
       await fill.goto(`${fixture.origin}/single?form=off-origin`);

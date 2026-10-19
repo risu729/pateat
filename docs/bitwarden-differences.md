@@ -92,13 +92,14 @@ Pateat's rule is in [Background execution](architecture.md#background-execution)
   Pateat refuses a fill, or a click that submits a form, with `form-off-origin` unless
   the destination (for a fill the form's `action`; for a click the submitter's
   `formaction`, else the form's `action`; resolved against the document's base URL) has
-  the document's origin; `data:`, `vbscript:` and
+  the document's origin, or is on another host of the document's site that the login's
+  Bitwarden item matches under its own URI match detection
+  ([ADR 0051](adr/0051-form-destinations-by-item-uri-match.md), owner's choice on
+  2026-10-19 at 01:29 UTC); cross-site destinations stay refused even where an
+  equivalent domain or a "starts with" URI would match, and `data:`, `vbscript:` and
   unparsable values are refused. Injected markup on an admitted page, such as a dangling
   `<form action="https://attacker.example/">` or a `<base href>`, would otherwise
-  receive the username and password. Pending (owner's choice on 2026-10-19 at
-  01:29 UTC, not yet implemented): a destination on another host of the same site will
-  also be allowed when the login's Bitwarden item matches the destination URL;
-  cross-site destinations stay refused.
+  receive the username and password.
 - A `javascript:` form action is allowed for fill and click (owner's decision,
   2026-10-18 04:19 UTC), as the official clients fill such a form like any other (their
   action handling above has no case for it). Chrome refuses to run the `javascript:` URL

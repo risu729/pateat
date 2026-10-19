@@ -14,7 +14,7 @@ import {
   watchCodeSubmission,
 } from "../page/code-submission";
 import { fillBaseline, inputValueMismatch, rejectsFill, unreadyForm } from "../page/fill-checks";
-import { clickRefusal, formRefusal } from "../page/form-destination";
+import { clickDestinations, formDestination, type FormDestination } from "../page/form-destination";
 import { FIELD_GAP_MS, typeValue } from "../page/enter-value";
 import {
   extractAccountListObservation,
@@ -48,6 +48,7 @@ import { sendMessage } from "../messaging/protocol";
 import { acceptsSecret } from "./inputs";
 import {
   commandSchema,
+  destinationAnswerSchema,
   LOGIN_STEP_WAIT_MS,
   readySchema,
   START_TRIES,
@@ -788,6 +789,47 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         operationId: operation.operationId,
       });
       if (authorized !== true) return fail("cancelled", "not-authorized");
+      /**
+       * Why the step may not send its form where `read` says it goes: a destination the
+       * page refuses, or one off the document's origin that the background does not allow
+       * by the login's vault item (ADR 0051). The destinations are read again after the
+       * answers, and one that changed meanwhile refuses the step as a changed form.
+       */
+      const destinationRefusal = async (
+        read: () => FormDestination[],
+      ): Promise<ExecutionDetail | undefined> => {
+        const destinations = read();
+        if (destinations.some((entry) => entry.kind === "refused")) return "form-off-origin";
+        const answers = await Promise.all(
+          destinations.flatMap((entry) =>
+            entry.kind === "other-origin"
+              ? [
+                  sendMessage("login", {
+                    version: 1,
+                    type: "login.destination.check",
+                    token,
+                    attemptId: operation.attemptId,
+                    operationId: operation.operationId,
+                    destination: entry.url,
+                  })
+                    // A worker that cannot answer, as while it restarts, leaves it unchecked.
+                    .catch(() => undefined)
+                    .then((answer) => v.safeParse(destinationAnswerSchema, answer)),
+                ]
+              : [],
+          ),
+        );
+        if (cancelled) return "document-cancelled";
+        if (Date.now() >= operation.expiresAt) return "operation-expired";
+        if (answers.some((answer) => !answer.success)) return "form-destination-unchecked";
+        const refusals = answers.flatMap((answer) =>
+          answer.success && !answer.output.ok ? [answer.output.reason] : [],
+        );
+        if (refusals.some((reason) => reason !== "unchecked")) return "form-off-origin";
+        if (refusals.length) return "form-destination-unchecked";
+        if (JSON.stringify(read()) !== JSON.stringify(destinations)) return "form-changed";
+        return undefined;
+      };
       if (cancelled) return fail("cancelled", "document-cancelled");
       if (used.has(operation.operationId)) return fail("cancelled", "operation-used");
       if (Date.now() >= operation.expiresAt) return fail("cancelled", "operation-expired");
@@ -829,8 +871,13 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
         const form = writableInputs[0]!.form;
         if (writableInputs.some((input) => input.form !== form))
           return fail("structural-mismatch", "fields-split");
-        // The form sends its values only to this document's origin.
-        const formRefused = formRefusal(writableInputs[0]!, "fill");
+        // The form sends its values only to this document's origin, or to a destination
+        // the background allows (ADR 0051).
+        const formRefused = await destinationRefusal(() => [
+          formDestination(writableInputs[0]!, "fill"),
+        ]);
+        if (formRefused === "document-cancelled" || formRefused === "operation-expired")
+          return fail("cancelled", formRefused);
         if (formRefused) return fail("structural-mismatch", formRefused);
         if (
           step.fields.some(
@@ -1081,9 +1128,13 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           element = only;
         }
         // A click that submits a form sends it, through the button's own `formaction` too,
-        // only to this document's origin, also when the element sits inside the submit
-        // button or labels it. Any other click submits no form.
-        const submitRefused = clickRefusal(element);
+        // only to this document's origin or a destination the background allows (ADR 0051),
+        // also when the element sits inside the submit button or labels it. Any other click
+        // submits no form.
+        const clicked = element;
+        const submitRefused = await destinationRefusal(() => clickDestinations(clicked));
+        if (submitRefused === "document-cancelled" || submitRefused === "operation-expired")
+          return fail("cancelled", submitRefused);
         if (submitRefused) return fail("structural-mismatch", submitRefused);
         // The click's form's inputs, or the page's for an element outside a form.
         const form = isButton(element) ? element.form : element.closest("form");
