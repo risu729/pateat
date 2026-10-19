@@ -285,23 +285,8 @@ entry or a name over 253 characters, is ignored and the rest of its group applie
 the official clients; malformed group structure still marks the groups unavailable.
 Decrypted URI rules stay in the crypto Worker.
 
-Deliberate differences from the official Bitwarden clients, to be reconsidered later:
-
-- Regex URIs are not evaluated. The official clients test them; Pateat matches inside
-  the crypto Worker that holds the vault session, and a catastrophic pattern would
-  block that Worker. Such URIs are reported as unsupported and never match.
-- When equivalent domains or the organization default-match policy cannot be read
-  consistently, affected URIs are reported unavailable. The official clients would
-  continue with Domain matching. One string entry of a group that is not a hostname is
-  not such a case: it is ignored, as the official clients effectively do.
-- The official clients' device-local default match setting is not visible to Pateat;
-  Domain is used unless an enforced organization policy applies.
-- A stored URI with a backslash in a bare host, such as `bank.example\@evil.test`, is
-  reported invalid. The official clients match it as `evil.test` with Domain and as
-  `bank.example` with Host. A backslash right after the scheme is also invalid: the
-  official clients match `https://\bank.example` as `bank.example`, and
-  `https:\\bank.example` or `https:/\bank.example` as `bank.example` with Domain but
-  `https` with Host.
+Deliberate differences from the official Bitwarden clients, with the official code
+that shows each, are listed in [Differences from Bitwarden](bitwarden-differences.md).
 
 A provider match and its descriptive target origin are not a credential-release
 grant. Raw StartsWith can match a different host with the same prefix. Live
