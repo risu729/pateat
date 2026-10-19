@@ -499,8 +499,13 @@ holds:
   (`login-wait`, `account-lookup`, `passkey-lookup`, `signed-before-lookup`, `chooser`
   or `signing`);
 - `mediation`: the request's mediation when it names one (`optional`, `conditional`,
-  `required`, `silent`, `immediate` or `other`), whatever the outcome; a request with
-  `uiMode: "immediate"` (Chrome's Immediate UI) is logged as `immediate`;
+  `required`, `silent`, `immediate` or `other`), whatever the outcome;
+- `uiMode`: `immediate` for Chrome's Immediate UI, separately from mediation
+  ([ADR 0052](adr/0052-immediate-ui-stored-passkeys.md)). Such a request without a user
+  gesture delegates with `no-user-activation`, one with a nonempty allow list with
+  `immediate-allow-credentials`, and one in incognito with `immediate-incognito`;
+  otherwise it is handled as a modal
+  request;
 - `answerFailed`: why the login's item could not answer a conditional request the login
   gave it (such as `login-item-no-credential`); the login then falls back to the
   password;
@@ -511,12 +516,12 @@ holds:
 - for the `invalid-request` reason, `invalid`: the request member that broke Pateat's
   bounds (`challenge`, `rp-id`, `allow-credentials`, `allow-credentials.id`,
   `allow-credentials.type`, `allow-credentials.transports`, `user-verification`,
-  `mediation`, `timeout`, `request` when the copied options are not an object, or
-  `other` for a member outside these), and `invalidLength`: its size, in bytes for
-  `challenge` and `allow-credentials.id`, in entries for a list and in characters for
-  other text. `invalidLength` is left out when the member is missing, is not text or a
-  list, or is `other`, and for an allow list none of whose entries is a `public-key`
-  one (`allow-credentials.type`). The value itself is never logged.
+  `mediation`, `ui-mode`, `timeout`, `request` when the copied options are not an
+  object, or `other` for a member outside these), and `invalidLength`: its size, in
+  bytes for `challenge` and `allow-credentials.id`, in entries for a list and in
+  characters for other text. `invalidLength` is left out when the member is missing, is
+  not text or a list, or is `other`, and for an allow list none of whose entries is a
+  `public-key` one (`allow-credentials.type`). The value itself is never logged.
 
 For example, `siteDefault: 1` with `siteDefaultAccepted: 0` means the default item's
 passkey is not one the request accepts. No entry at all means the request never reached

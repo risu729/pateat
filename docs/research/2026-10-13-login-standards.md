@@ -214,6 +214,8 @@ the server confirmed and an action the person allowed stay separate states.
   immediate request opens that window instead of failing at once, and `password: true`
   is ignored (read from the code, not tried on a site). No Bitwarden issue, pull request
   or forum topic about Immediate UI was found on 2026-10-14.
+  Follow-up on 2026-10-19: the owner chose to answer them like other get requests
+  ([ADR 0052](../adr/0052-immediate-ui-stored-passkeys.md)).
 - **Usable only after they settle.** Agentic Federated Login, `<login>`, WebMCP and
   Email Verification are in origin trials or drafts, which the
   [platform-feature rules](../development.md#platform-features) keep out of the

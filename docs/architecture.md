@@ -2462,6 +2462,12 @@ made after its first submission
 ([ADR 0036](adr/0036-passkey-after-the-identifier.md)). Real-extension coexistence
 requires separate compatibility tests.
 
+Chrome Immediate UI requests (`uiMode: "immediate"`) are answered like modal requests,
+chooser window and 10-second limit included
+([ADR 0052](adr/0052-immediate-ui-stored-passkeys.md)). Where Chrome's guide says it
+rejects one (no user gesture, a nonempty allow list, incognito) Pateat delegates.
+Installed-Chrome behavior is not verified.
+
 The bridge, admission rules, assertion format and unattended presence and verification
 policy are in [ADR 0007](adr/0007-existing-passkey-assertions.md). Like the official
 Bitwarden client, passkey requests search every live login item by RP ID rather than by

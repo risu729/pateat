@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   chooserWaitMs,
   createPasskeyRuntime,
@@ -9,7 +9,7 @@ import {
   type PasskeySource,
 } from "./runtime";
 import type { PasskeyCandidates } from "./select";
-import { CHOOSER_MAX_WAIT_MS, CHOOSER_MIN_WAIT_MS } from "./wire";
+import { CHOOSER_MAX_WAIT_MS, CHOOSER_MIN_WAIT_MS, RUNTIME_TIMEOUT_MS } from "./wire";
 import { snapshotGetOptions } from "./page";
 import type { SignedTabs } from "./signed-tabs";
 
@@ -1594,5 +1594,200 @@ describe("a page's own conditional request through a login (ADR 0034)", () => {
       if (reported) expect(report.mock.lastCall![0]).toMatchObject({ mediation: reported });
       else expect(report.mock.lastCall![0]).not.toHaveProperty("mediation");
     }
+  });
+});
+
+describe("Immediate UI requests (ADR 0052)", () => {
+  afterEach(() => vi.useRealTimers());
+  const immediate = (overrides: Record<string, unknown> = {}) => ({
+    ...get(),
+    request: { ...request, uiMode: "immediate" },
+    ...overrides,
+  });
+  const pair = [candidate, { ...candidate, credentialId: "BAUG" }];
+  const several = (complete = true) =>
+    source({ candidates: vi.fn(async () => ({ candidates: pair, complete })) });
+
+  it("answers a single stored passkey without showing a chooser", async () => {
+    const backing = source();
+    const choose = vi.fn<PasskeyChooser["choose"]>();
+    const report = vi.fn();
+    const runtime = createPasskeyRuntime(backing, { extensionId, chooser: { choose }, report });
+    expect(await runtime.handle(immediate(), sender())).toMatchObject({ kind: "assertion" });
+    expect(backing.sign).toHaveBeenCalledOnce();
+    expect(choose).not.toHaveBeenCalled();
+    await vi.waitFor(() =>
+      expect(report).toHaveBeenCalledWith(expect.objectContaining({ uiMode: "immediate" })),
+    );
+  });
+
+  it("answers a site default even while another vault could not be searched", async () => {
+    const backing = source({
+      candidates: vi.fn(async () => ({
+        candidates: [{ ...candidate, preferred: true }, pair[1]!],
+        complete: false,
+      })),
+    });
+    const choose = vi.fn<PasskeyChooser["choose"]>();
+    const runtime = createPasskeyRuntime(backing, { extensionId, chooser: { choose } });
+    expect(await runtime.handle(immediate(), sender())).toMatchObject({
+      kind: "assertion",
+      assertion: { credentialId: "AQID" },
+    });
+    expect(choose).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["without activation", { userActivation: false }, {}, "no-user-activation"],
+    ["in incognito", {}, { tab: { id: 7, incognito: true } }, "immediate-incognito"],
+  ])("delegates %s before reading the vault", async (_, message, context, reason) => {
+    const backing = source();
+    const runtime = createPasskeyRuntime(backing, { extensionId });
+    expect(await runtime.handle(immediate(message), sender(context))).toEqual({
+      kind: "delegate",
+      reason,
+    });
+    expect(backing.candidates).not.toHaveBeenCalled();
+    expect(backing.sign).not.toHaveBeenCalled();
+  });
+
+  it("delegates an allow list and reports the request's uiMode", async () => {
+    const backing = source();
+    const report = vi.fn();
+    const runtime = createPasskeyRuntime(backing, { extensionId, report });
+    const message = immediate({
+      request: {
+        ...request,
+        uiMode: "immediate",
+        allowCredentials: [{ type: "public-key", id: "AQID" }],
+      },
+    });
+    expect(await runtime.handle(message, sender())).toEqual({
+      kind: "delegate",
+      reason: "immediate-allow-credentials",
+    });
+    expect(backing.candidates).not.toHaveBeenCalled();
+    await vi.waitFor(() =>
+      expect(report).toHaveBeenCalledWith(
+        expect.objectContaining({ reason: "immediate-allow-credentials", uiMode: "immediate" }),
+      ),
+    );
+  });
+
+  it.each([
+    ["without focus", { focused: false }, {}],
+    ["in an inactive document", {}, { documentLifecycle: "cached" }],
+  ])("answers a single match %s, as a normal request does", async (_, message, context) => {
+    const runtime = createPasskeyRuntime(source(), { extensionId });
+    expect(await runtime.handle(immediate(message), sender(context))).toMatchObject({
+      kind: "assertion",
+    });
+  });
+
+  it("delegates when no stored passkey matches, so the browser rejects at once", async () => {
+    const backing = source({ candidates: vi.fn(async () => ({ candidates: [], complete: true })) });
+    const runtime = createPasskeyRuntime(backing, { extensionId });
+    expect(await runtime.handle(immediate(), sender())).toEqual({
+      kind: "delegate",
+      reason: "no-credential",
+    });
+  });
+
+  it("opens the chooser for several passkeys and signs with the chosen one", async () => {
+    const backing = several();
+    const choose = vi.fn<PasskeyChooser["choose"]>(async () => ({
+      kind: "chosen",
+      index: 1,
+      makeDefault: false,
+    }));
+    const runtime = createPasskeyRuntime(backing, { extensionId, chooser: { choose } });
+    expect(await runtime.handle(immediate(), sender())).toMatchObject({
+      kind: "assertion",
+      assertion: { credentialId: "BAUG" },
+    });
+    expect(choose).toHaveBeenCalledWith(expect.objectContaining({ again: false }));
+  });
+
+  it("delegates several passkeys while another vault could not be searched", async () => {
+    const choose = vi.fn<PasskeyChooser["choose"]>();
+    const runtime = createPasskeyRuntime(several(false), { extensionId, chooser: { choose } });
+    expect(await runtime.handle(immediate(), sender())).toEqual({
+      kind: "delegate",
+      reason: "vault-incomplete",
+    });
+    expect(choose).not.toHaveBeenCalled();
+  });
+
+  it("asks again in a tab that already signed in, as a normal request does", async () => {
+    const backing = source();
+    const signedTabs = { has: vi.fn(async () => true), add: vi.fn(async () => undefined) };
+    const choose = vi.fn<PasskeyChooser["choose"]>(async () => ({
+      kind: "chosen",
+      index: 0,
+      makeDefault: false,
+    }));
+    const runtime = createPasskeyRuntime(backing, {
+      extensionId,
+      chooser: { choose },
+      signedTabs: signedTabs as unknown as SignedTabs,
+    });
+    expect(await runtime.handle(immediate(), sender())).toMatchObject({ kind: "assertion" });
+    expect(choose).toHaveBeenCalledWith(expect.objectContaining({ again: true }));
+  });
+
+  it("asks again after a logout click, as a normal request does", async () => {
+    const choose = vi.fn<PasskeyChooser["choose"]>(async () => ({ kind: "closed" }));
+    const runtime = createPasskeyRuntime(source(), {
+      extensionId,
+      chooser: { choose },
+      logoutClicked: async () => true,
+    });
+    expect(await runtime.handle(immediate(), sender())).toEqual({
+      kind: "delegate",
+      reason: "chooser-closed",
+    });
+    expect(choose).toHaveBeenCalledWith(expect.objectContaining({ again: true, loggedOut: true }));
+  });
+
+  it("keeps the normal lookup budget", async () => {
+    vi.useFakeTimers();
+    const backing = source({ sign: vi.fn(() => new Promise<Uint8Array>(() => undefined)) });
+    const runtime = createPasskeyRuntime(backing, { extensionId });
+    const pending = runtime.handle(immediate(), sender());
+    let settled = false;
+    void pending.then(() => (settled = true));
+    await vi.advanceTimersByTimeAsync(RUNTIME_TIMEOUT_MS - 1);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await pending).toEqual({ kind: "delegate", reason: "timeout" });
+  });
+
+  it("does not count time in the chooser toward the lookup budget", async () => {
+    vi.useFakeTimers();
+    let choose!: (choice: PasskeyChoice) => void;
+    const runtime = createPasskeyRuntime(several(), {
+      extensionId,
+      chooser: {
+        choose: () => new Promise<PasskeyChoice>((resolve) => (choose = resolve)),
+      },
+    });
+    const pending = runtime.handle(immediate(), sender());
+    await vi.waitUntil(() => choose !== undefined);
+    await vi.advanceTimersByTimeAsync(RUNTIME_TIMEOUT_MS * 3);
+    choose({ kind: "chosen", index: 0, makeDefault: false });
+    expect(await pending).toMatchObject({ kind: "assertion" });
+  });
+
+  it("scopes the search to the running login's item", async () => {
+    const item = { connectionId: "synthetic-connection", itemId: "login-item" };
+    const backing = source();
+    const runtime = createPasskeyRuntime(backing, { extensionId, loginAccount: () => item });
+    expect(await runtime.handle(immediate(), sender())).toMatchObject({ kind: "assertion" });
+    expect(backing.candidates).toHaveBeenCalledWith(
+      origin,
+      "example.com",
+      expect.any(AbortSignal),
+      item,
+    );
   });
 });

@@ -90,6 +90,7 @@ type Spec = {
   userVerification?: string;
   allow?: string[];
   mediation?: string;
+  uiMode?: string;
   timeout?: number;
 };
 const challengeHex = () => createHash("sha256").update(crypto.randomUUID()).digest("hex");
@@ -433,6 +434,40 @@ test("several matching passkeys open Pateat's chooser window", async () => {
       });
       expect(await aborted.settle()).toEqual({ error: "caller-reason" });
       await abortedClosed;
+    });
+  } finally {
+    server.close();
+  }
+});
+
+test("Immediate UI requests are answered like other requests, chooser included (ADR 0052)", async () => {
+  const { server, origin } = await startRelyingParty();
+  try {
+    await withLoginExtension(async (context, _worker, extensionId) => {
+      const probe = await probeControls(context, extensionId);
+      await probe.configure();
+      const page = await openRelyingParty(context, origin);
+      // The page passes its own signal, as most sites do; one match signs without a window.
+      const single = challengeHex();
+      expectPateatAssertion(
+        await clickRequest(page, { challenge: single, uiMode: "immediate" }),
+        origin,
+        single,
+      );
+
+      // Several matches open the chooser window, as for any other request.
+      await probe.configure({ count: 2 });
+      const fresh = await openRelyingParty(context, origin);
+      const chosen = challengeHex();
+      const several = await requestWithChooser(context, fresh, {
+        challenge: chosen,
+        uiMode: "immediate",
+      });
+      await choose(several.chooser.getByRole("button", { name: /Synthetic passkey 2/u }));
+      const result = await several.settle();
+      if ("error" in result) throw new Error(`Expected an assertion, got ${result.error}`);
+      expect(result.id).toBe(secondCredentialId);
+      expect(await probe.signatures()).toBe(2);
     });
   } finally {
     server.close();
