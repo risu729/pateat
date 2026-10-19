@@ -129,5 +129,5 @@ Pateat's rule is in [Background execution](architecture.md#background-execution)
   (owner's decision, 2026-10-19 at 20:48 UTC), but delegates where Chrome's guide says
   it rejects Immediate UI: without a user gesture, with a nonempty allow list, or in
   incognito, so the site sees the rejection it would get from Chrome
-  ([ADR 0052](adr/0052-immediate-ui-stored-passkeys.md); this part is not confirmed by
-  the owner).
+  ([ADR 0052](adr/0052-immediate-ui-stored-passkeys.md); owner's decision, 2026-10-19
+  at 22:42 UTC).

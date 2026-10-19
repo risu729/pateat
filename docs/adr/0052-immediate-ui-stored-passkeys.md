@@ -10,6 +10,9 @@ requests"). At 20:56 UTC the owner chose to keep the feature and to use the norm
 10-second lookup limit. Amends [ADR 0007](0007-existing-passkey-assertions.md) and
 [ADR 0021](0021-account-choice-outside-settings.md) C and D. Implemented (unit tests and
 synthetic browser tests only; not yet checked in installed Chrome or on a real site).
+Amended on 2026-10-19 at 22:42 UTC: the owner confirmed the delegations where Chrome
+rejects Immediate UI, which Claude had added, by choosing 「渡す (今のまま)」 ("hand
+them on, as now").
 
 Date: 2026-10-19
 
@@ -40,8 +43,8 @@ mediation and the background delegated it.
   - no match delegates, and Chrome then rejects at once;
   - a running login limits the search to its item, and lookup and signing have the
     normal 10-second limit (`RUNTIME_TIMEOUT_MS`); time in the chooser does not count.
-- Not confirmed by the owner (added by Claude): where Chrome's guide says it rejects
-  Immediate UI, Pateat delegates instead of answering, so the site gets Chrome's
+- Where Chrome's guide says it rejects Immediate UI (added by Claude, confirmed by the
+  owner at 22:42 UTC), Pateat delegates instead of answering, so the site gets Chrome's
   rejection: without a user gesture (`no-user-activation`, whatever the presence
   setting), with a nonempty allow list (`immediate-allow-credentials`), and in
   incognito (`immediate-incognito`).

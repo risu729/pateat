@@ -29,6 +29,10 @@ export type ListedAccounts = {
   missed?: EntryMiss;
 };
 
+/** Whether a list holds only why a text with an `@` is not an entry, for the log. */
+export const logOnly = (list: { names?: string[]; missed?: EntryMiss }): boolean =>
+  list.missed !== undefined && !list.names;
+
 export function listedAccounts(document: Document): ListedAccounts | undefined {
   const path = observedPath(document.location.pathname);
   // A list by email may be sent without an email username only for its control to sign
@@ -56,7 +60,7 @@ export function listedAccounts(document: Document): ListedAccounts | undefined {
 }
 
 /**
- * What a page that shows no sign-in input at the end of the shared no-input page wait is
+ * What a page that shows no sign-in input is offered as once the offer wait (ADR 0057) decides:
  * offered as: one that asks for an account identifier alone (ADR 0016), a list of accounts
  * (ADR 0028) and the site's sign-in entry (ADR 0031), the two of which may go together, or
  * a page that shows a passkey button (ADR 0053). A passkey page carries the list and the

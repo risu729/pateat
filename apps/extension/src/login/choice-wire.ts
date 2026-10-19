@@ -115,7 +115,8 @@ export const statusResponseSchema = v.variant("ok", [
     /**
      * The tab's last login on this origin's page: `started`, then its state and outcome;
      * `settled` while it is `reconciling` with a result that settled as unknown, which is
-     * watched from the next page on (ADR 0027).
+     * watched from the next page on (ADR 0027); `fillOnly` for a login that only fills the
+     * form after a logout and never presses anything (ADR 0021 D).
      */
     login: v.optional(
       v.strictObject({
@@ -123,6 +124,7 @@ export const statusResponseSchema = v.variant("ok", [
         outcome: v.optional(code),
         cause: v.optional(code),
         unconfirmed: v.optional(v.literal(true)),
+        fillOnly: v.optional(v.literal(true)),
         settled: v.optional(v.literal(true)),
       }),
     ),

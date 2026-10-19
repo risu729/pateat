@@ -9,8 +9,8 @@ instructions (20:30, card), with the standing rule
 「指示は汎用化する必要がない、分けてよい」 ("instructions need not be generalized;
 splitting them is fine", 20:30); and the recipe shape `passkeyOnly: true`, `slots: []`,
 one click (20:31); and, on a page that also shows a sign-in entry or a list of accounts,
-the method each item can use (22:44, card 「項目で分ける」, "split by item"). The
-shared no-input page wait was decided the same day. Amends
+the method each item can use (22:44, card 「項目で分ける」, "split by item"). That
+such pages share the no-input page wait was decided the same day. Amends
 [ADR 0016](0016-recipe-generation-trigger.md) (conditions 2 and 3) and
 [ADR 0027](0027-per-account-login-routes.md) (passkey-only start pages are generated;
 wider passkey words). Preserves [ADR 0034](0034-answer-page-passkey-requests.md)'s
@@ -43,9 +43,11 @@ Owner decisions of 2026-10-19:
    is a second vault access for a document without a recipe, an exception to ADR 0016
    condition 2. No value or passkey fact leaves the device; the request carries only
    `passkeyOnly: true`.
-3. **Wait.** The page is read in the content script's shared no-input page wait, the
-   same timer callback as identifier-only pages, account lists and entry pages; it has
-   no timer of its own. A change to that wait applies to it too.
+3. **Wait.** The page is decided in the content script's no-input page wait of
+   [ADR 0057](0057-decide-no-input-pages-when-the-dom-is-quiet.md) (once the DOM is
+   quiet for a second, at most 5 seconds), by the same decision as identifier-only
+   pages, account lists and entry pages; it has no timer of its own. A change to that
+   wait applies to it too.
 4. **Words.** The words that name a passkey button keep 生体認証 and add Face ID, Touch
    ID, Windows Hello, biometric(s), fingerprint(s), face recognition, 指紋 and 顔認証
    (Latin as whole words, Japanese anywhere). The registration words are unchanged.

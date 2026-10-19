@@ -31,7 +31,13 @@ import {
   presence,
 } from "../observation/extract";
 import { listChoice, listControls } from "../page/account-list";
-import { listsAccounts, noInputOffer, type ListedAccounts } from "./no-input-offer";
+import {
+  listedAccounts,
+  listsAccounts,
+  logOnly,
+  noInputOffer,
+  type ListedAccounts,
+} from "./no-input-offer";
 import { entryElementRefusal, entryHosts, showsSignUp } from "../page/entry";
 import { clickedLogout } from "../page/logout-click";
 import {
@@ -174,6 +180,13 @@ const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
  * the page accepted the values (ADR 0010).
  */
 const fillSettleMs = 500;
+/**
+ * What a first-visit page without a sign-in input is gets decided once its DOM has had no
+ * change for `offerQuietMs`, or `offerWaitMs` after the wait began while it keeps changing
+ * (ADR 0057). A sign-in input is still offered until `LOGIN_STEP_WAIT_MS` (ADR 0016).
+ */
+const offerQuietMs = 1000;
+const offerWaitMs = 5000;
 export interface LoginContentOptions {
   /** Echo attempt status to the page; only the synthetic probe fixture page may see it. */
   readonly probeStatus?: boolean;
@@ -211,8 +224,9 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   // the current path, including after a same-document URL change or a dialog opening.
   let starts: LoginReadiness[] = [];
   let announced = false;
-  // The background may generate a recipe for this page if it shows a sign-in input soon
-  // after loading; a form shown only later, for example after a click, is not sent.
+  // The background may generate a recipe for this page if it shows a sign-in input within
+  // the step wait after it may be sent (ADR 0016); a form shown only later, for example
+  // after a click, is not sent.
   let generate = false;
   let offered = false;
   // The path where this document last submitted a form with a password input, and the
@@ -220,7 +234,7 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   // sign-in entry.
   let submitPath: string | undefined;
   let afterSubmit: string | undefined;
-  // The page's URL names another path of its site: once the step wait passes without a
+  // The page's URL names another path of its site: once the offer wait passes without a
   // sign-in input, it is offered as a site's sign-in entry, once (ADR 0031).
   let entryWanted = false;
   let entryOffered = false;
@@ -228,74 +242,115 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
   // each so the background can log a login that did not start.
   const shown = new Set<string>();
   let shownTimer: ReturnType<typeof setTimeout> | undefined;
-  let offerTimer: ReturnType<typeof setTimeout> | undefined;
+  // The pending offer's timers: its decision once the DOM is quiet (`offerQuiet`) or at the
+  // latest (`offerCap`, ADR 0057), and the end of its window for a sign-in input
+  // (`offerWindow`, ADR 0016). The decision is pending while `offerCap` is set.
+  let offerQuiet: ReturnType<typeof setTimeout> | undefined;
+  let offerCap: ReturnType<typeof setTimeout> | undefined;
+  let offerWindow: ReturnType<typeof setTimeout> | undefined;
   let observer: MutationObserver | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const navigation = (globalThis as unknown as { navigation?: EventTarget }).navigation;
   const schedule = () => {
     timer ??= setTimeout(check, 100);
   };
+  function clearDecision(): void {
+    clearTimeout(offerQuiet);
+    offerQuiet = undefined;
+    clearTimeout(offerCap);
+    offerCap = undefined;
+  }
+  function clearOffer(): void {
+    clearDecision();
+    clearTimeout(offerWindow);
+    offerWindow = undefined;
+  }
+  // A DOM change or a same-document URL change: check the starts, and wait again for quiet
+  // while the decision is pending.
+  const pageChanged = () => {
+    schedule();
+    if (offerCap === undefined) return;
+    clearTimeout(offerQuiet);
+    offerQuiet = setTimeout(decideOffer, offerQuietMs);
+  };
   function unwatch(): void {
-    clearTimeout(offerTimer);
-    offerTimer = undefined;
+    clearOffer();
     clearTimeout(shownTimer);
     shownTimer = undefined;
     observer?.disconnect();
     observer = undefined;
     clearTimeout(timer);
     timer = undefined;
-    removeEventListener("popstate", schedule);
-    navigation?.removeEventListener("currententrychange", schedule);
+    removeEventListener("popstate", pageChanged);
+    navigation?.removeEventListener("currententrychange", pageChanged);
+  }
+  /**
+   * Decides what a page offered for generation that showed no sign-in input is. When it is
+   * nothing to send, a sign-in input may still be offered until the window ends.
+   */
+  function decideOffer(): void {
+    clearDecision();
+    // A page that shows no sign-in input by now may list accounts (ADR 0028) or, when
+    // its URL names another path of its site, hold the site's sign-in entry (ADR
+    // 0031), ask for an account identifier alone (ADR 0016) or show a passkey button (ADR
+    // 0053). The page right after a submitted password form offers none of them.
+    const bare = !cancelled && !starts.some(ready) && !showsSignIn() && !afterSubmitted();
+    const noInput = bare ? noInputOffer(document, entryWanted && !entryOffered) : undefined;
+    // Nothing to send yet, or a list announced only for the log, which waits for the window.
+    if (
+      !noInput ||
+      (noInput.kind === "list" && !noInput.entry && noInput.accounts && logOnly(noInput.accounts))
+    )
+      return;
+    if (noInput.kind !== "identifier" && noInput.entry) entryOffered = true;
+    offered = true;
+    watch(starts);
+    // A passkey page also carries its list and entry, which the runtime uses when no
+    // matching item holds a passkey (ADR 0053).
+    if (noInput.kind === "identifier") void announce(false, "identifier").catch(() => undefined);
+    else
+      void announce(
+        false,
+        noInput.kind === "passkey" ? "passkey" : false,
+        noInput.accounts,
+        noInput.entry,
+      ).catch(() => undefined);
+  }
+  /** Ends the window in which a page that showed nothing else is offered a sign-in input. */
+  function endOffer(): void {
+    offered = true;
+    watch(starts);
+    const bare = !cancelled && !starts.some(ready) && !showsSignIn() && !afterSubmitted();
+    const accounts = bare ? listedAccounts(document) : undefined;
+    if (accounts && logOnly(accounts)) void announce(false, false, accounts).catch(() => undefined);
+    // Nothing was sent: the log says why (ADR 0019).
+    else if (!cancelled && !starts.some(ready))
+      void sendMessage("login", {
+        version: 1,
+        type: "login.document.ready",
+        token,
+        unoffered: {
+          path: pagePath(),
+          why: afterSubmitted() ? "after-sign-in" : showsSignIn() ? "sign-in-shown" : "no-list",
+        },
+      }).catch(() => undefined);
   }
   function watch(list: LoginReadiness[], offer = false, entryPage = false): void {
     starts = list;
     generate = offer && !offered;
     entryWanted = generate && entryPage;
-    if (!generate) {
-      clearTimeout(offerTimer);
-      offerTimer = undefined;
-    } else
-      offerTimer ??= setTimeout(() => {
-        offerTimer = undefined;
-        offered = true;
-        // A page that shows no sign-in input by now may list accounts (ADR 0028) or, when
-        // its URL names another path of its site, hold the site's sign-in entry (ADR
-        // 0031), ask for an account identifier alone (ADR 0016) or show only a passkey
-        // button (ADR 0053). The page right after a submitted password form offers none of
-        // them.
-        const bare = !cancelled && !starts.some(ready) && !showsSignIn() && !afterSubmitted();
-        const noInput = bare ? noInputOffer(document, entryWanted && !entryOffered) : undefined;
-        if (noInput?.kind !== "identifier" && noInput?.entry) entryOffered = true;
-        watch(starts);
-        // A passkey page also carries its list and entry, which the runtime uses when no
-        // matching item holds a passkey (ADR 0053).
-        if (noInput?.kind === "identifier")
-          void announce(false, "identifier").catch(() => undefined);
-        else if (noInput)
-          void announce(
-            false,
-            noInput.kind === "passkey" ? "passkey" : false,
-            noInput.accounts,
-            noInput.entry,
-          ).catch(() => undefined);
-        // Nothing to send: the log says why (ADR 0019).
-        else if (!cancelled && !starts.some(ready))
-          void sendMessage("login", {
-            version: 1,
-            type: "login.document.ready",
-            token,
-            unoffered: {
-              path: pagePath(),
-              why: afterSubmitted() ? "after-sign-in" : showsSignIn() ? "sign-in-shown" : "no-list",
-            },
-          }).catch(() => undefined);
-      }, LOGIN_STEP_WAIT_MS);
+    if (!generate) clearOffer();
+    else if (offerWindow === undefined) {
+      offerQuiet = setTimeout(decideOffer, offerQuietMs);
+      offerCap = setTimeout(decideOffer, offerWaitMs);
+      offerWindow = setTimeout(endOffer, LOGIN_STEP_WAIT_MS);
+    }
     if ((!starts.length && !generate) || cancelled) {
       unwatch();
       return;
     }
     if (!observer) {
-      observer = new MutationObserver(schedule);
+      observer = new MutationObserver(pageChanged);
       // Only attributes that can change whether a target matches, shows or accepts input.
       observer.observe(document, {
         subtree: true,
@@ -325,8 +380,8 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
           "href",
         ],
       });
-      addEventListener("popstate", schedule);
-      navigation?.addEventListener("currententrychange", schedule);
+      addEventListener("popstate", pageChanged);
+      navigation?.addEventListener("currententrychange", pageChanged);
     }
   }
   /**
@@ -355,10 +410,9 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
       // Offered once per page; the background keeps its own daily limit as well.
       if (generate && !offered && showsSignIn()) {
         offered = true;
-        // The page's one offer: the step wait's check would only report it for the log,
-        // and could overtake this announcement in the worker.
-        clearTimeout(offerTimer);
-        offerTimer = undefined;
+        // The page's one offer: the window's end would only report it for the log, and
+        // could overtake this announcement in the worker.
+        clearOffer();
         void announce(false, true).catch(() => undefined);
       }
       noteShown();

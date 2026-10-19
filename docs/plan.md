@@ -439,7 +439,8 @@ than in this repository.
   [ADR 0021](adr/0021-account-choice-outside-settings.md#site-count-badge)).
 - Generation for passkey-only start pages, moved from phase 4 (owner, 2026-10-19;
   [ADR 0053](adr/0053-passkey-only-generation.md)): implemented. A page that shows only
-  a button to sign in with a passkey is sent in the shared no-input page wait when a
+  a button to sign in with a passkey is sent once the no-input page wait of
+  [ADR 0057](adr/0057-decide-no-input-pages-when-the-dom-is-quiet.md) decides it, when a
   URI-matching item holds a discoverable passkey for the site, with its own generation
   instructions, and its recipe has only the `passkey` route. Covered by local synthetic
   and fake-model tests only; a real passkey-only site in the owner's Chrome is

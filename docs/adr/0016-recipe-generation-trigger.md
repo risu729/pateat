@@ -40,6 +40,12 @@ page without an input that shows only a button naming a passkey or security key,
 condition 2 gets a second vault access to decide whether such a page is sent
 ([passkey-only start pages](#amendment-2026-10-19-passkey-only-start-pages)).
 
+Amended on 2026-10-19 by [ADR 0057](0057-decide-no-input-pages-when-the-dom-is-quiet.md)
+(owner, 20:22 and 20:23 UTC, implemented): a page
+[that asks for an identifier alone](#amendment-2026-10-19-the-wait-ends-when-the-dom-is-quiet)
+is offered once the page's DOM is quiet for a second, at most 5 seconds, instead of
+after 10 seconds; the 10 seconds for a sign-in input are unchanged.
+
 Amended on 2026-10-19 by [ADR 0058](0058-automatic-recipe-removal.md) (owner, 20:28 UTC,
 implemented): a page whose recipe the chosen item cannot run is generated again, its
 recipe revoked first, though a recipe starts there.
@@ -231,11 +237,12 @@ has not confirmed it.
 Owner decisions of 2026-10-19, recorded in [ADR 0053](0053-passkey-only-generation.md):
 
 - **Condition 3.** A page also qualifies when it shows no input but only a button that
-  names a passkey or security key (the ADR 0027 words, not a registration button), and
-  a URI-matching item holds a passkey for the site. It is read in the shared no-input
-  page wait, as identifier-only pages are; currently the ten seconds above. Beside a
-  sign-in entry or a list of accounts, the button is used only when such an item exists;
-  otherwise the page is offered as the entry or the list (22:44 UTC).
+  names a passkey or security key (the ADR 0027 words, not a registration button), and a
+  URI-matching item holds a passkey for the site. It is decided in the no-input page
+  wait of [ADR 0057](0057-decide-no-input-pages-when-the-dom-is-quiet.md), as
+  identifier-only pages are. Beside a sign-in entry or a list of accounts, the button is
+  used only when such an item exists; otherwise the page is offered as the entry or the
+  list (22:44 UTC).
 - **Condition 2** (decision card, 14:08 UTC). For such a page only, the extension also
   looks up which items hold a discoverable, usable passkey for the page's RP ID, and
   sends the page only when one of the URI-matching items does. (That the lookup runs
@@ -299,3 +306,15 @@ fields only after a click gets no automatic generation.
   pages but needs a click on every new site.
 - Automatic on every page with a password input, without the vault match: also covers
   sites the vault does not know, but sends far more pages.
+
+## Amendment 2026-10-19: the wait ends when the DOM is quiet
+
+Amended by [ADR 0057](0057-decide-no-input-pages-when-the-dom-is-quiet.md) (owner, 20:22
+and 20:23 UTC). Only pages without a sign-in input are decided earlier: the ten-second
+step wait after which a page that asks for an account identifier alone is offered is now
+a wait that ends once the page's DOM has not changed for 1 second, or 5 seconds after it
+began, so the first visit to such a page starts generation after that wait instead of
+after ten seconds. "Only a page that shows such an input within 10 seconds of loading is
+sent" is unchanged (an agent's addition, not confirmed by the owner): a page that showed
+nothing to send when that wait ended is still sent if it shows a sign-in input within
+the 10 seconds.

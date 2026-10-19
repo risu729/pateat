@@ -790,6 +790,25 @@ describe("login badge", () => {
     });
   });
 
+  it("keeps that a login only filled the form after a logout", async () => {
+    const h = harness();
+    h.badge.observe(attempt({ outcome: "cancelled", reason: "fill-only" }));
+    await h.flush();
+    expect(h.setValue).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        statuses: [
+          [tabId, { origin, login: { state: "blocked", outcome: "cancelled", fillOnly: true } }],
+        ],
+      }),
+    );
+    // A later login of the tab that is not fill-only drops it.
+    h.badge.observe(attempt({ state: "ready" }));
+    await h.flush();
+    expect(h.setValue).toHaveBeenLastCalledWith(
+      expect.objectContaining({ statuses: [[tabId, { origin, login: { state: "ready" } }]] }),
+    );
+  });
+
   it("restores unexpired results and clears the spins a stopped worker left", async () => {
     const now = Date.now();
     const h = harness({
