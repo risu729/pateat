@@ -743,6 +743,137 @@ describe("reportUse", () => {
   });
 });
 
+describe("revokeRecipe (ADR 0058 A)", () => {
+  const recipeId = "gen-0123456789abcdef0123456789abcdef";
+  const other = "gen-fedcba9876543210fedcba9876543210";
+  const tombstone = { recipeId, revision: 4, state: "revoked" } as const;
+  const active = {
+    recipeId,
+    revision: 4,
+    state: "active",
+    recipe: {
+      version: 1,
+      id: recipeId,
+      revision: 4,
+      origin: "https://shop.example",
+      slots: ["password"],
+      steps: [
+        {
+          kind: "fill",
+          path: "/login",
+          fields: [{ slot: "password", target: { by: "id", value: "password" } }],
+          effect: "submit",
+          event: "change",
+        },
+      ],
+      maxSubmissions: 1,
+    },
+  } as const;
+  const send = (fetch: typeof globalThis.fetch, id = recipeId) =>
+    untimed(createServiceTransport({ fetch }).revokeRecipe(ORIGIN, CREDENTIAL, id, 3));
+
+  it("puts a conditional revocation with the device credential, no cookies and no redirects", async () => {
+    const fetch = respond(200, { version: 1, change: tombstone });
+    expect(await send(fetch)).toEqual({ kind: "revoked", change: tombstone });
+    const [url, init] = fetch.mock.calls[0]!;
+    expect(url).toBe(`${ORIGIN}/v1/recipes/${recipeId}`);
+    expect(init).toMatchObject({
+      method: "PUT",
+      redirect: "error",
+      credentials: "omit",
+      cache: "no-store",
+      referrerPolicy: "no-referrer",
+    });
+    expect(init!.headers).toEqual({
+      Authorization: `Bearer ${CREDENTIAL}`,
+      "Content-Type": "application/json",
+    });
+    // Only the revision it expects and the state: no recipe, origin or page.
+    expect(JSON.parse(init!.body as string)).toEqual({
+      version: 1,
+      expectedRevision: 3,
+      state: "revoked",
+    });
+  });
+
+  it("encodes the recipe ID into the path", async () => {
+    const fetch = respond(200, { version: 1, change: tombstone });
+    // No recipe ID the sync contract accepts holds these; only the path is checked.
+    await send(fetch, "a/b c");
+    expect(fetch.mock.calls[0]![0]).toBe(`${ORIGIN}/v1/recipes/a%2Fb%20c`);
+  });
+
+  it.each([
+    ["another recipe's tombstone", { version: 1, change: { ...tombstone, recipeId: other } }],
+    ["an active head", { version: 1, change: active }],
+    ["a malformed change", { version: 1, change: { ...tombstone, revision: 0 } }],
+    ["no change", { version: 1 }],
+    ["an extra field", { version: 1, change: tombstone, recipe: active.recipe }],
+  ])("takes a 200 with %s as no answer to the revocation", async (_, body) => {
+    expect(await send(respond(200, body))).toEqual({
+      kind: "failed",
+      error: "unexpected-response",
+    });
+  });
+
+  it.each([
+    ["no head", null],
+    [
+      "the recipe's newer head",
+      { ...active, revision: 5, recipe: { ...active.recipe, revision: 5 } },
+    ],
+    ["the recipe's tombstone", { ...tombstone, revision: 5 }],
+  ])("returns the service's head on a conflict with %s", async (_, current) => {
+    expect(await send(respond(409, { error: "recipe_conflict", current }))).toEqual({
+      kind: "conflict",
+      current,
+    });
+  });
+
+  it.each([
+    [
+      "another recipe's head",
+      { error: "recipe_conflict", current: { ...tombstone, recipeId: other } },
+    ],
+    ["no head field", { error: "recipe_conflict" }],
+    ["the recipe limit", { error: "recipe_limit" }],
+    ["a malformed head", { error: "recipe_conflict", current: { ...tombstone, revision: 0 } }],
+  ])("takes a 409 with %s as no answer to the revocation", async (_, body) => {
+    expect(await send(respond(409, body))).toEqual({
+      kind: "failed",
+      error: "unexpected-response",
+    });
+  });
+
+  it.each([
+    [401, { error: "device_revoked" }, { kind: "rejected" }],
+    [401, { error: "device_expired" }, { kind: "rejected" }],
+    [401, { error: "unauthorized" }, { kind: "rejected" }],
+    [429, { error: "rate_limited" }, { kind: "failed", error: "rate-limited" }],
+    [400, { error: "bad_request" }, { kind: "failed", error: "unexpected-response" }],
+    [404, { error: "not_found" }, { kind: "failed", error: "unexpected-response" }],
+    [500, { error: "internal_error" }, { kind: "failed", error: "unexpected-response" }],
+    [502, { error: "internal_error" }, { kind: "failed", error: "unexpected-response" }],
+    [503, { error: "internal_error" }, { kind: "failed", error: "unexpected-response" }],
+  ])("answers %i as its kind", async (status, body, expected) => {
+    expect(await send(respond(status, body))).toEqual(expected);
+  });
+
+  it("reports an unreachable service", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => {
+      throw new TypeError("Failed to fetch");
+    });
+    expect(await send(fetch)).toEqual({ kind: "failed", error: "unreachable" });
+  });
+
+  it("times its answer", async () => {
+    const result = await createServiceTransport({
+      fetch: respond(200, { version: 1, change: tombstone }),
+    }).revokeRecipe(ORIGIN, CREDENTIAL, recipeId, 3);
+    expect(result.timing).toMatchObject({ roundTripMs: expect.any(Number) });
+  });
+});
+
 describe("service timing", () => {
   const request = {
     version: 1 as const,

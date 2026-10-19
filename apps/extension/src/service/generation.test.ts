@@ -11,6 +11,8 @@ import {
   GENERATION_SENDING_MS,
   MAX_GENERATED_SLOT_MAPS,
   MAX_PAGE_SAMPLES,
+  MAX_RECIPE_REPLACEMENTS,
+  RECIPE_REPLACE_INTERVAL_MS,
 } from "./generation";
 import type { ServiceConnection } from "./runtime";
 import type { InferenceResult, ServiceTransport } from "./transport";
@@ -1821,5 +1823,380 @@ describe("signed-in page samples (ADR 0029, owner 2026-10-18 08:05 UTC)", () => 
       samples: stored.samples.map((entry) => ({ ...entry, deviceId: "another-device" })),
     });
     expect(await h.generation.samplePage!(sample, h.describePage)).toEqual({ outcome: "kept" });
+  });
+});
+
+describe("revoking a recipe the chosen item cannot run (ADR 0058 A)", () => {
+  const recipeId = "gen-0123456789abcdef0123456789abcdef";
+  const target = { recipeId, revision: 3, origin: "https://shop.example", path: "/login" };
+  const tombstone = { recipeId, revision: 4, state: "revoked" as const };
+  const timing = { roundTripMs: 40, serverMs: 30, networkMs: 10 };
+  /** Storage shared by every generation side built from it, as one browser profile's. */
+  function shared() {
+    let stored: unknown;
+    const order: string[] = [];
+    return {
+      order,
+      stored: () => stored,
+      set: (value: unknown) => {
+        stored = structuredClone(value);
+      },
+      storage: () => ({
+        read: vi.fn(async () => structuredClone(stored)),
+        write: vi.fn(async (value: unknown) => {
+          order.push("record");
+          stored = structuredClone(value);
+        }),
+      }),
+    };
+  }
+  function replaceSetup(
+    options: {
+      store?: ReturnType<typeof shared>;
+      paired?: () => ServiceConnection | undefined;
+      now?: { value: number };
+      answer?: Awaited<ReturnType<ServiceTransport["revokeRecipe"]>>;
+    } = {},
+  ) {
+    const store = options.store ?? shared();
+    const clock = options.now ?? { value: 5_000_000_000 };
+    const replaceStorage = store.storage();
+    const revokeRecipe = vi.fn<ServiceTransport["revokeRecipe"]>(async () => {
+      store.order.push("send");
+      return options.answer ?? { kind: "revoked", change: tombstone, timing };
+    });
+    const generateRecipe = vi.fn<ServiceTransport["generateRecipe"]>(async () => ({
+      kind: "result",
+      result: { version: 1, status: "abstained", reason: "no-login-form" },
+    }));
+    let attempts: unknown;
+    const sync = vi.fn(async () => "synced");
+    const refresh = vi.fn(async () => {
+      store.order.push("refresh");
+      return "synced";
+    });
+    const service = {
+      connection: vi.fn(async () => (options.paired ? options.paired() : connection)),
+    };
+    const generation = createLoginGeneration({
+      service,
+      transport: { generateRecipe, generateEntry: vi.fn(), judgeCompletion: vi.fn(), revokeRecipe },
+      storage: {
+        read: async () => structuredClone(attempts),
+        write: async (value: unknown) => {
+          attempts = structuredClone(value);
+        },
+      },
+      slotStorage: { read: async () => undefined, write: async () => undefined },
+      replaceStorage,
+      sync,
+      refresh,
+      now: () => clock.value,
+    });
+    return {
+      generation,
+      revokeRecipe,
+      generateRecipe,
+      replaceStorage,
+      service,
+      sync,
+      refresh,
+      store,
+      clock,
+      advance: (ms: number) => {
+        clock.value += ms;
+      },
+    };
+  }
+  const entries = (h: { store: ReturnType<typeof shared> }) =>
+    (h.store.stored() as { replacements: { recipeId: string; at: number }[] }).replacements;
+
+  it("records the revocation before the PUT, then pulls recipes only", async () => {
+    const h = replaceSetup();
+    expect(await h.generation.replace!(target)).toEqual({ outcome: "revoked", timing });
+    expect(h.revokeRecipe).toHaveBeenCalledExactlyOnceWith(
+      connection.origin,
+      connection.credential,
+      recipeId,
+      3,
+    );
+    expect(h.store.order).toEqual(["record", "send", "refresh"]);
+    // A full sync could stop another tab's login as a settings change.
+    expect(h.sync).not.toHaveBeenCalled();
+    expect(h.store.stored()).toEqual({
+      version: 1,
+      replacements: [
+        { service: connection.origin, deviceId: connection.deviceId, recipeId, at: 5_000_000_000 },
+      ],
+    });
+  });
+
+  it("revokes a recipe once in 30 days, across worker restarts, by recipe ID", async () => {
+    const store = shared();
+    const clock = { value: 5_000_000_000 };
+    const first = replaceSetup({ store, now: clock });
+    expect(await first.generation.replace!(target)).toMatchObject({ outcome: "revoked" });
+    // A new worker reads the same record; a regenerated revision keeps the ID.
+    const second = replaceSetup({ store, now: clock });
+    second.advance(RECIPE_REPLACE_INTERVAL_MS - 1);
+    expect(await second.generation.replace!({ ...target, revision: 5 })).toEqual({
+      outcome: "not-due",
+    });
+    expect(second.revokeRecipe).not.toHaveBeenCalled();
+    expect(second.refresh).not.toHaveBeenCalled();
+    // Another recipe is revoked on its own.
+    const other = "gen-fedcba9876543210fedcba9876543210";
+    expect(await second.generation.replace!({ ...target, recipeId: other })).toMatchObject({
+      outcome: "revoked",
+    });
+    expect(second.revokeRecipe).toHaveBeenCalledWith(
+      connection.origin,
+      connection.credential,
+      other,
+      3,
+    );
+    // After 30 days the recipe may be revoked again, and the expired entry is dropped.
+    second.advance(1);
+    const third = replaceSetup({ store, now: clock });
+    expect(await third.generation.replace!({ ...target, revision: 5 })).toMatchObject({
+      outcome: "revoked",
+    });
+    expect(third.revokeRecipe).toHaveBeenCalledWith(
+      connection.origin,
+      connection.credential,
+      recipeId,
+      5,
+    );
+    expect(entries(third).map((entry) => entry.recipeId)).toEqual([other, recipeId]);
+  });
+
+  it("sends one of two revocations of a recipe asked for at once", async () => {
+    const h = replaceSetup();
+    const answers = await Promise.all([
+      h.generation.replace!(target),
+      h.generation.replace!(target),
+    ]);
+    expect(answers.map((answer) => answer.outcome).toSorted()).toEqual(["not-due", "revoked"]);
+    expect(h.revokeRecipe).toHaveBeenCalledTimes(1);
+    expect(entries(h)).toHaveLength(1);
+  });
+
+  it("keeps revocations apart per service and device", async () => {
+    const store = shared();
+    const h = replaceSetup({ store });
+    expect(await h.generation.replace!(target)).toMatchObject({ outcome: "revoked" });
+    const otherDevice = replaceSetup({
+      store,
+      paired: () => ({ ...connection, deviceId: "another-device" }),
+    });
+    expect(await otherDevice.generation.replace!(target)).toMatchObject({ outcome: "revoked" });
+    const otherService = replaceSetup({
+      store,
+      paired: () => ({ ...connection, origin: "https://other.example.com" }),
+    });
+    expect(await otherService.generation.replace!(target)).toMatchObject({ outcome: "revoked" });
+    expect(await h.generation.replace!(target)).toEqual({ outcome: "not-due" });
+    expect(entries(h)).toHaveLength(3);
+  });
+
+  it("never sends a revocation it could not record", async () => {
+    const h = replaceSetup();
+    h.replaceStorage.write.mockRejectedValueOnce(new Error("quota"));
+    expect(await h.generation.replace!(target)).toEqual({
+      outcome: "not-sent",
+      reason: "storage-unavailable",
+    });
+    h.replaceStorage.read.mockRejectedValueOnce(new Error("read"));
+    expect(await h.generation.replace!(target)).toEqual({
+      outcome: "not-sent",
+      reason: "storage-unavailable",
+    });
+    expect(h.revokeRecipe).not.toHaveBeenCalled();
+    expect(h.refresh).not.toHaveBeenCalled();
+    // Storage that works again records and sends it.
+    expect(await h.generation.replace!(target)).toMatchObject({ outcome: "revoked" });
+  });
+
+  it("treats a record it cannot parse as holding none", async () => {
+    const h = replaceSetup();
+    h.store.set({ version: 1, replacements: [{ recipeId, at: 5_000_000_000 }] });
+    expect(await h.generation.replace!(target)).toMatchObject({ outcome: "revoked" });
+    expect(entries(h)).toEqual([
+      { service: connection.origin, deviceId: connection.deviceId, recipeId, at: 5_000_000_000 },
+    ]);
+  });
+
+  it("keeps at most 200 revocations, dropping the oldest", async () => {
+    const h = replaceSetup();
+    const ids = Array.from(
+      { length: MAX_RECIPE_REPLACEMENTS },
+      (_, index) => `gen-${index.toString(16).padStart(32, "0")}`,
+    );
+    for (const id of ids) {
+      h.advance(1);
+      // eslint-disable-next-line no-await-in-loop
+      await h.generation.replace!({ ...target, recipeId: id });
+    }
+    expect(entries(h)).toHaveLength(MAX_RECIPE_REPLACEMENTS);
+    h.advance(1);
+    expect(await h.generation.replace!(target)).toMatchObject({ outcome: "revoked" });
+    const kept = entries(h);
+    expect(kept).toHaveLength(MAX_RECIPE_REPLACEMENTS);
+    expect(kept[0]!.recipeId).toBe(ids[1]);
+    expect(kept.at(-1)!.recipeId).toBe(recipeId);
+    // The dropped recipe may be revoked again within 30 days.
+    expect(await h.generation.replace!({ ...target, recipeId: ids[0]! })).toMatchObject({
+      outcome: "revoked",
+    });
+  });
+
+  it("sends nothing and records nothing without a paired, accepted device", async () => {
+    const unpaired = replaceSetup({ paired: () => undefined });
+    expect(await unpaired.generation.replace!(target)).toEqual({
+      outcome: "not-due",
+      reason: "not-connected",
+    });
+    const rejected = replaceSetup({ paired: () => ({ ...connection, rejected: true }) });
+    expect(await rejected.generation.replace!(target)).toEqual({
+      outcome: "not-due",
+      reason: "not-connected",
+    });
+    for (const h of [unpaired, rejected]) {
+      expect(h.replaceStorage.read).not.toHaveBeenCalled();
+      expect(h.replaceStorage.write).not.toHaveBeenCalled();
+      expect(h.revokeRecipe).not.toHaveBeenCalled();
+    }
+  });
+
+  it("revokes nothing for a page that may not be sent for generation now", async () => {
+    const h = replaceSetup();
+    // The page was sent for generation in this retry window.
+    expect(await h.generation.generate(request)).toMatchObject({ outcome: "abstained" });
+    expect(await h.generation.replace!(target)).toEqual({ outcome: "not-due", reason: "sent" });
+    // A page in flight is held as sending.
+    let answer!: (value: Awaited<ReturnType<ServiceTransport["generateRecipe"]>>) => void;
+    h.generateRecipe.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          answer = resolve;
+        }),
+    );
+    const sending = h.generation.generate({
+      ...request,
+      observation: { ...observation, path: "/signin" },
+    });
+    await vi.waitFor(() => expect(h.generateRecipe).toHaveBeenCalledTimes(2));
+    expect(await h.generation.replace!({ ...target, path: "/signin" })).toEqual({
+      outcome: "not-due",
+      reason: "sending",
+    });
+    answer({ kind: "failed", error: "unreachable" });
+    await sending;
+    expect(h.revokeRecipe).not.toHaveBeenCalled();
+    expect(h.replaceStorage.write).not.toHaveBeenCalled();
+    // Another page of the origin is not held.
+    expect(await h.generation.replace!({ ...target, path: "/account" })).toMatchObject({
+      outcome: "revoked",
+    });
+  });
+
+  it.each<[string, Awaited<ReturnType<ServiceTransport["revokeRecipe"]>>, string]>([
+    ["an unreachable service", { kind: "failed", error: "unreachable" }, "unreachable"],
+    ["a rate limit", { kind: "failed", error: "rate-limited" }, "rate-limited"],
+    ["a rejected device", { kind: "rejected" }, "device-rejected"],
+  ])("frees the record after %s, so a later visit revokes it", async (_, answer, reason) => {
+    const h = replaceSetup({ answer: { ...answer, timing } });
+    expect(await h.generation.replace!(target)).toEqual({ outcome: "failed", reason, timing });
+    expect(entries(h)).toEqual([]);
+    expect(h.refresh).not.toHaveBeenCalled();
+    expect(h.store.order).toEqual(["record", "send", "record"]);
+    h.revokeRecipe.mockResolvedValueOnce({ kind: "revoked", change: tombstone });
+    expect(await h.generation.replace!(target)).toEqual({ outcome: "revoked" });
+    expect(h.revokeRecipe).toHaveBeenCalledTimes(2);
+  });
+
+  it("frees the record after a request that threw, without timing", async () => {
+    const h = replaceSetup();
+    h.revokeRecipe.mockRejectedValueOnce(new Error("synthetic transport failure"));
+    expect(await h.generation.replace!(target)).toEqual({ outcome: "failed", reason: "error" });
+    expect(entries(h)).toEqual([]);
+  });
+
+  it("frees only its own record, never another recipe's or another device's", async () => {
+    const store = shared();
+    const other = "gen-fedcba9876543210fedcba9876543210";
+    const h = replaceSetup({ store });
+    expect(await h.generation.replace!({ ...target, recipeId: other })).toMatchObject({
+      outcome: "revoked",
+    });
+    const otherDevice = replaceSetup({
+      store,
+      paired: () => ({ ...connection, deviceId: "another-device" }),
+    });
+    expect(await otherDevice.generation.replace!(target)).toMatchObject({ outcome: "revoked" });
+    h.revokeRecipe.mockResolvedValueOnce({ kind: "failed", error: "unreachable" });
+    expect(await h.generation.replace!(target)).toMatchObject({ outcome: "failed" });
+    expect(entries(h).map((entry) => entry.recipeId)).toEqual([other, recipeId]);
+    expect(await otherDevice.generation.replace!(target)).toEqual({ outcome: "not-due" });
+  });
+
+  it("keeps the record once the service answered the write", async () => {
+    const h = replaceSetup({
+      answer: { kind: "conflict", current: { ...tombstone, revision: 5 }, timing },
+    });
+    // A conflict, as when another device changed the recipe first, pulls recipes as well.
+    expect(await h.generation.replace!(target)).toEqual({ outcome: "conflict", timing });
+    expect(h.store.order).toEqual(["record", "send", "refresh"]);
+    expect(h.sync).not.toHaveBeenCalled();
+    expect(await h.generation.replace!(target)).toEqual({ outcome: "not-due" });
+    expect(h.revokeRecipe).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the record after a conflict without a head", async () => {
+    const h = replaceSetup({ answer: { kind: "conflict", current: null } });
+    expect(await h.generation.replace!(target)).toEqual({ outcome: "conflict" });
+    expect(h.refresh).toHaveBeenCalledTimes(1);
+    expect(entries(h)).toHaveLength(1);
+  });
+
+  it("keeps the record after an answer it could not read, which may follow a write", async () => {
+    const h = replaceSetup({ answer: { kind: "failed", error: "unexpected-response", timing } });
+    expect(await h.generation.replace!(target)).toEqual({
+      outcome: "failed",
+      reason: "unexpected-response",
+      timing,
+    });
+    expect(h.refresh).not.toHaveBeenCalled();
+    expect(h.store.order).toEqual(["record", "send"]);
+    expect(await h.generation.replace!(target)).toEqual({ outcome: "not-due" });
+  });
+
+  it("still answers revoked when the pull of recipes fails", async () => {
+    const h = replaceSetup();
+    h.refresh.mockRejectedValueOnce(new Error("synthetic sync failure"));
+    expect(await h.generation.replace!(target)).toEqual({ outcome: "revoked", timing });
+  });
+
+  it("offers no revocation without its transport or storage", () => {
+    const base = {
+      service: { connection: async () => connection },
+      storage: { read: async () => undefined, write: async () => undefined },
+      slotStorage: { read: async () => undefined, write: async () => undefined },
+      sync: async () => "synced",
+      refresh: async () => "synced",
+    };
+    const transport = { generateRecipe: vi.fn(), generateEntry: vi.fn(), judgeCompletion: vi.fn() };
+    expect(createLoginGeneration({ ...base, transport }).replace).toBeUndefined();
+    expect(
+      createLoginGeneration({
+        ...base,
+        transport,
+        replaceStorage: { read: async () => undefined, write: async () => undefined },
+      }).replace,
+    ).toBeUndefined();
+    expect(
+      createLoginGeneration({ ...base, transport: { ...transport, revokeRecipe: vi.fn() } })
+        .replace,
+    ).toBeUndefined();
   });
 });

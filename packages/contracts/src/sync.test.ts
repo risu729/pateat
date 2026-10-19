@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { LoginRecipe } from "./login";
 import { createDefaultSettings } from "./settings";
 import {
+  isGeneratedRecipeId,
   loginOutcomeReportSchema,
   loginRecordSchema,
   recipeUseReportSchema,
@@ -209,5 +210,31 @@ describe("recipe use report contract (ADR 0058)", () => {
       expect(accepts(recipeUseReportSchema, { version: 1, revision: 1, ...extra })).toBe(false);
     expect(accepts(recipeUseReportSchema, null)).toBe(false);
     expect(accepts(recipeUseReportSchema, [])).toBe(false);
+  });
+});
+
+describe("generated recipe IDs (ADR 0058 A)", () => {
+  it("accepts the service's generated form only", () => {
+    expect(isGeneratedRecipeId("gen-0123456789abcdef0123456789abcdef")).toBe(true);
+    expect(isGeneratedRecipeId(`gen-${"0".repeat(32)}`)).toBe(true);
+    expect(isGeneratedRecipeId(`gen-${"f".repeat(32)}`)).toBe(true);
+  });
+
+  it.each([
+    ["an owner's recipe ID", "bank-login"],
+    ["a short digest", `gen-${"a".repeat(31)}`],
+    ["a long digest", `gen-${"a".repeat(33)}`],
+    ["upper-case hex", `gen-${"A".repeat(32)}`],
+    ["a non-hex digit", `gen-${"g".repeat(32)}`],
+    ["another prefix", `gem-${"a".repeat(32)}`],
+    ["a capitalized prefix", `GEN-${"a".repeat(32)}`],
+    ["no separator", `gen${"a".repeat(32)}`],
+    ["a prefix before it", `x-gen-${"a".repeat(32)}`],
+    ["a suffix after it", `gen-${"a".repeat(32)}-2`],
+    ["a trailing newline", `gen-${"a".repeat(32)}\n`],
+    ["the prefix alone", "gen-"],
+    ["nothing", ""],
+  ])("refuses %s", (_, recipeId) => {
+    expect(isGeneratedRecipeId(recipeId)).toBe(false);
   });
 });

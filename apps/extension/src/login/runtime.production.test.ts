@@ -24410,3 +24410,698 @@ describe("a login that starts at a later step its page shows (ADR 0049)", () => 
     ]);
   });
 });
+
+describe("revoking a recipe the chosen item cannot run (ADR 0058 A)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    for (const listener of fake.state.removed.splice(0))
+      for (const tabId of [1, 2]) listener(tabId);
+    fake.state.awaitReply = undefined;
+  });
+  beforeEach(() => {
+    fake.state.storage = {};
+    fake.state.session = {};
+    fake.state.badges = {};
+    fake.state.reconnects = [];
+    fake.state.onReconnect = undefined;
+    fake.state.messages = [];
+    fake.state.granted = true;
+    fake.state.pageUrl = "https://login.example/signin";
+    fake.state.onExecute = undefined;
+    fake.state.tabUrls = {};
+    fake.state.observed = ["unique", "missing"];
+    fake.state.observedPath = "/signin";
+    fake.state.present = new Set(["password", "login"]);
+    fake.state.unusable = new Set();
+    fake.state.awaited = { ok: true };
+    fake.state.onAwait = undefined;
+    fake.state.executeReply = undefined;
+    fake.state.switchReply = { ok: true };
+    fake.state.chosen = { ok: true, click: "entry" };
+    fake.state.gone = new Set();
+    fake.state.extracted = {};
+    fake.state.signs = undefined;
+    fake.state.signIn = false;
+    fake.state.loaded = true;
+  });
+
+  const generatedId = "gen-0123456789abcdef0123456789abcdef";
+  /** A generated one-page form: the password is its first step, so ADR 0036 cannot stop. */
+  const onePage = parseLoginRecipe({ ...recipe, id: generatedId, revision: 3 });
+  /** A generated email-first recipe, whose stop before the password ADR 0036 takes. */
+  const emailFirst = parseLoginRecipe({
+    version: 1,
+    id: generatedId,
+    revision: 3,
+    origin,
+    slots: ["username", "password"],
+    steps: [
+      { kind: "fill", path: "/signin", fields: [{ slot: "username", target: target("email") }] },
+      { kind: "click", path: "/signin", target: target("next"), purpose: "advance" },
+      {
+        kind: "fill",
+        path: "/password",
+        fields: [{ slot: "password", target: target("password") }],
+      },
+      { kind: "click", path: "/password", target: target("login"), purpose: "submit" },
+    ],
+    maxSubmissions: 2,
+  });
+  /** Email first, then the password and a code on one page, as a site asking for both. */
+  const coded = parseLoginRecipe({
+    ...emailFirst,
+    slots: ["username", "password", "totp"],
+    steps: [
+      ...emailFirst.steps.slice(0, 2),
+      {
+        kind: "fill",
+        path: "/password",
+        fields: [
+          { slot: "password", target: target("password") },
+          { slot: "totp", target: target("app-code") },
+        ],
+      },
+      emailFirst.steps[3]!,
+    ],
+  });
+  /** The item has a TOTP field without its secret. */
+  const withoutTotp = (h: ReturnType<typeof harness>) => {
+    const original = h.store.handle.getMockImplementation()!;
+    h.store.handle.mockImplementation(async () => {
+      const response = await original();
+      if (response.ok)
+        response.catalog.connections[0]!.items[0]!.fields.push({
+          id: "login.totp-code",
+          label: "Verification code",
+          name: null,
+          kind: "otp",
+          empty: true,
+        } as never);
+      return response;
+    });
+  };
+  const discoverable = { passkey: true, discoverable: true };
+  type Replace = NonNullable<LoginGeneration["replace"]>;
+  function service(replace: Replace = async () => ({ outcome: "not-due" })) {
+    return {
+      available: vi.fn<LoginGeneration["available"]>(async () => true),
+      generate: vi.fn<LoginGeneration["generate"]>(async (_request, sent) => {
+        sent?.();
+        return { outcome: "abstained", reason: "ambiguous" };
+      }),
+      generateEntry: vi.fn<LoginGeneration["generateEntry"]>(),
+      judge: vi.fn<LoginGeneration["judge"]>(async () => ({ verdict: "unclear" })),
+      slotFields: vi.fn<LoginGeneration["slotFields"]>(async () => undefined),
+      replace: vi.fn<Replace>(replace),
+    };
+  }
+  /** The item's password is empty while `when` holds, as a vault sync would leave it. */
+  const emptyPassword = (h: ReturnType<typeof harness>, when: () => boolean = () => true) => {
+    const original = h.store.handle.getMockImplementation()!;
+    h.store.handle.mockImplementation(async () => {
+      const response = await original();
+      if (response.ok && when())
+        for (const field of response.catalog.connections[0]!.items[0]!.fields)
+          if (field.id === "login.password") field.empty = true;
+      return response;
+    });
+  };
+  /**
+   * A login of the item, whose password is empty and which holds a discoverable passkey
+   * unless told otherwise, on `used`; `revoke` answers the generation side's `replace` and
+   * may drop the recipe from the cache, as the pull after a revocation does.
+   */
+  function start(
+    options: {
+      used?: LoginRecipe;
+      passkey?: { passkey: boolean; discoverable: boolean };
+      password?: boolean;
+      replace?: (h: ReturnType<typeof harness>) => Replace;
+      live?: Parameters<typeof harness>[1];
+      overrides?: Partial<LocalSettings>;
+    } = {},
+  ) {
+    const used = options.used ?? onePage;
+    const reports: LoginReport[] = [];
+    let h!: ReturnType<typeof harness>;
+    const generation = service(async (...args) =>
+      options.replace ? options.replace(h)(...args) : { outcome: "not-due" },
+    );
+    h = harness(
+      {
+        bindings: [
+          {
+            ...savedBinding,
+            recipeId: used.id,
+            slots: used.slots.map((slot) => ({
+              slot,
+              field: slot as "username" | "password" | "totp",
+            })),
+          },
+        ],
+        ...options.overrides,
+      },
+      {
+        username: true,
+        report: (entry) => reports.push(entry),
+        passkeys: vi.fn(async () => options.passkey ?? discoverable),
+        generation,
+        ...options.live,
+      },
+    );
+    h.fields.mockImplementation(async ({ fieldId }) =>
+      fieldId === "login.username" ? "me@example.com" : "synthetic-secret",
+    );
+    h.recipes.recipe.mockResolvedValue(used);
+    h.recipes.starts.mockResolvedValue(startsOf([used.steps[0]!]));
+    if (!options.password) emptyPassword(h);
+    return { h, reports, generation };
+  }
+  /** The pull after the revocation dropped the recipe, as a tombstone does. */
+  const dropped =
+    (outcome: "revoked" | "conflict" = "revoked"): ((h: ReturnType<typeof harness>) => Replace) =>
+    (h) =>
+    async () => {
+      h.recipes.recipe.mockResolvedValue(undefined);
+      h.recipes.starts.mockResolvedValue([]);
+      return { outcome };
+    };
+  const revokes = (reports: LoginReport[]) => reports.filter((entry) => entry.type === "revoke");
+  const refusals = (reports: LoginReport[]) =>
+    reports.flatMap((entry) => (entry.type === "refused" ? [entry] : []));
+  const executed = () => fake.state.messages.filter((entry) => entry.type === "login.execute");
+
+  it("revokes the recipe and asks the page to announce again once the cache dropped it", async () => {
+    const { h, reports, generation } = start({ replace: dropped() });
+    // The page waits as for a generation, reading no secret.
+    expect(await h.hello()).toEqual({ ok: false, reason: "generating" });
+    await vi.waitFor(() => expect(fake.state.reconnects).toHaveLength(1));
+    expect(generation.replace).toHaveBeenCalledExactlyOnceWith({
+      recipeId: generatedId,
+      revision: 3,
+      origin,
+      path: "/signin",
+    });
+    expect(fake.state.reconnects[0]).toEqual({
+      tabId: 1,
+      frameId: 0,
+      documentId: "synthetic-document",
+    });
+    expect(revokes(reports)).toEqual([
+      {
+        type: "revoke",
+        tabId: 1,
+        origin,
+        recipeId: generatedId,
+        recipeRevision: 3,
+        route: "passkey",
+        outcome: "revoked",
+        detail: "password-empty:no-advance",
+      },
+    ]);
+    // The refusal the revocation replaced is not logged.
+    expect(refusals(reports)).toEqual([]);
+    expect(executed()).toEqual([]);
+    expect(h.fields).not.toHaveBeenCalled();
+    expect(fake.state.storage["pateat.login-attempts.v5"] ?? []).toEqual([]);
+  });
+
+  it("asks the page to announce again after a conflict whose pull brought a newer revision", async () => {
+    const { h, reports } = start({
+      replace: (page) => async () => {
+        page.recipes.recipe.mockResolvedValue({ ...onePage, revision: 4 });
+        return { outcome: "conflict" };
+      },
+    });
+    expect(await h.hello()).toEqual({ ok: false, reason: "generating" });
+    await vi.waitFor(() => expect(fake.state.reconnects).toHaveLength(1));
+    expect(revokes(reports)).toMatchObject([{ outcome: "conflict", route: "passkey" }]);
+    expect(refusals(reports)).toEqual([]);
+  });
+
+  it("offers the page for generation once it announces again without the recipe", async () => {
+    const { h, generation } = start({
+      replace: dropped(),
+      live: { uris: async () => ({ ok: true as const, data: uriMatch() }) },
+    });
+    expect(await h.hello()).toEqual({ ok: false, reason: "generating" });
+    await vi.waitFor(() => expect(fake.state.reconnects).toHaveLength(1));
+    // The content script announces again: no recipe starts on the page now (ADR 0016).
+    expect(await h.hello()).toEqual({
+      ok: false,
+      reason: "recipe-not-found",
+      starts: [],
+      generate: true,
+    });
+    expect(generation.available).toHaveBeenCalledWith(origin, "/signin");
+    fake.state.extracted = {
+      login: {
+        ok: true,
+        observation: {
+          version: 1,
+          origin,
+          path: "/signin",
+          language: "en",
+          complete: true,
+          candidates: [
+            { id: "c1", role: "email", target: target("user"), autocomplete: "username" },
+            { id: "c2", role: "password", target: target("password") },
+            { id: "c3", role: "button", target: target("login"), label: "Sign in" },
+          ],
+        },
+      },
+    };
+    expect(await h.signIn()).toEqual({ ok: false, reason: "generating" });
+    await vi.waitFor(() => expect(generation.generate).toHaveBeenCalledTimes(1));
+    expect(generation.generate.mock.calls[0]![0]).toMatchObject({
+      observation: { origin, path: "/signin" },
+    });
+    expect(generation.replace).toHaveBeenCalledTimes(1);
+  });
+
+  it.each<[string, Awaited<ReturnType<Replace>>]>([
+    ["not due", { outcome: "not-due" }],
+    ["not sent", { outcome: "not-sent", reason: "storage-unavailable" }],
+    ["failed", { outcome: "failed", reason: "unreachable" }],
+  ])("logs the original refusal late when the revocation was %s", async (_, answer) => {
+    const { h, reports } = start({ replace: () => async () => answer });
+    expect(await h.hello()).toEqual({ ok: false, reason: "generating" });
+    await vi.waitFor(() => expect(refusals(reports)).toHaveLength(1));
+    expect(revokes(reports)).toEqual([
+      expect.objectContaining({
+        outcome: answer.outcome,
+        ...(answer.reason ? { reason: answer.reason } : {}),
+        detail: "password-empty:no-advance",
+      }),
+    ]);
+    // The revocation's report comes first, then the refusal it replaced.
+    expect(reports.findIndex((entry) => entry.type === "revoke")).toBeLessThan(
+      reports.findIndex((entry) => entry.type === "refused"),
+    );
+    expect(refusals(reports)[0]).toMatchObject({
+      tabId: 1,
+      origin,
+      reason: "no-route",
+      detail: "password-empty:no-advance",
+    });
+    expect(fake.state.reconnects).toEqual([]);
+    expect(executed()).toEqual([]);
+  });
+
+  it("refuses the page as before when the replacement throws", async () => {
+    const { h, reports } = start({
+      replace: () => async () => {
+        throw new Error("synthetic generation side failure");
+      },
+    });
+    expect(await h.hello()).toEqual({ ok: false, reason: "generating" });
+    await vi.waitFor(() => expect(refusals(reports)).toHaveLength(1));
+    expect(revokes(reports)).toMatchObject([{ outcome: "failed", reason: "error" }]);
+    expect(fake.state.reconnects).toEqual([]);
+  });
+
+  it("refuses the page as before when the cache still holds the revoked revision", async () => {
+    // The pull after the revocation failed, so the cache still starts the same revision.
+    const { h, reports } = start({ replace: () => async () => ({ outcome: "revoked" }) });
+    expect(await h.hello()).toEqual({ ok: false, reason: "generating" });
+    await vi.waitFor(() => expect(refusals(reports)).toHaveLength(1));
+    expect(revokes(reports)).toMatchObject([{ outcome: "revoked" }]);
+    expect(refusals(reports)[0]).toMatchObject({
+      reason: "no-route",
+      detail: "password-empty:no-advance",
+    });
+    expect(fake.state.reconnects).toEqual([]);
+  });
+
+  it.each(["revoked", "not-due"] as const)(
+    "leaves a page that went away before the answer (%s)",
+    async (outcome) => {
+      let answer!: () => void;
+      const { h, reports } = start({
+        replace: (page) => () =>
+          new Promise((resolve) => {
+            answer = () => {
+              page.recipes.recipe.mockResolvedValue(undefined);
+              resolve({ outcome });
+            };
+          }),
+      });
+      expect(await h.hello()).toEqual({ ok: false, reason: "generating" });
+      await vi.waitFor(() => expect(answer).toBeDefined());
+      // The tab closes before the service answers.
+      for (const listener of fake.state.removed) listener(1);
+      answer();
+      await vi.waitFor(() => expect(revokes(reports)).toHaveLength(1));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(fake.state.reconnects).toEqual([]);
+      expect(refusals(reports)).toEqual([]);
+    },
+  );
+
+  it("leaves a page that went away while the cache was read after the revocation", async () => {
+    const { h, reports } = start({
+      replace: (page) => async () => {
+        page.recipes.recipe.mockImplementation(async () => {
+          // The tab closes while the cache answers.
+          for (const listener of fake.state.removed) listener(1);
+          return undefined;
+        });
+        return { outcome: "revoked" };
+      },
+    });
+    expect(await h.hello()).toEqual({ ok: false, reason: "generating" });
+    await vi.waitFor(() => expect(revokes(reports)).toHaveLength(1));
+    await vi.waitFor(() => expect(h.recipes.recipe).toHaveBeenCalledTimes(2));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(fake.state.reconnects).toEqual([]);
+    expect(refusals(reports)).toEqual([]);
+  });
+
+  it("logs a page that could not be asked to announce again", async () => {
+    const { h, reports } = start({
+      replace: (page) => async () => {
+        // The document went with its page while the service answered.
+        fake.state.gone.add("synthetic-document");
+        page.recipes.recipe.mockResolvedValue(undefined);
+        return { outcome: "revoked" };
+      },
+    });
+    expect(await h.hello()).toEqual({ ok: false, reason: "generating" });
+    await vi.waitFor(() => expect(refusals(reports)).toHaveLength(1));
+    expect(refusals(reports)[0]).toMatchObject({ reason: "reconnect-failed" });
+    expect(refusals(reports)[0]).not.toHaveProperty("detail");
+  });
+
+  it("refuses the page as before when the generation side cannot revoke", async () => {
+    const reports: LoginReport[] = [];
+    const { replace: _replace, ...withoutReplace } = service();
+    const bare = harness(
+      { bindings: [{ ...savedBinding, recipeId: generatedId }] },
+      {
+        username: true,
+        report: (entry) => reports.push(entry),
+        passkeys: vi.fn(async () => discoverable),
+        generation: withoutReplace,
+      },
+    );
+    bare.recipes.recipe.mockResolvedValue(onePage);
+    emptyPassword(bare);
+    expect(await bare.hello()).toEqual({ ok: false, reason: "no-route" });
+    expect(revokes(reports)).toEqual([]);
+    expect(refusals(reports)).toMatchObject([{ detail: "password-empty:no-advance" }]);
+  });
+
+  it("revokes a recipe for an item without its TOTP secret that holds a discoverable passkey", async () => {
+    fake.state.present = new Set(["email", "next"]);
+    const { h, reports, generation } = start({ used: coded, password: true, replace: dropped() });
+    withoutTotp(h);
+    expect(await h.hello()).toEqual({ ok: false, reason: "generating" });
+    await vi.waitFor(() => expect(fake.state.reconnects).toHaveLength(1));
+    expect(generation.replace).toHaveBeenCalledWith({
+      recipeId: generatedId,
+      revision: 3,
+      origin,
+      path: "/signin",
+    });
+    expect(revokes(reports)).toMatchObject([
+      { route: "passkey", outcome: "revoked", detail: "no-totp" },
+    ]);
+    expect(executed()).toEqual([]);
+  });
+
+  describe("never for an item or recipe outside the trigger", () => {
+    it("an item without its TOTP secret and no discoverable passkey", async () => {
+      fake.state.present = new Set(["email", "next"]);
+      const { h, reports, generation } = start({
+        used: coded,
+        password: true,
+        passkey: { passkey: true, discoverable: false },
+        replace: dropped(),
+      });
+      withoutTotp(h);
+      expect(await h.hello()).toEqual({ ok: false, reason: "no-route" });
+      expect(refusals(reports)).toMatchObject([{ detail: "no-totp" }]);
+      expect(generation.replace).not.toHaveBeenCalled();
+    });
+
+    it("a variant refused for its binding beside one refused for the item's facts", async () => {
+      // The first variant lacks the password; the second names a field the item lacks.
+      const varied = parseLoginRecipe({
+        ...onePage,
+        alternatives: [
+          {
+            slots: ["contract"],
+            steps: [
+              {
+                kind: "fill",
+                path: "/signin",
+                fields: [{ slot: "contract", target: target("contract") }],
+              },
+              {
+                kind: "click",
+                path: "/signin",
+                target: target("contract-login"),
+                purpose: "submit",
+              },
+            ],
+          },
+        ],
+        maxSubmissions: 2,
+      });
+      const { h, reports, generation } = start({
+        used: varied,
+        replace: dropped(),
+        overrides: {
+          bindings: [
+            {
+              ...savedBinding,
+              recipeId: generatedId,
+              slots: [
+                { slot: "password", field: "password" },
+                { slot: "contract", field: { custom: "Contract" } },
+              ],
+            },
+          ],
+        },
+      });
+      expect(await h.hello()).toEqual({ ok: false, reason: "no-route" });
+      expect(refusals(reports)).toMatchObject([{ detail: "password-empty:alternatives" }]);
+      expect(generation.replace).not.toHaveBeenCalled();
+    });
+
+    it("a passkey that is not discoverable", async () => {
+      const { h, reports, generation } = start({
+        passkey: { passkey: true, discoverable: false },
+        replace: dropped(),
+      });
+      expect(await h.hello()).toEqual({ ok: false, reason: "no-route" });
+      expect(refusals(reports)).toMatchObject([{ detail: "password-empty:no-advance" }]);
+      expect(generation.replace).not.toHaveBeenCalled();
+      expect(revokes(reports)).toEqual([]);
+    });
+
+    it("an item without a passkey (password-empty:no-passkey)", async () => {
+      fake.state.present = new Set(["email", "next"]);
+      const { h, reports, generation } = start({
+        used: emailFirst,
+        passkey: { passkey: false, discoverable: false },
+        replace: dropped(),
+      });
+      expect(await h.hello()).toEqual({ ok: false, reason: "no-route" });
+      expect(refusals(reports)).toMatchObject([{ detail: "password-empty:no-passkey" }]);
+      expect(generation.replace).not.toHaveBeenCalled();
+    });
+
+    it("an item whose login ADR 0036's stop carries", async () => {
+      fake.state.present = new Set(["email", "next"]);
+      fake.state.onExecute = () => new Promise(() => undefined);
+      const { h, generation } = start({ used: emailFirst, replace: dropped() });
+      expect(await h.hello()).toEqual({ ok: true });
+      expect(generation.replace).not.toHaveBeenCalled();
+    });
+
+    it("an item that holds the password the recipe fills", async () => {
+      fake.state.onExecute = () => new Promise(() => undefined);
+      const { h, generation } = start({ password: true, replace: dropped() });
+      expect(await h.hello()).toEqual({ ok: true });
+      expect(generation.replace).not.toHaveBeenCalled();
+    });
+
+    it("a recipe that has a passkey button", async () => {
+      fake.state.present = new Set(["password", "login", "passkey-login"]);
+      fake.state.onExecute = () => new Promise(() => undefined);
+      const button = parseLoginRecipe({
+        ...onePage,
+        passkey: { path: "/signin", target: target("passkey-login") },
+      });
+      const { h, generation } = start({ used: button, replace: dropped() });
+      // The item takes the recipe's own passkey route.
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(executed()).toHaveLength(1));
+      expect(generation.replace).not.toHaveBeenCalled();
+    });
+
+    it("a refusal for the binding rather than the item's facts", async () => {
+      const { h, reports, generation } = start({
+        replace: dropped(),
+        overrides: {
+          connections: [
+            {
+              connectionId,
+              enabled: true,
+              selection: { mode: "all", groupIds: [], itemIds: [] },
+              excludedItemIds: [],
+              excludedFields: [{ itemId, fieldId: "login.password" }],
+            },
+          ],
+        },
+      });
+      expect(await h.hello()).toEqual({ ok: false, reason: "binding-field-excluded" });
+      expect(generation.replace).not.toHaveBeenCalled();
+      expect(revokes(reports)).toEqual([]);
+    });
+
+    it("a recipe the service did not generate", async () => {
+      const owned = parseLoginRecipe({ ...onePage, id: recipe.id });
+      const { h, reports, generation } = start({ used: owned, replace: dropped() });
+      expect(await h.hello()).toEqual({ ok: false, reason: "no-route" });
+      expect(refusals(reports)).toMatchObject([{ detail: "password-empty:no-advance" }]);
+      expect(generation.replace).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("never outside a new login of the tab's own page at the first step", () => {
+    it("a frame", async () => {
+      const { h, reports, generation } = start({ replace: dropped() });
+      const top = "https://login.example/account";
+      fake.state.tabUrls[1] = top;
+      expect(
+        await h.hello({ frameId: 3, documentId: "frame-document", tab: { id: 1, url: top } }),
+      ).toEqual({ ok: false, reason: "no-route" });
+      expect(refusals(reports)).toMatchObject([{ detail: "password-empty:frame" }]);
+      expect(generation.replace).not.toHaveBeenCalled();
+    });
+
+    it("a login that would start at a later step (ADR 0049)", async () => {
+      fake.state.pageUrl = "https://login.example/password";
+      fake.state.observedPath = "/password";
+      fake.state.present = new Set(["password", "app-code", "login"]);
+      fake.state.awaitReply = (readiness) => ({
+        ok: (readiness as unknown as { targets: { value: string }[] }).targets.every((entry) =>
+          fake.state.present!.has(entry.value),
+        ),
+      });
+      const { h, reports, generation } = start({ used: coded, password: true, replace: dropped() });
+      withoutTotp(h);
+      h.recipes.recipe.mockResolvedValue(undefined);
+      h.recipes.starts.mockResolvedValue([
+        {
+          path: "/signin",
+          steps: [coded.steps[0]!],
+          later: laterStartSteps(coded).map(({ step }) => step),
+        },
+      ]);
+      Object.assign(h.recipes, {
+        later: vi.fn(async (_origin: string, path: string) =>
+          path === "/password" ? [coded] : [],
+        ),
+      });
+      expect(await h.hello()).toEqual({ ok: false, reason: "no-route" });
+      expect(refusals(reports)).toMatchObject([{ reason: "no-route", detail: "no-totp" }]);
+      expect(generation.replace).not.toHaveBeenCalled();
+    });
+
+    it("a login on a chooser's list (ADR 0028)", async () => {
+      const chooser: LoginChooserRecipe = {
+        version: 1,
+        id: generatedId,
+        revision: 3,
+        origin,
+        chooser: {
+          path: "/signin",
+          other: { by: "text", value: "Use another account" },
+          afterAccount: parseLoginRecipe({
+            ...coded,
+            steps: coded.steps.slice(2).map((step) => ({ ...step, path: "/signin" })),
+            slots: ["password", "totp"],
+            maxSubmissions: 1,
+          }),
+        },
+      };
+      fake.state.present = new Set();
+      const { h, reports, generation } = start({ used: coded, password: true, replace: dropped() });
+      withoutTotp(h);
+      h.recipes.recipe.mockResolvedValue(undefined);
+      h.recipes.chooser.mockResolvedValue(chooser);
+      h.recipes.starts.mockResolvedValue([
+        { path: "/signin", steps: [], list: [chooser.chooser.other!] },
+      ]);
+      expect(await h.hello()).toEqual({ ok: false, reason: "no-route" });
+      expect(refusals(reports)).toMatchObject([{ reason: "no-route", detail: "no-totp" }]);
+      expect(generation.replace).not.toHaveBeenCalled();
+    });
+
+    it("a page the tab asks for after a logout (ADR 0021 D)", async () => {
+      const { h, generation } = start({ replace: dropped() });
+      expect(await h.hello({ documentId: "home" }, false)).toMatchObject({ ok: false });
+      expect(
+        await h.login.handle(
+          { version: 1, type: "login.document.logout-clicked", token: "synthetic-token" },
+          sender({ documentId: "home" }),
+        ),
+      ).toBeUndefined();
+      expect(await h.hello({ documentId: "signed-out" })).not.toEqual({
+        ok: false,
+        reason: "generating",
+      });
+      expect(generation.replace).not.toHaveBeenCalled();
+    });
+
+    it("a resumed login of the recipe", async () => {
+      // The submit never answers, so the login still runs when the next page announces.
+      fake.state.onExecute = async (message) => {
+        if ((message["operation"] as { step: LoginStep }).step.kind === "click")
+          await new Promise(() => undefined);
+      };
+      let empty = false;
+      const { h, generation } = start({ password: true, replace: dropped() });
+      emptyPassword(h, () => empty);
+      expect(await h.hello()).toEqual({ ok: true });
+      await vi.waitFor(() => expect(executed()).toHaveLength(2));
+      empty = true;
+      expect(await h.hello({ documentId: "synthetic-document-2" })).not.toEqual({
+        ok: false,
+        reason: "generating",
+      });
+      expect(generation.replace).not.toHaveBeenCalled();
+    });
+
+    it("while another tab runs a login of the recipe", async () => {
+      fake.state.onExecute = async (message) => {
+        if ((message["operation"] as { step: LoginStep }).step.kind === "click")
+          await new Promise(() => undefined);
+      };
+      let empty = false;
+      const { h, reports, generation } = start({ password: true, replace: dropped() });
+      emptyPassword(h, () => empty);
+      fake.state.tabUrls[2] = fake.state.pageUrl;
+      expect(await h.hello({ tab: { id: 2 }, documentId: "other-tab" })).toEqual({ ok: true });
+      await vi.waitFor(() => expect(executed()).toHaveLength(2));
+      // The item's password is emptied by a sync while that login runs.
+      empty = true;
+      expect(await h.hello()).toEqual({ ok: false, reason: "no-route" });
+      expect(refusals(reports).at(-1)).toMatchObject({
+        tabId: 1,
+        detail: "password-empty:no-advance",
+      });
+      expect(generation.replace).not.toHaveBeenCalled();
+      // Once that tab closes, its login no longer holds the recipe.
+      for (const listener of fake.state.removed) listener(2);
+      expect(await h.hello({ documentId: "synthetic-document-3" })).toEqual({
+        ok: false,
+        reason: "generating",
+      });
+      await vi.waitFor(() => expect(generation.replace).toHaveBeenCalledTimes(1));
+    });
+  });
+});

@@ -11,6 +11,7 @@ import {
   refillsLoginSlot,
   handlerSteps,
   handlerTargets,
+  heldRouteMissing,
   isLoginRouteRecipe,
   loginAutocompleteTokens,
   loginChooserRecipeSchema,
@@ -2903,5 +2904,76 @@ describe("later steps a login may start at (ADR 0049)", () => {
       [0, 2, "/password"],
       [1, 2, "/password"],
     ]);
+  });
+});
+
+describe("the route a recipe lacks for the item (ADR 0058 A)", () => {
+  const id = (value: string) => ({ by: "id" as const, value });
+  const plain = () => parseLoginRecipe(recipe());
+  const button = () =>
+    parseLoginRecipe({ ...recipe(), passkey: { path: "/identity", target: id("passkey-login") } });
+  const facts = (password: boolean, discoverablePasskey: boolean) => ({
+    password,
+    discoverablePasskey,
+  });
+
+  it("names the passkey route for a discoverable passkey on a recipe without its button", () => {
+    // An item with a discoverable passkey and no password, on a page the passkey scripts run on.
+    expect(heldRouteMissing(plain(), facts(false, true), true)).toBe("passkey");
+    // Holding a password as well does not change it: the recipe still lacks the button.
+    expect(heldRouteMissing(plain(), facts(true, true), true)).toBe("passkey");
+  });
+
+  it("never counts a passkey that is not discoverable", () => {
+    expect(heldRouteMissing(plain(), facts(false, false), true)).toBeUndefined();
+    expect(heldRouteMissing(plain(), facts(false, false), false)).toBeUndefined();
+  });
+
+  it("names nothing for a recipe that already has the passkey button", () => {
+    expect(recipeHasRoute(button(), "passkey")).toBe(true);
+    expect(heldRouteMissing(button(), facts(false, true), true)).toBeUndefined();
+    expect(heldRouteMissing(button(), facts(true, true), true)).toBeUndefined();
+  });
+
+  it("names no passkey route on a page the passkey scripts do not run on (ADR 0050)", () => {
+    expect(heldRouteMissing(plain(), facts(false, true), false)).toBeUndefined();
+    // The item's password is still taken by the recipe's password route.
+    expect(heldRouteMissing(plain(), facts(true, true), false)).toBeUndefined();
+  });
+
+  it("names no password route while the recipe has a password variant", () => {
+    // Every recipe the current schema accepts has at least one password variant, so the
+    // `password` answer needs a recipe without one (#663); a password alone names nothing.
+    expect(recipeHasRoute(plain(), "password")).toBe(true);
+    expect(heldRouteMissing(plain(), facts(true, false), true)).toBeUndefined();
+    expect(heldRouteMissing(plain(), facts(true, false), false)).toBeUndefined();
+    expect(heldRouteMissing(button(), facts(true, false), true)).toBeUndefined();
+    const varied = parseLoginRecipe({
+      ...recipe(),
+      alternatives: [
+        {
+          slots: ["contract", "password"],
+          steps: [
+            {
+              kind: "fill",
+              path: "/identity",
+              fields: [
+                { slot: "contract", target: id("contract") },
+                { slot: "password", target: id("pin") },
+              ],
+            },
+            { kind: "click", path: "/identity", target: id("contract-login"), purpose: "submit" },
+          ],
+        },
+      ],
+      maxSubmissions: 3,
+    });
+    expect(heldRouteMissing(varied, facts(true, false), true)).toBeUndefined();
+    expect(heldRouteMissing(varied, facts(false, true), true)).toBe("passkey");
+  });
+
+  it("names nothing for an item that holds neither", () => {
+    expect(heldRouteMissing(plain(), facts(false, false), true)).toBeUndefined();
+    expect(heldRouteMissing(button(), facts(false, false), true)).toBeUndefined();
   });
 });
