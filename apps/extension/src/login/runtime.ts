@@ -2618,6 +2618,7 @@ export function createLoginRuntime(
                 cause: known.login.cause,
               }),
               ...(known.login.unconfirmed ? { unconfirmed: true as const } : {}),
+              ...(known.login.fillOnly ? { fillOnly: true as const } : {}),
               ...(settled ? { settled: true as const } : {}),
             },
           }

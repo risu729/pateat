@@ -109,7 +109,11 @@ Whether a model request is still in flight comes from the badge's spin: a page s
 with no answer recorded and no spin, as after a worker restart, says so rather than
 showing the AI as still busy. The reason a page was not sent shows on any page without
 a recipe of its own. For `structural-mismatch`, `timeout` and `retry-limit` the
-section adds that the recipe is not made again automatically.
+section adds that the recipe is not made again automatically. A login that only fills
+the form after a logout (ADR 0021 D) and ends as designed, before anything is pressed,
+says that after a logout Pateat only fills the form, rather than that the login stopped;
+the attempt report's `fill-only` reason is kept as `fillOnly` in the stored page status
+and the popup's status.
 
 ## Consequences
 

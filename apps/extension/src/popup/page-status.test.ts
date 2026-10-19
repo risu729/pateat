@@ -288,6 +288,30 @@ describe("pageStatusLines", () => {
     ]);
   });
 
+  it("reads a login that only fills the form after a logout as ended by design, not stopped", () => {
+    expect(lines({ login: { state: "blocked", outcome: "cancelled", fillOnly: true } })[1]).toEqual(
+      [
+        "login",
+        "idle",
+        "After a logout, Pateat only fills the sign-in form and presses nothing; sign in when you are ready.",
+      ],
+    );
+    // One that stopped for another reason says so as any login does.
+    expect(
+      lines({
+        login: {
+          state: "blocked",
+          outcome: "cancelled",
+          cause: "document-cancelled",
+          fillOnly: true,
+        },
+      })[1]?.[2],
+    ).toBe("The login stopped: the login was cancelled.");
+    expect(
+      lines({ login: { state: "blocked", outcome: "wrong-account", fillOnly: true } })[1]?.[2],
+    ).toBe("The login did not succeed: the page shows another account than the chosen one.");
+  });
+
   it("says why the page's sign-in did not start a login", () => {
     expect(lines({ recipe: "page", page: { notStarted: "logged-in" } })[1]).toEqual([
       "login",
