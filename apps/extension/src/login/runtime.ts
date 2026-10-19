@@ -1492,6 +1492,21 @@ export type LoginReport = (
     }
   | {
       /**
+       * The tab stopped asking for an account of the origin after a logout, a rejection or a
+       * stopped login (ADR 0021 D), because it closed. After a logout or a rejection, the
+       * site's other tabs stop asking with it unless `elsewhere`; a stopped login asked in
+       * its own tab only.
+       */
+      type: "ask-ended";
+      tabId: number;
+      origin: string;
+      ask: "logout" | "rejected" | "stopped-login";
+      cause: "tab-closed";
+      /** Another tab still asks after its own logout of the origin. */
+      elsewhere?: true;
+    }
+  | {
+      /**
        * Whether an automatic or picked account choice was saved after the login
        * authenticated (ADR 0013), and why not.
        */
@@ -10005,9 +10020,28 @@ export function createLoginRuntime(
     void sessionLoaded.then(async () => {
       let changed = pending.delete(tabId);
       if (picked.delete(tabId)) changed = true;
+      // Each origin the tab asked for, logged once its asking ends, since the site's other
+      // tabs stop asking with it and log in again (ADR 0021 D).
+      const ended = new Map<string, "logout" | "rejected" | "stopped-login">();
+      for (const { origin: asked } of scopes(logouts).filter((entry) => entry.tabId === tabId))
+        ended.set(asked, rejectedAsks.has(recordKey(tabId, asked)) ? "rejected" : "logout");
+      for (const { origin: asked } of scopes(stoppedAsks).filter((entry) => entry.tabId === tabId))
+        if (!ended.has(asked)) ended.set(asked, "stopped-login");
       for (const keys of [logouts, stoppedAsks, rejectedAsks])
         for (const key of keys)
           if (key.startsWith(`${tabId} `)) changed = keys.delete(key) || changed;
+      for (const [asked, ask] of ended)
+        report(
+          { frameId: 0 },
+          {
+            type: "ask-ended",
+            tabId,
+            origin: asked,
+            ask,
+            cause: "tab-closed",
+            ...(askedElsewhere(tabId, asked) ? { elsewhere: true as const } : {}),
+          },
+        );
       for (const key of logoutFills)
         if (key.startsWith(`${tabId} `)) changed = logoutFills.delete(key) || changed;
       if (entryPresses.delete(tabId)) changed = true;
