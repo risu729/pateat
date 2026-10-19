@@ -1,13 +1,15 @@
 # ADR 0052: Chrome Immediate UI requests are answered like other passkey requests
 
 Status: accepted by the owner on 2026-10-19. At 13:36 UTC the owner chose to merge
-[#658](https://github.com/risu729/pateat/pull/658) now, which replaces the 2026-10-14
-choice to delegate these requests
-([ADR 0007](0007-existing-passkey-assertions.md)). At 20:48 UTC the owner chose to treat
-an Immediate UI request exactly like other passkey get requests 「ほかのパスキー要求と
-同じ扱いにすれば」, and at 20:56 UTC to keep the feature and to use the normal 10-second
-lookup limit. Implemented (unit tests only; not yet checked in installed Chrome or on a
-real site).
+[#658](https://github.com/risu729/pateat/pull/658) now (landed as
+[#803](https://github.com/risu729/pateat/pull/803)), which replaces the 2026-10-14
+choice to delegate these requests. At 20:48 UTC the owner chose to treat an Immediate UI
+request exactly like other passkey get requests:
+「ほかのパスキー要求と同じ扱いにすれば」 ("treat it the same as other passkey
+requests"). At 20:56 UTC the owner chose to keep the feature and to use the normal
+10-second lookup limit. Amends [ADR 0007](0007-existing-passkey-assertions.md) and
+[ADR 0021](0021-account-choice-outside-settings.md) C and D. Implemented (unit tests and
+synthetic browser tests only; not yet checked in installed Chrome or on a real site).
 
 Date: 2026-10-19
 
@@ -38,10 +40,11 @@ mediation and the background delegated it.
   - no match delegates, and Chrome then rejects at once;
   - a running login limits the search to its item, and lookup and signing have the
     normal 10-second limit (`RUNTIME_TIMEOUT_MS`); time in the chooser does not count.
-- Where Chrome itself would reject the request, Pateat delegates instead of answering:
-  without a user gesture (whatever the presence setting), with a nonempty allow list
-  (`immediate-allow-credentials`), and in incognito or outside an active, focused
-  document (`immediate-document-not-active`).
+- Not confirmed by the owner (added by Claude): where Chrome's guide says it rejects
+  Immediate UI, Pateat delegates instead of answering, so the site gets Chrome's
+  rejection: without a user gesture (`no-user-activation`, whatever the presence
+  setting), with a nonempty allow list (`immediate-allow-credentials`), and in
+  incognito (`immediate-incognito`).
 - Reading `uiMode` is not an experimental feature under the
   [platform rules](../development.md#platform-features): Pateat calls no Immediate UI
   API, it only reads an option a page passes, as it already did before this ADR.
@@ -62,5 +65,7 @@ difference is in [Bitwarden differences](../bitwarden-differences.md#passkeys).
 
 Keep delegating every Immediate UI request: Chrome's dialog never offers Pateat's
 passkeys. Never open the chooser and delegate when several match or after a logout
-(the first version of this PR, with a 1-second limit): the owner chose the same
-handling as other requests instead.
+(#658's first version, with a 1-second limit): the owner chose the same handling as
+other requests instead. Answering also without a gesture, with an allow list or in
+incognito: Pateat would sign where Chrome refuses, and the gesture rule exists to stop
+silent probing.

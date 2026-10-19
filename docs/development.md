@@ -503,8 +503,8 @@ holds:
 - `uiMode`: `immediate` for Chrome's Immediate UI, separately from mediation
   ([ADR 0052](adr/0052-immediate-ui-stored-passkeys.md)). Such a request without a user
   gesture delegates with `no-user-activation`, one with a nonempty allow list with
-  `immediate-allow-credentials`, and one in incognito or outside an active, focused
-  document with `immediate-document-not-active`; otherwise it is handled as a modal
+  `immediate-allow-credentials`, and one in incognito with `immediate-incognito`;
+  otherwise it is handled as a modal
   request;
 - `answerFailed`: why the login's item could not answer a conditional request the login
   gave it (such as `login-item-no-credential`); the login then falls back to the

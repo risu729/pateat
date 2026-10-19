@@ -40,9 +40,11 @@ Amended on 2026-10-13: the owner chose the `DER` helper of `@noble/curves` for t
 signature wrapper (see [Alternatives](#alternatives)).
 Amended on 2026-10-14: Chrome 149's Immediate UI asks with `uiMode: "immediate"` instead
 of `mediation: "immediate"`. The owner chose at 06:44 UTC to keep delegating these
-requests for now and to consider answering them later. Superseded on 2026-10-19 by
-[ADR 0052](0052-immediate-ui-stored-passkeys.md): the owner chose to answer them like
-other get requests, and the page relays `uiMode` beside `mediation` (implemented).
+requests for now and to consider answering them later: the page relays such a request
+as `immediate` mediation, which delegates and is logged as `immediate` (implemented).
+Amended on 2026-10-19 by [ADR 0052](0052-immediate-ui-stored-passkeys.md) (owner, 13:36
+and 20:48 UTC): Immediate UI requests are answered like other get requests, and the page
+relays `uiMode` beside `mediation` instead (implemented).
 Amended on 2026-10-14: finding and signing with a stored passkey also ignore
 Bitwarden's master password re-prompt (`reprompt: 1`), as filling does
 ([vault adapter](../architecture.md#vault-adapter)). Settings for UP/UV and for
@@ -210,10 +212,10 @@ passkeys in the vault, which is passkey registration and stays later work.
 Pateat claims a request only when all of these hold; otherwise it delegates:
 
 - `publicKey` is the only credential type requested and mediation is absent,
-  `optional` or `required`. Silent and immediate mediation delegate. A request with
-  `uiMode: "immediate"` is admitted as a modal request with the extra checks of
-  [ADR 0052](0052-immediate-ui-stored-passkeys.md); one with any other `uiMode` is left
-  to the browser. Conditional
+  `optional` or `required`. Silent and immediate mediation delegate, and so does a
+  request with `uiMode: "immediate"`; a request with any other `uiMode` is left to the
+  browser. Amended on 2026-10-19 by [ADR 0052](0052-immediate-ui-stored-passkeys.md): a
+  request with `uiMode: "immediate"` is admitted as a modal request. Conditional
   mediation is admitted only for the login runtime to decide, which answers it through
   a login of the document and hands it on otherwise
   ([ADR 0034](0034-answer-page-passkey-requests.md)).

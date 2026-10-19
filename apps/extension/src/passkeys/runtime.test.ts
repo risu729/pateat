@@ -1638,18 +1638,50 @@ describe("Immediate UI requests (ADR 0052)", () => {
   });
 
   it.each([
-    ["without activation", { userActivation: false }, {}],
-    ["without focus", { focused: false }, {}],
-    ["in an inactive document", {}, { documentLifecycle: "cached" }],
-    ["in incognito", {}, { tab: { id: 7, incognito: true } }],
-  ])("delegates %s before reading the vault", async (_, message, context) => {
+    ["without activation", { userActivation: false }, {}, "no-user-activation"],
+    ["in incognito", {}, { tab: { id: 7, incognito: true } }, "immediate-incognito"],
+  ])("delegates %s before reading the vault", async (_, message, context, reason) => {
     const backing = source();
     const runtime = createPasskeyRuntime(backing, { extensionId });
-    expect(await runtime.handle(immediate(message), sender(context))).toMatchObject({
+    expect(await runtime.handle(immediate(message), sender(context))).toEqual({
       kind: "delegate",
+      reason,
     });
     expect(backing.candidates).not.toHaveBeenCalled();
     expect(backing.sign).not.toHaveBeenCalled();
+  });
+
+  it("delegates an allow list and reports the request's uiMode", async () => {
+    const backing = source();
+    const report = vi.fn();
+    const runtime = createPasskeyRuntime(backing, { extensionId, report });
+    const message = immediate({
+      request: {
+        ...request,
+        uiMode: "immediate",
+        allowCredentials: [{ type: "public-key", id: "AQID" }],
+      },
+    });
+    expect(await runtime.handle(message, sender())).toEqual({
+      kind: "delegate",
+      reason: "immediate-allow-credentials",
+    });
+    expect(backing.candidates).not.toHaveBeenCalled();
+    await vi.waitFor(() =>
+      expect(report).toHaveBeenCalledWith(
+        expect.objectContaining({ reason: "immediate-allow-credentials", uiMode: "immediate" }),
+      ),
+    );
+  });
+
+  it.each([
+    ["without focus", { focused: false }, {}],
+    ["in an inactive document", {}, { documentLifecycle: "cached" }],
+  ])("answers a single match %s, as a normal request does", async (_, message, context) => {
+    const runtime = createPasskeyRuntime(source(), { extensionId });
+    expect(await runtime.handle(immediate(message), sender(context))).toMatchObject({
+      kind: "assertion",
+    });
   });
 
   it("delegates when no stored passkey matches, so the browser rejects at once", async () => {

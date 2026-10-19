@@ -343,11 +343,8 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
     detail.allowCredentials = admission.request.allowCredentialIds.length;
     const conditional = admission.request.conditional === true;
     const immediate = admission.request.immediate === true;
-    // Chrome rejects Immediate UI in incognito and outside an active, focused document, so
-    // Pateat hands such a request on rather than answering where Chrome would not (ADR 0052).
-    // The relay supplies focus; document lifecycle and incognito come from the sender.
-    if (immediate && (context.incognito || !context.active || !message.focused))
-      return { kind: "delegate", reason: "immediate-document-not-active" };
+    // Chrome rejects Immediate UI in incognito, so Pateat does not answer there (ADR 0052).
+    if (immediate && context.incognito) return { kind: "delegate", reason: "immediate-incognito" };
     const controller = new AbortController();
     const operation: Operation = {
       documentId,
