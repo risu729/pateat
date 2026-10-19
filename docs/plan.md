@@ -33,6 +33,14 @@ login page works on at least one real site, rather than on every listed site, an
 untested daily-use sites, the Grok Bot sites still failing and the remaining
 installed-Chrome checks moved to [phase 2](#phase-2-use-it-and-fix-what-comes-up).
 
+Vaultwarden support is done now, outside the phases, and covers only the latest
+Vaultwarden release (owner, 2026-10-19 22:14 UTC,
+[ADR 0059](adr/0059-latest-vaultwarden-server.md)). Done: item keys Pateat does not read
+are ignored, and Vaultwarden's wrong-password and wrong-code answers are shown as such
+(local tests). To do: `http://` server roots for `localhost` and `127.0.0.1`,
+sending email two-step codes as the official extension does, and a Vaultwarden test
+server in CI.
+
 ### Phase 1: usable
 
 Done when each kind of login page below works on the real site named for it, in the
@@ -1423,6 +1431,7 @@ Other item types receive explicit unimplemented outcomes without blocking
 unrelated supported items. Do not expand rare-type support solely to satisfy a
 compatibility label. All received IDs still require validation and uniqueness;
 malformed supported/account data cannot fall back to older formats or secrets.
+Keys Pateat does not read inside an item are dropped, not refused (ADR 0059).
 Coverage remains the received envelope, not a complete-vault or atomic-cache
 claim. Real-account setup, persistent unlock and cache reconciliation remain
 separate integration gates.
@@ -2962,7 +2971,7 @@ API keys, SSO or device approval; signing in to sites through an identity provid
 post-login actions, including transactions and approvals. UI extensions, automatic
 account switching (logging out and in again when another account is picked while logged
 in, recorded in ADR 0021), recipe sharing, additional service auth, E2EE settings
-sync, MCP, Vaultwarden support and vaults other than Bitwarden are also deferred. They
+sync, MCP and vaults other than Bitwarden are also deferred. They
 are extension points, not implicit permissions or initial acceptance requirements. A
 mode without the service and direct AI are planned for
 [phase 3](#phase-3-public-release); the [roadmap](#roadmap) says which of these deferred
@@ -3045,10 +3054,10 @@ claiming compatibility. This provider setup is separate from website OTP
 automation. Preserve supported Bitwarden TOTP forms, including raw Base32,
 `otpauth://totp/` parameters and Steam form; verify algorithms, digits, periods
 and clock boundaries. Do not imply HOTP support from URI parsing alone.
-Vaultwarden support is later work (owner request, 2026-10-11). A self-hosted
-connection to a Vaultwarden URL is accepted, but Pateat is tested only against
-official Bitwarden server response shapes, so Vaultwarden compatibility is
-unverified until its own response shapes and sign-in flow are tested.
+Vaultwarden is supported in its latest release only (1.37.4 on 2026-10-19); older
+releases are not supported ([ADR 0059](adr/0059-latest-vaultwarden-server.md), owner,
+2026-10-19 22:14 UTC, replacing "later work" of 2026-10-11). The official-shape
+fixtures stay, and V2 accounts and new-device OTP are tested only with them.
 
 ## Mandatory acceptance matrix
 
@@ -3122,8 +3131,8 @@ autonomously invoke allowed dummy operations after connection approval; MCP does
 bypass client rules. One-time account choices and choosing again after logout (ADR 0021)
 need tests that cover several tabs on one origin; automatic logout/re-login also
 requires shared-session/race tests. Direct AI requires trusted extension key storage and
-provider compatibility tests. Alternative service auth, E2EE sync and Vaultwarden
-require their own interoperability/recovery evidence.
+provider compatibility tests. Alternative service auth and E2EE sync require their
+own interoperability/recovery evidence.
 
 Extension releases on GitHub Releases, with their continuous delivery, are planned for
 [phase 3](#phase-3-public-release), with the Chrome Web Store if its policies allow;

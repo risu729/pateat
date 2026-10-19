@@ -108,8 +108,9 @@ inside the adapter.
 Initial Bitwarden connections target official US/EU cloud and ordinary HTTPS
 self-hosted instances. Support email/master-password authentication and required
 verification/MFA through settings; record tested methods instead of claiming all
-methods work. Vaultwarden and special endpoint/certificate configurations are
-later compatibility work.
+methods work. Vaultwarden is supported in its latest release only, and no older one
+([ADR 0059](adr/0059-latest-vaultwarden-server.md)). Special endpoint and certificate
+configurations are later compatibility work.
 
 The initial transport library fixes service paths for each selected environment. Reject
 endpoint credentials, query/fragment components and unsupported custom service layouts.

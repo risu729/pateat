@@ -21,6 +21,8 @@ import {
 import {
   TEST_ORGANIZATION_ID,
   TEST_ORGANIZATION_KEY,
+  fidoCredential,
+  fidoPrivateKey,
   v1Email,
   v1Password,
   v1PrivateKey,
@@ -854,6 +856,72 @@ describe("received-envelope item mapping", () => {
     }
   });
 
+  it("ignores item keys Pateat does not read, as Vaultwarden returns them", async () => {
+    // Vaultwarden returns the JSON a client stored and sends no Data. The official CLI's
+    // `bw import` stores `response: null` in a passkey.
+    const raw = rawV1Account();
+    const cipher = raw.sync.ciphers[0]! as Record<string, unknown>;
+    delete cipher["data"];
+    cipher["login"] = {
+      ...(cipher["login"] as Record<string, unknown>),
+      futureField: "not-guessed",
+      fido2Credentials: [{ ...fidoCredential, response: null }],
+    };
+    const { prepared, session } = await received(raw);
+    expect(JSON.stringify(prepared.ciphers)).not.toMatch(/futureField|"response"/u);
+    const request = { connectionId: accountProfile.connectionId, cipher: prepared.ciphers[0] };
+    expect((await session.decryptCipher(request)).ok).toBe(true);
+    expect(await session.decryptFido2PrivateKey(request)).toEqual({
+      ok: true,
+      data: fidoPrivateKey,
+    });
+  });
+
+  it("ignores unknown typed keys beside the official server's stored Data", async () => {
+    const raw = rawV1Account();
+    const cipher = raw.sync.ciphers[0]! as Record<string, unknown>;
+    cipher["login"] = { ...(cipher["login"] as Record<string, unknown>), futureField: "a" };
+    const data = JSON.parse(cipher["data"] as string) as Record<string, unknown>;
+    cipher["data"] = JSON.stringify({ ...data, futureField: "b" });
+    const { prepared, session } = await received(raw);
+    expect(JSON.stringify(prepared.ciphers)).not.toContain("futureField");
+    const result = await session.decryptCipher({
+      connectionId: accountProfile.connectionId,
+      cipher: prepared.ciphers[0],
+    });
+    expect(result.ok && result.data.login?.password).toBe("test_password");
+  });
+
+  it.each(["Envelope", "WrappedCek", "FormatVersion", "ENVELOPE", "WRAPPED_CEK", "Format_Version"])(
+    "does not read flat Data with the sealed-blob key %s as legacy fields",
+    (key) => {
+      const raw = rawV1Account();
+      const cipher = raw.sync.ciphers[0]!;
+      cipher.data = JSON.stringify({ ...JSON.parse(cipher.data), [key]: "synthetic" });
+      expect(mapRaw(raw).ok).toBe(false);
+    },
+  );
+
+  it.each([
+    ["login", []],
+    ["login", ["synthetic"]],
+    ["fields", [[]]],
+  ])("refuses an array where %s holds an object", (name, value) => {
+    const raw = rawV1Account();
+    const cipher = raw.sync.ciphers[0]! as Record<string, unknown>;
+    delete cipher["data"];
+    cipher[name] = value;
+    expect(mapRaw(raw).ok).toBe(false);
+  });
+
+  it("ignores legacy flat Data keys outside the item's type", async () => {
+    const raw = rawV1Account();
+    const cipher = raw.sync.ciphers[0]!;
+    cipher.data = JSON.stringify({ ...JSON.parse(cipher.data), futureField: "not-guessed" });
+    const { prepared } = await received(raw);
+    expect(JSON.stringify(prepared.ciphers)).not.toContain("futureField");
+  });
+
   it("rejects conflicting legacy flat Data and typed login fields", () => {
     const raw = rawV1Account();
     raw.sync.ciphers[0]!.data = JSON.stringify({
@@ -861,7 +929,7 @@ describe("received-envelope item mapping", () => {
       username: "2.conflicting-username",
       password: raw.sync.ciphers[0]!.login.password,
     });
-    expect(mapRaw(raw).ok).toBe(false);
+    expect(mapRaw(raw)).toMatchObject({ ok: false, error: { code: "invalid-response" } });
   });
 
   it("does not reinterpret an unknown claimed sealed format as legacy fields", () => {

@@ -169,15 +169,19 @@ export const encryptedCatalogContextSchema = v.strictObject({
     v.maxLength(10000),
   ),
 });
+// Like Bitwarden's response models, nested cipher objects keep only the keys Pateat reads; the
+// SDK and the cache get that copy. Vaultwarden returns the JSON a client stored, keys and all.
+const known = <TEntries extends v.ObjectEntries>(entries: TEntries) =>
+  v.pipe(plainRecord, v.object(entries));
 const items = <TSchema extends v.GenericSchema>(schema: TSchema) =>
   nullable(v.pipe(v.array(schema), v.maxLength(10_000)));
 const encryptedObject = (names: readonly string[], required: readonly string[] = []) =>
-  v.strictObject(
+  known(
     Object.fromEntries(
       names.map((name) => [name, required.includes(name) ? text : nullable(text)]),
     ),
   );
-const fidoSchema = v.strictObject({
+const fidoSchema = known({
   credentialId: text,
   keyType: text,
   keyAlgorithm: text,
@@ -192,12 +196,12 @@ const fidoSchema = v.strictObject({
   discoverable: text,
   creationDate: date,
 });
-const loginSchema = v.strictObject({
+const loginSchema = known({
   username: nullable(text),
   password: nullable(text),
   passwordRevisionDate: nullable(date),
   uris: items(
-    v.strictObject({
+    known({
       uri: nullable(text),
       match: nullable(v.picklist([0, 1, 2, 3, 4, 5])),
       uriChecksum: nullable(text),
@@ -207,7 +211,7 @@ const loginSchema = v.strictObject({
   autofillOnPageLoad: nullable(v.boolean()),
   fido2Credentials: items(fidoSchema),
 });
-const fieldSchema = v.strictObject({
+const fieldSchema = known({
   name: nullable(text),
   value: nullable(text),
   type: v.picklist([0, 1, 2, 3]),
@@ -218,7 +222,7 @@ const fieldSchema = v.strictObject({
     ]),
   ),
 });
-const cipherSchema = v.intersect([
+const cipherSchema = v.pipe(
   plainRecord,
   v.strictObject({
     id: nullable(uuid),
@@ -256,7 +260,7 @@ const cipherSchema = v.intersect([
         "licenseNumber",
       ]),
     ),
-    secureNote: nullable(v.strictObject({ type: v.literal(0) })),
+    secureNote: nullable(known({ type: v.literal(0) })),
     sshKey: nullable(encryptedObject(["privateKey", "publicKey", "fingerprint"], ["privateKey"])),
     bankAccount: nullable(
       encryptedObject([
@@ -309,12 +313,10 @@ const cipherSchema = v.intersect([
     organizationUseTotp: v.boolean(),
     edit: v.boolean(),
     viewPassword: v.boolean(),
-    permissions: nullable(v.strictObject({ delete: v.boolean(), restore: v.boolean() })),
-    localData: nullable(
-      v.strictObject({ lastUsedDate: nullable(date), lastLaunched: nullable(date) }),
-    ),
+    permissions: nullable(known({ delete: v.boolean(), restore: v.boolean() })),
+    localData: nullable(known({ lastUsedDate: nullable(date), lastLaunched: nullable(date) })),
     attachments: items(
-      v.strictObject({
+      known({
         id: nullable(v.string()),
         url: nullable(v.string()),
         size: nullable(v.string()),
@@ -324,13 +326,13 @@ const cipherSchema = v.intersect([
       }),
     ),
     fields: items(fieldSchema),
-    passwordHistory: items(v.strictObject({ password: text, lastUsedDate: date })),
+    passwordHistory: items(known({ password: text, lastUsedDate: date })),
     creationDate: date,
     revisionDate: date,
     deletedDate: nullable(date),
     archivedDate: nullable(date),
   }),
-]);
+);
 const decryptSchema = v.strictObject({ connectionId: identifier, cipher: cipherSchema });
 const blobSchema = v.strictObject({
   format_version: v.literal(1),
