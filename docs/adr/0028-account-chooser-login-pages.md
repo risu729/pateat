@@ -541,4 +541,6 @@ and 20:23 UTC). "10 seconds after loading" in
 [Which pages are sent](#which-pages-are-sent) and the content script's "ten seconds to
 offer a page" now mean the wait of ADR 0057: it ends once the page's DOM has not changed
 for 1 second, or 5 seconds after it began. A list that renders after that wait is not
-sent on that visit.
+sent on that visit. Not confirmed by the owner: a text with an `@` that is not a list,
+announced only for the log (`not-a-list`), is still announced when the 10-second window
+ends, unless a sign-in input is offered first.

@@ -456,14 +456,14 @@ export function installLoginContent({ probeStatus = false }: LoginContentOptions
     if (submitPath !== undefined && path !== submitPath) afterSubmit ??= path;
     return path === afterSubmit;
   }
+  /** Whether a list holds only why a text with an `@` is not an entry, for the log. */
+  const logOnly = (list: { names?: string[]; missed?: EntryMiss }) =>
+    list.missed !== undefined && !list.names;
   /**
    * What this page offers as a list of accounts (ADR 0028): its path once it lists an
    * account by email, or else the short texts that may name one by a username that is not
    * an email; and whether it shows a control to sign in with another account.
    */
-  /** Whether a list holds only why a text with an `@` is not an entry, for the log. */
-  const logOnly = (list: { names?: string[]; missed?: EntryMiss }) =>
-    list.missed !== undefined && !list.names;
   function listed():
     | {
         path: string;
