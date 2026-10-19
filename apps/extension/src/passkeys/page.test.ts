@@ -105,12 +105,8 @@ describe("MAIN-world passkey wrapper", () => {
     expect(page.nativeGet.mock.calls[0]![0]).toBe(options);
   });
 
-  it("preserves supported mediation and delegates unsupported Immediate UI combinations", () => {
-    for (const extra of [
-      { uiMode: 1 },
-      { uiMode: "other" },
-      { uiMode: "immediate", signal: new AbortController().signal },
-    ])
+  it("keeps uiMode beside mediation and leaves other uiMode values to the browser", () => {
+    for (const extra of [{ uiMode: 1 }, { uiMode: "other" }])
       expect(snapshotGetOptions({ publicKey, ...extra })).toBeUndefined();
     expect(
       snapshotGetOptions({ publicKey, uiMode: "immediate", mediation: "optional" }),
@@ -120,10 +116,24 @@ describe("MAIN-world passkey wrapper", () => {
     });
   });
 
+  it("relays Immediate UI with a signal or an allow list as it relays other requests", () => {
+    expect(
+      snapshotGetOptions({ publicKey, uiMode: "immediate", signal: new AbortController().signal }),
+    ).toMatchObject({ uiMode: "immediate" });
+    expect(
+      snapshotGetOptions({
+        publicKey: {
+          ...publicKey,
+          allowCredentials: [{ type: "public-key", id: new Uint8Array([1]) }],
+        },
+        uiMode: "immediate",
+      }),
+    ).toMatchObject({ uiMode: "immediate", allowCredentials: [{ id: "AQ" }] });
+  });
+
   it.each([
     ["password", { password: true }],
     ["identity", { identity: { providers: [] } }],
-    ["signal", { signal: new AbortController().signal }],
   ])("hands Immediate UI %s options directly to the original provider", async (_, extra) => {
     const page = fakePage();
     const options = { publicKey, uiMode: "immediate", ...extra };

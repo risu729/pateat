@@ -1034,18 +1034,12 @@ items the owner mentioned and gates still open on 2026-10-11.
 - Settings to limit Pateat as an extension that handles personal data: only allowed
   sites (an allowlist), and a choice of how long the vault stays unlocked, as the
   official Bitwarden extension offers.
-- Provisional implementation (2026-10-17; owner confirmation remains open in
-  [ADR 0052](adr/0052-immediate-ui-stored-passkeys.md)): answering Chrome's Immediate UI
-  requests (`navigator.credentials.get` with `uiMode: "immediate"`, made when the
-  person presses a site's sign-in button). The narrow stored-passkey path uses the
-  existing account selection, requires transient activation and an active, focused
-  top document outside incognito, and delegates nonempty allowlists, supplied
-  signals and every request needing an account chooser. It has a one-second lookup
-  and signing budget and never parks for a login. Synthetic unit checks and
-  independent review pass in [the draft PR](https://github.com/risu729/pateat/pull/658);
-  installed-Chrome behavior is unverified. `password: true` and
-  mixed credential requests still delegate; handing the page a `PasswordCredential`
-  needs a design of its own. The
+- Answering Chrome's Immediate UI requests (`navigator.credentials.get` with
+  `uiMode: "immediate"`, made when the person presses a site's sign-in button) like
+  other passkey get requests, chooser window included: decided and implemented on
+  2026-10-19 ([ADR 0052](adr/0052-immediate-ui-stored-passkeys.md)); not yet checked in
+  installed Chrome. `password: true` still delegates; handing the page a
+  `PasswordCredential` needs a design of its own. The
   [login standards](research/2026-10-13-login-standards.md) note records how the
   official Bitwarden extension treats these requests.
 - Bitwarden writes (with their own permission), so that the official Bitwarden

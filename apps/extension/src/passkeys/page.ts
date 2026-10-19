@@ -111,13 +111,12 @@ export function snapshotGetOptions(options: unknown): BridgedGetRequest | undefi
   const rpId = optional(pk["rpId"]);
   const userVerification = optional(pk["userVerification"]);
   const mediation = optional(record["mediation"]);
-  // Keep Chrome's current UI mode separate from the obsolete origin-trial mediation.
-  // Immediate UI cannot be programmatically dismissed and rejects credential allowlists.
+  // Chrome's Immediate UI (`uiMode: "immediate"`) is relayed apart from `mediation`, which
+  // the origin trial's `mediation: "immediate"` still uses (ADR 0052). Any other `uiMode` is
+  // left to the browser.
   const uiMode = optional(record["uiMode"]);
   if (rpId === null || userVerification === null || mediation === null) return undefined;
   if (uiMode !== undefined && uiMode !== "immediate") return undefined;
-  if (uiMode === "immediate" && (record["signal"] !== undefined || allowCredentials.length !== 0))
-    return undefined;
   // Only a plain number is read; any other value is left out, which only lengthens Pateat's
   // wait up to its own limit and never changes what the browser receives.
   const rawTimeout = pk["timeout"];

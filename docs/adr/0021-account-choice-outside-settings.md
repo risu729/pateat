@@ -162,7 +162,8 @@ popup points to the settings page instead.
 ### C. Several passkey candidates
 
 Pateat opens its own chooser window (`chrome.windows.create`, `passkey-picker.html`).
-This applies only when several credentials match and no site default is among them. It
+This applies only when several credentials match and no site default is among them, for
+Chrome Immediate UI requests too ([ADR 0052](0052-immediate-ui-stored-passkeys.md)). It
 lists item name, passkey `userName` and connection, with a "make default" checkbox and a
 "use the browser / Bitwarden" button. Closing the window or pressing that button
 delegates as before.

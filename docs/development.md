@@ -493,8 +493,7 @@ holds:
   ID's site in the tab and still waits for the site's first step (at most 10 minutes,
   while the tab stays on the site), or, after such a click was used, the tab keeps a
   logout state for an origin of the site (ADR 0021 D). Such a request that cannot open
-  the window is delegated with `chooser-unavailable`; Immediate UI never opens this
-  window and delegates with `immediate-account-choice`;
+  the window is delegated with `chooser-unavailable`;
 - `cause`: for a `cancelled` outcome, who cancelled it (`page-cancelled` or
   `settings-changed`); for the `assertion-failed` reason, the step that threw
   (`login-wait`, `account-lookup`, `passkey-lookup`, `signed-before-lookup`, `chooser`
@@ -502,13 +501,11 @@ holds:
 - `mediation`: the request's mediation when it names one (`optional`, `conditional`,
   `required`, `silent`, `immediate` or `other`), whatever the outcome;
 - `uiMode`: `immediate` for Chrome's Immediate UI, separately from mediation
-  ([ADR 0052](adr/0052-immediate-ui-stored-passkeys.md)). Its admission requires
-  transient activation, an active, focused top document outside incognito and an
-  empty allowlist. Unsupported document state delegates as
-  `immediate-document-not-active`, a supplied allowlist as
-  `immediate-allow-credentials`, and lookup or signing past one second as `timeout`.
-  Requests with a supplied signal or mixed credential types delegate before the
-  background and do not produce an entry;
+  ([ADR 0052](adr/0052-immediate-ui-stored-passkeys.md)). Such a request without a user
+  gesture delegates with `no-user-activation`, one with a nonempty allow list with
+  `immediate-allow-credentials`, and one in incognito or outside an active, focused
+  document with `immediate-document-not-active`; otherwise it is handled as a modal
+  request;
 - `answerFailed`: why the login's item could not answer a conditional request the login
   gave it (such as `login-item-no-credential`); the login then falls back to the
   password;

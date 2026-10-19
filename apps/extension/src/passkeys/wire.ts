@@ -14,8 +14,6 @@ export const RELAY_HEARTBEAT_MS = 5_000;
 export const RELAY_ACK_TIMEOUT_MS = 1_000;
 /** Background budget for credential lookup and signing before delegating to the browser. */
 export const RUNTIME_TIMEOUT_MS = 10_000;
-/** Immediate UI falls back quickly instead of waiting for a separate extension prompt. */
-export const IMMEDIATE_TIMEOUT_MS = 1_000;
 /** Longest a chooser window keeps a request open (ADR 0021). */
 export const CHOOSER_MAX_WAIT_MS = 120_000;
 /** The chooser opens only with at least this much of its wait left. */

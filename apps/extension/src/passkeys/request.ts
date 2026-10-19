@@ -78,7 +78,10 @@ export interface AdmittedGetRequest {
    * only through a login's `passkey` route (ADR 0034).
    */
   readonly conditional?: true;
-  /** Chrome Immediate UI: gesture-required, bounded and never opens Pateat's chooser. */
+  /**
+   * Chrome Immediate UI (ADR 0052): answered as a modal request, but only with a user gesture
+   * and in a focused, active document outside incognito, where Chrome would answer it.
+   */
   readonly immediate?: true;
 }
 

@@ -1,56 +1,66 @@
-# ADR 0052: Stored passkeys for Chrome Immediate UI
+# ADR 0052: Chrome Immediate UI requests are answered like other passkey requests
 
-Status: proposed, not confirmed by the owner. The owner requested finishing uncovered
-plan work and recording questions with a suggested choice while implementation
-continues. This proposal narrows the later Immediate UI work in ADR 0007; it does not
-record acceptance or claim installed-Chrome compatibility.
-Date: 2026-10-17
+Status: accepted by the owner on 2026-10-19. At 13:36 UTC the owner chose to merge
+[#658](https://github.com/risu729/pateat/pull/658) now, which replaces the 2026-10-14
+choice to delegate these requests
+([ADR 0007](0007-existing-passkey-assertions.md)). At 20:48 UTC the owner chose to treat
+an Immediate UI request exactly like other passkey get requests 「ほかのパスキー要求と
+同じ扱いにすれば」, and at 20:56 UTC to keep the feature and to use the normal 10-second
+lookup limit. Implemented (unit tests only; not yet checked in installed Chrome or on a
+real site).
+
+Date: 2026-10-19
 
 ## Context
 
-The [plan](../plan.md) leaves answering `uiMode: "immediate"` for later. Chrome's
-[Immediate UI guide](https://developer.chrome.com/docs/identity/immediate-ui-mode),
-checked on 2026-10-17, requires a user gesture, rejects nonempty `allowCredentials`
-and incognito requests, and does not support programmatically dismissing the dialog
-with `signal`. Its native picker cannot offer an extension's stored passkeys.
+Chrome's Immediate UI asks with `navigator.credentials.get({ publicKey, uiMode:
+"immediate" })` when the person presses a site's sign-in button. Chrome's
+[guide](https://developer.chrome.com/docs/identity/immediate-ui-mode), checked on
+2026-10-19, says the call needs a user gesture, throws `NotAllowedError` for a nonempty
+`allowCredentials` and in incognito, rejects without UI when no local credential
+exists, and cannot be dismissed with `signal`. Chrome's own dialog cannot offer
+Pateat's stored passkeys. Until this ADR the page relayed such a request as `immediate`
+mediation and the background delegated it.
 
 ## Decision
 
-Proposed question: should Pateat answer an Immediate UI request with its existing
-automatic modal-passkey selection, or keep every Immediate UI request delegated?
-Suggested choice: answer only the narrow stored-passkey case below, preserving the
-owner's existing unattended signing policy. This remains unconfirmed by the owner.
-
-- Keep `uiMode: "immediate"` separate from `mediation`; the obsolete origin-trial
-  `mediation: "immediate"` keeps delegating. Unknown modes and unsupported mediation
-  combinations delegate too.
-- Handle public-key-only requests with an empty allowlist and no supplied signal.
-  Password, federated, identity, OTP and digital credential combinations delegate
-  with their original arguments.
-- Require isolated-world transient activation and a visible, focused document, plus
-  a browser-supplied active top-level document outside incognito. The permissive
-  UP/UV policy does not waive these Immediate UI requirements.
-- Keep the existing origin, RP ID, tab, document, configured-account and exact
-  credential checks. Use only a currently eligible stored zero-counter passkey.
-  A running login still restricts selection to its account.
-- Never park the request for a login or open Pateat's chooser. Missing, ambiguous,
-  incomplete or unsupported candidates and an account choice required after logout
-  delegate. Bound lookup and signing by a short deadline, then delegate failures.
+- The page relays `uiMode: "immediate"` beside `mediation`; the origin trial's
+  `mediation: "immediate"` still delegates as unsupported mediation, and any other
+  `uiMode` is left to the browser. Requests naming other credential types (`password`,
+  `identity` and the rest) delegate with the caller's arguments, as every get does.
+- Pateat answers it as a modal request, with the same selection, chooser and limits:
+  - one matching passkey, or the saved site default, signs without a window;
+  - several matches and no default open Pateat's chooser window
+    ([ADR 0021 C](0021-account-choice-outside-settings.md#c-several-passkey-candidates));
+  - in a tab Pateat already signed in from, or after a logout click, the chooser asks
+    again
+    ([ADR 0021 D](0021-account-choice-outside-settings.md#d-after-a-logout-choose-again-detection-l1));
+  - no match delegates, and Chrome then rejects at once;
+  - a running login limits the search to its item, and lookup and signing have the
+    normal 10-second limit (`RUNTIME_TIMEOUT_MS`); time in the chooser does not count.
+- Where Chrome itself would reject the request, Pateat delegates instead of answering:
+  without a user gesture (whatever the presence setting), with a nonempty allow list
+  (`immediate-allow-credentials`), and in incognito or outside an active, focused
+  document (`immediate-document-not-active`).
+- Reading `uiMode` is not an experimental feature under the
+  [platform rules](../development.md#platform-features): Pateat calls no Immediate UI
+  API, it only reads an option a page passes, as it already did before this ADR.
 
 ## Consequences
 
-This is a Pateat wrapper behavior under the existing unattended signing policy; it
-does not integrate an extension into Chrome's native account picker or provide the
-native picker's account confirmation. Native UI, provider coexistence and real-site
-compatibility need separate browser evidence. No browser permission or vault write
-is added, and no `PasswordCredential` is produced. Delegation after asynchronous
-lookup cannot guarantee that native transient activation remains available; Chrome
-may reject it, allowing the site's fallback rather than an unattended broader flow.
+An Immediate UI sign-in button signs in with a stored passkey when the vault holds one
+for the site, with the same window as other requests when several match. When Pateat
+delegates after an asynchronous lookup or after the chooser closes, the page's user
+gesture may have expired and Chrome may reject the request, leaving the site's own
+fallback. A page that aborts its `signal` cancels Pateat's request, as for other
+requests, although Chrome's own dialog ignores it. No permission or vault write is
+added, and no `PasswordCredential` is produced; `password: true` needs a design of its
+own. The official Bitwarden extension drops `uiMode` and asks through its popout; the
+difference is in [Bitwarden differences](../bitwarden-differences.md#passkeys).
 
 ## Alternatives
 
-Keep delegating every Immediate UI request: preserves Chrome's complete native
-behavior but leaves stored Pateat passkeys unavailable in this flow. Reuse Pateat's
-chooser: introduces a separate prompt and a potentially long wait into a flow
-intended to fall back quickly. Support passwords or mixed credentials: needs a
-separate design for credential choice and `PasswordCredential` disclosure.
+Keep delegating every Immediate UI request: Chrome's dialog never offers Pateat's
+passkeys. Never open the chooser and delegate when several match or after a logout
+(the first version of this PR, with a 1-second limit): the owner chose the same
+handling as other requests instead.
