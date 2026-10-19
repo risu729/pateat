@@ -114,6 +114,21 @@ test.each(["first..last@example.test", ".first@example.test", "名前@example.te
   },
 );
 
+test("a loopback HTTP address asks for that origin only (ADR 0059)", async () => {
+  const client = mockClient();
+  client.requestProviderPermission.mockResolvedValue(false);
+  await mount(client);
+  await fillNew();
+  await page.getByRole("combobox", { name: "Server", exact: true }).selectOptions("self-hosted");
+  await page.getByLabelText("Server address", { exact: true }).fill("http://localhost:8000");
+  await expect.element(page.getByText("Chrome asks for access to localhost:8000")).toBeVisible();
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  expect(client.requestProviderPermission).toHaveBeenCalledWith({
+    kind: "self-hosted",
+    baseUrl: "http://localhost:8000",
+  });
+});
+
 test("permission denial clears the password and sends no sign-in request", async () => {
   const client = mockClient();
   client.requestProviderPermission.mockResolvedValue(false);
@@ -157,21 +172,24 @@ test("a held sign-in clears UI secrets immediately and never puts them in query 
     .toBeVisible();
 });
 
-test.each(["http://vault.example", "https://vault.example/path", "https://user@vault.example"])(
-  "invalid self-hosted address %s never starts a permission prompt",
-  async (address) => {
-    const { client } = await mount();
-    await fillNew();
-    await page.getByRole("combobox", { name: "Server", exact: true }).selectOptions("self-hosted");
-    await page.getByLabelText("Server address", { exact: true }).fill(address);
-    await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
-    await expect
-      .element(page.getByText(/Self-hosted addresses must be ordinary HTTPS roots/))
-      .toBeVisible();
-    expect(client.requestProviderPermission).not.toHaveBeenCalled();
-    expect(client.begin).not.toHaveBeenCalled();
-  },
-);
+test.each([
+  "http://vault.example",
+  "http://localhost.example",
+  "http://[::1]:8000",
+  "https://vault.example/path",
+  "https://user@vault.example",
+])("invalid self-hosted address %s never starts a permission prompt", async (address) => {
+  const { client } = await mount();
+  await fillNew();
+  await page.getByRole("combobox", { name: "Server", exact: true }).selectOptions("self-hosted");
+  await page.getByLabelText("Server address", { exact: true }).fill(address);
+  await page.getByRole("button", { name: "Connect Bitwarden", exact: true }).click();
+  await expect
+    .element(page.getByText(/Self-hosted addresses must be HTTPS roots, or HTTP on localhost/))
+    .toBeVisible();
+  expect(client.requestProviderPermission).not.toHaveBeenCalled();
+  expect(client.begin).not.toHaveBeenCalled();
+});
 
 test("manual MFA clears the code on submission and never resends without another user action", async () => {
   const client = mockClient();

@@ -20,9 +20,13 @@ test("crypto host packages native WASM under MV3 CSP while its synthetic probe s
       expect(manifest.permissions).toContain("offscreen");
       expect(manifest.content_security_policy.extension_pages).toContain("'wasm-unsafe-eval'");
       expect(manifest.content_security_policy.extension_pages).not.toContain("'unsafe-eval'");
-      expect(manifest.content_security_policy.extension_pages).toContain(
-        "connect-src 'self' https:",
-      );
+      // Plain HTTP only to a self-hosted vault on this machine (ADR 0059).
+      expect(
+        manifest.content_security_policy.extension_pages
+          .split(";")
+          .map((directive: string) => directive.trim())
+          .filter((directive: string) => directive.startsWith("connect-src")),
+      ).toEqual(["connect-src 'self' https: http://localhost:* http://127.0.0.1:*"]);
       expect(manifest.optional_host_permissions).toBeUndefined();
       expect(manifest.host_permissions).toEqual(
         directory === probe ? ["https://*/*", "http://127.0.0.1/*"] : ["https://*/*", "http://*/*"],

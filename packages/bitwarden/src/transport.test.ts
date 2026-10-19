@@ -50,6 +50,16 @@ describe("provider endpoint admission", () => {
       "https://vault.example.test./identity/accounts/prelogin",
       "https://vault.example.test./api/sync",
     ],
+    [
+      { kind: "self-hosted", baseUrl: "http://LocalHost:8000/" },
+      "http://localhost:8000/identity/accounts/prelogin",
+      "http://localhost:8000/api/sync",
+    ],
+    [
+      { kind: "self-hosted", baseUrl: "http://127.0.0.1" },
+      "http://127.0.0.1/identity/accounts/prelogin",
+      "http://127.0.0.1/api/sync",
+    ],
   ])("builds fixed routes for %j", async (environment, preloginUrl, syncUrl) => {
     const fetch = vi
       .fn<Fetch>()
@@ -72,6 +82,15 @@ describe("provider endpoint admission", () => {
 
   it.each([
     "http://vault.example.test",
+    "http://localhost.",
+    "http://localhost.example.test",
+    "http://sub.localhost",
+    "http://127.0.0.2",
+    "http://127.1",
+    "http://[::1]",
+    "http://user@localhost",
+    "http://localhost/api",
+    "http://localhost:99999",
     "https://user:synthetic-password@vault.example.test",
     "https://vault.example.test?token=synthetic",
     "https://vault.example.test#synthetic",

@@ -29,7 +29,12 @@ export type BitwardenProfile = Readonly<{
     | Readonly<{ kind: "self-hosted"; baseUrl: string }>;
 }>;
 
-/** Trusted setup authorizes a single ordinary HTTPS root, never individual service URLs. */
+// Plain HTTP only for these hosts as typed, so the traffic stays on this machine (ADR 0059).
+// Chrome's CSP cannot name an IPv6 literal such as [::1]; `localhost` reaches it.
+const loopbackRoot = /^http:\/\/(?:localhost|127\.0\.0\.1)(?::\d{1,5})?\/?$/i;
+
+/** Trusted setup authorizes a single HTTPS root or a loopback HTTP root, never individual
+ * service URLs. */
 export function normalizeBitwardenProfile(input: unknown): BitwardenResult<BitwardenProfile> {
   const parsed = v.safeParse(profileSchema, input);
   if (!parsed.success) return failure("invalid-profile");
@@ -42,11 +47,11 @@ export function normalizeBitwardenProfile(input: unknown): BitwardenResult<Bitwa
 
   const raw = environment.baseUrl;
   // Reject syntax which URL() would repair, including dot segments and encoded paths.
-  if (!/^https:\/\/[^/?#\\\s%@*]+\/?$/i.test(raw)) return failure("invalid-profile");
+  if (!/^https?:\/\/[^/?#\\\s%@*]+\/?$/i.test(raw)) return failure("invalid-profile");
   const url = URL.parse(raw);
   if (!url) return failure("invalid-profile");
   if (
-    url.protocol !== "https:" ||
+    (url.protocol !== "https:" && !(url.protocol === "http:" && loopbackRoot.test(raw))) ||
     url.username ||
     url.password ||
     url.search ||

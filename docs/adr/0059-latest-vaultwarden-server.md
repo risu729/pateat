@@ -13,9 +13,9 @@ wrote 「テストじゃなくてもそれないと困らないか？そうな�
 problem without it, even outside tests? if so, implement it), read as "like the official
 extension". Decision 6 was accepted at 22:40 UTC by a card tap: offered Mailpit and the
 in-process `smtp-server` library, with `smtp-server` recommended, the owner picked
-Mailpit. Decisions 2
-and 4 are implemented (local tests only); decisions 3 and 5 and the Vaultwarden test
-server are not yet. Unknown-key handling outside nested cipher objects (legacy flat
+Mailpit. Decisions 2,
+3 and 4 are implemented (local tests only); decision 5 and the Vaultwarden test server
+are not yet. Unknown-key handling outside nested cipher objects (legacy flat
 `data`) and the exact message list in decision 4 are the agent's reading of the answers,
 not confirmed by the owner.
 

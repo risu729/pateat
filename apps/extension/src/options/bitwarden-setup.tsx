@@ -417,7 +417,7 @@ export function BitwardenSetup({
     const profile = normalizeBitwardenProfile({ connectionId: "setup-preview", environment });
     if (!profile.ok || (!existing && (!name.trim() || !v.is(bitwardenEmail, email))) || !password) {
       setMessage(
-        "Enter a connection name, valid email and master password. Self-hosted addresses must be ordinary HTTPS roots without a path, credentials, query or fragment.",
+        "Enter a connection name, valid email and master password. Self-hosted addresses must be HTTPS roots, or HTTP on localhost or 127.0.0.1, without a path, credentials, query or fragment.",
       );
       return;
     }
@@ -936,7 +936,7 @@ export function BitwardenSetup({
                     >
                       <option value="us">Bitwarden Cloud US</option>
                       <option value="eu">Bitwarden Cloud EU</option>
-                      <option value="self-hosted">Self-hosted HTTPS</option>
+                      <option value="self-hosted">Self-hosted</option>
                     </select>
                   </label>
                   {region === "self-hosted" && (
@@ -1036,7 +1036,7 @@ export function BitwardenSetup({
                   : {
                       tone: "warn",
                       icon: TriangleAlert,
-                      text: "Enter a valid HTTPS server address.",
+                      text: "Enter an HTTPS server address, or HTTP on localhost or 127.0.0.1.",
                     },
               ]}
             />

@@ -36,9 +36,9 @@ installed-Chrome checks moved to [phase 2](#phase-2-use-it-and-fix-what-comes-up
 Vaultwarden support is done now, outside the phases, and covers only the latest
 Vaultwarden release (owner, 2026-10-19 22:14 UTC,
 [ADR 0059](adr/0059-latest-vaultwarden-server.md)). Done: item keys Pateat does not read
-are ignored, and Vaultwarden's wrong-password and wrong-code answers are shown as such
-(local tests). To do: `http://` server roots for `localhost` and `127.0.0.1`,
-sending email two-step codes as the official extension does, and a Vaultwarden test
+are ignored, Vaultwarden's wrong-password and wrong-code answers are shown as such, and
+`http://` server roots are accepted for `localhost` and `127.0.0.1` (local tests). To
+do: sending email two-step codes as the official extension does, and a Vaultwarden test
 server in CI.
 
 ### Phase 1: usable
