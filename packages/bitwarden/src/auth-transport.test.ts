@@ -348,6 +348,79 @@ describe("sanitized explicit authentication states", () => {
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
+  /** Vaultwarden 1.37.4's exact 400 body for `message`. */
+  const vaultwardenError = (message: string) => ({
+    message,
+    validationErrors: { "": [message] },
+    errorModel: { message, object: "error" },
+    error: "",
+    error_description: "",
+    exceptionMessage: null,
+    exceptionStackTrace: null,
+    innerExceptionMessage: null,
+    object: "error",
+  });
+
+  it.each([
+    ["Username or password is incorrect. Try again", "credentials"],
+    ["Invalid TOTP code! Server time: 2026-10-19 21:12:00 UTC IP: 192.0.2.1", "mfa"],
+    ["Token is invalid! IP: 192.0.2.1", "mfa"],
+    ["Token has expired", "mfa"],
+    ["Two-step token is invalid. Try again.", "mfa"],
+  ])("classifies the Vaultwarden rejection %j", async (message, reason) => {
+    const fetch = vi
+      .fn<Fetch>()
+      .mockResolvedValue(jsonResponse(vaultwardenError(message), { status: 400 }));
+    expect(await client(fetch).passwordToken(passwordTokenRequest())).toEqual({
+      ok: true,
+      data: { kind: "rejected", reason },
+    });
+  });
+
+  it.each([
+    ["an unknown message", vaultwardenError("SSO sign-in is required")],
+    ["a message without its prefix space", vaultwardenError("Invalid TOTP code!")],
+    [
+      "a key outside the error shape",
+      { ...vaultwardenError("Username or password is incorrect. Try again"), captcha: "x" },
+    ],
+    [
+      "two-step providers",
+      {
+        ...vaultwardenError("Username or password is incorrect. Try again"),
+        TwoFactorProviders2: { "0": null },
+      },
+    ],
+    [
+      "no error model",
+      {
+        ...vaultwardenError("Username or password is incorrect. Try again"),
+        errorModel: undefined,
+      },
+    ],
+    [
+      "no error object tag",
+      { ...vaultwardenError("Username or password is incorrect. Try again"), object: undefined },
+    ],
+    [
+      "the official message's period",
+      vaultwardenError("Username or password is incorrect. Try again."),
+    ],
+    [
+      "differing message copies",
+      {
+        ...vaultwardenError("Username or password is incorrect. Try again"),
+        message: "synthetic other message",
+      },
+    ],
+  ])("keeps a Vaultwarden error with %s unsupported", async (_, payload) => {
+    const fetch = vi.fn<Fetch>().mockResolvedValue(jsonResponse(payload, { status: 400 }));
+    expect(await client(fetch).passwordToken(passwordTokenRequest())).toEqual({
+      ok: true,
+      data: { kind: "interaction-required", reason: "unsupported-challenge" },
+    });
+  });
+
   it.each([
     { error: "invalid_grant" },
     {

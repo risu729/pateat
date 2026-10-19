@@ -33,6 +33,29 @@ login page works on at least one real site, rather than on every listed site, an
 untested daily-use sites, the Grok Bot sites still failing and the remaining
 installed-Chrome checks moved to [phase 2](#phase-2-use-it-and-fix-what-comes-up).
 
+Vaultwarden support is done now, outside the phases, and covers only the latest
+Vaultwarden release (owner, 2026-10-19 22:14 UTC,
+[ADR 0059](adr/0059-latest-vaultwarden-server.md)). Done: item keys Pateat does not read
+are ignored, Vaultwarden's wrong-password and wrong-code answers are shown as such, and
+`http://` server roots are accepted for `localhost` and `127.0.0.1` (local tests). To
+do: sending email two-step codes as the official extension does, and a Vaultwarden test
+server in CI.
+
+The owner chose to merge six pull requests built ahead of their phases now instead of
+at their phase (2026-10-19 13:36 UTC, 「今入れる」, over keeping them until their
+phase or settling only their designs now): from phase 3,
+[#613](https://github.com/risu729/pateat/pull/613) (running without the service) and
+[#617](https://github.com/risu729/pateat/pull/617) (repairing a generated recipe); from
+phase 4, [#614](https://github.com/risu729/pateat/pull/614) (allowed sites and a vault
+timeout), [#658](https://github.com/risu729/pateat/pull/658) (Chrome Immediate UI
+passkey requests), [#663](https://github.com/risu729/pateat/pull/663) (passkey-only
+start pages) and [#664](https://github.com/risu729/pateat/pull/664) (settings profiles).
+The choice meant answering their design questions now, and the paid calls, permission
+changes and security changes they bring still need the owner's approval one by one.
+[#658](https://github.com/risu729/pateat/pull/658) landed as
+[ADR 0052](adr/0052-immediate-ui-stored-passkeys.md) through
+[#803](https://github.com/risu729/pateat/pull/803); the other five are still open.
+
 ### Phase 1: usable
 
 Done when each kind of login page below works on the real site named for it, in the
@@ -644,7 +667,9 @@ than in this repository.
   the choice badge clears the badge.
 - Claude also watches the service's D1 records, such as the inference request log
   ([ADR 0012](adr/0012-inference-request-log.md)), not only logs the owner sends from
-  the device (owner, 2026-10-11 18:45 UTC).
+  the device (owner, 2026-10-11 18:45 UTC). The owner later allowed reading logs and the
+  like freely (2026-10-18 04:35 UTC: 「ログなどはすべて自由に読んでください」, "read
+  the logs and so on freely").
 - Browser agents that drive the owner's Chrome, such as Claude in Chrome and ChatGPT's
   agent in Chrome, must be logged in by Pateat and carry on with their task. This is the
   M1/M6 "Chrome use coexistence" gate, and it can only be checked by using them.
@@ -662,8 +687,16 @@ than in this repository.
   application without WARP for pairing only. With it, the Grok Bot computer paired on
   2026-10-12 and Pateat logged in to Vpass there with the owner's existing Bitwarden
   account, once the connection's policy was enabled by hand. The logins the Bot needs
-  are listed below. Next: ChatGPT Dots once the owner has
-  ChatGPT Pro again.
+  are listed below. ChatGPT Dots is paused: the owner does not plan to resume ChatGPT
+  Pro for a while (owner, 2026-10-19 23:09 UTC), and no Pro purchase reached the
+  owner's mail between 2026-10-12 and then. To resume once the owner has Pro again,
+  Claude opens Dots on the web in the owner's own Chrome and tells the owner exactly
+  what to do there (owner, 2026-10-12 06:14 UTC), in the two stages used on the Grok
+  Bot computer: stage A checks during a takeover whether `chrome://extensions` or the
+  Web Store opens and an unpacked build loads
+  ([check 3](research/2026-10-11-browser-agent-logins.md#what-to-check-next)), and
+  stage B pairs the extension and logs in to one site. No documented install exists for
+  that cloud browser yet.
 - Log in, in the Grok Bot computer's Chrome, on the sites the owner's Bot checks
   regularly, such as card statements and AI usage pages, so the Bot never needs a
   password (owner, 2026-10-12 14:00 UTC; a phase 1 goal until the owner moved it here
@@ -717,21 +750,25 @@ than in this repository.
   `957a53d` (15:08 UTC): after the row's click, `auth.openai.com` held the login
   (`login.move` `passkey-request` `kept`), Pateat answered its passkey, and the login
   ended `authenticated` with the account choice saved.
-- Answer Google's passkey step on the Grok Bot's browser. On build `a8350f5`
+- Done on the Grok Bot: Google's passkey step there. On build `a8350f5`
   (2026-10-12 19:49 UTC) both of the page's requests were logged as `passkey.request`
   `delegate` `invalid-request`, so the browser offered only the phone (hybrid) flow,
   which failed. The log now names the member and its size (`invalid`, `invalidLength`),
   and on build `f2c68aa` (20:37 UTC) it named a 2,056-byte `challenge`, over the
   1,024-byte bound of [ADR 0007](adr/0007-existing-passkey-assertions.md#admission).
-  The bound is now 4,096 bytes (local tests only). Next, the Bot signs in to Google
-  Play subscriptions again.
+  The bound is now 4,096 bytes. On build `74f1e6a` (21:11 UTC) the Bot signed in to
+  Google Play subscriptions again: Pateat answered the passkey request and the login
+  ended `authenticated`.
 - Debugging on the Grok Bot computer goes through the Bot today. A shell or SSH
   session for members, and a public API for messaging a Bot, are not documented;
   users report SSH over Tailscale anyway. A routine started by a webhook call, by
   email to the Bot's address, or on a schedule that reads a Notion page can take
   requests from Claude without the owner pasting them
-  ([Grok Bot remote access](research/2026-10-12-grok-bot-remote-access.md)). Which
-  one to use waits for the owner. A read-only probe run there on 2026-10-12 found the
+  ([Grok Bot remote access](research/2026-10-12-grok-bot-remote-access.md)). The
+  owner's Bot already runs a routine that reads a Notion request page (owner,
+  2026-10-12 18:16 UTC: 「もう作ってある」), and the owner then set remote access aside
+  for now and asked for commands to run in the computer's terminal instead (18:24 UTC).
+  The read-only probe run there on 2026-10-12 found the
   browser-tool guards in the computer's own `sand-host` process, Chrome 154 from
   Google's package with memory saver at its most aggressive, and the `a8350f5` build
   loaded. The owner wants the computer's own code read later (2026-10-12), not now.
@@ -895,7 +932,15 @@ Once the fixes have settled:
   2026-10-11 the owner asked for a larger corpus of real pages before planning it. After
   Clef has been tried, compare it with Jev on the same pages (owner, 2026-10-13 15:11
   UTC). Include Chrome's built-in Prompt API (`LanguageModel`, an on-device model) in
-  that comparison (owner, 2026-10-13 21:36 UTC).
+  that comparison (owner, 2026-10-13 21:36 UTC). Do not compare models on the corpus
+  yet: the request log first keeps what a corpus needs, with earlier rows filled in
+  (both done in [ADR 0012](adr/0012-inference-request-log.md)), and the corpus is
+  rebuilt as regular use adds rows. The comparison is with Clef, and Jev may be tried
+  too; Claude Sonnet and Haiku are for checking whether a part that Clef or the like
+  cannot do can use a cheaper or faster model (owner, 2026-10-18 04:34 UTC). Log rows
+  are kept one year, so the earliest ones (2026-10-11) are deleted from 2027-10-11; a
+  corpus that should include them has to be exported before then (inferred from the
+  retention rule).
 - Split `apps/extension/src/login/runtime.ts` (9,998 lines; `createLoginRuntime` spans
   lines 1573-9998) after [#545](https://github.com/risu729/pateat/issues/545) moves the
   undecided-page completion rule out, keeping the existing state transitions: the types
@@ -1183,11 +1228,13 @@ items the owner mentioned and gates still open on 2026-10-11.
   12 and aube 2.7.0 and records trial installs. The owner chose aube (08:25 UTC);
   [ADR 0032](adr/0032-aube-package-manager.md) records the migration. The
   [lockfile gaps note](research/2026-10-12-aube-lockfile-gaps.md) reproduces aube
-  2.7.0's `bun.lock` and `pnpm-lock.yaml` bugs (both fixed on aube main, unreleased) and
-  two remaining `bun.lock` gaps (peers written as dependencies, `lockfileVersion`
-  reset). The owner proposed the peers fix upstream as
-  [aubepkg/aube#1727](https://github.com/aubepkg/aube/pull/1727); the `lockfileVersion`
-  fix is opened after it merges.
+  2.7.0's `bun.lock` and `pnpm-lock.yaml` bugs and two more `bun.lock` gaps (peers
+  written as dependencies, `lockfileVersion` reset). The owner fixed the last two
+  upstream ([aubepkg/aube#1727](https://github.com/aubepkg/aube/pull/1727),
+  [aubepkg/aube#1732](https://github.com/aubepkg/aube/pull/1732)), and the fixes for all
+  four gaps shipped in aube 2.7.1; the reproductions have not been run again on a
+  release. Whether ADR 0032's move to `aube add` can now happen depends on running them
+  again on the pinned release.
 - Why the Bitwarden SDK's async exports never settle on unparsable arguments (owner,
   2026-10-13 14:38 UTC): the
   [research note](research/2026-10-13-bitwarden-sdk-async-hang.md) traces it to
@@ -1433,6 +1480,7 @@ Other item types receive explicit unimplemented outcomes without blocking
 unrelated supported items. Do not expand rare-type support solely to satisfy a
 compatibility label. All received IDs still require validation and uniqueness;
 malformed supported/account data cannot fall back to older formats or secrets.
+Keys Pateat does not read inside an item are dropped, not refused (ADR 0059).
 Coverage remains the received envelope, not a complete-vault or atomic-cache
 claim. Real-account setup, persistent unlock and cache reconciliation remain
 separate integration gates.
@@ -2972,7 +3020,7 @@ API keys, SSO or device approval; signing in to sites through an identity provid
 post-login actions, including transactions and approvals. UI extensions, automatic
 account switching (logging out and in again when another account is picked while logged
 in, recorded in ADR 0021), recipe sharing, additional service auth, E2EE settings
-sync, MCP, Vaultwarden support and vaults other than Bitwarden are also deferred. They
+sync, MCP and vaults other than Bitwarden are also deferred. They
 are extension points, not implicit permissions or initial acceptance requirements. A
 mode without the service and direct AI are planned for
 [phase 3](#phase-3-public-release); the [roadmap](#roadmap) says which of these deferred
@@ -3055,10 +3103,10 @@ claiming compatibility. This provider setup is separate from website OTP
 automation. Preserve supported Bitwarden TOTP forms, including raw Base32,
 `otpauth://totp/` parameters and Steam form; verify algorithms, digits, periods
 and clock boundaries. Do not imply HOTP support from URI parsing alone.
-Vaultwarden support is later work (owner request, 2026-10-11). A self-hosted
-connection to a Vaultwarden URL is accepted, but Pateat is tested only against
-official Bitwarden server response shapes, so Vaultwarden compatibility is
-unverified until its own response shapes and sign-in flow are tested.
+Vaultwarden is supported in its latest release only (1.37.4 on 2026-10-19); older
+releases are not supported ([ADR 0059](adr/0059-latest-vaultwarden-server.md), owner,
+2026-10-19 22:14 UTC, replacing "later work" of 2026-10-11). The official-shape
+fixtures stay, and V2 accounts and new-device OTP are tested only with them.
 
 ## Mandatory acceptance matrix
 
@@ -3132,8 +3180,8 @@ autonomously invoke allowed dummy operations after connection approval; MCP does
 bypass client rules. One-time account choices and choosing again after logout (ADR 0021)
 need tests that cover several tabs on one origin; automatic logout/re-login also
 requires shared-session/race tests. Direct AI requires trusted extension key storage and
-provider compatibility tests. Alternative service auth, E2EE sync and Vaultwarden
-require their own interoperability/recovery evidence.
+provider compatibility tests. Alternative service auth and E2EE sync require their
+own interoperability/recovery evidence.
 
 Extension releases on GitHub Releases, with their continuous delivery, are planned for
 [phase 3](#phase-3-public-release), with the Chrome Web Store if its policies allow;

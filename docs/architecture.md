@@ -105,11 +105,13 @@ later writing. Distinguish unsupported, supported-but-denied and available:
 adapter support does not grant permission. Keep cipher formats and protocols
 inside the adapter.
 
-Initial Bitwarden connections target official US/EU cloud and ordinary HTTPS
-self-hosted instances. Support email/master-password authentication and required
-verification/MFA through settings; record tested methods instead of claiming all
-methods work. Vaultwarden and special endpoint/certificate configurations are
-later compatibility work.
+Initial Bitwarden connections target official US/EU cloud and ordinary HTTPS self-hosted
+instances, plus plain HTTP on `localhost` or `127.0.0.1` (ADR 0059). Support
+email/master-password authentication and required verification/MFA through settings;
+record tested methods instead of claiming all methods work. Vaultwarden is supported in
+its latest release only, and no older one
+([ADR 0059](adr/0059-latest-vaultwarden-server.md)). Special endpoint and certificate
+configurations are later compatibility work.
 
 The initial transport library fixes service paths for each selected environment. Reject
 endpoint credentials, query/fragment components and unsupported custom service layouts.
@@ -397,8 +399,10 @@ code on 2026-10-17 (the email case on 2026-10-19); each ends in a refusal rather
 guess:
 
 - A self-hosted server under a path (`https://example.com/bitwarden`) or with separate
-  identity and API addresses: the address must be an HTTPS origin
-  (`normalizeBitwardenProfile` in `packages/bitwarden/src/environment.ts`).
+  identity and API addresses: the address must be an HTTPS origin, or an HTTP origin on
+  exactly `localhost` or `127.0.0.1` (`normalizeBitwardenProfile` in
+  `packages/bitwarden/src/environment.ts`). Plain HTTP on any other host, `[::1]`
+  included, is refused.
 - Accounts that cannot sign in and unlock with a master password. A sign-in refused
   because an organization requires SSO ends `interaction-required` with reason `sso`
   (`packages/bitwarden/src/auth-models.ts`), or `unsupported-challenge` when the answer

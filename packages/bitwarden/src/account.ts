@@ -142,6 +142,8 @@ export function admitPreparedBitwardenAccount(
     for (const cipher of value.ciphers) {
       const admitted = admitLocalCryptoCipher(cipher);
       if (!admitted.ok) return admitted;
+      // The mapper caches only admitted copies, so a dropped key means another writer.
+      if (!same(admitted.data, cipher)) return failure("invalid-crypto-input");
       const rawId = admitted.data.id as unknown;
       const id = typeof rawId === "string" ? rawId.toLowerCase() : undefined;
       const organizationId = admitted.data.organizationId as unknown as string | undefined;
@@ -202,8 +204,13 @@ function record(input: unknown): RecordValue {
 }
 function same(a: unknown, b: unknown): boolean {
   if (a == null && b == null) return true;
-  if (Array.isArray(a) && Array.isArray(b))
-    return a.length === b.length && a.every((entry, i) => same(entry, b[i]));
+  if (Array.isArray(a) || Array.isArray(b))
+    return (
+      Array.isArray(a) &&
+      Array.isArray(b) &&
+      a.length === b.length &&
+      a.every((entry, i) => same(entry, b[i]))
+    );
   if (a && b && typeof a === "object" && typeof b === "object") {
     const left = Object.keys(a)
       .filter((key) => (a as RecordValue)[key] !== undefined)
@@ -464,7 +471,7 @@ function tokenClaims(token: unknown, now: number): RecordValue {
   return claims;
 }
 
-// Only known casing aliases are normalized. Inner unknown members remain for strict SDK DTO admission.
+// Only known casing aliases are normalized. Cipher admission drops inner members it does not read.
 function camelRecord(input: unknown): RecordValue {
   const value = record(input);
   const output: RecordValue = {};
@@ -472,7 +479,11 @@ function camelRecord(input: unknown): RecordValue {
     // Reject rather than assign keys that change prototypes or bypass Valibot's key admission.
     if (["__proto__", "prototype", "constructor"].includes(key)) reject();
     const name =
-      key === "SSHKey" ? "sshKey" : key === "SSN" ? "ssn" : key[0]!.toLowerCase() + key.slice(1);
+      key === "SSHKey"
+        ? "sshKey"
+        : key === "SSN"
+          ? "ssn"
+          : key.charAt(0).toLowerCase() + key.slice(1);
     if (Object.hasOwn(output, name) && !same(output[name], entry)) reject();
     output[name] = entry;
   }
@@ -599,14 +610,16 @@ function cipherDto(input: RecordValue, type: number, itemId: string): Sdk.Cipher
       output["data"] = encoded;
     } else {
       const flat = record(inner(data));
-      const allowed = new Set([
-        "name",
-        "notes",
-        "fields",
-        "passwordHistory",
-        ...subtypeFields[kind]!,
-      ]);
-      if (Object.keys(flat).some((key) => !allowed.has(key)) || !Object.hasOwn(flat, "name"))
+      // Keys outside the item's type are ignored, like nested cipher members, but no
+      // spelling of a sealed blob's keys is read as legacy fields.
+      if (
+        !Object.hasOwn(flat, "name") ||
+        Object.keys(flat).some((key) =>
+          ["formatversion", "wrappedcek", "envelope"].includes(
+            key.replaceAll("_", "").toLowerCase(),
+          ),
+        )
+      )
         reject("unsupported-crypto");
       const nested: RecordValue = {};
       for (const name of subtypeFields[kind]!)
@@ -614,21 +627,32 @@ function cipherDto(input: RecordValue, type: number, itemId: string): Sdk.Cipher
       const fromData: RecordValue = { [kind]: kind === "login" ? login(nested) : nested };
       for (const name of ["name", "notes", "fields", "passwordHistory"])
         if (Object.hasOwn(flat, name)) fromData[name] = flat[name];
+      const stored: RecordValue = { ...output, ...fromData };
+      const compared: string[] = [];
       for (const [name, value] of Object.entries(fromData)) {
-        if (Object.hasOwn(output, name) && output[name] != null) {
-          // The response model is authoritative; its stored Data copy must not contradict it.
-          if (!sameStored(output[name], value)) reject();
-        } else output[name] = value;
+        if (Object.hasOwn(output, name) && output[name] != null) compared.push(name);
+        else output[name] = value;
       }
+      // The response model is authoritative; its stored Data copy must not contradict it.
+      // Both are compared as admitted, so keys Pateat does not read differ freely.
+      const response = admittedCipher(output);
+      // A copy that cannot be admitted contradicts the admitted response.
+      const admittedCopy = admitLocalCryptoCipher(stored);
+      if (!admittedCopy.ok) reject();
+      const responseRecord = response as unknown as RecordValue;
+      const copyRecord = admittedCopy.data as unknown as RecordValue;
+      if (!compared.every((name) => sameStored(responseRecord[name], copyRecord[name]))) reject();
       // Known, checked flat legacy Data is redundant. Never pass it to the sealed-blob gate.
+      return response;
     }
   }
-  const admitted = admitLocalCryptoCipher(output);
-  if (!admitted.ok)
-    reject(
-      admitted.error.code === "invalid-crypto-input" ? "invalid-response" : admitted.error.code,
-    );
-  return admitted.data;
+  return admittedCipher(output);
+}
+function admittedCipher(output: RecordValue): Sdk.Cipher {
+  const result = admitLocalCryptoCipher(output);
+  if (!result.ok)
+    reject(result.error.code === "invalid-crypto-input" ? "invalid-response" : result.error.code);
+  return result.data;
 }
 
 const uriMatchDefaultsPolicy = 16;

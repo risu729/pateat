@@ -131,3 +131,18 @@ Pateat's rule is in [Background execution](architecture.md#background-execution)
   incognito, so the site sees the rejection it would get from Chrome
   ([ADR 0052](adr/0052-immediate-ui-stored-passkeys.md); owner's decision, 2026-10-19
   at 22:42 UTC).
+
+## Self-hosted server address
+
+- The official clients accept any `http://` or `https://` server URL and add `https://`
+  only when none is given
+  ([default-environment.service.ts](https://github.com/bitwarden/clients/blob/86f41566aebe5a024796df8abfb3d4d89ec509c1/libs/common/src/platform/services/default-environment.service.ts#L340-L351)).
+  Pateat takes `http://` only for exactly `localhost` and `127.0.0.1`, with an optional
+  port and no path; every other root must be `https://` (`normalizeBitwardenProfile` in
+  `packages/bitwarden/src/environment.ts`,
+  [ADR 0059](adr/0059-latest-vaultwarden-server.md), owner's choice 2026-10-19). Over
+  plain HTTP to another host the master-password hash and the tokens would cross the
+  network unencrypted; loopback traffic stays on the machine. Lookalikes such as
+  `localhost.` or `vault.localhost` are refused, and so is `[::1]`, which Chrome's
+  extension CSP cannot name (`http://localhost` reaches a server listening there;
+  leaving it out is the agent's narrowing, not confirmed by the owner).

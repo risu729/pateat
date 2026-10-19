@@ -49,9 +49,10 @@ export default defineConfig({
     // recipe can execute. Chrome can still re-request these hosts if the user withholds
     // site access, so no redundant optional entry is declared.
     host_permissions: ["https://*/*", "http://*/*"],
+    // Plain HTTP only to a self-hosted vault on this machine (ADR 0059).
     content_security_policy: {
       extension_pages:
-        "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; connect-src 'self' https:",
+        "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; connect-src 'self' https: http://localhost:* http://127.0.0.1:*",
     },
     // Content-script matches do not grant access to tabs.Tab.url. The synthetic
     // coordinator needs that browser-provided URL for its fail-closed recheck.

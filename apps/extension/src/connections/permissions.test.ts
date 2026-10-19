@@ -15,15 +15,17 @@ it.each([
     ["https://vault.example:8443/*"],
   ],
   [{ kind: "self-hosted", baseUrl: "https://vault.example./" }, ["https://vault.example./*"]],
-] as const)(
-  "requests only the configured provider HTTPS origins for %o",
-  (environment, origins) => {
-    expect(providerPermissionOrigins(environment)).toEqual({ ok: true, data: origins });
-  },
-);
+  [{ kind: "self-hosted", baseUrl: "http://localhost:8000" }, ["http://localhost:8000/*"]],
+  [{ kind: "self-hosted", baseUrl: "http://127.0.0.1/" }, ["http://127.0.0.1/*"]],
+] as const)("requests only the configured provider origins for %o", (environment, origins) => {
+  expect(providerPermissionOrigins(environment)).toEqual({ ok: true, data: origins });
+});
 
 it.each([
   "http://vault.example",
+  "http://localhost./",
+  "http://127.1",
+  "http://[::1]:8000",
   "https://vault.example/api",
   "https://user@vault.example",
   "https://vault.example?x=1",
