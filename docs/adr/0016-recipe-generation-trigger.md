@@ -40,6 +40,10 @@ Amended on 2026-10-19 by [ADR 0057](0057-decide-no-input-pages-when-the-dom-is-q
 is offered once the page's DOM is quiet for a second, at most 5 seconds, instead of
 after 10 seconds; the 10 seconds for a sign-in input are unchanged.
 
+Amended on 2026-10-19 by [ADR 0058](0058-automatic-recipe-removal.md) (owner, 20:28 UTC,
+implemented): a page whose recipe the chosen item cannot run is generated again, its
+recipe revoked first, though a recipe starts there.
+
 Date: 2026-10-11
 
 ## Context

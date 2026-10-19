@@ -27,6 +27,7 @@ window.request = (spec) => {
   if (spec.allow) publicKey.allowCredentials = spec.allow.map((id) => ({ type: 'public-key', id: fromHex(id) }));
   const options = { publicKey, signal: window.controller.signal };
   if (spec.mediation) options.mediation = spec.mediation;
+  if (spec.uiMode) options.uiMode = spec.uiMode;
   return navigator.credentials.get(options).then((credential) => ({
     instance: credential instanceof PublicKeyCredential,
     responseInstance: credential.response instanceof AuthenticatorAssertionResponse,

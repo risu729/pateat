@@ -118,6 +118,7 @@ export interface PasskeyRequestReport {
   readonly logoutClicked?: boolean;
   /** The request's mediation, when it names one (ADR 0034). */
   readonly mediation?: "optional" | "conditional" | "required" | "silent" | "immediate" | "other";
+  readonly uiMode?: "immediate";
   /**
    * Why the login's item could not answer a conditional request the login gave it, which
    * then waited for that login again (ADR 0034).
@@ -341,6 +342,9 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
     detail.rpId = admission.request.rpId;
     detail.allowCredentials = admission.request.allowCredentialIds.length;
     const conditional = admission.request.conditional === true;
+    const immediate = admission.request.immediate === true;
+    // Chrome rejects Immediate UI in incognito, so Pateat does not answer there (ADR 0052).
+    if (immediate && context.incognito) return { kind: "delegate", reason: "immediate-incognito" };
     const controller = new AbortController();
     const operation: Operation = {
       documentId,
@@ -675,6 +679,8 @@ export function createPasskeyRuntime<TCandidate extends PasskeyCandidate>(
       const remembered = after.remember;
       const mediation = mediationOf(request);
       if (mediation) detail.mediation = mediation;
+      if (typeof request === "object" && request !== null && "uiMode" in request)
+        if (request.uiMode === "immediate") detail.uiMode = "immediate";
       if (remembered && options.remember) {
         const remember = options.remember;
         // After the reply is on its way: saving settings cancels pending passkey requests.

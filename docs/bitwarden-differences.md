@@ -117,3 +117,17 @@ Pateat's rule is in [Background execution](architecture.md#background-execution)
   the item matches both the frame's URL and the tab's URL
   ([ADR 0017](adr/0017-login-forms-in-frames.md)): no person is there to answer a
   prompt during an automatic login.
+
+## Passkeys
+
+- Chrome Immediate UI (`uiMode: "immediate"`): the official extension copies only
+  `mediation` from the request and drops `uiMode`
+  ([webauthn-utils.ts](https://github.com/bitwarden/clients/blob/86f41566aebe5a024796df8abfb3d4d89ec509c1/apps/browser/src/autofill/fido2/utils/webauthn-utils.ts#L103-L128)),
+  so it handles the request as a normal get and asks through its popout
+  ([fido2-authenticator.service.ts](https://github.com/bitwarden/clients/blob/86f41566aebe5a024796df8abfb3d4d89ec509c1/libs/common/src/platform/services/fido2/fido2-authenticator.service.ts#L283-L292)),
+  even where Chrome would reject the request. Pateat also answers it as a normal get
+  (owner's decision, 2026-10-19 at 20:48 UTC), but delegates where Chrome's guide says
+  it rejects Immediate UI: without a user gesture, with a nonempty allow list, or in
+  incognito, so the site sees the rejection it would get from Chrome
+  ([ADR 0052](adr/0052-immediate-ui-stored-passkeys.md); this part is not confirmed by
+  the owner).
