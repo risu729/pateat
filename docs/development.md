@@ -693,6 +693,9 @@ Pateat uses:
   experimental feature is used only after the owner approves a proposal covering its
   upstream status (specification stage, intent to ship or origin trial end, recent
   breaking changes) and what removing it would take. A research request is not approval.
+- mise is the exception: on 2026-10-19 at 13:37 UTC the owner chose to use mise's
+  experimental features (`settings.experimental = true`) and its newest features
+  actively, without a proposal per feature.
 - Approved before these rules and kept: the AI SDK's `experimental_decide` with `ai`
   pinned exactly ([integration conditions][integration]) and the
   `@cloudflare/vite-plugin` beta described below.
