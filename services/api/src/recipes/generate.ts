@@ -1,5 +1,6 @@
 import {
   chooserBranch,
+  isGeneratedRecipeId,
   isLoginRouteRecipe,
   loginChooserRecipeSchema,
   loginStepEffect,
@@ -295,7 +296,7 @@ export async function generateRecipe(
   const { origin, path } = observation;
   // A first page starts its own recipe; a later page continues the one in `base`.
   const recipeId = base?.recipeId ?? (await generatedRecipeId(origin, path));
-  if (!/^gen-[0-9a-f]{32}$/u.test(recipeId)) return undefined;
+  if (!isGeneratedRecipeId(recipeId)) return undefined;
   const list = observation.accounts !== undefined;
   const headAtStart = await readHead(env.DB, scope.ownerId, recipeId);
   const attemptBranch = branch ?? "";

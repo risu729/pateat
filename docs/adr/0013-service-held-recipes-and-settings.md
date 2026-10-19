@@ -43,6 +43,10 @@ Amended on 2026-10-18 by
 before recipes are shared covers them
 ([sharing review](#amendment-2026-10-18-slot-names-in-the-sharing-review)).
 
+Amended on 2026-10-19 by [ADR 0058](0058-automatic-recipe-removal.md) (owner, 20:28 UTC,
+implemented): the service also revokes an active recipe that has not been written or
+reported in a login for 90 days, so the owner is no longer the only one who revokes.
+
 Date: 2026-10-10
 
 ## Context

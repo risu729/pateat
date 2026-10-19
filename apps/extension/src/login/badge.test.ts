@@ -137,6 +137,20 @@ describe("badgeResult", () => {
       expect(badgeResult({ ...sample, outcome }, now)).toBeUndefined();
   });
 
+  it("ignores a recipe revoked for an item that cannot run it (ADR 0058 A)", () => {
+    const revoke = {
+      type: "revoke" as const,
+      tabId: 1,
+      origin: "https://login.example",
+      recipeId: "gen-0123456789abcdef0123456789abcdef",
+      recipeRevision: 3,
+      route: "passkey" as const,
+      detail: "password-empty:no-advance",
+    };
+    for (const outcome of ["revoked", "conflict", "not-due", "not-sent", "failed"] as const)
+      expect(badgeResult({ ...revoke, outcome }, now)).toBeUndefined();
+  });
+
   it("shows an unconfirmed completion as unsettled for four seconds", () => {
     expect(badgeResult(attempt({ state: "authenticated", unconfirmed: true }), now)).toEqual({
       kind: "unsettled",
@@ -300,6 +314,27 @@ describe("login badge", () => {
     h.badge.note(tabId, undefined);
     await h.flush();
     expect(h.view()).toMatchObject(NONE);
+  });
+
+  it("keeps the tab's badge through a revocation report (ADR 0058 A)", async () => {
+    const h = harness();
+    h.badge.observe(attempt({ outcome: "credential-rejected" }));
+    await h.flush();
+    const before = h.view();
+    expect(before).toMatchObject(FAILED);
+    for (const outcome of ["revoked", "failed"] as const)
+      h.badge.observe({
+        type: "revoke",
+        tabId,
+        origin: "https://login.example",
+        recipeId: "gen-0123456789abcdef0123456789abcdef",
+        recipeRevision: 3,
+        route: "passkey",
+        outcome,
+        detail: "password-empty:no-advance",
+      });
+    await h.flush();
+    expect(h.view()).toEqual(before);
   });
 
   it("spins a braille frame every 100 ms and stops with the last overlapping spin", async () => {

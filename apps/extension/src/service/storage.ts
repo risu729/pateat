@@ -4,6 +4,7 @@ import type {
   GeneratedSlotStorage,
   GenerationAttemptStorage,
   PageSampleStorage,
+  RecipeReplacementStorage,
 } from "./generation";
 import type { LoginOutcomeStorage } from "./outcomes";
 import type { RecipeCacheStorage, RecipeScheduleStorage } from "./recipes";
@@ -68,4 +69,9 @@ export function createBrowserLoginOutcomeStorage(): LoginOutcomeStorage {
 /** When this device last sent each recipe's signed-in page sample (ADR 0029). */
 export function createBrowserPageSampleStorage(): PageSampleStorage {
   return trustedRecord("pateat.page-samples.v1");
+}
+
+/** When this device last revoked each recipe its chosen item could not run (ADR 0058 A). */
+export function createBrowserRecipeReplacementStorage(): RecipeReplacementStorage {
+  return trustedRecord("pateat.recipe-replacements.v1");
 }

@@ -10,7 +10,9 @@ fine; record it as something to consider before release; for now the owner is th
 user, so it is fine). Implemented (local tests only; not deployed). Amends
 [ADR 0019](0019-local-diagnostics-and-logs.md) (logs are not synced) and
 [ADR 0012](0012-inference-request-log.md) (what the service keeps beside the request
-log).
+log). Amended on 2026-10-19 by [ADR 0058](0058-automatic-recipe-removal.md): a device
+also tells the service when a login starts on a recipe revision, recipe ID and revision
+only (Claude's choice, not confirmed by the owner).
 
 Date: 2026-10-18
 
